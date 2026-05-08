@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Loader2, Sparkles, Send } from "lucide-vue-next";
 import { api } from "../api.js";
+import CompanyLibrary from "../components/CompanyLibrary.vue";
 
 const props = defineProps({ companyId: { type: String, required: true } });
 const emit = defineEmits(["reports-changed"]);
@@ -26,6 +27,8 @@ const threads = ref([]);
 const newQuestion = ref("");
 const newAnswer = ref("");
 const submittingThread = ref(false);
+
+const libraryRefresh = ref(0);
 
 let pollId = null;
 
@@ -68,10 +71,19 @@ async function pollReport() {
     if (r.status === "complete") {
       stopPolling();
       emit("reports-changed");
+      libraryRefresh.value += 1;
     }
   } catch (e) {
     stopPolling();
   }
+}
+
+async function openReportFromLibrary(r) {
+  router.replace({
+    name: "research",
+    params: { companyId: props.companyId },
+    query: { report: r.id },
+  });
 }
 
 function startPolling() {
@@ -287,6 +299,12 @@ onUnmounted(stopPolling);
         >{{ activeReport.content }}</pre
       >
     </section>
+
+    <CompanyLibrary
+      :company-id="companyId"
+      :refresh-key="libraryRefresh"
+      @open-report="openReportFromLibrary"
+    />
 
     <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-1">

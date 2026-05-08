@@ -1,10 +1,11 @@
 """HTTP API for the research center."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from . import companies_ai, companies_autocomplete, generator, storage
+from . import companies_ai, companies_autocomplete, files_store, generator, storage
 
 router = APIRouter(prefix="/api")
 
@@ -136,6 +137,68 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     generator.start_generation(report["id"])
     return ReportDetail(**_report_detail(report))
+
+
+@router.get("/companies/{company_id}/reports")
+def get_company_reports(company_id: str) -> list[ReportSummary]:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return [
+        ReportSummary(**_report_summary(r))
+        for r in storage.list_reports()
+        if r.get("company_id") == company_id
+    ]
+
+
+@router.get("/companies/{company_id}/files")
+def get_files(company_id: str) -> list[dict]:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return files_store.list_files(company_id)
+
+
+@router.post("/companies/{company_id}/files", status_code=201)
+async def post_file(
+    company_id: str,
+    file: UploadFile = File(...),
+    label: str | None = Form(None),
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    data = await file.read()
+    try:
+        return files_store.upload_file(
+            company_id,
+            filename=file.filename or "upload",
+            content_type=file.content_type,
+            data=data,
+            label=label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/files/{file_id}")
+def get_file(company_id: str, file_id: str) -> FileResponse:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    found = files_store.get_file(company_id, file_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    record, path = found
+    return FileResponse(
+        path=str(path),
+        filename=record.get("filename"),
+        media_type=record.get("content_type") or "application/octet-stream",
+    )
+
+
+@router.delete("/companies/{company_id}/files/{file_id}", status_code=204)
+def delete_file(company_id: str, file_id: str) -> None:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if not files_store.delete_file(company_id, file_id):
+        raise HTTPException(status_code=404, detail="File not found")
 
 
 @router.get("/companies/{company_id}/threads")

@@ -48,8 +48,19 @@ export OPENAI_MODEL=gpt-4.1   # optional, defaults to gpt-4.1
 ./run.sh
 ```
 
+## Library
+
+Each company's research page has a Library section showing every generated
+report (versioned by id) and any uploaded files. PDFs, PPT, and PPTX up to
+100MB are accepted via drag-and-drop; PDFs can be opened in-browser, all
+files can be downloaded.
+
 ## Data
 
-Companies live in `data/companies.yaml`. Reports are one YAML file each in
-`data/reports/`. Knowledge-base threads are per-company files in
-`data/threads/`. The whole `data/` directory is gitignored.
+- `data/companies.yaml` — company list
+- `data/reports/<id>.yaml` — generated reports (one per run; full history)
+- `data/threads/<company>.yaml` — knowledge-base Q&A threads
+- `data/uploads/<company>/` — uploaded PDFs and PPT/PPTX with an `index.yaml`
+- `data/cache/companies_ai/` — persisted deep-search results (no auto-expiry)
+
+The whole `data/` directory is gitignored.

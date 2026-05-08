@@ -34,6 +34,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  listCompanyReports: (companyId) =>
+    request(`/api/companies/${companyId}/reports`),
+  listFiles: (companyId) => request(`/api/companies/${companyId}/files`),
+  uploadFile: async (companyId, file, label) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (label) fd.append("label", label);
+    const res = await fetch(`/api/companies/${companyId}/files`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    }
+    return res.json();
+  },
+  fileUrl: (companyId, fileId) =>
+    `/api/companies/${companyId}/files/${fileId}`,
+  deleteFile: async (companyId, fileId) => {
+    const res = await fetch(`/api/companies/${companyId}/files/${fileId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
   listThreads: (companyId) =>
     request(`/api/companies/${companyId}/threads`),
   addThread: (companyId, payload) =>
