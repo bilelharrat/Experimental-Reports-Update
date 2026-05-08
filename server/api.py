@@ -76,13 +76,15 @@ def companies_autocomplete_endpoint(q: str = "", limit: int = 8) -> list[dict]:
 
 
 @router.get("/companies/search")
-def companies_search(q: str = "") -> dict:
-    """Deep search — OpenAI Responses + web_search, cached 24h.
+def companies_search(q: str = "", refresh: bool = False) -> dict:
+    """Deep search — OpenAI Responses + web_search.
 
-    Returns `{source, matches}`. Each match carries a local `id` so the
-    frontend can route straight to /research/<id>.
+    Results are cached indefinitely with a `cached_at` timestamp so the UI
+    can show staleness; pass `refresh=true` to re-query and overwrite. Each
+    match carries a local `id` so the frontend can route straight to
+    /research/<id>.
     """
-    return companies_ai.deep_search(q)
+    return companies_ai.deep_search(q, force_refresh=refresh)
 
 
 @router.post("/companies/select", status_code=201)

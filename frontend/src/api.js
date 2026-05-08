@@ -17,8 +17,12 @@ export const api = {
   getReport: (id) => request(`/api/reports/${id}`),
   autocompleteCompanies: (q) =>
     request(`/api/companies/autocomplete?q=${encodeURIComponent(q)}`),
-  deepSearchCompanies: (q) =>
-    request(`/api/companies/search?q=${encodeURIComponent(q)}`),
+  deepSearchCompanies: (q, { refresh = false } = {}) =>
+    request(
+      `/api/companies/search?q=${encodeURIComponent(q)}${
+        refresh ? "&refresh=true" : ""
+      }`,
+    ),
   selectCompany: (payload) =>
     request("/api/companies/select", {
       method: "POST",

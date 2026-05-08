@@ -18,7 +18,6 @@ from . import cache, storage
 
 logger = logging.getLogger(__name__)
 
-CACHE_TTL = 24 * 60 * 60
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1")
 MAX_RESULTS = 6
 
@@ -194,20 +193,31 @@ def _call_openai(query: str) -> tuple[list[dict] | None, str | None]:
     return matches[:MAX_RESULTS], None
 
 
-def deep_search(query: str) -> dict:
+def deep_search(query: str, *, force_refresh: bool = False) -> dict:
     """Run a deep search and persist any new matches into local storage.
 
-    Returns a dict with:
+    Cached results live forever (no TTL) — `force_refresh=True` re-queries
+    and overwrites the cache. The response always includes `cached_at` (ISO
+    8601, nullable) so the UI can show how stale the data is.
+
+    Returns:
       - source: "openai" | "cache" | "fallback"
       - matches: list of enriched company dicts (each carries a local `id`)
+      - cached_at: ISO 8601 of the last successful query, or null
+      - reason: present only on `fallback`, explains why
     """
     q = (query or "").strip()
     if not q:
-        return {"source": "fallback", "matches": []}
+        return {"source": "fallback", "matches": [], "cached_at": None}
 
-    cached = cache.get("companies_ai", q.lower(), CACHE_TTL)
-    if cached is not None:
-        return {"source": "cache", "matches": cached}
+    if not force_refresh:
+        cached = cache.get("companies_ai", q.lower())
+        if cached is not None:
+            return {
+                "source": "cache",
+                "matches": cached["value"] or [],
+                "cached_at": cached["stored_at_iso"],
+            }
 
     if not _is_available():
         local = storage.search_companies(q, limit=MAX_RESULTS)
@@ -215,6 +225,7 @@ def deep_search(query: str) -> dict:
             "source": "fallback",
             "reason": "OPENAI_API_KEY not set — showing local matches only",
             "matches": [_local_to_match(c) for c in local],
+            "cached_at": None,
         }
 
     raw, err = _call_openai(q)
@@ -224,12 +235,18 @@ def deep_search(query: str) -> dict:
             "source": "fallback",
             "reason": err or "OpenAI deep search failed",
             "matches": [_local_to_match(c) for c in local],
+            "cached_at": None,
         }
 
     enriched = [storage.upsert_company_from_match(m) for m in raw]
     if enriched:
         cache.put("companies_ai", q.lower(), enriched)
-    return {"source": "openai", "matches": enriched}
+    fresh = cache.get("companies_ai", q.lower())
+    return {
+        "source": "openai",
+        "matches": enriched,
+        "cached_at": fresh["stored_at_iso"] if fresh else None,
+    }
 
 
 def _local_to_match(c: dict) -> dict:

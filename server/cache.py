@@ -1,12 +1,17 @@
-"""Tiny file-based TTL cache.
+"""File-based persistent cache with timestamps.
 
-Keyed by an arbitrary string (we hash it for the filename so weird query
-strings can't blow up the filesystem).
+Entries are kept indefinitely (so deep-search results survive restarts and
+TTL changes). Each entry records `stored_at` so callers can decide whether
+they consider the value stale; nothing is auto-evicted.
+
+Keys are hashed for the filename so weird query strings can't blow up the
+filesystem.
 """
 from __future__ import annotations
 
 import hashlib
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +27,7 @@ def _path(namespace: str, key: str) -> Path:
     return CACHE_ROOT / namespace / f"{digest}.yaml"
 
 
-def get(namespace: str, key: str, ttl_seconds: int) -> Any | None:
+def _read_entry(namespace: str, key: str) -> dict | None:
     p = _path(namespace, key)
     if not p.exists():
         return None
@@ -31,10 +36,26 @@ def get(namespace: str, key: str, ttl_seconds: int) -> Any | None:
             entry = yaml.safe_load(f) or {}
     except Exception:
         return None
-    stored_at = float(entry.get("stored_at", 0))
-    if time.time() - stored_at > ttl_seconds:
+    return entry if isinstance(entry, dict) else None
+
+
+def get(namespace: str, key: str) -> dict | None:
+    """Return the cached entry as `{value, stored_at, stored_at_iso}` or None.
+
+    No TTL — this returns whatever was last written. Callers decide what to
+    do with the age.
+    """
+    entry = _read_entry(namespace, key)
+    if entry is None:
         return None
-    return entry.get("value")
+    stored_at = float(entry.get("stored_at", 0))
+    return {
+        "value": entry.get("value"),
+        "stored_at": stored_at,
+        "stored_at_iso": datetime.fromtimestamp(stored_at, tz=timezone.utc).isoformat()
+        if stored_at
+        else None,
+    }
 
 
 def put(namespace: str, key: str, value: Any) -> None:
@@ -49,3 +70,8 @@ def put(namespace: str, key: str, value: Any) -> None:
             allow_unicode=True,
         )
     tmp.replace(p)
+
+
+def invalidate(namespace: str, key: str) -> None:
+    p = _path(namespace, key)
+    p.unlink(missing_ok=True)

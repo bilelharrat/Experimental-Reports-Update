@@ -56,18 +56,37 @@ async function pickSuggestion(s) {
   router.push({ name: "research", params: { companyId: id } });
 }
 
-async function runDeepSearch() {
+async function runDeepSearch({ refresh = false } = {}) {
   if (!query.value.trim()) return;
   showSuggestions.value = false;
   searching.value = true;
   error.value = null;
   try {
-    searchResults.value = await api.deepSearchCompanies(query.value.trim());
+    searchResults.value = await api.deepSearchCompanies(query.value.trim(), {
+      refresh,
+    });
   } catch (e) {
     error.value = e.message;
   } finally {
     searching.value = false;
   }
+}
+
+function formatCachedAt(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const now = Date.now();
+  const ageSec = Math.max(0, Math.round((now - d.getTime()) / 1000));
+  const ageStr =
+    ageSec < 60
+      ? "just now"
+      : ageSec < 3600
+      ? `${Math.round(ageSec / 60)}m ago`
+      : ageSec < 86400
+      ? `${Math.round(ageSec / 3600)}h ago`
+      : `${Math.round(ageSec / 86400)}d ago`;
+  return { full: d.toLocaleString(), age: ageStr };
 }
 
 function pickResult(match) {
@@ -167,19 +186,38 @@ function onBlur() {
     </div>
 
     <div v-else-if="searchResults" class="mt-10 space-y-3">
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
         <h2 class="font-display text-lg font-semibold text-ink-primary">
           {{ hasResults ? `Results for "${query}"` : `No matches for "${query}"` }}
         </h2>
-        <span class="text-xs text-ink-muted">
-          {{
-            searchResults.source === "openai"
-              ? "AI-grounded · web search"
-              : searchResults.source === "cache"
-              ? "Cached"
-              : "Local matches only"
-          }}
-        </span>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-ink-muted flex items-center gap-1.5">
+            <span>
+              {{
+                searchResults.source === "openai"
+                  ? "AI-grounded · web search"
+                  : searchResults.source === "cache"
+                  ? "Cached"
+                  : "Local matches only"
+              }}
+            </span>
+            <span
+              v-if="formatCachedAt(searchResults.cached_at)"
+              :title="formatCachedAt(searchResults.cached_at).full"
+            >
+              · {{ formatCachedAt(searchResults.cached_at).age }}
+            </span>
+          </span>
+          <button
+            v-if="searchResults.source !== 'fallback'"
+            type="button"
+            @click="runDeepSearch({ refresh: true })"
+            :disabled="searching"
+            class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface-muted text-ink-secondary focus-ring"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
       <div
         v-if="searchResults.source === 'fallback' && searchResults.reason"
