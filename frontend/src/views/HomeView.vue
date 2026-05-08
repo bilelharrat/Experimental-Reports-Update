@@ -93,6 +93,14 @@ function pickResult(match) {
   if (match.id) router.push({ name: "research", params: { companyId: match.id } });
 }
 
+function onCardRefreshed(updated) {
+  if (!searchResults.value) return;
+  const idx = searchResults.value.matches.findIndex((m) => m.id === updated.id);
+  if (idx >= 0) {
+    searchResults.value.matches.splice(idx, 1, updated);
+  }
+}
+
 const hasResults = computed(
   () => searchResults.value && searchResults.value.matches.length > 0,
 );
@@ -236,6 +244,7 @@ function onBlur() {
         :key="m.id"
         :company="m"
         @select="pickResult"
+        @refreshed="(updated) => onCardRefreshed(updated)"
       />
     </div>
   </div>

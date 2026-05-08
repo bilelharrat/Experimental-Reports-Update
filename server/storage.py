@@ -172,6 +172,12 @@ def upsert_company_from_match(match: dict) -> dict:
             "highlight_2026": match.get("highlight_2026"),
             "latest_funding": match.get("latest_funding"),
             "latest_earnings": match.get("latest_earnings"),
+            "total_funding_usd": match.get("total_funding_usd"),
+            "products": match.get("products") or [],
+            "competitors": match.get("competitors") or [],
+            "recent_news": match.get("recent_news") or [],
+            "notable_contracts": match.get("notable_contracts") or [],
+            "notable_acquisitions": match.get("notable_acquisitions") or [],
         }
 
         if found_idx is not None:

@@ -75,3 +75,45 @@ def put(namespace: str, key: str, value: Any) -> None:
 def invalidate(namespace: str, key: str) -> None:
     p = _path(namespace, key)
     p.unlink(missing_ok=True)
+
+
+def update_in_namespace(namespace: str, predicate, transform) -> int:
+    """Walk every cache file in namespace; for each list-shaped value, replace
+    items where `predicate(item)` is True with `transform(item)`. Returns the
+    number of files updated.
+
+    Used by `refresh_company` to keep cached search results in sync when a
+    single company gets re-fetched.
+    """
+    root = CACHE_ROOT / namespace
+    if not root.exists():
+        return 0
+    updated = 0
+    for path in root.glob("*.yaml"):
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                entry = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("value")
+        if not isinstance(value, list):
+            continue
+        changed = False
+        new_value: list = []
+        for item in value:
+            if isinstance(item, dict) and predicate(item):
+                new_value.append(transform(item))
+                changed = True
+            else:
+                new_value.append(item)
+        if not changed:
+            continue
+        entry["value"] = new_value
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(entry, f, sort_keys=False, allow_unicode=True)
+        tmp.replace(path)
+        updated += 1
+    return updated

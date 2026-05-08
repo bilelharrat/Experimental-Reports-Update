@@ -33,6 +33,12 @@ class CompanyOut(BaseModel):
     highlight_2026: dict | None = None
     latest_funding: dict | None = None
     latest_earnings: dict | None = None
+    total_funding_usd: str | None = None
+    products: list[dict] = Field(default_factory=list)
+    competitors: list[str] = Field(default_factory=list)
+    recent_news: list[dict] = Field(default_factory=list)
+    notable_contracts: list[dict] = Field(default_factory=list)
+    notable_acquisitions: list[dict] = Field(default_factory=list)
 
 
 class ReportSummary(BaseModel):
@@ -131,11 +137,11 @@ def get_company(company_id: str) -> CompanyOut:
 @router.post("/companies/{company_id}/refresh")
 def refresh_company(company_id: str) -> CompanyOut:
     """Re-run the AI deep search for this company by name and merge the new
-    enrichment back into the local record.
-
-    Useful when the cached version is stale or missing fields (e.g. a
-    founder dropped out of the key_people list).
+    enrichment back into the local record. Also patch any other cached search
+    results that contain this company so they show the fresh data on next view.
     """
+    from . import cache
+
     company = storage.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -143,7 +149,6 @@ def refresh_company(company_id: str) -> CompanyOut:
     if not name:
         raise HTTPException(status_code=400, detail="Company has no name to query")
     result = companies_ai.deep_search(name, force_refresh=True)
-    # Pick the match that best matches our local id (or fall back to first).
     matches = result.get("matches") or []
     chosen: dict | None = next(
         (m for m in matches if m.get("id") == company_id), None
@@ -151,7 +156,15 @@ def refresh_company(company_id: str) -> CompanyOut:
     if chosen is None and matches:
         chosen = matches[0]
     refreshed = storage.get_company(company_id) or chosen or company
-    return CompanyOut(**_company_view(refreshed))
+    view = _company_view(refreshed)
+    # Patch any cached deep-search result that referenced this company so future
+    # cache hits don't show stale data.
+    cache.update_in_namespace(
+        "companies_ai",
+        predicate=lambda item: item.get("id") == company_id,
+        transform=lambda _item: dict(view),
+    )
+    return CompanyOut(**view)
 
 
 @router.get("/reports")
@@ -291,6 +304,12 @@ def _company_view(c: dict) -> dict:
         "highlight_2026": c.get("highlight_2026"),
         "latest_funding": c.get("latest_funding"),
         "latest_earnings": c.get("latest_earnings"),
+        "total_funding_usd": c.get("total_funding_usd"),
+        "products": list(c.get("products") or []),
+        "competitors": list(c.get("competitors") or []),
+        "recent_news": list(c.get("recent_news") or []),
+        "notable_contracts": list(c.get("notable_contracts") or []),
+        "notable_acquisitions": list(c.get("notable_acquisitions") or []),
     }
 
 

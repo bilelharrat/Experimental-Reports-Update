@@ -1,14 +1,19 @@
 <script setup>
-import { computed } from "vue";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   Building2,
   ExternalLink,
+  FileSignature,
+  Handshake,
   Loader2,
+  Newspaper,
+  Package,
   RefreshCw,
   Sparkles,
+  Swords,
   TrendingUp,
   Users,
+  Wallet,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 
@@ -76,6 +81,17 @@ const fundingLine = computed(() => {
   if (f.post_money_usd) parts.push(`post-money ${f.post_money_usd}`);
   if (f.date) parts.push(`(${f.date})`);
   return parts.join(" · ") || null;
+});
+
+const hasInsights = computed(() => {
+  const c = props.company;
+  return Boolean(
+    (c.products && c.products.length) ||
+      (c.competitors && c.competitors.length) ||
+      (c.recent_news && c.recent_news.length) ||
+      (c.notable_contracts && c.notable_contracts.length) ||
+      (c.notable_acquisitions && c.notable_acquisitions.length),
+  );
 });
 
 const earningsLine = computed(() => {
@@ -190,6 +206,14 @@ const earningsLine = computed(() => {
         <span>Last round:
           <span class="text-ink-secondary">{{ fundingLine }}</span></span>
       </div>
+      <div
+        v-if="company.total_funding_usd"
+        class="mt-1 flex items-center gap-1.5 text-sm text-ink-muted"
+      >
+        <Wallet class="h-3.5 w-3.5" />
+        <span>Total raised:
+          <span class="text-ink-secondary">{{ company.total_funding_usd }}</span></span>
+      </div>
       <div v-if="earningsLine" class="mt-1 flex items-center gap-1.5 text-sm text-ink-muted">
         <TrendingUp class="h-3.5 w-3.5" />
         <span>Last earnings:
@@ -211,4 +235,99 @@ const earningsLine = computed(() => {
       </div>
     </div>
   </header>
+
+  <div v-if="hasInsights" class="grid sm:grid-cols-2 gap-4 mt-4">
+    <section
+      v-if="company.products && company.products.length"
+      class="bg-surface border border-subtle rounded-card shadow-card p-5"
+    >
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
+        <Package class="h-3.5 w-3.5" /> Products
+      </h3>
+      <ul class="space-y-1.5">
+        <li v-for="(p, i) in company.products" :key="i" class="text-sm">
+          <span class="font-medium text-ink-primary">{{ p.name }}</span>
+          <span v-if="p.description" class="text-ink-secondary"> — {{ p.description }}</span>
+        </li>
+      </ul>
+    </section>
+
+    <section
+      v-if="company.competitors && company.competitors.length"
+      class="bg-surface border border-subtle rounded-card shadow-card p-5"
+    >
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
+        <Swords class="h-3.5 w-3.5" /> Competitors
+      </h3>
+      <div class="flex flex-wrap gap-1.5">
+        <span
+          v-for="(c, i) in company.competitors"
+          :key="i"
+          class="text-xs px-2 py-0.5 rounded-md border border-subtle bg-surface-muted text-ink-secondary"
+        >{{ c }}</span>
+      </div>
+    </section>
+
+    <section
+      v-if="company.notable_contracts && company.notable_contracts.length"
+      class="bg-surface border border-subtle rounded-card shadow-card p-5 sm:col-span-2"
+    >
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
+        <FileSignature class="h-3.5 w-3.5" /> Notable contracts
+      </h3>
+      <ul class="space-y-1.5">
+        <li
+          v-for="(k, i) in company.notable_contracts"
+          :key="i"
+          class="text-sm flex flex-wrap items-baseline gap-x-2"
+        >
+          <span class="font-medium text-ink-primary">{{ k.customer }}</span>
+          <span v-if="k.scope" class="text-ink-secondary">— {{ k.scope }}</span>
+          <span v-if="k.value_usd" class="text-ink-muted text-xs">{{ k.value_usd }}</span>
+          <span v-if="k.date" class="text-ink-muted text-xs">({{ k.date }})</span>
+        </li>
+      </ul>
+    </section>
+
+    <section
+      v-if="company.notable_acquisitions && company.notable_acquisitions.length"
+      class="bg-surface border border-subtle rounded-card shadow-card p-5"
+    >
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
+        <Handshake class="h-3.5 w-3.5" /> Acquisitions
+      </h3>
+      <ul class="space-y-1.5">
+        <li
+          v-for="(a, i) in company.notable_acquisitions"
+          :key="i"
+          class="text-sm flex flex-wrap items-baseline gap-x-2"
+        >
+          <span class="font-medium text-ink-primary">{{ a.company }}</span>
+          <span v-if="a.amount_usd" class="text-ink-muted text-xs">{{ a.amount_usd }}</span>
+          <span v-if="a.date" class="text-ink-muted text-xs">({{ a.date }})</span>
+        </li>
+      </ul>
+    </section>
+
+    <section
+      v-if="company.recent_news && company.recent_news.length"
+      class="bg-surface border border-subtle rounded-card shadow-card p-5"
+      :class="{ 'sm:col-span-2': !(company.notable_acquisitions && company.notable_acquisitions.length) }"
+    >
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
+        <Newspaper class="h-3.5 w-3.5" /> Recent news
+      </h3>
+      <ul class="space-y-2">
+        <li v-for="(n, i) in company.recent_news" :key="i" class="text-sm">
+          <div class="flex items-baseline gap-2">
+            <span class="font-medium text-ink-primary">{{ n.headline }}</span>
+            <span v-if="n.date" class="text-ink-muted text-xs">{{ n.date }}</span>
+          </div>
+          <div v-if="n.summary" class="text-ink-secondary text-xs mt-0.5">
+            {{ n.summary }}
+          </div>
+        </li>
+      </ul>
+    </section>
+  </div>
 </template>

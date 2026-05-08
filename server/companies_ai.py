@@ -104,6 +104,63 @@ SCHEMA: dict[str, Any] = {
                         },
                         "required": ["period", "revenue_yoy", "eps", "beat_or_miss"],
                     },
+                    "total_funding_usd": {"type": ["string", "null"]},
+                    "products": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "name": {"type": "string"},
+                                "description": {"type": ["string", "null"]},
+                            },
+                            "required": ["name", "description"],
+                        },
+                    },
+                    "competitors": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "recent_news": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "headline": {"type": "string"},
+                                "date": {"type": ["string", "null"]},
+                                "summary": {"type": ["string", "null"]},
+                            },
+                            "required": ["headline", "date", "summary"],
+                        },
+                    },
+                    "notable_contracts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "customer": {"type": "string"},
+                                "scope": {"type": ["string", "null"]},
+                                "value_usd": {"type": ["string", "null"]},
+                                "date": {"type": ["string", "null"]},
+                            },
+                            "required": ["customer", "scope", "value_usd", "date"],
+                        },
+                    },
+                    "notable_acquisitions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "company": {"type": "string"},
+                                "date": {"type": ["string", "null"]},
+                                "amount_usd": {"type": ["string", "null"]},
+                            },
+                            "required": ["company", "date", "amount_usd"],
+                        },
+                    },
                 },
                 "required": [
                     "name",
@@ -123,6 +180,12 @@ SCHEMA: dict[str, Any] = {
                     "highlight_2026",
                     "latest_funding",
                     "latest_earnings",
+                    "total_funding_usd",
+                    "products",
+                    "competitors",
+                    "recent_news",
+                    "notable_contracts",
+                    "notable_acquisitions",
                 ],
             },
         }
@@ -133,21 +196,42 @@ SCHEMA: dict[str, Any] = {
 
 SYSTEM_PROMPT = (
     "You are a company research assistant for an investment-research dashboard. "
-    "Given a user's free-form query, return up to 6 distinct, real companies that "
-    "best match it. Use the web_search tool to ground your answers in current "
-    "(2026) information — especially for funding rounds, earnings, and recent "
-    "news. Prefer disambiguating across multiple plausible matches when the query "
-    "is ambiguous (e.g. 'Apple' vs 'Apple Hospitality REIT'). If a field is "
-    "unknown or unverifiable, return null rather than guessing. Keep descriptions "
-    "to a single sentence.\n\n"
-    "For `key_people`, return 4–5 entries. Always include the original "
-    "founder(s), even if they are no longer in an executive role; combine "
-    "founder status with their current title where applicable (e.g. "
-    "'Founder & CEO', 'Co-founder'). Then list the current CEO and CFO if "
-    "not already covered, plus any other high-profile leaders (chairman, "
-    "president, head of product, lead engineer). For company names use the "
-    "legal/canonical form (e.g. 'Anduril Industries, Inc.' rather than "
-    "'Anduril Industries') so repeat searches reconcile to the same entry."
+    "Given a user's free-form query, return up to 6 distinct, real companies "
+    "that best match it. Use the web_search tool aggressively to ground every "
+    "field in current (2026) public information — funding rounds, earnings, "
+    "product releases, customer contracts, M&A activity, leadership changes. "
+    "Prefer disambiguating across multiple plausible matches when the query is "
+    "ambiguous (e.g. 'Apple' vs 'Apple Hospitality REIT').\n\n"
+    "Aim for HIGH FILL — every field that has a verifiable answer should be "
+    "populated. Use null only when the field genuinely doesn't apply (e.g. "
+    "earnings for a private company) or no public source exists. Use the "
+    "company's legal/canonical name ('Anduril Industries, Inc.', not "
+    "'Anduril Industries') so repeat searches reconcile to the same record.\n\n"
+    "Per-field guidance:\n"
+    "- description: One sentence — what they do and how they make money.\n"
+    "- key_people: 4–5 entries. ALWAYS include the founder(s), even if no "
+    "longer in an exec role; combine founder status with current title where "
+    "applicable ('Founder & CEO', 'Co-founder & CTO'). Then current CEO and "
+    "CFO if not already covered, plus any other high-profile leaders.\n"
+    "- products: 3–6 flagship products, platforms, or business lines, each "
+    "with a one-line description of what it does.\n"
+    "- competitors: 3–5 direct competitors by name.\n"
+    "- recent_news: 3–5 noteworthy items from the last 12 months. Each: "
+    "headline, ISO-style date if available, one-sentence summary.\n"
+    "- notable_contracts: For B2B / government-facing companies, 2–5 publicly-"
+    "reported customer contracts. Include customer, scope, disclosed value if "
+    "any, and date.\n"
+    "- notable_acquisitions: 2–5 most recent acquisitions the company made, "
+    "with date and amount (null if undisclosed).\n"
+    "- total_funding_usd: Cumulative funding raised to date (private only).\n"
+    "- highlight_2026: The single biggest news for this calendar year.\n"
+    "- latest_funding: Most recent round (private only).\n"
+    "- latest_earnings: Most recent reported quarter (public only).\n"
+    "- founded_year: Integer.\n"
+    "- employee_band: Approximate employee range ('1,000–5,000').\n"
+    "- logo_domain: Bare domain ('anduril.com').\n\n"
+    "Do not invent funding numbers, contract values, or earnings figures — "
+    "if you can't verify via web_search, return null."
 )
 
 

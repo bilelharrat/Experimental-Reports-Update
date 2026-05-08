@@ -1,11 +1,34 @@
 <script setup>
-import { computed } from "vue";
-import { ArrowRight, Building2, MapPin, Users, Calendar, TrendingUp, Sparkles } from "lucide-vue-next";
+import { computed, ref } from "vue";
+import {
+  ArrowRight,
+  Building2,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  TrendingUp,
+  Users,
+} from "lucide-vue-next";
+import { api } from "../api.js";
 
 const props = defineProps({
   company: { type: Object, required: true },
 });
-const emit = defineEmits(["select"]);
+const emit = defineEmits(["select", "refreshed"]);
+
+const refreshing = ref(false);
+
+async function refresh(e) {
+  e.stopPropagation();
+  if (!props.company.id) return;
+  refreshing.value = true;
+  try {
+    const updated = await api.refreshCompany(props.company.id);
+    emit("refreshed", updated);
+  } finally {
+    refreshing.value = false;
+  }
+}
 
 const logoUrl = computed(() => {
   const d = props.company.logo_domain || extractDomain(props.company.website);
@@ -133,6 +156,17 @@ const earningsLine = computed(() => {
       </div>
     </div>
 
-    <ArrowRight class="h-4 w-4 text-ink-muted mt-1 shrink-0" />
+    <div class="flex flex-col items-end gap-1.5 shrink-0">
+      <span
+        v-if="company.id"
+        @click="refresh"
+        :title="`Re-run AI search for ${company.name}`"
+        class="text-ink-muted hover:text-accent p-1 rounded focus-ring cursor-pointer"
+      >
+        <Loader2 v-if="refreshing" class="h-3.5 w-3.5 animate-spin" />
+        <RefreshCw v-else class="h-3.5 w-3.5" />
+      </span>
+      <ArrowRight class="h-4 w-4 text-ink-muted" />
+    </div>
   </button>
 </template>
