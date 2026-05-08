@@ -196,10 +196,29 @@ onUnmounted(stopPolling);
       </p>
     </header>
 
-    <div v-else-if="companyError" class="text-sm text-danger">{{ companyError }}</div>
+    <div
+      v-else-if="companyError"
+      class="rounded-card border border-subtle bg-surface p-6 text-center"
+    >
+      <div class="font-display text-lg text-ink-primary">Company not found</div>
+      <p class="mt-1 text-sm text-ink-muted">
+        No company is tracked for
+        <span class="font-mono text-ink-secondary">{{ companyId }}</span>. Search
+        from the home page to add it, or pick one from the sidebar.
+      </p>
+      <button
+        @click="router.push({ name: 'home' })"
+        class="mt-3 text-sm text-accent hover:text-accent-hover focus-ring rounded"
+      >
+        Back to search
+      </button>
+    </div>
     <div v-else class="text-sm text-ink-muted">Loading…</div>
 
-    <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
+    <section
+      v-if="company"
+      class="bg-surface border border-subtle rounded-card shadow-card p-6"
+    >
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-4">
         Generate report
       </h2>
@@ -321,12 +340,16 @@ onUnmounted(stopPolling);
     </section>
 
     <CompanyLibrary
+      v-if="company"
       :company-id="companyId"
       :refresh-key="libraryRefresh"
       @open-report="openReportFromLibrary"
     />
 
-    <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
+    <section
+      v-if="company"
+      class="bg-surface border border-subtle rounded-card shadow-card p-6"
+    >
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-1">
         Knowledge base
       </h2>
