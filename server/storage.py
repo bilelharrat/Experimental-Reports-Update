@@ -88,6 +88,97 @@ def get_company(company_id: str) -> dict | None:
     return None
 
 
+def _slugify(name: str) -> str:
+    out = []
+    for ch in name.lower():
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in (" ", "-", "_"):
+            out.append("-")
+    slug = "".join(out).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "company"
+
+
+def upsert_company_from_match(match: dict) -> dict:
+    """Reconcile an AI search hit with the local company list.
+
+    Match by ticker first, then by exact (case-insensitive) name. If found,
+    merge any newly-discovered fields and return the local entry; if not,
+    mint a fresh id and append. Always returns a dict that includes the local
+    `id` plus all enrichment fields the caller passed in.
+    """
+    ticker = (match.get("ticker") or "").strip().upper() or None
+    name = (match.get("name") or "").strip()
+    if not name:
+        raise ValueError("match missing name")
+
+    with _LOCK:
+        _ensure_dirs()
+        companies = list_companies()
+        found_idx: int | None = None
+        for i, c in enumerate(companies):
+            c_ticker = (c.get("ticker") or "").strip().upper() or None
+            c_name = (c.get("name") or "").strip().lower()
+            if ticker and c_ticker and ticker == c_ticker:
+                found_idx = i
+                break
+            if name.lower() == c_name:
+                found_idx = i
+                break
+
+        enrichment = {
+            "exchange": match.get("exchange"),
+            "status": match.get("status"),
+            "industry": match.get("industry"),
+            "hq": match.get("hq"),
+            "founded_year": match.get("founded_year"),
+            "website": match.get("website"),
+            "logo_domain": match.get("logo_domain"),
+            "employee_band": match.get("employee_band"),
+            "parent_company": match.get("parent_company"),
+            "key_people": match.get("key_people") or [],
+            "highlight_2026": match.get("highlight_2026"),
+            "latest_funding": match.get("latest_funding"),
+            "latest_earnings": match.get("latest_earnings"),
+        }
+
+        if found_idx is not None:
+            existing = companies[found_idx]
+            for k, v in enrichment.items():
+                if v not in (None, [], ""):
+                    existing[k] = v
+            if not existing.get("description") and match.get("description"):
+                existing["description"] = match["description"]
+            if not existing.get("sector") and match.get("sector"):
+                existing["sector"] = match["sector"]
+            companies[found_idx] = existing
+            _write_yaml(COMPANIES_FILE, companies)
+            return {**existing}
+
+        base = ticker.lower() if ticker else _slugify(name)
+        existing_ids = {c.get("id") for c in companies}
+        company_id = base
+        suffix = 2
+        while company_id in existing_ids:
+            company_id = f"{base}-{suffix}"
+            suffix += 1
+
+        new_entry = {
+            "id": company_id,
+            "name": name,
+            "ticker": ticker,
+            "aliases": [],
+            "description": match.get("description"),
+            "sector": match.get("sector"),
+            **enrichment,
+        }
+        companies.append(new_entry)
+        _write_yaml(COMPANIES_FILE, companies)
+        return {**new_entry}
+
+
 # ---------- Reports ----------
 
 def _report_path(report_id: str) -> Path:

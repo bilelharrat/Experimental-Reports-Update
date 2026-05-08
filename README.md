@@ -31,6 +31,23 @@ npm install
 npm run dev   # proxies /api to http://127.0.0.1:8010
 ```
 
+## Search
+
+- **Autocomplete** uses the SEC EDGAR ticker index (~13K US public companies,
+  cached for 24h) merged with already-tracked local companies. No auth, no
+  rate limits.
+- **Deep search** (the Search button / Enter) uses the OpenAI Responses API
+  with `web_search` and a JSON-schema structured output for richer results
+  with 2026 highlights, key people, last funding round, etc. Cached per query
+  for 24h. Requires `OPENAI_API_KEY`; falls back to local-only matches when
+  unset.
+
+```sh
+export OPENAI_API_KEY=sk-...
+export OPENAI_MODEL=gpt-4.1   # optional, defaults to gpt-4.1
+./run.sh
+```
+
 ## Data
 
 Companies live in `data/companies.yaml`. Reports are one YAML file each in

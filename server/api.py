@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from . import generator, storage
+from . import companies_ai, companies_autocomplete, generator, storage
 
 router = APIRouter(prefix="/api")
 
@@ -49,6 +49,16 @@ class ThreadIn(BaseModel):
     answer: str = ""
 
 
+class SelectMatch(BaseModel):
+    """Payload for promoting an autocomplete or search hit to a local company."""
+    name: str
+    ticker: str | None = None
+    description: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    exchange: str | None = None
+
+
 @router.get("/options")
 def get_options() -> dict:
     return {"report_types": list(REPORT_TYPES), "audiences": list(AUDIENCES)}
@@ -59,9 +69,32 @@ def get_companies() -> list[CompanyOut]:
     return [CompanyOut(**_company_view(c)) for c in storage.list_companies()]
 
 
+@router.get("/companies/autocomplete")
+def companies_autocomplete_endpoint(q: str = "", limit: int = 8) -> list[dict]:
+    """Fast typeahead — local YAML hits + Yahoo Finance equity suggestions."""
+    return companies_autocomplete.autocomplete(q, limit=limit)
+
+
 @router.get("/companies/search")
-def companies_search(q: str = "", limit: int = 8) -> list[CompanyOut]:
-    return [CompanyOut(**_company_view(c)) for c in storage.search_companies(q, limit=limit)]
+def companies_search(q: str = "") -> dict:
+    """Deep search — OpenAI Responses + web_search, cached 24h.
+
+    Returns `{source, matches}`. Each match carries a local `id` so the
+    frontend can route straight to /research/<id>.
+    """
+    return companies_ai.deep_search(q)
+
+
+@router.post("/companies/select", status_code=201)
+def companies_select(payload: SelectMatch) -> dict:
+    """Promote an autocomplete suggestion to a tracked company.
+
+    Used when the user clicks a Yahoo-only typeahead hit and we need a stable
+    local id before navigating to the research page.
+    """
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    return storage.upsert_company_from_match(payload.model_dump())
 
 
 @router.get("/companies/{company_id}")

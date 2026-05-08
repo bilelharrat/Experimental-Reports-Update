@@ -15,8 +15,15 @@ export const api = {
   options: () => request("/api/options"),
   listReports: () => request("/api/reports"),
   getReport: (id) => request(`/api/reports/${id}`),
-  searchCompanies: (q) =>
+  autocompleteCompanies: (q) =>
+    request(`/api/companies/autocomplete?q=${encodeURIComponent(q)}`),
+  deepSearchCompanies: (q) =>
     request(`/api/companies/search?q=${encodeURIComponent(q)}`),
+  selectCompany: (payload) =>
+    request("/api/companies/select", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   getCompany: (id) => request(`/api/companies/${id}`),
   generateReport: (payload) =>
     request("/api/reports", {
