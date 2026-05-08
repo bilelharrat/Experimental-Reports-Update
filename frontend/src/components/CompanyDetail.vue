@@ -2,6 +2,8 @@
 import { computed, ref } from "vue";
 import {
   Building2,
+  ChevronDown,
+  ChevronRight,
   ExternalLink,
   FileSignature,
   Handshake,
@@ -24,6 +26,29 @@ const emit = defineEmits(["refreshed"]);
 
 const refreshing = ref(false);
 const refreshError = ref(null);
+
+const expanded = ref({
+  products: false,
+  competitors: false,
+  contracts: false,
+  acquisitions: false,
+  news: false,
+});
+
+function toggle(key) {
+  expanded.value[key] = !expanded.value[key];
+}
+
+function expandAll() {
+  for (const k of Object.keys(expanded.value)) expanded.value[k] = true;
+}
+function collapseAll() {
+  for (const k of Object.keys(expanded.value)) expanded.value[k] = false;
+}
+
+const allExpanded = computed(() =>
+  Object.values(expanded.value).every(Boolean),
+);
 
 async function refresh() {
   refreshing.value = true;
@@ -236,15 +261,40 @@ const earningsLine = computed(() => {
     </div>
   </header>
 
-  <div v-if="hasInsights" class="grid sm:grid-cols-2 gap-4 mt-4">
+  <div v-if="hasInsights" class="mt-4 space-y-2">
+    <div class="flex items-center justify-between">
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+        Insights
+      </h2>
+      <button
+        type="button"
+        @click="allExpanded ? collapseAll() : expandAll()"
+        class="text-xs text-ink-secondary hover:text-ink-primary focus-ring rounded px-1"
+      >
+        {{ allExpanded ? "Collapse all" : "Expand all" }}
+      </button>
+    </div>
+
     <section
       v-if="company.products && company.products.length"
-      class="bg-surface border border-subtle rounded-card shadow-card p-5"
+      class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
     >
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
-        <Package class="h-3.5 w-3.5" /> Products
-      </h3>
-      <ul class="space-y-1.5">
+      <button
+        type="button"
+        @click="toggle('products')"
+        class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-surface-muted focus-ring text-left"
+      >
+        <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
+          <Package class="h-3.5 w-3.5 text-ink-muted" />
+          Products
+          <span class="text-xs text-ink-muted font-normal">
+            · {{ company.products.length }}
+          </span>
+        </span>
+        <ChevronDown v-if="expanded.products" class="h-4 w-4 text-ink-muted" />
+        <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+      </button>
+      <ul v-if="expanded.products" class="px-4 pb-3 space-y-1.5 border-t border-subtle pt-3">
         <li v-for="(p, i) in company.products" :key="i" class="text-sm">
           <span class="font-medium text-ink-primary">{{ p.name }}</span>
           <span v-if="p.description" class="text-ink-secondary"> — {{ p.description }}</span>
@@ -254,12 +304,27 @@ const earningsLine = computed(() => {
 
     <section
       v-if="company.competitors && company.competitors.length"
-      class="bg-surface border border-subtle rounded-card shadow-card p-5"
+      class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
     >
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
-        <Swords class="h-3.5 w-3.5" /> Competitors
-      </h3>
-      <div class="flex flex-wrap gap-1.5">
+      <button
+        type="button"
+        @click="toggle('competitors')"
+        class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-surface-muted focus-ring text-left"
+      >
+        <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
+          <Swords class="h-3.5 w-3.5 text-ink-muted" />
+          Competitors
+          <span class="text-xs text-ink-muted font-normal">
+            · {{ company.competitors.length }}
+          </span>
+        </span>
+        <ChevronDown v-if="expanded.competitors" class="h-4 w-4 text-ink-muted" />
+        <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+      </button>
+      <div
+        v-if="expanded.competitors"
+        class="px-4 pb-3 pt-3 border-t border-subtle flex flex-wrap gap-1.5"
+      >
         <span
           v-for="(c, i) in company.competitors"
           :key="i"
@@ -270,12 +335,27 @@ const earningsLine = computed(() => {
 
     <section
       v-if="company.notable_contracts && company.notable_contracts.length"
-      class="bg-surface border border-subtle rounded-card shadow-card p-5 sm:col-span-2"
+      class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
     >
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
-        <FileSignature class="h-3.5 w-3.5" /> Notable contracts
-      </h3>
-      <ul class="space-y-1.5">
+      <button
+        type="button"
+        @click="toggle('contracts')"
+        class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-surface-muted focus-ring text-left"
+      >
+        <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
+          <FileSignature class="h-3.5 w-3.5 text-ink-muted" />
+          Notable contracts
+          <span class="text-xs text-ink-muted font-normal">
+            · {{ company.notable_contracts.length }}
+          </span>
+        </span>
+        <ChevronDown v-if="expanded.contracts" class="h-4 w-4 text-ink-muted" />
+        <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+      </button>
+      <ul
+        v-if="expanded.contracts"
+        class="px-4 pb-3 pt-3 border-t border-subtle space-y-1.5"
+      >
         <li
           v-for="(k, i) in company.notable_contracts"
           :key="i"
@@ -291,12 +371,27 @@ const earningsLine = computed(() => {
 
     <section
       v-if="company.notable_acquisitions && company.notable_acquisitions.length"
-      class="bg-surface border border-subtle rounded-card shadow-card p-5"
+      class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
     >
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
-        <Handshake class="h-3.5 w-3.5" /> Acquisitions
-      </h3>
-      <ul class="space-y-1.5">
+      <button
+        type="button"
+        @click="toggle('acquisitions')"
+        class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-surface-muted focus-ring text-left"
+      >
+        <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
+          <Handshake class="h-3.5 w-3.5 text-ink-muted" />
+          Acquisitions
+          <span class="text-xs text-ink-muted font-normal">
+            · {{ company.notable_acquisitions.length }}
+          </span>
+        </span>
+        <ChevronDown v-if="expanded.acquisitions" class="h-4 w-4 text-ink-muted" />
+        <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+      </button>
+      <ul
+        v-if="expanded.acquisitions"
+        class="px-4 pb-3 pt-3 border-t border-subtle space-y-1.5"
+      >
         <li
           v-for="(a, i) in company.notable_acquisitions"
           :key="i"
@@ -311,13 +406,27 @@ const earningsLine = computed(() => {
 
     <section
       v-if="company.recent_news && company.recent_news.length"
-      class="bg-surface border border-subtle rounded-card shadow-card p-5"
-      :class="{ 'sm:col-span-2': !(company.notable_acquisitions && company.notable_acquisitions.length) }"
+      class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
     >
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2 flex items-center gap-1.5">
-        <Newspaper class="h-3.5 w-3.5" /> Recent news
-      </h3>
-      <ul class="space-y-2">
+      <button
+        type="button"
+        @click="toggle('news')"
+        class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-surface-muted focus-ring text-left"
+      >
+        <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
+          <Newspaper class="h-3.5 w-3.5 text-ink-muted" />
+          Recent news
+          <span class="text-xs text-ink-muted font-normal">
+            · {{ company.recent_news.length }}
+          </span>
+        </span>
+        <ChevronDown v-if="expanded.news" class="h-4 w-4 text-ink-muted" />
+        <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+      </button>
+      <ul
+        v-if="expanded.news"
+        class="px-4 pb-3 pt-3 border-t border-subtle space-y-2"
+      >
         <li v-for="(n, i) in company.recent_news" :key="i" class="text-sm">
           <div class="flex items-baseline gap-2">
             <span class="font-medium text-ink-primary">{{ n.headline }}</span>
