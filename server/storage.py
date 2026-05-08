@@ -1,0 +1,254 @@
+"""YAML-backed durable storage for the research center.
+
+Companies, reports, and knowledge-base threads live as plain YAML files under
+the data directory so a human can inspect/edit them without running the app.
+"""
+from __future__ import annotations
+
+import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+COMPANIES_FILE = DATA_DIR / "companies.yaml"
+REPORTS_DIR = DATA_DIR / "reports"
+THREADS_DIR = DATA_DIR / "threads"
+
+_LOCK = threading.RLock()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_dirs() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    THREADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _read_yaml(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data if data is not None else default
+
+
+def _write_yaml(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.replace(path)
+
+
+# ---------- Companies ----------
+
+def list_companies() -> list[dict]:
+    with _LOCK:
+        _ensure_dirs()
+        return list(_read_yaml(COMPANIES_FILE, []))
+
+
+def search_companies(query: str, limit: int = 8) -> list[dict]:
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    scored: list[tuple[int, dict]] = []
+    for c in list_companies():
+        name = str(c.get("name", "")).lower()
+        ticker = str(c.get("ticker", "")).lower()
+        aliases = [str(a).lower() for a in c.get("aliases", []) or []]
+        score = 0
+        if name == q or ticker == q:
+            score = 100
+        elif name.startswith(q) or ticker.startswith(q):
+            score = 80
+        elif any(a == q or a.startswith(q) for a in aliases):
+            score = 70
+        elif q in name:
+            score = 50
+        elif any(q in a for a in aliases):
+            score = 40
+        if score:
+            scored.append((score, c))
+    scored.sort(key=lambda t: -t[0])
+    return [c for _, c in scored[:limit]]
+
+
+def get_company(company_id: str) -> dict | None:
+    for c in list_companies():
+        if c.get("id") == company_id:
+            return c
+    return None
+
+
+# ---------- Reports ----------
+
+def _report_path(report_id: str) -> Path:
+    return REPORTS_DIR / f"{report_id}.yaml"
+
+
+def list_reports() -> list[dict]:
+    """All reports, newest first. Used for the sidebar."""
+    with _LOCK:
+        _ensure_dirs()
+        out: list[dict] = []
+        for p in REPORTS_DIR.glob("*.yaml"):
+            data = _read_yaml(p, None)
+            if isinstance(data, dict):
+                out.append(data)
+        out.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
+        return out
+
+
+def get_report(report_id: str) -> dict | None:
+    with _LOCK:
+        data = _read_yaml(_report_path(report_id), None)
+        return data if isinstance(data, dict) else None
+
+
+def create_report(*, company_id: str, report_type: str, audience: str) -> dict:
+    company = get_company(company_id)
+    if company is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    report_id = uuid.uuid4().hex[:12]
+    report = {
+        "id": report_id,
+        "company_id": company_id,
+        "company_name": company.get("name"),
+        "report_type": report_type,
+        "audience": audience,
+        "status": "queued",
+        "progress": 0,
+        "stage": "Queued",
+        "stages": [],
+        "content": "",
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    with _LOCK:
+        _ensure_dirs()
+        _write_yaml(_report_path(report_id), report)
+    return report
+
+
+def update_report(report_id: str, **patch: Any) -> dict | None:
+    with _LOCK:
+        data = get_report(report_id)
+        if data is None:
+            return None
+        data.update(patch)
+        data["updated_at"] = _now()
+        _write_yaml(_report_path(report_id), data)
+        return data
+
+
+def append_report_stage(report_id: str, stage: dict) -> dict | None:
+    with _LOCK:
+        data = get_report(report_id)
+        if data is None:
+            return None
+        stages = list(data.get("stages") or [])
+        stages.append({**stage, "at": _now()})
+        data["stages"] = stages
+        data["updated_at"] = _now()
+        _write_yaml(_report_path(report_id), data)
+        return data
+
+
+# ---------- Knowledge base / threads ----------
+
+def _threads_path(company_id: str) -> Path:
+    return THREADS_DIR / f"{company_id}.yaml"
+
+
+def list_threads(company_id: str) -> list[dict]:
+    with _LOCK:
+        _ensure_dirs()
+        threads = _read_yaml(_threads_path(company_id), [])
+        return list(threads or [])
+
+
+def add_thread(company_id: str, question: str, answer: str = "") -> dict:
+    if get_company(company_id) is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    thread = {
+        "id": uuid.uuid4().hex[:12],
+        "question": question,
+        "answer": answer,
+        "created_at": _now(),
+    }
+    with _LOCK:
+        _ensure_dirs()
+        threads = list_threads(company_id)
+        threads.insert(0, thread)
+        _write_yaml(_threads_path(company_id), threads)
+    return thread
+
+
+# ---------- Bootstrap ----------
+
+_SEED_COMPANIES = [
+    {
+        "id": "acme",
+        "name": "Acme Corporation",
+        "ticker": "ACME",
+        "aliases": ["Acme Inc", "Acme Co"],
+        "description": "Diversified industrial conglomerate. Roadrunner countermeasures, novelty explosives, anvils.",
+        "sector": "Industrials",
+    },
+    {
+        "id": "globex",
+        "name": "Globex Corporation",
+        "ticker": "GLBX",
+        "aliases": ["Globex"],
+        "description": "Multinational holding company with interests in tech, media, and biotech.",
+        "sector": "Diversified",
+    },
+    {
+        "id": "initech",
+        "name": "Initech",
+        "ticker": "INIT",
+        "aliases": [],
+        "description": "Enterprise software vendor specializing in legacy banking middleware.",
+        "sector": "Technology",
+    },
+    {
+        "id": "soylent",
+        "name": "Soylent Corp",
+        "ticker": "SLNT",
+        "aliases": ["Soylent"],
+        "description": "Food-tech company producing nutritional staples at industrial scale.",
+        "sector": "Consumer Staples",
+    },
+    {
+        "id": "umbrella",
+        "name": "Umbrella Industries",
+        "ticker": "UMBR",
+        "aliases": ["Umbrella Corp"],
+        "description": "Pharmaceutical and biotech firm with a defense-research subsidiary.",
+        "sector": "Healthcare",
+    },
+    {
+        "id": "stark",
+        "name": "Stark Industries",
+        "ticker": "STRK",
+        "aliases": ["Stark"],
+        "description": "Advanced materials, energy, and aerospace; recently expanded into clean power.",
+        "sector": "Aerospace & Defense",
+    },
+]
+
+
+def bootstrap_seed_data() -> None:
+    """Write a starter company list if the data directory is empty."""
+    with _LOCK:
+        _ensure_dirs()
+        if not COMPANIES_FILE.exists():
+            _write_yaml(COMPANIES_FILE, _SEED_COMPANIES)

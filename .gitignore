@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# BSH Research Center
+data/
+frontend/node_modules/
+frontend/dist/
+.uv/
+uv.lock
+.claude/
