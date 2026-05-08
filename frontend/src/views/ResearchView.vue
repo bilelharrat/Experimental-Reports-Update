@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Loader2, Sparkles, Send } from "lucide-vue-next";
 import { api } from "../api.js";
 import CompanyLibrary from "../components/CompanyLibrary.vue";
+import CompanyDetail from "../components/CompanyDetail.vue";
 
 const props = defineProps({ companyId: { type: String, required: true } });
 const emit = defineEmits(["reports-changed"]);
@@ -174,27 +175,7 @@ onUnmounted(stopPolling);
       </button>
     </div>
 
-    <header v-if="company" class="border-b border-subtle pb-6">
-      <div class="text-xs uppercase tracking-wider text-ink-muted mb-2">
-        Research
-      </div>
-      <div class="flex items-center gap-3 flex-wrap">
-        <h1 class="font-display text-3xl font-semibold text-ink-primary">
-          {{ company.name }}
-        </h1>
-        <span
-          v-if="company.ticker"
-          class="text-xs font-mono px-2 py-0.5 rounded bg-accent-soft text-accent-ink"
-          >{{ company.ticker }}</span
-        >
-        <span v-if="company.sector" class="text-xs text-ink-muted">
-          {{ company.sector }}
-        </span>
-      </div>
-      <p v-if="company.description" class="mt-2 text-ink-secondary">
-        {{ company.description }}
-      </p>
-    </header>
+    <CompanyDetail v-if="company" :company="company" />
 
     <div
       v-else-if="companyError"

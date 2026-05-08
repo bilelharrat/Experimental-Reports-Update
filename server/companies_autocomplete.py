@@ -15,6 +15,7 @@ For private or non-US companies the user can fall back to deep search.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -217,6 +218,43 @@ def _researched_search(q: str, limit: int) -> list[dict]:
     return out
 
 
+_SUFFIX_RE = re.compile(
+    r"[,\.]?\s+(inc|incorporated|corp|corporation|co|company|ltd|limited|llc|"
+    r"plc|holdings|holding|sa|nv|ag|gmbh|kk)\.?$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_name(name: str | None) -> str:
+    if not name:
+        return ""
+    n = name.strip().lower()
+    # Strip punctuation that the model adds inconsistently.
+    n = re.sub(r"[^\w\s]", "", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    # Strip a single trailing legal suffix (we re-run on the stripped name in
+    # case the original had multiple — "Foo Inc Holdings").
+    while True:
+        stripped = _SUFFIX_RE.sub("", n).strip()
+        if stripped == n:
+            break
+        n = stripped
+    return n
+
+
+def _seen_keys(*, id_: str | None, ticker: str | None, name: str | None) -> list[str]:
+    keys: list[str] = []
+    if id_:
+        keys.append(f"id:{id_}")
+    t = (ticker or "").strip().upper()
+    if t:
+        keys.append(f"ticker:{t}")
+    norm = _normalize_name(name)
+    if norm:
+        keys.append(f"name:{norm}")
+    return keys
+
+
 def autocomplete(query: str, limit: int = 8) -> list[dict]:
     q = (query or "").strip()
     if not q or len(q) < 2:
@@ -225,12 +263,19 @@ def autocomplete(query: str, limit: int = 8) -> list[dict]:
     seen: set[str] = set()
     results: list[dict] = []
 
+    def add(hit: dict) -> bool:
+        keys = _seen_keys(
+            id_=hit.get("id"), ticker=hit.get("ticker"), name=hit.get("name")
+        )
+        if any(k in seen for k in keys):
+            return False
+        for k in keys:
+            seen.add(k)
+        results.append(hit)
+        return True
+
     for c in storage.search_companies(q, limit=limit):
-        ticker = (c.get("ticker") or "").upper()
-        seen.add(f"local:{c.get('id')}")
-        if ticker:
-            seen.add(f"ticker:{ticker}")
-        results.append(
+        add(
             {
                 "source": "local",
                 "id": c.get("id"),
@@ -245,30 +290,14 @@ def autocomplete(query: str, limit: int = 8) -> list[dict]:
         return results[:limit]
 
     for hit in _researched_search(q, limit=limit):
-        cid = hit.get("id")
-        ticker = (hit.get("ticker") or "").upper()
-        local_key = f"local:{cid}" if cid else None
-        ticker_key = f"ticker:{ticker}" if ticker else None
-        name_key = f"name:{(hit.get('name') or '').lower()}"
-        keys = [k for k in (local_key, ticker_key, name_key) if k]
-        if any(k in seen for k in keys):
-            continue
-        for k in keys:
-            seen.add(k)
-        results.append(hit)
-        if len(results) >= limit:
+        if add(hit) and len(results) >= limit:
             break
 
     if len(results) >= limit:
         return results[:limit]
 
     for hit in _edgar_search(q, limit=limit):
-        key = f"ticker:{hit['ticker']}"
-        if key in seen:
-            continue
-        seen.add(key)
-        results.append(hit)
-        if len(results) >= limit:
+        if add(hit) and len(results) >= limit:
             break
 
     return results[:limit]

@@ -20,6 +20,19 @@ class CompanyOut(BaseModel):
     ticker: str | None = None
     description: str | None = None
     sector: str | None = None
+    industry: str | None = None
+    exchange: str | None = None
+    status: str | None = None
+    hq: str | None = None
+    founded_year: int | None = None
+    website: str | None = None
+    logo_domain: str | None = None
+    employee_band: str | None = None
+    parent_company: str | None = None
+    key_people: list[dict] = Field(default_factory=list)
+    highlight_2026: dict | None = None
+    latest_funding: dict | None = None
+    latest_earnings: dict | None = None
 
 
 class ReportSummary(BaseModel):
@@ -239,6 +252,19 @@ def _company_view(c: dict) -> dict:
         "ticker": c.get("ticker"),
         "description": c.get("description"),
         "sector": c.get("sector"),
+        "industry": c.get("industry"),
+        "exchange": c.get("exchange"),
+        "status": c.get("status"),
+        "hq": c.get("hq"),
+        "founded_year": c.get("founded_year"),
+        "website": c.get("website"),
+        "logo_domain": c.get("logo_domain"),
+        "employee_band": c.get("employee_band"),
+        "parent_company": c.get("parent_company"),
+        "key_people": list(c.get("key_people") or []),
+        "highlight_2026": c.get("highlight_2026"),
+        "latest_funding": c.get("latest_funding"),
+        "latest_earnings": c.get("latest_earnings"),
     }
 
 
