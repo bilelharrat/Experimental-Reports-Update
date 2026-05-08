@@ -3,7 +3,10 @@
 Sources, in order of priority:
 
 1. Local YAML — already-tracked companies always rank first.
-2. SEC EDGAR ticker index — single ~1MB JSON of every US-listed company,
+2. Past AI-search results — every company that has ever appeared in a
+   cached deep-search result (e.g. Anduril after the user searched for it)
+   is surfaced even if it was missing from the local YAML.
+3. SEC EDGAR ticker index — single ~1MB JSON of every US-listed company,
    refreshed daily. No rate limits, no auth, fully local matching after the
    first download. https://www.sec.gov/files/company_tickers.json
 
@@ -14,8 +17,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
 
 import httpx
+import yaml
 
 from . import storage
 
@@ -109,6 +114,109 @@ def _edgar_search(q: str, limit: int) -> list[dict]:
     ]
 
 
+_RESEARCHED_LOCK = threading.RLock()
+_RESEARCHED_CACHE: list[dict] | None = None
+_RESEARCHED_AT: float = 0.0
+RESEARCHED_TTL = 30
+
+
+def _researched_dir() -> Path:
+    return storage.DATA_DIR / "cache" / "companies_ai"
+
+
+def _load_researched() -> list[dict]:
+    """Walk the deep-search cache and collect every company we've ever seen.
+
+    Cache files were written by `cache.put('companies_ai', q, value)` where
+    `value` is the list of upserted matches. We iterate them, dedupe by
+    company id (or by name+ticker if id is missing), and produce a flat list
+    suitable for prefix-match scoring.
+    """
+    global _RESEARCHED_CACHE, _RESEARCHED_AT
+    with _RESEARCHED_LOCK:
+        now = time.time()
+        if _RESEARCHED_CACHE is not None and (now - _RESEARCHED_AT) < RESEARCHED_TTL:
+            return _RESEARCHED_CACHE
+        seen: dict[str, dict] = {}
+        cache_dir = _researched_dir()
+        if cache_dir.exists():
+            for path in cache_dir.glob("*.yaml"):
+                try:
+                    with path.open("r", encoding="utf-8") as f:
+                        entry = yaml.safe_load(f) or {}
+                except Exception:
+                    continue
+                value = entry.get("value")
+                if not isinstance(value, list):
+                    continue
+                for c in value:
+                    if not isinstance(c, dict):
+                        continue
+                    key = (
+                        c.get("id")
+                        or f"{(c.get('ticker') or '').upper()}::{(c.get('name') or '').lower()}"
+                    )
+                    if not key or key in seen:
+                        continue
+                    seen[key] = {
+                        "id": c.get("id"),
+                        "name": c.get("name"),
+                        "ticker": c.get("ticker"),
+                        "description": c.get("description"),
+                        "sector": c.get("sector"),
+                        "industry": c.get("industry"),
+                        "exchange": c.get("exchange"),
+                    }
+        _RESEARCHED_CACHE = list(seen.values())
+        _RESEARCHED_AT = now
+        return _RESEARCHED_CACHE
+
+
+def invalidate_researched_cache() -> None:
+    """Force the next autocomplete call to re-scan the cache directory."""
+    global _RESEARCHED_CACHE, _RESEARCHED_AT
+    with _RESEARCHED_LOCK:
+        _RESEARCHED_CACHE = None
+        _RESEARCHED_AT = 0.0
+
+
+def _researched_search(q: str, limit: int) -> list[dict]:
+    ql = q.lower()
+    scored: list[tuple[int, dict]] = []
+    for c in _load_researched():
+        name_l = (c.get("name") or "").lower()
+        ticker_l = (c.get("ticker") or "").lower()
+        if not name_l and not ticker_l:
+            continue
+        score = 0
+        if ticker_l == ql or name_l == ql:
+            score = 100
+        elif ticker_l and ticker_l.startswith(ql):
+            score = 85
+        elif name_l.startswith(ql):
+            score = 75
+        elif ql in name_l:
+            score = 45
+        if score:
+            scored.append((score, c))
+    scored.sort(key=lambda t: (-t[0], len(t[1].get("name") or ""), (t[1].get("name") or "").lower()))
+    out: list[dict] = []
+    for _, c in scored[:limit]:
+        out.append(
+            {
+                "source": "researched",
+                "id": c.get("id"),
+                "name": c.get("name"),
+                "ticker": c.get("ticker"),
+                "sector": c.get("sector"),
+                "industry": c.get("industry"),
+                "exchange": c.get("exchange"),
+                "description": c.get("description"),
+            }
+        )
+    return out
+
+
 def autocomplete(query: str, limit: int = 8) -> list[dict]:
     q = (query or "").strip()
     if not q or len(q) < 2:
@@ -132,6 +240,24 @@ def autocomplete(query: str, limit: int = 8) -> list[dict]:
                 "description": c.get("description"),
             }
         )
+
+    if len(results) >= limit:
+        return results[:limit]
+
+    for hit in _researched_search(q, limit=limit):
+        cid = hit.get("id")
+        ticker = (hit.get("ticker") or "").upper()
+        local_key = f"local:{cid}" if cid else None
+        ticker_key = f"ticker:{ticker}" if ticker else None
+        name_key = f"name:{(hit.get('name') or '').lower()}"
+        keys = [k for k in (local_key, ticker_key, name_key) if k]
+        if any(k in seen for k in keys):
+            continue
+        for k in keys:
+            seen.add(k)
+        results.append(hit)
+        if len(results) >= limit:
+            break
 
     if len(results) >= limit:
         return results[:limit]

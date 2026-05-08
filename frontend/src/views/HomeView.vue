@@ -171,6 +171,12 @@ function onBlur() {
                 class="ml-2 px-1 py-0.5 rounded bg-accent-soft text-accent-ink"
                 >Tracked</span
               >
+              <span
+                v-else-if="s.source === 'researched'"
+                class="ml-2 px-1 py-0.5 rounded bg-success-soft text-success-ink"
+                title="Seen in a previous AI search"
+                >Researched</span
+              >
             </div>
           </div>
           <ArrowRight class="h-3.5 w-3.5 text-ink-muted shrink-0" />

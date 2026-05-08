@@ -241,6 +241,11 @@ def deep_search(query: str, *, force_refresh: bool = False) -> dict:
     enriched = [storage.upsert_company_from_match(m) for m in raw]
     if enriched:
         cache.put("companies_ai", q.lower(), enriched)
+        # Invalidate the autocomplete researched index so new hits are visible
+        # on the next keystroke.
+        from . import companies_autocomplete
+
+        companies_autocomplete.invalidate_researched_cache()
     fresh = cache.get("companies_ai", q.lower())
     return {
         "source": "openai",
