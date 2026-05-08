@@ -111,6 +111,9 @@ def get_file(company_id: str, file_id: str) -> tuple[dict, Path] | None:
         return None
 
 
+SUPPORTED_LANGUAGES = ("en", "zh")
+
+
 def upload_file(
     company_id: str,
     *,
@@ -118,6 +121,7 @@ def upload_file(
     content_type: str | None,
     data: bytes,
     label: str | None = None,
+    language: str = "en",
 ) -> dict:
     if not filename:
         raise ValueError("Missing filename")
@@ -125,6 +129,8 @@ def upload_file(
         raise ValueError("Empty file")
     if len(data) > MAX_FILE_BYTES:
         raise ValueError(f"File exceeds {MAX_FILE_BYTES // (1024*1024)}MB limit")
+    if language not in SUPPORTED_LANGUAGES:
+        raise ValueError(f"Unsupported language: {language}")
 
     kind = _kind_from(content_type, filename)
     if kind is None:
@@ -148,6 +154,7 @@ def upload_file(
             "filename": safe_name,
             "stored_name": stored_name,
             "kind": kind,
+            "language": language,
             "content_type": content_type or "",
             "size_bytes": len(data),
             "uploaded_at": _now(),

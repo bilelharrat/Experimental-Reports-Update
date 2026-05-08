@@ -21,7 +21,21 @@ _STAGES = [
 ]
 
 
-def _compose_report_body(company_name: str, report_type: str, audience: str) -> str:
+def _compose_report_body(
+    company_name: str, report_type: str, audience: str, language: str
+) -> str:
+    if language == "zh":
+        return (
+            f"# {report_type} — {company_name}\n\n"
+            f"_受众:{audience}_\n\n"
+            "## 摘要\n\n"
+            f"这是关于 {company_name} 的占位{report_type}报告。"
+            "将 `server/generator.py` 接入真实模型以生成实际内容。\n\n"
+            "## 要点\n\n"
+            f"- 报告类型:{report_type}\n"
+            f"- 受众:{audience}\n"
+            "- 由 BSH Research Center 占位生成器输出。\n"
+        )
     return (
         f"# {report_type} — {company_name}\n\n"
         f"_Prepared for: {audience}_\n\n"
@@ -51,6 +65,7 @@ def _run(report_id: str) -> None:
         company_name=str(report.get("company_name") or report.get("company_id")),
         report_type=str(report.get("report_type")),
         audience=str(report.get("audience")),
+        language=str(report.get("language") or "en"),
     )
     storage.update_report(
         report_id,

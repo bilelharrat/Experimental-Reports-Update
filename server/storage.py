@@ -204,10 +204,18 @@ def get_report(report_id: str) -> dict | None:
         return data if isinstance(data, dict) else None
 
 
-def create_report(*, company_id: str, report_type: str, audience: str) -> dict:
+def create_report(
+    *,
+    company_id: str,
+    report_type: str,
+    audience: str,
+    language: str = "en",
+) -> dict:
     company = get_company(company_id)
     if company is None:
         raise ValueError(f"Unknown company: {company_id}")
+    if language not in ("en", "zh"):
+        raise ValueError(f"Unsupported language: {language}")
     report_id = uuid.uuid4().hex[:12]
     report = {
         "id": report_id,
@@ -215,6 +223,7 @@ def create_report(*, company_id: str, report_type: str, audience: str) -> dict:
         "company_name": company.get("name"),
         "report_type": report_type,
         "audience": audience,
+        "language": language,
         "status": "queued",
         "progress": 0,
         "stage": "Queued",

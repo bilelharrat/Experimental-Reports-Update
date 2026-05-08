@@ -37,10 +37,11 @@ export const api = {
   listCompanyReports: (companyId) =>
     request(`/api/companies/${companyId}/reports`),
   listFiles: (companyId) => request(`/api/companies/${companyId}/files`),
-  uploadFile: async (companyId, file, label) => {
+  uploadFile: async (companyId, file, label, language) => {
     const fd = new FormData();
     fd.append("file", file);
     if (label) fd.append("label", label);
+    if (language) fd.append("language", language);
     const res = await fetch(`/api/companies/${companyId}/files`, {
       method: "POST",
       body: fd,

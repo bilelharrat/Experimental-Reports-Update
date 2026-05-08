@@ -11,6 +11,7 @@ router = APIRouter(prefix="/api")
 
 REPORT_TYPES = ("Investment Report", "Background", "Financial Analysis", "Market Analysis")
 AUDIENCES = ("LP", "Assistant", "Partner", "Internal")
+LANGUAGES = ("en", "zh")
 
 
 class CompanyOut(BaseModel):
@@ -27,6 +28,7 @@ class ReportSummary(BaseModel):
     company_name: str | None = None
     report_type: str
     audience: str
+    language: str = "en"
     status: str
     progress: int = 0
     stage: str | None = None
@@ -43,6 +45,7 @@ class GenerateRequest(BaseModel):
     company_id: str
     report_type: str
     audience: str
+    language: str = "en"
 
 
 class ThreadIn(BaseModel):
@@ -62,7 +65,11 @@ class SelectMatch(BaseModel):
 
 @router.get("/options")
 def get_options() -> dict:
-    return {"report_types": list(REPORT_TYPES), "audiences": list(AUDIENCES)}
+    return {
+        "report_types": list(REPORT_TYPES),
+        "audiences": list(AUDIENCES),
+        "languages": [{"code": "en", "label": "English"}, {"code": "zh", "label": "中文"}],
+    }
 
 
 @router.get("/companies")
@@ -127,11 +134,14 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
         raise HTTPException(status_code=400, detail="Invalid report_type")
     if payload.audience not in AUDIENCES:
         raise HTTPException(status_code=400, detail="Invalid audience")
+    if payload.language not in LANGUAGES:
+        raise HTTPException(status_code=400, detail="Invalid language")
     try:
         report = storage.create_report(
             company_id=payload.company_id,
             report_type=payload.report_type,
             audience=payload.audience,
+            language=payload.language,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -162,6 +172,7 @@ async def post_file(
     company_id: str,
     file: UploadFile = File(...),
     label: str | None = Form(None),
+    language: str = Form("en"),
 ) -> dict:
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -173,6 +184,7 @@ async def post_file(
             content_type=file.content_type,
             data=data,
             label=label,
+            language=language,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -237,6 +249,7 @@ def _report_summary(r: dict) -> dict:
         "company_name": r.get("company_name"),
         "report_type": r.get("report_type"),
         "audience": r.get("audience"),
+        "language": r.get("language") or "en",
         "status": r.get("status", "queued"),
         "progress": int(r.get("progress") or 0),
         "stage": r.get("stage"),

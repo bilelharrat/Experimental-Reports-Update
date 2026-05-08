@@ -27,6 +27,10 @@ const uploading = ref(false);
 const uploadError = ref(null);
 const dragOver = ref(false);
 const fileInput = ref(null);
+const uploadLanguage = ref("en");
+const languageFilter = ref("all"); // "all" | "en" | "zh"
+
+const LANG_LABELS = { en: "English", zh: "中文" };
 
 const ACCEPT = ".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
@@ -57,7 +61,7 @@ async function uploadFiles(list) {
   uploadError.value = null;
   try {
     for (const f of list) {
-      await api.uploadFile(props.companyId, f);
+      await api.uploadFile(props.companyId, f, null, uploadLanguage.value);
     }
     await load();
     emit("files-changed");
@@ -109,11 +113,28 @@ function iconFor(kind) {
   return FileImage;
 }
 
+function langMatches(asset) {
+  if (languageFilter.value === "all") return true;
+  return (asset.language || "en") === languageFilter.value;
+}
+
 const sortedReports = computed(() =>
-  [...reports.value].sort((a, b) =>
-    String(b.created_at).localeCompare(String(a.created_at)),
-  ),
+  [...reports.value]
+    .filter(langMatches)
+    .sort((a, b) =>
+      String(b.created_at).localeCompare(String(a.created_at)),
+    ),
 );
+
+const filteredFiles = computed(() => files.value.filter(langMatches));
+
+const counts = computed(() => {
+  const tally = (arr, code) => arr.filter((x) => (x.language || "en") === code).length;
+  return {
+    en: tally(reports.value, "en") + tally(files.value, "en"),
+    zh: tally(reports.value, "zh") + tally(files.value, "zh"),
+  };
+});
 </script>
 
 <template>
@@ -126,7 +147,35 @@ const sortedReports = computed(() =>
     </div>
     <p class="text-sm text-ink-muted mb-4">
       Generated reports and uploaded presentations or PDFs for this company.
+      Each asset has an English and Chinese version.
     </p>
+
+    <!-- Language filter -->
+    <div class="flex items-center gap-1 mb-4">
+      <button
+        v-for="opt in [
+          { code: 'all', label: 'All' },
+          { code: 'en', label: 'English' },
+          { code: 'zh', label: '中文' },
+        ]"
+        :key="opt.code"
+        type="button"
+        @click="languageFilter = opt.code"
+        :class="[
+          'text-xs px-2.5 py-1 rounded-md border focus-ring transition',
+          languageFilter === opt.code
+            ? 'bg-accent text-white border-accent'
+            : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
+        ]"
+      >
+        {{ opt.label
+        }}<span
+          v-if="opt.code !== 'all'"
+          class="ml-1 opacity-70"
+          >· {{ counts[opt.code] }}</span
+        >
+      </button>
+    </div>
 
     <!-- Upload zone -->
     <div
@@ -152,6 +201,26 @@ const sortedReports = computed(() =>
         </button>
       </div>
       <div class="text-xs text-ink-muted mt-0.5">PDF, PPT, PPTX · up to 100MB</div>
+      <div class="mt-3 inline-flex items-center gap-1 text-xs text-ink-muted">
+        <span>Language:</span>
+        <button
+          v-for="opt in [
+            { code: 'en', label: 'English' },
+            { code: 'zh', label: '中文' },
+          ]"
+          :key="opt.code"
+          type="button"
+          @click="uploadLanguage = opt.code"
+          :class="[
+            'px-2 py-0.5 rounded border focus-ring',
+            uploadLanguage === opt.code
+              ? 'bg-accent-soft text-accent-ink border-accent/40'
+              : 'bg-surface border-subtle text-ink-secondary hover:border-strong',
+          ]"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
       <input
         ref="fileInput"
         type="file"
@@ -178,6 +247,13 @@ const sortedReports = computed(() =>
 
     <div v-else-if="reports.length === 0 && files.length === 0" class="text-sm text-ink-muted">
       No reports or uploads yet.
+    </div>
+
+    <div
+      v-else-if="sortedReports.length === 0 && filteredFiles.length === 0"
+      class="text-sm text-ink-muted"
+    >
+      Nothing in {{ LANG_LABELS[languageFilter] || languageFilter }} yet.
     </div>
 
     <div v-else class="space-y-5">
@@ -208,6 +284,11 @@ const sortedReports = computed(() =>
               </div>
             </button>
             <span
+              class="text-xs px-1.5 py-0.5 rounded bg-surface border border-subtle text-ink-secondary font-mono"
+              :title="LANG_LABELS[r.language || 'en']"
+              >{{ (r.language || "en").toUpperCase() }}</span
+            >
+            <span
               v-if="r.status === 'complete'"
               class="text-xs px-1.5 py-0.5 rounded bg-success-soft text-success-ink"
               >Complete</span
@@ -222,13 +303,13 @@ const sortedReports = computed(() =>
       </div>
 
       <!-- Uploaded files -->
-      <div v-if="files.length > 0">
+      <div v-if="filteredFiles.length > 0">
         <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
           Uploads
         </div>
         <ul class="space-y-1.5">
           <li
-            v-for="f in files"
+            v-for="f in filteredFiles"
             :key="f.id"
             class="flex items-center gap-3 px-3 py-2 rounded-lg border border-subtle bg-surface-muted"
           >
@@ -243,6 +324,11 @@ const sortedReports = computed(() =>
                 · {{ fmtDate(f.uploaded_at) }}
               </div>
             </div>
+            <span
+              class="text-xs px-1.5 py-0.5 rounded bg-surface border border-subtle text-ink-secondary font-mono"
+              :title="LANG_LABELS[f.language || 'en']"
+              >{{ (f.language || "en").toUpperCase() }}</span
+            >
             <a
               v-if="f.kind === 'pdf'"
               :href="api.fileUrl(companyId, f.id)"

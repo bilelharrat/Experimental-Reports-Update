@@ -13,10 +13,11 @@ const router = useRouter();
 
 const company = ref(null);
 const companyError = ref(null);
-const options = ref({ report_types: [], audiences: [] });
+const options = ref({ report_types: [], audiences: [], languages: [] });
 
 const reportType = ref("Investment Report");
 const audience = ref("Internal");
+const language = ref("en");
 
 const activeReport = ref(null);
 const generating = computed(
@@ -101,6 +102,7 @@ async function generate() {
       company_id: props.companyId,
       report_type: reportType.value,
       audience: audience.value,
+      language: language.value,
     });
     activeReport.value = r;
     emit("reports-changed");
@@ -201,7 +203,7 @@ onUnmounted(stopPolling);
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-4">
         Generate report
       </h2>
-      <div class="grid sm:grid-cols-2 gap-4">
+      <div class="grid sm:grid-cols-3 gap-4">
         <label class="block">
           <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
             Report type
@@ -225,6 +227,23 @@ onUnmounted(stopPolling);
           >
             <option v-for="a in options.audiences" :key="a" :value="a">
               {{ a }}
+            </option>
+          </select>
+        </label>
+        <label class="block">
+          <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
+            Language
+          </div>
+          <select
+            v-model="language"
+            class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary focus-ring"
+          >
+            <option
+              v-for="l in options.languages"
+              :key="l.code"
+              :value="l.code"
+            >
+              {{ l.label }}
             </option>
           </select>
         </label>
@@ -252,6 +271,7 @@ onUnmounted(stopPolling);
         <div>
           <div class="text-xs uppercase tracking-wider text-ink-muted">
             {{ activeReport.report_type }} · {{ activeReport.audience }}
+            · {{ (activeReport.language || "en").toUpperCase() }}
           </div>
           <div class="font-display text-lg font-semibold text-ink-primary">
             {{ activeReport.stage || activeReport.status }}
