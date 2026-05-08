@@ -94,8 +94,8 @@ function onBlur() {
         Find a company
       </h1>
       <p class="mt-2 text-ink-secondary">
-        Type to see ticker matches. Press Enter or hit Search for an AI-grounded
-        deep search with descriptions, key people, and 2026 highlights.
+        Type company name and press enter for search. Existing researched
+        companies or public companies will autocomplete.
       </p>
     </header>
 
@@ -180,6 +180,12 @@ function onBlur() {
               : "Local matches only"
           }}
         </span>
+      </div>
+      <div
+        v-if="searchResults.source === 'fallback' && searchResults.reason"
+        class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2"
+      >
+        Deep search unavailable — {{ searchResults.reason }}.
       </div>
       <CompanyCard
         v-for="m in searchResults.matches"

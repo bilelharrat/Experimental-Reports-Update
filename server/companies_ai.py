@@ -148,12 +148,12 @@ def _is_available() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY"))
 
 
-def _call_openai(query: str) -> list[dict] | None:
+def _call_openai(query: str) -> tuple[list[dict] | None, str | None]:
+    """Returns (matches, error). On success error is None."""
     try:
         from openai import OpenAI
     except ImportError:
-        logger.warning("openai package not installed")
-        return None
+        return None, "openai package not installed"
 
     client = OpenAI()
     try:
@@ -177,19 +177,21 @@ def _call_openai(query: str) -> list[dict] | None:
             },
         )
     except Exception as exc:
-        logger.warning("OpenAI deep search failed: %s", exc)
-        return None
+        msg = f"OpenAI call failed: {type(exc).__name__}: {exc}"
+        logger.warning(msg)
+        return None, msg
 
     text = getattr(response, "output_text", None)
     if not text:
-        return None
+        return None, "OpenAI returned empty output_text"
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        logger.warning("OpenAI returned non-JSON output: %s", exc)
-        return None
+        msg = f"OpenAI returned non-JSON: {exc}"
+        logger.warning(msg)
+        return None, msg
     matches = data.get("matches") or []
-    return matches[:MAX_RESULTS]
+    return matches[:MAX_RESULTS], None
 
 
 def deep_search(query: str) -> dict:
@@ -211,19 +213,22 @@ def deep_search(query: str) -> dict:
         local = storage.search_companies(q, limit=MAX_RESULTS)
         return {
             "source": "fallback",
+            "reason": "OPENAI_API_KEY not set — showing local matches only",
             "matches": [_local_to_match(c) for c in local],
         }
 
-    raw = _call_openai(q)
+    raw, err = _call_openai(q)
     if raw is None:
         local = storage.search_companies(q, limit=MAX_RESULTS)
         return {
             "source": "fallback",
+            "reason": err or "OpenAI deep search failed",
             "matches": [_local_to_match(c) for c in local],
         }
 
     enriched = [storage.upsert_company_from_match(m) for m in raw]
-    cache.put("companies_ai", q.lower(), enriched)
+    if enriched:
+        cache.put("companies_ai", q.lower(), enriched)
     return {"source": "openai", "matches": enriched}
 
 
