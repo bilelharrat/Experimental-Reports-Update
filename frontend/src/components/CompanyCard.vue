@@ -7,11 +7,20 @@ const props = defineProps({
 });
 const emit = defineEmits(["select"]);
 
-const logoUrl = computed(() =>
-  props.company.logo_domain
-    ? `https://logo.clearbit.com/${props.company.logo_domain}`
-    : null,
-);
+const logoUrl = computed(() => {
+  const d = props.company.logo_domain || extractDomain(props.company.website);
+  return d ? `https://www.google.com/s2/favicons?domain=${d}&sz=128` : null;
+});
+
+function extractDomain(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+    return u.hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
 
 const metaLine = computed(() => {
   const parts = [];
