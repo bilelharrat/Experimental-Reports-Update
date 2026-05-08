@@ -175,7 +175,11 @@ onUnmounted(stopPolling);
       </button>
     </div>
 
-    <CompanyDetail v-if="company" :company="company" />
+    <CompanyDetail
+      v-if="company"
+      :company="company"
+      @refreshed="(c) => (company = c)"
+    />
 
     <div
       v-else-if="companyError"

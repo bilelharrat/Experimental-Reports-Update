@@ -29,6 +29,8 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getCompany: (id) => request(`/api/companies/${id}`),
+  refreshCompany: (id) =>
+    request(`/api/companies/${id}/refresh`, { method: "POST" }),
   generateReport: (payload) =>
     request("/api/reports", {
       method: "POST",

@@ -5,6 +5,7 @@ the data directory so a human can inspect/edit them without running the app.
 """
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -101,6 +102,33 @@ def _slugify(name: str) -> str:
     return slug or "company"
 
 
+_LEGAL_SUFFIX_RE = re.compile(
+    r"[,\.]?\s+(inc|incorporated|corp|corporation|co|company|ltd|limited|llc|"
+    r"plc|holdings|holding|sa|nv|ag|gmbh|kk)\.?$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_company_name(name: str) -> str:
+    """Lowercase + strip punctuation + drop trailing legal suffixes.
+
+    Used so 'Anduril Industries, Inc.', 'Anduril Industries Inc',
+    'Anduril Industries' all collapse to the same comparison key.
+    """
+    if not name:
+        return ""
+    n = name.strip().lower()
+    # Drop punctuation we don't care about for identity.
+    n = re.sub(r"[^\w\s]", " ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    while True:
+        stripped = _LEGAL_SUFFIX_RE.sub("", n).strip()
+        if stripped == n:
+            break
+        n = stripped
+    return n
+
+
 def upsert_company_from_match(match: dict) -> dict:
     """Reconcile an AI search hit with the local company list.
 
@@ -114,17 +142,19 @@ def upsert_company_from_match(match: dict) -> dict:
     if not name:
         raise ValueError("match missing name")
 
+    norm_name = _normalize_company_name(name)
+
     with _LOCK:
         _ensure_dirs()
         companies = list_companies()
         found_idx: int | None = None
         for i, c in enumerate(companies):
             c_ticker = (c.get("ticker") or "").strip().upper() or None
-            c_name = (c.get("name") or "").strip().lower()
+            c_name_norm = _normalize_company_name(c.get("name") or "")
             if ticker and c_ticker and ticker == c_ticker:
                 found_idx = i
                 break
-            if name.lower() == c_name:
+            if norm_name and norm_name == c_name_norm:
                 found_idx = i
                 break
 

@@ -1,16 +1,37 @@
 <script setup>
 import { computed } from "vue";
+import { ref } from "vue";
 import {
   Building2,
   ExternalLink,
+  Loader2,
+  RefreshCw,
   Sparkles,
   TrendingUp,
   Users,
 } from "lucide-vue-next";
+import { api } from "../api.js";
 
 const props = defineProps({
   company: { type: Object, required: true },
 });
+const emit = defineEmits(["refreshed"]);
+
+const refreshing = ref(false);
+const refreshError = ref(null);
+
+async function refresh() {
+  refreshing.value = true;
+  refreshError.value = null;
+  try {
+    const updated = await api.refreshCompany(props.company.id);
+    emit("refreshed", updated);
+  } catch (e) {
+    refreshError.value = e.message;
+  } finally {
+    refreshing.value = false;
+  }
+}
 
 const logoUrl = computed(() => {
   const d = props.company.logo_domain || extractDomain(props.company.website);
@@ -85,8 +106,24 @@ const earningsLine = computed(() => {
     </div>
 
     <div class="flex-1 min-w-0">
-      <div class="text-xs uppercase tracking-wider text-ink-muted mb-1">
-        Research
+      <div class="flex items-start justify-between gap-3">
+        <div class="text-xs uppercase tracking-wider text-ink-muted mb-1">
+          Research
+        </div>
+        <button
+          type="button"
+          @click="refresh"
+          :disabled="refreshing"
+          class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface-muted text-ink-secondary focus-ring inline-flex items-center gap-1.5 disabled:opacity-60"
+          :title="`Re-run AI search for ${company.name}`"
+        >
+          <Loader2 v-if="refreshing" class="h-3 w-3 animate-spin" />
+          <RefreshCw v-else class="h-3 w-3" />
+          <span>{{ refreshing ? "Refreshing…" : "Refresh data" }}</span>
+        </button>
+      </div>
+      <div v-if="refreshError" class="text-xs text-danger mb-1">
+        {{ refreshError }}
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         <h1 class="font-display text-3xl font-semibold text-ink-primary">

@@ -139,7 +139,15 @@ SYSTEM_PROMPT = (
     "news. Prefer disambiguating across multiple plausible matches when the query "
     "is ambiguous (e.g. 'Apple' vs 'Apple Hospitality REIT'). If a field is "
     "unknown or unverifiable, return null rather than guessing. Keep descriptions "
-    "to a single sentence."
+    "to a single sentence.\n\n"
+    "For `key_people`, return 4–5 entries. Always include the original "
+    "founder(s), even if they are no longer in an executive role; combine "
+    "founder status with their current title where applicable (e.g. "
+    "'Founder & CEO', 'Co-founder'). Then list the current CEO and CFO if "
+    "not already covered, plus any other high-profile leaders (chairman, "
+    "president, head of product, lead engineer). For company names use the "
+    "legal/canonical form (e.g. 'Anduril Industries, Inc.' rather than "
+    "'Anduril Industries') so repeat searches reconcile to the same entry."
 )
 
 

@@ -128,6 +128,32 @@ def get_company(company_id: str) -> CompanyOut:
     return CompanyOut(**_company_view(company))
 
 
+@router.post("/companies/{company_id}/refresh")
+def refresh_company(company_id: str) -> CompanyOut:
+    """Re-run the AI deep search for this company by name and merge the new
+    enrichment back into the local record.
+
+    Useful when the cached version is stale or missing fields (e.g. a
+    founder dropped out of the key_people list).
+    """
+    company = storage.get_company(company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    name = company.get("name") or ""
+    if not name:
+        raise HTTPException(status_code=400, detail="Company has no name to query")
+    result = companies_ai.deep_search(name, force_refresh=True)
+    # Pick the match that best matches our local id (or fall back to first).
+    matches = result.get("matches") or []
+    chosen: dict | None = next(
+        (m for m in matches if m.get("id") == company_id), None
+    )
+    if chosen is None and matches:
+        chosen = matches[0]
+    refreshed = storage.get_company(company_id) or chosen or company
+    return CompanyOut(**_company_view(refreshed))
+
+
 @router.get("/reports")
 def get_reports() -> list[ReportSummary]:
     return [ReportSummary(**_report_summary(r)) for r in storage.list_reports()]
