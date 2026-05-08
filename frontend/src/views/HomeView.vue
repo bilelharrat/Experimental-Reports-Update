@@ -195,7 +195,7 @@ function onBlur() {
             <span>
               {{
                 searchResults.source === "openai"
-                  ? "AI-grounded · web search"
+                  ? "AI-Search"
                   : searchResults.source === "cache"
                   ? "Cached"
                   : "Local matches only"
