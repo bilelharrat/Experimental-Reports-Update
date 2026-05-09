@@ -4,6 +4,9 @@ import { useRouter } from "vue-router";
 import { Search, Loader2, ArrowRight, Sparkles, Building2 } from "lucide-vue-next";
 import { api } from "../api.js";
 import CompanyCard from "../components/CompanyCard.vue";
+import SubmitLinkTool from "../components/SubmitLinkTool.vue";
+import UploadResearchTool from "../components/UploadResearchTool.vue";
+import AddHormuzResearchTool from "../components/AddHormuzResearchTool.vue";
 
 const router = useRouter();
 const query = ref("");
@@ -246,6 +249,17 @@ function onBlur() {
         @select="pickResult"
         @refreshed="(updated) => onCardRefreshed(updated)"
       />
+    </div>
+
+    <div class="mt-12 space-y-3">
+      <h2
+        class="text-xs font-semibold uppercase tracking-wide text-ink-muted px-1"
+      >
+        Quick add
+      </h2>
+      <SubmitLinkTool />
+      <UploadResearchTool />
+      <AddHormuzResearchTool />
     </div>
   </div>
 </template>

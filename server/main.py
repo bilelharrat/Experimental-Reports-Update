@@ -57,6 +57,21 @@ def research_page(company_id: str) -> FileResponse:  # noqa: ARG001 — handled 
     return _serve_index()
 
 
+@app.get("/news/{item_id}")
+def news_page(item_id: str) -> FileResponse:  # noqa: ARG001
+    return _serve_index()
+
+
+@app.get("/external-research/{item_id}")
+def external_research_page(item_id: str) -> FileResponse:  # noqa: ARG001
+    return _serve_index()
+
+
+@app.get("/hormuz/{item_id}")
+def hormuz_page(item_id: str) -> FileResponse:  # noqa: ARG001
+    return _serve_index()
+
+
 @app.get("/favicon.svg")
 def favicon() -> FileResponse:
     icon = DIST_DIR / "favicon.svg"

@@ -1,11 +1,22 @@
 """HTTP API for the research center."""
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
-from . import companies_ai, companies_autocomplete, files_store, generator, storage
+import threading
+
+from . import (
+    companies_ai,
+    companies_autocomplete,
+    external_store,
+    files_store,
+    generator,
+    link_preview as link_preview_mod,
+    storage,
+    text_analysis,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -327,6 +338,381 @@ def post_thread(company_id: str, payload: ThreadIn) -> dict:
         return storage.add_thread(company_id, payload.question.strip(), payload.answer)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+# ---- External news / external research / Hormuz research ----
+
+
+class LinkPreviewIn(BaseModel):
+    url: str
+
+
+class NewsCreateIn(BaseModel):
+    url: str
+
+
+class HormuzCreateIn(BaseModel):
+    title: str
+    body: str = ""
+
+
+@router.post("/external/link-preview")
+def post_link_preview(payload: LinkPreviewIn) -> dict:
+    """Fetch a URL and return its OpenGraph-style preview without saving.
+
+    Used by the Submit-a-link tool to show the user what they're about to
+    accept before kicking off the analysis pipeline.
+    """
+    url = (payload.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    preview = link_preview_mod.fetch(url)
+    if preview.error:
+        raise HTTPException(status_code=400, detail=preview.error)
+    out = preview.to_dict()
+    # Hint how much article text we captured so the UI can show it.
+    out["text_chars"] = len(preview.text or "")
+    return out
+
+
+def _run_news_analysis(item_id: str, url: str) -> None:
+    """Background pipeline: fetch URL, archive HTML, run AI analysis."""
+    try:
+        external_store.update_item("news", item_id, status="fetching")
+        preview = link_preview_mod.fetch(url)
+        if preview.error:
+            external_store.update_item(
+                "news", item_id, status="failed", error=preview.error
+            )
+            return
+        external_store.write_archive("news", item_id, preview.html)
+        external_store.update_item(
+            "news",
+            item_id,
+            status="analyzing",
+            title=preview.title or url,
+            description=preview.description,
+            site_name=preview.site_name,
+            image=preview.image,
+            favicon=preview.favicon,
+            domain=preview.domain,
+            final_url=preview.final_url,
+            archive_path=str(external_store.archive_path("news", item_id).name),
+            raw_text_chars=len(preview.text or ""),
+        )
+        analysis = text_analysis.analyze(
+            preview.text, hint_title=preview.title
+        )
+        if "error" in analysis:
+            external_store.update_item(
+                "news", item_id, status="ready", analysis_error=analysis["error"]
+            )
+            return
+        external_store.update_item(
+            "news",
+            item_id,
+            status="ready",
+            summary=analysis.get("summary"),
+            key_points=analysis.get("key_points") or [],
+            language=analysis.get("language") or "other",
+            translation=analysis.get("translation"),
+            title=(analysis.get("title") or preview.title or url),
+        )
+    except Exception as exc:  # noqa: BLE001
+        external_store.update_item(
+            "news", item_id, status="failed", error=f"{type(exc).__name__}: {exc}"
+        )
+
+
+@router.post("/external/news", status_code=201)
+def post_news(payload: NewsCreateIn) -> dict:
+    url = (payload.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    item_id = external_store.new_id()
+    item = external_store.write_item(
+        "news",
+        {
+            "id": item_id,
+            "kind": "news",
+            "status": "queued",
+            "source_url": url,
+            "title": url,
+        },
+    )
+    threading.Thread(
+        target=_run_news_analysis, args=(item_id, url), daemon=True
+    ).start()
+    return item
+
+
+@router.get("/external/news")
+def get_news_list() -> list[dict]:
+    return external_store.list_items("news")
+
+
+@router.get("/external/news/{item_id}")
+def get_news(item_id: str) -> dict:
+    item = external_store.get_item("news", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="News item not found")
+    return item
+
+
+@router.get("/external/news/{item_id}/archive", response_class=Response)
+def get_news_archive(item_id: str) -> Response:
+    """Serve the archived HTML for a news item."""
+    from fastapi.responses import HTMLResponse
+
+    item = external_store.get_item("news", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="News item not found")
+    p = external_store.archive_path("news", item_id)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Archive not available")
+    return HTMLResponse(content=p.read_text(encoding="utf-8"))
+
+
+@router.delete("/external/news/{item_id}", status_code=204)
+def delete_news(item_id: str) -> None:
+    if not external_store.delete_item("news", item_id):
+        raise HTTPException(status_code=404, detail="News item not found")
+
+
+# ---- External research ----
+
+
+def _run_external_research_analysis(
+    item_id: str, file_path: str, hint_title: str | None
+) -> None:
+    try:
+        external_store.update_item("external_research", item_id, status="extracting")
+        text = _extract_text_from_file(file_path)
+        if not text:
+            external_store.update_item(
+                "external_research",
+                item_id,
+                status="ready",
+                analysis_error="Couldn't extract text from this file type.",
+            )
+            return
+        external_store.update_item(
+            "external_research",
+            item_id,
+            status="analyzing",
+            raw_text_chars=len(text),
+        )
+        analysis = text_analysis.analyze(text, hint_title=hint_title)
+        if "error" in analysis:
+            external_store.update_item(
+                "external_research",
+                item_id,
+                status="ready",
+                analysis_error=analysis["error"],
+            )
+            return
+        external_store.update_item(
+            "external_research",
+            item_id,
+            status="ready",
+            summary=analysis.get("summary"),
+            key_points=analysis.get("key_points") or [],
+            language=analysis.get("language") or "other",
+            translation=analysis.get("translation"),
+            title=(analysis.get("title") or hint_title or "Untitled"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        external_store.update_item(
+            "external_research",
+            item_id,
+            status="failed",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _extract_text_from_file(path_str: str) -> str:
+    """Best-effort text extraction from PDF/DOCX/TXT. Returns "" if we can't."""
+    from pathlib import Path
+
+    p = Path(path_str)
+    if not p.exists():
+        return ""
+    suffix = p.suffix.lower()
+    try:
+        if suffix == ".txt":
+            return p.read_text(encoding="utf-8", errors="ignore")[:60_000]
+        if suffix == ".pdf":
+            try:
+                from pypdf import PdfReader  # type: ignore
+            except ImportError:
+                return ""
+            reader = PdfReader(str(p))
+            chunks = []
+            for page in reader.pages[:50]:
+                chunks.append(page.extract_text() or "")
+            return "\n".join(chunks)[:60_000]
+        if suffix in (".docx", ".doc"):
+            try:
+                from docx import Document  # type: ignore
+            except ImportError:
+                return ""
+            doc = Document(str(p))
+            return "\n".join(p_.text for p_ in doc.paragraphs)[:60_000]
+    except Exception:
+        return ""
+    return ""
+
+
+@router.post("/external/research", status_code=201)
+async def post_external_research(
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+    source_company: str | None = Form(None),
+    contact_name: str | None = Form(None),
+    contact_email: str | None = Form(None),
+    notes: str | None = Form(None),
+) -> dict:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File is required")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    item_id = external_store.new_id()
+
+    # Stage the file under data/external/external_research/files/<id>__<name>
+    from pathlib import Path
+
+    files_dir = external_store._kind_dir("external_research") / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = files_store._sanitize_filename(file.filename)
+    stored_name = f"{item_id}__{safe_name}"
+    stored_path = files_dir / stored_name
+    tmp = stored_path.with_suffix(stored_path.suffix + ".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(stored_path)
+
+    item = external_store.write_item(
+        "external_research",
+        {
+            "id": item_id,
+            "kind": "external_research",
+            "status": "queued",
+            "title": (title or "").strip() or safe_name,
+            "filename": safe_name,
+            "stored_name": stored_name,
+            "size_bytes": len(data),
+            "content_type": file.content_type or "",
+            "source_company": (source_company or "").strip() or None,
+            "contact_name": (contact_name or "").strip() or None,
+            "contact_email": (contact_email or "").strip() or None,
+            "notes": (notes or "").strip() or None,
+        },
+    )
+    threading.Thread(
+        target=_run_external_research_analysis,
+        args=(item_id, str(stored_path), item.get("title")),
+        daemon=True,
+    ).start()
+    return item
+
+
+@router.get("/external/research")
+def get_external_research_list() -> list[dict]:
+    return external_store.list_items("external_research")
+
+
+@router.get("/external/research/{item_id}")
+def get_external_research(item_id: str) -> dict:
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    return item
+
+
+@router.get("/external/research/{item_id}/file")
+def get_external_research_file(item_id: str) -> FileResponse:
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    stored = item.get("stored_name")
+    if not stored:
+        raise HTTPException(status_code=404, detail="No file attached")
+    p = external_store._kind_dir("external_research") / "files" / stored
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    return FileResponse(
+        path=str(p),
+        filename=item.get("filename") or stored,
+        media_type=item.get("content_type") or "application/octet-stream",
+    )
+
+
+@router.delete("/external/research/{item_id}", status_code=204)
+def delete_external_research(item_id: str) -> None:
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    stored = item.get("stored_name")
+    if stored:
+        p = external_store._kind_dir("external_research") / "files" / stored
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    external_store.delete_item("external_research", item_id)
+
+
+# ---- Combined news + research feed ----
+
+
+@router.get("/external/feed")
+def get_external_feed() -> list[dict]:
+    """Combined news + external_research, sorted newest first."""
+    return external_store.list_news_and_research()
+
+
+# ---- Hormuz research (internal, no AI) ----
+
+
+@router.post("/external/hormuz", status_code=201)
+def post_hormuz(payload: HormuzCreateIn) -> dict:
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    item_id = external_store.new_id()
+    return external_store.write_item(
+        "hormuz_research",
+        {
+            "id": item_id,
+            "kind": "hormuz_research",
+            "status": "ready",
+            "title": title,
+            "body": (payload.body or "").strip(),
+        },
+    )
+
+
+@router.get("/external/hormuz")
+def get_hormuz_list() -> list[dict]:
+    return external_store.list_items("hormuz_research")
+
+
+@router.get("/external/hormuz/{item_id}")
+def get_hormuz(item_id: str) -> dict:
+    item = external_store.get_item("hormuz_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Hormuz item not found")
+    return item
+
+
+@router.delete("/external/hormuz/{item_id}", status_code=204)
+def delete_hormuz(item_id: str) -> None:
+    if not external_store.delete_item("hormuz_research", item_id):
+        raise HTTPException(status_code=404, detail="Hormuz item not found")
 
 
 # ---- view shaping ----

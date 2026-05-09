@@ -64,6 +64,54 @@ export const api = {
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+  // External news, research, and Hormuz
+  externalFeed: () => request("/api/external/feed"),
+  listNews: () => request("/api/external/news"),
+  getNews: (id) => request(`/api/external/news/${id}`),
+  createNews: (url) =>
+    request("/api/external/news", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+  linkPreview: (url) =>
+    request("/api/external/link-preview", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
+  newsArchiveUrl: (id) => `/api/external/news/${id}/archive`,
+  deleteNews: async (id) => {
+    const res = await fetch(`/api/external/news/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
+  listExternalResearch: () => request("/api/external/research"),
+  getExternalResearch: (id) => request(`/api/external/research/${id}`),
+  uploadExternalResearch: async (form) => {
+    const res = await fetch("/api/external/research", {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    }
+    return res.json();
+  },
+  externalResearchFileUrl: (id) => `/api/external/research/${id}/file`,
+  deleteExternalResearch: async (id) => {
+    const res = await fetch(`/api/external/research/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
+  listHormuz: () => request("/api/external/hormuz"),
+  getHormuz: (id) => request(`/api/external/hormuz/${id}`),
+  createHormuz: (payload) =>
+    request("/api/external/hormuz", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deleteHormuz: async (id) => {
+    const res = await fetch(`/api/external/hormuz/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
   listThreads: (companyId) =>
     request(`/api/companies/${companyId}/threads`),
   addThread: (companyId, payload) =>

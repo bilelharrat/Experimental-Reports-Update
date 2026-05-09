@@ -214,19 +214,27 @@ def delete_file(company_id: str, file_id: str) -> bool:
 
 # Embedded AppleScript: open the input, save as PDF, close. `launch` (vs
 # `activate`) keeps PowerPoint in the background so it doesn't steal focus.
+# We pass POSIX paths directly — modern PowerPoint accepts them on `save in`.
 _POWERPOINT_APPLESCRIPT = """on run argv
     set inputPath to item 1 of argv
     set outputPath to item 2 of argv
     tell application "Microsoft PowerPoint"
         launch
         set thePresentation to open POSIX file inputPath
-        save thePresentation in (POSIX file outputPath as text) as save as PDF
+        save thePresentation in outputPath as save as PDF
         close thePresentation saving no
     end tell
 end run
 """
 
 CONVERSION_TIMEOUT = float(os.environ.get("PPT_CONVERSION_TIMEOUT", "180"))
+
+# PowerPoint runs in macOS's App Sandbox and can't read project paths
+# (data/uploads/...) or per-process tempdirs (/var/folders/...) — both fail
+# with error -9074. /tmp is world-writable and Office's sandbox allows it,
+# so we stage input + output there. Override via PPT_STAGE_DIR if needed.
+_DEFAULT_STAGE_ROOT = Path("/tmp/bsh-research-center")
+_STAGE_ROOT = Path(os.environ.get("PPT_STAGE_DIR") or _DEFAULT_STAGE_ROOT)
 
 
 def _preview_path_for(company_id: str, record: dict) -> Path:
@@ -235,11 +243,36 @@ def _preview_path_for(company_id: str, record: dict) -> Path:
     return _company_dir(company_id) / f"{fid}__preview.pdf"
 
 
+def _interpret_applescript_error(detail: str) -> str:
+    """Map the most common AppleScript / PowerPoint error codes to a useful
+    plain-English explanation. Falls back to the raw stderr otherwise.
+    """
+    if "-1743" in detail or "Not authorized" in detail:
+        return (
+            "macOS Automation permission denied. Open System Settings → "
+            "Privacy & Security → Automation, find the terminal / IDE "
+            "running uvicorn, and enable the checkbox next to "
+            "Microsoft PowerPoint."
+        )
+    if "-9074" in detail or "-1728" in detail or "-43" in detail:
+        return (
+            "PowerPoint can't read or write the file at the chosen path. "
+            "This usually means macOS App Sandbox is blocking access. "
+            "Grant Full Disk Access to Microsoft PowerPoint in System "
+            "Settings → Privacy & Security → Full Disk Access."
+        )
+    return detail[:600]
+
+
 def _convert_with_powerpoint(src: Path, dst: Path) -> tuple[bool, str | None]:
     """Run Microsoft PowerPoint via osascript to save src as a PDF at dst.
 
     Returns `(success, error_message)`. Idempotent — fast no-op if dst
     already exists. macOS only.
+
+    Files are staged under the user's home directory before being handed to
+    PowerPoint because Office's App Sandbox can't reach `data/uploads/...`
+    (under the project) or the system tempdir.
     """
     if dst.exists():
         return True, None
@@ -253,62 +286,76 @@ def _convert_with_powerpoint(src: Path, dst: Path) -> tuple[bool, str | None]:
         return False, msg
 
     script_file: Path | None = None
+    stage_dir: Path | None = None
     try:
+        # 1. Write the AppleScript to a temp file (path doesn't matter — the
+        #    script is interpreted by osascript, not PowerPoint).
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".applescript", delete=False
         ) as f:
             f.write(_POWERPOINT_APPLESCRIPT)
             script_file = Path(f.name)
 
-        # Convert into a temp output then move atomically into place so a
-        # half-written file never wins a race against a concurrent reader.
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_out = Path(tmp) / "out.pdf"
-            try:
-                subprocess.run(
-                    ["osascript", str(script_file), str(src), str(tmp_out)],
-                    check=True,
-                    timeout=CONVERSION_TIMEOUT,
-                    capture_output=True,
-                )
-            except FileNotFoundError as exc:
-                msg = f"osascript not found: {exc}"
-                logger.warning("Can't convert %s: %s", src, msg)
-                return False, msg
-            except subprocess.TimeoutExpired:
-                msg = (
-                    f"PowerPoint conversion timed out after "
-                    f"{CONVERSION_TIMEOUT:.0f}s. Set PPT_CONVERSION_TIMEOUT "
-                    "to raise the cap."
-                )
-                logger.warning("%s (%s)", msg, src)
-                return False, msg
-            except subprocess.CalledProcessError as exc:
-                stderr = (exc.stderr or b"").decode("utf-8", "ignore").strip()
-                stdout = (exc.stdout or b"").decode("utf-8", "ignore").strip()
-                detail = stderr or stdout or "(no output)"
-                # macOS Automation permission denial has a recognizable shape.
-                if "-1743" in detail or "Not authorized" in detail:
-                    detail = (
-                        "macOS Automation permission denied. Open System "
-                        "Settings → Privacy & Security → Automation, find "
-                        "the terminal/IDE running uvicorn, and enable the "
-                        "checkbox next to Microsoft PowerPoint."
-                    )
-                msg = f"PowerPoint conversion failed: {detail[:600]}"
-                logger.warning("%s (%s)", msg, src)
-                return False, msg
-            if not tmp_out.exists():
-                msg = "PowerPoint produced no output (no PDF written)."
-                logger.warning("%s (%s)", msg, src)
-                return False, msg
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(tmp_out), str(dst))
-            return True, None
+        # 2. Stage the input + output in ~/.bsh-research-center/ppt-convert.
+        #    PowerPoint's sandbox extension covers the user's home so this
+        #    path is reachable; /var/folders/... is not.
+        _STAGE_ROOT.mkdir(parents=True, exist_ok=True)
+        stage_dir = Path(tempfile.mkdtemp(prefix="conv-", dir=str(_STAGE_ROOT)))
+        # Preserve the extension so PowerPoint identifies the format.
+        staged_in = stage_dir / src.name
+        shutil.copy2(src, staged_in)
+        staged_out = stage_dir / "out.pdf"
+
+        try:
+            subprocess.run(
+                [
+                    "osascript",
+                    str(script_file),
+                    str(staged_in),
+                    str(staged_out),
+                ],
+                check=True,
+                timeout=CONVERSION_TIMEOUT,
+                capture_output=True,
+            )
+        except FileNotFoundError as exc:
+            msg = f"osascript not found: {exc}"
+            logger.warning("Can't convert %s: %s", src, msg)
+            return False, msg
+        except subprocess.TimeoutExpired:
+            msg = (
+                f"PowerPoint conversion timed out after "
+                f"{CONVERSION_TIMEOUT:.0f}s. Set PPT_CONVERSION_TIMEOUT to "
+                "raise the cap."
+            )
+            logger.warning("%s (%s)", msg, src)
+            return False, msg
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or b"").decode("utf-8", "ignore").strip()
+            stdout = (exc.stdout or b"").decode("utf-8", "ignore").strip()
+            detail = stderr or stdout or "(no output)"
+            msg = f"PowerPoint conversion failed: {_interpret_applescript_error(detail)}"
+            logger.warning("%s (raw: %s) (%s)", msg, detail[:300], src)
+            return False, msg
+
+        if not staged_out.exists():
+            msg = "PowerPoint produced no output (no PDF written)."
+            logger.warning("%s (%s)", msg, src)
+            return False, msg
+
+        # 3. Move the produced PDF into the cache location.
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(staged_out), str(dst))
+        return True, None
     finally:
         if script_file is not None:
             try:
                 script_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if stage_dir is not None:
+            try:
+                shutil.rmtree(stage_dir, ignore_errors=True)
             except Exception:
                 pass
 

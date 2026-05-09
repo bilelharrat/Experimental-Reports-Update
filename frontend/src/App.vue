@@ -4,12 +4,21 @@ import { api } from "./api.js";
 import Sidebar from "./components/Sidebar.vue";
 
 const reports = ref([]);
+const externalFeed = ref([]);
+const hormuz = ref([]);
 const loading = ref(true);
 const error = ref(null);
 
-async function refreshReports() {
+async function refreshAll() {
   try {
-    reports.value = await api.listReports();
+    const [r, f, h] = await Promise.all([
+      api.listReports(),
+      api.externalFeed(),
+      api.listHormuz(),
+    ]);
+    reports.value = r;
+    externalFeed.value = f;
+    hormuz.value = h;
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -17,18 +26,24 @@ async function refreshReports() {
   }
 }
 
-onMounted(refreshReports);
+onMounted(refreshAll);
 
-// Poll so the sidebar reflects in-progress generations across pages.
-setInterval(refreshReports, 4000);
+// Poll so the sidebar reflects in-progress generations and analyses.
+setInterval(refreshAll, 4000);
 </script>
 
 <template>
   <div class="min-h-screen flex">
-    <Sidebar :reports="reports" :loading="loading" :error="error" />
+    <Sidebar
+      :reports="reports"
+      :external-feed="externalFeed"
+      :hormuz="hormuz"
+      :loading="loading"
+      :error="error"
+    />
     <main class="flex-1 min-w-0">
       <RouterView v-slot="{ Component }">
-        <component :is="Component" @reports-changed="refreshReports" />
+        <component :is="Component" @reports-changed="refreshAll" />
       </RouterView>
     </main>
   </div>
