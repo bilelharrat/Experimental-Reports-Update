@@ -9,6 +9,7 @@ import threading
 from datetime import datetime, timezone
 
 from . import (
+    claude_runner,
     companies_ai,
     companies_autocomplete,
     deck_summary,
@@ -103,6 +104,17 @@ def get_options() -> dict:
         "audiences": list(AUDIENCES),
         "languages": [{"code": "en", "label": "English"}, {"code": "zh", "label": "中文"}],
     }
+
+
+@router.get("/diagnostics/claude")
+def diagnose_claude() -> dict:
+    """Health-check the local Claude Code CLI.
+
+    Spawns a one-shot prompt and reports back path, version, model,
+    response, latency, and cost. Used to verify Claude is installed and
+    authenticated before kicking off real summary jobs.
+    """
+    return claude_runner.health_check()
 
 
 @router.get("/companies")

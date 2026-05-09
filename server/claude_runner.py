@@ -33,6 +33,115 @@ def claude_path() -> str | None:
     return shutil.which("claude")
 
 
+def health_check(*, timeout_sec: int = 60) -> dict:
+    """Run a tiny one-shot prompt against `claude` and report what happened.
+
+    Returns a dict with `ok` plus diagnostic fields suitable for an HTTP
+    health endpoint. Never raises — always returns a structured result.
+    """
+    import time
+
+    if not is_available():
+        return {
+            "ok": False,
+            "available": False,
+            "path": None,
+            "error": (
+                "`claude` not on PATH. Install with `npm install -g "
+                "@anthropic-ai/claude-code` and run `claude` once to log in."
+            ),
+        }
+
+    path = claude_path()
+
+    # Best-effort version probe.
+    version: str | None = None
+    try:
+        v = subprocess.run(
+            [path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if v.returncode == 0:
+            version = v.stdout.strip()
+    except Exception as exc:  # noqa: BLE001
+        version = f"(version probe failed: {exc})"
+
+    started = time.monotonic()
+    try:
+        proc = subprocess.run(
+            [
+                path,
+                "-p",
+                "Reply with exactly: BSH analyst online.",
+                "--output-format",
+                "json",
+                "--no-session-persistence",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "available": True,
+            "path": path,
+            "version": version,
+            "error": f"claude timed out after {timeout_sec}s",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "available": True,
+            "path": path,
+            "version": version,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    if proc.returncode != 0:
+        return {
+            "ok": False,
+            "available": True,
+            "path": path,
+            "version": version,
+            "duration_ms": duration_ms,
+            "error": (
+                f"claude exited {proc.returncode}: "
+                f"{(proc.stderr or '').strip()[:600]}"
+            ),
+        }
+
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "available": True,
+            "path": path,
+            "version": version,
+            "duration_ms": duration_ms,
+            "error": "claude returned non-JSON output",
+            "stdout_preview": (proc.stdout or "")[:300],
+        }
+
+    return {
+        "ok": True,
+        "available": True,
+        "path": path,
+        "version": version,
+        "duration_ms": duration_ms,
+        "model": data.get("model"),
+        "session_id": data.get("session_id"),
+        "result": (data.get("result") or "").strip(),
+        "cost_usd": data.get("total_cost_usd"),
+        "usage": data.get("usage"),
+    }
+
+
 def _drain_stderr(proc: subprocess.Popen, log: list[str]) -> None:
     """Background thread that buffers stderr so a long stderr can't deadlock
     the subprocess."""
