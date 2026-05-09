@@ -243,17 +243,36 @@ async def post_file(
 
 
 @router.get("/companies/{company_id}/files/{file_id}")
-def get_file(company_id: str, file_id: str) -> FileResponse:
+def get_file(
+    company_id: str, file_id: str, inline: bool = False
+) -> FileResponse:
+    """Stream an uploaded file.
+
+    Default disposition is `attachment` (browser downloads). Pass `inline=1`
+    to get `inline` so PDFs render in an <iframe> previewer.
+    """
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     found = files_store.get_file(company_id, file_id)
     if found is None:
         raise HTTPException(status_code=404, detail="File not found")
     record, path = found
+    filename = record.get("filename") or "file"
+    media_type = record.get("content_type") or "application/octet-stream"
+    if inline:
+        # FileResponse's `filename` arg always sets attachment; build the
+        # header by hand to keep `inline` disposition.
+        return FileResponse(
+            path=str(path),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+            },
+        )
     return FileResponse(
         path=str(path),
-        filename=record.get("filename"),
-        media_type=record.get("content_type") or "application/octet-stream",
+        filename=filename,
+        media_type=media_type,
     )
 
 

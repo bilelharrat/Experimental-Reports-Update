@@ -12,12 +12,15 @@ import {
   Eye,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import FilePreviewModal from "./FilePreviewModal.vue";
 
 const props = defineProps({
   companyId: { type: String, required: true },
   refreshKey: { type: Number, default: 0 },
 });
 const emit = defineEmits(["open-report", "files-changed"]);
+
+const previewing = ref(null); // file object | null
 
 const files = ref([]);
 const reports = ref([]);
@@ -329,16 +332,14 @@ const counts = computed(() => {
               :title="LANG_LABELS[f.language || 'en']"
               >{{ (f.language || "en").toUpperCase() }}</span
             >
-            <a
-              v-if="f.kind === 'pdf'"
-              :href="api.fileUrl(companyId, f.id)"
-              target="_blank"
-              rel="noopener"
+            <button
+              type="button"
+              @click="previewing = f"
               class="p-1.5 rounded hover:bg-surface text-ink-muted hover:text-ink-primary focus-ring"
-              :title="`View ${f.filename}`"
+              :title="`Preview ${f.filename}`"
             >
               <Eye class="h-4 w-4" />
-            </a>
+            </button>
             <a
               :href="api.fileUrl(companyId, f.id)"
               :download="f.filename"
@@ -359,5 +360,11 @@ const counts = computed(() => {
         </ul>
       </div>
     </div>
+
+    <FilePreviewModal
+      :company-id="companyId"
+      :file="previewing"
+      @close="previewing = null"
+    />
   </section>
 </template>
