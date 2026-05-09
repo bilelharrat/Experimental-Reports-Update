@@ -372,34 +372,49 @@ def _run_summary_job(company_id: str, file_id: str) -> None:
             if not ppt_preview.exists():
                 ppt_preview = None
 
+        # Best-effort slide extraction for metadata + UI hints. The actual
+        # reading still happens inside Claude Code.
         slides = deck_summary.extract_slides(
             src_path, kind, ppt_preview=ppt_preview, progress=progress
         )
-        if not slides:
+
+        # Choose what to hand Claude. Claude reads the original file directly
+        # (PDF / PPTX). For .ppt (binary) we use the PowerPoint-converted PDF
+        # if available.
+        claude_source: "Path | None"
+        if kind in ("pdf", "pptx"):
+            claude_source = src_path
+        elif kind == "ppt":
+            claude_source = ppt_preview
+        else:
+            claude_source = None
+        claude_kind = (
+            "pdf" if claude_source and claude_source.suffix.lower() == ".pdf"
+            else "pptx" if claude_source and claude_source.suffix.lower() == ".pptx"
+            else kind
+        )
+
+        if claude_source is None and not slides:
             progress.emit(
                 "error",
                 error=(
-                    "Couldn't extract slide text. .ppt files need a PDF preview "
-                    "first; .pptx and .pdf should work directly."
+                    "Couldn't extract slide text. .ppt files need a PDF "
+                    "preview first; .pptx and .pdf should work directly."
                 ),
             )
             return
 
-        visual_path = (
-            src_path
-            if kind == "pdf"
-            else ppt_preview
-            if (kind == "ppt" and ppt_preview is not None)
-            else None
-        )
-        visual_kind = "pdf" if visual_path is not None else kind
+        # Per-job work dir lives under the upload folder so progress.md and
+        # summary.json are inspectable on disk.
+        work_dir = files_store._company_dir(company_id) / f"{file_id}__job"
 
         summary = deck_summary.summarize_slides(
             slides,
             hint_title=(record.get("label") or record.get("filename") or ""),
-            file_path=visual_path,
-            kind=visual_kind,
+            file_path=claude_source,
+            kind=claude_kind,
             progress=progress,
+            work_dir=work_dir,
         )
         if "error" in summary:
             progress.emit("error", error=summary["error"])

@@ -416,6 +416,25 @@ def _summarize_pdf_visually(
     return result
 
 
+QUALITY_BAR = (
+    "- Executive summary: 3–5 sentences. The TL;DR — what this deck is, "
+    "who/what it's about, the central thesis. Specific. Concrete.\n"
+    "- 4–8 supporting-detail sections. Each: short noun-phrase title (≤6 "
+    "words), 2–4 dense sentences (numbers, names, dates, claims), and "
+    "slide_refs as integer 1-indexed slide numbers.\n"
+    "- Both languages (`en` and `zh` / 简体中文) must convey the SAME "
+    "information. The Chinese version is naturally rendered, not literal.\n"
+    "- No marketing adjectives ('innovative', 'leading', 'world-class') "
+    "unless the deck uses them as a direct quote.\n"
+    "- No throat-clearing sentences. If you'd write 'the deck covers various "
+    "topics', delete it.\n"
+    "- Don't invent. If a slide is unclear or empty, omit it.\n"
+    "- Reference slides naturally where it adds precision: '(see slide 5)' / "
+    "'(参见第5页)'.\n"
+    "- For very short decks (<5 slides), 2–3 sections is fine."
+)
+
+
 def summarize_slides(
     slides: list[Slide],
     *,
@@ -423,32 +442,74 @@ def summarize_slides(
     file_path: Path | None = None,
     kind: str | None = None,
     progress=None,
+    work_dir: Path | None = None,
 ) -> dict:
-    """Run OpenAI summarization. Tries the text-extraction path first; if
-    slide text is empty (image-based deck) and we have a PDF on disk, falls
-    back to passing the PDF to the model as a visual `input_file`.
+    """Generate a bilingual deck summary.
 
-    `progress` is an optional `ProgressLog` that the helpers emit JSONL
-    events to so the SSE endpoint can stream them to the UI.
+    Primary path: spawn Claude Code (`claude -p ... --output-format stream-json
+    --json-schema ...`) with the source deck staged in a per-job work
+    directory. Claude reads the deck, writes a per-slide `progress.md`, and
+    returns a structured JSON answer validated against SUMMARY_SCHEMA.
+
+    Fallback (only when `claude` isn't on PATH): the previous OpenAI text /
+    vision pipeline.
     """
-    if not slides:
+    if not slides and file_path is None:
         return {"error": "Couldn't extract any slide text from this file."}
-    if not _is_available():
-        return {"error": "OPENAI_API_KEY not set — summary skipped."}
 
+    # Decide what to feed Claude. We always prefer the original/visual file
+    # because Claude can read it directly via the Read tool (handles PDFs +
+    # PPTX text natively). Only when we have neither do we lean on the
+    # extracted text.
+    source_for_claude: Path | None = None
+    if file_path and file_path.exists() and kind in ("pdf", "pptx", "ppt"):
+        source_for_claude = file_path
+
+    from . import claude_runner
+
+    if claude_runner.is_available() and source_for_claude is not None:
+        if work_dir is None:
+            work_dir = source_for_claude.parent / f"{source_for_claude.stem}__job"
+        result = claude_runner.run_summary(
+            work_dir=work_dir,
+            source_path=source_for_claude,
+            hint_title=hint_title,
+            schema=SUMMARY_SCHEMA,
+            quality_bar=QUALITY_BAR,
+            progress=progress,
+        )
+        if "error" not in result:
+            # Stamp slide-count metadata for the UI.
+            result.setdefault("slide_count", len(slides) or None)
+            result.setdefault("slides_used", len(slides) or None)
+        return result
+
+    # Fallback: OpenAI direct (kept so the system still works on machines
+    # without Claude Code installed).
+    if not _is_available():
+        return {
+            "error": (
+                "Neither Claude Code (`claude`) nor OPENAI_API_KEY are "
+                "available. Install Claude Code with "
+                "`npm install -g @anthropic-ai/claude-code` and authenticate, "
+                "or set OPENAI_API_KEY."
+            )
+        }
     if _has_meaningful_text(slides):
         result = _summarize_text(slides, hint_title=hint_title, progress=progress)
         if "error" not in result:
-            result["mode"] = "text"
+            result["mode"] = "openai_text"
         return result
-
     if file_path and kind in ("pdf", "ppt"):
-        return _summarize_pdf_visually(
+        result = _summarize_pdf_visually(
             file_path,
             slide_count=len(slides),
             hint_title=hint_title,
             progress=progress,
         )
+        if "error" not in result:
+            result["mode"] = "openai_vision"
+        return result
     return {
         "error": (
             "This deck has no extractable text. PDFs can be summarized "

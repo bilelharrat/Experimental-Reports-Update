@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   Check,
   ChevronDown,
@@ -29,8 +29,9 @@ const expandedSet = ref(new Set());
 const generating = ref(false);
 const stages = ref([]); // [{stage, message, ts}]
 const slideEvents = ref([]); // [{slide_no, preview, chars}]
-const thinkingTail = ref(""); // last delta tail for the typing ticker
-const thinkingChars = ref(0);
+const claudeActions = ref([]); // [{action, tool, preview, ...}]
+const claudeMeta = ref({ session: null, model: null, cost_usd: null });
+const lastThinking = ref(""); // last assistant text block
 let eventSource = null;
 
 function reset() {
@@ -40,8 +41,9 @@ function reset() {
   expandedSet.value = new Set();
   stages.value = [];
   slideEvents.value = [];
-  thinkingTail.value = "";
-  thinkingChars.value = 0;
+  claudeActions.value = [];
+  claudeMeta.value = { session: null, model: null, cost_usd: null };
+  lastThinking.value = "";
   generating.value = false;
 }
 
@@ -75,10 +77,34 @@ function handleProgress(entry) {
   if (entry.type === "stage") {
     stages.value = [...stages.value, entry];
   } else if (entry.type === "slide_extracted") {
-    slideEvents.value = [...slideEvents.value, entry];
-  } else if (entry.type === "thinking") {
-    thinkingTail.value = entry.tail || "";
-    thinkingChars.value = entry.chars || 0;
+    // Dedupe by slide_no — Claude may emit the same slide twice if it
+    // re-writes progress.md.
+    const existing = slideEvents.value.find(
+      (e) => e.slide_no === entry.slide_no,
+    );
+    if (existing) {
+      Object.assign(existing, entry);
+      slideEvents.value = [...slideEvents.value];
+    } else {
+      slideEvents.value = [...slideEvents.value, entry];
+    }
+  } else if (entry.type === "claude_action") {
+    claudeActions.value = [...claudeActions.value, entry];
+    if (entry.action === "init") {
+      claudeMeta.value = {
+        session: entry.session,
+        model: entry.model,
+        cost_usd: null,
+      };
+    } else if (entry.action === "thinking") {
+      lastThinking.value = entry.text || "";
+    } else if (entry.action === "result") {
+      claudeMeta.value = {
+        ...claudeMeta.value,
+        cost_usd: entry.cost_usd,
+        duration_ms: entry.duration_ms,
+      };
+    }
   } else if (entry.type === "done") {
     closeStream();
     generating.value = false;
@@ -213,6 +239,22 @@ function fmtSlideRefs(refs, lang) {
     : `Slide${refs.length > 1 ? "s" : ""} ${groups.join(", ")}`;
 }
 
+function truncate(s, n) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
+}
+
+const actionListRef = ref(null);
+watch(
+  () => claudeActions.value.length,
+  async () => {
+    await nextTick();
+    if (actionListRef.value) {
+      actionListRef.value.scrollTop = actionListRef.value.scrollHeight;
+    }
+  },
+);
+
 function fmtAge(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -246,8 +288,9 @@ const fileLabel = computed(
 // Friendly stage labels for the timeline.
 const STAGE_ORDER = [
   ["starting", "Starting"],
-  ["extracting", "Extracting slides"],
-  ["extracted", "Slides extracted"],
+  ["extracting", "Indexing deck locally"],
+  ["extracted", "Local index ready"],
+  ["claude_starting", "Spawning BSH analyst"],
   ["uploading", "Uploading to BSH model"],
   ["uploaded", "Upload complete"],
   ["generating", "BSH model is composing"],
@@ -479,13 +522,13 @@ const lastStage = computed(
               </div>
             </section>
 
-            <!-- Thinking ticker -->
+            <!-- Claude action feed -->
             <section
-              v-if="thinkingChars > 0"
+              v-if="claudeActions.length"
               class="bg-surface border border-subtle rounded-card shadow-card p-5"
             >
               <div
-                class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted mb-2"
+                class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted mb-3"
               >
                 <span class="inline-flex items-center gap-1.5">
                   <span class="relative flex h-1.5 w-1.5">
@@ -496,16 +539,74 @@ const lastStage = computed(
                       class="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent"
                     ></span>
                   </span>
-                  BSH model — composing
+                  BSH analyst — live actions
                 </span>
                 <span
+                  v-if="claudeMeta.model"
                   class="font-mono normal-case tracking-normal text-ink-muted"
-                  >{{ thinkingChars }} chars</span
+                  >{{ claudeMeta.model
+                  }}<span v-if="claudeMeta.cost_usd != null">
+                    · ${{ claudeMeta.cost_usd?.toFixed?.(4) ?? claudeMeta.cost_usd }}</span></span
                 >
               </div>
-              <pre
-                class="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-ink-secondary opacity-80 max-h-32 overflow-hidden"
-                ><span class="text-ink-subtle">…</span>{{ thinkingTail }}<span class="inline-block w-2 h-3 ml-0.5 bg-accent animate-pulse align-middle"></span></pre>
+              <ol
+                ref="actionListRef"
+                class="space-y-1.5 max-h-72 overflow-y-auto text-xs"
+              >
+                <li
+                  v-for="(a, i) in claudeActions"
+                  :key="i"
+                  class="font-mono"
+                >
+                  <span
+                    v-if="a.action === 'init'"
+                    class="text-ink-muted"
+                    >▸ analyst online · {{ (a.tools || []).length }} tools available</span
+                  >
+                  <span
+                    v-else-if="a.action === 'thinking'"
+                    class="text-ink-secondary"
+                  >
+                    <span class="text-accent">›</span>
+                    <span class="ml-1 italic">{{ truncate(a.text, 220) }}</span>
+                  </span>
+                  <span
+                    v-else-if="a.action === 'tool_use'"
+                    class="text-ink-secondary"
+                  >
+                    <span
+                      :class="
+                        a.tool === 'Read'
+                          ? 'text-info'
+                          : a.tool === 'Write'
+                          ? 'text-success'
+                          : a.tool === 'Edit'
+                          ? 'text-warning'
+                          : 'text-ink-muted'
+                      "
+                      >⏻ {{ a.tool }}</span
+                    >
+                    <span class="ml-1 text-ink-muted">{{ truncate(a.preview, 140) }}</span>
+                  </span>
+                  <span
+                    v-else-if="a.action === 'tool_result'"
+                    class="text-ink-subtle"
+                  >
+                    <span :class="a.is_error ? 'text-danger-ink' : 'text-success'">↩</span>
+                    {{ a.is_error ? "error" : "ok" }}
+                    <span class="ml-1">{{ truncate(a.preview, 120) }}</span>
+                  </span>
+                  <span
+                    v-else-if="a.action === 'result'"
+                    class="text-success-ink"
+                  >
+                    ✓ analyst done
+                    <span v-if="a.duration_ms" class="text-ink-muted">
+                      · {{ Math.round(a.duration_ms / 1000) }}s</span
+                    >
+                  </span>
+                </li>
+              </ol>
             </section>
           </div>
 
