@@ -1,0 +1,390 @@
+"""Bilingual deck summarization.
+
+For an uploaded PPTX or PDF, extract per-slide text (and PPTX speaker notes)
+and send to OpenAI to produce a structured English+中文 summary with an exec
+summary and supporting sections that cite specific slide numbers.
+
+Stored on the file's index record under `summary` so the modal can render
+instantly on subsequent opens. Re-generation overwrites the existing entry.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_MODEL = os.environ.get("OPENAI_DECK_SUMMARY_MODEL", "gpt-4.1")
+
+# Cap how much text we send. ~50K chars covers a ~80-100-slide deck with
+# rich text + notes; longer decks get tail-truncated.
+MAX_INPUT_CHARS = 50_000
+
+
+@dataclass
+class Slide:
+    slide_no: int  # 1-indexed
+    text: str
+    notes: str = ""
+
+
+# ---- slide extraction --------------------------------------------------
+
+
+def _extract_pptx(path: Path) -> list[Slide]:
+    try:
+        from pptx import Presentation  # type: ignore
+    except ImportError:
+        logger.warning("python-pptx not installed; can't extract %s", path)
+        return []
+    try:
+        prs = Presentation(str(path))
+    except Exception as exc:
+        logger.warning("Failed to open pptx %s: %s", path, exc)
+        return []
+    slides: list[Slide] = []
+    for i, slide in enumerate(prs.slides, start=1):
+        text_parts: list[str] = []
+        for shape in slide.shapes:
+            tf = getattr(shape, "text_frame", None)
+            if tf is not None and tf.text:
+                text_parts.append(tf.text)
+            elif hasattr(shape, "text") and shape.text:
+                text_parts.append(shape.text)
+            # Tables — extract cell text
+            if shape.has_table if hasattr(shape, "has_table") else False:
+                for row in shape.table.rows:  # type: ignore
+                    for cell in row.cells:
+                        if cell.text:
+                            text_parts.append(cell.text)
+        notes = ""
+        if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+            notes = (slide.notes_slide.notes_text_frame.text or "").strip()
+        text = "\n".join(t.strip() for t in text_parts if t and t.strip())
+        slides.append(Slide(slide_no=i, text=text, notes=notes))
+    return slides
+
+
+def _extract_pdf(path: Path) -> list[Slide]:
+    try:
+        from pypdf import PdfReader  # type: ignore
+    except ImportError:
+        logger.warning("pypdf not installed; can't extract %s", path)
+        return []
+    try:
+        reader = PdfReader(str(path))
+    except Exception as exc:
+        logger.warning("Failed to open pdf %s: %s", path, exc)
+        return []
+    slides: list[Slide] = []
+    for i, page in enumerate(reader.pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
+        slides.append(Slide(slide_no=i, text=text.strip()))
+    return slides
+
+
+def extract_slides(path: Path, kind: str, *, ppt_preview: Path | None = None) -> list[Slide]:
+    """Extract per-slide text. For .ppt (binary, not python-pptx-readable),
+    falls back to the cached PDF preview if one was supplied.
+    """
+    if kind == "pptx":
+        return _extract_pptx(path)
+    if kind == "pdf":
+        return _extract_pdf(path)
+    if kind == "ppt" and ppt_preview is not None and ppt_preview.exists():
+        return _extract_pdf(ppt_preview)
+    return []
+
+
+def _format_slides_for_prompt(slides: list[Slide]) -> tuple[str, int]:
+    """Format slides as a single prompt-ready string. Returns (text, slides_used)."""
+    chunks: list[str] = []
+    used = 0
+    total = 0
+    for s in slides:
+        block_lines = [f"=== Slide {s.slide_no} ==="]
+        if s.text:
+            block_lines.append(s.text)
+        if s.notes:
+            block_lines.append(f"[Speaker notes]\n{s.notes}")
+        block = "\n".join(block_lines)
+        if total + len(block) > MAX_INPUT_CHARS:
+            chunks.append(
+                f"=== ... (truncated; deck has {len(slides)} slides total, "
+                f"only first {used} included) ==="
+            )
+            break
+        chunks.append(block)
+        total += len(block) + 2
+        used += 1
+    return "\n\n".join(chunks), used
+
+
+# ---- OpenAI summarization ---------------------------------------------
+
+
+SUMMARY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "language": {
+            "type": "string",
+            "enum": ["en", "zh", "mixed", "other"],
+            "description": "Detected source language of the deck.",
+        },
+        "exec_summary": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "en": {"type": "string"},
+                "zh": {"type": "string"},
+            },
+            "required": ["en", "zh"],
+        },
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "en": {"type": "string"},
+                            "zh": {"type": "string"},
+                        },
+                        "required": ["en", "zh"],
+                    },
+                    "body": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "en": {"type": "string"},
+                            "zh": {"type": "string"},
+                        },
+                        "required": ["en", "zh"],
+                    },
+                    "slide_refs": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                    },
+                },
+                "required": ["title", "body", "slide_refs"],
+            },
+        },
+    },
+    "required": ["language", "exec_summary", "sections"],
+}
+
+
+SYSTEM_PROMPT = (
+    "You are summarizing a presentation deck for an investment-research "
+    "dashboard. The reader is a senior analyst — they need signal, not "
+    "filler.\n\n"
+    "You will receive the deck as numbered slides with text content and any "
+    "speaker notes. Produce a BILINGUAL summary in English and 简体中文.\n\n"
+    "Output structure:\n"
+    "1. `exec_summary` — 3–5 sentences. The TL;DR: what this deck is, who "
+    "or what it's about, the central thesis or ask. Read like an executive "
+    "briefing. Specific. Concrete.\n"
+    "2. `sections` — 4–8 supporting-detail sections. Each has:\n"
+    "   - `title`: short noun phrase, no padding (≤6 words).\n"
+    "   - `body`: 2–4 dense sentences with specific facts (numbers, names, "
+    "dates, claims). Reference slides naturally where it adds precision — "
+    "in English use \"(see slide 5)\" or \"(slides 5–7)\"; in Chinese use "
+    "\"(参见第5页)\" or \"(参见第5–7页)\".\n"
+    "   - `slide_refs`: integer list of 1-indexed slide numbers backing this "
+    "section.\n\n"
+    "Both languages must convey the SAME information. The Chinese version "
+    "is not a word-for-word translation — render naturally in 简体中文 "
+    "while preserving every fact and number.\n\n"
+    "HARD RULES — every word earns its place:\n"
+    "- No marketing adjectives (\"innovative\", \"leading\", \"world-class\", "
+    "\"cutting-edge\") unless they appear verbatim in the deck.\n"
+    "- No throat-clearing sentences (\"This deck covers various topics…\"). "
+    "If you'd write filler, delete it.\n"
+    "- Don't invent facts. If a slide is empty or unclear, omit it.\n"
+    "- `slide_refs` must be real slide numbers from the input.\n"
+    "- For very short decks (<5 slides), 2–3 sections is fine.\n"
+    "- Set `language` to the detected source language of the deck content."
+)
+
+
+def _is_available() -> bool:
+    return bool(os.environ.get("OPENAI_API_KEY"))
+
+
+def _has_meaningful_text(slides: list[Slide]) -> bool:
+    """At least one slide has >= 20 chars of extractable text."""
+    return any(len((s.text or "")) >= 20 or (s.notes and len(s.notes) >= 20) for s in slides)
+
+
+def _call_openai_summarize(
+    *, content_blocks: list[dict], slide_count: int, slides_used: int
+) -> dict:
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return {"error": "openai package not installed."}
+    client = OpenAI()
+    try:
+        response = client.responses.create(
+            model=DEFAULT_MODEL,
+            input=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": content_blocks},
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "deck_summary",
+                    "schema": SUMMARY_SCHEMA,
+                    "strict": True,
+                }
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        msg = f"OpenAI summary failed: {type(exc).__name__}: {exc}"
+        logger.warning(msg)
+        return {"error": msg}
+
+    raw = getattr(response, "output_text", "")
+    if not raw:
+        return {"error": "OpenAI returned empty output."}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return {"error": f"OpenAI returned non-JSON: {exc}"}
+
+    data["slide_count"] = slide_count
+    data["slides_used"] = slides_used
+    return data
+
+
+def _summarize_text(
+    slides: list[Slide], *, hint_title: str | None
+) -> dict:
+    prompt_text, slides_used = _format_slides_for_prompt(slides)
+    if slides_used == 0:
+        return {"error": "Slide content too sparse to summarize."}
+    user_prompt_lines: list[str] = []
+    if hint_title:
+        user_prompt_lines.append(f"Deck title (hint): {hint_title}")
+    user_prompt_lines.append(f"Deck has {len(slides)} slide(s).")
+    user_prompt_lines.append("Source slides (extracted text):")
+    user_prompt_lines.append("---")
+    user_prompt_lines.append(prompt_text)
+    user_prompt_lines.append("---")
+    return _call_openai_summarize(
+        content_blocks=[
+            {"type": "input_text", "text": "\n".join(user_prompt_lines)}
+        ],
+        slide_count=len(slides),
+        slides_used=slides_used,
+    )
+
+
+def _summarize_pdf_visually(
+    pdf_path: Path, *, slide_count: int, hint_title: str | None
+) -> dict:
+    """Upload the PDF to OpenAI and let the model read it visually.
+
+    Used when text extraction comes up empty (image-based slides).
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return {"error": "openai package not installed."}
+    if not pdf_path.exists():
+        return {"error": "PDF not on disk."}
+
+    client = OpenAI()
+    uploaded_id: str | None = None
+    try:
+        with pdf_path.open("rb") as fh:
+            uploaded = client.files.create(file=fh, purpose="user_data")
+        uploaded_id = uploaded.id
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"PDF upload failed: {type(exc).__name__}: {exc}"}
+
+    user_text_lines: list[str] = []
+    if hint_title:
+        user_text_lines.append(f"Deck title (hint): {hint_title}")
+    user_text_lines.append(
+        f"The attached PDF has {slide_count} pages — treat each PDF page as "
+        "one slide, 1-indexed, in order."
+    )
+    user_text_lines.append(
+        "Read the slides and produce the bilingual summary per the schema. "
+        "slide_refs must be 1-indexed page numbers."
+    )
+
+    try:
+        result = _call_openai_summarize(
+            content_blocks=[
+                {"type": "input_file", "file_id": uploaded_id},
+                {"type": "input_text", "text": "\n".join(user_text_lines)},
+            ],
+            slide_count=slide_count,
+            slides_used=slide_count,
+        )
+    finally:
+        # Best-effort cleanup so we don't accumulate uploads.
+        if uploaded_id:
+            try:
+                client.files.delete(uploaded_id)
+            except Exception:
+                pass
+    if "error" not in result:
+        result["mode"] = "vision"
+    return result
+
+
+def summarize_slides(
+    slides: list[Slide],
+    *,
+    hint_title: str | None = None,
+    file_path: Path | None = None,
+    kind: str | None = None,
+) -> dict:
+    """Run OpenAI summarization. Tries the text-extraction path first; if
+    slide text is empty (image-based deck) and we have a PDF on disk, falls
+    back to passing the PDF to the model as a visual `input_file`.
+    """
+    if not slides:
+        return {"error": "Couldn't extract any slide text from this file."}
+    if not _is_available():
+        return {"error": "OPENAI_API_KEY not set — summary skipped."}
+
+    if _has_meaningful_text(slides):
+        result = _summarize_text(slides, hint_title=hint_title)
+        if "error" not in result:
+            result["mode"] = "text"
+        return result
+
+    # Vision fallback — only works for PDFs (or anything we've already
+    # converted to PDF). For .pptx with no text we'd need a converter.
+    if file_path and kind == "pdf":
+        return _summarize_pdf_visually(
+            file_path, slide_count=len(slides), hint_title=hint_title
+        )
+    if file_path and kind == "ppt":
+        # The caller passes ppt_preview as file_path here when applicable.
+        return _summarize_pdf_visually(
+            file_path, slide_count=len(slides), hint_title=hint_title
+        )
+    return {
+        "error": (
+            "This deck has no extractable text. PDFs can be summarized "
+            "visually; for image-only PPTX the deck would need conversion "
+            "to PDF first."
+        )
+    }

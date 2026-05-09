@@ -6,10 +6,12 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 import threading
+from datetime import datetime, timezone
 
 from . import (
     companies_ai,
     companies_autocomplete,
+    deck_summary,
     external_store,
     files_store,
     generator,
@@ -321,6 +323,88 @@ def delete_file(company_id: str, file_id: str) -> None:
         raise HTTPException(status_code=404, detail="Company not found")
     if not files_store.delete_file(company_id, file_id):
         raise HTTPException(status_code=404, detail="File not found")
+
+
+@router.get("/companies/{company_id}/files/{file_id}/summary")
+def get_file_summary(company_id: str, file_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    found = files_store.get_file(company_id, file_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    record, _ = found
+    summary = record.get("summary")
+    if not summary:
+        raise HTTPException(status_code=404, detail="No summary cached")
+    return summary
+
+
+@router.post("/companies/{company_id}/files/{file_id}/summary")
+def post_file_summary(company_id: str, file_id: str) -> dict:
+    """Generate (or regenerate) the bilingual deck summary for a file.
+
+    Synchronous — usually 10–25s for a typical deck. The result is cached on
+    the file's index record so subsequent GETs are instant.
+    """
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    found = files_store.get_file(company_id, file_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    record, src_path = found
+
+    # For .ppt (binary, not python-pptx-readable), point at the cached PDF
+    # preview if one was already generated.
+    ppt_preview = None
+    if record.get("kind") == "ppt":
+        ppt_preview = files_store._preview_path_for(company_id, record)
+        if not ppt_preview.exists():
+            ppt_preview = None
+
+    kind = record.get("kind") or ""
+    slides = deck_summary.extract_slides(
+        src_path, kind, ppt_preview=ppt_preview
+    )
+    if not slides:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "Couldn't extract slide text. .ppt files need a PDF preview "
+                "first; .pptx and .pdf should work directly."
+            ),
+        )
+    # For the vision fallback (image-only decks), point the model at the PDF
+    # — either the original or the cached PPT preview.
+    visual_path = (
+        src_path if kind == "pdf"
+        else ppt_preview if (kind == "ppt" and ppt_preview is not None)
+        else None
+    )
+    visual_kind = "pdf" if visual_path is not None else kind
+    summary = deck_summary.summarize_slides(
+        slides,
+        hint_title=(record.get("label") or record.get("filename") or ""),
+        file_path=visual_path,
+        kind=visual_kind,
+    )
+    if "error" in summary:
+        raise HTTPException(status_code=502, detail=summary["error"])
+
+    summary["generated_at"] = datetime.now(timezone.utc).isoformat()
+    files_store.update_record(company_id, file_id, summary=summary)
+    return summary
+
+
+@router.delete(
+    "/companies/{company_id}/files/{file_id}/summary", status_code=204
+)
+def delete_file_summary(company_id: str, file_id: str) -> None:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    found = files_store.get_file(company_id, file_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    files_store.update_record(company_id, file_id, summary=None)
 
 
 @router.get("/companies/{company_id}/threads")

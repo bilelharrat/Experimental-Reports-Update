@@ -13,6 +13,7 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
+import DeckSummaryModal from "./DeckSummaryModal.vue";
 
 const props = defineProps({
   companyId: { type: String, required: true },
@@ -21,6 +22,18 @@ const props = defineProps({
 const emit = defineEmits(["open-report", "files-changed"]);
 
 const previewing = ref(null); // file object | null
+const summarizing = ref(null); // file object | null
+
+function onSummaryUpdated(updated) {
+  if (!summarizing.value) return;
+  // Mirror the cached summary onto the local file record so the next
+  // open is instant.
+  const idx = files.value.findIndex((f) => f.id === summarizing.value.id);
+  if (idx >= 0) {
+    files.value[idx] = { ...files.value[idx], summary: updated };
+    summarizing.value = files.value[idx];
+  }
+}
 
 const files = ref([]);
 const reports = ref([]);
@@ -334,6 +347,21 @@ const counts = computed(() => {
             >
             <button
               type="button"
+              @click="summarizing = f"
+              class="p-1.5 rounded hover:bg-accent-soft text-ink-muted hover:text-accent-ink focus-ring"
+              :title="
+                f.summary
+                  ? 'Open bilingual summary (cached)'
+                  : 'Generate bilingual summary'
+              "
+            >
+              <Sparkles
+                class="h-4 w-4"
+                :class="f.summary ? 'text-accent' : ''"
+              />
+            </button>
+            <button
+              type="button"
               @click="previewing = f"
               class="p-1.5 rounded hover:bg-surface text-ink-muted hover:text-ink-primary focus-ring"
               :title="`Preview ${f.filename}`"
@@ -365,6 +393,12 @@ const counts = computed(() => {
       :company-id="companyId"
       :file="previewing"
       @close="previewing = null"
+    />
+    <DeckSummaryModal
+      :company-id="companyId"
+      :file="summarizing"
+      @close="summarizing = null"
+      @summary-updated="onSummaryUpdated"
     />
   </section>
 </template>

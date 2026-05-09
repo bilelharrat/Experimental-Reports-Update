@@ -387,6 +387,19 @@ def get_or_create_preview(
     return None, err or "PowerPoint conversion failed."
 
 
+def update_record(company_id: str, file_id: str, **patch: Any) -> dict | None:
+    """Merge patch into the file's index entry. Returns updated record or None."""
+    with _LOCK:
+        entries = _read_index(company_id)
+        for i, entry in enumerate(entries):
+            if entry.get("id") == file_id:
+                entry.update(patch)
+                entries[i] = entry
+                _write_index(company_id, entries)
+                return entry
+        return None
+
+
 def kick_off_background_conversion(company_id: str, record: dict) -> None:
     """Spawn a daemon thread to convert a freshly-uploaded PPT to PDF."""
     if record.get("kind") not in ("ppt", "pptx"):

@@ -64,6 +64,19 @@ export const api = {
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+  getFileSummary: (companyId, fileId) =>
+    request(`/api/companies/${companyId}/files/${fileId}/summary`),
+  generateFileSummary: (companyId, fileId) =>
+    request(`/api/companies/${companyId}/files/${fileId}/summary`, {
+      method: "POST",
+    }),
+  deleteFileSummary: async (companyId, fileId) => {
+    const res = await fetch(
+      `/api/companies/${companyId}/files/${fileId}/summary`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
   // External news, research, and Hormuz
   externalFeed: () => request("/api/external/feed"),
   listNews: () => request("/api/external/news"),
