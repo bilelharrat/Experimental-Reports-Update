@@ -443,6 +443,7 @@ def summarize_slides(
     kind: str | None = None,
     progress=None,
     work_dir: Path | None = None,
+    speed: str = "auto",
 ) -> dict:
     """Generate a bilingual deck summary.
 
@@ -477,6 +478,7 @@ def summarize_slides(
             schema=SUMMARY_SCHEMA,
             quality_bar=QUALITY_BAR,
             page_count=len(slides) if slides else None,
+            speed=speed,
             progress=progress,
         )
         if "error" not in result:

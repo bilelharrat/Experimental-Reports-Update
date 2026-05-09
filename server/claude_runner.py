@@ -309,6 +309,11 @@ def _process_event(event: dict, progress, state: dict) -> None:
         return
 
 
+SPEED_GRANULAR = "granular"
+SPEED_FAST = "fast"
+SPEED_AUTO = "auto"
+
+
 def run_summary(
     *,
     work_dir: Path,
@@ -317,6 +322,7 @@ def run_summary(
     schema: dict,
     quality_bar: str,
     page_count: int | None = None,
+    speed: str = SPEED_AUTO,
     progress=None,
     timeout_sec: int = 1200,
 ) -> dict:
@@ -359,11 +365,17 @@ def run_summary(
     summary_json = work_dir / "summary.json"
     summary_json.unlink(missing_ok=True)
 
+    # Auto: fast for big decks (>30 pages), granular for small ones.
+    resolved_speed = speed
+    if speed == SPEED_AUTO:
+        resolved_speed = SPEED_FAST if (page_count or 0) > 30 else SPEED_GRANULAR
+
     user_prompt = _build_prompt(
         deck_filename=source_path.name,
         hint_title=hint_title or source_path.name,
         page_count=page_count,
         quality_bar=quality_bar,
+        speed=resolved_speed,
     )
 
     cmd = [
@@ -384,8 +396,13 @@ def run_summary(
         progress.emit(
             "stage",
             stage="claude_starting",
-            message="Spawning Claude Code",
+            message=(
+                "Processing with Claude (fast mode)"
+                if resolved_speed == SPEED_FAST
+                else "Processing with Claude"
+            ),
             work_dir=str(work_dir),
+            speed=resolved_speed,
         )
 
     stderr_log: list[str] = []
@@ -485,6 +502,7 @@ def _build_prompt(
     hint_title: str,
     page_count: int | None,
     quality_bar: str,
+    speed: str = SPEED_GRANULAR,
 ) -> str:
     page_line = (
         f"The deck has {page_count} pages."
@@ -492,19 +510,35 @@ def _build_prompt(
         else "The deck's exact page count is unknown — read until Read returns no more pages."
     )
     last_page = page_count or "N"
-    return f"""\
-You are analyzing a presentation deck for an investment-research dashboard.
+    if speed == SPEED_FAST:
+        read_loop = f"""\
+STAGE 2 — PER-SLIDE ANALYSIS (batched 20-page Reads, but per-slide bullets).
+The Read tool caps at 20 pages per call, so:
 
-The deck has been staged in your current working directory as: ./{deck_filename}
-(Hint: titled "{hint_title}".)
-{page_line}
+  - Read ./{deck_filename} pages="1-20"
+  - Read ./{deck_filename} pages="21-40"
+  - ... continue in 20-page chunks; the final chunk can be shorter
+    (e.g. pages="41-{last_page}") but must NEVER exceed 20 pages.
 
-WORKFLOW — exactly four stages. The operator is watching ./progress.md and
-the live tool-call feed, so progress visibly. Don't batch.
+After EACH Read, append one bullet PER SLIDE in that chunk to
+./progress.md (so 20 bullets after the first Read, etc.):
 
-STAGE 1 — INVENTORY (already done for you).
-The local pre-pass already counted the slides, so no work needed here.
+      - Slide 1: <observation>
+      - Slide 2: <observation>
+      ...
 
+For the very first Read, ./progress.md does not exist — use the Write
+tool with a header line plus your 20 bullets. For every subsequent
+chunk, use Edit to append. Pick a unique string from the END of the
+current file as `old_string`, set `new_string` to that same string +
+"\\n- Slide N: …" lines for each new slide.
+
+Each bullet is ONE line, factual, specific. Numbers, names, claims,
+dates. Don't invent. If a slide is empty / decorative / a divider, say
+so briefly ("- Slide N: section divider, 'Operations'").
+"""
+    else:
+        read_loop = f"""\
 STAGE 2 — PER-SLIDE ANALYSIS (one Read per page).
 For EACH page from 1 to {last_page}, in order:
 
@@ -528,7 +562,26 @@ For EACH page from 1 to {last_page}, in order:
 The bullet is ONE line, factual, specific. Numbers, names, claims, dates.
 Don't invent. If a slide is empty / decorative / a divider, say so briefly
 ("- Slide N: section divider, 'Operations'").
+"""
+    begin_line = (
+        'Begin Stage 2 now. Read pages="1-20".'
+        if speed == SPEED_FAST
+        else 'Begin Stage 2 now. Read pages="1".'
+    )
+    return f"""\
+You are analyzing a presentation deck for an investment-research dashboard.
 
+The deck has been staged in your current working directory as: ./{deck_filename}
+(Hint: titled "{hint_title}".)
+{page_line}
+
+WORKFLOW — exactly four stages. The operator is watching ./progress.md and
+the live tool-call feed, so progress visibly.
+
+STAGE 1 — INVENTORY (already done for you).
+The local pre-pass already counted the slides, so no work needed here.
+
+{read_loop}
 STAGE 3 — TRANSLATE.
 Once all {last_page} bullets are in progress.md, compose the bilingual
 content. For every English string you'll emit (exec summary, section
@@ -546,5 +599,5 @@ final answer so the validator can confirm it.
 QUALITY BAR — every word earns its place:
 {quality_bar}
 
-Begin Stage 2 now. Read pages="1".
+{begin_line}
 """

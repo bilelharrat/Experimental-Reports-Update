@@ -1,7 +1,10 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api } from "./api.js";
 import Sidebar from "./components/Sidebar.vue";
+import ActiveJobsRail from "./components/ActiveJobsRail.vue";
+import DeckSummaryModal from "./components/DeckSummaryModal.vue";
+import { activeSummaryTarget, closeSummary } from "./state.js";
 
 const reports = ref([]);
 const externalFeed = ref([]);
@@ -30,6 +33,9 @@ onMounted(refreshAll);
 
 // Poll so the sidebar reflects in-progress generations and analyses.
 setInterval(refreshAll, 4000);
+
+const summaryCompanyId = computed(() => activeSummaryTarget.value?.companyId);
+const summaryFile = computed(() => activeSummaryTarget.value?.file ?? null);
 </script>
 
 <template>
@@ -46,5 +52,13 @@ setInterval(refreshAll, 4000);
         <component :is="Component" @reports-changed="refreshAll" />
       </RouterView>
     </main>
+
+    <ActiveJobsRail />
+    <DeckSummaryModal
+      v-if="summaryCompanyId"
+      :company-id="summaryCompanyId"
+      :file="summaryFile"
+      @close="closeSummary"
+    />
   </div>
 </template>

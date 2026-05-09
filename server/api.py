@@ -361,7 +361,69 @@ def _summary_progress_path(company_id: str, file_id: str) -> "Path":
     )
 
 
-def _run_summary_job(company_id: str, file_id: str) -> None:
+def _scan_progress_state(path: "Path") -> dict:
+    """Scan a progress JSONL and summarize where the job stands.
+
+    Used by both the active-jobs listing and the idempotent POST handler so
+    we can decide whether to start a new run or attach to one in flight.
+    """
+    import json as _json
+
+    state: dict = {
+        "exists": path.exists(),
+        "terminated": False,
+        "terminal_type": None,
+        "started_at": None,
+        "last_event_at": None,
+        "latest_stage": None,
+        "latest_stage_key": None,
+        "slide_no": None,
+        "slide_count": None,
+        "speed": None,
+        "claude_cost_usd": None,
+        "error": None,
+    }
+    if not path.exists():
+        return state
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if state["started_at"] is None:
+                    state["started_at"] = entry.get("ts")
+                state["last_event_at"] = entry.get("ts")
+                etype = entry.get("type")
+                if etype in ("done", "error"):
+                    state["terminated"] = True
+                    state["terminal_type"] = etype
+                    if etype == "error":
+                        state["error"] = entry.get("error")
+                elif etype == "stage":
+                    state["latest_stage_key"] = entry.get("stage")
+                    state["latest_stage"] = (
+                        entry.get("message") or entry.get("stage")
+                    )
+                    if "slide_no" in entry:
+                        state["slide_no"] = entry["slide_no"]
+                    if "slide_count" in entry:
+                        state["slide_count"] = entry["slide_count"]
+                    if "speed" in entry:
+                        state["speed"] = entry["speed"]
+                elif etype == "claude_action" and entry.get("action") == "result":
+                    if entry.get("cost_usd") is not None:
+                        state["claude_cost_usd"] = entry["cost_usd"]
+    except Exception:
+        pass
+    return state
+
+
+def _run_summary_job(company_id: str, file_id: str, speed: str = "auto") -> None:
     """Background entry point for a summary generation job. Writes progress
     events to a JSONL file and persists the final summary onto the file
     record.
@@ -427,6 +489,7 @@ def _run_summary_job(company_id: str, file_id: str) -> None:
             kind=claude_kind,
             progress=progress,
             work_dir=work_dir,
+            speed=speed,
         )
         if "error" in summary:
             progress.emit("error", error=summary["error"])
@@ -442,8 +505,15 @@ def _run_summary_job(company_id: str, file_id: str) -> None:
 
 
 @router.post("/companies/{company_id}/files/{file_id}/summary")
-def post_file_summary(company_id: str, file_id: str) -> dict:
+def post_file_summary(
+    company_id: str, file_id: str, speed: str = "auto"
+) -> dict:
     """Kick off bilingual deck summary generation in the background.
+
+    `speed` is one of:
+      - "auto"     — granular for ≤30 pages, fast otherwise (default)
+      - "granular" — one Read per page (best per-slide visibility, slowest)
+      - "fast"     — batched 20-page Reads (efficient on large decks)
 
     Returns immediately with a `job_id` (= file_id) and the path of the SSE
     stream. The frontend opens the SSE stream to consume granular progress
@@ -454,10 +524,27 @@ def post_file_summary(company_id: str, file_id: str) -> dict:
     found = files_store.get_file(company_id, file_id)
     if found is None:
         raise HTTPException(status_code=404, detail="File not found")
+    if speed not in ("auto", "granular", "fast"):
+        raise HTTPException(status_code=400, detail="Invalid speed")
+
+    # Idempotency: if a job is already running for this file, return its
+    # info instead of starting a second one. Caller's SSE replay will pick
+    # up from the existing JSONL.
+    progress_path = _summary_progress_path(company_id, file_id)
+    state = _scan_progress_state(progress_path)
+    if state.get("exists") and not state.get("terminated"):
+        return {
+            "job_id": file_id,
+            "stream_url": (
+                f"/api/companies/{company_id}/files/{file_id}/summary/stream"
+            ),
+            "speed": state.get("speed") or "unknown",
+            "status": "already_running",
+        }
 
     threading.Thread(
         target=_run_summary_job,
-        args=(company_id, file_id),
+        args=(company_id, file_id, speed),
         name=f"summary:{file_id}",
         daemon=True,
     ).start()
@@ -466,8 +553,57 @@ def post_file_summary(company_id: str, file_id: str) -> dict:
         "stream_url": (
             f"/api/companies/{company_id}/files/{file_id}/summary/stream"
         ),
+        "speed": speed,
         "status": "queued",
     }
+
+
+@router.get("/jobs/active")
+def get_active_jobs() -> list[dict]:
+    """All summary jobs currently in flight across every company.
+
+    Powers the right-side ActiveJobsRail: walks the per-company upload
+    directories looking for `<file_id>__summary.progress.jsonl` files, and
+    returns those whose progress hasn't yet reached `done` or `error`.
+    """
+    from . import files_store as _fs
+
+    out: list[dict] = []
+    if not _fs.UPLOADS_ROOT.exists():
+        return out
+    for jsonl_path in _fs.UPLOADS_ROOT.glob("*/*__summary.progress.jsonl"):
+        company_id = jsonl_path.parent.name
+        name = jsonl_path.name
+        suffix = "__summary.progress.jsonl"
+        if not name.endswith(suffix):
+            continue
+        file_id = name[: -len(suffix)]
+        state = _scan_progress_state(jsonl_path)
+        if state.get("terminated"):
+            continue
+        found = _fs.get_file(company_id, file_id)
+        if found is None:
+            continue
+        record, _ = found
+        out.append(
+            {
+                "company_id": company_id,
+                "file_id": file_id,
+                "filename": record.get("filename"),
+                "label": record.get("label"),
+                "kind": record.get("kind"),
+                "started_at": state.get("started_at"),
+                "last_event_at": state.get("last_event_at"),
+                "latest_stage": state.get("latest_stage"),
+                "latest_stage_key": state.get("latest_stage_key"),
+                "slide_no": state.get("slide_no"),
+                "slide_count": state.get("slide_count"),
+                "speed": state.get("speed"),
+                "claude_cost_usd": state.get("claude_cost_usd"),
+            }
+        )
+    out.sort(key=lambda j: j.get("started_at") or "", reverse=True)
+    return out
 
 
 @router.get("/companies/{company_id}/files/{file_id}/summary/stream")

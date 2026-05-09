@@ -66,12 +66,14 @@ export const api = {
   },
   getFileSummary: (companyId, fileId) =>
     request(`/api/companies/${companyId}/files/${fileId}/summary`),
-  generateFileSummary: (companyId, fileId) =>
-    request(`/api/companies/${companyId}/files/${fileId}/summary`, {
-      method: "POST",
-    }),
+  generateFileSummary: (companyId, fileId, { speed = "auto" } = {}) =>
+    request(
+      `/api/companies/${companyId}/files/${fileId}/summary?speed=${encodeURIComponent(speed)}`,
+      { method: "POST" },
+    ),
   fileSummaryStreamUrl: (companyId, fileId) =>
     `/api/companies/${companyId}/files/${fileId}/summary/stream`,
+  listActiveJobs: () => request("/api/jobs/active"),
   deleteFileSummary: async (companyId, fileId) => {
     const res = await fetch(
       `/api/companies/${companyId}/files/${fileId}/summary`,

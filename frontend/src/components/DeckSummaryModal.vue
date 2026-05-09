@@ -180,6 +180,8 @@ async function loadCached() {
   }
 }
 
+const speed = ref("auto"); // "auto" | "granular" | "fast"
+
 async function startGeneration(forceFresh = false) {
   if (!props.file) return;
   reset();
@@ -187,7 +189,9 @@ async function startGeneration(forceFresh = false) {
   // Start the stream subscription BEFORE POSTing so we don't miss early events.
   openStream();
   try {
-    await api.generateFileSummary(props.companyId, props.file.id);
+    await api.generateFileSummary(props.companyId, props.file.id, {
+      speed: speed.value,
+    });
   } catch (e) {
     closeStream();
     generating.value = false;
@@ -460,6 +464,16 @@ const lastStage = computed(
             </button>
           </div>
 
+          <select
+            v-model="speed"
+            :disabled="generating"
+            class="text-xs px-1.5 py-1 rounded border border-subtle bg-surface-muted text-ink-secondary focus-ring disabled:opacity-60"
+            title="Generation speed: Auto picks per deck size, Granular reads each page separately (best per-slide visibility), Fast batches 20 pages per read."
+          >
+            <option value="auto">Auto</option>
+            <option value="granular">Granular</option>
+            <option value="fast">Fast</option>
+          </select>
           <button
             type="button"
             @click="regenerate"

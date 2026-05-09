@@ -14,7 +14,7 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
-import DeckSummaryModal from "./DeckSummaryModal.vue";
+import { openSummary } from "../state.js";
 
 const props = defineProps({
   companyId: { type: String, required: true },
@@ -23,17 +23,9 @@ const props = defineProps({
 const emit = defineEmits(["open-report", "files-changed"]);
 
 const previewing = ref(null); // file object | null
-const summarizing = ref(null); // file object | null
 
-function onSummaryUpdated(updated) {
-  if (!summarizing.value) return;
-  // Mirror the cached summary onto the local file record so the next
-  // open is instant.
-  const idx = files.value.findIndex((f) => f.id === summarizing.value.id);
-  if (idx >= 0) {
-    files.value[idx] = { ...files.value[idx], summary: updated };
-    summarizing.value = files.value[idx];
-  }
+function summarize(f) {
+  openSummary(props.companyId, f);
 }
 
 const files = ref([]);
@@ -372,7 +364,7 @@ const counts = computed(() => {
             >
             <button
               type="button"
-              @click="summarizing = f"
+              @click="summarize(f)"
               class="p-1.5 rounded hover:bg-accent-soft text-ink-muted hover:text-accent-ink focus-ring"
               :title="
                 f.summary
@@ -413,7 +405,7 @@ const counts = computed(() => {
             <button
               v-if="f.summary && f.summary.exec_summary"
               type="button"
-              @click="summarizing = f"
+              @click="summarize(f)"
               class="w-full text-left px-3 py-2 border-t border-subtle hover:bg-surface focus-ring rounded-b-lg flex items-start gap-2 group"
               :title="`Open full bilingual summary for ${f.filename}`"
             >
@@ -435,11 +427,7 @@ const counts = computed(() => {
       :file="previewing"
       @close="previewing = null"
     />
-    <DeckSummaryModal
-      :company-id="companyId"
-      :file="summarizing"
-      @close="summarizing = null"
-      @summary-updated="onSummaryUpdated"
-    />
+    <!-- DeckSummaryModal is mounted globally in App.vue and driven by
+         the shared activeSummaryTarget state — see state.js. -->
   </section>
 </template>
