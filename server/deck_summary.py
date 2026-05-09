@@ -90,17 +90,46 @@ def _extract_pdf(path: Path) -> list[Slide]:
     return slides
 
 
-def extract_slides(path: Path, kind: str, *, ppt_preview: Path | None = None) -> list[Slide]:
+def extract_slides(
+    path: Path,
+    kind: str,
+    *,
+    ppt_preview: Path | None = None,
+    progress=None,
+) -> list[Slide]:
     """Extract per-slide text. For .ppt (binary, not python-pptx-readable),
-    falls back to the cached PDF preview if one was supplied.
+    falls back to the cached PDF preview if one was supplied. Emits a
+    `slide_extracted` event for each slide via `progress` if provided.
     """
+    if progress:
+        progress.emit("stage", stage="extracting", message="Reading slides")
+
     if kind == "pptx":
-        return _extract_pptx(path)
-    if kind == "pdf":
-        return _extract_pdf(path)
-    if kind == "ppt" and ppt_preview is not None and ppt_preview.exists():
-        return _extract_pdf(ppt_preview)
-    return []
+        slides = _extract_pptx(path)
+    elif kind == "pdf":
+        slides = _extract_pdf(path)
+    elif kind == "ppt" and ppt_preview is not None and ppt_preview.exists():
+        slides = _extract_pdf(ppt_preview)
+    else:
+        slides = []
+
+    if progress:
+        for s in slides:
+            preview = (s.text or s.notes or "").replace("\n", " ").strip()
+            progress.emit(
+                "slide_extracted",
+                slide_no=s.slide_no,
+                preview=preview[:120],
+                chars=len(s.text or ""),
+                has_notes=bool(s.notes),
+            )
+        progress.emit(
+            "stage",
+            stage="extracted",
+            message=f"Extracted {len(slides)} slide{'s' if len(slides) != 1 else ''}",
+            count=len(slides),
+        )
+    return slides
 
 
 def _format_slides_for_prompt(slides: list[Slide]) -> tuple[str, int]:
@@ -228,15 +257,26 @@ def _has_meaningful_text(slides: list[Slide]) -> bool:
 
 
 def _call_openai_summarize(
-    *, content_blocks: list[dict], slide_count: int, slides_used: int
+    *,
+    content_blocks: list[dict],
+    slide_count: int,
+    slides_used: int,
+    progress=None,
 ) -> dict:
     try:
         from openai import OpenAI
     except ImportError:
         return {"error": "openai package not installed."}
     client = OpenAI()
+
+    if progress:
+        progress.emit("stage", stage="generating", message="BSH model is composing")
+
+    chars_seen = 0
+    last_emit_chars = 0
+    EMIT_EVERY_CHARS = 200
     try:
-        response = client.responses.create(
+        with client.responses.stream(
             model=DEFAULT_MODEL,
             input=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -250,15 +290,30 @@ def _call_openai_summarize(
                     "strict": True,
                 }
             },
-        )
+        ) as stream:
+            for event in stream:
+                etype = getattr(event, "type", "")
+                if etype == "response.output_text.delta":
+                    delta = getattr(event, "delta", "") or ""
+                    chars_seen += len(delta)
+                    if progress and chars_seen - last_emit_chars >= EMIT_EVERY_CHARS:
+                        progress.emit(
+                            "thinking",
+                            chars=chars_seen,
+                            tail=delta[-160:],
+                        )
+                        last_emit_chars = chars_seen
+            final = stream.get_final_response()
     except Exception as exc:  # noqa: BLE001
         msg = f"OpenAI summary failed: {type(exc).__name__}: {exc}"
         logger.warning(msg)
         return {"error": msg}
 
-    raw = getattr(response, "output_text", "")
+    raw = getattr(final, "output_text", "") or ""
     if not raw:
         return {"error": "OpenAI returned empty output."}
+    if progress:
+        progress.emit("stage", stage="parsing", message="Parsing structured output", chars=chars_seen)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -270,7 +325,7 @@ def _call_openai_summarize(
 
 
 def _summarize_text(
-    slides: list[Slide], *, hint_title: str | None
+    slides: list[Slide], *, hint_title: str | None, progress=None
 ) -> dict:
     prompt_text, slides_used = _format_slides_for_prompt(slides)
     if slides_used == 0:
@@ -289,16 +344,18 @@ def _summarize_text(
         ],
         slide_count=len(slides),
         slides_used=slides_used,
+        progress=progress,
     )
 
 
 def _summarize_pdf_visually(
-    pdf_path: Path, *, slide_count: int, hint_title: str | None
+    pdf_path: Path,
+    *,
+    slide_count: int,
+    hint_title: str | None,
+    progress=None,
 ) -> dict:
-    """Upload the PDF to OpenAI and let the model read it visually.
-
-    Used when text extraction comes up empty (image-based slides).
-    """
+    """Upload the PDF to OpenAI and let the model read it visually."""
     try:
         from openai import OpenAI
     except ImportError:
@@ -308,10 +365,21 @@ def _summarize_pdf_visually(
 
     client = OpenAI()
     uploaded_id: str | None = None
+    if progress:
+        progress.emit(
+            "stage",
+            stage="uploading",
+            message="Uploading PDF to BSH model",
+            size_bytes=pdf_path.stat().st_size,
+        )
     try:
         with pdf_path.open("rb") as fh:
             uploaded = client.files.create(file=fh, purpose="user_data")
         uploaded_id = uploaded.id
+        if progress:
+            progress.emit(
+                "stage", stage="uploaded", message="Upload complete", file_id=uploaded.id
+            )
     except Exception as exc:  # noqa: BLE001
         return {"error": f"PDF upload failed: {type(exc).__name__}: {exc}"}
 
@@ -335,9 +403,9 @@ def _summarize_pdf_visually(
             ],
             slide_count=slide_count,
             slides_used=slide_count,
+            progress=progress,
         )
     finally:
-        # Best-effort cleanup so we don't accumulate uploads.
         if uploaded_id:
             try:
                 client.files.delete(uploaded_id)
@@ -354,10 +422,14 @@ def summarize_slides(
     hint_title: str | None = None,
     file_path: Path | None = None,
     kind: str | None = None,
+    progress=None,
 ) -> dict:
     """Run OpenAI summarization. Tries the text-extraction path first; if
     slide text is empty (image-based deck) and we have a PDF on disk, falls
     back to passing the PDF to the model as a visual `input_file`.
+
+    `progress` is an optional `ProgressLog` that the helpers emit JSONL
+    events to so the SSE endpoint can stream them to the UI.
     """
     if not slides:
         return {"error": "Couldn't extract any slide text from this file."}
@@ -365,21 +437,17 @@ def summarize_slides(
         return {"error": "OPENAI_API_KEY not set — summary skipped."}
 
     if _has_meaningful_text(slides):
-        result = _summarize_text(slides, hint_title=hint_title)
+        result = _summarize_text(slides, hint_title=hint_title, progress=progress)
         if "error" not in result:
             result["mode"] = "text"
         return result
 
-    # Vision fallback — only works for PDFs (or anything we've already
-    # converted to PDF). For .pptx with no text we'd need a converter.
-    if file_path and kind == "pdf":
+    if file_path and kind in ("pdf", "ppt"):
         return _summarize_pdf_visually(
-            file_path, slide_count=len(slides), hint_title=hint_title
-        )
-    if file_path and kind == "ppt":
-        # The caller passes ppt_preview as file_path here when applicable.
-        return _summarize_pdf_visually(
-            file_path, slide_count=len(slides), hint_title=hint_title
+            file_path,
+            slide_count=len(slides),
+            hint_title=hint_title,
+            progress=progress,
         )
     return {
         "error": (

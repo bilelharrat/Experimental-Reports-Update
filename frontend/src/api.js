@@ -70,6 +70,8 @@ export const api = {
     request(`/api/companies/${companyId}/files/${fileId}/summary`, {
       method: "POST",
     }),
+  fileSummaryStreamUrl: (companyId, fileId) =>
+    `/api/companies/${companyId}/files/${fileId}/summary/stream`,
   deleteFileSummary: async (companyId, fileId) => {
     const res = await fetch(
       `/api/companies/${companyId}/files/${fileId}/summary`,

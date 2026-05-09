@@ -10,6 +10,7 @@ import {
   Sparkles,
   Download,
   Eye,
+  ChevronRight,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
@@ -127,6 +128,25 @@ function iconFor(kind) {
   if (kind === "pdf") return FileText;
   if (kind === "ppt" || kind === "pptx") return Presentation;
   return FileImage;
+}
+
+function summaryPreview(summary) {
+  if (!summary) return "";
+  // Prefer source language; fall back to either side.
+  const lang = summary.language === "zh" ? "zh" : "en";
+  const text =
+    summary.exec_summary?.[lang] ||
+    summary.exec_summary?.en ||
+    summary.exec_summary?.zh ||
+    "";
+  if (!text) return "";
+  // Pull the first 1-2 sentences, ~220 chars max.
+  const trimmed = text.trim();
+  const m = trimmed.match(/^(.+?[.!?。!?])\s*(.+?[.!?。!?])?/);
+  const candidate = m ? (m[2] ? `${m[1]} ${m[2]}` : m[1]) : trimmed;
+  return candidate.length > 240
+    ? candidate.slice(0, 235).trimEnd() + "…"
+    : candidate;
 }
 
 function langMatches(asset) {
@@ -327,19 +347,24 @@ const counts = computed(() => {
           <li
             v-for="f in filteredFiles"
             :key="f.id"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg border border-subtle bg-surface-muted"
+            class="rounded-lg border border-subtle bg-surface-muted"
           >
-            <component :is="iconFor(f.kind)" class="h-4 w-4 text-ink-muted shrink-0" />
-            <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium text-ink-primary truncate">
-                {{ f.label || f.filename }}
+            <div class="flex items-center gap-3 px-3 py-2">
+              <component
+                :is="iconFor(f.kind)"
+                class="h-4 w-4 text-ink-muted shrink-0"
+              />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-ink-primary truncate">
+                  {{ f.label || f.filename }}
+                </div>
+                <div class="text-xs text-ink-muted truncate">
+                  <span class="uppercase">{{ f.kind }}</span>
+                  · {{ fmtSize(f.size_bytes) }}
+                  · {{ fmtDate(f.uploaded_at) }}
+                  <span v-if="f.summary" class="text-accent ml-1">· summary ready</span>
+                </div>
               </div>
-              <div class="text-xs text-ink-muted truncate">
-                <span class="uppercase">{{ f.kind }}</span>
-                · {{ fmtSize(f.size_bytes) }}
-                · {{ fmtDate(f.uploaded_at) }}
-              </div>
-            </div>
             <span
               class="text-xs px-1.5 py-0.5 rounded bg-surface border border-subtle text-ink-secondary font-mono"
               :title="LANG_LABELS[f.language || 'en']"
@@ -383,6 +408,22 @@ const counts = computed(() => {
               :title="`Remove ${f.filename}`"
             >
               <Trash2 class="h-4 w-4" />
+            </button>
+            </div>
+            <button
+              v-if="f.summary && f.summary.exec_summary"
+              type="button"
+              @click="summarizing = f"
+              class="w-full text-left px-3 py-2 border-t border-subtle hover:bg-surface focus-ring rounded-b-lg flex items-start gap-2 group"
+              :title="`Open full bilingual summary for ${f.filename}`"
+            >
+              <Sparkles class="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
+              <p class="flex-1 text-sm text-ink-secondary leading-snug line-clamp-2">
+                {{ summaryPreview(f.summary) }}
+              </p>
+              <ChevronRight
+                class="h-3.5 w-3.5 text-ink-muted shrink-0 mt-0.5 group-hover:text-ink-primary"
+              />
             </button>
           </li>
         </ul>

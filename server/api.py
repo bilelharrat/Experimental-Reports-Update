@@ -15,6 +15,7 @@ from . import (
     external_store,
     files_store,
     generator,
+    job_progress,
     link_preview as link_preview_mod,
     storage,
     text_analysis,
@@ -339,60 +340,176 @@ def get_file_summary(company_id: str, file_id: str) -> dict:
     return summary
 
 
+def _summary_progress_path(company_id: str, file_id: str) -> "Path":
+    from pathlib import Path
+
+    return (
+        files_store._company_dir(company_id)
+        / f"{file_id}__summary.progress.jsonl"
+    )
+
+
+def _run_summary_job(company_id: str, file_id: str) -> None:
+    """Background entry point for a summary generation job. Writes progress
+    events to a JSONL file and persists the final summary onto the file
+    record.
+    """
+    progress = job_progress.ProgressLog(
+        _summary_progress_path(company_id, file_id)
+    )
+    try:
+        progress.emit("stage", stage="starting", message="Starting summary job")
+        found = files_store.get_file(company_id, file_id)
+        if found is None:
+            progress.emit("error", error="File not found")
+            return
+        record, src_path = found
+        kind = record.get("kind") or ""
+
+        ppt_preview = None
+        if kind == "ppt":
+            ppt_preview = files_store._preview_path_for(company_id, record)
+            if not ppt_preview.exists():
+                ppt_preview = None
+
+        slides = deck_summary.extract_slides(
+            src_path, kind, ppt_preview=ppt_preview, progress=progress
+        )
+        if not slides:
+            progress.emit(
+                "error",
+                error=(
+                    "Couldn't extract slide text. .ppt files need a PDF preview "
+                    "first; .pptx and .pdf should work directly."
+                ),
+            )
+            return
+
+        visual_path = (
+            src_path
+            if kind == "pdf"
+            else ppt_preview
+            if (kind == "ppt" and ppt_preview is not None)
+            else None
+        )
+        visual_kind = "pdf" if visual_path is not None else kind
+
+        summary = deck_summary.summarize_slides(
+            slides,
+            hint_title=(record.get("label") or record.get("filename") or ""),
+            file_path=visual_path,
+            kind=visual_kind,
+            progress=progress,
+        )
+        if "error" in summary:
+            progress.emit("error", error=summary["error"])
+            return
+
+        summary["generated_at"] = datetime.now(timezone.utc).isoformat()
+        files_store.update_record(company_id, file_id, summary=summary)
+        progress.emit("done", summary=summary)
+    except Exception as exc:  # noqa: BLE001
+        progress.emit(
+            "error", error=f"Job crashed: {type(exc).__name__}: {exc}"
+        )
+
+
 @router.post("/companies/{company_id}/files/{file_id}/summary")
 def post_file_summary(company_id: str, file_id: str) -> dict:
-    """Generate (or regenerate) the bilingual deck summary for a file.
+    """Kick off bilingual deck summary generation in the background.
 
-    Synchronous — usually 10–25s for a typical deck. The result is cached on
-    the file's index record so subsequent GETs are instant.
+    Returns immediately with a `job_id` (= file_id) and the path of the SSE
+    stream. The frontend opens the SSE stream to consume granular progress
+    events and pulls the cached summary once `done` arrives.
     """
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     found = files_store.get_file(company_id, file_id)
     if found is None:
         raise HTTPException(status_code=404, detail="File not found")
-    record, src_path = found
 
-    # For .ppt (binary, not python-pptx-readable), point at the cached PDF
-    # preview if one was already generated.
-    ppt_preview = None
-    if record.get("kind") == "ppt":
-        ppt_preview = files_store._preview_path_for(company_id, record)
-        if not ppt_preview.exists():
-            ppt_preview = None
+    threading.Thread(
+        target=_run_summary_job,
+        args=(company_id, file_id),
+        name=f"summary:{file_id}",
+        daemon=True,
+    ).start()
+    return {
+        "job_id": file_id,
+        "stream_url": (
+            f"/api/companies/{company_id}/files/{file_id}/summary/stream"
+        ),
+        "status": "queued",
+    }
 
-    kind = record.get("kind") or ""
-    slides = deck_summary.extract_slides(
-        src_path, kind, ppt_preview=ppt_preview
-    )
-    if not slides:
-        raise HTTPException(
-            status_code=415,
-            detail=(
-                "Couldn't extract slide text. .ppt files need a PDF preview "
-                "first; .pptx and .pdf should work directly."
-            ),
-        )
-    # For the vision fallback (image-only decks), point the model at the PDF
-    # — either the original or the cached PPT preview.
-    visual_path = (
-        src_path if kind == "pdf"
-        else ppt_preview if (kind == "ppt" and ppt_preview is not None)
-        else None
-    )
-    visual_kind = "pdf" if visual_path is not None else kind
-    summary = deck_summary.summarize_slides(
-        slides,
-        hint_title=(record.get("label") or record.get("filename") or ""),
-        file_path=visual_path,
-        kind=visual_kind,
-    )
-    if "error" in summary:
-        raise HTTPException(status_code=502, detail=summary["error"])
 
-    summary["generated_at"] = datetime.now(timezone.utc).isoformat()
-    files_store.update_record(company_id, file_id, summary=summary)
-    return summary
+@router.get("/companies/{company_id}/files/{file_id}/summary/stream")
+async def stream_file_summary_progress(
+    company_id: str, file_id: str
+) -> "StreamingResponse":
+    """SSE stream of progress events for a running (or recently finished)
+    summary job. Replays everything in the JSONL file from the start and
+    then tails new lines until a `done` or `error` event is seen.
+    """
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if files_store.get_file(company_id, file_id) is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    progress_path = _summary_progress_path(company_id, file_id)
+
+    async def event_stream():
+        # Wait briefly for the file to appear if the job was just kicked off.
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0  # 10 min ceiling
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete(
