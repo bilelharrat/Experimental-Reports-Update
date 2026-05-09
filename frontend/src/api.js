@@ -96,6 +96,11 @@ export const api = {
     const res = await fetch(`/api/external/news/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+  retryNews: (id) =>
+    request(`/api/external/news/${id}/retry`, { method: "POST" }),
+  retryExternalResearch: (id) =>
+    request(`/api/external/research/${id}/retry`, { method: "POST" }),
+  diagnostics: () => request("/api/diagnostics"),
   listExternalResearch: () => request("/api/external/research"),
   getExternalResearch: (id) => request(`/api/external/research/${id}`),
   uploadExternalResearch: async (form) => {

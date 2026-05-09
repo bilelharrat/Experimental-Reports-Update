@@ -567,6 +567,30 @@ def delete_news(item_id: str) -> None:
         raise HTTPException(status_code=404, detail="News item not found")
 
 
+@router.post("/external/news/{item_id}/retry")
+def retry_news(item_id: str) -> dict:
+    """Re-run the analysis pipeline for a news item — useful when the
+    initial run hit `analysis_error` (e.g. OPENAI_API_KEY wasn't loaded yet).
+    """
+    item = external_store.get_item("news", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="News item not found")
+    url = item.get("source_url") or item.get("final_url")
+    if not url:
+        raise HTTPException(status_code=400, detail="Item has no source URL")
+    external_store.update_item(
+        "news",
+        item_id,
+        status="queued",
+        analysis_error=None,
+        error=None,
+    )
+    threading.Thread(
+        target=_run_news_analysis, args=(item_id, url), daemon=True
+    ).start()
+    return external_store.get_item("news", item_id) or {}
+
+
 # ---- External research ----
 
 
@@ -748,6 +772,33 @@ def delete_external_research(item_id: str) -> None:
         except Exception:
             pass
     external_store.delete_item("external_research", item_id)
+
+
+@router.post("/external/research/{item_id}/retry")
+def retry_external_research(item_id: str) -> dict:
+    """Re-run the analysis pipeline for an external research item."""
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    stored = item.get("stored_name")
+    if not stored:
+        raise HTTPException(status_code=400, detail="Item has no file")
+    p = external_store._kind_dir("external_research") / "files" / stored
+    if not p.exists():
+        raise HTTPException(status_code=400, detail="File missing on disk")
+    external_store.update_item(
+        "external_research",
+        item_id,
+        status="queued",
+        analysis_error=None,
+        error=None,
+    )
+    threading.Thread(
+        target=_run_external_research_analysis,
+        args=(item_id, str(p), item.get("title")),
+        daemon=True,
+    ).start()
+    return external_store.get_item("external_research", item_id) or {}
 
 
 # ---- Combined news + research feed ----

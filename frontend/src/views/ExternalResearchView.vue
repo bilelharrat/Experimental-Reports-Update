@@ -8,6 +8,7 @@ import {
   FileText,
   Loader2,
   Mail,
+  RefreshCw,
   Trash2,
   User,
 } from "lucide-vue-next";
@@ -71,6 +72,19 @@ async function remove() {
   if (!confirm("Delete this research item and its uploaded file?")) return;
   await api.deleteExternalResearch(props.id);
   router.push({ name: "home" });
+}
+
+const retrying = ref(false);
+async function retry() {
+  retrying.value = true;
+  try {
+    item.value = await api.retryExternalResearch(props.id);
+    startPolling();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    retrying.value = false;
+  }
 }
 </script>
 
@@ -171,9 +185,19 @@ async function remove() {
 
       <div
         v-if="item.analysis_error"
-        class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2"
+        class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
       >
-        Analysis incomplete — {{ item.analysis_error }}
+        <span>Analysis incomplete — {{ item.analysis_error }}</span>
+        <button
+          type="button"
+          @click="retry"
+          :disabled="retrying"
+          class="text-xs px-2 py-1 rounded border border-warning/40 hover:bg-warning/10 text-warning-ink focus-ring inline-flex items-center gap-1.5 disabled:opacity-60 shrink-0"
+        >
+          <Loader2 v-if="retrying" class="h-3 w-3 animate-spin" />
+          <RefreshCw v-else class="h-3 w-3" />
+          <span>Retry</span>
+        </button>
       </div>
       <div
         v-if="item.error && item.status === 'failed'"
