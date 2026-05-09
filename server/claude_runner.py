@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 import threading
@@ -151,11 +152,60 @@ def _drain_stderr(proc: subprocess.Popen, log: list[str]) -> None:
         log.append(line)
 
 
+_SLIDE_LINE_RE = re.compile(
+    r"^\s*-\s*slide\s+(\d+)\s*:\s*(.+)$", re.IGNORECASE
+)
+
+
+def _scan_progress_for_slides(text: str, progress, state: dict) -> None:
+    """Scan a chunk of progress.md content for `- Slide N: ...` bullets.
+
+    Emits slide_extracted only for slides we haven't seen this job, advances
+    the analyzing-stage counter, and flips to `translating` when the last
+    expected slide has been observed.
+    """
+    seen: set[int] = state.setdefault("slides_seen", set())
+    for line in text.splitlines():
+        m = _SLIDE_LINE_RE.match(line)
+        if not m:
+            continue
+        try:
+            sn = int(m.group(1))
+        except ValueError:
+            continue
+        if sn in seen:
+            continue
+        seen.add(sn)
+        body_text = m.group(2).strip()[:160]
+        progress.emit("slide_extracted", slide_no=sn, preview=body_text)
+
+        page_count = state.get("page_count")
+        progress.emit(
+            "stage",
+            stage="analyzing",
+            message=(
+                f"Analyzing slide {sn} of {page_count}"
+                if page_count
+                else f"Analyzing slide {sn}"
+            ),
+            slide_no=sn,
+            slide_count=page_count,
+        )
+        if page_count and len(seen) >= page_count and not state.get("translating_emitted"):
+            state["translating_emitted"] = True
+            progress.emit(
+                "stage",
+                stage="translating",
+                message="Composing bilingual translation",
+            )
+
+
 def _process_event(event: dict, progress, state: dict) -> None:
     """Translate a stream-json event into our ProgressLog vocabulary.
 
     `state` is per-job mutable scratch — we use it to track the latest tool
-    invocation so we can pair tool_result events back to their tool_use.
+    invocation so we can pair tool_result events back to their tool_use, plus
+    which slides we've emitted so we can dedup and detect stage transitions.
     """
     etype = event.get("type")
     if etype == "system" and event.get("subtype") == "init":
@@ -184,35 +234,37 @@ def _process_event(event: dict, progress, state: dict) -> None:
                 preview = ""
                 if name == "Read":
                     preview = inp.get("file_path") or ""
+                    if inp.get("pages"):
+                        preview += f"  (pages={inp.get('pages')})"
                     if inp.get("offset") is not None or inp.get("limit") is not None:
                         preview += (
                             f"  (offset={inp.get('offset')}, limit={inp.get('limit')})"
                         )
-                    if inp.get("pages"):
-                        preview += f"  (pages={inp.get('pages')})"
                 elif name == "Write":
                     fp = inp.get("file_path") or ""
                     body = inp.get("content") or ""
                     preview = f"{fp}  ({len(body)} chars)"
-                    # Mirror progress.md writes as discrete progress events too
                     if fp.endswith("progress.md"):
-                        for line in body.splitlines():
-                            line = line.strip().lstrip("- ").strip()
-                            if line.lower().startswith("slide "):
-                                # Extract slide number for slide_extracted events
-                                rest = line[6:]
-                                num, _, body_text = rest.partition(":")
-                                try:
-                                    sn = int(num.strip())
-                                except ValueError:
-                                    continue
-                                progress.emit(
-                                    "slide_extracted",
-                                    slide_no=sn,
-                                    preview=body_text.strip()[:160],
-                                )
+                        _scan_progress_for_slides(body, progress, state)
+                    elif fp.endswith("summary.json"):
+                        if not state.get("structuring_emitted"):
+                            state["structuring_emitted"] = True
+                            progress.emit(
+                                "stage",
+                                stage="structuring",
+                                message="Structuring final output",
+                            )
                 elif name == "Edit":
-                    preview = inp.get("file_path") or ""
+                    fp = inp.get("file_path") or ""
+                    new_string = inp.get("new_string") or ""
+                    old_string = inp.get("old_string") or ""
+                    preview = f"{fp}  (+{max(0, len(new_string) - len(old_string))} chars)"
+                    if fp.endswith("progress.md"):
+                        # New slide bullets only appear in new_string by
+                        # definition (old_string is anchor text already in
+                        # the file), so scan the diff portion. Cheapest:
+                        # scan all of new_string and let dedup handle the rest.
+                        _scan_progress_for_slides(new_string, progress, state)
                 else:
                     preview = json.dumps(inp)[:200]
                 progress.emit(
@@ -264,8 +316,9 @@ def run_summary(
     hint_title: str | None,
     schema: dict,
     quality_bar: str,
+    page_count: int | None = None,
     progress=None,
-    timeout_sec: int = 600,
+    timeout_sec: int = 1200,
 ) -> dict:
     """Spawn `claude -p` with a deck-summary prompt and return the parsed
     structured result.
@@ -297,18 +350,19 @@ def run_summary(
     if not staged_deck.exists() or staged_deck.stat().st_size != source_path.stat().st_size:
         shutil.copy2(source_path, staged_deck)
 
+    # Don't pre-create progress.md — Claude's tool stack requires that any
+    # pre-existing file be Read before Write succeeds, which forced an
+    # avoidable read+retry on the very first append. Letting Claude create
+    # the file with its first Write skips that trap entirely.
     progress_md = work_dir / "progress.md"
-    progress_md.write_text(
-        f"# Summary job — {source_path.name}\n\n"
-        "_Per-slide observations are appended below as Claude reads the deck._\n\n",
-        encoding="utf-8",
-    )
+    progress_md.unlink(missing_ok=True)
     summary_json = work_dir / "summary.json"
     summary_json.unlink(missing_ok=True)
 
     user_prompt = _build_prompt(
         deck_filename=source_path.name,
         hint_title=hint_title or source_path.name,
+        page_count=page_count,
         quality_bar=quality_bar,
     )
 
@@ -352,7 +406,7 @@ def run_summary(
     )
     stderr_thread.start()
 
-    state: dict[str, Any] = {}
+    state: dict[str, Any] = {"page_count": page_count}
     final_text: str | None = None
     result_event: dict | None = None
     try:
@@ -425,35 +479,72 @@ def run_summary(
     return parsed
 
 
-def _build_prompt(*, deck_filename: str, hint_title: str, quality_bar: str) -> str:
+def _build_prompt(
+    *,
+    deck_filename: str,
+    hint_title: str,
+    page_count: int | None,
+    quality_bar: str,
+) -> str:
+    page_line = (
+        f"The deck has {page_count} pages."
+        if page_count
+        else "The deck's exact page count is unknown — read until Read returns no more pages."
+    )
+    last_page = page_count or "N"
     return f"""\
 You are analyzing a presentation deck for an investment-research dashboard.
 
 The deck has been staged in your current working directory as: ./{deck_filename}
 (Hint: titled "{hint_title}".)
+{page_line}
 
-WORKFLOW — follow this exactly:
+WORKFLOW — exactly four stages. The operator is watching ./progress.md and
+the live tool-call feed, so progress visibly. Don't batch.
 
-1. Read the deck. Use the Read tool on ./{deck_filename}. For PDFs over 20
-   pages, read in chunks of 20 pages at a time using the `pages` parameter
-   (e.g. pages="1-20", then "21-40", etc.) so you can process the whole deck.
+STAGE 1 — INVENTORY (already done for you).
+The local pre-pass already counted the slides, so no work needed here.
 
-2. As you process each slide/page, APPEND one bullet line to ./progress.md
-   in this exact format (one line per slide):
-       - Slide N: <one specific observation, ~80–160 chars>
-   Use the Write or Edit tool to append. Do this incrementally as you read,
-   not all at the end — the operator is watching this file in real time.
+STAGE 2 — PER-SLIDE ANALYSIS (one Read per page).
+For EACH page from 1 to {last_page}, in order:
 
-3. After processing the entire deck, produce your FINAL ANSWER as a JSON
-   object that exactly matches the schema attached to this run via
-   --json-schema. Both fields under `exec_summary` and inside each
-   `sections[*].title` / `body` must be filled — English in `en`, 简体中文 in
-   `zh`. `slide_refs` are 1-indexed slide numbers from the source deck.
+  a) Read ./{deck_filename} with `pages` set to a SINGLE page number, e.g.
+     pages="1", then pages="2", then pages="3". One page per Read call —
+     this is intentional, the operator wants per-page visibility.
 
-4. ALSO write a copy of that exact JSON to ./summary.json using Write.
+  b) After each Read, append exactly one bullet to ./progress.md:
+         - Slide N: <one specific observation, 80–160 chars>
+     - For page 1, the file does NOT exist yet — use the Write tool.
+       Start with a one-line header, then your first bullet:
+            # Progress — {deck_filename}
+
+            - Slide 1: <observation>
+     - For page 2 and beyond, use the Edit tool. Pick a unique string
+       from the END of the current file as `old_string` and set
+       `new_string` to that same string + "\\n- Slide N: <observation>".
+
+  c) Move to the next page. Don't skip pages.
+
+The bullet is ONE line, factual, specific. Numbers, names, claims, dates.
+Don't invent. If a slide is empty / decorative / a divider, say so briefly
+("- Slide N: section divider, 'Operations'").
+
+STAGE 3 — TRANSLATE.
+Once all {last_page} bullets are in progress.md, compose the bilingual
+content. For every English string you'll emit (exec summary, section
+titles, section bodies), prepare the matching 简体中文 rendering — natural
+language, same facts, same numbers.
+
+STAGE 4 — STRUCTURE OUTPUT.
+Write the final JSON to ./summary.json using the Write tool. The schema
+is attached to this run via --json-schema; both `exec_summary.en` /
+`exec_summary.zh` and every `sections[*].title.{{en,zh}}` /
+`body.{{en,zh}}` must be populated. `slide_refs` are integer 1-indexed
+page numbers from the source deck. Then return the SAME JSON as your
+final answer so the validator can confirm it.
 
 QUALITY BAR — every word earns its place:
 {quality_bar}
 
-Begin now. Start by reading the deck.
+Begin Stage 2 now. Read pages="1".
 """

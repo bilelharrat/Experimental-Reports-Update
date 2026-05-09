@@ -33,6 +33,12 @@ const claudeActions = ref([]); // [{action, tool, preview, ...}]
 const claudeMeta = ref({ session: null, model: null, cost_usd: null });
 const lastThinking = ref(""); // last assistant text block
 let eventSource = null;
+let watchdogId = null;
+let lastEventAt = 0;
+let consecutiveErrors = 0;
+const NO_EVENT_TIMEOUT_MS = 90_000; // 90s with zero events ⇒ assume dead
+const HARD_CEILING_MS = 15 * 60_000; // 15 min total ⇒ give up
+let openedAt = 0;
 
 function reset() {
   summary.value = null;
@@ -48,10 +54,21 @@ function reset() {
 }
 
 function closeStream() {
+  if (watchdogId) {
+    clearInterval(watchdogId);
+    watchdogId = null;
+  }
   if (eventSource) {
     eventSource.close();
     eventSource = null;
   }
+}
+
+function failGenerating(message) {
+  if (summary.value) return; // already finished — ignore late failures
+  closeStream();
+  generating.value = false;
+  error.value = error.value || message;
 }
 
 function openStream() {
@@ -59,7 +76,13 @@ function openStream() {
   closeStream();
   const url = api.fileSummaryStreamUrl(props.companyId, props.file.id);
   eventSource = new EventSource(url);
+  openedAt = Date.now();
+  lastEventAt = Date.now();
+  consecutiveErrors = 0;
+
   eventSource.onmessage = (msg) => {
+    consecutiveErrors = 0;
+    lastEventAt = Date.now();
     let entry;
     try {
       entry = JSON.parse(msg.data);
@@ -69,8 +92,35 @@ function openStream() {
     handleProgress(entry);
   };
   eventSource.onerror = () => {
-    // Auto-reconnect handled by browser; if it stays errored we'll surface.
+    consecutiveErrors++;
+    // EventSource readyState: 0=CONNECTING, 1=OPEN, 2=CLOSED.
+    // The browser auto-reconnects on transient errors; we only surface
+    // when the connection is permanently CLOSED or we've had a run of
+    // failed reconnects.
+    if (
+      eventSource &&
+      (eventSource.readyState === 2 || consecutiveErrors >= 5)
+    ) {
+      failGenerating("Lost connection to summary stream.");
+    }
   };
+
+  // Watchdog: if we go too long without ANY event, or we've been
+  // generating past the hard ceiling, fail the spinner.
+  watchdogId = setInterval(() => {
+    if (summary.value) return; // already done
+    const idle = Date.now() - lastEventAt;
+    const total = Date.now() - openedAt;
+    if (idle > NO_EVENT_TIMEOUT_MS) {
+      failGenerating(
+        `No progress for ${Math.round(idle / 1000)}s — the job appears stuck.`,
+      );
+    } else if (total > HARD_CEILING_MS) {
+      failGenerating(
+        `Summary job exceeded ${Math.round(HARD_CEILING_MS / 60000)} min ceiling.`,
+      );
+    }
+  }, 5000);
 }
 
 function handleProgress(entry) {
@@ -285,12 +335,18 @@ const fileLabel = computed(
   () => props.file?.label || props.file?.filename || "",
 );
 
-// Friendly stage labels for the timeline.
+// Friendly stage labels for the timeline. Order matches the pipeline as
+// emitted by the runner; stages we don't see (e.g. uploading on the OpenAI
+// fallback) just stay grey.
 const STAGE_ORDER = [
   ["starting", "Starting"],
-  ["extracting", "Indexing deck locally"],
-  ["extracted", "Local index ready"],
-  ["claude_starting", "Spawning BSH analyst"],
+  ["extracting", "Inventorying slides"],
+  ["extracted", "Inventory ready"],
+  ["claude_starting", "Processing with Claude"],
+  ["analyzing", "Analyzing slides"],
+  ["translating", "Translating to second language"],
+  ["structuring", "Structuring final output"],
+  // OpenAI-fallback labels (only show if claude isn't available)
   ["uploading", "Uploading to BSH model"],
   ["uploaded", "Upload complete"],
   ["generating", "BSH model is composing"],
@@ -301,11 +357,23 @@ const stageStatus = computed(() => {
   const idxLast = STAGE_ORDER.findIndex(
     ([key]) => key === stages.value[stages.value.length - 1]?.stage,
   );
-  return STAGE_ORDER.map(([key, label], i) => ({
-    key,
-    label,
-    state: seen.has(key) ? (i < idxLast ? "done" : "active") : "pending",
-  }));
+  // Latest analyzing event lets us show "Analyzing slide N of M".
+  const latestAnalyzing = [...stages.value]
+    .reverse()
+    .find((s) => s.stage === "analyzing");
+  return STAGE_ORDER.map(([key, label], i) => {
+    let dynamicLabel = label;
+    if (key === "analyzing" && latestAnalyzing?.slide_no) {
+      dynamicLabel = latestAnalyzing.slide_count
+        ? `Analyzing slide ${latestAnalyzing.slide_no} of ${latestAnalyzing.slide_count}`
+        : `Analyzing slide ${latestAnalyzing.slide_no}`;
+    }
+    return {
+      key,
+      label: dynamicLabel,
+      state: seen.has(key) ? (i < idxLast ? "done" : "active") : "pending",
+    };
+  });
 });
 
 const lastStage = computed(

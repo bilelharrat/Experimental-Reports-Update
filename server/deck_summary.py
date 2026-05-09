@@ -476,6 +476,7 @@ def summarize_slides(
             hint_title=hint_title,
             schema=SUMMARY_SCHEMA,
             quality_bar=QUALITY_BAR,
+            page_count=len(slides) if slides else None,
             progress=progress,
         )
         if "error" not in result:
