@@ -157,6 +157,40 @@ _SLIDE_LINE_RE = re.compile(
 )
 
 
+# Matches an ASCII `"` that's clearly INSIDE a JSON string body — i.e. its
+# neighbors are word-like characters, not JSON structural punctuation. A
+# valid JSON quote is always adjacent to whitespace, `,`, `:`, `[`, `]`,
+# `{`, or `}` on at least one side. If neither neighbor is one of those,
+# the quote is almost certainly a stray emphasis quote inside a CJK or
+# mixed-script value (e.g. `"iOS/Android"叙事` or `司"战`) that needs
+# escaping.
+_BAD_QUOTE_RE = re.compile(r'(?<=[^\s,:\[\]{}])"(?=[^\s,:\[\]{}])')
+
+
+def _parse_json_tolerant(text: str) -> dict | None:
+    """`json.loads(text)`, with a single-pass repair for unescaped ASCII
+    quotes used as inline emphasis inside string values (most often around
+    CJK terms). Returns None if even the repair doesn't parse.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    candidate = _BAD_QUOTE_RE.sub(r'\\"', text)
+    if candidate == text:
+        return None
+    try:
+        result = json.loads(candidate)
+        logger.warning(
+            "claude_runner: salvaged broken JSON by escaping unescaped "
+            "emphasis quotes (%d substitutions)",
+            (len(candidate) - len(text)),
+        )
+        return result
+    except json.JSONDecodeError:
+        return None
+
+
 def _scan_progress_for_slides(text: str, progress, state: dict) -> None:
     """Scan a chunk of progress.md content for `- Slide N: ...` bullets.
 
@@ -472,10 +506,7 @@ def run_summary(
     ):
         if not source_text:
             continue
-        try:
-            data = json.loads(source_text)
-        except json.JSONDecodeError:
-            continue
+        data = _parse_json_tolerant(source_text)
         if isinstance(data, dict) and "exec_summary" in data:
             parsed = data
             break
@@ -595,6 +626,14 @@ is attached to this run via --json-schema; both `exec_summary.en` /
 `body.{{en,zh}}` must be populated. `slide_refs` are integer 1-indexed
 page numbers from the source deck. Then return the SAME JSON as your
 final answer so the validator can confirm it.
+
+JSON SAFETY (this is enforced by both you and the validator):
+- Inside ANY string value (en OR zh), NEVER write a straight ASCII double
+  quote (") unescaped. If you need to emphasize or quote a phrase, use
+  single quotes ('iOS/Android of warfare') in English, and full-width
+  Chinese quotes 「」 or "" in 简体中文 — never ASCII ".
+- Use real newlines as \n inside strings, not literal line breaks.
+- Validate the JSON in your head before Writing summary.json.
 
 QUALITY BAR — every word earns its place:
 {quality_bar}
