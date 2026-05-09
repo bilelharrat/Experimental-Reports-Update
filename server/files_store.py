@@ -235,23 +235,22 @@ def _preview_path_for(company_id: str, record: dict) -> Path:
     return _company_dir(company_id) / f"{fid}__preview.pdf"
 
 
-def _convert_with_powerpoint(src: Path, dst: Path) -> bool:
+def _convert_with_powerpoint(src: Path, dst: Path) -> tuple[bool, str | None]:
     """Run Microsoft PowerPoint via osascript to save src as a PDF at dst.
 
-    Returns True on success. Idempotent — fast no-op if dst already exists.
-    macOS only.
+    Returns `(success, error_message)`. Idempotent — fast no-op if dst
+    already exists. macOS only.
     """
     if dst.exists():
-        return True
+        return True, None
     if not src.exists():
-        return False
+        return False, f"Source file missing: {src.name}"
     if sys.platform != "darwin":
-        logger.warning(
-            "PowerPoint conversion is macOS-only (sys.platform=%s); skipping %s",
-            sys.platform,
-            src,
+        msg = (
+            f"PowerPoint conversion is macOS-only (running on {sys.platform})."
         )
-        return False
+        logger.warning("%s Skipping %s", msg, src)
+        return False, msg
 
     script_file: Path | None = None
     try:
@@ -273,27 +272,39 @@ def _convert_with_powerpoint(src: Path, dst: Path) -> bool:
                     capture_output=True,
                 )
             except FileNotFoundError as exc:
-                logger.warning("osascript missing, can't convert %s: %s", src, exc)
-                return False
+                msg = f"osascript not found: {exc}"
+                logger.warning("Can't convert %s: %s", src, msg)
+                return False, msg
             except subprocess.TimeoutExpired:
-                logger.warning(
-                    "PowerPoint conversion timed out after %ss for %s",
-                    CONVERSION_TIMEOUT,
-                    src,
+                msg = (
+                    f"PowerPoint conversion timed out after "
+                    f"{CONVERSION_TIMEOUT:.0f}s. Set PPT_CONVERSION_TIMEOUT "
+                    "to raise the cap."
                 )
-                return False
+                logger.warning("%s (%s)", msg, src)
+                return False, msg
             except subprocess.CalledProcessError as exc:
-                stderr = (exc.stderr or b"").decode("utf-8", "ignore")[:500]
-                logger.warning(
-                    "PowerPoint conversion failed for %s: %s", src, stderr
-                )
-                return False
+                stderr = (exc.stderr or b"").decode("utf-8", "ignore").strip()
+                stdout = (exc.stdout or b"").decode("utf-8", "ignore").strip()
+                detail = stderr or stdout or "(no output)"
+                # macOS Automation permission denial has a recognizable shape.
+                if "-1743" in detail or "Not authorized" in detail:
+                    detail = (
+                        "macOS Automation permission denied. Open System "
+                        "Settings → Privacy & Security → Automation, find "
+                        "the terminal/IDE running uvicorn, and enable the "
+                        "checkbox next to Microsoft PowerPoint."
+                    )
+                msg = f"PowerPoint conversion failed: {detail[:600]}"
+                logger.warning("%s (%s)", msg, src)
+                return False, msg
             if not tmp_out.exists():
-                logger.warning("PowerPoint produced no output for %s", src)
-                return False
+                msg = "PowerPoint produced no output (no PDF written)."
+                logger.warning("%s (%s)", msg, src)
+                return False, msg
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(tmp_out), str(dst))
-            return True
+            return True, None
     finally:
         if script_file is not None:
             try:
@@ -302,28 +313,31 @@ def _convert_with_powerpoint(src: Path, dst: Path) -> bool:
                 pass
 
 
-def get_or_create_preview(company_id: str, file_id: str) -> Path | None:
-    """Return a previewable PDF path for the given file.
+def get_or_create_preview(
+    company_id: str, file_id: str
+) -> tuple[Path | None, str | None]:
+    """Return `(pdf_path, error)` for the given file.
 
     PDFs return their original path. PPT/PPTX return a cached preview, running
-    PowerPoint conversion synchronously if the cache is empty. None on failure
-    or unsupported kind.
+    PowerPoint conversion synchronously if the cache is empty. On failure the
+    error string explains why so the API can surface it to the UI.
     """
     found = get_file(company_id, file_id)
     if found is None:
-        return None
+        return None, "File not found."
     record, src_path = found
     kind = record.get("kind")
     if kind == "pdf":
-        return src_path
+        return src_path, None
     if kind not in ("ppt", "pptx"):
-        return None
+        return None, f"Unsupported file kind: {kind}"
     preview = _preview_path_for(company_id, record)
     if preview.exists():
-        return preview
-    if _convert_with_powerpoint(src_path, preview):
-        return preview
-    return None
+        return preview, None
+    ok, err = _convert_with_powerpoint(src_path, preview)
+    if ok:
+        return preview, None
+    return None, err or "PowerPoint conversion failed."
 
 
 def kick_off_background_conversion(company_id: str, record: dict) -> None:

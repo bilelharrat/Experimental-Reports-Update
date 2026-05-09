@@ -256,14 +256,11 @@ def get_file_preview(company_id: str, file_id: str) -> FileResponse:
     if found is None:
         raise HTTPException(status_code=404, detail="File not found")
     record, _ = found
-    pdf_path = files_store.get_or_create_preview(company_id, file_id)
+    pdf_path, err = files_store.get_or_create_preview(company_id, file_id)
     if pdf_path is None:
         raise HTTPException(
             status_code=415,
-            detail=(
-                "Preview not available — PowerPoint conversion failed or this "
-                "file type isn't supported. The file is still downloadable."
-            ),
+            detail=err or "Preview not available.",
         )
     base = (record.get("filename") or "preview").rsplit(".", 1)[0]
     return FileResponse(
