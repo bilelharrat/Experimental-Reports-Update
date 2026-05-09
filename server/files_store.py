@@ -8,10 +8,21 @@ named `<file_id>__<sanitized_original>.
 Only PPT, PPTX, and PDF are accepted. Filenames are sanitized to prevent
 path traversal — even though the filename is never used as a directory
 component, we want predictable inspection on disk.
+
+PPT/PPTX uploads are auto-converted to PDF (cached as `<id>__preview.pdf`
+next to the original) using Microsoft PowerPoint via AppleScript. This runs
+in a background thread on upload and synchronously on demand for files that
+were uploaded before this code shipped or had a previous conversion fail.
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -21,6 +32,8 @@ from typing import Any
 import yaml
 
 from .storage import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 UPLOADS_ROOT = DATA_DIR / "uploads"
 MAX_FILE_BYTES = 100 * 1024 * 1024  # 100MB
@@ -163,6 +176,9 @@ def upload_file(
         entries = _read_index(company_id)
         entries.insert(0, record)
         _write_index(company_id, entries)
+        # PPT/PPTX uploads kick off PowerPoint conversion in the background so
+        # the upload response stays fast. PDFs need no conversion.
+        kick_off_background_conversion(company_id, record)
         return record
 
 
@@ -184,5 +200,145 @@ def delete_file(company_id: str, file_id: str) -> bool:
             path.unlink(missing_ok=True)
         except Exception:
             pass
+        # Drop the cached preview if we made one.
+        preview = _preview_path_for(company_id, removed)
+        try:
+            preview.unlink(missing_ok=True)
+        except Exception:
+            pass
         _write_index(company_id, keep)
         return True
+
+
+# ---------- PowerPoint → PDF conversion ----------
+
+# Embedded AppleScript: open the input, save as PDF, close. `launch` (vs
+# `activate`) keeps PowerPoint in the background so it doesn't steal focus.
+_POWERPOINT_APPLESCRIPT = """on run argv
+    set inputPath to item 1 of argv
+    set outputPath to item 2 of argv
+    tell application "Microsoft PowerPoint"
+        launch
+        set thePresentation to open POSIX file inputPath
+        save thePresentation in (POSIX file outputPath as text) as save as PDF
+        close thePresentation saving no
+    end tell
+end run
+"""
+
+CONVERSION_TIMEOUT = float(os.environ.get("PPT_CONVERSION_TIMEOUT", "180"))
+
+
+def _preview_path_for(company_id: str, record: dict) -> Path:
+    """Where the cached PDF preview for a single uploaded file lives."""
+    fid = record.get("id") or "unknown"
+    return _company_dir(company_id) / f"{fid}__preview.pdf"
+
+
+def _convert_with_powerpoint(src: Path, dst: Path) -> bool:
+    """Run Microsoft PowerPoint via osascript to save src as a PDF at dst.
+
+    Returns True on success. Idempotent — fast no-op if dst already exists.
+    macOS only.
+    """
+    if dst.exists():
+        return True
+    if not src.exists():
+        return False
+    if sys.platform != "darwin":
+        logger.warning(
+            "PowerPoint conversion is macOS-only (sys.platform=%s); skipping %s",
+            sys.platform,
+            src,
+        )
+        return False
+
+    script_file: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".applescript", delete=False
+        ) as f:
+            f.write(_POWERPOINT_APPLESCRIPT)
+            script_file = Path(f.name)
+
+        # Convert into a temp output then move atomically into place so a
+        # half-written file never wins a race against a concurrent reader.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_out = Path(tmp) / "out.pdf"
+            try:
+                subprocess.run(
+                    ["osascript", str(script_file), str(src), str(tmp_out)],
+                    check=True,
+                    timeout=CONVERSION_TIMEOUT,
+                    capture_output=True,
+                )
+            except FileNotFoundError as exc:
+                logger.warning("osascript missing, can't convert %s: %s", src, exc)
+                return False
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "PowerPoint conversion timed out after %ss for %s",
+                    CONVERSION_TIMEOUT,
+                    src,
+                )
+                return False
+            except subprocess.CalledProcessError as exc:
+                stderr = (exc.stderr or b"").decode("utf-8", "ignore")[:500]
+                logger.warning(
+                    "PowerPoint conversion failed for %s: %s", src, stderr
+                )
+                return False
+            if not tmp_out.exists():
+                logger.warning("PowerPoint produced no output for %s", src)
+                return False
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(tmp_out), str(dst))
+            return True
+    finally:
+        if script_file is not None:
+            try:
+                script_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def get_or_create_preview(company_id: str, file_id: str) -> Path | None:
+    """Return a previewable PDF path for the given file.
+
+    PDFs return their original path. PPT/PPTX return a cached preview, running
+    PowerPoint conversion synchronously if the cache is empty. None on failure
+    or unsupported kind.
+    """
+    found = get_file(company_id, file_id)
+    if found is None:
+        return None
+    record, src_path = found
+    kind = record.get("kind")
+    if kind == "pdf":
+        return src_path
+    if kind not in ("ppt", "pptx"):
+        return None
+    preview = _preview_path_for(company_id, record)
+    if preview.exists():
+        return preview
+    if _convert_with_powerpoint(src_path, preview):
+        return preview
+    return None
+
+
+def kick_off_background_conversion(company_id: str, record: dict) -> None:
+    """Spawn a daemon thread to convert a freshly-uploaded PPT to PDF."""
+    if record.get("kind") not in ("ppt", "pptx"):
+        return
+    src = _company_dir(company_id) / record.get("stored_name", "")
+    dst = _preview_path_for(company_id, record)
+
+    def _run() -> None:
+        try:
+            _convert_with_powerpoint(src, dst)
+        except Exception:
+            logger.exception("Background conversion failed for %s", src)
+
+    threading.Thread(
+        target=_run, name=f"ppt-convert:{record.get('id')}", daemon=True
+    ).start()

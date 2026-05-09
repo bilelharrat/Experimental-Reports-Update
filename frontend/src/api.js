@@ -57,7 +57,7 @@ export const api = {
   fileUrl: (companyId, fileId) =>
     `/api/companies/${companyId}/files/${fileId}`,
   filePreviewUrl: (companyId, fileId) =>
-    `/api/companies/${companyId}/files/${fileId}?inline=1`,
+    `/api/companies/${companyId}/files/${fileId}/preview`,
   deleteFile: async (companyId, fileId) => {
     const res = await fetch(`/api/companies/${companyId}/files/${fileId}`, {
       method: "DELETE",

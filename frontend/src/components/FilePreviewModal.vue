@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   Download,
   ExternalLink,
   FileText,
+  Loader2,
   Presentation,
   X,
 } from "lucide-vue-next";
@@ -22,7 +23,56 @@ const previewUrl = computed(() =>
 const downloadUrl = computed(() =>
   props.file ? api.fileUrl(props.companyId, props.file.id) : null,
 );
-const canPreview = computed(() => props.file && props.file.kind === "pdf");
+// /preview handles all supported kinds (PDFs as-is, PPT/PPTX via PowerPoint).
+const canPreview = computed(() =>
+  props.file && ["pdf", "ppt", "pptx"].includes(props.file.kind),
+);
+const isPpt = computed(() =>
+  props.file && (props.file.kind === "ppt" || props.file.kind === "pptx"),
+);
+
+const previewLoading = ref(false);
+const previewError = ref(null);
+const previewBlobUrl = ref(null);
+let abortCtl = null;
+
+function clearBlob() {
+  if (previewBlobUrl.value) {
+    URL.revokeObjectURL(previewBlobUrl.value);
+    previewBlobUrl.value = null;
+  }
+}
+
+async function loadPreview() {
+  clearBlob();
+  previewError.value = null;
+  if (!canPreview.value || !previewUrl.value) return;
+  if (abortCtl) abortCtl.abort();
+  abortCtl = new AbortController();
+  previewLoading.value = true;
+  try {
+    const res = await fetch(previewUrl.value, { signal: abortCtl.signal });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.detail) detail = j.detail;
+      } catch {
+        // not JSON, ignore
+      }
+      previewError.value = detail;
+      return;
+    }
+    const blob = await res.blob();
+    previewBlobUrl.value = URL.createObjectURL(blob);
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      previewError.value = e.message || String(e);
+    }
+  } finally {
+    previewLoading.value = false;
+  }
+}
 
 function fmtSize(bytes) {
   if (!bytes) return "";
@@ -36,14 +86,26 @@ function onKey(e) {
 }
 
 onMounted(() => window.addEventListener("keydown", onKey));
-onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKey);
+  if (abortCtl) abortCtl.abort();
+  clearBlob();
+});
 
-// Lock body scroll while open.
+// Lock body scroll while open + (re)load preview when file changes.
 watch(
-  isOpen,
-  (open) => {
+  () => props.file,
+  (f) => {
     if (typeof document !== "undefined") {
-      document.body.style.overflow = open ? "hidden" : "";
+      document.body.style.overflow = f ? "hidden" : "";
+    }
+    if (f) {
+      loadPreview();
+    } else {
+      if (abortCtl) abortCtl.abort();
+      clearBlob();
+      previewError.value = null;
+      previewLoading.value = false;
     }
   },
   { immediate: true },
@@ -77,6 +139,9 @@ watch(
               <span v-if="file?.language">
                 · {{ (file.language || "en").toUpperCase() }}</span
               >
+              <span v-if="isPpt && previewBlobUrl" class="ml-1 text-ink-subtle">
+                · converted to PDF
+              </span>
             </div>
           </div>
           <a
@@ -107,24 +172,40 @@ watch(
 
         <div class="flex-1 min-h-0 bg-surface-muted">
           <iframe
-            v-if="canPreview && previewUrl"
-            :src="previewUrl"
+            v-if="previewBlobUrl"
+            :src="previewBlobUrl"
             class="w-full h-full border-0"
             :title="file?.filename"
           ></iframe>
+
           <div
-            v-else
+            v-else-if="previewLoading"
             class="h-full grid place-items-center text-center px-6"
           >
             <div class="max-w-sm">
+              <Loader2 class="h-8 w-8 text-accent mx-auto mb-3 animate-spin" />
+              <div class="font-display text-lg text-ink-primary">
+                {{ isPpt ? "Generating preview…" : "Loading preview…" }}
+              </div>
+              <p v-if="isPpt" class="mt-1 text-sm text-ink-muted">
+                Microsoft PowerPoint is converting this deck to PDF on the
+                server. First conversion can take 10–30 seconds; subsequent
+                opens are instant from cache.
+              </p>
+            </div>
+          </div>
+
+          <div
+            v-else-if="previewError || !canPreview"
+            class="h-full grid place-items-center text-center px-6"
+          >
+            <div class="max-w-md">
               <Presentation class="h-10 w-10 text-ink-muted mx-auto mb-3" />
               <div class="font-display text-lg text-ink-primary">
-                In-app preview not available
+                Preview not available
               </div>
               <p class="mt-1 text-sm text-ink-muted">
-                {{ (file?.kind || "this file").toUpperCase() }} files can't be
-                rendered directly in the browser yet. Download the file or
-                open it in a new tab to view it locally.
+                {{ previewError || "This file type can't be previewed." }}
               </p>
               <div class="mt-4 inline-flex gap-2">
                 <a
@@ -135,6 +216,14 @@ watch(
                   <Download class="h-3.5 w-3.5" />
                   Download
                 </a>
+                <button
+                  v-if="canPreview"
+                  type="button"
+                  @click="loadPreview"
+                  class="px-3 py-1.5 rounded-lg border border-subtle text-sm text-ink-secondary hover:bg-surface focus-ring"
+                >
+                  Retry
+                </button>
               </div>
             </div>
           </div>

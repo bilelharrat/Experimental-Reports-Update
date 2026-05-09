@@ -242,6 +242,37 @@ async def post_file(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/companies/{company_id}/files/{file_id}/preview")
+def get_file_preview(company_id: str, file_id: str) -> FileResponse:
+    """Return a PDF preview suitable for an <iframe>.
+
+    PDFs are streamed inline as-is. PPT/PPTX files are converted via Microsoft
+    PowerPoint (cached on disk after the first run); the conversion runs
+    synchronously here for files that weren't converted on upload yet.
+    """
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    found = files_store.get_file(company_id, file_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    record, _ = found
+    pdf_path = files_store.get_or_create_preview(company_id, file_id)
+    if pdf_path is None:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "Preview not available — PowerPoint conversion failed or this "
+                "file type isn't supported. The file is still downloadable."
+            ),
+        )
+    base = (record.get("filename") or "preview").rsplit(".", 1)[0]
+    return FileResponse(
+        path=str(pdf_path),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{base}.pdf"'},
+    )
+
+
 @router.get("/companies/{company_id}/files/{file_id}")
 def get_file(
     company_id: str, file_id: str, inline: bool = False
