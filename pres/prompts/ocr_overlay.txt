@@ -1,0 +1,241 @@
+You are performing high-precision OCR and layout extraction for multilingual slide reconstruction and translated overlay rendering.
+
+Analyze the attached image and extract all visible slide text with precise geometric metadata suitable for programmatic reconstruction.
+
+The image may contain browser UI, viewer chrome, page counters, footers, or toolbars surrounding the slide. These are NOT slide content.
+
+Your task is geometric extraction, not summarization.
+
+CRITICAL RULES
+
+- Do NOT summarize.
+- Do NOT paraphrase.
+- Do NOT normalize visible text.
+- Do NOT correct spelling.
+- Do NOT merge unrelated visual regions.
+- Do NOT omit small text.
+- Preserve capitalization.
+- Preserve punctuation.
+- Preserve visible line breaks.
+- Preserve symbols exactly:
+  - ~
+  - $
+  - +
+  - apostrophes
+  - dashes
+  - en dashes
+  - em dashes
+  - slashes
+  - percentages
+- Geometric precision is more important than readability.
+- Return ONLY valid JSON.
+- No markdown.
+- No explanations.
+- No commentary.
+
+TEXT EXTRACTION REQUIREMENTS
+
+Extract ALL visible slide text including:
+- titles
+- subtitles
+- labels
+- captions
+- footnotes
+- body paragraphs
+- metric values
+- numeric callouts
+- annotations
+- legal/disclaimer text
+
+VISUAL SEGMENTATION RULES
+
+- Each visually distinct text region must be its own element.
+- Multi-line titles are ONE element.
+- Each metric/stat card is separate.
+- Paragraphs remain unified unless visually separated.
+- Preserve visible line breaks using "\n".
+- Reading order must follow visual order from top-to-bottom and left-to-right.
+
+COORDINATE SYSTEM
+
+Use image pixel coordinates:
+{
+  "x": number,
+  "y": number,
+  "width": number,
+  "height": number
+}
+
+Coordinate origin:
+- top-left corner
+- x increases right
+- y increases downward
+
+SLIDE DETECTION
+
+First identify:
+1. Full image dimensions
+2. Slide canvas rectangle
+3. Non-slide UI regions
+
+Exclude browser/viewer UI from slide elements.
+
+TEXT REPRESENTATION
+
+For each element return BOTH:
+
+1. text_visible
+Exact visually rendered text including visible line breaks and hyphenation.
+
+2. text_logical
+Normalized logical text suitable for translation.
+Repair soft hyphenated line wraps where appropriate.
+
+Example:
+
+text_visible:
+"venture-\nbacked"
+
+text_logical:
+"venture-backed"
+
+BOX TYPES
+
+Return BOTH:
+
+1. tight_glyph_box
+The minimum rectangle tightly surrounding visible text pixels.
+
+2. render_box
+The larger layout region intended for translated text rendering.
+This box should preserve visual alignment and provide enough space for translated overlay text.
+
+TYPOGRAPHY METADATA
+
+Estimate:
+- font_size_estimate_px
+- line_height_estimate_px
+- baseline_offset_px
+- font_weight
+- font_family_estimate
+- text_color
+- background_color
+- alignment
+- rotation_degrees
+
+VALID ALIGNMENTS
+
+alignment:
+- left
+- center
+- right
+
+font_weight:
+- light
+- normal
+- medium
+- semibold
+- bold
+
+font_family_estimate:
+- serif
+- sans-serif
+- monospace
+- unknown
+
+OUTPUT SCHEMA
+
+{
+  "image_width": number,
+  "image_height": number,
+
+  "slide_canvas_box": {
+    "x": number,
+    "y": number,
+    "width": number,
+    "height": number
+  },
+
+  "slide_type": "presentation_slide",
+
+  "elements": [
+    {
+      "id": "text_001",
+      "type": "text",
+
+      "role": "title|subtitle|metric|caption|paragraph|footnote|label|other",
+
+      "text_visible": "...",
+      "text_logical": "...",
+
+      "tight_glyph_box": {
+        "x": number,
+        "y": number,
+        "width": number,
+        "height": number
+      },
+
+      "render_box": {
+        "x": number,
+        "y": number,
+        "width": number,
+        "height": number
+      },
+
+      "font_size_estimate_px": number,
+      "line_height_estimate_px": number,
+      "baseline_offset_px": number,
+
+      "font_weight": "light|normal|medium|semibold|bold",
+
+      "font_family_estimate": "serif|sans-serif|monospace|unknown",
+
+      "text_color": "#RRGGBB",
+
+      "background_color": "#RRGGBB|transparent",
+
+      "alignment": "left|center|right",
+
+      "rotation_degrees": number,
+
+      "confidence": number
+    }
+  ],
+
+  "excluded_elements": [
+    {
+      "id": "excluded_001",
+
+      "type": "viewer_ui|browser_ui|footer_ui|toolbar|page_counter|other",
+
+      "text": "...",
+
+      "bounding_box": {
+        "x": number,
+        "y": number,
+        "width": number,
+        "height": number
+      },
+
+      "reason": "Not part of slide content"
+    }
+  ]
+}
+
+IMPORTANT
+
+This output will later be used to:
+- machine translate text
+- generate Chinese overlays
+- reconstruct slide layouts
+- render bilingual PDFs
+- mask original English text
+- preserve original typography and geometry
+
+Therefore:
+- geometric fidelity is critical
+- text extraction must be deterministic
+- preserve exact visible structure
+- do not semantically reinterpret content
+- do not infer missing text
+- do not simplify formatting

@@ -224,3 +224,4 @@ frontend/dist/
 .uv/
 uv.lock
 .claude/
+.DS_Store
