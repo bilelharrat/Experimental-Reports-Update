@@ -1,6 +1,6 @@
-"""Run Claude Code (the `claude` CLI) as a subprocess for summarization jobs.
+"""Run Claude Code (the `claude` CLI) as a subprocess for LLM jobs.
 
-Why this instead of the OpenAI SDK directly:
+Why this instead of direct API SDK calls:
 - Uses the user's existing Claude Code subscription / token allowance.
 - Gives us file-system observability — Claude writes a `progress.md` to the
   job's work directory as it processes each slide, so we have a durable
@@ -10,6 +10,10 @@ Why this instead of the OpenAI SDK directly:
   ProgressLog so the SSE feed stays granular (per-slide, per-tool).
 - The native `--json-schema` flag validates the final structured summary
   for free; no manual JSON cleanup needed.
+
+Public entry points:
+- run_summary()         — bilingual deck summary (PDF/PPTX → JSON).
+- run_company_search()  — company deep search using WebSearch/WebFetch.
 """
 from __future__ import annotations
 
@@ -640,3 +644,97 @@ QUALITY BAR — every word earns its place:
 
 {begin_line}
 """
+
+
+# ---- Company deep search via WebSearch/WebFetch ----
+
+
+def run_company_search(
+    *,
+    query: str,
+    schema: dict,
+    system_prompt: str,
+    max_results: int = 6,
+    timeout_sec: int = 600,
+) -> tuple[list[dict] | None, str | None]:
+    """Run a deep company search by spawning `claude -p` with WebSearch and
+    WebFetch enabled. Returns ``(matches, error)`` mirroring the OpenAI
+    helper in companies_ai.py — on success ``error`` is None.
+
+    The ``schema`` is enforced via ``--json-schema`` so Claude's final
+    structured answer is validated before we ever see it. The prompt
+    instructs Claude to use WebSearch aggressively to ground every field in
+    current public information.
+    """
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not found on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and run `claude` "
+            "once to authenticate."
+        )
+
+    work_dir = Path("/tmp") / f"bsh_company_search_{abs(hash(query)) % 10**8}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    user_prompt = (
+        f"{system_prompt}\n\n"
+        f"User query: {query}\n\n"
+        f"Return up to {max_results} matches. Use the WebSearch tool "
+        "aggressively to ground every field. Use WebFetch on official "
+        "company pages, recent news articles, and SEC filings to verify "
+        "specific numbers and dates before quoting them. Do NOT invent "
+        "values — if a field can't be verified, return null for it.\n\n"
+        "When you've gathered enough evidence, produce ONE final assistant "
+        "message that is the JSON object satisfying the attached schema. "
+        "No preamble, no markdown fences — just the JSON."
+    )
+
+    cmd = [
+        claude_path() or "claude",
+        "-p",
+        user_prompt,
+        "--output-format", "json",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "acceptEdits",
+        "--tools", "WebSearch,WebFetch",
+        "--json-schema", json.dumps(schema),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(work_dir),
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"claude search timed out after {timeout_sec}s"
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-600:]
+        return None, f"claude exited {proc.returncode}: {tail}"
+
+    try:
+        envelope = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return None, f"claude returned non-JSON envelope: {exc}"
+
+    final_text = (envelope.get("result") or "").strip()
+    if not final_text:
+        return None, "claude returned empty result"
+
+    parsed = _parse_json_tolerant(final_text)
+    if parsed is None:
+        return None, "claude's final answer didn't parse as JSON"
+    if not isinstance(parsed, dict):
+        return None, "claude's final answer wasn't a JSON object"
+    matches = parsed.get("matches")
+    if not isinstance(matches, list):
+        return None, "claude's final answer is missing the `matches` array"
+    return matches[:max_results], None
+
