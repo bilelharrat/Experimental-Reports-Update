@@ -23,6 +23,14 @@ export const api = {
         refresh ? "&refresh=true" : ""
       }`,
     ),
+  startDeepSearch: (q, { refresh = false } = {}) =>
+    request(
+      `/api/companies/search/start?q=${encodeURIComponent(q)}${
+        refresh ? "&refresh=true" : ""
+      }`,
+      { method: "POST" },
+    ),
+  searchStreamUrl: (jobId) => `/api/companies/search/stream/${jobId}`,
   selectCompany: (payload) =>
     request("/api/companies/select", {
       method: "POST",

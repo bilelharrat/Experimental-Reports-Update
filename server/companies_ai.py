@@ -289,7 +289,9 @@ def _call_openai(query: str) -> tuple[list[dict] | None, str | None]:
     return matches[:MAX_RESULTS], None
 
 
-def deep_search(query: str, *, force_refresh: bool = False) -> dict:
+def deep_search(
+    query: str, *, force_refresh: bool = False, progress=None
+) -> dict:
     """Run a deep search and persist any new matches into local storage.
 
     Cached results live forever (no TTL) — `force_refresh=True` re-queries
@@ -321,20 +323,31 @@ def deep_search(query: str, *, force_refresh: bool = False) -> dict:
 
     # Primary: Claude Code CLI with WebSearch/WebFetch tools.
     if claude_runner.is_available():
+        if progress:
+            progress.emit("stage", stage="claude_starting", message="Starting Claude Code")
         raw, err = claude_runner.run_company_search(
             query=q,
             schema=SCHEMA,
             system_prompt=SYSTEM_PROMPT,
             max_results=MAX_RESULTS,
+            progress=progress,
         )
         if raw is not None:
             source_used = "claude_code"
         else:
             last_err = err
             logger.warning("Claude Code search failed, falling back: %s", err)
+            if progress:
+                progress.emit(
+                    "stage",
+                    stage="fallback",
+                    message=f"Claude failed, trying OpenAI fallback: {err}",
+                )
 
     # Fallback: OpenAI Responses API + web_search.
     if raw is None and _is_available():
+        if progress:
+            progress.emit("stage", stage="openai_fallback", message="Searching via OpenAI")
         raw, err = _call_openai(q)
         if raw is not None:
             source_used = "openai"
