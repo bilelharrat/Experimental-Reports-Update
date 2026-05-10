@@ -715,11 +715,6 @@ class NewsCreateIn(BaseModel):
     url: str
 
 
-class HormuzCreateIn(BaseModel):
-    title: str
-    body: str = ""
-
-
 @router.post("/external/link-preview")
 def post_link_preview(payload: LinkPreviewIn) -> dict:
     """Fetch a URL and return its OpenGraph-style preview without saving.
@@ -1094,21 +1089,43 @@ def get_external_feed() -> list[dict]:
 
 
 @router.post("/external/hormuz", status_code=201)
-def post_hormuz(payload: HormuzCreateIn) -> dict:
-    title = (payload.title or "").strip()
+async def post_hormuz(
+    title: str = Form(...),
+    body: str = Form(""),
+    file: UploadFile | None = File(None),
+) -> dict:
+    title = (title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
     item_id = external_store.new_id()
-    return external_store.write_item(
-        "hormuz_research",
-        {
-            "id": item_id,
-            "kind": "hormuz_research",
-            "status": "ready",
-            "title": title,
-            "body": (payload.body or "").strip(),
-        },
-    )
+
+    record: dict = {
+        "id": item_id,
+        "kind": "hormuz_research",
+        "status": "ready",
+        "title": title,
+        "body": (body or "").strip(),
+    }
+
+    if file is not None and file.filename:
+        data = await file.read()
+        if data:
+            files_dir = external_store._kind_dir("hormuz_research") / "files"
+            files_dir.mkdir(parents=True, exist_ok=True)
+            safe_name = files_store._sanitize_filename(file.filename)
+            stored_name = f"{item_id}__{safe_name}"
+            stored_path = files_dir / stored_name
+            tmp = stored_path.with_suffix(stored_path.suffix + ".tmp")
+            tmp.write_bytes(data)
+            tmp.replace(stored_path)
+            record.update(
+                filename=safe_name,
+                stored_name=stored_name,
+                size_bytes=len(data),
+                content_type=file.content_type or "",
+            )
+
+    return external_store.write_item("hormuz_research", record)
 
 
 @router.get("/external/hormuz")
@@ -1124,10 +1141,37 @@ def get_hormuz(item_id: str) -> dict:
     return item
 
 
+@router.get("/external/hormuz/{item_id}/file")
+def get_hormuz_file(item_id: str) -> FileResponse:
+    item = external_store.get_item("hormuz_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Hormuz item not found")
+    stored = item.get("stored_name")
+    if not stored:
+        raise HTTPException(status_code=404, detail="No file attached")
+    p = external_store._kind_dir("hormuz_research") / "files" / stored
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="File missing on disk")
+    return FileResponse(
+        path=str(p),
+        filename=item.get("filename") or stored,
+        media_type=item.get("content_type") or "application/octet-stream",
+    )
+
+
 @router.delete("/external/hormuz/{item_id}", status_code=204)
 def delete_hormuz(item_id: str) -> None:
-    if not external_store.delete_item("hormuz_research", item_id):
+    item = external_store.get_item("hormuz_research", item_id)
+    if item is None:
         raise HTTPException(status_code=404, detail="Hormuz item not found")
+    stored = item.get("stored_name")
+    if stored:
+        p = external_store._kind_dir("hormuz_research") / "files" / stored
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    external_store.delete_item("hormuz_research", item_id)
 
 
 # ---- view shaping ----

@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { ArrowLeft, ScrollText, Trash2 } from "lucide-vue-next";
+import { ArrowLeft, FileText, ScrollText, Trash2 } from "lucide-vue-next";
 import { api } from "../api.js";
 
 const props = defineProps({ id: { type: String, required: true } });
@@ -69,12 +69,28 @@ async function remove() {
         </button>
       </header>
 
+      <a
+        v-if="item.stored_name"
+        :href="api.hormuzFileUrl(item.id)"
+        target="_blank"
+        rel="noopener"
+        class="flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted hover:bg-surface text-sm text-ink-primary focus-ring"
+      >
+        <FileText class="h-4 w-4 text-ink-muted shrink-0" />
+        <span class="truncate flex-1">{{ item.filename || item.stored_name }}</span>
+        <span v-if="item.size_bytes" class="text-xs text-ink-muted">
+          {{ Math.round(item.size_bytes / 1024) }} KB
+        </span>
+      </a>
+
       <pre
         v-if="item.body"
         class="whitespace-pre-wrap font-body text-sm leading-relaxed text-ink-primary bg-surface-muted rounded-lg p-4 border border-subtle"
         >{{ item.body }}</pre
       >
-      <p v-else class="text-sm text-ink-muted italic">No body.</p>
+      <p v-else-if="!item.stored_name" class="text-sm text-ink-muted italic">
+        No comments.
+      </p>
     </template>
   </div>
 </template>

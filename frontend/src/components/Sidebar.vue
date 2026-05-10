@@ -6,13 +6,15 @@ import {
   Loader2,
   Home,
   Globe,
+  Newspaper,
   ScrollText,
   ClipboardList,
 } from "lucide-vue-next";
 
 const props = defineProps({
   reports: { type: Array, default: () => [] },
-  externalFeed: { type: Array, default: () => [] },
+  news: { type: Array, default: () => [] },
+  externalResearch: { type: Array, default: () => [] },
   hormuz: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   error: { type: String, default: null },
@@ -50,10 +52,11 @@ const reports = computed(() => props.reports);
         to="/"
         class="flex items-center gap-2 text-ink-primary font-display text-lg font-semibold focus-ring rounded"
       >
-        <span
-          class="h-8 w-8 rounded-lg bg-accent text-white grid place-items-center font-display font-bold"
-          >BSH</span
-        >
+        <img
+          src="/app-icon.png"
+          alt="BSH"
+          class="h-8 w-8 rounded-lg object-cover"
+        />
         <span>Research Center</span>
       </RouterLink>
     </div>
@@ -131,50 +134,44 @@ const reports = computed(() => props.reports);
         </RouterLink>
       </div>
 
-      <!-- External Research and News -->
+      <!-- News -->
       <div
         class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
       >
-        <Globe class="h-3 w-3" />
-        External Research and News
+        <Newspaper class="h-3 w-3" />
+        News
       </div>
-      <div class="space-y-1">
+      <div class="max-h-[26rem] overflow-y-auto pr-1 space-y-1">
         <div
-          v-if="externalFeed.length === 0"
+          v-if="news.length === 0"
           class="px-3 py-2 text-xs text-ink-subtle"
         >
-          Submit a link or upload research from the home page.
+          Submit a link from the home page.
         </div>
         <RouterLink
-          v-for="item in externalFeed"
+          v-for="item in news"
           :key="item.id"
           :to="routeFor(item)"
           class="block px-3 py-2 rounded-lg hover:bg-surface-muted focus-ring"
         >
           <div class="flex items-start gap-2">
             <img
-              v-if="item.kind === 'news' && item.favicon"
+              v-if="item.favicon"
               :src="item.favicon"
               alt=""
               class="h-4 w-4 mt-0.5 shrink-0 object-contain"
               @error="(e) => (e.target.style.display = 'none')"
             />
             <Globe
-              v-else-if="item.kind === 'news'"
+              v-else
               class="h-4 w-4 mt-0.5 text-ink-muted shrink-0"
             />
-            <FileText v-else class="h-4 w-4 mt-0.5 text-ink-muted shrink-0" />
             <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium text-ink-primary line-clamp-2">
+              <div class="text-[15px] font-semibold leading-snug text-ink-primary line-clamp-2">
                 {{ item.title || item.source_url || "Untitled" }}
               </div>
-              <div class="text-xs text-ink-muted truncate">
-                <template v-if="item.kind === 'news'">
-                  <span>{{ item.domain || item.site_name || "link" }}</span>
-                </template>
-                <template v-else>
-                  <span>{{ item.source_company || "external" }}</span>
-                </template>
+              <div class="mt-0.5 text-[11px] text-ink-muted truncate">
+                <span>{{ item.domain || item.site_name || "link" }}</span>
                 <span class="text-ink-subtle">
                   · {{ fmtAge(item.captured_at) }} ago</span
                 >
@@ -186,20 +183,95 @@ const reports = computed(() => props.reports);
               </div>
               <div
                 v-if="item.summary"
-                class="mt-0.5 text-xs text-ink-secondary line-clamp-2"
+                class="mt-0.5 text-[11px] text-ink-secondary line-clamp-2"
               >
                 {{ item.summary }}
               </div>
-              <div class="mt-1 flex items-center gap-1 text-xs">
+              <div
+                v-if="
+                  item.status &&
+                  item.status !== 'ready' &&
+                  item.status !== 'complete'
+                "
+                class="mt-1 flex items-center gap-1"
+              >
                 <span
-                  v-if="item.status === 'ready'"
-                  class="px-1 py-0.5 rounded bg-success-soft text-success-ink text-[10px]"
-                  >Ready</span
-                >
-                <span
-                  v-else-if="
+                  v-if="
                     item.status === 'analyzing' ||
                     item.status === 'fetching' ||
+                    item.status === 'extracting' ||
+                    item.status === 'queued'
+                  "
+                  class="px-1 py-0.5 rounded bg-warning-soft text-warning-ink text-[10px] inline-flex items-center gap-0.5"
+                >
+                  <Loader2 class="h-2.5 w-2.5 animate-spin" />
+                  {{ item.status }}
+                </span>
+                <span
+                  v-else-if="item.status === 'failed'"
+                  class="px-1 py-0.5 rounded bg-danger-soft text-danger-ink text-[10px]"
+                  >Failed</span
+                >
+              </div>
+            </div>
+          </div>
+        </RouterLink>
+      </div>
+
+      <!-- External Research -->
+      <div
+        class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
+      >
+        <Globe class="h-3 w-3" />
+        External Research
+      </div>
+      <div class="max-h-[26rem] overflow-y-auto pr-1 space-y-1">
+        <div
+          v-if="externalResearch.length === 0"
+          class="px-3 py-2 text-xs text-ink-subtle"
+        >
+          Upload research from the home page.
+        </div>
+        <RouterLink
+          v-for="item in externalResearch"
+          :key="item.id"
+          :to="routeFor(item)"
+          class="block px-3 py-2 rounded-lg hover:bg-surface-muted focus-ring"
+        >
+          <div class="flex items-start gap-2">
+            <FileText class="h-4 w-4 mt-0.5 text-ink-muted shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="text-[15px] font-semibold leading-snug text-ink-primary line-clamp-2">
+                {{ item.title || "Untitled" }}
+              </div>
+              <div class="mt-0.5 text-[11px] text-ink-muted truncate">
+                <span>{{ item.source_company || "external" }}</span>
+                <span class="text-ink-subtle">
+                  · {{ fmtAge(item.captured_at) }} ago</span
+                >
+                <span
+                  v-if="item.language"
+                  class="ml-1 px-1 py-0.5 rounded bg-surface-muted text-ink-muted font-mono text-[10px] uppercase"
+                  >{{ item.language }}</span
+                >
+              </div>
+              <div
+                v-if="item.summary"
+                class="mt-0.5 text-[11px] text-ink-secondary line-clamp-2"
+              >
+                {{ item.summary }}
+              </div>
+              <div
+                v-if="
+                  item.status &&
+                  item.status !== 'ready' &&
+                  item.status !== 'complete'
+                "
+                class="mt-1 flex items-center gap-1"
+              >
+                <span
+                  v-if="
+                    item.status === 'analyzing' ||
                     item.status === 'extracting' ||
                     item.status === 'queued'
                   "
