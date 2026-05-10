@@ -89,6 +89,22 @@ def get_company(company_id: str) -> dict | None:
     return None
 
 
+def update_company(company_id: str, **patch: Any) -> dict | None:
+    """Merge `patch` into the existing company record. Returns the updated
+    record or None if the company isn't found.
+    """
+    with _LOCK:
+        _ensure_dirs()
+        companies = list_companies()
+        for i, c in enumerate(companies):
+            if c.get("id") == company_id:
+                c.update(patch)
+                companies[i] = c
+                _write_yaml(COMPANIES_FILE, companies)
+                return c
+    return None
+
+
 def _slugify(name: str) -> str:
     out = []
     for ch in name.lower():

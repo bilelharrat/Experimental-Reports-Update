@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -44,7 +45,8 @@ from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from .api import router as api_router  # noqa: E402
-from .storage import bootstrap_seed_data  # noqa: E402
+from .storage import bootstrap_seed_data, list_companies, update_company  # noqa: E402
+from .company_translate import translate_company  # noqa: E402
 
 logger = logging.getLogger("bsh.startup")
 
@@ -75,6 +77,51 @@ def _startup() -> None:
             "OPENAI_API_KEY not set — analysis paths will fall back to "
             "stubs. Put it in .env at the project root."
         )
+    _start_translation_backfill()
+
+
+def _start_translation_backfill() -> None:
+    """Translate any company that doesn't yet have a `translation` block.
+
+    Runs in a background thread so startup isn't blocked. No-op if
+    OPENAI_API_KEY isn't set; the per-company translate endpoint can still
+    be triggered manually later.
+    """
+    if not os.environ.get("OPENAI_API_KEY"):
+        return
+
+    def _worker() -> None:
+        try:
+            companies = list_companies()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Translation backfill: list_companies failed: %s", exc)
+            return
+        pending = [c for c in companies if not c.get("translation")]
+        if not pending:
+            return
+        logger.info(
+            "Translation backfill: %d company record(s) to translate.", len(pending)
+        )
+        for c in pending:
+            cid = c.get("id")
+            if not cid:
+                continue
+            try:
+                result = translate_company(c)
+                update_company(
+                    cid,
+                    language=result.get("language"),
+                    translation=result.get("translation"),
+                )
+                if result.get("error"):
+                    logger.warning(
+                        "Translation backfill for %s: %s", cid, result["error"]
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Translation backfill for %s failed: %s", cid, exc)
+        logger.info("Translation backfill: complete.")
+
+    threading.Thread(target=_worker, name="company-translation-backfill", daemon=True).start()
 
 
 @app.get("/health")
