@@ -168,6 +168,14 @@ def _run_search_job(job_id: str, query: str, refresh: bool) -> None:
     into the JSONL file and emits a terminal `done` event with the matches
     payload (or `error` on failure)."""
     progress = job_progress.ProgressLog(_search_progress_path(job_id))
+    progress.emit(
+        "job_init",
+        kind="search",
+        title=f'Searching "{query}"',
+        subtitle="Company deep search",
+        query=query,
+        refresh=refresh,
+    )
     progress.emit("stage", stage="starting", message="Starting search", query=query)
     try:
         result = companies_ai.deep_search(
@@ -549,8 +557,9 @@ def _summary_progress_path(company_id: str, file_id: str) -> "Path":
 def _scan_progress_state(path: "Path") -> dict:
     """Scan a progress JSONL and summarize where the job stands.
 
-    Used by both the active-jobs listing and the idempotent POST handler so
-    we can decide whether to start a new run or attach to one in flight.
+    Used by the active-jobs listing, idempotent POST handlers, and the
+    generic job-log endpoints. Pulls metadata out of the `job_init` event
+    so the rail can show kind/title/subtitle for any task.
     """
     import json as _json
 
@@ -564,9 +573,17 @@ def _scan_progress_state(path: "Path") -> dict:
         "latest_stage_key": None,
         "slide_no": None,
         "slide_count": None,
+        "page_no": None,
+        "page_count": None,
         "speed": None,
         "claude_cost_usd": None,
+        "claude_duration_ms": None,
         "error": None,
+        # Populated by `job_init` — generic display metadata for the rail.
+        "job_init": None,
+        "kind": None,
+        "title": None,
+        "subtitle": None,
     }
     if not path.exists():
         return state
@@ -584,7 +601,12 @@ def _scan_progress_state(path: "Path") -> dict:
                     state["started_at"] = entry.get("ts")
                 state["last_event_at"] = entry.get("ts")
                 etype = entry.get("type")
-                if etype in ("done", "error"):
+                if etype == "job_init":
+                    state["job_init"] = entry
+                    state["kind"] = entry.get("kind")
+                    state["title"] = entry.get("title")
+                    state["subtitle"] = entry.get("subtitle")
+                elif etype in ("done", "error"):
                     state["terminated"] = True
                     state["terminal_type"] = etype
                     if etype == "error":
@@ -598,11 +620,17 @@ def _scan_progress_state(path: "Path") -> dict:
                         state["slide_no"] = entry["slide_no"]
                     if "slide_count" in entry:
                         state["slide_count"] = entry["slide_count"]
+                    if "page_no" in entry:
+                        state["page_no"] = entry["page_no"]
+                    if "page_count" in entry:
+                        state["page_count"] = entry["page_count"]
                     if "speed" in entry:
                         state["speed"] = entry["speed"]
                 elif etype == "claude_action" and entry.get("action") == "result":
                     if entry.get("cost_usd") is not None:
                         state["claude_cost_usd"] = entry["cost_usd"]
+                    if entry.get("duration_ms") is not None:
+                        state["claude_duration_ms"] = entry["duration_ms"]
     except Exception:
         pass
     return state
@@ -617,8 +645,23 @@ def _run_summary_job(company_id: str, file_id: str, speed: str = "auto") -> None
         _summary_progress_path(company_id, file_id)
     )
     try:
-        progress.emit("stage", stage="starting", message="Starting summary job")
         found = files_store.get_file(company_id, file_id)
+        record_for_init = found[0] if found else {}
+        company_name = (storage.get_company(company_id) or {}).get("name") or company_id
+        progress.emit(
+            "job_init",
+            kind="summary",
+            title=record_for_init.get("label") or record_for_init.get("filename") or "Deck summary",
+            subtitle=company_name,
+            company_id=company_id,
+            file_id=file_id,
+            filename=record_for_init.get("filename"),
+            file_kind=record_for_init.get("kind"),
+            speed=speed,
+        )
+        progress.emit(
+            "stage", stage="starting", message="Starting summary job", speed=speed
+        )
         if found is None:
             progress.emit("error", error="File not found")
             return
@@ -743,52 +786,197 @@ def post_file_summary(
     }
 
 
-@router.get("/jobs/active")
-def get_active_jobs() -> list[dict]:
-    """All summary jobs currently in flight across every company.
+# ---- Generic AI-task rail / log viewer ----
+#
+# Each job kind contributes a (glob_root, glob_pattern, adapter) that turns
+# matching JSONL paths into the standardized rail record. Add a new tuple
+# here when you wire a new Claude task — that's all the rail needs.
 
-    Powers the right-side ActiveJobsRail: walks the per-company upload
-    directories looking for `<file_id>__summary.progress.jsonl` files, and
-    returns those whose progress hasn't yet reached `done` or `error`.
-    """
+
+def _summary_kind_records():
     from . import files_store as _fs
 
-    out: list[dict] = []
     if not _fs.UPLOADS_ROOT.exists():
-        return out
+        return
     for jsonl_path in _fs.UPLOADS_ROOT.glob("*/*__summary.progress.jsonl"):
         company_id = jsonl_path.parent.name
-        name = jsonl_path.name
         suffix = "__summary.progress.jsonl"
+        name = jsonl_path.name
         if not name.endswith(suffix):
             continue
         file_id = name[: -len(suffix)]
         state = _scan_progress_state(jsonl_path)
-        if state.get("terminated"):
-            continue
-        found = _fs.get_file(company_id, file_id)
-        if found is None:
-            continue
-        record, _ = found
-        out.append(
-            {
-                "company_id": company_id,
-                "file_id": file_id,
-                "filename": record.get("filename"),
-                "label": record.get("label"),
-                "kind": record.get("kind"),
-                "started_at": state.get("started_at"),
-                "last_event_at": state.get("last_event_at"),
-                "latest_stage": state.get("latest_stage"),
-                "latest_stage_key": state.get("latest_stage_key"),
-                "slide_no": state.get("slide_no"),
-                "slide_count": state.get("slide_count"),
-                "speed": state.get("speed"),
-                "claude_cost_usd": state.get("claude_cost_usd"),
-            }
+        record, _ = _fs.get_file(company_id, file_id) or (None, None)
+        title = (
+            (state.get("title"))
+            or (record and (record.get("label") or record.get("filename")))
+            or "Deck summary"
         )
+        subtitle = state.get("subtitle") or (
+            (storage.get_company(company_id) or {}).get("name") or company_id
+        )
+        yield {
+            "kind": state.get("kind") or "summary",
+            "title": title,
+            "subtitle": subtitle,
+            "stream_url": (
+                f"/api/companies/{company_id}/files/{file_id}/summary/stream"
+            ),
+            "log_url": f"/api/jobs/log?path=summary:{company_id}/{file_id}",
+            "primary_route": {
+                "name": "research",
+                "params": {"companyId": company_id},
+                "query": {"file": file_id},
+            },
+            # Extra summary-specific fields the deck modal still uses.
+            "company_id": company_id,
+            "file_id": file_id,
+            "filename": record and record.get("filename"),
+            "speed": state.get("speed"),
+            "slide_no": state.get("slide_no"),
+            "slide_count": state.get("slide_count"),
+            **_common_state_fields(state),
+        }
+
+
+def _search_kind_records():
+    base = files_store.UPLOADS_ROOT / "_search"
+    if not base.exists():
+        return
+    for jsonl_path in base.glob("*__search.progress.jsonl"):
+        suffix = "__search.progress.jsonl"
+        name = jsonl_path.name
+        if not name.endswith(suffix):
+            continue
+        job_id = name[: -len(suffix)]
+        state = _scan_progress_state(jsonl_path)
+        yield {
+            "kind": state.get("kind") or "search",
+            "title": state.get("title") or "Company search",
+            "subtitle": state.get("subtitle") or "Web search",
+            "stream_url": f"/api/companies/search/stream/{job_id}",
+            "log_url": f"/api/jobs/log?path=search:{job_id}",
+            "primary_route": {"name": "home"},
+            "job_id": job_id,
+            **_common_state_fields(state),
+        }
+
+
+def _pdf_translation_kind_records():
+    base = external_store._kind_dir("external_research") / "translations"
+    if not base.exists():
+        return
+    for jsonl_path in base.glob("*__translate.progress.jsonl"):
+        suffix = "__translate.progress.jsonl"
+        name = jsonl_path.name
+        if not name.endswith(suffix):
+            continue
+        item_id = name[: -len(suffix)]
+        state = _scan_progress_state(jsonl_path)
+        item = external_store.get_item("external_research", item_id) or {}
+        yield {
+            "kind": state.get("kind") or "pdf_translation",
+            "title": state.get("title") or item.get("title") or item.get("filename") or "PDF translation",
+            "subtitle": state.get("subtitle") or "Translation",
+            "stream_url": f"/api/external/research/{item_id}/translate/stream",
+            "log_url": f"/api/jobs/log?path=pdf_translation:{item_id}",
+            "primary_route": {
+                "name": "external-research",
+                "params": {"id": item_id},
+            },
+            "item_id": item_id,
+            "page_no": state.get("page_no"),
+            "page_count": state.get("page_count"),
+            **_common_state_fields(state),
+        }
+
+
+def _common_state_fields(state: dict) -> dict:
+    return {
+        "started_at": state.get("started_at"),
+        "last_event_at": state.get("last_event_at"),
+        "latest_stage": state.get("latest_stage"),
+        "latest_stage_key": state.get("latest_stage_key"),
+        "claude_cost_usd": state.get("claude_cost_usd"),
+        "claude_duration_ms": state.get("claude_duration_ms"),
+        "terminated": state.get("terminated"),
+        "terminal_type": state.get("terminal_type"),
+        "error": state.get("error"),
+    }
+
+
+_JOB_KIND_PATHS = {
+    "summary": lambda key: (
+        files_store._company_dir(key.split("/", 1)[0])
+        / f"{key.split('/', 1)[1]}__summary.progress.jsonl"
+    ),
+    "search": lambda key: files_store.UPLOADS_ROOT
+    / "_search"
+    / f"{key}__search.progress.jsonl",
+    "pdf_translation": lambda key: external_store._kind_dir("external_research")
+    / "translations"
+    / f"{key}__translate.progress.jsonl",
+}
+
+
+def _resolve_job_log_path(combined: str):
+    """Resolve a `kind:key` token into its on-disk JSONL path."""
+    if ":" not in combined:
+        raise HTTPException(status_code=400, detail="Bad path token")
+    kind, key = combined.split(":", 1)
+    resolver = _JOB_KIND_PATHS.get(kind)
+    if resolver is None:
+        raise HTTPException(status_code=400, detail=f"Unknown kind: {kind}")
+    try:
+        return resolver(key)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Bad job key: {exc}") from exc
+
+
+@router.get("/jobs/active")
+def get_active_jobs() -> list[dict]:
+    """All in-flight Claude tasks across every kind. Powers ActiveJobsRail."""
+    out: list[dict] = []
+    for source in (
+        _summary_kind_records(),
+        _search_kind_records(),
+        _pdf_translation_kind_records(),
+    ):
+        for rec in source:
+            if rec.get("terminated"):
+                continue
+            out.append(rec)
     out.sort(key=lambda j: j.get("started_at") or "", reverse=True)
     return out
+
+
+@router.get("/jobs/log")
+def get_job_log(path: str) -> list[dict]:
+    """Return all events from a job's progress JSONL.
+
+    `path` is a `kind:key` token (e.g. `summary:<company_id>/<file_id>`,
+    `search:<job_id>`, `pdf_translation:<item_id>`). Used by the generic
+    log viewer to replay history before opening an SSE for live tail.
+    """
+    import json as _json
+
+    p = _resolve_job_log_path(path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="No log for this path")
+    events: list[dict] = []
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(_json.loads(line))
+                except _json.JSONDecodeError:
+                    continue
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to read log: {exc}") from exc
+    return events
 
 
 @router.get("/companies/{company_id}/files/{file_id}/summary/stream")
@@ -1245,6 +1433,16 @@ def _research_translate_progress_path(item_id: str):
 
 def _run_research_translate_job(item_id: str, app_language: str | None) -> None:
     progress = job_progress.ProgressLog(_research_translate_progress_path(item_id))
+    item = external_store.get_item("external_research", item_id) or {}
+    progress.emit(
+        "job_init",
+        kind="pdf_translation",
+        title=item.get("title") or item.get("filename") or "PDF translation",
+        subtitle=f"→ {app_language or 'auto'}",
+        item_id=item_id,
+        filename=item.get("filename"),
+        target_language=app_language,
+    )
     progress.emit("stage", stage="starting", message="Starting translation")
     try:
         result = external_translate.translate_research_pdf(
