@@ -7,6 +7,8 @@ import {
   Loader2,
   ScrollText,
   Plus,
+  UploadCloud,
+  X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 
@@ -16,8 +18,45 @@ const emit = defineEmits(["created"]);
 const expanded = ref(false);
 const title = ref("");
 const body = ref("");
+const file = ref(null);
+const dragOver = ref(false);
 const submitting = ref(false);
 const error = ref(null);
+const fileInput = ref(null);
+
+const ACCEPT =
+  ".pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain";
+
+function setFile(f) {
+  if (!f) return;
+  file.value = f;
+  if (!title.value) title.value = f.name.replace(/\.[^.]+$/, "");
+}
+
+function onPick(e) {
+  setFile(e.target.files?.[0]);
+}
+
+function onDrop(e) {
+  e.preventDefault();
+  dragOver.value = false;
+  setFile(e.dataTransfer?.files?.[0]);
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  dragOver.value = true;
+}
+
+function onDragLeave() {
+  dragOver.value = false;
+}
+
+function clearFile(e) {
+  e.stopPropagation();
+  file.value = null;
+  if (fileInput.value) fileInput.value.value = "";
+}
 
 async function submit() {
   if (!title.value.trim()) return;
@@ -27,6 +66,7 @@ async function submit() {
     const item = await api.createHormuz({
       title: title.value.trim(),
       body: body.value,
+      file: file.value,
     });
     emit("created");
     router.push({ name: "hormuz-research", params: { id: item.id } });
@@ -51,23 +91,63 @@ async function submit() {
         <ScrollText class="h-4 w-4 text-ink-muted" />
         Add Hormuz research
         <span class="text-xs text-ink-muted font-normal">
-          — internal research note
+          — internal research note (PDF optional)
         </span>
       </span>
       <ChevronDown v-if="expanded" class="h-4 w-4 text-ink-muted" />
       <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
     </button>
 
-    <div v-if="expanded" class="border-t border-subtle px-4 py-3 space-y-2">
+    <div v-if="expanded" class="border-t border-subtle px-4 py-3 space-y-3">
       <input
         v-model="title"
         placeholder="Title"
         class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
       />
+
+      <div
+        @click="fileInput?.click()"
+        @drop="onDrop"
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        :class="[
+          'rounded-lg border-2 border-dashed px-4 py-4 text-center cursor-pointer focus-ring transition-colors',
+          dragOver
+            ? 'border-accent bg-accent-soft'
+            : 'border-subtle bg-surface-muted hover:border-strong',
+        ]"
+      >
+        <UploadCloud class="h-5 w-5 text-ink-muted mx-auto mb-1" />
+        <div v-if="file" class="text-sm text-ink-secondary inline-flex items-center gap-2">
+          <span>{{ file.name }}</span>
+          <button
+            type="button"
+            @click="clearFile"
+            class="p-0.5 rounded hover:bg-surface text-ink-muted hover:text-ink-primary"
+            title="Remove file"
+          >
+            <X class="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div v-else class="text-sm text-ink-secondary">
+          Drop a file here, or click to choose
+        </div>
+        <div class="text-xs text-ink-muted mt-0.5">
+          PDF, DOCX, DOC, TXT — optional
+        </div>
+        <input
+          ref="fileInput"
+          type="file"
+          :accept="ACCEPT"
+          class="hidden"
+          @change="onPick"
+        />
+      </div>
+
       <textarea
         v-model="body"
         rows="5"
-        placeholder="Body — observations, analysis, references…"
+        placeholder="Comments — observations, analysis, references…"
         class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm resize-y"
       ></textarea>
 

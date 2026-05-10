@@ -7,7 +7,8 @@ import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import { activeSummaryTarget, closeSummary } from "./state.js";
 
 const reports = ref([]);
-const externalFeed = ref([]);
+const news = ref([]);
+const externalResearch = ref([]);
 const hormuz = ref([]);
 const loading = ref(true);
 const error = ref(null);
@@ -20,7 +21,8 @@ async function refreshAll() {
       api.listHormuz(),
     ]);
     reports.value = r;
-    externalFeed.value = f;
+    news.value = f.filter((it) => it.kind === "news");
+    externalResearch.value = f.filter((it) => it.kind === "external_research");
     hormuz.value = h;
   } catch (e) {
     error.value = e.message;
@@ -42,7 +44,8 @@ const summaryFile = computed(() => activeSummaryTarget.value?.file ?? null);
   <div class="min-h-screen flex">
     <Sidebar
       :reports="reports"
-      :external-feed="externalFeed"
+      :news="news"
+      :external-research="externalResearch"
       :hormuz="hormuz"
       :loading="loading"
       :error="error"

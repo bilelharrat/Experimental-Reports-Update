@@ -132,8 +132,24 @@ def hormuz_page(item_id: str) -> FileResponse:  # noqa: ARG001
 
 
 @app.get("/favicon.svg")
-def favicon() -> FileResponse:
+def favicon_svg() -> FileResponse:
     icon = DIST_DIR / "favicon.svg"
+    if not icon.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(icon)
+
+
+@app.get("/favicon.png")
+def favicon_png() -> FileResponse:
+    icon = DIST_DIR / "favicon.png"
+    if not icon.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(icon)
+
+
+@app.get("/app-icon.png")
+def app_icon() -> FileResponse:
+    icon = DIST_DIR / "app-icon.png"
     if not icon.exists():
         raise HTTPException(status_code=404)
     return FileResponse(icon)

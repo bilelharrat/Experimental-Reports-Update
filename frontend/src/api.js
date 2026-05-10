@@ -125,11 +125,22 @@ export const api = {
   },
   listHormuz: () => request("/api/external/hormuz"),
   getHormuz: (id) => request(`/api/external/hormuz/${id}`),
-  createHormuz: (payload) =>
-    request("/api/external/hormuz", {
+  createHormuz: async ({ title, body, file }) => {
+    const fd = new FormData();
+    fd.append("title", title);
+    fd.append("body", body || "");
+    if (file) fd.append("file", file);
+    const res = await fetch("/api/external/hormuz", {
       method: "POST",
-      body: JSON.stringify(payload),
-    }),
+      body: fd,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    }
+    return res.json();
+  },
+  hormuzFileUrl: (id) => `/api/external/hormuz/${id}/file`,
   deleteHormuz: async (id) => {
     const res = await fetch(`/api/external/hormuz/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
