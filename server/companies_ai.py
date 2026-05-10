@@ -1,11 +1,15 @@
-"""OpenAI-backed deep search for companies.
+"""Deep search for companies — Claude Code (primary) + OpenAI (fallback).
 
-Uses the Responses API with the `web_search` tool so results are grounded in
-2026-current information, plus a JSON-schema structured output to keep the
-shape consistent. Cached by query for 24h.
+Primary path: spawn `claude -p` with WebSearch/WebFetch tools and the same
+JSON schema, so results stay structured and grounded without depending on
+an OpenAI key.
 
-Requires OPENAI_API_KEY. Falls back to local-only results if the key is
-missing or the call fails — the app still works without an OpenAI key.
+Fallback path: the original OpenAI Responses API + `web_search` tool. Used
+when the Claude CLI isn't on PATH or its run fails for any reason.
+
+Both paths share the same SCHEMA and SYSTEM_PROMPT so downstream callers
+don't care which one produced the result. Results are cached by query
+(no TTL); pass `force_refresh=True` to re-query.
 """
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ import logging
 import os
 from typing import Any
 
-from . import cache, storage
+from . import cache, claude_runner, storage
 
 logger = logging.getLogger(__name__)
 
@@ -311,21 +315,41 @@ def deep_search(query: str, *, force_refresh: bool = False) -> dict:
                 "cached_at": cached["stored_at_iso"],
             }
 
-    if not _is_available():
-        local = storage.search_companies(q, limit=MAX_RESULTS)
-        return {
-            "source": "fallback",
-            "reason": "OPENAI_API_KEY not set — showing local matches only",
-            "matches": [_local_to_match(c) for c in local],
-            "cached_at": None,
-        }
+    raw: list[dict] | None = None
+    source_used: str | None = None
+    last_err: str | None = None
 
-    raw, err = _call_openai(q)
+    # Primary: Claude Code CLI with WebSearch/WebFetch tools.
+    if claude_runner.is_available():
+        raw, err = claude_runner.run_company_search(
+            query=q,
+            schema=SCHEMA,
+            system_prompt=SYSTEM_PROMPT,
+            max_results=MAX_RESULTS,
+        )
+        if raw is not None:
+            source_used = "claude_code"
+        else:
+            last_err = err
+            logger.warning("Claude Code search failed, falling back: %s", err)
+
+    # Fallback: OpenAI Responses API + web_search.
+    if raw is None and _is_available():
+        raw, err = _call_openai(q)
+        if raw is not None:
+            source_used = "openai"
+        else:
+            last_err = err
+
     if raw is None:
         local = storage.search_companies(q, limit=MAX_RESULTS)
+        reason = last_err or (
+            "Neither Claude Code nor OPENAI_API_KEY is configured — showing "
+            "local matches only"
+        )
         return {
             "source": "fallback",
-            "reason": err or "OpenAI deep search failed",
+            "reason": reason,
             "matches": [_local_to_match(c) for c in local],
             "cached_at": None,
         }
@@ -340,7 +364,7 @@ def deep_search(query: str, *, force_refresh: bool = False) -> dict:
         companies_autocomplete.invalidate_researched_cache()
     fresh = cache.get("companies_ai", q.lower())
     return {
-        "source": "openai",
+        "source": source_used or "openai",
         "matches": enriched,
         "cached_at": fresh["stored_at_iso"] if fresh else None,
     }
