@@ -47,17 +47,17 @@ const reports = computed(() => props.reports);
   <aside
     class="w-72 shrink-0 border-r border-subtle bg-surface flex flex-col h-screen sticky top-0"
   >
-    <div class="px-5 py-5 border-b border-subtle">
+    <div class="px-5 py-3 border-b border-subtle">
       <RouterLink
         to="/"
-        class="flex items-center gap-2 text-ink-primary font-display text-lg font-semibold focus-ring rounded"
+        class="flex items-center gap-3 text-ink-primary font-display text-base font-semibold focus-ring rounded"
       >
         <img
           src="/app-icon.png"
           alt="BSH"
-          class="h-8 w-8 rounded-lg object-cover"
+          class="h-12 w-12 rounded-lg object-cover shrink-0"
         />
-        <span>Research Center</span>
+        <span class="leading-tight">BSH Research Center</span>
       </RouterLink>
     </div>
 
