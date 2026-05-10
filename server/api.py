@@ -12,6 +12,7 @@ from . import (
     claude_runner,
     companies_ai,
     companies_autocomplete,
+    company_translate,
     deck_summary,
     external_store,
     files_store,
@@ -54,6 +55,8 @@ class CompanyOut(BaseModel):
     recent_news: list[dict] = Field(default_factory=list)
     notable_contracts: list[dict] = Field(default_factory=list)
     notable_acquisitions: list[dict] = Field(default_factory=list)
+    language: str | None = None
+    translation: dict | None = None
 
 
 class ReportSummary(BaseModel):
@@ -149,7 +152,30 @@ def companies_select(payload: SelectMatch) -> dict:
     """
     if not payload.name.strip():
         raise HTTPException(status_code=400, detail="name is required")
-    return storage.upsert_company_from_match(payload.model_dump())
+    company = storage.upsert_company_from_match(payload.model_dump())
+    _ensure_company_translation(company.get("id"))
+    return storage.get_company(company.get("id")) or company
+
+
+def _ensure_company_translation(company_id: str | None, *, force: bool = False) -> None:
+    """Translate a company synchronously and persist the result.
+
+    No-op if a translation already exists (unless `force=True`) or the
+    OPENAI_API_KEY isn't configured.
+    """
+    if not company_id:
+        return
+    company = storage.get_company(company_id)
+    if company is None:
+        return
+    if not force and company.get("translation"):
+        return
+    result = company_translate.translate_company(company)
+    storage.update_company(
+        company_id,
+        language=result.get("language"),
+        translation=result.get("translation"),
+    )
 
 
 @router.get("/companies/{company_id}")
@@ -181,6 +207,7 @@ def refresh_company(company_id: str) -> CompanyOut:
     )
     if chosen is None and matches:
         chosen = matches[0]
+    _ensure_company_translation(company_id, force=True)
     refreshed = storage.get_company(company_id) or chosen or company
     view = _company_view(refreshed)
     # Patch any cached deep-search result that referenced this company so future
@@ -191,6 +218,16 @@ def refresh_company(company_id: str) -> CompanyOut:
         transform=lambda _item: dict(view),
     )
     return CompanyOut(**view)
+
+
+@router.post("/companies/{company_id}/translate")
+def translate_company_endpoint(company_id: str) -> CompanyOut:
+    """Force a re-translation of this company (e.g. after editing fields)."""
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _ensure_company_translation(company_id, force=True)
+    refreshed = storage.get_company(company_id) or {}
+    return CompanyOut(**_company_view(refreshed))
 
 
 @router.get("/reports")
@@ -1202,6 +1239,8 @@ def _company_view(c: dict) -> dict:
         "recent_news": list(c.get("recent_news") or []),
         "notable_contracts": list(c.get("notable_contracts") or []),
         "notable_acquisitions": list(c.get("notable_acquisitions") or []),
+        "language": c.get("language"),
+        "translation": c.get("translation"),
     }
 
 

@@ -6,10 +6,15 @@ import {
   Loader2,
   Home,
   Globe,
+  Languages,
   Newspaper,
   ScrollText,
   ClipboardList,
 } from "lucide-vue-next";
+import { appLanguage, setAppLanguage } from "../state.js";
+import { useT } from "../i18n.js";
+
+const t = useT();
 
 const props = defineProps({
   reports: { type: Array, default: () => [] },
@@ -57,7 +62,7 @@ const reports = computed(() => props.reports);
           alt="BSH"
           class="h-12 w-12 rounded-lg object-cover shrink-0"
         />
-        <span class="leading-tight">BSH Research Center</span>
+        <span class="leading-tight">{{ t("nav.research_center") }}</span>
       </RouterLink>
     </div>
 
@@ -66,7 +71,7 @@ const reports = computed(() => props.reports);
       class="mx-3 mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
     >
       <Home class="h-4 w-4" />
-      <span>Home</span>
+      <span>{{ t("nav.home") }}</span>
     </RouterLink>
 
     <div class="flex-1 overflow-y-auto px-2 pb-4">
@@ -75,7 +80,7 @@ const reports = computed(() => props.reports);
         class="px-3 pt-5 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
       >
         <ClipboardList class="h-3 w-3" />
-        Recent Reports
+        {{ t("section.recent_reports") }}
       </div>
       <div class="space-y-1">
         <div
@@ -91,7 +96,7 @@ const reports = computed(() => props.reports);
           v-else-if="reports.length === 0"
           class="px-3 py-2 text-xs text-ink-subtle"
         >
-          No reports yet.
+          {{ t("empty.no_reports") }}
         </div>
         <RouterLink
           v-for="r in reports"
@@ -116,7 +121,7 @@ const reports = computed(() => props.reports);
                 <span
                   v-if="r.status === 'complete'"
                   class="px-1.5 py-0.5 rounded bg-success-soft text-success-ink"
-                  >Done</span
+                  >{{ t("status.done") }}</span
                 >
                 <span
                   v-else-if="r.status === 'running'"
@@ -139,14 +144,14 @@ const reports = computed(() => props.reports);
         class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
       >
         <Newspaper class="h-3 w-3" />
-        News
+        {{ t("section.news") }}
       </div>
       <div class="max-h-[26rem] overflow-y-auto pr-1 space-y-1">
         <div
           v-if="news.length === 0"
           class="px-3 py-2 text-xs text-ink-subtle"
         >
-          Submit a link from the home page.
+          {{ t("empty.no_news") }}
         </div>
         <RouterLink
           v-for="item in news"
@@ -223,14 +228,14 @@ const reports = computed(() => props.reports);
         class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
       >
         <Globe class="h-3 w-3" />
-        External Research
+        {{ t("section.external_research") }}
       </div>
       <div class="max-h-[26rem] overflow-y-auto pr-1 space-y-1">
         <div
           v-if="externalResearch.length === 0"
           class="px-3 py-2 text-xs text-ink-subtle"
         >
-          Upload research from the home page.
+          {{ t("empty.no_external_research") }}
         </div>
         <RouterLink
           v-for="item in externalResearch"
@@ -296,14 +301,14 @@ const reports = computed(() => props.reports);
         class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
       >
         <ScrollText class="h-3 w-3" />
-        Hormuz Research
+        {{ t("section.hormuz_research") }}
       </div>
       <div class="space-y-1 pb-2">
         <div
           v-if="hormuz.length === 0"
           class="px-3 py-2 text-xs text-ink-subtle"
         >
-          No internal notes yet.
+          {{ t("empty.no_hormuz") }}
         </div>
         <RouterLink
           v-for="item in hormuz"
@@ -323,6 +328,44 @@ const reports = computed(() => props.reports);
             </div>
           </div>
         </RouterLink>
+      </div>
+    </div>
+
+    <div
+      class="border-t border-subtle px-3 py-2 flex items-center justify-between gap-2"
+    >
+      <div class="flex items-center gap-1.5 text-xs text-ink-muted">
+        <Languages class="h-3.5 w-3.5" />
+        <span>{{ t("lang.app_language") }}</span>
+      </div>
+      <div
+        class="inline-flex rounded-md border border-subtle overflow-hidden text-xs"
+        role="group"
+      >
+        <button
+          type="button"
+          @click="setAppLanguage('en')"
+          :class="[
+            'px-2 py-0.5 focus-ring transition-colors',
+            appLanguage === 'en'
+              ? 'bg-accent text-white'
+              : 'text-ink-secondary hover:bg-surface-muted',
+          ]"
+        >
+          EN
+        </button>
+        <button
+          type="button"
+          @click="setAppLanguage('zh')"
+          :class="[
+            'px-2 py-0.5 focus-ring transition-colors border-l border-subtle',
+            appLanguage === 'zh'
+              ? 'bg-accent text-white'
+              : 'text-ink-secondary hover:bg-surface-muted',
+          ]"
+        >
+          中
+        </button>
       </div>
     </div>
   </aside>
