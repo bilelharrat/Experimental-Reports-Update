@@ -131,6 +131,17 @@ export const api = {
     const res = await fetch(`/api/external/research/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+  startResearchTranslation: (id, appLanguage) =>
+    request(
+      `/api/external/research/${id}/translate${
+        appLanguage ? `?app_language=${encodeURIComponent(appLanguage)}` : ""
+      }`,
+      { method: "POST" },
+    ),
+  getResearchTranslation: (id) =>
+    request(`/api/external/research/${id}/translation`),
+  researchTranslationStreamUrl: (id) =>
+    `/api/external/research/${id}/translate/stream`,
   listHormuz: () => request("/api/external/hormuz"),
   getHormuz: (id) => request(`/api/external/hormuz/${id}`),
   createHormuz: async ({ title, body, file }) => {
