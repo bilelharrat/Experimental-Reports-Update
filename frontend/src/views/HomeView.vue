@@ -1,7 +1,18 @@
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { Search, Loader2, ArrowRight, Sparkles, Building2 } from "lucide-vue-next";
+import {
+  Search,
+  Loader2,
+  ArrowRight,
+  Sparkles,
+  Building2,
+  Globe,
+  Download,
+  Brain,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-vue-next";
 import { api } from "../api.js";
 import CompanyCard from "../components/CompanyCard.vue";
 import SubmitLinkTool from "../components/SubmitLinkTool.vue";
@@ -17,6 +28,12 @@ const error = ref(null);
 
 const searchResults = ref(null); // { source, matches } | null
 const searching = ref(false);
+
+// Live progress feed during a Claude Code / OpenAI search
+const progressEvents = ref([]); // [{type, action, tool, preview, text, ts}]
+const currentStage = ref(null); // { stage, message }
+const progressFeedRef = ref(null);
+let activeEventSource = null;
 
 let debounceId = null;
 
@@ -59,20 +76,125 @@ async function pickSuggestion(s) {
   router.push({ name: "research", params: { companyId: id } });
 }
 
+function closeProgressStream() {
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+}
+
+function handleProgressEvent(entry) {
+  if (entry.type === "stage") {
+    currentStage.value = {
+      stage: entry.stage,
+      message: entry.message || entry.stage,
+    };
+    progressEvents.value.push(entry);
+  } else if (entry.type === "claude_action") {
+    progressEvents.value.push(entry);
+  } else if (entry.type === "done") {
+    searchResults.value = {
+      source: entry.source,
+      matches: entry.matches || [],
+      cached_at: entry.cached_at,
+      reason: entry.reason,
+    };
+    searching.value = false;
+    closeProgressStream();
+  } else if (entry.type === "error") {
+    error.value = entry.error || "Search failed";
+    searching.value = false;
+    closeProgressStream();
+  }
+  // Auto-scroll the feed to the latest event.
+  nextTick(() => {
+    const el = progressFeedRef.value;
+    if (el) el.scrollTop = el.scrollHeight;
+  });
+}
+
 async function runDeepSearch({ refresh = false } = {}) {
   if (!query.value.trim()) return;
   showSuggestions.value = false;
+  closeProgressStream();
   searching.value = true;
   error.value = null;
+  searchResults.value = null;
+  progressEvents.value = [];
+  currentStage.value = null;
+
   try {
-    searchResults.value = await api.deepSearchCompanies(query.value.trim(), {
-      refresh,
-    });
+    const start = await api.startDeepSearch(query.value.trim(), { refresh });
+
+    // Cache hit — results inline, no progress stream needed.
+    if (start.cached) {
+      searchResults.value = {
+        source: start.source,
+        matches: start.matches || [],
+        cached_at: start.cached_at,
+      };
+      searching.value = false;
+      return;
+    }
+
+    // Open SSE for the running job. Events flow into handleProgressEvent
+    // which sets searching=false on `done` or `error`.
+    const es = new EventSource(api.searchStreamUrl(start.job_id));
+    activeEventSource = es;
+    es.onmessage = (msg) => {
+      try {
+        const entry = JSON.parse(msg.data);
+        handleProgressEvent(entry);
+      } catch {
+        // ignore malformed lines
+      }
+    };
+    es.onerror = () => {
+      // Browser will auto-reconnect; only escalate if we already terminated
+      // and the connection just hasn't been closed yet.
+      if (!searching.value) closeProgressStream();
+    };
   } catch (e) {
     error.value = e.message;
-  } finally {
     searching.value = false;
   }
+}
+
+onBeforeUnmount(closeProgressStream);
+
+// Display helpers for the progress feed.
+function actionIcon(entry) {
+  if (entry.type !== "claude_action") return null;
+  if (entry.tool === "WebSearch") return Globe;
+  if (entry.tool === "WebFetch") return Download;
+  if (entry.action === "thinking") return Brain;
+  if (entry.action === "result") return CheckCircle2;
+  return null;
+}
+
+function actionLabel(entry) {
+  if (entry.type === "stage") return entry.message || entry.stage;
+  if (entry.action === "init") return `Claude initialized (${entry.model || "claude"})`;
+  if (entry.action === "thinking") return entry.text || "Thinking…";
+  if (entry.action === "tool_use") {
+    if (entry.tool === "WebSearch") return `Web search: ${entry.preview}`;
+    if (entry.tool === "WebFetch") return `Fetch: ${entry.preview}`;
+    return `${entry.tool}: ${entry.preview || ""}`;
+  }
+  if (entry.action === "tool_result") {
+    const status = entry.is_error ? "error" : "ok";
+    return `${entry.tool} → ${status}`;
+  }
+  if (entry.action === "result") {
+    const cost = entry.cost_usd
+      ? ` ($${Number(entry.cost_usd).toFixed(4)})`
+      : "";
+    const dur = entry.duration_ms
+      ? ` · ${(entry.duration_ms / 1000).toFixed(1)}s`
+      : "";
+    return `Done${cost}${dur}`;
+  }
+  return entry.type;
 }
 
 function formatCachedAt(iso) {
@@ -197,9 +319,60 @@ function onBlur() {
 
     <div v-if="error" class="mt-4 text-sm text-danger">{{ error }}</div>
 
-    <div v-if="searching" class="mt-10 flex items-center gap-3 text-ink-secondary">
-      <Loader2 class="h-5 w-5 animate-spin text-accent" />
-      <span>Searching the web for matches…</span>
+    <div
+      v-if="searching"
+      class="mt-10 rounded-card border border-subtle bg-surface shadow-card overflow-hidden"
+    >
+      <div class="px-4 py-3 border-b border-subtle bg-surface-muted flex items-center gap-2">
+        <Loader2 class="h-4 w-4 animate-spin text-accent shrink-0" />
+        <span class="text-sm font-medium text-ink-primary">
+          {{ currentStage?.message || "Starting search…" }}
+        </span>
+        <span
+          v-if="currentStage?.stage"
+          class="ml-auto text-[10px] uppercase tracking-wide text-ink-muted font-mono"
+        >
+          {{ currentStage.stage }}
+        </span>
+      </div>
+      <div
+        ref="progressFeedRef"
+        class="max-h-72 overflow-y-auto px-3 py-2 space-y-1 font-mono text-[12px] leading-snug bg-canvas"
+      >
+        <div
+          v-if="progressEvents.length === 0"
+          class="px-2 py-1 text-ink-muted italic"
+        >
+          Waiting for Claude to start…
+        </div>
+        <div
+          v-for="(entry, i) in progressEvents"
+          :key="i"
+          class="flex items-start gap-2 px-2 py-1 rounded"
+          :class="{
+            'bg-accent-soft/30': entry.type === 'stage',
+            'text-danger': entry.is_error,
+          }"
+        >
+          <component
+            v-if="actionIcon(entry)"
+            :is="actionIcon(entry)"
+            class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted"
+          />
+          <Sparkles
+            v-else-if="entry.type === 'stage'"
+            class="h-3.5 w-3.5 mt-0.5 shrink-0 text-accent"
+          />
+          <span
+            v-else
+            class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted text-center"
+            >·</span
+          >
+          <div class="min-w-0 flex-1 break-words text-ink-secondary">
+            {{ actionLabel(entry) }}
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-else-if="searchResults" class="mt-10 space-y-3">
@@ -211,7 +384,9 @@ function onBlur() {
           <span class="text-xs text-ink-muted flex items-center gap-1.5">
             <span>
               {{
-                searchResults.source === "openai"
+                searchResults.source === "claude_code"
+                  ? "Claude Code"
+                  : searchResults.source === "openai"
                   ? "AI-Search"
                   : searchResults.source === "cache"
                   ? "Cached"

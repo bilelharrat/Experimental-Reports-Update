@@ -9,6 +9,7 @@ import threading
 from datetime import datetime, timezone
 
 from . import (
+    cache,
     claude_runner,
     companies_ai,
     companies_autocomplete,
@@ -133,14 +134,160 @@ def companies_autocomplete_endpoint(q: str = "", limit: int = 8) -> list[dict]:
 
 @router.get("/companies/search")
 def companies_search(q: str = "", refresh: bool = False) -> dict:
-    """Deep search — OpenAI Responses + web_search.
+    """Deep search — Claude Code (primary) or OpenAI (fallback).
 
-    Results are cached indefinitely with a `cached_at` timestamp so the UI
-    can show staleness; pass `refresh=true` to re-query and overwrite. Each
-    match carries a local `id` so the frontend can route straight to
-    /research/<id>.
+    Synchronous. Cached results return instantly. Pass `refresh=true` to
+    re-query and overwrite. For a live progress feed during the
+    underlying LLM call, use POST /companies/search/start instead.
     """
     return companies_ai.deep_search(q, force_refresh=refresh)
+
+
+# ---- Search-job streaming (for live progress UI) ----
+
+
+def _search_job_id(query: str) -> str:
+    """Stable per-query job id — same query → same job id, so concurrent
+    searches for the same string share one progress stream."""
+    import hashlib
+
+    return hashlib.sha1(query.strip().lower().encode("utf-8")).hexdigest()[:16]
+
+
+def _search_progress_path(job_id: str):
+    from pathlib import Path
+
+    base: Path = files_store.UPLOADS_ROOT / "_search"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"{job_id}__search.progress.jsonl"
+
+
+def _run_search_job(job_id: str, query: str, refresh: bool) -> None:
+    """Background worker for a deep-search job. Streams progress events
+    into the JSONL file and emits a terminal `done` event with the matches
+    payload (or `error` on failure)."""
+    progress = job_progress.ProgressLog(_search_progress_path(job_id))
+    progress.emit("stage", stage="starting", message="Starting search", query=query)
+    try:
+        result = companies_ai.deep_search(
+            query, force_refresh=refresh, progress=progress
+        )
+        progress.emit(
+            "done",
+            source=result.get("source"),
+            matches=result.get("matches") or [],
+            cached_at=result.get("cached_at"),
+            reason=result.get("reason"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        progress.emit(
+            "error", error=f"Search crashed: {type(exc).__name__}: {exc}"
+        )
+
+
+@router.post("/companies/search/start")
+def post_companies_search_start(q: str = "", refresh: bool = False) -> dict:
+    """Kick off a deep search in the background and return a job id + the
+    SSE stream URL for live progress.
+
+    If a fresh cache hit exists and refresh isn't set, the matches come
+    back inline (no job, no stream needed).
+    """
+    query = (q or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is required")
+
+    if not refresh:
+        cached = cache.get("companies_ai", query.lower())
+        if cached is not None:
+            return {
+                "cached": True,
+                "source": "cache",
+                "matches": cached["value"] or [],
+                "cached_at": cached["stored_at_iso"],
+            }
+
+    job_id = _search_job_id(query)
+    path = _search_progress_path(job_id)
+
+    # Idempotency: attach to an in-flight job for the same query.
+    state = _scan_progress_state(path)
+    if state.get("exists") and not state.get("terminated"):
+        return {
+            "cached": False,
+            "job_id": job_id,
+            "stream_url": f"/api/companies/search/stream/{job_id}",
+            "status": "already_running",
+        }
+
+    threading.Thread(
+        target=_run_search_job,
+        args=(job_id, query, refresh),
+        name=f"search:{job_id}",
+        daemon=True,
+    ).start()
+    return {
+        "cached": False,
+        "job_id": job_id,
+        "stream_url": f"/api/companies/search/stream/{job_id}",
+        "status": "queued",
+    }
+
+
+@router.get("/companies/search/stream/{job_id}")
+async def stream_search_progress(job_id: str):
+    """SSE stream of progress events for a search job. Same tail/replay
+    semantics as the deck-summary stream endpoint."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    progress_path = _search_progress_path(job_id)
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/companies/select", status_code=201)

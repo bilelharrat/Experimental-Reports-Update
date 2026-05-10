@@ -649,6 +649,89 @@ QUALITY BAR — every word earns its place:
 # ---- Company deep search via WebSearch/WebFetch ----
 
 
+def _process_search_event(event: dict, progress, state: dict) -> None:
+    """Translate a stream-json event from a company-search run into
+    progress.emit() calls. Mirrors _process_event but tuned for WebSearch
+    and WebFetch tool use — so the live UI shows what Claude is actually
+    looking up rather than just a spinner.
+    """
+    etype = event.get("type")
+    if etype == "system" and event.get("subtype") == "init":
+        progress.emit(
+            "claude_action",
+            action="init",
+            session=event.get("session_id"),
+            model=event.get("model"),
+            tools=event.get("tools") or [],
+        )
+        progress.emit("stage", stage="searching", message="Searching the web")
+        return
+    if etype == "assistant":
+        msg = event.get("message") or {}
+        for block in msg.get("content") or []:
+            btype = block.get("type")
+            if btype == "text":
+                text = (block.get("text") or "").strip()
+                if text:
+                    progress.emit(
+                        "claude_action", action="thinking", text=text[:400]
+                    )
+            elif btype == "tool_use":
+                name = block.get("name") or "?"
+                inp = block.get("input") or {}
+                state["last_tool"] = {
+                    "id": block.get("id"),
+                    "name": name,
+                }
+                if name == "WebSearch":
+                    preview = inp.get("query") or ""
+                    state["search_count"] = state.get("search_count", 0) + 1
+                elif name == "WebFetch":
+                    preview = inp.get("url") or ""
+                    state["fetch_count"] = state.get("fetch_count", 0) + 1
+                else:
+                    preview = json.dumps(inp)[:200]
+                progress.emit(
+                    "claude_action",
+                    action="tool_use",
+                    tool=name,
+                    preview=preview[:300],
+                )
+        return
+    if etype == "user":
+        msg = event.get("message") or {}
+        for block in msg.get("content") or []:
+            if block.get("type") == "tool_result":
+                tool = state.get("last_tool", {}).get("name", "?")
+                content = block.get("content")
+                if isinstance(content, list):
+                    text_pieces = []
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            text_pieces.append(c.get("text") or "")
+                    content_str = "\n".join(text_pieces)
+                else:
+                    content_str = content if isinstance(content, str) else ""
+                progress.emit(
+                    "claude_action",
+                    action="tool_result",
+                    tool=tool,
+                    is_error=bool(block.get("is_error")),
+                    preview=(content_str or "")[:200],
+                )
+        return
+    if etype == "result":
+        progress.emit(
+            "claude_action",
+            action="result",
+            subtype=event.get("subtype"),
+            cost_usd=event.get("total_cost_usd"),
+            duration_ms=event.get("duration_ms"),
+            usage=event.get("usage"),
+        )
+        return
+
+
 def run_company_search(
     *,
     query: str,
@@ -656,15 +739,16 @@ def run_company_search(
     system_prompt: str,
     max_results: int = 6,
     timeout_sec: int = 600,
+    progress=None,
 ) -> tuple[list[dict] | None, str | None]:
     """Run a deep company search by spawning `claude -p` with WebSearch and
     WebFetch enabled. Returns ``(matches, error)`` mirroring the OpenAI
     helper in companies_ai.py — on success ``error`` is None.
 
-    The ``schema`` is enforced via ``--json-schema`` so Claude's final
-    structured answer is validated before we ever see it. The prompt
-    instructs Claude to use WebSearch aggressively to ground every field in
-    current public information.
+    When ``progress`` is supplied (a ProgressLog), the function streams
+    Claude's tool calls (WebSearch queries, WebFetch URLs, thinking text)
+    via ``progress.emit("claude_action", ...)`` so the frontend can render
+    a live transcript instead of a generic spinner.
     """
     if not is_available():
         return None, (
@@ -689,11 +773,16 @@ def run_company_search(
         "No preamble, no markdown fences — just the JSON."
     )
 
+    use_stream = progress is not None
     cmd = [
         claude_path() or "claude",
         "-p",
         user_prompt,
-        "--output-format", "json",
+        "--output-format", "stream-json" if use_stream else "json",
+    ]
+    if use_stream:
+        cmd.append("--verbose")
+    cmd += [
         "--add-dir", str(work_dir),
         "--permission-mode", "acceptEdits",
         "--tools", "WebSearch,WebFetch",
@@ -702,32 +791,88 @@ def run_company_search(
         "--exclude-dynamic-system-prompt-sections",
     ]
 
+    if not use_stream:
+        # Single-shot path — no progress, no streaming.
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(work_dir),
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
+            )
+        except subprocess.TimeoutExpired:
+            return None, f"claude search timed out after {timeout_sec}s"
+        except FileNotFoundError as exc:
+            return None, f"Failed to launch claude: {exc}"
+
+        if proc.returncode != 0:
+            tail = (proc.stderr or "").strip()[-600:]
+            return None, f"claude exited {proc.returncode}: {tail}"
+
+        try:
+            envelope = json.loads(proc.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            return None, f"claude returned non-JSON envelope: {exc}"
+        final_text = (envelope.get("result") or "").strip()
+        return _parse_search_result(final_text, max_results)
+
+    # Streaming path — emit progress events as Claude works.
     try:
-        proc = subprocess.run(
+        proc_stream = subprocess.Popen(
             cmd,
             cwd=str(work_dir),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_sec,
+            bufsize=1,
         )
-    except subprocess.TimeoutExpired:
-        return None, f"claude search timed out after {timeout_sec}s"
     except FileNotFoundError as exc:
         return None, f"Failed to launch claude: {exc}"
 
-    if proc.returncode != 0:
-        tail = (proc.stderr or "").strip()[-600:]
-        return None, f"claude exited {proc.returncode}: {tail}"
+    stderr_log: list[str] = []
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc_stream, stderr_log), daemon=True
+    )
+    stderr_thread.start()
 
+    state: dict[str, Any] = {}
+    final_text: str | None = None
     try:
-        envelope = json.loads(proc.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        return None, f"claude returned non-JSON envelope: {exc}"
+        for line in proc_stream.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                _process_search_event(event, progress, state)
+            except Exception:
+                logger.exception("search progress event handling failed")
+            if event.get("type") == "result":
+                final_text = event.get("result")
+        proc_stream.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        proc_stream.kill()
+        return None, f"claude search timed out after {timeout_sec}s"
 
-    final_text = (envelope.get("result") or "").strip()
+    if proc_stream.returncode and proc_stream.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return None, (
+            f"claude exited {proc_stream.returncode}"
+            + (f": {tail[:600]}" if tail else "")
+        )
+
+    return _parse_search_result(final_text, max_results)
+
+
+def _parse_search_result(
+    final_text: str | None, max_results: int
+) -> tuple[list[dict] | None, str | None]:
     if not final_text:
         return None, "claude returned empty result"
-
     parsed = _parse_json_tolerant(final_text)
     if parsed is None:
         return None, "claude's final answer didn't parse as JSON"
