@@ -16,6 +16,7 @@ from . import (
     company_translate,
     deck_summary,
     external_store,
+    external_translate,
     files_store,
     generator,
     job_progress,
@@ -1231,6 +1232,152 @@ def delete_external_research(item_id: str) -> None:
         except Exception:
             pass
     external_store.delete_item("external_research", item_id)
+
+
+# ---- High-fidelity PDF translation for external research ----
+
+
+def _research_translate_progress_path(item_id: str):
+    base = external_store._kind_dir("external_research") / "translations"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"{item_id}__translate.progress.jsonl"
+
+
+def _run_research_translate_job(item_id: str, app_language: str | None) -> None:
+    progress = job_progress.ProgressLog(_research_translate_progress_path(item_id))
+    progress.emit("stage", stage="starting", message="Starting translation")
+    try:
+        result = external_translate.translate_research_pdf(
+            item_id, app_language=app_language, progress=progress
+        )
+        if result.get("ok"):
+            progress.emit(
+                "done",
+                detected_language=result.get("detected_language"),
+                target_language=result.get("target_language"),
+            )
+        else:
+            progress.emit("error", error=result.get("error") or "Unknown error")
+    except Exception as exc:  # noqa: BLE001
+        progress.emit(
+            "error", error=f"Job crashed: {type(exc).__name__}: {exc}"
+        )
+
+
+@router.post("/external/research/{item_id}/translate")
+def post_research_translate(item_id: str, app_language: str | None = None) -> dict:
+    """Kick off a high-fidelity PDF translation job for this research item.
+
+    Returns ``{job_id, stream_url}`` for the live progress stream. Cached
+    translations come back inline (``cached: true``) when the language
+    already matches the request — call with a different ``app_language`` or
+    delete and re-upload to force a re-translate.
+    """
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+
+    cached = item.get("pdf_translation")
+    if cached and cached.get("target_language") and (
+        not app_language or cached.get("target_language") == app_language
+    ):
+        return {
+            "cached": True,
+            "translation": cached,
+        }
+
+    progress_path = _research_translate_progress_path(item_id)
+    state = _scan_progress_state(progress_path)
+    if state.get("exists") and not state.get("terminated"):
+        return {
+            "cached": False,
+            "job_id": item_id,
+            "stream_url": f"/api/external/research/{item_id}/translate/stream",
+            "status": "already_running",
+        }
+
+    threading.Thread(
+        target=_run_research_translate_job,
+        args=(item_id, app_language),
+        name=f"research_translate:{item_id}",
+        daemon=True,
+    ).start()
+    return {
+        "cached": False,
+        "job_id": item_id,
+        "stream_url": f"/api/external/research/{item_id}/translate/stream",
+        "status": "queued",
+    }
+
+
+@router.get("/external/research/{item_id}/translation")
+def get_research_translation(item_id: str) -> dict:
+    """Return the cached structured translation, or 404 if none yet."""
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    cached = item.get("pdf_translation")
+    if not cached:
+        raise HTTPException(status_code=404, detail="No translation yet")
+    return cached
+
+
+@router.get("/external/research/{item_id}/translate/stream")
+async def stream_research_translate_progress(item_id: str):
+    """SSE tail of the translation progress JSONL for this item."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    if external_store.get_item("external_research", item_id) is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+
+    progress_path = _research_translate_progress_path(item_id)
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 1800.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 1800.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/external/research/{item_id}/retry")

@@ -883,3 +883,409 @@ def _parse_search_result(
         return None, "claude's final answer is missing the `matches` array"
     return matches[:max_results], None
 
+
+# ---- PDF translation (high-fidelity, structured) ----
+
+
+PDF_TRANSLATION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "detected_language": {
+            "type": "string",
+            "enum": ["en", "zh", "other"],
+            "description": "Source language detected from the PDF.",
+        },
+        "target_language": {
+            "type": "string",
+            "enum": ["en", "zh"],
+            "description": "Target language. Opposite of source for en/zh; en if source is other.",
+        },
+        "page_count": {"type": "integer"},
+        "pages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "page": {"type": "integer"},
+                    "blocks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "heading",
+                                        "paragraph",
+                                        "list_item",
+                                        "table_row",
+                                        "quote",
+                                        "caption",
+                                    ],
+                                },
+                                "level": {
+                                    "type": ["integer", "null"],
+                                    "description": "1-3 for headings; null otherwise.",
+                                },
+                                "text": {
+                                    "type": "string",
+                                    "description": "Translated content. For table_row, this is a fallback display string; the structured cells go in `cells`.",
+                                },
+                                "cells": {
+                                    "type": ["array", "null"],
+                                    "items": {"type": "string"},
+                                    "description": "For table_row only: one entry per cell. Null otherwise.",
+                                },
+                            },
+                            "required": ["type", "level", "text", "cells"],
+                        },
+                    },
+                },
+                "required": ["page", "blocks"],
+            },
+        },
+    },
+    "required": ["detected_language", "target_language", "page_count", "pages"],
+}
+
+
+def _process_pdf_translation_event(event: dict, progress, state: dict) -> None:
+    """Translate stream-json events into progress.emit() calls for the
+    PDF translation pipeline. Tracks per-page translation progress by
+    watching Write/Edit calls against translation.json.
+    """
+    etype = event.get("type")
+    if etype == "system" and event.get("subtype") == "init":
+        progress.emit(
+            "claude_action",
+            action="init",
+            session=event.get("session_id"),
+            model=event.get("model"),
+            tools=event.get("tools") or [],
+        )
+        progress.emit(
+            "stage", stage="reading", message="Reading the PDF"
+        )
+        return
+    if etype == "assistant":
+        msg = event.get("message") or {}
+        for block in msg.get("content") or []:
+            btype = block.get("type")
+            if btype == "text":
+                text = (block.get("text") or "").strip()
+                if text:
+                    progress.emit("claude_action", action="thinking", text=text[:400])
+            elif btype == "tool_use":
+                name = block.get("name") or "?"
+                inp = block.get("input") or {}
+                state["last_tool"] = {"id": block.get("id"), "name": name}
+                preview = ""
+                if name == "Read":
+                    preview = inp.get("file_path") or ""
+                    if inp.get("pages"):
+                        preview += f"  (page {inp.get('pages')})"
+                        # Track which page Claude is working on for stage updates.
+                        try:
+                            page_no = int(str(inp.get("pages")).split("-")[0])
+                            state["current_page"] = page_no
+                            page_count = state.get("page_count")
+                            progress.emit(
+                                "stage",
+                                stage="translating",
+                                message=(
+                                    f"Translating page {page_no} of {page_count}"
+                                    if page_count
+                                    else f"Translating page {page_no}"
+                                ),
+                                page_no=page_no,
+                                page_count=page_count,
+                            )
+                        except ValueError:
+                            pass
+                elif name in ("Write", "Edit"):
+                    fp = inp.get("file_path") or ""
+                    body = inp.get("content") or inp.get("new_string") or ""
+                    preview = f"{fp}  ({len(body)} chars)"
+                    if fp.endswith("translation.json") and not state.get("structuring_emitted"):
+                        state["structuring_emitted"] = True
+                        progress.emit(
+                            "stage",
+                            stage="structuring",
+                            message="Finalizing translation",
+                        )
+                else:
+                    preview = json.dumps(inp)[:200]
+                progress.emit(
+                    "claude_action", action="tool_use", tool=name, preview=preview[:300]
+                )
+        return
+    if etype == "user":
+        msg = event.get("message") or {}
+        for block in msg.get("content") or []:
+            if block.get("type") == "tool_result":
+                tool = state.get("last_tool", {}).get("name", "?")
+                content = block.get("content")
+                if isinstance(content, list):
+                    text_pieces = []
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            text_pieces.append(c.get("text") or "")
+                    content_str = "\n".join(text_pieces)
+                else:
+                    content_str = content if isinstance(content, str) else ""
+                progress.emit(
+                    "claude_action",
+                    action="tool_result",
+                    tool=tool,
+                    is_error=bool(block.get("is_error")),
+                    preview=(content_str or "")[:200],
+                )
+        return
+    if etype == "result":
+        progress.emit(
+            "claude_action",
+            action="result",
+            subtype=event.get("subtype"),
+            cost_usd=event.get("total_cost_usd"),
+            duration_ms=event.get("duration_ms"),
+            usage=event.get("usage"),
+        )
+        return
+
+
+def run_pdf_translation(
+    *,
+    pdf_path: Path,
+    work_dir: Path,
+    page_count: int | None = None,
+    app_language: str | None = None,
+    progress=None,
+    timeout_sec: int = 1800,
+) -> dict:
+    """Translate a PDF document end-to-end via Claude Code.
+
+    Stages the PDF inside ``work_dir`` so Claude can Read it directly via
+    its filesystem tool, instructs Claude to detect the source language,
+    translate page-by-page preserving block structure (headings,
+    paragraphs, list items, tables), and write the result to
+    ``translation.json``. Returns the parsed JSON or ``{error: "..."}``.
+
+    ``app_language`` is a hint about the user's preferred target ("en" or
+    "zh"). Claude uses it as the default target unless the source is
+    already in that language, in which case it translates to the opposite.
+    """
+    if not is_available():
+        return {
+            "error": (
+                "Claude Code (`claude`) not found on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and run `claude` "
+                "once to authenticate."
+            )
+        }
+    if not pdf_path.exists():
+        return {"error": f"Source PDF missing: {pdf_path.name}"}
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    staged_pdf = work_dir / pdf_path.name
+    if not staged_pdf.exists() or staged_pdf.stat().st_size != pdf_path.stat().st_size:
+        shutil.copy2(pdf_path, staged_pdf)
+
+    progress_md = work_dir / "progress.md"
+    progress_md.unlink(missing_ok=True)
+    translation_json = work_dir / "translation.json"
+    translation_json.unlink(missing_ok=True)
+
+    user_prompt = _build_pdf_translation_prompt(
+        pdf_filename=pdf_path.name,
+        page_count=page_count,
+        app_language=app_language,
+    )
+
+    cmd = [
+        claude_path() or "claude",
+        "-p",
+        user_prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "acceptEdits",
+        "--tools", "Read,Write,Edit",
+        "--json-schema", json.dumps(PDF_TRANSLATION_SCHEMA),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Starting Claude Code translator",
+            page_count=page_count,
+        )
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError as exc:
+        return {"error": f"Failed to launch claude: {exc}"}
+
+    stderr_log: list[str] = []
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    state: dict[str, Any] = {"page_count": page_count}
+    final_text: str | None = None
+    result_event: dict | None = None
+    try:
+        for line in proc.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                if progress:
+                    _process_pdf_translation_event(event, progress, state)
+            except Exception:
+                logger.exception("translation progress event handling failed")
+            if event.get("type") == "result":
+                result_event = event
+                final_text = event.get("result")
+        proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {"error": f"Claude timed out after {timeout_sec}s"}
+
+    if proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            )
+        }
+
+    parsed: dict | None = None
+    for source_text in (
+        translation_json.read_text(encoding="utf-8") if translation_json.exists() else None,
+        final_text,
+    ):
+        if not source_text:
+            continue
+        data = _parse_json_tolerant(source_text)
+        if isinstance(data, dict) and "pages" in data:
+            parsed = data
+            break
+
+    if parsed is None:
+        return {
+            "error": (
+                "Claude returned output that didn't parse as the expected "
+                "translation JSON. Check translation.json in the work directory."
+            )
+        }
+
+    if result_event:
+        parsed["claude_cost_usd"] = result_event.get("total_cost_usd")
+        parsed["claude_duration_ms"] = result_event.get("duration_ms")
+    return parsed
+
+
+def _build_pdf_translation_prompt(
+    *,
+    pdf_filename: str,
+    page_count: int | None,
+    app_language: str | None,
+) -> str:
+    page_line = (
+        f"The PDF has {page_count} pages."
+        if page_count
+        else "Page count is unknown — read until Read returns no more pages."
+    )
+    target_hint = (
+        f"The user's preferred target language is {app_language!r}. Use it as "
+        "the target UNLESS the source is already in that language, in which "
+        "case translate to the opposite (en↔zh). If the source is neither en "
+        "nor zh, translate to English."
+        if app_language in ("en", "zh")
+        else "Auto-detect source language and translate to the opposite (en↔zh). "
+        "If the source is neither, translate to English."
+    )
+    return f"""\
+You are translating a PDF document for an investment-research dashboard.
+
+The source PDF has been staged in your current working directory as: ./{pdf_filename}
+{page_line}
+
+LANGUAGE POLICY
+{target_hint}
+
+WORKFLOW
+
+STAGE 1 — DETECT.
+Read ./{pdf_filename} pages="1" to see the first page. Determine the source
+language and the target language per the policy above.
+
+STAGE 2 — PER-PAGE TRANSLATION.
+For each page from 1 to N:
+  a) Read ./{pdf_filename} pages="<N>" (one page per Read call).
+  b) Identify the structural blocks on the page. For each block, classify it as:
+       - heading (with level 1, 2, or 3)
+       - paragraph
+       - list_item (bulleted or numbered — strip the bullet/number)
+       - table_row (split by columns into the `cells` array)
+       - quote
+       - caption (image/figure caption)
+  c) Translate every block to the target language. Preserve numbers, dates,
+     money amounts, URLs, and proper nouns (use widely-recognized target-
+     language form for proper nouns ONLY when one exists; otherwise keep the
+     original). Don't paraphrase — translate faithfully.
+  d) Append a one-line entry to ./progress.md as you finish each page:
+       - Page N: <count> blocks translated
+     Use Write for the first append (file doesn't exist yet), Edit for the rest.
+
+STAGE 3 — FINALIZE.
+Write the complete structured translation to ./translation.json using the
+attached --json-schema. Schema:
+  - detected_language ("en" | "zh" | "other")
+  - target_language ("en" | "zh")
+  - page_count (integer)
+  - pages: array of {{ page: int, blocks: [block, ...] }}
+
+A block is {{ type, level (or null), text, cells (or null) }}. For table_row,
+populate `cells` with the per-column translated strings AND set `text` to
+the cells joined by " | " (so plain renderers still show something).
+
+Then return the SAME JSON as your final assistant message so the validator
+can confirm it.
+
+QUALITY BAR
+- Faithful translation, not paraphrase.
+- Preserve every block — don't drop content.
+- Headings stay headings; lists stay lists; tables stay structured.
+- Numbers, dates, money, URLs, ISO codes, model numbers: unchanged.
+
+JSON SAFETY
+- Inside any string value, never use unescaped ASCII double quotes. For
+  emphasis, use single quotes ('like this') in English and 「」 or "" in
+  Chinese.
+- Use \\n for newlines inside strings; never literal line breaks.
+- Validate the JSON in your head before Writing translation.json.
+
+Begin now: Read pages="1".
+"""
+
