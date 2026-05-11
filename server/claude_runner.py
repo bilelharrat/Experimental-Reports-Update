@@ -1289,3 +1289,386 @@ JSON SAFETY
 Begin now: Read pages="1".
 """
 
+
+# --- Investment memo runner ------------------------------------------------
+
+_SKILL_PATH = Path(__file__).resolve().parent / "skills" / "bsh_investment_memo_latestage.md"
+
+
+def _load_skill_text() -> str:
+    if not _SKILL_PATH.exists():
+        raise RuntimeError(f"Skill file missing: {_SKILL_PATH}")
+    return _SKILL_PATH.read_text(encoding="utf-8")
+
+
+def _build_investment_memo_prompt(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    inputs: list[dict],
+    memo_paths: dict[str, str],
+) -> str:
+    skill_text = _load_skill_text()
+    input_list = "\n".join(
+        f"  - {i['path']} (kind={i.get('kind')}, language={i.get('language')}, "
+        f"source_class={i.get('source_class')})"
+        for i in inputs
+    ) or "  (no source materials staged — flag as gating diligence question)"
+    rel_run_dir = run_dir.name  # The work_dir is run_dir, so paths are relative.
+
+    return f"""\
+You are running the **bsh-investment-memo-latestage-v1** skill for a single
+real run. The skill itself is included verbatim below; follow it strictly.
+
+## Run-specific operational context
+
+- **Run folder (your CWD):** `{rel_run_dir}`  (everything is relative to here)
+- **Company:** {company_name}  (slug `{company_slug}`)
+- **Run ID:** {run_id}
+- **Settings (Serena background, read FIRST):** `{settings_path}`
+- **Staged inputs (read EVERY ONE of them):**
+{input_list}
+
+The run folder tree is already created. The required subfolders exist:
+`inputs/`, `analysis/`, `memo/`, `logs/`, `logs/previews/`, `logs/previews_cn/`.
+
+## Path mapping vs. the skill
+
+Where the skill text refers to `[BSH Assistant]/`, **substitute the project's
+`data/` directory** (so `[BSH Assistant]/Settings/Serena_Background.md` →
+`{settings_path}`, `[BSH Assistant]/[Company Name]/` → the staged inputs in
+`inputs/` of this run folder).
+
+## Output contract — read carefully, this differs from the skill text
+
+The skill says to produce `.docx` files directly. **You do not produce `.docx`
+files in this run.** A dedicated Python renderer downstream consumes
+structured JSON and renders the styled BSH `.docx` deterministically.
+
+Your responsibilities — write all of these files inside the run folder:
+
+1. **All required analysis artifacts** under `analysis/` exactly as the skill
+   specifies — `claim_register.md`, `pressure_tests.md`, `time_base_checks.md`,
+   `growth_bridge.md`, `distribution_notes.md`, `disconfirming_evidence.md`,
+   `scenario_swim_lanes.md`, `validation_log.md`, `gating_questions.md`, plus
+   any optional ones the deal warrants (`adoption_ladder.md`,
+   `replacement_vs_coexistence.md`, `core_franchise_resilience.md`,
+   `competitive_notes.md`).
+
+2. **Working drafts** under `memo/`:
+   - `memo/memo_en.md` — rich Markdown draft of the full memo body in English.
+   - `memo/memo_zh.md` — faithful Simplified-Chinese translation of memo_en.md
+     following the **Bilingual Output** rules in the skill (preserve Latin
+     runs for company names, executives, currency, percentages, dates,
+     acronyms; use Chinese-style punctuation; half-width spaces around Latin
+     acronyms inside Chinese sentences).
+
+3. **Structured JSONs for the renderer** — these are what the `.docx`
+   renderer reads. Write BOTH:
+   - `memo/memo_structured_en.json`
+   - `memo/memo_structured_zh.json`
+
+   The two files share an identical schema. Only the language of the
+   content differs. The schema is:
+
+   ```json
+   {{
+     "cover": {{
+       "company_display_name": "string",
+       "company_descriptor": "string (optional, short category line)",
+       "date": "YYYY-MM-DD",
+       "stage": "string (e.g. 'Late-Stage / Pre-IPO — Series H')",
+       "sector": "string",
+       "location": "string",
+       "round": "string (round size / post-money / instrument)",
+       "bsh_ticket": "string (BSH check size, conditional or firm)"
+     }},
+     "executive_summary": {{
+       "investment_opportunity": {{
+         "narrative": "markdown paragraph(s)",
+         "key_metrics": [
+           {{"label": "ARR", "value": "$X"}}, ...
+         ],
+         "valuation_warning": {{
+           "label": "Valuation Timing Warning (for BSH)",
+           "body": "string"  // include only if multiples differ materially
+         }}
+       }},
+       "investment_thesis": ["bullet 1", "bullet 2", ...],
+       "investment_risk": {{
+         "bullets": ["risk 1", ...],
+         "critical_reality_check": {{
+           "supporting_facts": ["..."],
+           "disconfirming_facts": ["..."],
+           "unproven": ["..."],
+           "must_be_true_for_bull": ["..."]
+         }}
+       }},
+       "investment_recommendation": {{
+         "verdict": "Yes | Conditional Yes | Need More Information | Pass",
+         "logic": "string",
+         "conditions": ["..."]  // only if Conditional Yes
+       }},
+       "open_questions": {{
+         "top_3_gating_questions": ["q1", "q2", "q3"]
+       }}
+     }},
+     "company_overview": {{
+       "product_overview": "markdown",
+       "core_technology": "markdown",
+       "value_proposition": "markdown",
+       "business_model": "markdown",
+       "key_partners": "markdown",
+       "team": {{
+         "founders": [{{"name": "...", "title": "...", "background": "..."}}],
+         "board":    [{{"name": "...", "background": "..."}}]
+       }},
+       "revenue": {{
+         "narrative": "markdown",
+         "table": [{{"metric": "...", "value": "..."}}]
+       }},
+       "key_metrics_table": [
+         {{"metric": "...", "value": "...", "notes": "..."}}
+       ]
+     }},
+     "investment_highlights": {{
+       "industry_trends": "markdown",
+       "competitive_analysis": {{
+         "narrative": "markdown",
+         "table": [
+           {{"competitor": "...", "focus": "...", "strengths": "...",
+             "weaknesses": "...", "differentiation": "..."}}
+         ]
+       }},
+       "replacement_vs_coexistence": "markdown",
+       "moat_table": [
+         {{"component": "...", "description": "...",
+           "strength": "...", "risk": "..."}}
+       ],
+       "moat_rights_durability": "markdown",
+       "quality_of_financials": "markdown",
+       "quality_of_business_model": "markdown",
+       "quality_of_team": "markdown"
+     }},
+     "investment_risk": {{
+       "risk_register": [
+         {{"id": 1, "risk": "...", "severity": "High|Med|Low",
+           "likelihood": "High|Med|Low", "evidence": "...", "mitigant": "..."}}
+       ],
+       "key_disconfirming_evidence": "markdown",
+       "pre_mortem_summary": "markdown"
+     }},
+     "financial_forecast": {{
+       "outside_in_checks": "markdown",
+       "time_base_integrity_table": [
+         {{"marker": "...", "date": "...", "value": "...",
+           "multiple": "...", "label": "contemporaneous|stale-mark|forward|trailing"}}
+       ],
+       "growth_quality_notes": "markdown",
+       "growth_bridge_table": [
+         {{"bucket": "...", "contribution": "...", "notes": "..."}}
+       ],
+       "capital_structure": "markdown",
+       "scenario_table": [
+         {{"scenario": "Bear|Base|Bull",
+           "revenue": "...", "cagr": "...", "multiple": "...", "ev": "...",
+           "dilution_assumption": "...", "value_to_common": "...", "bsh_irr": "..."}}
+       ]
+     }},
+     "sources": [
+       {{"category": "company-originated|internal-folder|independent-secondary|opinion",
+         "citation": "string"}}
+     ],
+     "validation_log": [
+       {{"id": 1, "claim": "...",
+         "provenance": "company|investor|secondary|internal analysis",
+         "independent_support": "yes / no + source",
+         "disconfirming_evidence": "...",
+         "status": "Supported|Partially supported|Unproven|Disconfirmed",
+         "confidence": "High|Medium|Low",
+         "next_step": "..."}}
+     ]
+   }}
+   ```
+
+   Hard minimums (the renderer will fail validation otherwise):
+   - At least **8 content tables** worth of data across the structured JSON.
+     The renderer renders these automatically from: key_metrics, board,
+     revenue.table, key_metrics_table, competitive.table, moat_table,
+     risk_register, time_base_integrity_table, growth_bridge_table,
+     scenario_table, validation_log. Make sure each is populated.
+   - At least **3 callout sources**: the valuation_warning (when multiples
+     differ), the critical_reality_check, and the top_3_gating_questions —
+     all three are rendered as callout boxes.
+   - The Chinese `memo_structured_zh.json` must mirror the English exactly
+     in structure and content. Translate prose; keep numbers, percentages,
+     dates, company names, executive names, ticker symbols, and acronyms
+     (ARR, NRR, IPO, etc.) in their original Latin form. Use Chinese-style
+     punctuation (，。；：「」《》) in Chinese-language sentences.
+
+4. **Manifest update** at `logs/run_manifest.md`: append a section listing
+   the artifacts you wrote (analysis files, both `memo_*.md`, both
+   `memo_structured_*.json`). Mark `status: analysis_complete`.
+
+## Do not
+
+- Do not write `.docx` files. The Python renderer will do that.
+- Do not modify files in `inputs/` (they are symlinks to the immutable
+  upload tree).
+- Do not delete or rename anything created by the prep stage.
+
+## Begin
+
+Step 1. Read the settings file: `Read {settings_path}`.
+Step 2. Read every file inside `inputs/` (Read for PDFs/PPTX/Word — those
+        may need `Bash` to run `python -m markitdown` or `pandoc`).
+Step 3. Run the falsification-first analysis per the skill text below;
+        write each `analysis/*.md` as you complete it.
+Step 4. Write `memo/memo_en.md` (English draft).
+Step 5. Translate to `memo/memo_zh.md` per the skill's bilingual rules.
+Step 6. Produce `memo/memo_structured_en.json` and
+        `memo/memo_structured_zh.json` matching the schema above.
+Step 7. Update `logs/run_manifest.md` with the final artifact list and
+        `status: analysis_complete`.
+
+Emit a brief final message summarizing recommendation, top 3 gating
+questions, and any unresolved items.
+
+=================================================================
+SKILL: bsh-investment-memo-latestage-v1 (verbatim)
+=================================================================
+
+{skill_text}
+"""
+
+
+def run_investment_memo(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    inputs: list[dict],
+    memo_paths: dict[str, str],
+    progress=None,
+    timeout_sec: int = 3600,
+) -> dict:
+    """Spawn `claude -p` to run the investment-memo skill against a prep'd run.
+
+    The skill writes analysis artifacts + structured JSON; a Python renderer
+    downstream consumes the JSON to produce the styled `.docx` files. This
+    function does NOT produce `.docx` — that's the renderer's job.
+
+    Returns ``{ok, cost_usd, duration_ms, error?}``.
+    """
+    if not is_available():
+        return {
+            "ok": False,
+            "error": (
+                "Claude Code (`claude`) not found on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and run "
+                "`claude` once to authenticate."
+            ),
+        }
+    if not run_dir.exists():
+        return {"ok": False, "error": f"Run folder missing: {run_dir}"}
+    if not settings_path.exists():
+        return {"ok": False, "error": f"Settings file missing: {settings_path}"}
+
+    prompt = _build_investment_memo_prompt(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=settings_path,
+        inputs=inputs,
+        memo_paths=memo_paths,
+    )
+
+    # The settings file lives outside run_dir, so we add-dir it so Claude
+    # can Read it without a permission prompt.
+    add_dirs = [str(run_dir), str(settings_path.parent)]
+    cmd = [
+        claude_path() or "claude",
+        "-p",
+        prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--permission-mode", "acceptEdits",
+        "--allowedTools", "Read,Write,Edit,Bash,Grep,Glob",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    for d in add_dirs:
+        cmd += ["--add-dir", d]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="analysis_starting",
+            message="Running investment-memo skill (analysis + translation)",
+            run_dir=str(run_dir),
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": f"Failed to launch claude: {exc}"}
+
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    state: dict[str, Any] = {}
+    result_event: dict | None = None
+    try:
+        for line in proc.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                if progress:
+                    _process_event(event, progress, state)
+            except Exception:
+                logger.exception("progress event handling failed")
+            if event.get("type") == "result":
+                result_event = event
+        proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
+
+    if proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "ok": False,
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            ),
+        }
+
+    out: dict = {"ok": True}
+    if result_event:
+        out["cost_usd"] = result_event.get("total_cost_usd")
+        out["duration_ms"] = result_event.get("duration_ms")
+        out["subtype"] = result_event.get("subtype")
+    return out
+

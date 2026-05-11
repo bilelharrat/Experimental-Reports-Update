@@ -21,13 +21,20 @@ from . import (
     generator,
     job_progress,
     link_preview as link_preview_mod,
+    memo_prep,
     storage,
     text_analysis,
 )
 
 router = APIRouter(prefix="/api")
 
-REPORT_TYPES = ("Investment Report", "Background", "Financial Analysis", "Market Analysis")
+REPORT_TYPES = (
+    "Investment Memo (Late-Stage)",
+    "Investment Report",
+    "Background",
+    "Financial Analysis",
+    "Market Analysis",
+)
 AUDIENCES = ("LP", "Assistant", "Partner", "Internal")
 LANGUAGES = ("en", "zh")
 
@@ -73,11 +80,25 @@ class ReportSummary(BaseModel):
     stage: str | None = None
     created_at: str
     updated_at: str
+    # Memo-run extensions (only set for kind=investment_memo_latestage).
+    kind: str | None = None
+    run_id: str | None = None
+    run_dir: str | None = None
+    skill: str | None = None
+    memo_files: list[dict] = Field(default_factory=list)
 
 
 class ReportDetail(ReportSummary):
     content: str = ""
     stages: list[dict] = Field(default_factory=list)
+    # Memo-run extensions.
+    content_en: str | None = None
+    content_zh: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    scope_check: dict | None = None
+    stream_url: str | None = None
+    log_url: str | None = None
+    download_urls: dict | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -85,6 +106,13 @@ class GenerateRequest(BaseModel):
     report_type: str
     audience: str
     language: str = "en"
+
+
+class MemoPrepRequest(BaseModel):
+    """Request body for POST /api/memos/prep — kicks off the synchronous
+    memo-run bootstrap (company resolve, scope check, run-folder mint,
+    input staging) before the long-running analysis composite job."""
+    company_id: str
 
 
 class ThreadIn(BaseModel):
@@ -407,6 +435,22 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
         raise HTTPException(status_code=400, detail="Invalid audience")
     if payload.language not in LANGUAGES:
         raise HTTPException(status_code=400, detail="Invalid language")
+
+    # Investment memos route through the bsh-investment-memo-latestage prep
+    # pipeline (run folder, scope check, input staging) instead of the
+    # legacy placeholder generator.
+    if payload.report_type == memo_prep.REPORT_TYPE:
+        try:
+            result = memo_prep.bootstrap_memo_run(payload.company_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        report = storage.get_report(result["report_id"])
+        if report is None:
+            raise HTTPException(status_code=500, detail="Report record vanished after prep")
+        return ReportDetail(**_report_detail(report))
+
     try:
         report = storage.create_report(
             company_id=payload.company_id,
@@ -418,6 +462,141 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     generator.start_generation(report["id"])
     return ReportDetail(**_report_detail(report))
+
+
+@router.get("/reports/{report_id}/download")
+def download_memo(report_id: str, language: str = "en") -> FileResponse:
+    """Download a memo .docx in the requested language.
+
+    Returns 404 if the report doesn't exist, isn't an investment memo, or
+    the rendered file isn't on disk (e.g., still running, or the run
+    folder was deleted).
+    """
+    if language not in ("en", "zh"):
+        raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.get("kind") != "investment_memo_latestage":
+        raise HTTPException(
+            status_code=404, detail="Report is not an investment memo"
+        )
+    memo_files = report.get("memo_files") or []
+    target = next((f for f in memo_files if f.get("language") == language), None)
+    if not target or not target.get("path"):
+        raise HTTPException(status_code=404, detail=f"No {language} file recorded")
+    repo_root = memo_prep.DATA_DIR.parent
+    file_path = (repo_root / target["path"]).resolve()
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Memo file not found on disk; the run folder may have been "
+                f"deleted: {target['path']}"
+            ),
+        )
+    # Suggest a clean download filename — the on-disk name already includes
+    # the company name, type label, and timestamp.
+    return FileResponse(
+        path=str(file_path),
+        filename=file_path.name,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
+    )
+
+
+@router.post("/memos/prep", status_code=201)
+def post_memo_prep(payload: MemoPrepRequest) -> ReportDetail:
+    """Bootstrap an investment-memo run.
+
+    Synchronously resolves the company, mints the run folder, runs the
+    late-stage / pre-IPO scope check, stages source materials, and writes
+    the manifest skeleton. On scope-check failure the run folder is
+    preserved (browseable in the sidebar with a failed badge) and the
+    response carries `status: failed_scope_check` plus the scope reason.
+    """
+    try:
+        result = memo_prep.bootstrap_memo_run(payload.company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    report = storage.get_report(result["report_id"])
+    if report is None:
+        raise HTTPException(status_code=500, detail="Report record vanished after prep")
+    return ReportDetail(**_report_detail(report))
+
+
+@router.get("/memos/{report_id}/stream")
+async def stream_memo_progress(report_id: str) -> "StreamingResponse":
+    """SSE stream of progress events for a memo run.
+
+    Replays the run's stream.jsonl from the start and tails it until a
+    `done` or `error` terminal event lands. The same stream is shared by
+    the prep stage and (later) the analysis composite job.
+    """
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Memo report not found")
+    run_dir = report.get("run_dir")
+    if not run_dir:
+        raise HTTPException(status_code=404, detail="Report has no run_dir")
+    repo_root = memo_prep.DATA_DIR.parent
+    progress_path = memo_prep.stream_path(repo_root / run_dir)
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this memo run\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/companies/{company_id}/reports")
@@ -905,6 +1084,24 @@ def _common_state_fields(state: dict) -> dict:
     }
 
 
+def _memo_stream_path_for_report(report_id: str):
+    """Resolve a memo-run report id to its on-disk stream JSONL.
+
+    The path lives inside the run folder (data/memos/<slug>/<run>/logs/),
+    not under uploads/. Lookup goes through the report record so callers
+    can use a stable report_id without knowing the run_dir.
+    """
+    report = storage.get_report(report_id)
+    if report is None:
+        raise ValueError(f"Unknown report: {report_id}")
+    run_dir = report.get("run_dir")
+    if not run_dir:
+        raise ValueError(f"Report {report_id} has no run_dir")
+    # run_dir is stored relative to the repo root.
+    repo_root = memo_prep.DATA_DIR.parent
+    return memo_prep.stream_path(repo_root / run_dir)
+
+
 _JOB_KIND_PATHS = {
     "summary": lambda key: (
         files_store._company_dir(key.split("/", 1)[0])
@@ -916,7 +1113,36 @@ _JOB_KIND_PATHS = {
     "pdf_translation": lambda key: external_store._kind_dir("external_research")
     / "translations"
     / f"{key}__translate.progress.jsonl",
+    "memo": _memo_stream_path_for_report,
 }
+
+
+def _memo_kind_records():
+    """Yield active-jobs rail entries for every memo-run JSONL on disk."""
+    if not memo_prep.MEMOS_ROOT.exists():
+        return
+    for jsonl_path in memo_prep.MEMOS_ROOT.glob("*/*/logs/stream.jsonl"):
+        state = _scan_progress_state(jsonl_path)
+        init = state.get("job_init") or {}
+        report_id = init.get("report_id")
+        if not report_id:
+            continue
+        yield {
+            "kind": state.get("kind") or "memo",
+            "title": state.get("title") or "Investment memo",
+            "subtitle": state.get("subtitle") or "Memo run",
+            "stream_url": f"/api/memos/{report_id}/stream",
+            "log_url": f"/api/jobs/log?path=memo:{report_id}",
+            "primary_route": {
+                "name": "report",
+                "params": {"reportId": report_id},
+            },
+            "report_id": report_id,
+            "company_id": init.get("company_id"),
+            "run_id": init.get("run_id"),
+            "run_dir": init.get("run_dir"),
+            **_common_state_fields(state),
+        }
 
 
 def _resolve_job_log_path(combined: str):
@@ -941,6 +1167,7 @@ def get_active_jobs() -> list[dict]:
         _summary_kind_records(),
         _search_kind_records(),
         _pdf_translation_kind_records(),
+        _memo_kind_records(),
     ):
         for rec in source:
             if rec.get("terminated"):
@@ -1390,7 +1617,16 @@ def get_external_research(item_id: str) -> dict:
 
 
 @router.get("/external/research/{item_id}/file")
-def get_external_research_file(item_id: str) -> FileResponse:
+def get_external_research_file(
+    item_id: str, inline: bool = False
+) -> FileResponse:
+    """Stream the uploaded research file.
+
+    Default disposition is `attachment` so direct navigation downloads.
+    Pass `inline=1` for `inline` so PDFs render inside an `<iframe>` —
+    `FileResponse(filename=...)` always sets attachment, so the inline
+    branch builds the header by hand.
+    """
     item = external_store.get_item("external_research", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Research item not found")
@@ -1400,10 +1636,20 @@ def get_external_research_file(item_id: str) -> FileResponse:
     p = external_store._kind_dir("external_research") / "files" / stored
     if not p.exists():
         raise HTTPException(status_code=404, detail="File missing on disk")
+    filename = item.get("filename") or stored
+    media_type = item.get("content_type") or "application/octet-stream"
+    if inline:
+        return FileResponse(
+            path=str(p),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+            },
+        )
     return FileResponse(
         path=str(p),
-        filename=item.get("filename") or stored,
-        media_type=item.get("content_type") or "application/octet-stream",
+        filename=filename,
+        media_type=media_type,
     )
 
 
@@ -1749,12 +1995,33 @@ def _report_summary(r: dict) -> dict:
         "stage": r.get("stage"),
         "created_at": r.get("created_at"),
         "updated_at": r.get("updated_at"),
+        "kind": r.get("kind"),
+        "run_id": r.get("run_id"),
+        "run_dir": r.get("run_dir"),
+        "skill": r.get("skill"),
+        "memo_files": list(r.get("memo_files") or []),
     }
 
 
 def _report_detail(r: dict) -> dict:
-    return {
+    base = {
         **_report_summary(r),
         "content": r.get("content") or "",
         "stages": list(r.get("stages") or []),
+        "content_en": r.get("content_en"),
+        "content_zh": r.get("content_zh"),
+        "warnings": list(r.get("warnings") or []),
+        "scope_check": r.get("scope_check"),
     }
+    # Attach unified-rail URLs and download links for memo runs so the
+    # frontend can tail the same JSONL the prep wrote and offer
+    # ready-to-click .docx downloads.
+    if r.get("kind") == "investment_memo_latestage" and r.get("id"):
+        rid = r["id"]
+        base["stream_url"] = f"/api/memos/{rid}/stream"
+        base["log_url"] = f"/api/jobs/log?path=memo:{rid}"
+        base["download_urls"] = {
+            "en": f"/api/reports/{rid}/download?language=en",
+            "zh": f"/api/reports/{rid}/download?language=zh",
+        }
+    return base

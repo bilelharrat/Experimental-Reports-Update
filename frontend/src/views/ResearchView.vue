@@ -1,7 +1,15 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft, Loader2, Sparkles, Send } from "lucide-vue-next";
+import {
+  ArrowLeft,
+  Download,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Send,
+  Sparkles,
+} from "lucide-vue-next";
 import { api } from "../api.js";
 import CompanyLibrary from "../components/CompanyLibrary.vue";
 import CompanyDetail from "../components/CompanyDetail.vue";
@@ -18,12 +26,23 @@ const options = ref({ report_types: [], audiences: [], languages: [] });
 
 const reportType = ref("Investment Report");
 const audience = ref("Internal");
-const language = ref("en");
 
 const activeReport = ref(null);
 const generating = computed(
   () => activeReport.value && activeReport.value.status !== "complete",
 );
+
+// Memo report — language toggle for the preview pane.
+const previewLanguage = ref("en");
+const isMemo = computed(
+  () => activeReport.value?.kind === "investment_memo_latestage",
+);
+const memoPreview = computed(() => {
+  const r = activeReport.value;
+  if (!r) return "";
+  if (previewLanguage.value === "zh") return r.content_zh || r.content || "";
+  return r.content_en || r.content || "";
+});
 
 const threads = ref([]);
 const newQuestion = ref("");
@@ -103,7 +122,9 @@ async function generate() {
       company_id: props.companyId,
       report_type: reportType.value,
       audience: audience.value,
-      language: language.value,
+      // Language is fixed at the server: investment-memo runs always
+      // produce both EN + ZH; legacy report types default to en.
+      language: "en",
     });
     activeReport.value = r;
     emit("reports-changed");
@@ -207,7 +228,7 @@ onUnmounted(stopPolling);
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-4">
         Generate report
       </h2>
-      <div class="grid sm:grid-cols-3 gap-4">
+      <div class="grid sm:grid-cols-2 gap-4">
         <label class="block">
           <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
             Report type
@@ -231,23 +252,6 @@ onUnmounted(stopPolling);
           >
             <option v-for="a in options.audiences" :key="a" :value="a">
               {{ a }}
-            </option>
-          </select>
-        </label>
-        <label class="block">
-          <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
-            Language
-          </div>
-          <select
-            v-model="language"
-            class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary focus-ring"
-          >
-            <option
-              v-for="l in options.languages"
-              :key="l.code"
-              :value="l.code"
-            >
-              {{ l.label }}
             </option>
           </select>
         </label>
@@ -317,11 +321,104 @@ onUnmounted(stopPolling);
         </li>
       </ul>
 
+      <!-- Memo-specific affordances: language toggle, download buttons,
+           bilingual preview. Only shown for completed memo runs. -->
+      <div
+        v-if="isMemo && activeReport.status === 'complete'"
+        class="mt-6 space-y-4"
+      >
+        <!-- Download row: both .docx files, always available once complete. -->
+        <div class="flex flex-wrap items-center gap-3">
+          <a
+            v-if="activeReport.download_urls?.en"
+            :href="activeReport.download_urls.en"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          >
+            <FileText class="h-4 w-4" />
+            <span>Download English (.docx)</span>
+            <Download class="h-3.5 w-3.5 text-ink-muted" />
+          </a>
+          <a
+            v-if="activeReport.download_urls?.zh"
+            :href="activeReport.download_urls.zh"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          >
+            <FileText class="h-4 w-4" />
+            <span>下载中文 (.docx)</span>
+            <Download class="h-3.5 w-3.5 text-ink-muted" />
+          </a>
+          <a
+            v-if="activeReport.run_dir"
+            :href="`file://${activeReport.run_dir}`"
+            class="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink-primary focus-ring rounded"
+            :title="activeReport.run_dir"
+          >
+            <ExternalLink class="h-3 w-3" />
+            <span>Run folder</span>
+          </a>
+        </div>
+
+        <!-- Language toggle for the preview body. -->
+        <div
+          v-if="activeReport.content_en || activeReport.content_zh"
+          class="flex items-center gap-2 text-xs"
+        >
+          <span class="text-ink-muted uppercase tracking-wide">Preview:</span>
+          <button
+            type="button"
+            @click="previewLanguage = 'en'"
+            :class="[
+              'px-2 py-1 rounded',
+              previewLanguage === 'en'
+                ? 'bg-accent text-white'
+                : 'bg-surface-muted text-ink-secondary hover:bg-surface',
+            ]"
+          >
+            English
+          </button>
+          <button
+            type="button"
+            @click="previewLanguage = 'zh'"
+            :class="[
+              'px-2 py-1 rounded',
+              previewLanguage === 'zh'
+                ? 'bg-accent text-white'
+                : 'bg-surface-muted text-ink-secondary hover:bg-surface',
+            ]"
+          >
+            中文
+          </button>
+        </div>
+
+        <pre
+          v-if="memoPreview"
+          class="whitespace-pre-wrap font-body text-sm leading-relaxed text-ink-primary bg-surface-muted rounded-lg p-4 border border-subtle"
+          >{{ memoPreview }}</pre
+        >
+      </div>
+
+      <!-- Non-memo reports: simple preview block (legacy). -->
       <pre
-        v-if="activeReport.status === 'complete' && activeReport.content"
+        v-else-if="activeReport.status === 'complete' && activeReport.content"
         class="mt-6 whitespace-pre-wrap font-body text-sm leading-relaxed text-ink-primary bg-surface-muted rounded-lg p-4 border border-subtle"
         >{{ activeReport.content }}</pre
       >
+
+      <!-- Memo scope-fail: show the reason and the run folder for browsing. -->
+      <div
+        v-if="isMemo && activeReport.status === 'failed_scope_check' && activeReport.scope_check"
+        class="mt-6 rounded-lg border border-warning bg-warning-soft p-4 text-sm text-warning-ink"
+      >
+        <div class="font-semibold mb-1">
+          Scope check failed —
+          {{ activeReport.scope_check.classification }}
+        </div>
+        <p>{{ activeReport.scope_check.reason }}</p>
+        <p v-if="activeReport.run_dir" class="mt-2 text-xs text-ink-muted">
+          Run folder preserved at
+          <span class="font-mono">{{ activeReport.run_dir }}</span>
+        </p>
+      </div>
     </section>
 
     <CompanyLibrary

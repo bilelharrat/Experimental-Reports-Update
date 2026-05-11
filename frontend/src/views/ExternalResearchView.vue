@@ -110,8 +110,15 @@ const isPdf = computed(() => {
   return (item.value.filename || "").toLowerCase().endsWith(".pdf");
 });
 
+// Download link for the toolbar — default attachment disposition.
 const fileUrl = computed(() =>
   item.value ? api.externalResearchFileUrl(item.value.id) : null,
+);
+// Inline-disposition variant for the <iframe> preview, otherwise the
+// browser respects `Content-Disposition: attachment` and downloads
+// instead of rendering inside the frame.
+const inlineFileUrl = computed(() =>
+  item.value ? api.externalResearchFileUrl(item.value.id, { inline: true }) : null,
 );
 
 const translation = computed(() => item.value?.pdf_translation || null);
@@ -387,6 +394,11 @@ const showFullViewer = ref(false);
         {{ item.error }}
       </div>
 
+      <!-- Bilingual brief summary — always render so PDF items show
+           their EN/中文 toggle for summary/key_points. (Non-PDF items
+           render this further below via the standalone branch.) -->
+      <ExternalItemBody v-if="isPdf && (item.summary || item.translation?.summary)" :item="item" />
+
       <!-- Side-by-side viewer + translation -->
       <div v-if="isPdf" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <!-- Source PDF iframe -->
@@ -418,7 +430,7 @@ const showFullViewer = ref(false);
             </div>
           </header>
           <iframe
-            :src="fileUrl"
+            :src="inlineFileUrl"
             class="w-full h-[80vh] border-0"
             :title="item.filename"
           ></iframe>

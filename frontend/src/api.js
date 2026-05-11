@@ -126,7 +126,8 @@ export const api = {
     }
     return res.json();
   },
-  externalResearchFileUrl: (id) => `/api/external/research/${id}/file`,
+  externalResearchFileUrl: (id, opts = {}) =>
+    `/api/external/research/${id}/file${opts.inline ? "?inline=1" : ""}`,
   deleteExternalResearch: async (id) => {
     const res = await fetch(`/api/external/research/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

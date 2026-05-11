@@ -22,12 +22,17 @@ class ProgressLog:
 
     TERMINAL_TYPES = ("done", "error")
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, truncate: bool = True):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        # Truncate so a re-run doesn't surface the old log.
-        self.path.write_text("", encoding="utf-8")
+        if truncate:
+            # Default: truncate so a re-run doesn't surface the old log.
+            self.path.write_text("", encoding="utf-8")
+        elif not self.path.exists():
+            # Append mode but file missing — create empty so the first
+            # emit() doesn't race with mkdir.
+            self.path.write_text("", encoding="utf-8")
 
     def emit(self, type_: str, **fields: Any) -> None:
         entry = {
