@@ -67,7 +67,7 @@ watch(
 onUnmounted(stopPolling);
 
 async function remove() {
-  if (!confirm("Delete this news item and its archived HTML?")) return;
+  if (!confirm("Delete this news item, archived HTML, and local assets?")) return;
   await api.deleteNews(props.id);
   router.push({ name: "home" });
 }

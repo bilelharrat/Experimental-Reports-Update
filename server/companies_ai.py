@@ -1,28 +1,22 @@
-"""Deep search for companies — Claude Code (primary) + OpenAI (fallback).
+"""Deep search for companies via Claude Code CLI.
 
-Primary path: spawn `claude -p` with WebSearch/WebFetch tools and the same
-JSON schema, so results stay structured and grounded without depending on
-an OpenAI key.
+Spawns `claude -p` with WebSearch/WebFetch tools and a strict JSON
+schema. Results are cached by query (no TTL); pass `force_refresh=True`
+to re-query.
 
-Fallback path: the original OpenAI Responses API + `web_search` tool. Used
-when the Claude CLI isn't on PATH or its run fails for any reason.
-
-Both paths share the same SCHEMA and SYSTEM_PROMPT so downstream callers
-don't care which one produced the result. Results are cached by query
-(no TTL); pass `force_refresh=True` to re-query.
+This module **does not** call the OpenAI SDK. If the `claude` CLI isn't
+installed, the search returns a `fallback` payload (local-registry matches
+only) with an explanatory reason.
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 from typing import Any
 
 from . import cache, claude_runner, storage
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4.1")
 MAX_RESULTS = 6
 
 
@@ -239,56 +233,6 @@ SYSTEM_PROMPT = (
 )
 
 
-def _is_available() -> bool:
-    return bool(os.environ.get("OPENAI_API_KEY"))
-
-
-def _call_openai(query: str) -> tuple[list[dict] | None, str | None]:
-    """Returns (matches, error). On success error is None."""
-    try:
-        from openai import OpenAI
-    except ImportError:
-        return None, "openai package not installed"
-
-    client = OpenAI()
-    try:
-        response = client.responses.create(
-            model=DEFAULT_MODEL,
-            input=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": f"Find companies matching: {query}",
-                },
-            ],
-            tools=[{"type": "web_search"}],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "company_matches",
-                    "schema": SCHEMA,
-                    "strict": True,
-                }
-            },
-        )
-    except Exception as exc:
-        msg = f"OpenAI call failed: {type(exc).__name__}: {exc}"
-        logger.warning(msg)
-        return None, msg
-
-    text = getattr(response, "output_text", None)
-    if not text:
-        return None, "OpenAI returned empty output_text"
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        msg = f"OpenAI returned non-JSON: {exc}"
-        logger.warning(msg)
-        return None, msg
-    matches = data.get("matches") or []
-    return matches[:MAX_RESULTS], None
-
-
 def deep_search(
     query: str, *, force_refresh: bool = False, progress=None
 ) -> dict:
@@ -299,7 +243,7 @@ def deep_search(
     8601, nullable) so the UI can show how stale the data is.
 
     Returns:
-      - source: "openai" | "cache" | "fallback"
+      - source: "claude_code" | "cache" | "fallback"
       - matches: list of enriched company dicts (each carries a local `id`)
       - cached_at: ISO 8601 of the last successful query, or null
       - reason: present only on `fallback`, explains why
@@ -317,52 +261,37 @@ def deep_search(
                 "cached_at": cached["stored_at_iso"],
             }
 
-    raw: list[dict] | None = None
-    source_used: str | None = None
-    last_err: str | None = None
-
-    # Primary: Claude Code CLI with WebSearch/WebFetch tools.
-    if claude_runner.is_available():
-        if progress:
-            progress.emit("stage", stage="claude_starting", message="Starting Claude Code")
-        raw, err = claude_runner.run_company_search(
-            query=q,
-            schema=SCHEMA,
-            system_prompt=SYSTEM_PROMPT,
-            max_results=MAX_RESULTS,
-            progress=progress,
-        )
-        if raw is not None:
-            source_used = "claude_code"
-        else:
-            last_err = err
-            logger.warning("Claude Code search failed, falling back: %s", err)
-            if progress:
-                progress.emit(
-                    "stage",
-                    stage="fallback",
-                    message=f"Claude failed, trying OpenAI fallback: {err}",
-                )
-
-    # Fallback: OpenAI Responses API + web_search.
-    if raw is None and _is_available():
-        if progress:
-            progress.emit("stage", stage="openai_fallback", message="Searching via OpenAI")
-        raw, err = _call_openai(q)
-        if raw is not None:
-            source_used = "openai"
-        else:
-            last_err = err
-
-    if raw is None:
+    # All LLM calls go through Claude Code CLI. If `claude` isn't on PATH,
+    # we return local-registry matches only — no third-party API fallback.
+    if not claude_runner.is_available():
         local = storage.search_companies(q, limit=MAX_RESULTS)
-        reason = last_err or (
-            "Neither Claude Code nor OPENAI_API_KEY is configured — showing "
-            "local matches only"
-        )
         return {
             "source": "fallback",
-            "reason": reason,
+            "reason": (
+                "Claude Code CLI not installed; install it with "
+                "`npm install -g @anthropic-ai/claude-code` and authenticate. "
+                "Showing local registry matches only."
+            ),
+            "matches": [_local_to_match(c) for c in local],
+            "cached_at": None,
+        }
+
+    if progress:
+        progress.emit("stage", stage="claude_starting", message="Starting Claude Code")
+    raw, err = claude_runner.run_company_search(
+        query=q,
+        schema=SCHEMA,
+        system_prompt=SYSTEM_PROMPT,
+        max_results=MAX_RESULTS,
+        progress=progress,
+    )
+
+    if raw is None:
+        logger.warning("Claude Code search failed: %s", err)
+        local = storage.search_companies(q, limit=MAX_RESULTS)
+        return {
+            "source": "fallback",
+            "reason": err or "Claude Code search failed",
             "matches": [_local_to_match(c) for c in local],
             "cached_at": None,
         }
@@ -370,14 +299,13 @@ def deep_search(
     enriched = [storage.upsert_company_from_match(m) for m in raw]
     if enriched:
         cache.put("companies_ai", q.lower(), enriched)
-        # Invalidate the autocomplete researched index so new hits are visible
-        # on the next keystroke.
+        # Invalidate the autocomplete researched index so new hits are
+        # visible on the next keystroke.
         from . import companies_autocomplete
-
         companies_autocomplete.invalidate_researched_cache()
     fresh = cache.get("companies_ai", q.lower())
     return {
-        "source": source_used or "openai",
+        "source": "claude_code",
         "matches": enriched,
         "cached_at": fresh["stored_at_iso"] if fresh else None,
     }

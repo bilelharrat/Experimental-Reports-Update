@@ -1,15 +1,29 @@
 """HTTP API for the research center."""
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel, Field
-
+import logging
+import os
+import secrets
 import threading
 from datetime import datetime, timezone
 
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
+from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import BaseModel, Field
+
 from . import (
     cache,
+    browser_archive,
     claude_runner,
     companies_ai,
     companies_autocomplete,
@@ -22,11 +36,58 @@ from . import (
     job_progress,
     link_preview as link_preview_mod,
     memo_prep,
+    news_archive,
+    research_store,
     storage,
     text_analysis,
 )
 
-router = APIRouter(prefix="/api")
+logger = logging.getLogger("bsh.api")
+
+
+# ---- Auth ---------------------------------------------------------------
+#
+# All /api/* routes go through ``require_api_token``. When
+# ``BSH_RESEARCH_API_TOKEN`` is set in the environment, the dependency
+# accepts the token either as:
+#   - ``Authorization: Bearer <token>`` header  (preferred; used by JS
+#     fetch and by external clients e.g. iOS, rt-trans)
+#   - ``?token=<token>`` query parameter        (for EventSource SSE and
+#     ``<a href="...">`` download links that can't set headers)
+# When the env var is empty/unset the dependency is a no-op so local
+# development still works without a token.
+
+
+def _expected_token() -> str | None:
+    """Read the configured token at call time (so test/runtime changes to
+    the environment take effect without restart).
+    """
+    val = os.environ.get("BSH_RESEARCH_API_TOKEN") or ""
+    return val.strip() or None
+
+
+def require_api_token(
+    request: Request,
+    token: str | None = Query(default=None),
+) -> None:
+    """FastAPI dependency: enforce bearer-token auth on /api/* routes."""
+    expected = _expected_token()
+    if not expected:
+        return  # dev mode — no token configured
+    presented: str | None = None
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        presented = auth[7:].strip() or None
+    if presented is None and token:
+        presented = token.strip() or None
+    if presented is None or not secrets.compare_digest(presented, expected):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid API token",
+        )
+
+
+router = APIRouter(prefix="/api", dependencies=[Depends(require_api_token)])
 
 REPORT_TYPES = (
     "Investment Memo (Late-Stage)",
@@ -344,8 +405,9 @@ def companies_select(payload: SelectMatch) -> dict:
 def _ensure_company_translation(company_id: str | None, *, force: bool = False) -> None:
     """Translate a company synchronously and persist the result.
 
-    No-op if a translation already exists (unless `force=True`) or the
-    OPENAI_API_KEY isn't configured.
+    No-op if a translation already exists (unless `force=True`). Note:
+    company-record translation is currently disabled — see
+    ``server/company_translate.py``.
     """
     if not company_id:
         return
@@ -710,6 +772,174 @@ def delete_file(company_id: str, file_id: str) -> None:
         raise HTTPException(status_code=404, detail="File not found")
 
 
+# --- Research library (Serena's background-documents folder) -------------
+#
+# Distinct from /companies/{id}/files (the Document Library). The research
+# library is where the analyst drops PitchBook PDFs, partner notes, etc.
+# that the investment-memo skill is meant to read. See docs/architecture.md.
+
+@router.get("/companies/{company_id}/research-files")
+def get_research_files(company_id: str) -> list[dict]:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return research_store.list_files(company_id)
+
+
+@router.post("/companies/{company_id}/research-files", status_code=201)
+async def post_research_file(
+    company_id: str,
+    file: UploadFile = File(...),
+    label: str | None = Form(None),
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    data = await file.read()
+    try:
+        return research_store.upload_file(
+            company_id,
+            filename=file.filename or "upload",
+            content_type=file.content_type,
+            data=data,
+            label=label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/research-files/{file_id}")
+def get_research_file(
+    company_id: str, file_id: str, inline: bool = False
+) -> FileResponse:
+    """Stream a research-library file. Pass ``inline=1`` for inline
+    Content-Disposition so PDFs / images render inside an iframe."""
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    found = research_store.get_file(company_id, file_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    record, path = found
+    filename = record.get("filename") or path.name
+    media_type = record.get("content_type") or "application/octet-stream"
+    if inline:
+        return FileResponse(
+            path=str(path),
+            media_type=media_type,
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+    return FileResponse(path=str(path), filename=filename, media_type=media_type)
+
+
+@router.delete("/companies/{company_id}/research-files/{file_id}",
+               status_code=204)
+def delete_research_file(company_id: str, file_id: str) -> None:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if not research_store.delete_file(company_id, file_id):
+        raise HTTPException(status_code=404, detail="File not found")
+
+
+def _run_research_summary_job(company_id: str, file_id: str) -> None:
+    """Background worker for a research-library quick-summary job. Streams
+    progress events to a JSONL file (visible in the AI Tasks rail) and
+    persists the final summary onto the file record."""
+    from pathlib import Path
+
+    progress_path = research_store.quick_summary_progress_path(
+        company_id, file_id
+    )
+    progress = job_progress.ProgressLog(progress_path)
+    try:
+        found = research_store.get_file(company_id, file_id)
+        company_name = (storage.get_company(company_id) or {}).get("name") or company_id
+        record_for_init = found[0] if found else {}
+        progress.emit(
+            "job_init",
+            kind="research_summary",
+            title=record_for_init.get("filename") or "Research summary",
+            subtitle=company_name,
+            company_id=company_id,
+            file_id=file_id,
+            filename=record_for_init.get("filename"),
+            file_kind=record_for_init.get("kind"),
+        )
+        progress.emit("stage", stage="starting", message="Starting quick summary")
+        if found is None:
+            progress.emit("error", error="File not found")
+            return
+        record, path = found
+        kind = record.get("kind") or "text"
+        summary = claude_runner.run_quick_summary(
+            source_path=path,
+            work_dir=path.parent,
+            kind=kind,
+            hint_title=record.get("label") or record.get("filename"),
+            progress=progress,
+        )
+        if "error" in summary:
+            progress.emit("error", error=summary["error"])
+            return
+        research_store.update_record(
+            company_id, file_id, quick_summary=summary
+        )
+        progress.emit("done", summary=summary)
+    except Exception as exc:  # noqa: BLE001
+        progress.emit(
+            "error", error=f"Job crashed: {type(exc).__name__}: {exc}"
+        )
+
+
+@router.post(
+    "/companies/{company_id}/research-files/{file_id}/summary",
+    status_code=202,
+)
+def post_research_file_summary(company_id: str, file_id: str) -> dict:
+    """Kick off the quick-summary job in the background.
+
+    Returns immediately with the job descriptor (stream_url, log_url) —
+    the actual Claude run takes 5–30s and progresses via the AI Tasks
+    rail. The summary lands on the file's index record when done; the
+    FE polls the file list to detect completion (and the user can click
+    the rail entry to watch live).
+    """
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if research_store.get_file(company_id, file_id) is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Reset any prior summary so the UI shows the new run cleanly.
+    research_store.update_record(company_id, file_id, quick_summary=None)
+
+    threading.Thread(
+        target=_run_research_summary_job,
+        args=(company_id, file_id),
+        name=f"research-summary-{company_id}-{file_id}",
+        daemon=True,
+    ).start()
+    return {
+        "kind": "research_summary",
+        "company_id": company_id,
+        "file_id": file_id,
+        "stream_url": (
+            f"/api/companies/{company_id}/research-files/{file_id}/summary/stream"
+        ),
+        "log_url": (
+            f"/api/jobs/log?path=research_summary:{company_id}/{file_id}"
+        ),
+    }
+
+
+@router.delete(
+    "/companies/{company_id}/research-files/{file_id}/summary",
+    status_code=204,
+)
+def delete_research_file_summary(company_id: str, file_id: str) -> None:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if research_store.get_file(company_id, file_id) is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    research_store.update_record(company_id, file_id, quick_summary=None)
+
+
 @router.get("/companies/{company_id}/files/{file_id}/summary")
 def get_file_summary(company_id: str, file_id: str) -> dict:
     if storage.get_company(company_id) is None:
@@ -763,6 +993,10 @@ def _scan_progress_state(path: "Path") -> dict:
         "kind": None,
         "title": None,
         "subtitle": None,
+        # Most recent claude_action — gives the rail something to tail in
+        # real time without making the user open the modal.
+        "latest_action": None,
+        "tool_count": 0,
     }
     if not path.exists():
         return state
@@ -805,11 +1039,28 @@ def _scan_progress_state(path: "Path") -> dict:
                         state["page_count"] = entry["page_count"]
                     if "speed" in entry:
                         state["speed"] = entry["speed"]
-                elif etype == "claude_action" and entry.get("action") == "result":
-                    if entry.get("cost_usd") is not None:
-                        state["claude_cost_usd"] = entry["cost_usd"]
-                    if entry.get("duration_ms") is not None:
-                        state["claude_duration_ms"] = entry["duration_ms"]
+                elif etype == "claude_action":
+                    action = entry.get("action")
+                    if action == "result":
+                        if entry.get("cost_usd") is not None:
+                            state["claude_cost_usd"] = entry["cost_usd"]
+                        if entry.get("duration_ms") is not None:
+                            state["claude_duration_ms"] = entry["duration_ms"]
+                    # Track the latest user-visible action for the rail.
+                    # We surface tool_use, tool_result, thinking, init, and
+                    # result — everything except internal book-keeping.
+                    if action in ("tool_use", "tool_result", "thinking",
+                                  "init", "result"):
+                        state["latest_action"] = {
+                            "action": action,
+                            "tool": entry.get("tool"),
+                            "preview": entry.get("preview"),
+                            "text": entry.get("text"),
+                            "is_error": entry.get("is_error"),
+                            "ts": entry.get("ts"),
+                        }
+                    if action == "tool_use":
+                        state["tool_count"] += 1
     except Exception:
         pass
     return state
@@ -1081,6 +1332,8 @@ def _common_state_fields(state: dict) -> dict:
         "terminated": state.get("terminated"),
         "terminal_type": state.get("terminal_type"),
         "error": state.get("error"),
+        "latest_action": state.get("latest_action"),
+        "tool_count": state.get("tool_count"),
     }
 
 
@@ -1114,7 +1367,55 @@ _JOB_KIND_PATHS = {
     / "translations"
     / f"{key}__translate.progress.jsonl",
     "memo": _memo_stream_path_for_report,
+    "research_summary": lambda key: research_store.quick_summary_progress_path(
+        key.split("/", 1)[0], key.split("/", 1)[1]
+    ),
 }
+
+
+def _research_summary_kind_records():
+    """Yield active-jobs rail entries for every quick-summary JSONL on disk."""
+    if not research_store.RESEARCH_ROOT.exists():
+        return
+    for jsonl_path in research_store.RESEARCH_ROOT.glob(
+        "*/*__quick_summary.progress.jsonl"
+    ):
+        company_id = jsonl_path.parent.name
+        suffix = "__quick_summary.progress.jsonl"
+        name = jsonl_path.name
+        if not name.endswith(suffix):
+            continue
+        file_id = name[: -len(suffix)]
+        state = _scan_progress_state(jsonl_path)
+        record_tuple = research_store.get_file(company_id, file_id)
+        record = record_tuple[0] if record_tuple else None
+        title = (
+            state.get("title")
+            or (record and (record.get("label") or record.get("filename")))
+            or "Quick summary"
+        )
+        subtitle = state.get("subtitle") or (
+            (storage.get_company(company_id) or {}).get("name") or company_id
+        )
+        yield {
+            "kind": state.get("kind") or "research_summary",
+            "title": title,
+            "subtitle": subtitle,
+            "stream_url": (
+                f"/api/companies/{company_id}/research-files/{file_id}/summary/stream"
+            ),
+            "log_url": (
+                f"/api/jobs/log?path=research_summary:{company_id}/{file_id}"
+            ),
+            "primary_route": {
+                "name": "research",
+                "params": {"companyId": company_id},
+            },
+            "company_id": company_id,
+            "file_id": file_id,
+            "filename": record and record.get("filename"),
+            **_common_state_fields(state),
+        }
 
 
 def _memo_kind_records():
@@ -1168,6 +1469,7 @@ def get_active_jobs() -> list[dict]:
         _search_kind_records(),
         _pdf_translation_kind_records(),
         _memo_kind_records(),
+        _research_summary_kind_records(),
     ):
         for rec in source:
             if rec.get("terminated"):
@@ -1238,6 +1540,75 @@ async def stream_file_summary_progress(
 
         pos = 0
         idle_deadline = time.monotonic() + 600.0  # 10 min ceiling
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/companies/{company_id}/research-files/{file_id}/summary/stream"
+)
+async def stream_research_file_summary_progress(
+    company_id: str, file_id: str
+) -> "StreamingResponse":
+    """SSE stream for a research-library quick-summary job."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if research_store.get_file(company_id, file_id) is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    progress_path = research_store.quick_summary_progress_path(
+        company_id, file_id
+    )
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
         terminated = False
         while time.monotonic() < idle_deadline and not terminated:
             try:
@@ -1346,7 +1717,45 @@ def _run_news_analysis(item_id: str, url: str) -> None:
                 "news", item_id, status="failed", error=preview.error
             )
             return
-        external_store.write_archive("news", item_id, preview.html)
+
+        archive = news_archive.archive_static_html(
+            kind="news",
+            item_id=item_id,
+            html=preview.html,
+            page_url=preview.final_url,
+            source_url=url,
+        )
+        browser_status = "not_needed"
+        browser_error = None
+        analysis_text = preview.text
+        reasons = archive.diagnostics.get("browser_fallback_reasons") or []
+        if reasons:
+            browser_status = "attempted"
+            rendered = browser_archive.render_html(preview.final_url or url)
+            if rendered.html:
+                browser_archive_result = news_archive.archive_static_html(
+                    kind="news",
+                    item_id=item_id,
+                    html=rendered.html,
+                    page_url=preview.final_url or url,
+                    source_url=url,
+                    strategy="browser_rendered_archive",
+                )
+                archive = browser_archive_result
+                if len(rendered.text or "") > len(analysis_text or ""):
+                    analysis_text = rendered.text
+                browser_status = "used"
+            else:
+                browser_status = "failed"
+                browser_error = rendered.error
+
+        archived_image = archive.public_url(preview.image, item_id) or preview.image
+        archived_favicon = archive.public_url(preview.favicon, item_id) or preview.favicon
+        archive_diagnostics = {
+            **archive.diagnostics,
+            "browser_fallback_status": browser_status,
+            "browser_fallback_error": browser_error,
+        }
         external_store.update_item(
             "news",
             item_id,
@@ -1354,16 +1763,18 @@ def _run_news_analysis(item_id: str, url: str) -> None:
             title=preview.title or url,
             description=preview.description,
             site_name=preview.site_name,
-            image=preview.image,
-            favicon=preview.favicon,
+            image=archived_image,
+            favicon=archived_favicon,
             domain=preview.domain,
             final_url=preview.final_url,
             archive_path=str(external_store.archive_path("news", item_id).name),
-            raw_text_chars=len(preview.text or ""),
+            archive_strategy=archive_diagnostics.get("archive_strategy"),
+            archive_asset_count=archive_diagnostics.get("downloaded_image_count"),
+            archive_failed_asset_count=archive_diagnostics.get("failed_image_count"),
+            archive_diagnostics=archive_diagnostics,
+            raw_text_chars=len(analysis_text or ""),
         )
-        analysis = text_analysis.analyze(
-            preview.text, hint_title=preview.title
-        )
+        analysis = text_analysis.analyze(analysis_text, hint_title=preview.title)
         if "error" in analysis:
             external_store.update_item(
                 "news", item_id, status="ready", analysis_error=analysis["error"]
@@ -1433,7 +1844,33 @@ def get_news_archive(item_id: str) -> Response:
     p = external_store.archive_path("news", item_id)
     if not p.exists():
         raise HTTPException(status_code=404, detail="Archive not available")
-    return HTMLResponse(content=p.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        content=p.read_text(encoding="utf-8"),
+        headers={
+            "Content-Security-Policy": (
+                "script-src 'none'; worker-src 'none'; object-src 'none'; "
+                "base-uri 'none'; img-src 'self' data: blob: https:; "
+                "style-src 'self' 'unsafe-inline' https:; "
+                "font-src 'self' data: https:"
+            )
+        },
+    )
+
+
+@router.get("/external/news/{item_id}/assets/{filename:path}")
+def get_news_archive_asset(item_id: str, filename: str) -> FileResponse:
+    item = external_store.get_item("news", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="News item not found")
+    p = external_store.archive_asset_path("news", item_id, filename)
+    root = external_store.archive_asset_dir("news", item_id).resolve()
+    try:
+        resolved = p.resolve()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Archive asset not found")
+    if root not in resolved.parents or not resolved.exists() or not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Archive asset not found")
+    return FileResponse(resolved)
 
 
 @router.delete("/external/news/{item_id}", status_code=204)
@@ -1445,7 +1882,7 @@ def delete_news(item_id: str) -> None:
 @router.post("/external/news/{item_id}/retry")
 def retry_news(item_id: str) -> dict:
     """Re-run the analysis pipeline for a news item — useful when the
-    initial run hit `analysis_error` (e.g. OPENAI_API_KEY wasn't loaded yet).
+    initial run hit `analysis_error`.
     """
     item = external_store.get_item("news", item_id)
     if item is None:

@@ -85,6 +85,11 @@ def _extract_text(soup: BeautifulSoup) -> str:
     return "\n".join(lines)[:MAX_TEXT_CHARS]
 
 
+def extract_text_from_html(html: str) -> str:
+    """Extract readable text from an HTML string."""
+    return _extract_text(BeautifulSoup(html or "", "html.parser"))
+
+
 def fetch(url: str) -> LinkPreview:
     """Fetch a URL and return a populated LinkPreview. Never raises."""
     preview = LinkPreview(url=url, final_url=url)

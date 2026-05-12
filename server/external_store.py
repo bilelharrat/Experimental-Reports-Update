@@ -2,8 +2,9 @@
 
 Each kind lives under its own subdirectory of `data/external/<kind>/` with one
 YAML per item. Archived HTML for news items is stored alongside as
-`<id>.html`. Uploaded research files reuse `data/uploads/_external/` so the
-existing FileResponse plumbing works.
+`<id>.html`, with downloaded image assets in `<id>.assets/`. Uploaded research
+files reuse `data/uploads/_external/` so the existing FileResponse plumbing
+works.
 
 Item shapes (any field may be missing):
 - news:           id, kind, status, title, source_url, archive_path,
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -122,9 +124,11 @@ def delete_item(kind: str, item_id: str) -> bool:
     if not p.exists():
         return False
     archive = _kind_dir(kind) / f"{item_id}.html"
+    assets = archive_asset_dir(kind, item_id)
     try:
         p.unlink(missing_ok=True)
         archive.unlink(missing_ok=True)
+        shutil.rmtree(assets, ignore_errors=True)
     except Exception:
         return False
     return True
@@ -132,6 +136,14 @@ def delete_item(kind: str, item_id: str) -> bool:
 
 def archive_path(kind: str, item_id: str) -> Path:
     return _kind_dir(kind) / f"{item_id}.html"
+
+
+def archive_asset_dir(kind: str, item_id: str) -> Path:
+    return _kind_dir(kind) / f"{item_id}.assets"
+
+
+def archive_asset_path(kind: str, item_id: str, filename: str) -> Path:
+    return archive_asset_dir(kind, item_id) / filename
 
 
 def write_archive(kind: str, item_id: str, html: str) -> Path:

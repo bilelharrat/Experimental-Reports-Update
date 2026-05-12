@@ -1,13 +1,19 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
+  Brain,
   ChevronDown,
   ChevronRight,
+  Download,
   FileText,
+  Globe,
   Languages,
   Loader2,
+  MousePointerClick,
+  Pencil,
   Search,
   Sparkles,
+  Terminal,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import JobLogModal from "./JobLogModal.vue";
@@ -67,7 +73,45 @@ function kindIcon(kind) {
   if (kind === "search") return Search;
   if (kind === "pdf_translation") return Languages;
   if (kind === "summary") return FileText;
+  if (kind === "research_summary") return Sparkles;
+  if (kind === "memo") return Sparkles;
   return Sparkles;
+}
+
+// Pick an icon for the "latest action" line so a glance tells you whether
+// Claude is reading, writing, browsing, or thinking.
+function actionIcon(a) {
+  if (!a) return null;
+  if (a.action === "thinking") return Brain;
+  if (a.tool === "WebSearch") return Globe;
+  if (a.tool === "WebFetch") return Download;
+  if (a.tool === "Read") return FileText;
+  if (a.tool === "Write" || a.tool === "Edit") return Pencil;
+  if (a.tool === "Bash") return Terminal;
+  return Sparkles;
+}
+
+// Two lines of line-clamp-2 with the rail's font give ~140 chars total
+// before the browser ellipses, so we hand the FE a slightly-trimmed
+// string and let CSS handle the visual cut.
+function actionLine(a) {
+  if (!a) return null;
+  const trim = (s, n) =>
+    s && s.length > n ? s.slice(0, n) + "…" : s || "";
+  if (a.action === "thinking") {
+    const t = (a.text || "").replace(/\s+/g, " ").trim();
+    return trim(t, 200) || "Thinking…";
+  }
+  if (a.action === "tool_use") {
+    const preview = (a.preview || "").replace(/\s+/g, " ").trim();
+    return `${a.tool}: ${trim(preview, 160)}`;
+  }
+  if (a.action === "tool_result") {
+    return `${a.tool} → ${a.is_error ? "error" : "ok"}`;
+  }
+  if (a.action === "init") return "Claude initialized";
+  if (a.action === "result") return "Run finished";
+  return null;
 }
 
 function open(j) {
@@ -119,7 +163,8 @@ const visible = computed(() => jobs.value.length > 0);
           <button
             type="button"
             @click="open(j)"
-            class="w-full text-left p-3 hover:bg-surface-muted focus-ring"
+            class="w-full text-left p-3 hover:bg-surface-muted focus-ring group"
+            :title="'Click to open the live transcript'"
           >
             <div class="flex items-start gap-2">
               <component
@@ -127,8 +172,13 @@ const visible = computed(() => jobs.value.length > 0);
                 class="h-3.5 w-3.5 text-accent mt-0.5 shrink-0"
               />
               <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium text-ink-primary truncate">
-                  {{ j.title }}
+                <div class="flex items-center gap-1.5">
+                  <div class="text-sm font-medium text-ink-primary truncate flex-1">
+                    {{ j.title }}
+                  </div>
+                  <MousePointerClick
+                    class="h-3 w-3 text-ink-subtle group-hover:text-accent shrink-0"
+                  />
                 </div>
                 <div class="text-xs text-ink-muted truncate">
                   <span class="font-mono uppercase text-[10px] mr-1.5">{{
@@ -143,6 +193,19 @@ const visible = computed(() => jobs.value.length > 0);
                   <Loader2 class="h-3 w-3 animate-spin shrink-0 text-accent" />
                   <span>{{ j.latest_stage }}</span>
                 </div>
+                <!-- Latest Claude action — gives the rail a live "stdout"
+                     feel without making the user open the modal. -->
+                <div
+                  v-if="actionLine(j.latest_action)"
+                  class="mt-1 text-[11px] text-ink-muted line-clamp-2 inline-flex items-start gap-1 font-mono"
+                >
+                  <component
+                    v-if="actionIcon(j.latest_action)"
+                    :is="actionIcon(j.latest_action)"
+                    class="h-3 w-3 mt-px shrink-0 opacity-70"
+                  />
+                  <span>{{ actionLine(j.latest_action) }}</span>
+                </div>
                 <div
                   v-if="pct(j) != null"
                   class="mt-1.5 h-1 w-full rounded-full bg-surface-muted overflow-hidden"
@@ -156,6 +219,9 @@ const visible = computed(() => jobs.value.length > 0);
                   class="mt-1 flex items-center gap-2 text-[10px] text-ink-muted font-mono"
                 >
                   <span v-if="progressText(j)">{{ progressText(j) }}</span>
+                  <span v-if="j.tool_count">
+                    {{ j.tool_count }} tool call{{ j.tool_count === 1 ? "" : "s" }}
+                  </span>
                   <span v-if="j.claude_cost_usd != null">
                     ${{ Number(j.claude_cost_usd).toFixed(4) }}
                   </span>

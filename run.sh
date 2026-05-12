@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Load .env if present so OPENAI_API_KEY etc. are available without exporting.
+# Load .env if present so service config is available without exporting.
 if [ -f .env ]; then
     set -a
     # shellcheck disable=SC1091
@@ -12,7 +12,7 @@ if [ -f .env ]; then
     set +a
 fi
 
-HOST="${HOST:-127.0.0.1}"
+HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8010}"
 
 # Ensure backend deps are installed.
@@ -32,5 +32,10 @@ fi
 
 mkdir -p data
 
-echo "Starting server on http://${HOST}:${PORT}"
+if [ "$HOST" = "0.0.0.0" ]; then
+    LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+    echo "Starting server on http://127.0.0.1:${PORT}${LAN_IP:+ and http://${LAN_IP}:${PORT}}"
+else
+    echo "Starting server on http://${HOST}:${PORT}"
+fi
 exec uv run uvicorn server.main:app --host "$HOST" --port "$PORT" "$@"

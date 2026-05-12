@@ -1,37 +1,45 @@
 """Bootstrap an investment-memo run.
 
-Resolves a fully-qualified company record, mints a non-destructive run
-folder under ``data/memos/<slug>/<YYYY-MM-DD>__<HHMMSS>__<slug>__memo-run/``,
-stages source materials from ``data/uploads/<slug>/`` as symlinks, runs a
-late-stage / pre-IPO scope check (the bsh-investment-memo-latestage skill
-refuses early-stage deals), and writes a run-manifest skeleton plus an
-SSE-streamable progress log that surfaces in the unified Active Jobs rail.
+This module is the synchronous handshake between
+``POST /api/reports`` (with `report_type = "Investment Memo (Late-Stage)"`)
+and the long-running analysis worker in ``memo_analysis.py``.
 
-This module is the synchronous handshake between ``POST /api/memos/prep``
-and the long-running analysis composite job. Everything in the returned
-``RunContext`` is contractual — the analysis layer never re-derives any
-of it.
+What this module does:
+
+  1. Resolves the company against ``data/companies.yaml``.
+  2. Runs the late-stage / pre-IPO scope check.
+  3. Mints a versioned, non-destructive run folder under
+     ``data/memos/<slug>/<YYYY-MM-DD>__<HHMMSS>__<slug>__memo-run/``.
+  4. Writes a manifest skeleton at ``logs/run_manifest.md``.
+  5. Creates the report record in ``data/reports/`` and emits the prep
+     events on the run-folder's ``logs/stream.jsonl``.
+
+What this module **deliberately does not do** (see `docs/architecture.md`):
+
+  - It does **not** touch ``data/uploads/<slug>/``. That folder is the
+    user's **Document Library** and is owned by a separate feature.
+    The memo skill consumes ``data/settings/serena_background.md`` and
+    the ``data/companies.yaml`` entry — nothing else.
+  - It does **not** stage any input files for the skill. The skill
+    reads its inputs itself using the tools its own text prescribes
+    (``markitdown`` for PDFs, ``pandoc`` for docx, Read for images).
 """
 from __future__ import annotations
 
-import hashlib
 import logging
-import os
 import re
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from . import files_store, job_progress, storage
+from . import job_progress, storage
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 MEMOS_ROOT = DATA_DIR / "memos"
 SETTINGS_FILE = DATA_DIR / "settings" / "serena_background.md"
+COMPANIES_FILE = DATA_DIR / "companies.yaml"
 
 SKILL_NAME = "bsh-investment-memo-latestage-v1"
 SKILL_VERSION = 1
@@ -51,8 +59,6 @@ _EARLY_STAGE_ROUNDS = {
     "series a", "series a-1", "series a-2", "series b", "series b-1", "series b-2",
 }
 
-# Total funding raised below which we treat the deal as early-stage absent
-# any other evidence. Late-stage rounds typically come after $50M+ raised.
 _LATE_STAGE_FUNDING_FLOOR_USD = 50_000_000
 _EARLY_STAGE_FUNDING_CEILING_USD = 5_000_000
 
@@ -192,60 +198,16 @@ def _make_run_dir(slug: str, run_id: str) -> Path:
     while folder.exists():
         folder = base.with_name(f"{base.name}__{n}")
         n += 1
-    for sub in ("inputs", "analysis", "memo", "logs/previews", "logs/previews_cn"):
+    # Subdirectories the skill writes into. Note: no `inputs/` — the skill
+    # has no input-staging step. The skill reads from companies.yaml +
+    # Serena_Background.md directly.
+    for sub in ("analysis", "memo", "logs/previews", "logs/previews_cn"):
         (folder / sub).mkdir(parents=True, exist_ok=True)
     return folder
 
 
 def stream_path(run_dir: Path | str) -> Path:
     return Path(run_dir) / "logs" / "stream.jsonl"
-
-
-# --- Input staging ---------------------------------------------------------
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _stage_inputs(company_id: str, run_dir: Path) -> list[dict]:
-    """Symlink uploaded files into ``<run_dir>/inputs/`` and return provenance."""
-    out: list[dict] = []
-    inputs_dir = run_dir / "inputs"
-    for entry in files_store.list_files(company_id):
-        rec = files_store.get_file(company_id, entry.get("id", ""))
-        if rec is None:
-            continue
-        meta, src_path = rec
-        link_name = meta.get("filename") or src_path.name
-        link_path = inputs_dir / link_name
-        i = 2
-        while link_path.exists():
-            stem, suffix = Path(link_name).stem, Path(link_name).suffix
-            link_path = inputs_dir / f"{stem}__{i}{suffix}"
-            i += 1
-        try:
-            os.symlink(os.path.abspath(src_path), link_path)
-        except OSError:
-            shutil.copy2(src_path, link_path)
-        out.append({
-            "path": str(link_path.relative_to(run_dir)),
-            "original_upload_id": meta.get("id"),
-            "original_path": str(src_path),
-            "sha256": _sha256(src_path),
-            "kind": meta.get("kind"),
-            "language": meta.get("language") or "en",
-            "source_class": "company-originated",
-            "size_bytes": meta.get("size_bytes"),
-            "uploaded_at": meta.get("uploaded_at"),
-        })
-
-    with (inputs_dir / "inputs.yaml").open("w", encoding="utf-8") as f:
-        yaml.safe_dump(out, f, sort_keys=False, allow_unicode=True)
-    return out
 
 
 # --- Manifest writers ------------------------------------------------------
@@ -270,7 +232,6 @@ def _write_manifest_skeleton(
     run_id: str,
     company: dict,
     stage: dict,
-    inputs: list[dict],
     memo_paths: dict[str, str],
     warnings: list[str],
 ) -> Path:
@@ -287,17 +248,14 @@ def _write_manifest_skeleton(
     )
     if stage.get("signals"):
         lines.append(f"- stage_signals: {', '.join(stage['signals'])}")
-    lines += ["", "## Staged inputs", ""]
-    if inputs:
-        lines.append("| # | File | Kind | Source class | Language |")
-        lines.append("|---|------|------|--------------|----------|")
-        for i, item in enumerate(inputs, 1):
-            lines.append(
-                f"| {i} | {Path(item['path']).name} | {item.get('kind') or '?'} | "
-                f"{item.get('source_class') or '?'} | {item.get('language') or '?'} |"
-            )
-    else:
-        lines.append("_No inputs staged._")
+    lines += ["", "## Inputs the skill will read", ""]
+    lines.append(
+        "Serena's skill reads only its declared inputs. Python does not "
+        "stage anything for the skill."
+    )
+    lines.append("")
+    lines.append("- `data/settings/serena_background.md`")
+    lines.append(f"- `data/companies.yaml` entry for `{company.get('id')}`")
     if warnings:
         lines += ["", "## Warnings", ""]
         for w in warnings:
@@ -350,11 +308,10 @@ def _write_scope_failure(run_dir: Path, *, company: dict, stage: dict) -> Path:
 def bootstrap_memo_run(company_id: str) -> dict:
     """Run the synchronous prep stage for an investment-memo job.
 
-    Returns a RunContext-shaped dict. On scope-check failure, ``failed`` is
-    True, the run folder is preserved for browsing, and the report record
-    is marked ``failed_scope_check``. Raises ``ValueError`` for caller-
-    facing errors (unknown company, missing settings) that should surface
-    as 4xx without minting a run folder.
+    Returns a result dict. On scope-check failure, ``failed`` is True,
+    the run folder is preserved for browsing, and the report record is
+    marked ``failed_scope_check``. Raises ``ValueError`` for caller-
+    facing errors (unknown company, missing settings).
     """
     company = storage.get_company(company_id)
     if company is None:
@@ -376,8 +333,8 @@ def bootstrap_memo_run(company_id: str) -> dict:
         "zh": str(run_dir / "memo" / _memo_filename(company_name, run_id, "zh")),
     }
 
-    # Mint the report record up front so the run is browseable even if we
-    # fail downstream.
+    # Mint the report record up front so the run is browseable even if
+    # we fail downstream.
     report = storage.create_report(
         company_id=slug,
         report_type=REPORT_TYPE,
@@ -404,7 +361,7 @@ def bootstrap_memo_run(company_id: str) -> dict:
         "job_init",
         kind=JOB_KIND,
         title=f"Investment memo — {company_name}",
-        subtitle="Late-stage / pre-IPO bootstrap",
+        subtitle="Late-stage / pre-IPO",
         report_id=report["id"],
         company_id=slug,
         run_id=run_id,
@@ -470,40 +427,11 @@ def bootstrap_memo_run(company_id: str) -> dict:
     if stage_assessment["outcome"] == "warn":
         warnings.append(stage_assessment.get("reason") or "Stage assessment indeterminate")
 
-    inputs = _stage_inputs(slug, run_dir)
-    stream.emit(
-        "stage",
-        stage="inputs_staged",
-        message=f"Staged {len(inputs)} input file(s)",
-        count=len(inputs),
-        files=[
-            {
-                "name": Path(i["path"]).name,
-                "kind": i.get("kind"),
-                "language": i.get("language"),
-                "size_bytes": i.get("size_bytes"),
-            }
-            for i in inputs
-        ],
-    )
-    if not inputs:
-        warnings.append(
-            "No source materials present in data/uploads/<slug>/. Late-stage "
-            "analysis bar still applies — missing PitchBook / partner notes "
-            "will be surfaced as a gating diligence question."
-        )
-        stream.emit(
-            "input_warnings",
-            missing=["PitchBook summary", "partner notes", "deck"],
-            impact="reduces confidence; flagged as gating question",
-        )
-
     manifest_path = _write_manifest_skeleton(
         run_dir,
         run_id=run_id,
         company=company,
         stage=stage_assessment,
-        inputs=inputs,
         memo_paths=memo_paths,
         warnings=warnings,
     )
@@ -524,9 +452,10 @@ def bootstrap_memo_run(company_id: str) -> dict:
         warnings=warnings,
     )
 
-    # Hand off to the analysis worker. It re-opens the same stream.jsonl in
-    # append mode and emits the real terminal `done` when both .docx files
-    # land. Import locally to avoid a circular module import at startup.
+    # Hand off to the analysis worker. It re-opens the same stream.jsonl
+    # in append mode and emits the real terminal `done` when both .docx
+    # files land. Import locally to avoid a circular module import at
+    # startup.
     from . import memo_analysis
     memo_analysis.start_analysis(report["id"])
 
@@ -542,7 +471,6 @@ def bootstrap_memo_run(company_id: str) -> dict:
         },
         "run_dir": str(run_dir),
         "run_dir_rel": _rel(run_dir),
-        "input_paths": [str(run_dir / i["path"]) for i in inputs],
         "memo_paths": memo_paths,
         "manifest_path": str(manifest_path),
         "stream_path": str(stream_path(run_dir)),

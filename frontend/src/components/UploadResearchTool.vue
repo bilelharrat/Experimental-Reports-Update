@@ -9,6 +9,9 @@ import {
   UploadCloud,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
+
+const t = useT();
 
 const router = useRouter();
 const emit = defineEmits(["created"]);
@@ -67,9 +70,9 @@ async function submit() {
     >
       <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
         <FileText class="h-4 w-4 text-ink-muted" />
-        Upload external research
+        {{ t("upload_research.title") }}
         <span class="text-xs text-ink-muted font-normal">
-          — third-party reports / analyst notes; we'll summarize and translate
+          {{ t("upload_research.subtitle") }}
         </span>
       </span>
       <ChevronDown v-if="expanded" class="h-4 w-4 text-ink-muted" />
@@ -83,10 +86,10 @@ async function submit() {
       >
         <UploadCloud class="h-5 w-5 text-ink-muted mx-auto mb-1" />
         <div class="text-sm text-ink-secondary">
-          {{ file ? file.name : "Click to choose a file" }}
+          {{ file ? file.name : t("upload_research.choose_file") }}
         </div>
         <div class="text-xs text-ink-muted mt-0.5">
-          PDF, DOCX, DOC, TXT
+          {{ t("upload_research.accepted_types") }}
         </div>
         <input
           ref="fileInput"
@@ -100,30 +103,30 @@ async function submit() {
       <div class="grid sm:grid-cols-2 gap-2">
         <input
           v-model="title"
-          placeholder="Title (defaults to filename)"
+          :placeholder="t('upload_research.placeholder_title')"
           class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
         />
         <input
           v-model="sourceCompany"
-          placeholder="Source company (e.g. Goldman Sachs)"
+          :placeholder="t('upload_research.placeholder_source')"
           class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
         />
         <input
           v-model="contactName"
-          placeholder="Contact name"
+          :placeholder="t('upload_research.placeholder_contact_name')"
           class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
         />
         <input
           v-model="contactEmail"
           type="email"
-          placeholder="Contact email"
+          :placeholder="t('upload_research.placeholder_contact_email')"
           class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
         />
       </div>
       <textarea
         v-model="notes"
         rows="2"
-        placeholder="Notes / context (optional)"
+        :placeholder="t('upload_research.placeholder_notes')"
         class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm resize-y"
       ></textarea>
 
@@ -138,7 +141,7 @@ async function submit() {
         >
           <Loader2 v-if="submitting" class="h-3.5 w-3.5 animate-spin" />
           <UploadCloud v-else class="h-3.5 w-3.5" />
-          <span>{{ submitting ? "Uploading…" : "Upload & analyze" }}</span>
+          <span>{{ submitting ? t("upload_research.uploading") : t("upload_research.upload") }}</span>
         </button>
       </div>
     </div>

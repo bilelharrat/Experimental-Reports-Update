@@ -1,10 +1,10 @@
-"""OpenAI-backed translation for company records.
+"""Bilingual translation for company records — via Claude Code CLI.
 
-Given a company record (the dict returned by storage.get_company), produce a
-parallel `translation` block in the opposite language (en↔zh). Company NAME
-and all factual identifiers (ticker, exchange, hq, dates, money amounts,
-URLs, founded_year, employee_band) are kept verbatim. Only free-text
-descriptive fields are translated.
+Given a company record (the dict returned by storage.get_company), produce
+a parallel `translation` block in the opposite language (en↔zh). Company
+name and all factual identifiers (ticker, exchange, hq, dates, money
+amounts, URLs, founded year, employee band) are kept verbatim. Only
+free-text descriptive fields are translated.
 
 Returns a dict with two keys:
 - `language`: detected source language ("en", "zh", or "other")
@@ -14,17 +14,19 @@ The translation dict mirrors the source company shape: same field names,
 same nested structure, but with text values replaced by their translations.
 Fields that don't need translation (ticker, hq, etc.) are simply omitted
 from the translation block — the UI falls back to the source value.
+
+All LLM calls go through ``claude_runner.run_structured_prompt`` — the
+``claude`` CLI is the only LLM provider this codebase uses.
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from . import claude_runner
 
-DEFAULT_MODEL = os.environ.get("OPENAI_ANALYSIS_MODEL", "gpt-4.1")
+logger = logging.getLogger(__name__)
 
 
 COMPANY_TRANSLATION_SCHEMA: dict[str, Any] = {
@@ -168,10 +170,6 @@ SYSTEM_PROMPT = (
 )
 
 
-def _is_available() -> bool:
-    return bool(os.environ.get("OPENAI_API_KEY"))
-
-
 def _translatable_payload(company: dict) -> dict:
     """Project a company record down to the fields we want translated.
 
@@ -216,27 +214,13 @@ def _translatable_payload(company: dict) -> dict:
 
 
 def translate_company(company: dict) -> dict:
-    """Translate a company record. Returns `{language, translation}`.
+    """Translate a company record via Claude CLI. Returns ``{language, translation}``.
 
-    On failure or missing API key returns `{language: "other", translation: None,
-    error: "..."}` so the caller can persist the company without blocking.
+    On failure (no Claude, malformed response, etc.) returns
+    ``{language: "other", translation: None, error: "..."}`` so the
+    caller can persist the company without blocking the rest of the
+    pipeline.
     """
-    if not _is_available():
-        return {
-            "language": "other",
-            "translation": None,
-            "error": "OPENAI_API_KEY not set — translation skipped.",
-        }
-
-    try:
-        from openai import OpenAI
-    except ImportError:
-        return {
-            "language": "other",
-            "translation": None,
-            "error": "openai package not installed.",
-        }
-
     payload = _translatable_payload(company)
     user_prompt = (
         f"Company name (do NOT translate): {company.get('name') or ''}\n"
@@ -244,41 +228,14 @@ def translate_company(company: dict) -> dict:
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
     )
 
-    client = OpenAI()
-    try:
-        response = client.responses.create(
-            model=DEFAULT_MODEL,
-            input=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            text={
-                "format": {
-                    "type": "json_schema",
-                    "name": "company_translation",
-                    "schema": COMPANY_TRANSLATION_SCHEMA,
-                    "strict": True,
-                }
-            },
-        )
-    except Exception as exc:  # noqa: BLE001
-        msg = f"OpenAI translation failed: {type(exc).__name__}: {exc}"
-        logger.warning(msg)
-        return {"language": "other", "translation": None, "error": msg}
-
-    raw = getattr(response, "output_text", "")
-    if not raw:
-        return {
-            "language": "other",
-            "translation": None,
-            "error": "OpenAI returned empty output.",
-        }
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        return {
-            "language": "other",
-            "translation": None,
-            "error": f"OpenAI returned non-JSON: {exc}",
-        }
+    data, err = claude_runner.run_structured_prompt(
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        schema=COMPANY_TRANSLATION_SCHEMA,
+        name="company_translation",
+        timeout_sec=240,
+    )
+    if err is not None:
+        logger.warning("Company translation failed: %s", err)
+        return {"language": "other", "translation": None, "error": err}
     return data

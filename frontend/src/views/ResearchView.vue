@@ -11,8 +11,32 @@ import {
   Sparkles,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
+import { appLanguage } from "../state.js";
 import CompanyLibrary from "../components/CompanyLibrary.vue";
+import ResearchUploads from "../components/ResearchUploads.vue";
 import CompanyDetail from "../components/CompanyDetail.vue";
+
+const tr = useT();
+
+// Backend returns canonical option strings (e.g. "Investment Memo (Late-Stage)",
+// "Internal"). Map them to localized display labels here; unknown values fall
+// through to the raw string so new server-side options keep working.
+const REPORT_TYPE_ZH = {
+  "Investment Memo (Late-Stage)": "投资备忘录（后期 / Pre-IPO）",
+};
+const AUDIENCE_ZH = {
+  Internal: "内部",
+  External: "外部",
+};
+function reportTypeLabel(val) {
+  if (appLanguage.value === "zh") return REPORT_TYPE_ZH[val] || val;
+  return val;
+}
+function audienceLabel(val) {
+  if (appLanguage.value === "zh") return AUDIENCE_ZH[val] || val;
+  return val;
+}
 
 const props = defineProps({ companyId: { type: String, required: true } });
 const emit = defineEmits(["reports-changed"]);
@@ -24,13 +48,26 @@ const company = ref(null);
 const companyError = ref(null);
 const options = ref({ report_types: [], audiences: [], languages: [] });
 
-const reportType = ref("Investment Report");
+// Default to the late-stage investment memo — the only fully-wired
+// pipeline. Other types still route through the legacy stub generator.
+const reportType = ref("Investment Memo (Late-Stage)");
 const audience = ref("Internal");
 
 const activeReport = ref(null);
-const generating = computed(
-  () => activeReport.value && activeReport.value.status !== "complete",
-);
+// The Generate button is "generating" only when a report is actively
+// in-flight. Terminal failure states (failed_scope_check,
+// failed_during_analysis, failed_orphaned) leave the button clickable
+// so the user can kick off a fresh run.
+const generating = computed(() => {
+  const r = activeReport.value;
+  if (!r) return false;
+  const status = String(r.status || "");
+  const terminal =
+    status === "complete" ||
+    status === "complete_with_warnings" ||
+    status.startsWith("failed");
+  return !terminal;
+});
 
 // Memo report — language toggle for the preview pane.
 const previewLanguage = ref("en");
@@ -127,6 +164,14 @@ async function generate() {
       language: "en",
     });
     activeReport.value = r;
+    // Hop the URL to the new report so a refresh lands on the fresh
+    // run, not whatever the user was viewing before (e.g. a stale
+    // failed_* orphan).
+    router.replace({
+      name: "research",
+      params: { companyId: props.companyId },
+      query: { report: r.id },
+    });
     emit("reports-changed");
     startPolling();
   } catch (e) {
@@ -192,7 +237,7 @@ onUnmounted(stopPolling);
         @click="router.push({ name: 'home' })"
         class="text-sm text-ink-muted hover:text-ink-primary inline-flex items-center gap-1 focus-ring rounded"
       >
-        <ArrowLeft class="h-4 w-4" /> Back to search
+        <ArrowLeft class="h-4 w-4" /> {{ tr("research.back_to_search") }}
       </button>
     </div>
 
@@ -206,52 +251,52 @@ onUnmounted(stopPolling);
       v-else-if="companyError"
       class="rounded-card border border-subtle bg-surface p-6 text-center"
     >
-      <div class="font-display text-lg text-ink-primary">Company not found</div>
+      <div class="font-display text-lg text-ink-primary">
+        {{ tr("research.company_not_found") }}
+      </div>
       <p class="mt-1 text-sm text-ink-muted">
-        No company is tracked for
-        <span class="font-mono text-ink-secondary">{{ companyId }}</span>. Search
-        from the home page to add it, or pick one from the sidebar.
+        {{ tr("research.company_not_found_body", { id: companyId }) }}
       </p>
       <button
         @click="router.push({ name: 'home' })"
         class="mt-3 text-sm text-accent hover:text-accent-hover focus-ring rounded"
       >
-        Back to search
+        {{ tr("research.back_to_search") }}
       </button>
     </div>
-    <div v-else class="text-sm text-ink-muted">Loading…</div>
+    <div v-else class="text-sm text-ink-muted">{{ tr("common.loading") }}</div>
 
     <section
       v-if="company"
       class="bg-surface border border-subtle rounded-card shadow-card p-6"
     >
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-4">
-        Generate report
+        {{ tr("research.generate_report") }}
       </h2>
       <div class="grid sm:grid-cols-2 gap-4">
         <label class="block">
           <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
-            Report type
+            {{ tr("research.label_report_type") }}
           </div>
           <select
             v-model="reportType"
             class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary focus-ring"
           >
             <option v-for="t in options.report_types" :key="t" :value="t">
-              {{ t }}
+              {{ reportTypeLabel(t) }}
             </option>
           </select>
         </label>
         <label class="block">
           <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
-            Audience
+            {{ tr("research.label_audience") }}
           </div>
           <select
             v-model="audience"
             class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary focus-ring"
           >
             <option v-for="a in options.audiences" :key="a" :value="a">
-              {{ a }}
+              {{ audienceLabel(a) }}
             </option>
           </select>
         </label>
@@ -263,10 +308,10 @@ onUnmounted(stopPolling);
           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
         >
           <Sparkles class="h-4 w-4" />
-          <span>{{ generating ? "Generating…" : "Generate report" }}</span>
+          <span>{{ generating ? tr("research.generating") : tr("research.generate_button") }}</span>
         </button>
         <span v-if="generating" class="text-xs text-ink-muted">
-          You can leave this page; the report continues in the background.
+          {{ tr("research.generating_hint") }}
         </span>
       </div>
     </section>
@@ -278,7 +323,8 @@ onUnmounted(stopPolling);
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <div class="text-xs uppercase tracking-wider text-ink-muted">
-            {{ activeReport.report_type }} · {{ activeReport.audience }}
+            {{ reportTypeLabel(activeReport.report_type) }} ·
+            {{ audienceLabel(activeReport.audience) }}
             · {{ (activeReport.language || "en").toUpperCase() }}
           </div>
           <div class="font-display text-lg font-semibold text-ink-primary">
@@ -288,7 +334,7 @@ onUnmounted(stopPolling);
         <span
           v-if="activeReport.status === 'complete'"
           class="text-xs px-2 py-1 rounded bg-success-soft text-success-ink"
-          >Complete</span
+          >{{ tr("research.status_complete") }}</span
         >
         <span
           v-else
@@ -335,7 +381,7 @@ onUnmounted(stopPolling);
             class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
           >
             <FileText class="h-4 w-4" />
-            <span>Download English (.docx)</span>
+            <span>{{ tr("research.download_en") }}</span>
             <Download class="h-3.5 w-3.5 text-ink-muted" />
           </a>
           <a
@@ -344,7 +390,7 @@ onUnmounted(stopPolling);
             class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
           >
             <FileText class="h-4 w-4" />
-            <span>下载中文 (.docx)</span>
+            <span>{{ tr("research.download_zh") }}</span>
             <Download class="h-3.5 w-3.5 text-ink-muted" />
           </a>
           <a
@@ -354,7 +400,7 @@ onUnmounted(stopPolling);
             :title="activeReport.run_dir"
           >
             <ExternalLink class="h-3 w-3" />
-            <span>Run folder</span>
+            <span>{{ tr("research.run_folder") }}</span>
           </a>
         </div>
 
@@ -363,7 +409,7 @@ onUnmounted(stopPolling);
           v-if="activeReport.content_en || activeReport.content_zh"
           class="flex items-center gap-2 text-xs"
         >
-          <span class="text-ink-muted uppercase tracking-wide">Preview:</span>
+          <span class="text-ink-muted uppercase tracking-wide">{{ tr("research.preview_label") }}</span>
           <button
             type="button"
             @click="previewLanguage = 'en'"
@@ -374,7 +420,7 @@ onUnmounted(stopPolling);
                 : 'bg-surface-muted text-ink-secondary hover:bg-surface',
             ]"
           >
-            English
+            {{ tr("research.preview_en") }}
           </button>
           <button
             type="button"
@@ -386,7 +432,7 @@ onUnmounted(stopPolling);
                 : 'bg-surface-muted text-ink-secondary hover:bg-surface',
             ]"
           >
-            中文
+            {{ tr("research.preview_zh") }}
           </button>
         </div>
 
@@ -405,21 +451,50 @@ onUnmounted(stopPolling);
       >
 
       <!-- Memo scope-fail: show the reason and the run folder for browsing. -->
+      <!-- Generic failure banner for any failed_* memo run. -->
+      <div
+        v-if="
+          isMemo &&
+          String(activeReport.status || '').startsWith('failed') &&
+          activeReport.status !== 'failed_scope_check'
+        "
+        class="mt-6 rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm text-ink-primary"
+      >
+        <div class="font-semibold text-danger mb-1">
+          {{ tr("research.failed_run", { status: activeReport.status }) }}
+        </div>
+        <p v-if="activeReport.stage" class="text-ink-secondary">
+          {{ activeReport.stage }}
+        </p>
+        <p v-if="activeReport.run_dir" class="mt-2 text-xs text-ink-muted">
+          {{ tr("research.run_folder_preserved_prefix") }}
+          <span class="font-mono">{{ activeReport.run_dir }}</span>
+        </p>
+        <p class="mt-2 text-xs text-ink-muted">
+          {{ tr("research.start_fresh_hint") }}
+        </p>
+      </div>
+
       <div
         v-if="isMemo && activeReport.status === 'failed_scope_check' && activeReport.scope_check"
         class="mt-6 rounded-lg border border-warning bg-warning-soft p-4 text-sm text-warning-ink"
       >
         <div class="font-semibold mb-1">
-          Scope check failed —
-          {{ activeReport.scope_check.classification }}
+          {{
+            tr("research.scope_check_failed", {
+              classification: activeReport.scope_check.classification,
+            })
+          }}
         </div>
         <p>{{ activeReport.scope_check.reason }}</p>
         <p v-if="activeReport.run_dir" class="mt-2 text-xs text-ink-muted">
-          Run folder preserved at
+          {{ tr("research.run_folder_preserved_prefix") }}
           <span class="font-mono">{{ activeReport.run_dir }}</span>
         </p>
       </div>
     </section>
+
+    <ResearchUploads v-if="company" :company-id="companyId" />
 
     <CompanyLibrary
       v-if="company"
@@ -433,22 +508,22 @@ onUnmounted(stopPolling);
       class="bg-surface border border-subtle rounded-card shadow-card p-6"
     >
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-1">
-        Knowledge base
+        {{ tr("research.knowledge_base") }}
       </h2>
       <p class="text-sm text-ink-muted mb-4">
-        Past questions and threads on this company.
+        {{ tr("research.knowledge_base_subtitle") }}
       </p>
 
       <form @submit.prevent="submitThread" class="space-y-2 mb-5">
         <input
           v-model="newQuestion"
-          placeholder="Ask a question…"
+          :placeholder="tr('research.ask_question_placeholder')"
           class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring"
         />
         <textarea
           v-model="newAnswer"
           rows="2"
-          placeholder="Optional notes / answer"
+          :placeholder="tr('research.optional_notes_placeholder')"
           class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring resize-y"
         ></textarea>
         <div class="flex justify-end">
@@ -458,13 +533,13 @@ onUnmounted(stopPolling);
             class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 focus-ring text-sm"
           >
             <Send class="h-3.5 w-3.5" />
-            Save thread
+            {{ tr("research.save_thread") }}
           </button>
         </div>
       </form>
 
       <div v-if="threads.length === 0" class="text-sm text-ink-muted">
-        No threads yet.
+        {{ tr("research.no_threads") }}
       </div>
       <ul class="space-y-3">
         <li

@@ -9,17 +9,20 @@
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { apiFetch, withApiToken } from "../api.js";
 import {
+  AlertCircle,
   ArrowUpRight,
   Brain,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Download,
   Globe,
   Languages,
   Loader2,
   Sparkles,
   X,
-  AlertCircle,
 } from "lucide-vue-next";
 
 const props = defineProps({
@@ -42,6 +45,67 @@ const finalCost = ref(null);
 const finalDuration = ref(null);
 const feedRef = ref(null);
 let activeStream = null;
+
+// For composite jobs (memo runs): events carry a `thread` field. The
+// modal groups them into per-thread sections so the user can see each
+// sub-task's progress independently. Threads are sorted by first-seen
+// order. Run-level events (job_init, stage without a thread, done,
+// error) get bucketed under the synthetic "main" thread.
+const expandedThreads = ref(new Set());
+
+function toggleThread(name) {
+  if (expandedThreads.value.has(name)) {
+    expandedThreads.value.delete(name);
+  } else {
+    expandedThreads.value.add(name);
+  }
+  // Trigger reactivity for Sets.
+  expandedThreads.value = new Set(expandedThreads.value);
+}
+
+const grouped = computed(() => {
+  const groups = new Map();
+  const ordered = [];
+
+  function ensure(name) {
+    if (!groups.has(name)) {
+      groups.set(name, {
+        name,
+        events: [],
+        status: "running", // running | done | failed
+        startedAt: null,
+        finishedAt: null,
+        cost: null,
+        duration: null,
+        title: name === "main" ? "Run-level events" : name,
+      });
+      ordered.push(groups.get(name));
+    }
+    return groups.get(name);
+  }
+
+  for (const e of events.value) {
+    const name = e.thread || "main";
+    const g = ensure(name);
+    if (!g.startedAt) g.startedAt = e.ts;
+    g.events.push(e);
+    if (e.type === "thread_started") g.status = "running";
+    else if (e.type === "thread_finished") {
+      g.status = "done";
+      g.finishedAt = e.ts;
+      if (e.cost_usd != null) g.cost = e.cost_usd;
+      if (e.duration_ms != null) g.duration = e.duration_ms;
+    } else if (e.type === "thread_failed" || e.is_error || e.type === "error") {
+      // Only mark a thread failed if the error belongs to it.
+      if (e.thread || e.is_error) g.status = "failed";
+    }
+  }
+  return ordered;
+});
+
+const isComposite = computed(() =>
+  events.value.some((e) => !!e.thread),
+);
 
 function ingest(entry) {
   if (entry.type === "stage") {
@@ -72,7 +136,7 @@ function ingest(entry) {
 async function loadHistory() {
   if (!props.job.log_url) return;
   try {
-    const res = await fetch(props.job.log_url);
+    const res = await apiFetch(props.job.log_url);
     if (!res.ok) return;
     const data = await res.json();
     if (Array.isArray(data)) {
@@ -85,7 +149,7 @@ async function loadHistory() {
 
 function openStream() {
   if (!props.job.stream_url || terminated.value) return;
-  activeStream = new EventSource(props.job.stream_url);
+  activeStream = new EventSource(withApiToken(props.job.stream_url));
   activeStream.onmessage = (msg) => {
     try {
       const entry = JSON.parse(msg.data);
@@ -235,7 +299,7 @@ const headerSubtitle = computed(() => {
 
         <div
           ref="feedRef"
-          class="flex-1 overflow-y-auto px-3 py-2 space-y-1 font-mono text-[12px] leading-snug bg-canvas"
+          class="flex-1 overflow-y-auto px-3 py-2 space-y-2 font-mono text-[12px] leading-snug bg-canvas"
         >
           <div
             v-if="events.length === 0"
@@ -243,30 +307,121 @@ const headerSubtitle = computed(() => {
           >
             Waiting for events…
           </div>
-          <div
-            v-for="(entry, i) in events"
-            :key="i"
-            class="flex items-start gap-2 px-2 py-1 rounded"
-            :class="{
-              'bg-accent-soft/30': entry.type === 'stage' || entry.type === 'job_init',
-              'text-danger': entry.is_error || entry.type === 'error',
-              'text-success-ink': entry.type === 'done',
-            }"
-          >
-            <component
-              v-if="actionIcon(entry)"
-              :is="actionIcon(entry)"
-              class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted"
-            />
-            <span
-              v-else
-              class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted text-center"
-              >·</span
+
+          <!-- Composite job: collapsible per-thread sections. -->
+          <template v-if="isComposite">
+            <section
+              v-for="g in grouped"
+              :key="g.name"
+              class="rounded border border-subtle bg-surface overflow-hidden"
             >
-            <div class="min-w-0 flex-1 break-words text-ink-secondary">
-              {{ actionLabel(entry) }}
+              <button
+                type="button"
+                @click="toggleThread(g.name)"
+                class="w-full px-2 py-1.5 flex items-center gap-2 text-left hover:bg-surface-muted focus-ring"
+              >
+                <component
+                  :is="
+                    g.status === 'done'
+                      ? CheckCircle2
+                      : g.status === 'failed'
+                      ? AlertCircle
+                      : Loader2
+                  "
+                  class="h-3.5 w-3.5 shrink-0"
+                  :class="{
+                    'text-success-ink': g.status === 'done',
+                    'text-danger': g.status === 'failed',
+                    'text-accent animate-spin':
+                      g.status === 'running' && !terminated,
+                    'text-ink-muted': g.status === 'running' && terminated,
+                  }"
+                />
+                <div class="font-semibold text-ink-primary text-[12px] truncate flex-1">
+                  {{ g.title }}
+                </div>
+                <span class="text-[10px] text-ink-muted font-normal">
+                  {{ g.events.length }} event{{ g.events.length === 1 ? "" : "s" }}
+                </span>
+                <span
+                  v-if="g.cost != null"
+                  class="text-[10px] text-ink-muted font-normal"
+                >
+                  ${{ Number(g.cost).toFixed(4) }}
+                </span>
+                <span
+                  v-if="g.duration != null"
+                  class="text-[10px] text-ink-muted font-normal"
+                >
+                  {{ (g.duration / 1000).toFixed(1) }}s
+                </span>
+                <ChevronRight
+                  v-if="!expandedThreads.has(g.name)"
+                  class="h-3 w-3 text-ink-muted"
+                />
+                <ChevronDown v-else class="h-3 w-3 text-ink-muted" />
+              </button>
+              <div
+                v-if="expandedThreads.has(g.name)"
+                class="px-2 py-1 space-y-1 border-t border-subtle bg-canvas"
+              >
+                <div
+                  v-for="(entry, i) in g.events"
+                  :key="i"
+                  class="flex items-start gap-2 px-2 py-1 rounded"
+                  :class="{
+                    'bg-accent-soft/30':
+                      entry.type === 'stage' || entry.type === 'job_init',
+                    'text-danger': entry.is_error || entry.type === 'error',
+                    'text-success-ink': entry.type === 'done',
+                  }"
+                >
+                  <component
+                    v-if="actionIcon(entry)"
+                    :is="actionIcon(entry)"
+                    class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted"
+                  />
+                  <span
+                    v-else
+                    class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted text-center"
+                    >·</span
+                  >
+                  <div class="min-w-0 flex-1 break-words text-ink-secondary">
+                    {{ actionLabel(entry) }}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </template>
+
+          <!-- Single-task job: flat event list (existing behavior). -->
+          <template v-else>
+            <div
+              v-for="(entry, i) in events"
+              :key="i"
+              class="flex items-start gap-2 px-2 py-1 rounded"
+              :class="{
+                'bg-accent-soft/30':
+                  entry.type === 'stage' || entry.type === 'job_init',
+                'text-danger': entry.is_error || entry.type === 'error',
+                'text-success-ink': entry.type === 'done',
+              }"
+            >
+              <component
+                v-if="actionIcon(entry)"
+                :is="actionIcon(entry)"
+                class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted"
+              />
+              <span
+                v-else
+                class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted text-center"
+                >·</span
+              >
+              <div class="min-w-0 flex-1 break-words text-ink-secondary">
+                {{ actionLabel(entry) }}
+              </div>
             </div>
-          </div>
+          </template>
         </div>
 
         <footer

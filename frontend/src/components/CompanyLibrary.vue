@@ -15,6 +15,9 @@ import {
 import { api } from "../api.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
 import { openSummary } from "../state.js";
+import { useT } from "../i18n.js";
+
+const t = useT();
 
 const props = defineProps({
   companyId: { type: String, required: true },
@@ -92,7 +95,7 @@ function onDrop(e) {
 }
 
 async function removeFile(f) {
-  if (!confirm(`Remove ${f.filename}?`)) return;
+  if (!confirm(t("library.remove_confirm", { file: f.filename }))) return;
   try {
     await api.deleteFile(props.companyId, f.id);
     await load();
@@ -168,23 +171,22 @@ const counts = computed(() => {
 <template>
   <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
     <div class="flex items-center justify-between mb-1">
-      <h2 class="font-display text-lg font-semibold text-ink-primary">Library</h2>
+      <h2 class="font-display text-lg font-semibold text-ink-primary">{{ t("library.title") }}</h2>
       <span class="text-xs text-ink-muted">
-        {{ reports.length }} reports · {{ files.length }} files
+        {{ t("library.count", { reports: reports.length, files: files.length }) }}
       </span>
     </div>
     <p class="text-sm text-ink-muted mb-4">
-      Generated reports and uploaded presentations or PDFs for this company.
-      Each asset has an English and Chinese version.
+      {{ t("library.subtitle") }}
     </p>
 
     <!-- Language filter -->
     <div class="flex items-center gap-1 mb-4">
       <button
         v-for="opt in [
-          { code: 'all', label: 'All' },
-          { code: 'en', label: 'English' },
-          { code: 'zh', label: '中文' },
+          { code: 'all', label: t('library.filter_all') },
+          { code: 'en', label: t('library.filter_en') },
+          { code: 'zh', label: t('library.filter_zh') },
         ]"
         :key="opt.code"
         type="button"
@@ -219,22 +221,22 @@ const counts = computed(() => {
     >
       <UploadCloud class="h-6 w-6 text-ink-muted mx-auto mb-1" />
       <div class="text-sm text-ink-secondary">
-        Drop a PDF or PowerPoint here, or
+        {{ t("library.dropzone_prefix") }}
         <button
           type="button"
           @click="fileInput?.click()"
           class="text-accent hover:text-accent-hover underline focus-ring rounded"
         >
-          browse
+          {{ t("library.dropzone_browse") }}
         </button>
       </div>
-      <div class="text-xs text-ink-muted mt-0.5">PDF, PPT, PPTX · up to 100MB</div>
+      <div class="text-xs text-ink-muted mt-0.5">{{ t("library.dropzone_hint") }}</div>
       <div class="mt-3 inline-flex items-center gap-1 text-xs text-ink-muted">
-        <span>Language:</span>
+        <span>{{ t("library.language_prefix") }}</span>
         <button
           v-for="opt in [
-            { code: 'en', label: 'English' },
-            { code: 'zh', label: '中文' },
+            { code: 'en', label: t('library.filter_en') },
+            { code: 'zh', label: t('library.filter_zh') },
           ]"
           :key="opt.code"
           type="button"
@@ -261,7 +263,7 @@ const counts = computed(() => {
         v-if="uploading"
         class="mt-2 text-xs text-ink-muted inline-flex items-center gap-1.5"
       >
-        <Loader2 class="h-3 w-3 animate-spin" /> Uploading…
+        <Loader2 class="h-3 w-3 animate-spin" /> {{ t("library.uploading") }}
       </div>
       <div v-if="uploadError" class="mt-2 text-xs text-danger">{{ uploadError }}</div>
     </div>
@@ -270,25 +272,25 @@ const counts = computed(() => {
 
     <!-- Tabs -->
     <div v-if="loading" class="text-sm text-ink-muted flex items-center gap-2">
-      <Loader2 class="h-4 w-4 animate-spin" /> Loading…
+      <Loader2 class="h-4 w-4 animate-spin" /> {{ t("common.loading") }}
     </div>
 
     <div v-else-if="reports.length === 0 && files.length === 0" class="text-sm text-ink-muted">
-      No reports or uploads yet.
+      {{ t("library.empty_all") }}
     </div>
 
     <div
       v-else-if="sortedReports.length === 0 && filteredFiles.length === 0"
       class="text-sm text-ink-muted"
     >
-      Nothing in {{ LANG_LABELS[languageFilter] || languageFilter }} yet.
+      {{ t("library.empty_lang", { lang: LANG_LABELS[languageFilter] || languageFilter }) }}
     </div>
 
     <div v-else class="space-y-5">
       <!-- Generated reports -->
       <div v-if="sortedReports.length > 0">
         <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
-          Generated reports
+          {{ t("library.generated_reports") }}
         </div>
         <ul class="space-y-1.5">
           <li
@@ -319,7 +321,7 @@ const counts = computed(() => {
             <span
               v-if="r.status === 'complete'"
               class="text-xs px-1.5 py-0.5 rounded bg-success-soft text-success-ink"
-              >Complete</span
+              >{{ t("library.status_complete") }}</span
             >
             <span
               v-else
@@ -333,7 +335,7 @@ const counts = computed(() => {
       <!-- Uploaded files -->
       <div v-if="filteredFiles.length > 0">
         <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
-          Uploads
+          {{ t("library.uploads") }}
         </div>
         <ul class="space-y-1.5">
           <li
@@ -354,7 +356,7 @@ const counts = computed(() => {
                   <span class="uppercase">{{ f.kind }}</span>
                   · {{ fmtSize(f.size_bytes) }}
                   · {{ fmtDate(f.uploaded_at) }}
-                  <span v-if="f.summary" class="text-accent ml-1">· summary ready</span>
+                  <span v-if="f.summary" class="text-accent ml-1">· {{ t("library.summary_ready") }}</span>
                 </div>
               </div>
             <span
@@ -368,8 +370,8 @@ const counts = computed(() => {
               class="p-1.5 rounded hover:bg-accent-soft text-ink-muted hover:text-accent-ink focus-ring"
               :title="
                 f.summary
-                  ? 'Open bilingual summary (cached)'
-                  : 'Generate bilingual summary'
+                  ? t('library.summary_open_cached')
+                  : t('library.summary_generate')
               "
             >
               <Sparkles
@@ -381,7 +383,7 @@ const counts = computed(() => {
               type="button"
               @click="previewing = f"
               class="p-1.5 rounded hover:bg-surface text-ink-muted hover:text-ink-primary focus-ring"
-              :title="`Preview ${f.filename}`"
+              :title="t('library.preview_tooltip', { file: f.filename })"
             >
               <Eye class="h-4 w-4" />
             </button>
@@ -389,7 +391,7 @@ const counts = computed(() => {
               :href="api.fileUrl(companyId, f.id)"
               :download="f.filename"
               class="p-1.5 rounded hover:bg-surface text-ink-muted hover:text-ink-primary focus-ring"
-              :title="`Download ${f.filename}`"
+              :title="t('library.download_tooltip', { file: f.filename })"
             >
               <Download class="h-4 w-4" />
             </a>
@@ -397,7 +399,7 @@ const counts = computed(() => {
               type="button"
               @click="removeFile(f)"
               class="p-1.5 rounded hover:bg-danger-soft text-ink-muted hover:text-danger-ink focus-ring"
-              :title="`Remove ${f.filename}`"
+              :title="t('library.remove_tooltip', { file: f.filename })"
             >
               <Trash2 class="h-4 w-4" />
             </button>
@@ -407,7 +409,7 @@ const counts = computed(() => {
               type="button"
               @click="summarize(f)"
               class="w-full text-left px-3 py-2 border-t border-subtle hover:bg-surface focus-ring rounded-b-lg flex items-start gap-2 group"
-              :title="`Open full bilingual summary for ${f.filename}`"
+              :title="t('library.summary_full_tooltip', { file: f.filename })"
             >
               <Sparkles class="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
               <p class="flex-1 text-sm text-ink-secondary leading-snug line-clamp-2">

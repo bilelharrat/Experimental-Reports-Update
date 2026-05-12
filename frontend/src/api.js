@@ -1,5 +1,32 @@
+// API auth. When the server has `BSH_RESEARCH_API_TOKEN` configured it
+// injects the value into the served HTML via this meta tag; we forward
+// the token on every API call. `apiFetch` is the canonical wrapper —
+// use it for any code path that hits /api/. For raw URLs (downloads,
+// EventSource SSE), use `withApiToken(path)` instead since those don't
+// support custom headers.
+
+function getApiToken() {
+  if (typeof document === "undefined") return null;
+  const el = document.querySelector('meta[name="bsh-research-api-token"]');
+  return el && el.content ? el.content : null;
+}
+
+export function withApiToken(path) {
+  const tok = getApiToken();
+  if (!tok) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}token=${encodeURIComponent(tok)}`;
+}
+
+export function apiFetch(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const tok = getApiToken();
+  if (tok) headers["Authorization"] = `Bearer ${tok}`;
+  return fetch(path, { ...opts, headers });
+}
+
 async function request(path, opts = {}) {
-  const res = await fetch(path, {
+  const res = await apiFetch(path, {
     headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
     ...opts,
   });
@@ -30,7 +57,8 @@ export const api = {
       }`,
       { method: "POST" },
     ),
-  searchStreamUrl: (jobId) => `/api/companies/search/stream/${jobId}`,
+  searchStreamUrl: (jobId) =>
+    withApiToken(`/api/companies/search/stream/${jobId}`),
   selectCompany: (payload) =>
     request("/api/companies/select", {
       method: "POST",
@@ -52,7 +80,7 @@ export const api = {
     fd.append("file", file);
     if (label) fd.append("label", label);
     if (language) fd.append("language", language);
-    const res = await fetch(`/api/companies/${companyId}/files`, {
+    const res = await apiFetch(`/api/companies/${companyId}/files`, {
       method: "POST",
       body: fd,
     });
@@ -63,11 +91,11 @@ export const api = {
     return res.json();
   },
   fileUrl: (companyId, fileId) =>
-    `/api/companies/${companyId}/files/${fileId}`,
+    withApiToken(`/api/companies/${companyId}/files/${fileId}`),
   filePreviewUrl: (companyId, fileId) =>
-    `/api/companies/${companyId}/files/${fileId}/preview`,
+    withApiToken(`/api/companies/${companyId}/files/${fileId}/preview`),
   deleteFile: async (companyId, fileId) => {
-    const res = await fetch(`/api/companies/${companyId}/files/${fileId}`, {
+    const res = await apiFetch(`/api/companies/${companyId}/files/${fileId}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -80,15 +108,66 @@ export const api = {
       { method: "POST" },
     ),
   fileSummaryStreamUrl: (companyId, fileId) =>
-    `/api/companies/${companyId}/files/${fileId}/summary/stream`,
+    withApiToken(
+      `/api/companies/${companyId}/files/${fileId}/summary/stream`,
+    ),
   listActiveJobs: () => request("/api/jobs/active"),
   deleteFileSummary: async (companyId, fileId) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/companies/${companyId}/files/${fileId}/summary`,
       { method: "DELETE" },
     );
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+
+  // Research library (Serena's per-company background-docs folder).
+  // Distinct from the Document Library above.
+  listResearchFiles: (companyId) =>
+    request(`/api/companies/${companyId}/research-files`),
+  uploadResearchFile: async (companyId, file, label) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (label) fd.append("label", label);
+    const res = await apiFetch(
+      `/api/companies/${companyId}/research-files`,
+      { method: "POST", body: fd },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    }
+    return res.json();
+  },
+  researchFileUrl: (companyId, fileId, opts = {}) =>
+    withApiToken(
+      `/api/companies/${companyId}/research-files/${fileId}${
+        opts.inline ? "?inline=1" : ""
+      }`,
+    ),
+  deleteResearchFile: async (companyId, fileId) => {
+    const res = await apiFetch(
+      `/api/companies/${companyId}/research-files/${fileId}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
+  generateResearchFileSummary: (companyId, fileId) =>
+    request(
+      `/api/companies/${companyId}/research-files/${fileId}/summary`,
+      { method: "POST" },
+    ),
+  researchFileSummaryStreamUrl: (companyId, fileId) =>
+    withApiToken(
+      `/api/companies/${companyId}/research-files/${fileId}/summary/stream`,
+    ),
+  deleteResearchFileSummary: async (companyId, fileId) => {
+    const res = await apiFetch(
+      `/api/companies/${companyId}/research-files/${fileId}/summary`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  },
+
   // External news, research, and Hormuz
   externalFeed: () => request("/api/external/feed"),
   listNews: () => request("/api/external/news"),
@@ -103,9 +182,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ url }),
     }),
-  newsArchiveUrl: (id) => `/api/external/news/${id}/archive`,
+  newsArchiveUrl: (id) => withApiToken(`/api/external/news/${id}/archive`),
   deleteNews: async (id) => {
-    const res = await fetch(`/api/external/news/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/external/news/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
   retryNews: (id) =>
@@ -116,7 +195,7 @@ export const api = {
   listExternalResearch: () => request("/api/external/research"),
   getExternalResearch: (id) => request(`/api/external/research/${id}`),
   uploadExternalResearch: async (form) => {
-    const res = await fetch("/api/external/research", {
+    const res = await apiFetch("/api/external/research", {
       method: "POST",
       body: form,
     });
@@ -127,9 +206,11 @@ export const api = {
     return res.json();
   },
   externalResearchFileUrl: (id, opts = {}) =>
-    `/api/external/research/${id}/file${opts.inline ? "?inline=1" : ""}`,
+    withApiToken(
+      `/api/external/research/${id}/file${opts.inline ? "?inline=1" : ""}`,
+    ),
   deleteExternalResearch: async (id) => {
-    const res = await fetch(`/api/external/research/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/external/research/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
   startResearchTranslation: (id, appLanguage) =>
@@ -142,7 +223,7 @@ export const api = {
   getResearchTranslation: (id) =>
     request(`/api/external/research/${id}/translation`),
   researchTranslationStreamUrl: (id) =>
-    `/api/external/research/${id}/translate/stream`,
+    withApiToken(`/api/external/research/${id}/translate/stream`),
   listHormuz: () => request("/api/external/hormuz"),
   getHormuz: (id) => request(`/api/external/hormuz/${id}`),
   createHormuz: async ({ title, body, file }) => {
@@ -150,7 +231,7 @@ export const api = {
     fd.append("title", title);
     fd.append("body", body || "");
     if (file) fd.append("file", file);
-    const res = await fetch("/api/external/hormuz", {
+    const res = await apiFetch("/api/external/hormuz", {
       method: "POST",
       body: fd,
     });
@@ -160,9 +241,9 @@ export const api = {
     }
     return res.json();
   },
-  hormuzFileUrl: (id) => `/api/external/hormuz/${id}/file`,
+  hormuzFileUrl: (id) => withApiToken(`/api/external/hormuz/${id}/file`),
   deleteHormuz: async (id) => {
-    const res = await fetch(`/api/external/hormuz/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/external/hormuz/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
   listThreads: (companyId) =>

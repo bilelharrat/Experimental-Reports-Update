@@ -1,48 +1,42 @@
-"""Background worker that runs the investment-memo analysis composite.
+"""Background worker that runs Serena's investment-memo skill.
 
-Sequence (one worker per memo run):
+This worker spawns **one Claude subprocess** that executes Serena's
+`bsh-investment-memo-latestage` skill verbatim. The skill itself does
+all the analytical work, renders both ``.docx`` files, and finalizes
+the run manifest. Python's only job here is to:
 
-    1. Prep already produced run_dir + inputs/ symlinks + manifest skeleton
-       + a stream.jsonl with prep events. We continue appending to the same
-       stream so the unified rail sees one logical job from start to finish.
+  1. Reload context from the prep stage's report record.
+  2. Spawn the Claude subprocess (via ``claude_runner.run_investment_memo``).
+  3. Verify the expected output files exist when Claude finishes.
+  4. Update the report record + emit the terminal ``done`` / ``error``.
 
-    2. Call claude_runner.run_investment_memo() — single long Claude
-       invocation that writes all analysis/*.md artifacts plus
-       memo/memo_structured_{en,zh}.json and memo/memo_*.md drafts.
+What this worker deliberately does **not** do (see `docs/architecture.md`):
 
-    3. Load the two structured JSONs, render both .docx files via
-       memo_renderer.render_pair(), then run memo_renderer.validate_rendered()
-       on each.
-
-    4. Append validation results to logs/run_manifest.md, write
-       logs/validation.txt and logs/validation_cn.txt, and update the
-       report record's status (`complete` or `failed_*`).
-
-    5. Emit a terminal `done` (or `error`) on the stream.
-
-Failures at any step are non-destructive: the run folder and its prep
-artifacts stay intact and remain browseable in the sidebar with the
-appropriate failed-status badge.
+  - Does **not** pre-extract files. The skill handles its own input
+    reading.
+  - Does **not** render ``.docx``. The skill does that itself via the
+    docx skill (or its fallback).
+  - Does **not** touch ``data/uploads/`` — that's the Document
+    Library, a separate feature, not a memo input.
+  - Does **not** split the skill into multiple Claude subprocesses.
+    Parallelism is achieved by the skill issuing parallel tool calls
+    for the 8 orthogonal passes inside its single subprocess.
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any
 
-import yaml
-
-from . import claude_runner, job_progress, memo_prep, memo_renderer, storage
+from . import claude_runner, job_progress, memo_prep, storage
 
 logger = logging.getLogger(__name__)
 
 
 def start_analysis(report_id: str) -> threading.Thread:
-    """Kick off the analysis composite in a daemon thread. Returns the thread."""
+    """Kick off the analysis worker in a daemon thread."""
     t = threading.Thread(
-        target=_run_analysis_safe,
+        target=_run_safe,
         args=(report_id,),
         name=f"memo-analysis-{report_id}",
         daemon=True,
@@ -51,12 +45,11 @@ def start_analysis(report_id: str) -> threading.Thread:
     return t
 
 
-def _run_analysis_safe(report_id: str) -> None:
+def _run_safe(report_id: str) -> None:
     try:
-        _run_analysis(report_id)
+        _run(report_id)
     except Exception:  # noqa: BLE001
         logger.exception("memo analysis crashed")
-        # Best-effort failure marker; the stream may already have closed.
         report = storage.get_report(report_id)
         if report:
             storage.update_report(
@@ -79,7 +72,7 @@ def _resolve_run_dir(report: dict) -> Path | None:
     return memo_prep.DATA_DIR.parent / run_dir_rel
 
 
-def _run_analysis(report_id: str) -> None:
+def _run(report_id: str) -> None:
     report = storage.get_report(report_id)
     if report is None:
         raise RuntimeError(f"Unknown report: {report_id}")
@@ -91,268 +84,93 @@ def _run_analysis(report_id: str) -> None:
         memo_prep.stream_path(run_dir), truncate=False
     )
 
-    # --- 1. Pull RunContext-equivalent from the run folder. -------------
-    company_name = report.get("company_name") or report.get("company_id")
-    company_slug = report.get("company_id")
-    run_id = report.get("run_id")
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    company_slug = str(report.get("company_id"))
+    run_id = str(report.get("run_id") or "")
     memo_files = report.get("memo_files") or []
     memo_paths_rel = {f["language"]: f["path"] for f in memo_files}
     memo_paths_abs = {
-        lang: memo_prep.DATA_DIR.parent / rel for lang, rel in memo_paths_rel.items()
+        lang: memo_prep.DATA_DIR.parent / rel
+        for lang, rel in memo_paths_rel.items()
     }
-    inputs_yaml = run_dir / "inputs" / "inputs.yaml"
-    if inputs_yaml.exists():
-        inputs = yaml.safe_load(inputs_yaml.read_text(encoding="utf-8")) or []
-    else:
-        inputs = []
 
     storage.update_report(
         report_id,
         status="analyzing",
-        stage="Running falsification-first analysis",
-        progress=20,
+        stage="Running Serena's memo skill (single Claude subprocess)",
+        progress=15,
     )
 
-    # --- 2. Long Claude invocation -------------------------------------
-    claude_result = claude_runner.run_investment_memo(
+    # --- One Claude subprocess; Serena's skill runs end-to-end ---------
+    result = claude_runner.run_investment_memo(
         run_dir=run_dir,
-        company_name=str(company_name or ""),
-        company_slug=str(company_slug or ""),
-        run_id=str(run_id or ""),
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
         settings_path=memo_prep.SETTINGS_FILE,
-        inputs=inputs,
+        companies_yaml_path=memo_prep.COMPANIES_FILE,
         memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
         progress=stream,
         timeout_sec=3600,
     )
-    if not claude_result.get("ok"):
+
+    if not result.get("ok"):
         storage.update_report(
             report_id,
             status="failed_during_analysis",
-            stage="Claude analysis failed",
+            stage="Claude skill run failed",
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
         )
         stream.emit(
             "error",
-            error=claude_result.get("error") or "Claude analysis failed",
+            error=result.get("error") or "Claude skill run failed",
             phase="analysis",
         )
         return
 
-    storage.update_report(
-        report_id,
-        status="rendering",
-        stage="Rendering English + Chinese .docx",
-        progress=80,
-    )
-    stream.emit("stage", stage="rendering", message="Rendering .docx files")
+    # --- Post-run: verify the skill produced the expected outputs -----
+    en_exists = memo_paths_abs.get("en") and memo_paths_abs["en"].exists()
+    zh_exists = memo_paths_abs.get("zh") and memo_paths_abs["zh"].exists()
+    missing = []
+    if not en_exists:
+        missing.append(f"English .docx: {memo_paths_rel.get('en')}")
+    if not zh_exists:
+        missing.append(f"Chinese .docx: {memo_paths_rel.get('zh')}")
 
-    # --- 3. Render both .docx files from the structured JSONs ----------
-    structured_en_path = run_dir / "memo" / "memo_structured_en.json"
-    structured_zh_path = run_dir / "memo" / "memo_structured_zh.json"
-    if not structured_en_path.exists() or not structured_zh_path.exists():
+    if missing:
         msg = (
-            "Claude finished but did not produce the structured JSONs: "
-            f"en={'ok' if structured_en_path.exists() else 'missing'}, "
-            f"zh={'ok' if structured_zh_path.exists() else 'missing'}"
+            "Skill finished but the expected output files are missing: "
+            + "; ".join(missing)
+            + ". The skill is responsible for producing these — check the "
+            "tool-call trace in the run folder's stream.jsonl."
         )
         storage.update_report(
             report_id,
             status="failed_during_analysis",
-            stage="Structured output missing",
+            stage="Skill completed but outputs missing",
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
         )
-        stream.emit("error", error=msg, phase="rendering")
+        stream.emit("error", error=msg, phase="post_run_check")
         return
 
-    try:
-        structured_en = json.loads(structured_en_path.read_text(encoding="utf-8"))
-        structured_zh = json.loads(structured_zh_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        storage.update_report(
-            report_id,
-            status="failed_during_analysis",
-            stage="Structured output malformed",
-        )
-        stream.emit(
-            "error", error=f"memo_structured_*.json malformed: {exc}", phase="rendering"
-        )
-        return
+    # The skill is supposed to update the manifest itself with an
+    # "Analysis finalization" block. We do not append our own. If the
+    # skill forgot, the run folder still reflects what landed on disk.
 
-    try:
-        memo_renderer.render_pair(
-            structured_en,
-            structured_zh,
-            en_path=memo_paths_abs["en"],
-            zh_path=memo_paths_abs["zh"],
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("renderer crashed")
-        storage.update_report(
-            report_id,
-            status="failed_during_analysis",
-            stage="Renderer crashed",
-        )
-        stream.emit(
-            "error",
-            error=f"Renderer crashed: {type(exc).__name__}: {exc}",
-            phase="rendering",
-        )
-        return
-
-    stream.emit(
-        "stage",
-        stage="rendered",
-        message="Both .docx files rendered",
-        files=[str(p) for p in memo_paths_abs.values()],
-    )
-
-    # --- 4. Validate rendered output -----------------------------------
     storage.update_report(
         report_id,
-        status="validating",
-        stage="Validating rendered .docx",
-        progress=92,
-    )
-    val_en = memo_renderer.validate_rendered(memo_paths_abs["en"])
-    val_zh = memo_renderer.validate_rendered(memo_paths_abs["zh"])
-    (run_dir / "logs" / "validation.txt").write_text(
-        _format_validation(val_en, "English"), encoding="utf-8"
-    )
-    (run_dir / "logs" / "validation_cn.txt").write_text(
-        _format_validation(val_zh, "Simplified Chinese"), encoding="utf-8"
-    )
-    stream.emit(
-        "stage",
-        stage="validation_done",
-        message="Validation complete",
-        en=val_en,
-        zh=val_zh,
-    )
-
-    # --- 5. Update manifest + finalize --------------------------------
-    _append_manifest_summary(
-        run_dir,
-        claude_result=claude_result,
-        val_en=val_en,
-        val_zh=val_zh,
-        memo_paths_rel=memo_paths_rel,
-    )
-
-    ok = val_en["ok"] and val_zh["ok"]
-    preview_en = _exec_summary_preview(structured_en, language="en")
-    preview_zh = _exec_summary_preview(structured_zh, language="zh")
-    storage.update_report(
-        report_id,
-        status="complete" if ok else "complete_with_warnings",
+        status="complete",
         stage="Memo ready",
         progress=100,
-        content=preview_en,        # back-compat default for the legacy field
-        content_en=preview_en,
-        content_zh=preview_zh,
-        validation={"en": val_en, "zh": val_zh},
-        claude_cost_usd=claude_result.get("cost_usd"),
-        claude_duration_ms=claude_result.get("duration_ms"),
+        claude_cost_usd=result.get("cost_usd"),
+        claude_duration_ms=result.get("duration_ms"),
     )
     stream.emit(
         "done",
         report_id=report_id,
         memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-        validation={"en": val_en, "zh": val_zh},
-        cost_usd=claude_result.get("cost_usd"),
-        duration_ms=claude_result.get("duration_ms"),
+        cost_usd=result.get("cost_usd"),
+        duration_ms=result.get("duration_ms"),
     )
-
-
-# --- Helpers --------------------------------------------------------------
-
-def _format_validation(result: dict, label: str) -> str:
-    lines = [f"# Validation — {label}", ""]
-    lines.append(f"- ok: {result.get('ok')}")
-    checks = result.get("checks") or {}
-    for k, v in checks.items():
-        lines.append(f"- {k}: {v}")
-    errors = result.get("errors") or []
-    if errors:
-        lines.append("")
-        lines.append("## Errors")
-        for e in errors:
-            lines.append(f"- {e}")
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _append_manifest_summary(
-    run_dir: Path,
-    *,
-    claude_result: dict,
-    val_en: dict,
-    val_zh: dict,
-    memo_paths_rel: dict[str, str],
-) -> None:
-    """Append a finalization block to logs/run_manifest.md."""
-    manifest = run_dir / "logs" / "run_manifest.md"
-    block = ["", "## Analysis finalization", ""]
-    block.append(f"- cost_usd: {claude_result.get('cost_usd')}")
-    block.append(f"- duration_ms: {claude_result.get('duration_ms')}")
-    block.append("- artifacts:")
-    for p in memo_paths_rel.values():
-        block.append(f"  - {p}")
-    block.append("- validation:")
-    block.append(f"  - english: ok={val_en.get('ok')}, checks={val_en.get('checks')}")
-    block.append(f"  - chinese: ok={val_zh.get('ok')}, checks={val_zh.get('checks')}")
-    for e in (val_en.get("errors") or []):
-        block.append(f"  - english_error: {e}")
-    for e in (val_zh.get("errors") or []):
-        block.append(f"  - chinese_error: {e}")
-    block.append("")
-    with manifest.open("a", encoding="utf-8") as f:
-        f.write("\n".join(block))
-
-
-_PREVIEW_LABELS = {
-    "en": {
-        "recommendation": "Recommendation",
-        "opportunity": "## Opportunity",
-        "top3": "## Top 3 Gating Questions",
-        "footer": (
-            "*(See the rendered .docx files for the full memo. This panel "
-            "shows a one-screen preview.)*"
-        ),
-    },
-    "zh": {
-        "recommendation": "投资建议",
-        "opportunity": "## 投资机会",
-        "top3": "## 三大核心决策问题",
-        "footer": (
-            "*（完整备忘录请下载 .docx 文件查看。此处仅显示一屏预览。）*"
-        ),
-    },
-}
-
-
-def _exec_summary_preview(structured: dict, *, language: str = "en") -> str:
-    """Build a short markdown preview shown in the report panel."""
-    es = (structured or {}).get("executive_summary") or {}
-    rec = es.get("investment_recommendation") or {}
-    opp = es.get("investment_opportunity") or {}
-    oq = es.get("open_questions") or {}
-    labels = _PREVIEW_LABELS.get(language, _PREVIEW_LABELS["en"])
-
-    parts: list[str] = []
-    parts.append(
-        f"# {(structured.get('cover') or {}).get('company_display_name') or 'Investment Memo'}"
-    )
-    if rec.get("verdict"):
-        parts.append(f"**{labels['recommendation']}:** {rec['verdict']}")
-    if rec.get("logic"):
-        parts.append(rec["logic"])
-    if opp.get("narrative"):
-        parts.append(labels["opportunity"])
-        parts.append(opp["narrative"])
-    questions = oq.get("top_3_gating_questions") or []
-    if questions:
-        parts.append(labels["top3"])
-        for q in questions:
-            parts.append(f"- {q}")
-    parts.append("")
-    parts.append(labels["footer"])
-    return "\n\n".join(parts)

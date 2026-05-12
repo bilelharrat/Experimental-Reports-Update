@@ -6,7 +6,6 @@ import {
   Loader2,
   Home,
   Globe,
-  Languages,
   Newspaper,
   ScrollText,
   ClipboardList,
@@ -66,13 +65,47 @@ const reports = computed(() => props.reports);
       </RouterLink>
     </div>
 
-    <RouterLink
-      to="/"
-      class="mx-3 mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
-    >
-      <Home class="h-4 w-4" />
-      <span>{{ t("nav.home") }}</span>
-    </RouterLink>
+    <div class="mx-3 mt-3 flex items-center gap-2">
+      <RouterLink
+        to="/"
+        class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
+      >
+        <Home class="h-4 w-4" />
+        <span>{{ t("nav.home") }}</span>
+      </RouterLink>
+      <div
+        class="shrink-0 inline-flex rounded-md border border-subtle overflow-hidden text-xs"
+        role="group"
+        :aria-label="t('lang.app_language')"
+      >
+        <button
+          type="button"
+          @click="setAppLanguage('en')"
+          :class="[
+            'px-2 py-1 focus-ring transition-colors',
+            appLanguage === 'en'
+              ? 'bg-accent text-white'
+              : 'text-ink-secondary hover:bg-surface-muted',
+          ]"
+          :aria-pressed="appLanguage === 'en'"
+        >
+          EN
+        </button>
+        <button
+          type="button"
+          @click="setAppLanguage('zh')"
+          :class="[
+            'px-2 py-1 focus-ring transition-colors border-l border-subtle',
+            appLanguage === 'zh'
+              ? 'bg-accent text-white'
+              : 'text-ink-secondary hover:bg-surface-muted',
+          ]"
+          :aria-pressed="appLanguage === 'zh'"
+        >
+          中
+        </button>
+      </div>
+    </div>
 
     <div class="flex-1 overflow-y-auto px-2 pb-4">
       <!-- Recent Reports -->
@@ -331,42 +364,5 @@ const reports = computed(() => props.reports);
       </div>
     </div>
 
-    <div
-      class="border-t border-subtle px-3 py-2 flex items-center justify-between gap-2"
-    >
-      <div class="flex items-center gap-1.5 text-xs text-ink-muted">
-        <Languages class="h-3.5 w-3.5" />
-        <span>{{ t("lang.app_language") }}</span>
-      </div>
-      <div
-        class="inline-flex rounded-md border border-subtle overflow-hidden text-xs"
-        role="group"
-      >
-        <button
-          type="button"
-          @click="setAppLanguage('en')"
-          :class="[
-            'px-2 py-0.5 focus-ring transition-colors',
-            appLanguage === 'en'
-              ? 'bg-accent text-white'
-              : 'text-ink-secondary hover:bg-surface-muted',
-          ]"
-        >
-          EN
-        </button>
-        <button
-          type="button"
-          @click="setAppLanguage('zh')"
-          :class="[
-            'px-2 py-0.5 focus-ring transition-colors border-l border-subtle',
-            appLanguage === 'zh'
-              ? 'bg-accent text-white'
-              : 'text-ink-secondary hover:bg-surface-muted',
-          ]"
-        >
-          中
-        </button>
-      </div>
-    </div>
   </aside>
 </template>

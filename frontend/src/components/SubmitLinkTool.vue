@@ -10,6 +10,9 @@ import {
   Sparkles,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
+
+const t = useT();
 
 const router = useRouter();
 const emit = defineEmits(["created"]);
@@ -68,9 +71,9 @@ function cancel() {
     >
       <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
         <Globe class="h-4 w-4 text-ink-muted" />
-        Submit a link
+        {{ t("submit_link.title") }}
         <span class="text-xs text-ink-muted font-normal">
-          — paste a news article or web page; we'll archive and summarize it
+          {{ t("submit_link.subtitle") }}
         </span>
       </span>
       <ChevronDown v-if="expanded" class="h-4 w-4 text-ink-muted" />
@@ -82,7 +85,7 @@ function cancel() {
         <input
           v-model="url"
           type="url"
-          placeholder="https://example.com/article"
+          :placeholder="t('submit_link.url_placeholder')"
           class="flex-1 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring"
         />
         <button
@@ -91,7 +94,7 @@ function cancel() {
           class="px-3 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1.5"
         >
           <Loader2 v-if="previewing" class="h-3.5 w-3.5 animate-spin" />
-          <span>Preview</span>
+          <span>{{ t("submit_link.preview") }}</span>
         </button>
       </form>
 
@@ -140,7 +143,7 @@ function cancel() {
             <span
               v-if="preview.text_chars"
               class="text-ink-subtle"
-            >· {{ preview.text_chars }} chars captured</span>
+            >{{ t("submit_link.chars_captured", { n: preview.text_chars }) }}</span>
           </div>
         </div>
         <div class="shrink-0 flex flex-col gap-1.5">
@@ -151,14 +154,14 @@ function cancel() {
             class="px-3 py-1.5 rounded-lg bg-accent text-white text-xs hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1"
           >
             <Sparkles class="h-3 w-3" />
-            <span>{{ submitting ? "Saving…" : "Accept" }}</span>
+            <span>{{ submitting ? t("common.saving") : t("submit_link.accept") }}</span>
           </button>
           <button
             type="button"
             @click="cancel"
             class="px-3 py-1.5 rounded-lg border border-subtle text-xs text-ink-secondary hover:bg-surface focus-ring"
           >
-            Cancel
+            {{ t("common.cancel") }}
           </button>
         </div>
       </div>

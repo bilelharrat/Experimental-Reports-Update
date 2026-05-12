@@ -11,6 +11,9 @@ import {
   X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
+
+const t = useT();
 
 const router = useRouter();
 const emit = defineEmits(["created"]);
@@ -89,9 +92,9 @@ async function submit() {
     >
       <span class="flex items-center gap-2 text-sm font-medium text-ink-primary">
         <ScrollText class="h-4 w-4 text-ink-muted" />
-        Add Hormuz research
+        {{ t("hormuz.title") }}
         <span class="text-xs text-ink-muted font-normal">
-          — internal research note (PDF optional)
+          {{ t("hormuz.subtitle") }}
         </span>
       </span>
       <ChevronDown v-if="expanded" class="h-4 w-4 text-ink-muted" />
@@ -101,7 +104,7 @@ async function submit() {
     <div v-if="expanded" class="border-t border-subtle px-4 py-3 space-y-3">
       <input
         v-model="title"
-        placeholder="Title"
+        :placeholder="t('hormuz.placeholder_title')"
         class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
       />
 
@@ -124,16 +127,16 @@ async function submit() {
             type="button"
             @click="clearFile"
             class="p-0.5 rounded hover:bg-surface text-ink-muted hover:text-ink-primary"
-            title="Remove file"
+            :title="t('hormuz.remove_file')"
           >
             <X class="h-3.5 w-3.5" />
           </button>
         </div>
         <div v-else class="text-sm text-ink-secondary">
-          Drop a file here, or click to choose
+          {{ t("hormuz.dropzone") }}
         </div>
         <div class="text-xs text-ink-muted mt-0.5">
-          PDF, DOCX, DOC, TXT — optional
+          {{ t("hormuz.accepted_types") }}
         </div>
         <input
           ref="fileInput"
@@ -147,7 +150,7 @@ async function submit() {
       <textarea
         v-model="body"
         rows="5"
-        placeholder="Comments — observations, analysis, references…"
+        :placeholder="t('hormuz.placeholder_body')"
         class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm resize-y"
       ></textarea>
 
@@ -162,7 +165,7 @@ async function submit() {
         >
           <Loader2 v-if="submitting" class="h-3.5 w-3.5 animate-spin" />
           <Plus v-else class="h-3.5 w-3.5" />
-          <span>{{ submitting ? "Saving…" : "Save note" }}</span>
+          <span>{{ submitting ? t("common.saving") : t("hormuz.save_note") }}</span>
         </button>
       </div>
     </div>

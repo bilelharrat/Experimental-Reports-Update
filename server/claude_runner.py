@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -303,13 +304,43 @@ def _process_event(event: dict, progress, state: dict) -> None:
                         # the file), so scan the diff portion. Cheapest:
                         # scan all of new_string and let dedup handle the rest.
                         _scan_progress_for_slides(new_string, progress, state)
+                elif name == "TodoWrite":
+                    # Pull out the in_progress todo (or last pending) so the
+                    # rail shows what Claude is *currently doing*, not the
+                    # raw JSON dump truncated mid-string.
+                    todos = inp.get("todos") or []
+                    active = next(
+                        (t for t in todos if t.get("status") == "in_progress"),
+                        None,
+                    )
+                    if active:
+                        preview = (
+                            f"→ {active.get('activeForm') or active.get('content') or '?'}"
+                        )
+                    else:
+                        done = sum(1 for t in todos if t.get("status") == "completed")
+                        preview = f"updated todos ({done}/{len(todos)} done)"
+                elif name == "Bash":
+                    cmd = inp.get("command") or ""
+                    desc = inp.get("description") or ""
+                    preview = cmd if not desc else f"{desc} — {cmd}"
+                elif name in ("Grep", "Glob"):
+                    pat = inp.get("pattern") or ""
+                    pth = inp.get("path") or ""
+                    preview = pat + (f"  in {pth}" if pth else "")
+                elif name in ("WebSearch", "WebFetch"):
+                    preview = (
+                        inp.get("query")
+                        or inp.get("url")
+                        or json.dumps(inp)
+                    )
                 else:
-                    preview = json.dumps(inp)[:200]
+                    preview = json.dumps(inp, ensure_ascii=False)
                 progress.emit(
                     "claude_action",
                     action="tool_use",
                     tool=name,
-                    preview=preview[:300],
+                    preview=preview[:500],
                 )
         return
     if etype == "user":
@@ -423,7 +454,8 @@ def run_summary(
         "--output-format", "stream-json",
         "--verbose",
         "--add-dir", str(work_dir),
-        "--permission-mode", "acceptEdits",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
         "--tools", "Read,Write,Edit",
         "--json-schema", json.dumps(schema),
         "--no-session-persistence",
@@ -547,23 +579,25 @@ def _build_prompt(
     last_page = page_count or "N"
     if speed == SPEED_FAST:
         read_loop = f"""\
-STAGE 2 — PER-SLIDE ANALYSIS (batched 20-page Reads, but per-slide bullets).
-The Read tool caps at 20 pages per call, so:
+STAGE 2 — PER-SLIDE ANALYSIS (batched 8-page Reads, but per-slide bullets).
+**Batch size = 8 pages max** — larger batches blow up token AND image-count
+limits when pages render as images (which is common for picture-heavy
+decks). Do NOT batch more than 8 pages per Read call.
 
-  - Read ./{deck_filename} pages="1-20"
-  - Read ./{deck_filename} pages="21-40"
-  - ... continue in 20-page chunks; the final chunk can be shorter
-    (e.g. pages="41-{last_page}") but must NEVER exceed 20 pages.
+  - Read ./{deck_filename} pages="1-8"
+  - Read ./{deck_filename} pages="9-16"
+  - ... continue in 8-page chunks; the final chunk can be shorter
+    (e.g. pages="49-{last_page}") but must NEVER exceed 8 pages.
 
 After EACH Read, append one bullet PER SLIDE in that chunk to
-./progress.md (so 20 bullets after the first Read, etc.):
+./progress.md (so 8 bullets after the first Read, etc.):
 
       - Slide 1: <observation>
       - Slide 2: <observation>
       ...
 
 For the very first Read, ./progress.md does not exist — use the Write
-tool with a header line plus your 20 bullets. For every subsequent
+tool with a header line plus your 8 bullets. For every subsequent
 chunk, use Edit to append. Pick a unique string from the END of the
 current file as `old_string`, set `new_string` to that same string +
 "\\n- Slide N: …" lines for each new slide.
@@ -599,7 +633,7 @@ Don't invent. If a slide is empty / decorative / a divider, say so briefly
 ("- Slide N: section divider, 'Operations'").
 """
     begin_line = (
-        'Begin Stage 2 now. Read pages="1-20".'
+        'Begin Stage 2 now. Read pages="1-8".'
         if speed == SPEED_FAST
         else 'Begin Stage 2 now. Read pages="1".'
     )
@@ -689,6 +723,14 @@ def _process_search_event(event: dict, progress, state: dict) -> None:
                 elif name == "WebFetch":
                     preview = inp.get("url") or ""
                     state["fetch_count"] = state.get("fetch_count", 0) + 1
+                elif name == "StructuredOutput":
+                    # When `--json-schema` is in effect Claude emits the
+                    # final structured payload via this tool call rather
+                    # than the assistant `result` text. Capture it so the
+                    # outer loop can prefer it as the parse target.
+                    if isinstance(inp, dict):
+                        state["structured_output"] = inp
+                    preview = json.dumps(inp)[:200]
                 else:
                     preview = json.dumps(inp)[:200]
                 progress.emit(
@@ -784,8 +826,9 @@ def run_company_search(
         cmd.append("--verbose")
     cmd += [
         "--add-dir", str(work_dir),
-        "--permission-mode", "acceptEdits",
-        "--tools", "WebSearch,WebFetch",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "WebSearch,WebFetch",
         "--json-schema", json.dumps(schema),
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
@@ -852,7 +895,15 @@ def run_company_search(
             except Exception:
                 logger.exception("search progress event handling failed")
             if event.get("type") == "result":
-                final_text = event.get("result")
+                # When --json-schema produced a StructuredOutput tool call,
+                # the JSON lives in that tool's `input` and the assistant
+                # `result` text is just a prose summary. Prefer the
+                # structured payload; fall back to the raw result text.
+                structured = state.get("structured_output")
+                if isinstance(structured, dict):
+                    final_text = json.dumps(structured)
+                else:
+                    final_text = event.get("result")
         proc_stream.wait(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
         proc_stream.kill()
@@ -1112,7 +1163,8 @@ def run_pdf_translation(
         "--output-format", "stream-json",
         "--verbose",
         "--add-dir", str(work_dir),
-        "--permission-mode", "acceptEdits",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
         "--tools", "Read,Write,Edit",
         "--json-schema", json.dumps(PDF_TRANSLATION_SCHEMA),
         "--no-session-persistence",
@@ -1308,237 +1360,106 @@ def _build_investment_memo_prompt(
     company_slug: str,
     run_id: str,
     settings_path: Path,
-    inputs: list[dict],
+    companies_yaml_path: Path,
     memo_paths: dict[str, str],
 ) -> str:
+    """Build the prompt for one Claude subprocess running Serena's skill.
+
+    The prompt is **Serena's skill text verbatim**, with a short
+    operational header that:
+      - maps the skill's `[BSH Assistant]/` paths onto our `data/` tree,
+      - lists the actual inputs (Serena_Background.md + the
+        companies.yaml record) — note: no Document Library files,
+      - hints that the eight orthogonal analysis passes have no
+        inter-dependencies and should run via parallel tool calls in a
+        single response.
+
+    Everything else is the skill, untouched.
+    """
     skill_text = _load_skill_text()
-    input_list = "\n".join(
-        f"  - {i['path']} (kind={i.get('kind')}, language={i.get('language')}, "
-        f"source_class={i.get('source_class')})"
-        for i in inputs
-    ) or "  (no source materials staged — flag as gating diligence question)"
-    rel_run_dir = run_dir.name  # The work_dir is run_dir, so paths are relative.
+    rel_run_dir = run_dir.name
 
     return f"""\
-You are running the **bsh-investment-memo-latestage-v1** skill for a single
-real run. The skill itself is included verbatim below; follow it strictly.
+You are running the **bsh-investment-memo-latestage-v1** skill (Serena's
+script) for one real run. The skill text is included verbatim below.
+**Follow it exactly.** The only deviation from the text is the
+parallel-passes hint below.
 
 ## Run-specific operational context
 
-- **Run folder (your CWD):** `{rel_run_dir}`  (everything is relative to here)
-- **Company:** {company_name}  (slug `{company_slug}`)
+- **Run folder (your CWD):** `{rel_run_dir}` — everything is relative
+  to here. The subfolders `analysis/`, `memo/`, `logs/`,
+  `logs/previews/`, and `logs/previews_cn/` already exist.
+- **Company:** {company_name} (slug `{company_slug}`)
 - **Run ID:** {run_id}
-- **Settings (Serena background, read FIRST):** `{settings_path}`
-- **Staged inputs (read EVERY ONE of them):**
-{input_list}
 
-The run folder tree is already created. The required subfolders exist:
-`inputs/`, `analysis/`, `memo/`, `logs/`, `logs/previews/`, `logs/previews_cn/`.
+## Inputs (Serena's "company folder" + Settings)
 
-## Path mapping vs. the skill
+The skill text describes a `[BSH Assistant]/[Company Name]/` folder
+that historically held PitchBook PDFs, partner notes, CB Insights
+exports, etc. **For this run, that folder is not populated.** Treat
+the company folder as empty — proceed without external research
+materials, exactly as the skill says to do when the folder is absent.
 
-Where the skill text refers to `[BSH Assistant]/`, **substitute the project's
-`data/` directory** (so `[BSH Assistant]/Settings/Serena_Background.md` →
-`{settings_path}`, `[BSH Assistant]/[Company Name]/` → the staged inputs in
-`inputs/` of this run folder).
+Where the skill says `[BSH Assistant]/Settings/Serena_Background.md`,
+read this absolute path:
 
-## Output contract — read carefully, this differs from the skill text
+  `{settings_path}`
 
-The skill says to produce `.docx` files directly. **You do not produce `.docx`
-files in this run.** A dedicated Python renderer downstream consumes
-structured JSON and renders the styled BSH `.docx` deterministically.
+Where the skill says it needs the company's registry data, read **only
+the entry matching the slug `{company_slug}`** from this absolute path:
 
-Your responsibilities — write all of these files inside the run folder:
+  `{companies_yaml_path}`
 
-1. **All required analysis artifacts** under `analysis/` exactly as the skill
-   specifies — `claim_register.md`, `pressure_tests.md`, `time_base_checks.md`,
-   `growth_bridge.md`, `distribution_notes.md`, `disconfirming_evidence.md`,
-   `scenario_swim_lanes.md`, `validation_log.md`, `gating_questions.md`, plus
-   any optional ones the deal warrants (`adoption_ladder.md`,
-   `replacement_vs_coexistence.md`, `core_franchise_resilience.md`,
-   `competitive_notes.md`).
+That entry carries: description, sector, status, exchange, industry,
+HQ, founded year, website, employee_band, parent_company, key_people,
+latest_funding, latest_earnings, total_funding_usd, products,
+competitors, recent_news, notable_contracts, notable_acquisitions,
+plus a `translation` block with the Chinese equivalents of those
+fields. You may not need every field; pull what's relevant for each
+section per the skill's structure.
 
-2. **Working drafts** under `memo/`:
-   - `memo/memo_en.md` — rich Markdown draft of the full memo body in English.
-   - `memo/memo_zh.md` — faithful Simplified-Chinese translation of memo_en.md
-     following the **Bilingual Output** rules in the skill (preserve Latin
-     runs for company names, executives, currency, percentages, dates,
-     acronyms; use Chinese-style punctuation; half-width spaces around Latin
-     acronyms inside Chinese sentences).
+## DO NOT read from `data/uploads/`
 
-3. **Structured JSONs for the renderer** — these are what the `.docx`
-   renderer reads. Write BOTH:
-   - `memo/memo_structured_en.json`
-   - `memo/memo_structured_zh.json`
+`data/uploads/<slug>/` is the user's Document Library. It belongs to a
+**separate feature** (the per-document Sparkle button) and is **not** a
+source for the memo. Do not Read, Bash, Glob, or Grep inside that
+directory. If you find yourself wanting to reach into it, stop — the
+skill is designed to run from the Serena library + companies.yaml
+only.
 
-   The two files share an identical schema. Only the language of the
-   content differs. The schema is:
+## Parallel execution of the eight orthogonal passes
 
-   ```json
-   {{
-     "cover": {{
-       "company_display_name": "string",
-       "company_descriptor": "string (optional, short category line)",
-       "date": "YYYY-MM-DD",
-       "stage": "string (e.g. 'Late-Stage / Pre-IPO — Series H')",
-       "sector": "string",
-       "location": "string",
-       "round": "string (round size / post-money / instrument)",
-       "bsh_ticket": "string (BSH check size, conditional or firm)"
-     }},
-     "executive_summary": {{
-       "investment_opportunity": {{
-         "narrative": "markdown paragraph(s)",
-         "key_metrics": [
-           {{"label": "ARR", "value": "$X"}}, ...
-         ],
-         "valuation_warning": {{
-           "label": "Valuation Timing Warning (for BSH)",
-           "body": "string"  // include only if multiples differ materially
-         }}
-       }},
-       "investment_thesis": ["bullet 1", "bullet 2", ...],
-       "investment_risk": {{
-         "bullets": ["risk 1", ...],
-         "critical_reality_check": {{
-           "supporting_facts": ["..."],
-           "disconfirming_facts": ["..."],
-           "unproven": ["..."],
-           "must_be_true_for_bull": ["..."]
-         }}
-       }},
-       "investment_recommendation": {{
-         "verdict": "Yes | Conditional Yes | Need More Information | Pass",
-         "logic": "string",
-         "conditions": ["..."]  // only if Conditional Yes
-       }},
-       "open_questions": {{
-         "top_3_gating_questions": ["q1", "q2", "q3"]
-       }}
-     }},
-     "company_overview": {{
-       "product_overview": "markdown",
-       "core_technology": "markdown",
-       "value_proposition": "markdown",
-       "business_model": "markdown",
-       "key_partners": "markdown",
-       "team": {{
-         "founders": [{{"name": "...", "title": "...", "background": "..."}}],
-         "board":    [{{"name": "...", "background": "..."}}]
-       }},
-       "revenue": {{
-         "narrative": "markdown",
-         "table": [{{"metric": "...", "value": "..."}}]
-       }},
-       "key_metrics_table": [
-         {{"metric": "...", "value": "...", "notes": "..."}}
-       ]
-     }},
-     "investment_highlights": {{
-       "industry_trends": "markdown",
-       "competitive_analysis": {{
-         "narrative": "markdown",
-         "table": [
-           {{"competitor": "...", "focus": "...", "strengths": "...",
-             "weaknesses": "...", "differentiation": "..."}}
-         ]
-       }},
-       "replacement_vs_coexistence": "markdown",
-       "moat_table": [
-         {{"component": "...", "description": "...",
-           "strength": "...", "risk": "..."}}
-       ],
-       "moat_rights_durability": "markdown",
-       "quality_of_financials": "markdown",
-       "quality_of_business_model": "markdown",
-       "quality_of_team": "markdown"
-     }},
-     "investment_risk": {{
-       "risk_register": [
-         {{"id": 1, "risk": "...", "severity": "High|Med|Low",
-           "likelihood": "High|Med|Low", "evidence": "...", "mitigant": "..."}}
-       ],
-       "key_disconfirming_evidence": "markdown",
-       "pre_mortem_summary": "markdown"
-     }},
-     "financial_forecast": {{
-       "outside_in_checks": "markdown",
-       "time_base_integrity_table": [
-         {{"marker": "...", "date": "...", "value": "...",
-           "multiple": "...", "label": "contemporaneous|stale-mark|forward|trailing"}}
-       ],
-       "growth_quality_notes": "markdown",
-       "growth_bridge_table": [
-         {{"bucket": "...", "contribution": "...", "notes": "..."}}
-       ],
-       "capital_structure": "markdown",
-       "scenario_table": [
-         {{"scenario": "Bear|Base|Bull",
-           "revenue": "...", "cagr": "...", "multiple": "...", "ev": "...",
-           "dilution_assumption": "...", "value_to_common": "...", "bsh_irr": "..."}}
-       ]
-     }},
-     "sources": [
-       {{"category": "company-originated|internal-folder|independent-secondary|opinion",
-         "citation": "string"}}
-     ],
-     "validation_log": [
-       {{"id": 1, "claim": "...",
-         "provenance": "company|investor|secondary|internal analysis",
-         "independent_support": "yes / no + source",
-         "disconfirming_evidence": "...",
-         "status": "Supported|Partially supported|Unproven|Disconfirmed",
-         "confidence": "High|Medium|Low",
-         "next_step": "..."}}
-     ]
-   }}
-   ```
+The skill's "Non-Linear Analysis Engine" section lists eight orthogonal
+analytical passes (Arithmetic / denominators, Deployment / behavior,
+Budget / ownership, Rights / licensing / dependency, Replacement vs
+coexistence, GTM / operating burden, Time-series change-over-time,
+Competitive compression). **These eight passes have no
+inter-dependencies and must be issued as parallel tool calls in a
+single assistant turn.** Issue all eight Read/Write/Bash calls for the
+passes together, let them stream back, then move on to the synthesis
+step. Sequential per-pass execution is wasteful — fan them out
+concurrently.
 
-   Hard minimums (the renderer will fail validation otherwise):
-   - At least **8 content tables** worth of data across the structured JSON.
-     The renderer renders these automatically from: key_metrics, board,
-     revenue.table, key_metrics_table, competitive.table, moat_table,
-     risk_register, time_base_integrity_table, growth_bridge_table,
-     scenario_table, validation_log. Make sure each is populated.
-   - At least **3 callout sources**: the valuation_warning (when multiples
-     differ), the critical_reality_check, and the top_3_gating_questions —
-     all three are rendered as callout boxes.
-   - The Chinese `memo_structured_zh.json` must mirror the English exactly
-     in structure and content. Translate prose; keep numbers, percentages,
-     dates, company names, executive names, ticker symbols, and acronyms
-     (ARR, NRR, IPO, etc.) in their original Latin form. Use Chinese-style
-     punctuation (，。；：「」《》) in Chinese-language sentences.
+The synthesis step (Claim Register reconciliation, Scenario Swim
+Lanes, Top 3 Gating Questions, Pre-Mortem, Reverse IC), the memo
+drafting step, the translation step, and the `.docx` rendering step
+remain sequential.
 
-4. **Manifest update** at `logs/run_manifest.md`: append a section listing
-   the artifacts you wrote (analysis files, both `memo_*.md`, both
-   `memo_structured_*.json`). Mark `status: analysis_complete`.
+## Output contract — exactly per the skill text
 
-## Do not
+Produce all artifacts the skill specifies, at the paths the skill
+specifies — including the two `.docx` files in `memo/`. The expected
+absolute paths are:
 
-- Do not write `.docx` files. The Python renderer will do that.
-- Do not modify files in `inputs/` (they are symlinks to the immutable
-  upload tree).
-- Do not delete or rename anything created by the prep stage.
+  - `{memo_paths['en']}`
+  - `{memo_paths['zh']}`
 
-## Begin
-
-Step 1. Read the settings file: `Read {settings_path}`.
-Step 2. Read every file inside `inputs/` (Read for PDFs/PPTX/Word — those
-        may need `Bash` to run `python -m markitdown` or `pandoc`).
-Step 3. Run the falsification-first analysis per the skill text below;
-        write each `analysis/*.md` as you complete it.
-Step 4. Write `memo/memo_en.md` (English draft).
-Step 5. Translate to `memo/memo_zh.md` per the skill's bilingual rules.
-Step 6. Produce `memo/memo_structured_en.json` and
-        `memo/memo_structured_zh.json` matching the schema above.
-Step 7. Update `logs/run_manifest.md` with the final artifact list and
-        `status: analysis_complete`.
-
-Emit a brief final message summarizing recommendation, top 3 gating
-questions, and any unresolved items.
+Append the analysis finalization block to `logs/run_manifest.md` when
+you're done.
 
 =================================================================
-SKILL: bsh-investment-memo-latestage-v1 (verbatim)
+SKILL: bsh-investment-memo-latestage-v1 (verbatim — follow this)
 =================================================================
 
 {skill_text}
@@ -1552,16 +1473,20 @@ def run_investment_memo(
     company_slug: str,
     run_id: str,
     settings_path: Path,
-    inputs: list[dict],
+    companies_yaml_path: Path,
     memo_paths: dict[str, str],
     progress=None,
     timeout_sec: int = 3600,
 ) -> dict:
-    """Spawn `claude -p` to run the investment-memo skill against a prep'd run.
+    """Spawn `claude -p` to run Serena's memo skill against a prepped run.
 
-    The skill writes analysis artifacts + structured JSON; a Python renderer
-    downstream consumes the JSON to produce the styled `.docx` files. This
-    function does NOT produce `.docx` — that's the renderer's job.
+    Inputs the skill is allowed to read:
+      - ``settings_path``  (Serena_Background.md)
+      - ``companies_yaml_path`` (the registry; entry matching ``company_slug``)
+
+    The skill writes its own analysis artifacts and ``.docx`` files into
+    ``run_dir``. Python does not pre-extract anything, does not produce
+    any output for the skill, and does not stage Document Library files.
 
     Returns ``{ok, cost_usd, duration_ms, error?}``.
     """
@@ -1578,6 +1503,8 @@ def run_investment_memo(
         return {"ok": False, "error": f"Run folder missing: {run_dir}"}
     if not settings_path.exists():
         return {"ok": False, "error": f"Settings file missing: {settings_path}"}
+    if not companies_yaml_path.exists():
+        return {"ok": False, "error": f"companies.yaml missing: {companies_yaml_path}"}
 
     prompt = _build_investment_memo_prompt(
         run_dir=run_dir,
@@ -1585,20 +1512,27 @@ def run_investment_memo(
         company_slug=company_slug,
         run_id=run_id,
         settings_path=settings_path,
-        inputs=inputs,
+        companies_yaml_path=companies_yaml_path,
         memo_paths=memo_paths,
     )
 
-    # The settings file lives outside run_dir, so we add-dir it so Claude
-    # can Read it without a permission prompt.
-    add_dirs = [str(run_dir), str(settings_path.parent)]
+    # The skill needs Read access to two paths outside the run folder:
+    # the settings file and the company registry. We add-dir both. We
+    # deliberately do NOT add-dir `data/uploads/` — that's the Document
+    # Library and is not a memo input (see docs/architecture.md).
+    add_dirs = [
+        str(run_dir),
+        str(settings_path.parent),
+        str(companies_yaml_path.parent),
+    ]
     cmd = [
         claude_path() or "claude",
         "-p",
         prompt,
         "--output-format", "stream-json",
         "--verbose",
-        "--permission-mode", "acceptEdits",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
         "--allowedTools", "Read,Write,Edit,Bash,Grep,Glob",
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
@@ -1671,4 +1605,504 @@ def run_investment_memo(
         out["duration_ms"] = result_event.get("duration_ms")
         out["subtype"] = result_event.get("subtype")
     return out
+
+
+# --- Generic structured-prompt helper -------------------------------------
+
+_JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title_en": {
+            "type": ["string", "null"],
+            "description": "Concise display title in English (≤80 chars). "
+                           "Null if the doc has no good built-in title.",
+        },
+        "title_zh": {
+            "type": ["string", "null"],
+            "description": "The same title in Simplified Chinese (简体中文). "
+                           "Translated from the source language. Null only "
+                           "if title_en is also null.",
+        },
+        "doc_type": {
+            "type": ["string", "null"],
+            "description": "Short categorization of what this document is — "
+                           "e.g. 'PitchBook profile', 'Investor deck', "
+                           "'Partner research note', 'News article', "
+                           "'Regulatory filing', 'Internal memo'.",
+        },
+        "summary_en": {
+            "type": "string",
+            "description": "3–4 sentences in English. What this document is, "
+                           "what it actually says, and why an analyst should "
+                           "care.",
+        },
+        "summary_zh": {
+            "type": "string",
+            "description": "The same 3–4 sentence summary in Simplified "
+                           "Chinese (简体中文). Translated from summary_en. "
+                           "Preserve numbers, currency amounts, and dates in "
+                           "their original Latin form.",
+        },
+        "key_points_en": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "4–7 short bullets in English. Specific facts "
+                           "(numbers, names, dates, claims) — never "
+                           "marketing language.",
+        },
+        "key_points_zh": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "The same bullets in Simplified Chinese — must "
+                           "be the same length as key_points_en and one-to-"
+                           "one translated.",
+        },
+        "key_figures": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "label_en": {"type": "string"},
+                    "label_zh": {"type": "string"},
+                    "value": {"type": "string"},
+                    "context_en": {"type": ["string", "null"]},
+                    "context_zh": {"type": ["string", "null"]},
+                },
+                "required": [
+                    "label_en", "label_zh", "value",
+                    "context_en", "context_zh",
+                ],
+            },
+            "description": "0–8 important numbers / dates / multiples / sizes "
+                           "extracted verbatim. `value` stays in original "
+                           "Latin form. label_en / context_en give the "
+                           "English version; label_zh / context_zh give the "
+                           "Chinese translation.",
+        },
+        "entities": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "people": {"type": "array", "items": {"type": "string"}},
+                "organizations": {"type": "array", "items": {"type": "string"}},
+                "products": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["people", "organizations", "products"],
+            "description": "Named entities of interest, deduplicated. Keep "
+                           "lists short (≤8 each). Use names as they appear "
+                           "in the source — do not transliterate.",
+        },
+        "topics": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "3–6 short topical tags (1–3 words each) that "
+                           "describe what the doc covers (e.g. 'financials', "
+                           "'team', 'moat', 'regulatory'). English only.",
+        },
+        "language": {
+            "type": "string",
+            "enum": ["en", "zh", "other"],
+            "description": "Detected source language of the document.",
+        },
+        "description_en": {
+            "type": ["string", "null"],
+            "description": "**Image documents only.** A detailed textual "
+                           "description of what the image shows, in English. "
+                           "Multi-paragraph; describes layout, text content, "
+                           "charts/diagrams (including the values they "
+                           "depict), notable visual elements, and any "
+                           "evident context. Null for non-image documents.",
+        },
+        "description_zh": {
+            "type": ["string", "null"],
+            "description": "**Image documents only.** The same detailed "
+                           "description as ``description_en``, rendered in "
+                           "Simplified Chinese (简体中文). Preserve numbers, "
+                           "names, currency amounts, percentages, and dates "
+                           "in their original Latin form. Null for non-"
+                           "image documents.",
+        },
+    },
+    "required": [
+        "title_en", "title_zh", "doc_type",
+        "summary_en", "summary_zh",
+        "key_points_en", "key_points_zh",
+        "key_figures",
+        "entities", "topics", "language",
+        "description_en", "description_zh",
+    ],
+}
+
+
+def _quick_summary_read_instructions(kind: str, filename: str) -> str:
+    """Per-kind instructions for how Claude should read the source file."""
+    if kind == "pdf":
+        return (
+            f"This is a PDF. Use the Read tool on `{filename}` with "
+            f"`pages=\"1-8\"` to look at the first chunk (no more than 8 "
+            f"pages per Read — that's the token + image-count safe limit). "
+            f"If the document is longer than 8 pages, read a second chunk "
+            f"`pages=\"9-16\"` only if the first chunk doesn't give you "
+            f"enough to summarize. Stop reading as soon as you can produce "
+            f"a confident summary."
+        )
+    if kind in ("pptx", "ppt"):
+        return (
+            f"This is a presentation deck. Use the Read tool on "
+            f"`{filename}` with `pages=\"1-8\"`. Read a second chunk only "
+            f"if needed to summarize."
+        )
+    if kind == "docx":
+        return (
+            f"This is a Word document. First convert it with Bash: "
+            f"`pandoc {filename} -t markdown -o {filename}.md`. Then "
+            f"Read the resulting markdown."
+        )
+    if kind == "doc":
+        return (
+            f"This is a legacy .doc file. Try `pandoc {filename} -t "
+            f"markdown` via Bash; if that fails, fall back to "
+            f"`python -m markitdown {filename}`. Then Read the output."
+        )
+    if kind == "text":
+        return f"Plain text / markdown. Use the Read tool on `{filename}`."
+    if kind == "image":
+        return (
+            f"This is an image. Use the Read tool on `{filename}` — the "
+            f"file renders inline so you can see it directly.\n\n"
+            f"For images, the **primary deliverable is a detailed textual "
+            f"description**, produced in BOTH English (description_en) and "
+            f"Simplified Chinese (description_zh). The description must:\n"
+            f"  - Cover the full visible content: any text, headers, "
+            f"captions, labels, axis labels, legends, footnotes, source "
+            f"attributions.\n"
+            f"  - For charts / diagrams / tables: enumerate the data points "
+            f"or rows the image actually shows. Preserve every number, "
+            f"date, percentage, currency amount verbatim.\n"
+            f"  - For photos / screenshots: describe layout, components, "
+            f"and any informational content (buttons, fields, status "
+            f"text).\n"
+            f"  - Be multi-paragraph when warranted. Don't pad, but don't "
+            f"under-describe either — an analyst reading just the "
+            f"description (without seeing the image) should be able to "
+            f"act on its contents.\n"
+            f"  - The Chinese version is a faithful translation of the "
+            f"English version, not a paraphrase or summary. Same content, "
+            f"different language. Preserve numbers / dates / currency / "
+            f"percentages / proper nouns in their original Latin form. "
+            f"Use Chinese-style punctuation (，。；：「」《》) inside "
+            f"Chinese sentences."
+        )
+    return f"Use the Read tool on `{filename}`."
+
+
+def run_quick_summary(
+    *,
+    source_path: Path,
+    work_dir: Path,
+    kind: str,
+    hint_title: str | None = None,
+    progress=None,
+    timeout_sec: int = 240,
+) -> dict:
+    """Produce a rich structured summary of a single research document.
+
+    Streaming variant: spawns `claude -p --output-format stream-json` so
+    each Read / Bash / thinking event is emitted to ``progress`` (a
+    ``job_progress.ProgressLog``) and surfaces in the unified AI Tasks
+    rail. Caller is responsible for the surrounding ``job_init`` event.
+
+    Returns the parsed JSON dict on success, or ``{"error": "..."}``.
+    """
+    if not is_available():
+        return {
+            "error": (
+                "Claude Code (`claude`) not on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and authenticate."
+            )
+        }
+    if not work_dir.exists():
+        return {"error": f"Work folder missing: {work_dir}"}
+
+    staged = work_dir / source_path.name
+    if not staged.exists():
+        try:
+            staged.write_bytes(source_path.read_bytes())
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"Failed to stage source file: {exc}"}
+
+    schema_str = json.dumps(QUICK_SUMMARY_SCHEMA, indent=2, ensure_ascii=False)
+    read_hint = _quick_summary_read_instructions(kind, source_path.name)
+    title_line = (
+        f"(Hint: this file is titled \"{hint_title}\".)\n" if hint_title else ""
+    )
+
+    prompt = f"""\
+You are producing a RICH structured summary of one background document for
+an investment-research analyst. This summary surfaces alongside the file in
+a "Background Documents" panel — be tight, factual, and concrete. Skim
+enough to capture the essentials; don't read every page if not necessary.
+
+Source file (in your current working directory): `{source_path.name}`
+{title_line}
+
+How to read it:
+{read_hint}
+
+Once you have enough to summarize, STOP reading and produce the output.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output the JSON object ONLY. No prose, no commentary, no markdown
+  fences, no explanation. The first character of your response is `{{`
+  and the last is `}}`.
+- BILINGUAL output: for text-bearing fields you MUST produce BOTH an
+  English version and a Simplified Chinese (简体中文) version. Regardless
+  of the document's source language, fill out both _en and _zh fields by
+  translating one to the other. Preserve numbers, currency amounts,
+  percentages, and dates in their original Latin form. Preserve proper
+  nouns (company names, product names, people) in the form they appear
+  in the source — do not transliterate.
+- summary_en / summary_zh: 3–4 sentences each. No marketing adjectives,
+  no "this document covers various topics" filler. summary_zh is a
+  faithful translation of summary_en (or vice versa), not a different
+  summary.
+- key_points_en / key_points_zh: 4–7 short bullets, ONE-TO-ONE: same
+  count, same order, each item translated. If the doc is very short,
+  fewer bullets is fine.
+- key_figures: extract 0–8 important numbers / dates / multiples /
+  sizes. `value` is the verbatim figure (Latin / numeric). label_en
+  and label_zh describe what the figure measures. context_en /
+  context_zh briefly say where it came from in the doc. Both _en and
+  _zh strings are required for label; context may be null on both sides.
+- entities: deduplicated lists of people / organizations / products
+  mentioned, capped at 8 each. Use the names as they appear in the doc
+  (a single list, not bilingual).
+- topics: 3–6 short topical tags (1–3 words each), English only.
+- doc_type: a short categorization (e.g. "PitchBook profile",
+  "Investor deck", "Partner research note", "News article",
+  "Regulatory filing", "Internal memo", "Chart / diagram",
+  "Screenshot"). Null if you can't tell. English only.
+- title_en / title_zh: concise display title (≤80 chars), in both
+  languages. Null only when the doc has no good built-in title.
+- language: en / zh / other based on what dominates the source text.
+- description_en and description_zh: for **image documents only**,
+  produce a detailed textual description in BOTH English and Simplified
+  Chinese (per the image read instructions above). For non-image
+  documents, both fields MUST be null.
+"""
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Reading document",
+            file=source_path.name,
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError as exc:
+        return {"error": f"Failed to launch claude: {exc}"}
+
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    state: dict[str, Any] = {}
+    final_text: str | None = None
+    result_event: dict | None = None
+    try:
+        for line in proc.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                if progress:
+                    _process_event(event, progress, state)
+            except Exception:
+                logger.exception("quick-summary progress event failed")
+            if event.get("type") == "result":
+                result_event = event
+                final_text = event.get("result")
+        proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {"error": f"Claude timed out after {timeout_sec}s"}
+
+    if proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            )
+        }
+
+    if not final_text and result_event:
+        final_text = result_event.get("result")
+    if not final_text:
+        return {"error": "claude returned empty result"}
+
+    final_text = final_text.strip()
+    parsed = _parse_json_tolerant(final_text)
+    if parsed is None and "```" in final_text:
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```",
+                            final_text, re.DOTALL)
+        if fenced:
+            parsed = _parse_json_tolerant(max(fenced, key=len).strip())
+    if parsed is None:
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if parsed is None:
+        return {"error": f"claude output didn't parse as JSON: {final_text[:300]}"}
+
+    if result_event:
+        parsed["claude_cost_usd"] = result_event.get("total_cost_usd")
+        parsed["claude_duration_ms"] = result_event.get("duration_ms")
+    parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return parsed
+
+
+def run_structured_prompt(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    name: str = "structured_output",
+    timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run a one-shot `claude -p` call and parse a strict-JSON response.
+
+    Use this for any text-in / structured-JSON-out task that doesn't need
+    tools (translation, text summarization, classification). Returns
+    ``(data, error)`` — exactly one of the two is non-None.
+
+    The schema is embedded directly in the prompt rather than passed
+    via ``--json-schema``: the CLI's schema-validation behavior is
+    flaky for text-only prompts (returns empty or commentary instead of
+    a constrained JSON). Embedding the schema + parsing tolerantly is
+    more reliable for this use case.
+
+    ``name`` is a debug label that ends up in error messages.
+    """
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    schema_str = json.dumps(schema, indent=2, ensure_ascii=False)
+    combined = (
+        f"{system_prompt}\n\n"
+        f"---\n"
+        f"{user_prompt}\n"
+        f"---\n\n"
+        f"OUTPUT REQUIREMENTS (these override anything contradictory above):\n"
+        f"- Respond with ONE JSON object that conforms to this schema:\n\n"
+        f"```json\n{schema_str}\n```\n\n"
+        f"- Output the JSON object ONLY. No prose, no commentary, no "
+        f"markdown fences, no explanation. The first character of your "
+        f"response is `{{` and the last is `}}`.\n"
+        f"- Every required field in the schema must be present. Use null "
+        f"for fields you can't fill in.\n"
+        f"- For arrays declared in the schema, return the same number of "
+        f"items as the source where applicable; never invent extras."
+    )
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", combined,
+        "--output-format", "json",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"claude timed out after {timeout_sec}s ({name})"
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-600:]
+        return None, f"claude exited {proc.returncode}: {tail}"
+
+    try:
+        envelope = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return None, f"claude returned non-JSON envelope: {exc}"
+
+    final_text = (envelope.get("result") or "").strip()
+    if not final_text:
+        return None, "claude returned empty result"
+
+    # First try: parse the whole thing as JSON.
+    parsed = _parse_json_tolerant(final_text)
+    if parsed is not None:
+        return parsed, None
+
+    # Fallback: strip code fences if Claude added them despite instructions.
+    text = final_text
+    if "```" in text:
+        # Pull the largest fenced block.
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+        if fenced:
+            text = max(fenced, key=len).strip()
+            parsed = _parse_json_tolerant(text)
+            if parsed is not None:
+                return parsed, None
+
+    # Last resort: extract the first {...} block.
+    m = _JSON_OBJ_RE.search(final_text)
+    if m:
+        parsed = _parse_json_tolerant(m.group(0))
+        if parsed is not None:
+            return parsed, None
+
+    return None, (
+        f"claude output didn't parse as JSON (name={name}): "
+        f"{final_text[:300]}"
+    )
 

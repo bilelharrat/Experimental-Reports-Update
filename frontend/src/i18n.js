@@ -1,9 +1,13 @@
 // Lightweight in-app i18n. No vue-i18n dependency — small dictionary plus a
-// `t(key)` helper that reads the global appLanguage ref from state.js.
+// `t(key, vars?)` helper that reads the global appLanguage ref from state.js.
 //
 // Adding a string: pick a stable key (kebab-case), add it to both `en` and
 // `zh` blocks. Use `t("my.key")` in templates. Missing keys fall back to the
 // English value (or the key itself if neither is defined).
+//
+// Interpolation: pass `t("my.key", { name: "Apple" })` and the string may
+// contain `{name}` tokens which will be replaced. Tokens that don't match a
+// var are left in place so the template author can spot typos.
 
 import { computed } from "vue";
 import { appLanguage } from "./state.js";
@@ -24,6 +28,10 @@ const messages = {
     "lang.toggle_to_zh": "中文",
     "lang.toggle_to_en": "English",
     "lang.app_language": "App language",
+    "common.loading": "Loading…",
+    "common.saving": "Saving…",
+    "common.cancel": "Cancel",
+    "common.refresh": "Refresh",
     "company.refresh": "Refresh data",
     "company.refreshing": "Refreshing…",
     "company.research_label": "Research",
@@ -40,7 +48,147 @@ const messages = {
     "company.last_earnings": "Last earnings:",
     "company.translation_pending": "Translation pending…",
     "company.translation_unavailable": "Translation not available.",
-    "common.loading": "Loading…",
+    // Home page
+    "home.eyebrow": "BSH Research",
+    "home.title": "Find a company",
+    "home.subtitle":
+      "Type company name and press enter for search. Existing researched companies or public companies will autocomplete.",
+    "home.search_placeholder": "Search companies (e.g. Apple, Stripe, NVDA)",
+    "home.search": "Search",
+    "home.searching": "Searching…",
+    "home.autocomplete_loading": "Looking up…",
+    "home.tag_tracked": "Tracked",
+    "home.tag_researched": "Researched",
+    "home.tag_researched_tooltip": "Seen in a previous AI search",
+    "home.starting_search": "Starting search…",
+    "home.waiting_for_claude": "Waiting for Claude to start…",
+    "home.results_for": 'Results for "{query}"',
+    "home.no_matches_for": 'No matches for "{query}"',
+    "home.source_claude_code": "Claude Code",
+    "home.source_ai": "AI-Search",
+    "home.source_cached": "Cached",
+    "home.source_local": "Local matches only",
+    "home.fallback_unavailable": "Deep search unavailable — {reason}.",
+    "home.quick_add": "Quick add",
+    // Submit-link tool
+    "submit_link.title": "Submit a link",
+    "submit_link.subtitle":
+      "— paste a news article or web page; we'll archive and summarize it",
+    "submit_link.url_placeholder": "https://example.com/article",
+    "submit_link.preview": "Preview",
+    "submit_link.accept": "Accept",
+    "submit_link.chars_captured": "· {n} chars captured",
+    // Upload-research tool
+    "upload_research.title": "Upload external research",
+    "upload_research.subtitle":
+      "— third-party reports / analyst notes; we'll summarize and translate",
+    "upload_research.choose_file": "Click to choose a file",
+    "upload_research.accepted_types": "PDF, DOCX, DOC, TXT",
+    "upload_research.placeholder_title": "Title (defaults to filename)",
+    "upload_research.placeholder_source": "Source company (e.g. Goldman Sachs)",
+    "upload_research.placeholder_contact_name": "Contact name",
+    "upload_research.placeholder_contact_email": "Contact email",
+    "upload_research.placeholder_notes": "Notes / context (optional)",
+    "upload_research.uploading": "Uploading…",
+    "upload_research.upload": "Upload & analyze",
+    // Hormuz-research tool
+    "hormuz.title": "Add Hormuz research",
+    "hormuz.subtitle": "— internal research note (PDF optional)",
+    "hormuz.placeholder_title": "Title",
+    "hormuz.dropzone": "Drop a file here, or click to choose",
+    "hormuz.accepted_types": "PDF, DOCX, DOC, TXT — optional",
+    "hormuz.remove_file": "Remove file",
+    "hormuz.placeholder_body":
+      "Comments — observations, analysis, references…",
+    "hormuz.save_note": "Save note",
+    // Research view (per-company)
+    "research.back_to_search": "Back to search",
+    "research.company_not_found": "Company not found",
+    "research.company_not_found_body":
+      "No company is tracked for {id}. Search from the home page to add it, or pick one from the sidebar.",
+    "research.generate_report": "Generate report",
+    "research.label_report_type": "Report type",
+    "research.label_audience": "Audience",
+    "research.generate_button": "Generate report",
+    "research.generating": "Generating…",
+    "research.generating_hint":
+      "You can leave this page; the report continues in the background.",
+    "research.status_complete": "Complete",
+    "research.download_en": "Download English (.docx)",
+    "research.download_zh": "下载中文 (.docx)",
+    "research.run_folder": "Run folder",
+    "research.preview_label": "Preview:",
+    "research.preview_en": "English",
+    "research.preview_zh": "中文",
+    "research.failed_run": "This run failed — {status}",
+    "research.run_folder_preserved_prefix": "Run folder preserved at",
+    "research.start_fresh_hint":
+      'Hit "Generate report" above to start a fresh run.',
+    "research.scope_check_failed": "Scope check failed — {classification}",
+    "research.knowledge_base": "Knowledge base",
+    "research.knowledge_base_subtitle":
+      "Past questions and threads on this company.",
+    "research.ask_question_placeholder": "Ask a question…",
+    "research.optional_notes_placeholder": "Optional notes / answer",
+    "research.save_thread": "Save thread",
+    "research.no_threads": "No threads yet.",
+    "research.report_type.investment_memo_late_stage":
+      "Investment Memo (Late-Stage)",
+    "research.audience.internal": "Internal",
+    "research.audience.external": "External",
+    // Research uploads (Background Documents)
+    "research_uploads.title": "Background Documents",
+    "research_uploads.subtitle_prefix":
+      "Research material for the investment memo — PitchBook PDFs, partner notes, CB Insights exports, screenshots. Each upload gets a quick AI summary so you can scan the library without opening every file. Separate from the",
+    "research_uploads.subtitle_doc_library": "Document Library",
+    "research_uploads.subtitle_suffix": "below.",
+    "research_uploads.dropzone": "Drop files here or click to browse",
+    "research_uploads.size_hint":
+      "PDF · PPTX · DOCX · text · images. Max 100 MB per file.",
+    "research_uploads.uploading": "Uploading…",
+    "research_uploads.empty":
+      "No background documents yet. Drop the first one above.",
+    "research_uploads.summarizing_with_rail":
+      "Summarizing… (live progress in the AI Tasks rail)",
+    "research_uploads.description_label": "Description:",
+    "research_uploads.no_description_in_lang":
+      "No description in that language.",
+    "research_uploads.people": "People",
+    "research_uploads.orgs": "Orgs",
+    "research_uploads.products_label": "Products",
+    "research_uploads.btn_summarizing": "Summarizing…",
+    "research_uploads.btn_resummarize": "Re-summarize",
+    "research_uploads.btn_quick_summary": "Quick summary",
+    "research_uploads.view": "View",
+    "research_uploads.remove_confirm":
+      "Remove \"{name}\" from this company's research library?",
+    "research_uploads.remove_tooltip": "Remove {name}",
+    // Library (per-company)
+    "library.title": "Library",
+    "library.count": "{reports} reports · {files} files",
+    "library.subtitle":
+      "Generated reports and uploaded presentations or PDFs for this company. Each asset has an English and Chinese version.",
+    "library.filter_all": "All",
+    "library.filter_en": "English",
+    "library.filter_zh": "中文",
+    "library.dropzone_prefix": "Drop a PDF or PowerPoint here, or",
+    "library.dropzone_browse": "browse",
+    "library.dropzone_hint": "PDF, PPT, PPTX · up to 100MB",
+    "library.language_prefix": "Language:",
+    "library.uploading": "Uploading…",
+    "library.empty_all": "No reports or uploads yet.",
+    "library.empty_lang": "Nothing in {lang} yet.",
+    "library.generated_reports": "Generated reports",
+    "library.uploads": "Uploads",
+    "library.status_complete": "Complete",
+    "library.summary_ready": "summary ready",
+    "library.summary_open_cached": "Open bilingual summary (cached)",
+    "library.summary_generate": "Generate bilingual summary",
+    "library.summary_full_tooltip": "Open full bilingual summary for {file}",
+    "library.preview_tooltip": "Preview {file}",
+    "library.download_tooltip": "Download {file}",
+    "library.remove_tooltip": "Remove {file}",
+    "library.remove_confirm": "Remove {file}?",
   },
   zh: {
     "nav.home": "首页",
@@ -57,6 +205,10 @@ const messages = {
     "lang.toggle_to_zh": "中文",
     "lang.toggle_to_en": "English",
     "lang.app_language": "界面语言",
+    "common.loading": "加载中…",
+    "common.saving": "保存中…",
+    "common.cancel": "取消",
+    "common.refresh": "刷新",
     "company.refresh": "刷新数据",
     "company.refreshing": "刷新中…",
     "company.research_label": "研究",
@@ -73,22 +225,162 @@ const messages = {
     "company.last_earnings": "最近财报:",
     "company.translation_pending": "翻译生成中…",
     "company.translation_unavailable": "暂无翻译。",
-    "common.loading": "加载中…",
+    // Home page
+    "home.eyebrow": "BSH 研究",
+    "home.title": "查找公司",
+    "home.subtitle":
+      "输入公司名称并按回车进行搜索。已研究过的公司或公开上市公司会自动补全。",
+    "home.search_placeholder": "搜索公司（例如 Apple、Stripe、NVDA）",
+    "home.search": "搜索",
+    "home.searching": "搜索中…",
+    "home.autocomplete_loading": "查询中…",
+    "home.tag_tracked": "已收录",
+    "home.tag_researched": "已研究",
+    "home.tag_researched_tooltip": "在以往的 AI 搜索中出现过",
+    "home.starting_search": "正在启动搜索…",
+    "home.waiting_for_claude": "等待 Claude 启动…",
+    "home.results_for": '"{query}" 的搜索结果',
+    "home.no_matches_for": '未找到 "{query}" 的结果',
+    "home.source_claude_code": "Claude Code",
+    "home.source_ai": "AI 搜索",
+    "home.source_cached": "缓存",
+    "home.source_local": "仅本地匹配",
+    "home.fallback_unavailable": "深度搜索不可用 — {reason}。",
+    "home.quick_add": "快速添加",
+    // Submit-link tool
+    "submit_link.title": "提交链接",
+    "submit_link.subtitle": "— 粘贴一篇新闻或网页，我们会存档并总结",
+    "submit_link.url_placeholder": "https://example.com/article",
+    "submit_link.preview": "预览",
+    "submit_link.accept": "确认",
+    "submit_link.chars_captured": "· 已抓取 {n} 个字符",
+    // Upload-research tool
+    "upload_research.title": "上传外部研究",
+    "upload_research.subtitle": "— 第三方报告 / 分析师笔记，我们会总结并翻译",
+    "upload_research.choose_file": "点击选择文件",
+    "upload_research.accepted_types": "PDF、DOCX、DOC、TXT",
+    "upload_research.placeholder_title": "标题（默认使用文件名）",
+    "upload_research.placeholder_source": "来源机构（例如 Goldman Sachs）",
+    "upload_research.placeholder_contact_name": "联系人姓名",
+    "upload_research.placeholder_contact_email": "联系人邮箱",
+    "upload_research.placeholder_notes": "备注 / 背景（可选）",
+    "upload_research.uploading": "上传中…",
+    "upload_research.upload": "上传并分析",
+    // Hormuz-research tool
+    "hormuz.title": "添加霍尔木兹研究",
+    "hormuz.subtitle": "— 内部研究笔记（PDF 可选）",
+    "hormuz.placeholder_title": "标题",
+    "hormuz.dropzone": "拖拽文件到此处，或点击选择",
+    "hormuz.accepted_types": "PDF、DOCX、DOC、TXT — 可选",
+    "hormuz.remove_file": "移除文件",
+    "hormuz.placeholder_body": "评论 — 观察、分析、参考资料…",
+    "hormuz.save_note": "保存笔记",
+    // Research view (per-company)
+    "research.back_to_search": "返回搜索",
+    "research.company_not_found": "未找到公司",
+    "research.company_not_found_body":
+      "{id} 暂未收录。请从首页搜索添加，或从左侧栏选择。",
+    "research.generate_report": "生成报告",
+    "research.label_report_type": "报告类型",
+    "research.label_audience": "受众",
+    "research.generate_button": "生成报告",
+    "research.generating": "生成中…",
+    "research.generating_hint": "你可以离开此页面；报告会在后台继续生成。",
+    "research.status_complete": "已完成",
+    "research.download_en": "下载英文 (.docx)",
+    "research.download_zh": "下载中文 (.docx)",
+    "research.run_folder": "运行目录",
+    "research.preview_label": "预览：",
+    "research.preview_en": "English",
+    "research.preview_zh": "中文",
+    "research.failed_run": "此运行失败 — {status}",
+    "research.run_folder_preserved_prefix": "运行目录已保留至",
+    "research.start_fresh_hint": '点击上方"生成报告"以重新运行。',
+    "research.scope_check_failed": "范围检查失败 — {classification}",
+    "research.knowledge_base": "知识库",
+    "research.knowledge_base_subtitle": "关于该公司的过往问题和讨论串。",
+    "research.ask_question_placeholder": "提一个问题…",
+    "research.optional_notes_placeholder": "可选备注 / 回答",
+    "research.save_thread": "保存讨论",
+    "research.no_threads": "暂无讨论。",
+    "research.report_type.investment_memo_late_stage":
+      "投资备忘录（后期 / Pre-IPO）",
+    "research.audience.internal": "内部",
+    "research.audience.external": "外部",
+    // Research uploads (Background Documents)
+    "research_uploads.title": "背景文档",
+    "research_uploads.subtitle_prefix":
+      "投资备忘录的研究材料 — PitchBook PDF、合伙人笔记、CB Insights 导出、截图等。每次上传都会生成快速 AI 摘要，方便你浏览整个文库而无需逐个打开文件。与下方的",
+    "research_uploads.subtitle_doc_library": "文档库",
+    "research_uploads.subtitle_suffix": "分开。",
+    "research_uploads.dropzone": "拖拽文件到此处或点击浏览",
+    "research_uploads.size_hint":
+      "PDF · PPTX · DOCX · 文本 · 图片。每个文件最多 100 MB。",
+    "research_uploads.uploading": "上传中…",
+    "research_uploads.empty": "暂无背景文档。请将第一个文件拖到上方区域。",
+    "research_uploads.summarizing_with_rail":
+      "正在生成摘要…（在 AI 任务栏查看实时进度）",
+    "research_uploads.description_label": "描述：",
+    "research_uploads.no_description_in_lang": "该语言下暂无描述。",
+    "research_uploads.people": "人物",
+    "research_uploads.orgs": "组织",
+    "research_uploads.products_label": "产品",
+    "research_uploads.btn_summarizing": "总结中…",
+    "research_uploads.btn_resummarize": "重新生成摘要",
+    "research_uploads.btn_quick_summary": "快速摘要",
+    "research_uploads.view": "查看",
+    "research_uploads.remove_confirm": "从该公司研究库中移除 \"{name}\"？",
+    "research_uploads.remove_tooltip": "移除 {name}",
+    // Library (per-company)
+    "library.title": "文档库",
+    "library.count": "{reports} 份报告 · {files} 个文件",
+    "library.subtitle":
+      "该公司生成的报告与上传的演示文稿/PDF。每个资产都有中英文版本。",
+    "library.filter_all": "全部",
+    "library.filter_en": "English",
+    "library.filter_zh": "中文",
+    "library.dropzone_prefix": "拖拽 PDF 或 PowerPoint 到此处，或",
+    "library.dropzone_browse": "浏览",
+    "library.dropzone_hint": "PDF、PPT、PPTX · 最大 100MB",
+    "library.language_prefix": "语言：",
+    "library.uploading": "上传中…",
+    "library.empty_all": "暂无报告或上传。",
+    "library.empty_lang": "{lang} 暂无内容。",
+    "library.generated_reports": "生成的报告",
+    "library.uploads": "上传的文件",
+    "library.status_complete": "已完成",
+    "library.summary_ready": "摘要已就绪",
+    "library.summary_open_cached": "查看双语摘要（已缓存）",
+    "library.summary_generate": "生成双语摘要",
+    "library.summary_full_tooltip": "查看 {file} 的完整双语摘要",
+    "library.preview_tooltip": "预览 {file}",
+    "library.download_tooltip": "下载 {file}",
+    "library.remove_tooltip": "移除 {file}",
+    "library.remove_confirm": "确定移除 {file}？",
   },
 };
 
-export function t(key) {
+function _interpolate(str, vars) {
+  if (!vars) return str;
+  return str.replace(/\{(\w+)\}/g, (m, k) =>
+    Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m,
+  );
+}
+
+export function t(key, vars) {
   const lang = appLanguage.value;
-  return (messages[lang] && messages[lang][key]) || messages.en[key] || key;
+  const msg =
+    (messages[lang] && messages[lang][key]) || messages.en[key] || key;
+  return _interpolate(msg, vars);
 }
 
 // Reactive computed wrapper so templates re-render when appLanguage changes.
-// Use as: const tr = useT(); then tr("my.key") in template/computed.
+// Use as: const tr = useT(); then tr("my.key", { name }) in template/computed.
 export function useT() {
-  return (key) => {
+  return (key, vars) => {
     // Touch the ref so the computed/template tracks it.
     void appLanguage.value;
-    return t(key);
+    return t(key, vars);
   };
 }
 

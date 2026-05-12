@@ -12,12 +12,17 @@ import {
   Brain,
   CheckCircle2,
   AlertCircle,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
 import CompanyCard from "../components/CompanyCard.vue";
 import SubmitLinkTool from "../components/SubmitLinkTool.vue";
 import UploadResearchTool from "../components/UploadResearchTool.vue";
 import AddHormuzResearchTool from "../components/AddHormuzResearchTool.vue";
+
+const t = useT();
 
 const router = useRouter();
 const query = ref("");
@@ -33,7 +38,25 @@ const searching = ref(false);
 const progressEvents = ref([]); // [{type, action, tool, preview, text, ts}]
 const currentStage = ref(null); // { stage, message }
 const progressFeedRef = ref(null);
+// Collapsed by default: header bar shows current step, click to expand the
+// full action log.
+const progressExpanded = ref(false);
 let activeEventSource = null;
+
+const lastProgressEvent = computed(() => {
+  const list = progressEvents.value;
+  return list.length ? list[list.length - 1] : null;
+});
+
+function toggleProgressExpanded() {
+  progressExpanded.value = !progressExpanded.value;
+  if (progressExpanded.value) {
+    nextTick(() => {
+      const el = progressFeedRef.value;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }
+}
 
 let debounceId = null;
 
@@ -122,6 +145,7 @@ async function runDeepSearch({ refresh = false } = {}) {
   searchResults.value = null;
   progressEvents.value = [];
   currentStage.value = null;
+  progressExpanded.value = false;
 
   try {
     const start = await api.startDeepSearch(query.value.trim(), { refresh });
@@ -182,8 +206,13 @@ function actionLabel(entry) {
     return `${entry.tool}: ${entry.preview || ""}`;
   }
   if (entry.action === "tool_result") {
-    const status = entry.is_error ? "error" : "ok";
-    return `${entry.tool} → ${status}`;
+    if (entry.is_error) {
+      const reason = (entry.preview || "").trim();
+      return reason
+        ? `${entry.tool} → error: ${reason.slice(0, 160)}`
+        : `${entry.tool} → error`;
+    }
+    return `${entry.tool} → ok`;
   }
   if (entry.action === "result") {
     const cost = entry.cost_usd
@@ -240,14 +269,13 @@ function onBlur() {
   <div class="max-w-4xl mx-auto px-8 py-12">
     <header class="mb-10">
       <div class="text-xs uppercase tracking-wider text-ink-muted mb-2">
-        BSH Research
+        {{ t("home.eyebrow") }}
       </div>
       <h1 class="font-display text-3xl font-semibold text-ink-primary">
-        Find a company
+        {{ t("home.title") }}
       </h1>
       <p class="mt-2 text-ink-secondary">
-        Type company name and press enter for search. Existing researched
-        companies or public companies will autocomplete.
+        {{ t("home.subtitle") }}
       </p>
     </header>
 
@@ -259,7 +287,7 @@ function onBlur() {
         v-model="query"
         type="search"
         autofocus
-        placeholder="Search companies (e.g. Apple, Stripe, NVDA)"
+        :placeholder="t('home.search_placeholder')"
         class="w-full pl-12 pr-32 py-3 rounded-card border border-subtle bg-surface text-ink-primary placeholder:text-ink-subtle focus-ring shadow-card"
         @focus="suggestions.length && (showSuggestions = true)"
         @blur="onBlur"
@@ -270,7 +298,7 @@ function onBlur() {
         class="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-60 focus-ring"
       >
         <Sparkles class="h-3.5 w-3.5" />
-        <span>{{ searching ? "Searching…" : "Search" }}</span>
+        <span>{{ searching ? t("home.searching") : t("home.search") }}</span>
       </button>
 
       <div
@@ -281,7 +309,8 @@ function onBlur() {
           v-if="autocompleting && suggestions.length === 0"
           class="px-4 py-3 text-sm text-ink-muted flex items-center gap-2"
         >
-          <Loader2 class="h-4 w-4 animate-spin" /> Looking up…
+          <Loader2 class="h-4 w-4 animate-spin" />
+          {{ t("home.autocomplete_loading") }}
         </div>
         <button
           v-for="s in suggestions"
@@ -302,13 +331,13 @@ function onBlur() {
               <span
                 v-if="s.source === 'local'"
                 class="ml-2 px-1 py-0.5 rounded bg-accent-soft text-accent-ink"
-                >Tracked</span
+                >{{ t("home.tag_tracked") }}</span
               >
               <span
                 v-else-if="s.source === 'researched'"
                 class="ml-2 px-1 py-0.5 rounded bg-success-soft text-success-ink"
-                title="Seen in a previous AI search"
-                >Researched</span
+                :title="t('home.tag_researched_tooltip')"
+                >{{ t("home.tag_researched") }}</span
               >
             </div>
           </div>
@@ -323,19 +352,37 @@ function onBlur() {
       v-if="searching"
       class="mt-10 rounded-card border border-subtle bg-surface shadow-card overflow-hidden"
     >
-      <div class="px-4 py-3 border-b border-subtle bg-surface-muted flex items-center gap-2">
+      <button
+        type="button"
+        @click="toggleProgressExpanded"
+        class="w-full px-4 py-3 border-b border-subtle bg-surface-muted flex items-center gap-2 focus-ring text-left hover:bg-surface"
+        :aria-expanded="progressExpanded"
+      >
         <Loader2 class="h-4 w-4 animate-spin text-accent shrink-0" />
         <span class="text-sm font-medium text-ink-primary">
-          {{ currentStage?.message || "Starting search…" }}
+          {{ currentStage?.message || t("home.starting_search") }}
+        </span>
+        <span
+          v-if="lastProgressEvent && !progressExpanded"
+          class="text-xs text-ink-muted truncate min-w-0 flex-1 font-mono"
+          :class="{ 'text-danger': lastProgressEvent.is_error }"
+        >
+          · {{ actionLabel(lastProgressEvent) }}
         </span>
         <span
           v-if="currentStage?.stage"
-          class="ml-auto text-[10px] uppercase tracking-wide text-ink-muted font-mono"
+          class="ml-auto text-[10px] uppercase tracking-wide text-ink-muted font-mono shrink-0"
         >
           {{ currentStage.stage }}
         </span>
-      </div>
+        <ChevronDown
+          v-if="progressExpanded"
+          class="h-4 w-4 text-ink-muted shrink-0"
+        />
+        <ChevronRight v-else class="h-4 w-4 text-ink-muted shrink-0" />
+      </button>
       <div
+        v-show="progressExpanded"
         ref="progressFeedRef"
         class="max-h-72 overflow-y-auto px-3 py-2 space-y-1 font-mono text-[12px] leading-snug bg-canvas"
       >
@@ -343,7 +390,7 @@ function onBlur() {
           v-if="progressEvents.length === 0"
           class="px-2 py-1 text-ink-muted italic"
         >
-          Waiting for Claude to start…
+          {{ t("home.waiting_for_claude") }}
         </div>
         <div
           v-for="(entry, i) in progressEvents"
@@ -378,19 +425,23 @@ function onBlur() {
     <div v-else-if="searchResults" class="mt-10 space-y-3">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <h2 class="font-display text-lg font-semibold text-ink-primary">
-          {{ hasResults ? `Results for "${query}"` : `No matches for "${query}"` }}
+          {{
+            hasResults
+              ? t("home.results_for", { query })
+              : t("home.no_matches_for", { query })
+          }}
         </h2>
         <div class="flex items-center gap-3">
           <span class="text-xs text-ink-muted flex items-center gap-1.5">
             <span>
               {{
                 searchResults.source === "claude_code"
-                  ? "Claude Code"
+                  ? t("home.source_claude_code")
                   : searchResults.source === "openai"
-                  ? "AI-Search"
+                  ? t("home.source_ai")
                   : searchResults.source === "cache"
-                  ? "Cached"
-                  : "Local matches only"
+                  ? t("home.source_cached")
+                  : t("home.source_local")
               }}
             </span>
             <span
@@ -407,7 +458,7 @@ function onBlur() {
             :disabled="searching"
             class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface-muted text-ink-secondary focus-ring"
           >
-            Refresh
+            {{ t("common.refresh") }}
           </button>
         </div>
       </div>
@@ -415,7 +466,7 @@ function onBlur() {
         v-if="searchResults.source === 'fallback' && searchResults.reason"
         class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2"
       >
-        Deep search unavailable — {{ searchResults.reason }}.
+        {{ t("home.fallback_unavailable", { reason: searchResults.reason }) }}
       </div>
       <CompanyCard
         v-for="m in searchResults.matches"
@@ -430,7 +481,7 @@ function onBlur() {
       <h2
         class="text-xs font-semibold uppercase tracking-wide text-ink-muted px-1"
       >
-        Quick add
+        {{ t("home.quick_add") }}
       </h2>
       <SubmitLinkTool />
       <UploadResearchTool />
