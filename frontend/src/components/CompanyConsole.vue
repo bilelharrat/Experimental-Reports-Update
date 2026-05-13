@@ -507,18 +507,13 @@ function attachmentUrl(turn, att) {
       </div>
     </div>
 
-    <!-- Empty state -->
+    <!-- Empty state — single "+ New" entry point lives in the tab strip
+         above; this card is just the help text. -->
     <div
       v-if="!activeId && !loading"
       class="rounded-card border border-dashed border-subtle p-6 text-sm text-ink-secondary"
     >
       <p>{{ tr("console.empty_help") }}</p>
-      <button
-        @click="openCreate"
-        class="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover focus-ring"
-      >
-        {{ tr("console.create_console") }}
-      </button>
     </div>
 
     <!-- Active session pane -->
@@ -773,8 +768,8 @@ function attachmentUrl(turn, att) {
           </ul>
           <div class="border-t border-subtle pt-2 text-ink-secondary">
             {{
-              tr("console.estimate_cost", {
-                cost: "$" + (estimate.cost_usd_est || 0).toFixed(2),
+              tr("console.estimate_tokens", {
+                tokens: formatTokens(estimate.tokens_est || 0),
                 seconds: estimate.duration_est_s || 0,
               })
             }}

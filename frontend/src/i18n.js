@@ -252,7 +252,7 @@ const messages = {
     "console.estimate_loading": "Computing estimate…",
     "console.estimate_files": "Files to load ({count})",
     "console.estimate_files_empty": "No files selected.",
-    "console.estimate_cost": "Estimate: ~{cost}, ~{seconds}s",
+    "console.estimate_tokens": "Estimate: ~{tokens} tokens, ~{seconds}s",
     "console.estimate_zero":
       "No documents selected. Console will start without grounding context.",
   },
@@ -484,7 +484,7 @@ const messages = {
     "console.estimate_loading": "计算估算中…",
     "console.estimate_files": "将载入的文件（{count}）",
     "console.estimate_files_empty": "未选择文件。",
-    "console.estimate_cost": "预估：约 {cost}，约 {seconds} 秒",
+    "console.estimate_tokens": "预估：约 {tokens} tokens，约 {seconds} 秒",
     "console.estimate_zero": "未选择文档。控制台将在无背景资料的情况下启动。",
   },
 };
