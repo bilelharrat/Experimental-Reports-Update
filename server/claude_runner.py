@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -2106,3 +2107,599 @@ def run_structured_prompt(
         f"{final_text[:300]}"
     )
 
+
+# ---- Console: hydrate / ask / summary -----------------------------------
+#
+# The Console feature (see docs/console-feature.md) is the first subprocess
+# flow in this codebase that needs Claude session persistence — hydrate
+# uses ``--session-id``, ask uses ``--resume``. The helpers below build
+# the right command lines, stream events into a ProgressLog, and surface a
+# cancellation hook (a ``threading.Event``) plus a watchdog (event-silence
+# timeout + wall-clock cap) that triggers SIGINT — the same signal a human
+# Ctrl-C in ``claude -p`` would send.
+
+
+def _preview_console_tool_input(name: str, inp: dict) -> str:
+    if name == "Read":
+        s = inp.get("file_path") or ""
+        if inp.get("pages"):
+            s += f"  (pages={inp.get('pages')})"
+        return s
+    if name == "Bash":
+        return inp.get("command") or ""
+    if name in ("WebSearch",):
+        return inp.get("query") or ""
+    if name == "WebFetch":
+        return inp.get("url") or ""
+    try:
+        return json.dumps(inp, ensure_ascii=False)
+    except Exception:  # noqa: BLE001
+        return str(inp)
+
+
+def _process_console_event(event: dict, progress, state: dict) -> None:
+    """Translate stream-json events from a Console hydrate/ask/summary run
+    into ``progress.emit("claude_action", ...)`` calls.
+
+    Captures assistant text into ``state["assistant_text_parts"]`` so the
+    caller can reassemble the final reply without re-parsing the result
+    event (which omits inline text blocks beyond the canonical `result`
+    field).
+    """
+    etype = event.get("type")
+    if etype == "system" and event.get("subtype") == "init":
+        progress.emit(
+            "claude_action",
+            action="init",
+            session=event.get("session_id"),
+            model=event.get("model"),
+            cwd=event.get("cwd"),
+            tools=event.get("tools") or [],
+        )
+        return
+    if etype == "assistant":
+        msg = event.get("message") or {}
+        for block in msg.get("content") or []:
+            btype = block.get("type")
+            if btype == "text":
+                text = (block.get("text") or "").strip()
+                if text:
+                    progress.emit("claude_action", action="thinking", text=text[:600])
+                    state.setdefault("assistant_text_parts", []).append(text)
+            elif btype == "tool_use":
+                name = block.get("name") or "?"
+                inp = block.get("input") or {}
+                state["last_tool"] = {"id": block.get("id"), "name": name}
+                preview = _preview_console_tool_input(name, inp)
+                progress.emit(
+                    "claude_action", action="tool_use",
+                    tool=name, preview=preview[:500],
+                )
+        return
+    if etype == "user":
+        msg = event.get("message") or {}
+        for block in msg.get("content") or []:
+            if block.get("type") == "tool_result":
+                tool = state.get("last_tool", {}).get("name", "?")
+                content = block.get("content")
+                if isinstance(content, list):
+                    parts = []
+                    for c in content:
+                        if isinstance(c, dict) and c.get("type") == "text":
+                            parts.append(c.get("text") or "")
+                    content_str = "\n".join(parts)
+                else:
+                    content_str = content if isinstance(content, str) else ""
+                progress.emit(
+                    "claude_action", action="tool_result",
+                    tool=tool, is_error=bool(block.get("is_error")),
+                    preview=(content_str or "")[:200],
+                )
+        return
+    if etype == "result":
+        progress.emit(
+            "claude_action", action="result",
+            subtype=event.get("subtype"),
+            cost_usd=event.get("total_cost_usd"),
+            duration_ms=event.get("duration_ms"),
+            usage=event.get("usage"),
+        )
+        return
+
+
+# Watchdog constants — duplicated as defaults so callers (tests) can
+# override per call. The authoritative copies live in console_store.
+_CONSOLE_EVENT_SILENCE_DEFAULT_S = 90.0
+_CONSOLE_KILL_GRACE_DEFAULT_S = 30.0
+_CONSOLE_WALL_CLOCK_DEFAULT_S = 600.0
+
+
+class _ConsoleRunHandle:
+    """Internal bookkeeping for a streaming Console subprocess. Bundles the
+    Popen, the reader thread, the queue of decoded events, and the final
+    result event when it arrives.
+    """
+
+    def __init__(self, proc: subprocess.Popen):
+        import queue as _queue
+
+        self.proc = proc
+        self.events: _queue.Queue = _queue.Queue()
+        self.result_event: dict | None = None
+        self.stderr_log: list[str] = []
+        self.reader: threading.Thread | None = None
+
+
+def _reader_thread(handle: _ConsoleRunHandle) -> None:
+    """Drain stdout into a queue. One queued item per parsed JSON line.
+
+    The terminal item is ``None``, signalling EOF.
+    """
+    stdout = handle.proc.stdout
+    if stdout is None:
+        handle.events.put(None)
+        return
+    try:
+        for line in stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            handle.events.put(event)
+    finally:
+        handle.events.put(None)
+
+
+def _spawn_console(cmd: list[str], cwd: Path | None) -> _ConsoleRunHandle:
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    handle = _ConsoleRunHandle(proc)
+    handle.reader = threading.Thread(
+        target=_reader_thread, args=(handle,), daemon=True
+    )
+    handle.reader.start()
+    threading.Thread(
+        target=_drain_stderr, args=(proc, handle.stderr_log), daemon=True
+    ).start()
+    return handle
+
+
+def _terminate_console(
+    handle: _ConsoleRunHandle, *, grace_s: float
+) -> str:
+    """SIGINT → wait → SIGKILL. Returns the signal name that succeeded."""
+    import signal as _signal
+
+    if handle.proc.poll() is not None:
+        return "exited"
+    try:
+        handle.proc.send_signal(_signal.SIGINT)
+    except ProcessLookupError:
+        return "exited"
+    try:
+        handle.proc.wait(timeout=grace_s)
+        return "SIGINT"
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        handle.proc.kill()
+    except ProcessLookupError:
+        return "exited"
+    try:
+        handle.proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        pass
+    return "SIGKILL"
+
+
+def _consume_stream(
+    handle: _ConsoleRunHandle,
+    *,
+    progress,
+    state: dict,
+    cancel_event: threading.Event | None,
+    event_silence_timeout_s: float,
+    wall_clock_cap_s: float,
+    grace_kill_s: float,
+) -> dict:
+    """Drain events from the reader thread, dispatch to ``progress``, and
+    enforce the watchdog. Returns a small dict::
+
+        {ok: bool, subtype: str, usage: dict|None, cost_usd: float|None,
+         duration_ms: int|None, error?: str, interrupt_reason?: str}
+
+    ``subtype`` mirrors the result-event subtype (``success`` or
+    ``error``), or is set to ``error`` with an ``interrupt_reason`` when
+    the watchdog or the cancel event interrupted the run.
+    """
+    import queue as _queue
+
+    start = time.monotonic()
+    last_event_at = start
+    interrupt_reason: str | None = None
+
+    while True:
+        # Check the cancel event without blocking.
+        if cancel_event is not None and cancel_event.is_set():
+            interrupt_reason = "user_cancelled"
+            break
+        # Watchdog: event silence.
+        if (time.monotonic() - last_event_at) > event_silence_timeout_s:
+            interrupt_reason = "event_silence_timeout"
+            break
+        # Watchdog: wall-clock cap.
+        if (time.monotonic() - start) > wall_clock_cap_s:
+            interrupt_reason = "wall_clock_cap"
+            break
+        try:
+            event = handle.events.get(timeout=0.25)
+        except _queue.Empty:
+            # Detect a dead subprocess: if it has exited and the reader
+            # thread is done, the queue will have already received its
+            # terminal None. If it exited but we haven't drained yet, the
+            # next iteration will pick it up.
+            if handle.proc.poll() is not None and not handle.reader.is_alive():
+                # Drain any remaining events synchronously.
+                while not handle.events.empty():
+                    event = handle.events.get_nowait()
+                    if event is None:
+                        break
+                    last_event_at = time.monotonic()
+                    try:
+                        _process_console_event(event, progress, state)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("console event handling failed")
+                    if event.get("type") == "result":
+                        handle.result_event = event
+                break
+            continue
+
+        if event is None:
+            # Reader EOF — subprocess closed stdout. Wait for it to exit.
+            break
+
+        last_event_at = time.monotonic()
+        try:
+            _process_console_event(event, progress, state)
+        except Exception:  # noqa: BLE001
+            logger.exception("console event handling failed")
+        if event.get("type") == "result":
+            handle.result_event = event
+            # Stay in the loop briefly to drain any trailing events; the
+            # reader will then put a terminal None and we break.
+
+    if interrupt_reason is not None:
+        sig = _terminate_console(handle, grace_s=grace_kill_s)
+        progress.emit(
+            "claude_action",
+            action="interrupted",
+            reason=interrupt_reason,
+            signal=sig,
+        )
+
+    # Best-effort: wait for subprocess to actually exit.
+    try:
+        handle.proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        try:
+            handle.proc.kill()
+        except ProcessLookupError:
+            pass
+
+    result_event = handle.result_event
+    if result_event is not None and interrupt_reason is None:
+        return {
+            "ok": result_event.get("subtype") == "success",
+            "subtype": result_event.get("subtype") or "error",
+            "usage": result_event.get("usage") or {},
+            "cost_usd": result_event.get("total_cost_usd"),
+            "duration_ms": result_event.get("duration_ms"),
+        }
+
+    if interrupt_reason is not None:
+        return {
+            "ok": False,
+            "subtype": "error",
+            "usage": (result_event or {}).get("usage") or {},
+            "cost_usd": (result_event or {}).get("total_cost_usd"),
+            "duration_ms": (result_event or {}).get("duration_ms"),
+            "error": f"Interrupted ({interrupt_reason})",
+            "interrupt_reason": interrupt_reason,
+        }
+
+    # No result event AND no explicit interrupt → subprocess died without
+    # writing one.
+    tail = "".join(handle.stderr_log[-20:]).strip()
+    code = handle.proc.returncode
+    return {
+        "ok": False,
+        "subtype": "error",
+        "usage": {},
+        "cost_usd": None,
+        "duration_ms": None,
+        "error": (
+            f"Claude subprocess exited unexpectedly (code={code})"
+            + (f": {tail[:600]}" if tail else "")
+        ),
+        "interrupt_reason": "subprocess_died",
+    }
+
+
+def _console_skill_text(skill_path: Path) -> str:
+    try:
+        return skill_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def run_console_hydrate(
+    *,
+    claude_session_id: str,
+    work_dir: Path,
+    file_list: list[Path],
+    skill_path: Path,
+    progress,
+    cancel_event: threading.Event | None = None,
+    event_silence_timeout_s: float = _CONSOLE_EVENT_SILENCE_DEFAULT_S,
+    grace_kill_s: float = _CONSOLE_KILL_GRACE_DEFAULT_S,
+    wall_clock_cap_s: float = _CONSOLE_WALL_CLOCK_DEFAULT_S,
+) -> dict:
+    """One-shot hydration: spawn ``claude -p`` with ``--session-id``, ask it
+    to Read every staged document into context, and return a small dict
+    with the usage/cost from the result event.
+    """
+    if not is_available():
+        return {"ok": False, "error": "Claude CLI not available"}
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    relative_names = [Path(p).name for p in file_list]
+    bulleted = "\n".join(f"- {n}" for n in relative_names) or "(no documents staged)"
+    prompt = (
+        "You are entering a Console session for a BSH analyst. The "
+        "following documents are staged in your current working "
+        "directory:\n\n"
+        f"{bulleted}\n\n"
+        "Use the Read tool on each one to load its contents into your "
+        "context. Then reply with EXACTLY this one-line acknowledgement "
+        "and nothing else:\n\n"
+        "> Ready. N documents loaded.\n\n"
+        "where N is the count of files you successfully read. Do not "
+        "summarize the documents in the reply. Do not preview them. "
+        "Just Read each one and acknowledge."
+    )
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--session-id", claude_session_id,
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,WebSearch,WebFetch,Bash",
+        "--append-system-prompt", _console_skill_text(skill_path),
+    ]
+
+    progress.emit(
+        "job_init",
+        kind="console_hydrate",
+        title="Hydrating console",
+        file_count=len(file_list),
+    )
+    progress.emit("stage", stage="starting", message="Starting hydration")
+
+    try:
+        handle = _spawn_console(cmd, cwd=work_dir)
+    except FileNotFoundError as exc:
+        progress.emit("error", error=f"Failed to launch claude: {exc}")
+        return {"ok": False, "error": f"Failed to launch claude: {exc}"}
+
+    state: dict = {}
+    outcome = _consume_stream(
+        handle,
+        progress=progress, state=state,
+        cancel_event=cancel_event,
+        event_silence_timeout_s=event_silence_timeout_s,
+        wall_clock_cap_s=wall_clock_cap_s,
+        grace_kill_s=grace_kill_s,
+    )
+
+    text = "".join(state.get("assistant_text_parts") or []).strip()
+    outcome["text"] = text
+    if outcome.get("ok"):
+        progress.emit("done", text=text, usage=outcome.get("usage"),
+                      cost_usd=outcome.get("cost_usd"))
+    else:
+        progress.emit("error", error=outcome.get("error") or "Hydration failed",
+                      interrupt_reason=outcome.get("interrupt_reason"))
+    return outcome
+
+
+def run_console_ask(
+    *,
+    claude_session_id: str,
+    work_dir: Path,
+    user_prompt: str,
+    skill_path: Path,
+    progress,
+    attachments: list[str] | None = None,
+    cancel_event: threading.Event | None = None,
+    event_silence_timeout_s: float = _CONSOLE_EVENT_SILENCE_DEFAULT_S,
+    grace_kill_s: float = _CONSOLE_KILL_GRACE_DEFAULT_S,
+    wall_clock_cap_s: float = _CONSOLE_WALL_CLOCK_DEFAULT_S,
+) -> dict:
+    """One user turn: spawn ``claude -p --resume`` and stream the response
+    through ``progress``. Returns the same shape as ``run_console_hydrate``
+    plus ``text`` (the assistant's final reply, reassembled from text
+    blocks).
+
+    ``attachments`` is a list of relative filenames inside
+    ``work_dir/attachments/`` to append to the prompt as a Read hint.
+    """
+    if not is_available():
+        return {"ok": False, "error": "Claude CLI not available", "text": ""}
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    final_prompt = user_prompt.rstrip()
+    if attachments:
+        names = ", ".join(f"`attachments/{n}`" for n in attachments)
+        final_prompt += (
+            "\n\n(Attached: " + names + ". Use the Read tool to view "
+            "each one.)"
+        )
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", final_prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--resume", claude_session_id,
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,WebSearch,WebFetch,Bash",
+        "--append-system-prompt", _console_skill_text(skill_path),
+    ]
+
+    progress.emit(
+        "job_init",
+        kind="console_ask",
+        title=f"Q&A: {user_prompt[:40]}",
+    )
+    progress.emit("stage", stage="starting", message="Asking Claude")
+
+    try:
+        handle = _spawn_console(cmd, cwd=work_dir)
+    except FileNotFoundError as exc:
+        progress.emit("error", error=f"Failed to launch claude: {exc}")
+        return {"ok": False, "error": f"Failed to launch claude: {exc}",
+                "text": ""}
+
+    state: dict = {}
+    outcome = _consume_stream(
+        handle,
+        progress=progress, state=state,
+        cancel_event=cancel_event,
+        event_silence_timeout_s=event_silence_timeout_s,
+        wall_clock_cap_s=wall_clock_cap_s,
+        grace_kill_s=grace_kill_s,
+    )
+
+    text = "".join(state.get("assistant_text_parts") or []).strip()
+    outcome["text"] = text
+    if outcome.get("ok"):
+        progress.emit("done", text=text, usage=outcome.get("usage"),
+                      cost_usd=outcome.get("cost_usd"))
+    else:
+        progress.emit("error", error=outcome.get("error") or "Ask failed",
+                      interrupt_reason=outcome.get("interrupt_reason"))
+    return outcome
+
+
+def run_console_summary(
+    *,
+    turns: list[dict],
+    progress,
+    timeout_sec: int = 180,
+) -> dict:
+    """Generate a 3-bullet retrospective summary for an archived session.
+
+    Single-shot, no session persistence — the prompt embeds the full
+    ``turns.jsonl`` as a quoted block.
+    """
+    if not is_available():
+        return {"error": "Claude CLI not available"}
+
+    transcript_lines: list[str] = []
+    for t in turns:
+        role = t.get("role")
+        text = (t.get("text") or "").strip()
+        if not text:
+            continue
+        transcript_lines.append(f"[{role.upper()}]\n{text}\n")
+    transcript = "\n".join(transcript_lines)[-12000:]  # cap context
+
+    prompt = (
+        "Below is the transcript of a Console Q&A session between a BSH "
+        "analyst and Claude. Produce a short retrospective summary in "
+        "JSON with two fields:\n\n"
+        "  - headline: a 3-6 word title for the session (e.g. "
+        '"AMI Labs Pitchdeck Q&A").\n'
+        "  - bullets: an array of 2-4 one-sentence bullets capturing "
+        "the key questions explored and conclusions reached.\n\n"
+        "Reply with ONE JSON object and nothing else.\n\n"
+        "--- TRANSCRIPT START ---\n"
+        f"{transcript}\n"
+        "--- TRANSCRIPT END ---"
+    )
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "json",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--no-session-persistence",
+        "--allowedTools", "Read",
+    ]
+
+    progress.emit("job_init", kind="console_summary", title="Summarizing session")
+    progress.emit("stage", stage="starting", message="Summarizing")
+
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout_sec
+        )
+    except subprocess.TimeoutExpired:
+        progress.emit("error", error=f"Summary timed out after {timeout_sec}s")
+        return {"error": f"Summary timed out after {timeout_sec}s"}
+    except FileNotFoundError as exc:
+        progress.emit("error", error=f"Failed to launch claude: {exc}")
+        return {"error": f"Failed to launch claude: {exc}"}
+
+    if proc.returncode != 0:
+        tail = (proc.stderr or "").strip()[-600:]
+        msg = f"claude exited {proc.returncode}: {tail}"
+        progress.emit("error", error=msg)
+        return {"error": msg}
+
+    try:
+        envelope = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        progress.emit("error", error=f"Non-JSON envelope: {exc}")
+        return {"error": f"Non-JSON envelope: {exc}"}
+
+    final_text = (envelope.get("result") or "").strip()
+    parsed = _parse_json_tolerant(final_text)
+    if not isinstance(parsed, dict):
+        # Try to recover the first {...} block.
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        progress.emit("error", error="Summary output didn't parse as JSON")
+        return {"error": "Summary output didn't parse as JSON"}
+
+    headline = (parsed.get("headline") or "").strip() or None
+    bullets_raw = parsed.get("bullets") or []
+    bullets = [str(b).strip() for b in bullets_raw if str(b).strip()]
+    result = {
+        "headline": headline,
+        "bullets": bullets,
+        "cost_usd": envelope.get("total_cost_usd"),
+        "usage": envelope.get("usage"),
+    }
+    progress.emit("done", **result)
+    return result

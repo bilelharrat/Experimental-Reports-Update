@@ -30,6 +30,8 @@ from . import (
     companies_ai,
     companies_autocomplete,
     company_translate,
+    console_session,
+    console_store,
     deck_summary,
     external_store,
     external_translate,
@@ -2682,3 +2684,301 @@ def _report_detail(r: dict) -> dict:
             "zh": f"/api/reports/{rid}/download?language=zh",
         }
     return base
+
+
+# ---- Console API ---------------------------------------------------------
+#
+# Per-company Console feature (see docs/console-feature.md). All ten routes
+# inherit the api_router auth dependency; the two SSE endpoints accept
+# ``?token=`` via the existing extractor since EventSource can't set
+# headers.
+
+
+class _ConsoleCreateBody(BaseModel):
+    include_background_docs: bool = True
+    include_library_docs: bool = True
+
+
+def _serialize_console_meta(meta: dict) -> dict:
+    """Wire shape — adds derived fields the frontend wants but we don't
+    want to keep duplicated on disk.
+    """
+    tokens = meta.get("tokens") or {}
+    context_used = console_store.context_used_from_usage(
+        tokens.get("last_turn_usage")
+    )
+    return {
+        **meta,
+        "context_used": context_used,
+        "context_window": console_store.CONTEXT_WINDOW,
+        "pct_used": context_used / console_store.CONTEXT_WINDOW,
+    }
+
+
+@router.get("/companies/{company_id}/console/sessions")
+def list_console_sessions(company_id: str) -> list[dict]:
+    return [
+        _serialize_console_meta(m)
+        for m in console_store.list_sessions(company_id)
+    ]
+
+
+@router.post("/companies/{company_id}/console/sessions", status_code=201)
+def create_console_session(
+    company_id: str, body: _ConsoleCreateBody | None = None
+) -> dict:
+    body = body or _ConsoleCreateBody()
+    try:
+        meta = console_session.create_session(
+            company_id=company_id,
+            include_background_docs=body.include_background_docs,
+            include_library_docs=body.include_library_docs,
+        )
+    except console_store.SessionLimitReached as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "session_limit_reached",
+                "limit": console_store.MAX_ACTIVE_SESSIONS_PER_COMPANY,
+                "message": str(exc),
+            },
+        ) from exc
+    return {
+        **_serialize_console_meta(meta),
+        "hydrate_stream_url": (
+            f"/api/companies/{company_id}/console/sessions/{meta['id']}"
+            "/hydrate/stream"
+        ),
+    }
+
+
+@router.get("/companies/{company_id}/console/sessions/{sid}")
+def get_console_session(company_id: str, sid: str) -> dict:
+    meta = console_store.load_meta(company_id, sid)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _serialize_console_meta(meta)
+
+
+@router.get("/companies/{company_id}/console/sessions/{sid}/turns")
+def get_console_turns(company_id: str, sid: str) -> list[dict]:
+    if not console_store.session_exists(company_id, sid):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return console_store.read_turns(company_id, sid)
+
+
+@router.post("/companies/{company_id}/console/sessions/{sid}/ask")
+async def post_console_ask(
+    company_id: str,
+    sid: str,
+    prompt: str = Form(...),
+    images: list[UploadFile] = File(default=[]),
+) -> dict:
+    if not console_store.session_exists(company_id, sid):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not prompt or not prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    saved: list[str] = []
+    for upload in images or []:
+        data = await upload.read()
+        try:
+            record = console_store.save_attachment(
+                company_id=company_id,
+                session_id=sid,
+                filename=upload.filename or "image",
+                data=data,
+            )
+        except console_store.AttachmentTooLarge as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "attachment_too_large",
+                    "limit_bytes": console_store.MAX_IMAGE_BYTES,
+                    "message": str(exc),
+                },
+            ) from exc
+        except console_store.AttachmentTypeNotAllowed as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "attachment_type_not_allowed",
+                    "allowed": sorted(console_store.ALLOWED_IMAGE_TYPES),
+                    "message": str(exc),
+                },
+            ) from exc
+        saved.append(record["stored_name"])
+
+    try:
+        info = console_session.submit_ask(
+            company_id=company_id,
+            session_id=sid,
+            prompt=prompt.strip(),
+            attachments=saved,
+        )
+    except ValueError as exc:
+        code = str(exc)
+        if code == "session_archived":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "session_archived",
+                    "message": "Session is archived; create a new one.",
+                },
+            ) from exc
+        if code == "session_not_found":
+            raise HTTPException(status_code=404, detail="Session not found") from exc
+        raise HTTPException(status_code=400, detail=code) from exc
+
+    return {
+        "turn_id": info["turn_id"],
+        "queue_position": info["queue_position"],
+        "stream_url": (
+            f"/api/companies/{company_id}/console/sessions/{sid}"
+            f"/ask/stream/{info['turn_id']}"
+        ),
+    }
+
+
+def _console_event_stream(progress_path: "Path"):
+    """Shared SSE generator — replays from the start of the progress file
+    and tails new lines until a terminal ``done`` or ``error`` event is
+    seen. Mirrors the search-stream pattern.
+    """
+    import asyncio
+    import json as _json
+    import time
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return event_stream
+
+
+@router.get(
+    "/companies/{company_id}/console/sessions/{sid}/ask/stream/{turn_id}"
+)
+async def stream_console_ask(
+    company_id: str, sid: str, turn_id: str
+) -> "StreamingResponse":
+    from fastapi.responses import StreamingResponse
+
+    try:
+        path = console_store.ask_progress_path(company_id, sid, turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    gen = _console_event_stream(path)
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get(
+    "/companies/{company_id}/console/sessions/{sid}/hydrate/stream"
+)
+async def stream_console_hydrate(
+    company_id: str, sid: str
+) -> "StreamingResponse":
+    from fastapi.responses import StreamingResponse
+
+    try:
+        path = console_store.hydrate_progress_path(company_id, sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    gen = _console_event_stream(path)
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post(
+    "/companies/{company_id}/console/sessions/{sid}/ask/{turn_id}/cancel",
+    status_code=204,
+)
+def cancel_console_ask(
+    company_id: str, sid: str, turn_id: str
+) -> Response:
+    try:
+        ok = console_session.cancel_turn(company_id, sid, turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(
+            status_code=404,
+            detail="No in-flight turn with that id (already complete or unknown)",
+        )
+    return Response(status_code=204)
+
+
+@router.get(
+    "/companies/{company_id}/console/sessions/{sid}/attachments/{img_id}"
+)
+def get_console_attachment(
+    company_id: str, sid: str, img_id: str
+) -> FileResponse:
+    try:
+        path = console_store.get_attachment_path(company_id, sid, img_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if path is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return FileResponse(path)
+
+
+@router.post(
+    "/companies/{company_id}/console/sessions/{sid}/archive"
+)
+def archive_console_session(company_id: str, sid: str) -> dict:
+    meta = console_session.archive_session(company_id=company_id, session_id=sid)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _serialize_console_meta(meta)
+
+
+@router.delete(
+    "/companies/{company_id}/console/sessions/{sid}", status_code=204
+)
+def delete_console_session(company_id: str, sid: str) -> Response:
+    ok = console_store.hard_delete_session(company_id, sid)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return Response(status_code=204)

@@ -1,0 +1,284 @@
+"""Unit tests for server/console_store.py — §11.1 in the design doc."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from server import console_store
+
+
+COMPANY = "test_company_id"
+
+
+# ---- Session creation + listing ----------------------------------------
+
+
+def test_create_session_round_trip(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY,
+        include_background_docs=True,
+        include_library_docs=False,
+        included_files=[{"id": "abc", "kind": "research", "filename": "deck.pdf"}],
+    )
+    sid = meta["id"]
+    assert meta["status"] == "active"
+    assert meta["title"].startswith("Session ·")
+    assert meta["claude_session_id"]
+    assert meta["tokens"]["total_cost_usd"] == 0.0
+    assert meta["tokens"]["last_turn_usage"] is None
+
+    # Disk side: meta.json and turns.jsonl present, workdir + ask + attachments
+    # directories created.
+    sdir = console_store.session_dir(COMPANY, sid)
+    assert (sdir / "meta.json").exists()
+    assert (sdir / "turns.jsonl").exists()
+    assert (sdir / "workdir").is_dir()
+    assert (sdir / "workdir" / "attachments").is_dir()
+    assert (sdir / "ask").is_dir()
+    assert (sdir / "attachments").is_dir()
+
+    # Listing returns it.
+    sessions = console_store.list_sessions(COMPANY)
+    assert [s["id"] for s in sessions] == [sid]
+
+
+def test_session_limit_enforced(tmp_consoles):
+    for _ in range(console_store.MAX_ACTIVE_SESSIONS_PER_COMPANY):
+        console_store.create_session(
+            company_id=COMPANY,
+            include_background_docs=False,
+            include_library_docs=False,
+            included_files=[],
+        )
+    with pytest.raises(console_store.SessionLimitReached):
+        console_store.create_session(
+            company_id=COMPANY,
+            include_background_docs=False,
+            include_library_docs=False,
+            included_files=[],
+        )
+
+
+def test_archive_clears_active_slot(tmp_consoles):
+    metas = [
+        console_store.create_session(
+            company_id=COMPANY,
+            include_background_docs=False,
+            include_library_docs=False,
+            included_files=[],
+        )
+        for _ in range(console_store.MAX_ACTIVE_SESSIONS_PER_COMPANY)
+    ]
+    console_store.archive_session(COMPANY, metas[0]["id"])
+    assert console_store.active_count(COMPANY) == (
+        console_store.MAX_ACTIVE_SESSIONS_PER_COMPANY - 1
+    )
+    # Can now create another active session.
+    console_store.create_session(
+        company_id=COMPANY,
+        include_background_docs=False,
+        include_library_docs=False,
+        included_files=[],
+    )
+
+
+# ---- Token accounting ---------------------------------------------------
+
+
+def test_update_tokens_accumulates(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    console_store.update_tokens(
+        COMPANY, sid,
+        usage={"input_tokens": 100, "output_tokens": 20,
+               "cache_read_input_tokens": 200,
+               "cache_creation_input_tokens": 50},
+        cost_usd=0.05,
+    )
+    console_store.update_tokens(
+        COMPANY, sid,
+        usage={"input_tokens": 50, "output_tokens": 10,
+               "cache_read_input_tokens": 400,
+               "cache_creation_input_tokens": 0},
+        cost_usd=0.02,
+    )
+    meta = console_store.load_meta(COMPANY, sid)
+    t = meta["tokens"]
+    assert t["input"] == 150
+    assert t["output"] == 30
+    assert t["cache_read"] == 600
+    assert t["cache_creation"] == 50
+    assert abs(t["total_cost_usd"] - 0.07) < 1e-9
+    # last_turn_usage reflects ONLY the most recent turn.
+    assert t["last_turn_usage"]["input_tokens"] == 50
+    assert t["last_turn_usage"]["cache_read_input_tokens"] == 400
+
+
+def test_context_used_formula(tmp_consoles):
+    # Per §5: context_used = input + cache_read + cache_creation.
+    usage = {
+        "input_tokens": 1000,
+        "output_tokens": 500,        # NOT counted (it's output).
+        "cache_read_input_tokens": 300_000,
+        "cache_creation_input_tokens": 25_000,
+    }
+    assert console_store.context_used_from_usage(usage) == 326_000
+
+
+# ---- Turns ---------------------------------------------------------------
+
+
+def test_append_and_read_turns(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    console_store.append_turn(COMPANY, sid, {"id": "t1", "role": "user", "text": "hi"})
+    console_store.append_turn(
+        COMPANY, sid, {"id": "t1", "role": "assistant", "text": "hello", "subtype": "success"},
+    )
+    turns = console_store.read_turns(COMPANY, sid)
+    assert [t["role"] for t in turns] == ["user", "assistant"]
+    assert turns[1]["subtype"] == "success"
+
+
+# ---- Attachments --------------------------------------------------------
+
+
+def test_save_png_attachment(tmp_consoles, png_bytes):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="chart.png", data=png_bytes,
+    )
+    assert record["mime"] == "image/png"
+    assert record["size_bytes"] == len(png_bytes)
+    assert record["id"].startswith(record["id"][:8])  # sha is hex
+
+    # Mirrored into workdir/attachments for Claude.
+    work = console_store.workdir_attachments(COMPANY, sid) / record["stored_name"]
+    canonical = console_store.attachments_dir(COMPANY, sid) / record["stored_name"]
+    assert canonical.is_file()
+    assert work.is_file()
+
+
+def test_save_attachment_too_large(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    huge = b"\x89PNG\r\n\x1a\n" + b"\x00" * (console_store.MAX_IMAGE_BYTES + 1)
+    with pytest.raises(console_store.AttachmentTooLarge):
+        console_store.save_attachment(
+            company_id=COMPANY, session_id=sid,
+            filename="big.png", data=huge,
+        )
+
+
+def test_save_attachment_wrong_type(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    # Plausible-looking bytes that aren't PNG/JPEG/WebP.
+    with pytest.raises(console_store.AttachmentTypeNotAllowed):
+        console_store.save_attachment(
+            company_id=COMPANY, session_id=sid,
+            filename="evil.png", data=b"MZ\x90\x00" + b"\x00" * 20,
+        )
+
+
+def test_detect_image_type_sniffing(png_bytes, jpeg_bytes, webp_bytes):
+    assert console_store.detect_image_type(png_bytes) == "image/png"
+    assert console_store.detect_image_type(jpeg_bytes) == "image/jpeg"
+    assert console_store.detect_image_type(webp_bytes) == "image/webp"
+    assert console_store.detect_image_type(b"\x00\x00\x00\x00") is None
+
+
+# ---- Workdir staging ----------------------------------------------------
+
+
+def test_stage_docs_hardlink(tmp_consoles, tmp_path):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    src = tmp_path / "doc.pdf"
+    src.write_bytes(b"%PDF-1.4 hello")
+    staged = console_store.stage_docs(
+        company_id=COMPANY, session_id=sid, source_paths=[src],
+    )
+    assert len(staged) == 1
+    # Hardlink: same inode as source.
+    assert staged[0].stat().st_ino == src.stat().st_ino
+
+
+def test_stage_docs_copy_fallback(tmp_consoles, tmp_path, monkeypatch):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    src = tmp_path / "doc.pdf"
+    src.write_bytes(b"%PDF-1.4 copy-fallback")
+
+    import errno
+    def boom(*args, **kwargs):
+        raise OSError(errno.EXDEV, "Cross-device link")
+    monkeypatch.setattr(os, "link", boom)
+
+    staged = console_store.stage_docs(
+        company_id=COMPANY, session_id=sid, source_paths=[src],
+    )
+    assert staged[0].read_bytes() == src.read_bytes()
+    # Independent copy: different inode.
+    assert staged[0].stat().st_ino != src.stat().st_ino
+
+
+# ---- Path safety --------------------------------------------------------
+
+
+def test_rejects_path_traversal_in_session_id(tmp_consoles):
+    with pytest.raises(ValueError):
+        console_store.session_dir(COMPANY, "../../../etc")
+    with pytest.raises(ValueError):
+        console_store.meta_path(COMPANY, "/etc/passwd")
+
+
+def test_rejects_bad_attachment_id(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    with pytest.raises(ValueError):
+        console_store.get_attachment_path(COMPANY, sid, "../evil")
+
+
+# ---- Hard delete --------------------------------------------------------
+
+
+def test_hard_delete_removes_directory(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    assert console_store.session_exists(COMPANY, sid)
+    assert console_store.hard_delete_session(COMPANY, sid) is True
+    assert not console_store.session_exists(COMPANY, sid)
+    assert console_store.hard_delete_session(COMPANY, sid) is False

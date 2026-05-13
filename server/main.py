@@ -45,7 +45,7 @@ from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, HTMLResponse  # noqa: E402
 import mimetypes  # noqa: E402
 
-from . import auth_store, claude_runner  # noqa: E402
+from . import auth_store, claude_runner, console_session  # noqa: E402
 from .api import (  # noqa: E402
     auth_router,
     router as api_router,
@@ -111,6 +111,13 @@ def _startup() -> None:
             "return errors. Install with "
             "`npm install -g @anthropic-ai/claude-code` and authenticate."
         )
+    # Synthesize error turns for any Console session that lost an in-flight
+    # subprocess across the restart. Cheap, idempotent — see §7 of
+    # docs/console-feature.md.
+    try:
+        console_session.recover()
+    except Exception:  # noqa: BLE001
+        logger.exception("Console recovery sweep failed")
     _start_translation_backfill()
 
 
