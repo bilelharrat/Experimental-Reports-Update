@@ -43,10 +43,15 @@ import html as _html  # noqa: E402
 from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
 from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, HTMLResponse  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
+import mimetypes  # noqa: E402
 
-from . import claude_runner  # noqa: E402
-from .api import router as api_router, require_api_token, _expected_token  # noqa: E402
+from . import auth_store, claude_runner  # noqa: E402
+from .api import (  # noqa: E402
+    auth_router,
+    router as api_router,
+    require_api_token,
+    _expected_token,
+)
 from .company_translate import translate_company  # noqa: E402
 from .storage import bootstrap_seed_data, list_companies, update_company  # noqa: E402
 
@@ -55,18 +60,49 @@ logger = logging.getLogger("bsh.startup")
 DIST_DIR = ROOT_DIR / "frontend" / "dist"
 ASSETS_DIR = DIST_DIR / "assets"
 
-app = FastAPI(title="bsh-research-center")
+# root_path tells Starlette/FastAPI the prefix nginx mounts us under
+# (api.bshventures.com/research/*). With a non-stripping nginx, the
+# upstream receives the full `/research/...` path; Starlette strips
+# root_path internally before matching, and uses it to generate URLs
+# (OpenAPI servers, request.url_for, etc.). Harmless when called
+# directly at localhost:8010/ — paths without the prefix still route
+# normally because Starlette only strips the prefix when present.
+app = FastAPI(title="bsh-research-center", root_path="/research")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
-if ASSETS_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+# Serve the SPA's built assets via a regular route (not StaticFiles
+# mount). The mount path interacts awkwardly with root_path: when nginx
+# strips the prefix before forwarding, scope["root_path"] is still set
+# but scope["path"] no longer includes it, and StaticFiles ends up
+# looking for "assets/foo.js" inside ASSETS_DIR (one level too deep)
+# and returns 404. A direct route is independent of where the mount
+# point lives in the URL hierarchy, so it serves correctly whether
+# the request arrives prefixed (`/research/assets/...`) or stripped
+# (`/assets/...`).
+ASSETS_DIR_RESOLVED = ASSETS_DIR.resolve() if ASSETS_DIR.exists() else None
 
+
+@app.get("/assets/{file_path:path}", include_in_schema=False)
+async def _serve_spa_asset(file_path: str) -> FileResponse:
+    if ASSETS_DIR_RESOLVED is None:
+        raise HTTPException(status_code=503, detail="Frontend build missing.")
+    candidate = (ASSETS_DIR_RESOLVED / file_path).resolve()
+    # Path-traversal guard: candidate must live inside ASSETS_DIR.
+    if not str(candidate).startswith(str(ASSETS_DIR_RESOLVED) + "/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+    media_type, _ = mimetypes.guess_type(str(candidate))
+    return FileResponse(candidate, media_type=media_type)
+
+app.include_router(auth_router)
 app.include_router(api_router)
 
 
 @app.on_event("startup")
 def _startup() -> None:
     bootstrap_seed_data()
+    auth_store.bootstrap_seed_users()
     if claude_runner.is_available():
         logger.info("Claude Code CLI available — analysis paths enabled.")
     else:
@@ -142,12 +178,21 @@ def diagnostics() -> dict:
 
 
 def _serve_index() -> HTMLResponse:
-    """Serve the SPA shell. When ``BSH_RESEARCH_API_TOKEN`` is configured we
-    splice a ``<meta>`` tag into ``<head>`` so the in-browser app can read
-    the token and forward it on every API request (header or query). The
-    page itself is intentionally NOT gated — clients need to load it
-    before they can authenticate, and anyone who can already load the
-    HTML can also call the API.
+    """Serve the SPA shell.
+
+    Two ``<meta>`` tags are spliced into ``<head>`` for the in-browser app:
+
+    - ``bsh-research-api-token`` (when ``BSH_RESEARCH_API_TOKEN`` is set):
+      the legacy shared token, forwarded as the Bearer header.
+    - ``bsh-research-api-base``: the prefix the app is mounted under
+      (``root_path``). The SPA prepends it to every fetched URL so that
+      a non-stripping nginx upstream sees the full ``/research/...`` path
+      and Starlette's routing matches correctly. Empty when the app is
+      served at the root.
+
+    The page itself is intentionally NOT gated — clients need to load
+    it before they can authenticate, and anyone who can already load
+    the HTML can also call the API.
     """
     index_path = DIST_DIR / "index.html"
     if not index_path.exists():
@@ -156,22 +201,23 @@ def _serve_index() -> HTMLResponse:
             detail="Frontend build missing. Run `npm install && npm run build` in frontend/.",
         )
     html_text = index_path.read_text(encoding="utf-8")
+    metas: list[str] = []
     token = _expected_token()
     if token:
-        meta_tag = (
+        metas.append(
             f'<meta name="bsh-research-api-token" '
             f'content="{_html.escape(token, quote=True)}">'
         )
-        # Insert just before </head>; fall back to prepending into <head>
-        # if for some reason the close tag isn't present.
+    metas.append(
+        f'<meta name="bsh-research-api-base" '
+        f'content="{_html.escape(app.root_path or "", quote=True)}">'
+    )
+    if metas:
+        block = "\n  ".join(metas)
         if "</head>" in html_text:
-            html_text = html_text.replace(
-                "</head>", f"  {meta_tag}\n  </head>", 1
-            )
+            html_text = html_text.replace("</head>", f"  {block}\n  </head>", 1)
         elif "<head>" in html_text:
-            html_text = html_text.replace(
-                "<head>", f"<head>\n  {meta_tag}", 1
-            )
+            html_text = html_text.replace("<head>", f"<head>\n  {block}", 1)
     return HTMLResponse(content=html_text)
 
 

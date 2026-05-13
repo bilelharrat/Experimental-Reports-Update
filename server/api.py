@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from . import (
+    auth_store,
     cache,
     browser_archive,
     claude_runner,
@@ -48,17 +49,28 @@ logger = logging.getLogger("bsh.api")
 
 # ---- Auth ---------------------------------------------------------------
 #
-# All /api/* routes go through ``require_api_token``. When
-# ``BSH_RESEARCH_API_TOKEN`` is set in the environment, the dependency
-# accepts the token either as:
-#   - ``Authorization: Bearer <token>`` header  (preferred; used by JS
-#     fetch and by external clients e.g. iOS, rt-trans)
-#   - ``Authorization: Bearer sha256:<digest>`` (used by mobile builds so
-#     the raw token does not have to be embedded in the app bundle)
-#   - ``?token=<token>`` query parameter        (for EventSource SSE and
+# All /api/* routes go through ``require_api_token``. A request is
+# accepted if it presents EITHER:
+#
+#   (a) the shared ``BSH_RESEARCH_API_TOKEN`` env value — this is the
+#       legacy / "meta-tag" flow used by the SPA when the server splices
+#       the token into the served HTML; or
+#   (b) a per-session bearer token previously issued by
+#       ``POST /api/auth/token`` (the email+password login endpoint).
+#       These are stored hashed in ``data/sessions.json`` with a 30-day
+#       TTL — see ``server/auth_store.py``.
+#
+# Either kind may be presented as:
+#   - ``Authorization: Bearer <token>`` header (preferred — used by the
+#     web SPA, mobile clients, and external tooling)
+#   - ``Authorization: Bearer sha256:<digest>`` (only the shared token
+#     accepts a sha256-prefixed form; session tokens never do)
+#   - ``?token=<token>`` query parameter (for EventSource SSE and
 #     ``<a href="...">`` download links that can't set headers)
-# When the env var is empty/unset the dependency is a no-op so local
-# development still works without a token.
+#
+# When ``BSH_RESEARCH_API_TOKEN`` is empty/unset AND no users have logged
+# in yet, the dependency is a no-op so local development without auth
+# still works.
 
 
 def _expected_token() -> str | None:
@@ -106,6 +118,13 @@ def _api_token_matches(presented: str | None, expected: str) -> bool:
 
 
 def _describe_api_token(raw_value: str | None, normalized_value: str | None) -> str:
+    """Render an auth-token attempt for logs without leaking the raw token.
+
+    Shows length, kind (raw vs sha256), a short sha256 fingerprint, and
+    whether the original header carried the ``Bearer `` prefix — enough
+    to debug client/server token mismatches without writing the secret
+    itself to disk.
+    """
     normalized = normalized_value or ""
     raw = (raw_value or "").strip()
     had_bearer_prefix = raw.lower().startswith("bearer ")
@@ -115,15 +134,7 @@ def _describe_api_token(raw_value: str | None, normalized_value: str | None) -> 
     token_hash = _hash_token_digest(normalized)
     token_kind = "sha256" if token_hash else "raw"
     digest = (token_hash or _sha256_token(normalized))[:12]
-    log_full_token = (os.environ.get("BSH_RESEARCH_LOG_AUTH_TOKENS") or "").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if log_full_token:
-        display = normalized
-    elif token_hash:
+    if token_hash:
         display = f"sha256:{token_hash[:12]}..."
     elif len(normalized) <= 8:
         display = f"{normalized[:2]}...{normalized[-2:]}"
@@ -135,37 +146,125 @@ def _describe_api_token(raw_value: str | None, normalized_value: str | None) -> 
     )
 
 
+def _extract_presented_token(
+    request: Request, query_token: str | None
+) -> tuple[str | None, str | None]:
+    """Read whatever the client presented (header or ?token=) and return
+    ``(presented, raw_for_logging)``. Does not validate."""
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return _normalize_api_token(auth[7:]), auth
+    if query_token:
+        return _normalize_api_token(query_token), query_token
+    return None, None
+
+
 def require_api_token(
     request: Request,
     token: str | None = Query(default=None),
 ) -> None:
-    """FastAPI dependency: enforce bearer-token auth on /api/* routes."""
+    """FastAPI dependency: enforce bearer-token auth on /api/* routes.
+
+    Accepts the shared env-configured token OR any non-expired
+    per-session token issued via ``POST /api/auth/token``.
+    """
+    presented, presented_raw = _extract_presented_token(request, token)
     expected = _expected_token()
-    if not expected:
-        return  # dev mode — no token configured
-    presented: str | None = None
-    presented_raw: str | None = None
-    auth = request.headers.get("authorization") or ""
-    if auth.lower().startswith("bearer "):
-        presented_raw = auth
-        presented = _normalize_api_token(auth[7:])
-    if presented is None and token:
-        presented_raw = token
-        presented = _normalize_api_token(token)
-    if not _api_token_matches(presented, expected):
-        logger.warning(
-            "API token rejected path=%s presented={%s} expected={%s}",
-            request.url.path,
-            _describe_api_token(presented_raw, presented),
-            _describe_api_token(os.environ.get("BSH_RESEARCH_API_TOKEN"), expected),
-        )
-        raise HTTPException(
-            status_code=401,
-            detail="Missing or invalid API token",
-        )
+
+    # Dev mode: no env token configured AND no session token presented →
+    # let everything through so local-only development still works.
+    if not expected and presented is None:
+        return
+
+    # Fast path 1: shared env token (legacy / meta-tag flow).
+    if expected and _api_token_matches(presented, expected):
+        return
+
+    # Fast path 2: a session token issued by the login endpoint.
+    session = auth_store.validate_token(presented) if presented else None
+    if session:
+        # Stash the authenticated email on request.state so future routes
+        # (audit logs, "who am I") can pull it without re-validating.
+        request.state.session_email = session.get("email")
+        return
+
+    logger.warning(
+        "API token rejected path=%s presented={%s} expected={%s} session=%s",
+        request.url.path,
+        _describe_api_token(presented_raw, presented),
+        _describe_api_token(os.environ.get("BSH_RESEARCH_API_TOKEN"), expected or ""),
+        bool(session),
+    )
+    raise HTTPException(
+        status_code=401,
+        detail="Missing or invalid API token",
+    )
 
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_api_token)])
+
+# Public (unauthenticated) auth routes — registered separately on the
+# app in main.py so they aren't gated by ``require_api_token``. Today
+# only the login endpoint lives here; logout / "who am I" are on the
+# main authenticated router below.
+auth_router = APIRouter(prefix="/api/auth")
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., description="Account email address")
+    password: str = Field(..., description="Plain-text password — verified against PBKDF2 hash")
+
+
+class LoginResponse(BaseModel):
+    token: str
+    email: str
+    created_at: str
+    expires_at: str
+
+
+@auth_router.post("/token", response_model=LoginResponse)
+def login(payload: LoginRequest) -> LoginResponse:
+    """Email + password → freshly minted per-session bearer token.
+
+    On success the caller stores ``token`` and presents it as
+    ``Authorization: Bearer <token>`` on every subsequent ``/api/*``
+    call. The token is valid for 30 days unless revoked via
+    ``POST /api/auth/logout``.
+    """
+    email = auth_store.verify_credentials(payload.email, payload.password)
+    if not email:
+        logger.warning(
+            "Login rejected for email=%r (no match or bad password)",
+            payload.email,
+        )
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    session = auth_store.issue_session(email)
+    logger.info("Login accepted email=%s expires_at=%s", email, session["expires_at"])
+    return LoginResponse(**session)
+
+
+@router.get("/auth/me")
+def auth_me(request: Request) -> dict:
+    """Identify the caller — useful for the SPA to confirm a stored
+    token is still valid and to show the logged-in email in the UI.
+    Returns ``{email, auth: 'session' | 'shared'}``.
+    """
+    email = getattr(request.state, "session_email", None)
+    return {
+        "email": email,
+        "auth": "session" if email else "shared",
+    }
+
+
+@router.post("/auth/logout", status_code=204)
+def logout(request: Request, token: str | None = Query(default=None)) -> Response:
+    """Revoke the bearer token used on this request. Safe to call even if
+    the token was the shared env token (it's a no-op then).
+    """
+    presented, _ = _extract_presented_token(request, token)
+    if presented:
+        auth_store.revoke_token(presented)
+    return Response(status_code=204)
 
 REPORT_TYPES = (
     "Investment Memo (Late-Stage)",
@@ -176,6 +275,11 @@ REPORT_TYPES = (
 )
 AUDIENCES = ("LP", "Assistant", "Partner", "Internal")
 LANGUAGES = ("en", "zh")
+
+
+@router.get("/health")
+def api_health() -> dict:
+    return {"status": "ok", "service": "bsh-research-api"}
 
 
 class CompanyOut(BaseModel):

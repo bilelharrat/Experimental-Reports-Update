@@ -22,6 +22,7 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import FilePreviewModal from "./FilePreviewModal.vue";
 
 const t = useT();
 
@@ -41,6 +42,18 @@ const fileInput = ref(null);
 // the JSONL job_init lands and the poll picks it up).
 const launching = ref(new Set());
 const summaryError = ref({});  // file_id -> error message
+// Currently-previewed research file (null = modal closed).
+const previewing = ref(null);
+const previewUrl = computed(() =>
+  previewing.value
+    ? api.researchFileUrl(props.companyId, previewing.value.id, { inline: true })
+    : null,
+);
+const downloadUrl = computed(() =>
+  previewing.value
+    ? api.researchFileUrl(props.companyId, previewing.value.id)
+    : null,
+);
 // Per-file language toggle for the bilingual summary fields ("en" | "zh").
 // Used for both the image description block AND the non-image
 // title/summary/key_points/key_figures bilingual fields.
@@ -334,10 +347,6 @@ function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function fileUrl(f, { inline } = {}) {
-  return api.researchFileUrl(props.companyId, f.id, { inline });
 }
 
 function formatCost(c) {
@@ -744,15 +753,14 @@ function formatCost(c) {
                   </span>
                 </button>
 
-                <a
-                  :href="fileUrl(f, { inline: true })"
-                  target="_blank"
-                  rel="noopener"
+                <button
+                  type="button"
+                  @click="previewing = f"
                   class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border border-subtle bg-surface hover:bg-surface-muted text-ink-secondary focus-ring"
                 >
                   <Eye class="h-3 w-3" />
                   <span>{{ t("research_uploads.view") }}</span>
-                </a>
+                </button>
 
                 <button
                   type="button"
@@ -776,5 +784,14 @@ function formatCost(c) {
         </li>
       </ul>
     </div>
+
+    <FilePreviewModal
+      :company-id="companyId"
+      :file="previewing"
+      :preview-url="previewUrl"
+      :download-url="downloadUrl"
+      :previewable-kinds="['pdf', 'image']"
+      @close="previewing = null"
+    />
   </section>
 </template>

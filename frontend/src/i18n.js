@@ -189,6 +189,17 @@ const messages = {
     "library.download_tooltip": "Download {file}",
     "library.remove_tooltip": "Remove {file}",
     "library.remove_confirm": "Remove {file}?",
+    // Auth
+    "auth.title": "BSH Research Center",
+    "auth.subtitle": "Sign in to continue.",
+    "auth.email": "Email",
+    "auth.password": "Password",
+    "auth.sign_in": "Sign In",
+    "auth.signing_in": "Signing in…",
+    "auth.sign_out": "Sign out",
+    "auth.signed_in_as": "Signed in as",
+    "auth.invalid_credentials": "Invalid email or password.",
+    "auth.unknown_error": "Couldn't sign in. Try again.",
   },
   zh: {
     "nav.home": "首页",
@@ -357,6 +368,17 @@ const messages = {
     "library.download_tooltip": "下载 {file}",
     "library.remove_tooltip": "移除 {file}",
     "library.remove_confirm": "确定移除 {file}？",
+    // Auth
+    "auth.title": "BSH 研究中心",
+    "auth.subtitle": "请登录以继续。",
+    "auth.email": "邮箱",
+    "auth.password": "密码",
+    "auth.sign_in": "登录",
+    "auth.signing_in": "登录中…",
+    "auth.sign_out": "退出登录",
+    "auth.signed_in_as": "当前账号",
+    "auth.invalid_credentials": "邮箱或密码错误。",
+    "auth.unknown_error": "登录失败，请重试。",
   },
 };
 

@@ -4,6 +4,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Image as ImageIcon,
   Loader2,
   Presentation,
   X,
@@ -11,21 +12,37 @@ import {
 import { api } from "../api.js";
 
 const props = defineProps({
-  companyId: { type: String, required: true },
+  companyId: { type: String, default: null },
   file: { type: Object, default: null }, // null = closed
+  // Callers that don't use the default /api/companies/.../files/.../preview
+  // endpoint (e.g. the research-files library, which streams the raw file
+  // inline with no server-side conversion) can pass their own URLs here.
+  previewUrl: { type: String, default: null },
+  downloadUrl: { type: String, default: null },
+  // Which `file.kind` values render inline. Research files don't get
+  // server-side PPT→PDF conversion, so that caller narrows the set.
+  previewableKinds: {
+    type: Array,
+    default: () => ["pdf", "ppt", "pptx", "image"],
+  },
 });
 const emit = defineEmits(["close"]);
 
 const isOpen = computed(() => !!props.file);
-const previewUrl = computed(() =>
-  props.file ? api.filePreviewUrl(props.companyId, props.file.id) : null,
-);
-const downloadUrl = computed(() =>
-  props.file ? api.fileUrl(props.companyId, props.file.id) : null,
-);
-// /preview handles all supported kinds (PDFs as-is, PPT/PPTX via PowerPoint).
-const canPreview = computed(() =>
-  props.file && ["pdf", "ppt", "pptx"].includes(props.file.kind),
+const previewUrl = computed(() => {
+  if (!props.file) return null;
+  if (props.previewUrl) return props.previewUrl;
+  if (!props.companyId) return null;
+  return api.filePreviewUrl(props.companyId, props.file.id);
+});
+const downloadUrl = computed(() => {
+  if (!props.file) return null;
+  if (props.downloadUrl) return props.downloadUrl;
+  if (!props.companyId) return null;
+  return api.fileUrl(props.companyId, props.file.id);
+});
+const canPreview = computed(
+  () => !!props.file && props.previewableKinds.includes(props.file.kind),
 );
 const isPpt = computed(() =>
   props.file && (props.file.kind === "ppt" || props.file.kind === "pptx"),
@@ -126,7 +143,13 @@ watch(
           class="flex items-center gap-3 px-4 py-2.5 border-b border-subtle bg-surface"
         >
           <component
-            :is="file?.kind === 'pdf' ? FileText : Presentation"
+            :is="
+              file?.kind === 'image'
+                ? ImageIcon
+                : file?.kind === 'ppt' || file?.kind === 'pptx'
+                  ? Presentation
+                  : FileText
+            "
             class="h-4 w-4 text-ink-muted shrink-0"
           />
           <div class="flex-1 min-w-0">

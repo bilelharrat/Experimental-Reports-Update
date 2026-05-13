@@ -1,28 +1,98 @@
-// API auth. When the server has `BSH_RESEARCH_API_TOKEN` configured it
-// injects the value into the served HTML via this meta tag; we forward
-// the token on every API call. `apiFetch` is the canonical wrapper —
-// use it for any code path that hits /api/. For raw URLs (downloads,
-// EventSource SSE), use `withApiToken(path)` instead since those don't
-// support custom headers.
+// API auth. Two parallel paths:
+//
+//   1. Per-session bearer token (preferred). A future login UI will
+//      POST /api/auth/token with {email,password} and stash the returned
+//      session in localStorage under SESSION_KEY. While present and not
+//      expired, every API call uses it.
+//   2. Shared `BSH_RESEARCH_API_TOKEN` from the server-rendered <meta>
+//      tag (legacy / "meta-tag" flow). Falls back to this when there's
+//      no session in localStorage — keeps the current SPA working
+//      unchanged until the login UI lands.
+//
+// `apiFetch` is the canonical wrapper — use it for any code path that
+// hits /api/. For raw URLs (downloads, EventSource SSE), use
+// `withApiToken(path)` instead since those don't support custom headers.
+
+const SESSION_KEY = "bsh.research.session";
+
+// API path prefix (e.g. "/research") when the app is mounted under one.
+// Server injects this in the SPA HTML via <meta name="bsh-research-api-base">
+// based on FastAPI's root_path. Empty when the app is at the root. We
+// prepend it to every fetched URL so a non-stripping nginx + uvicorn
+// (root_path="/research") combo routes correctly.
+function getApiBase() {
+  if (typeof document === "undefined") return "";
+  const el = document.querySelector('meta[name="bsh-research-api-base"]');
+  const raw = el?.content ? el.content.trim() : "";
+  // Normalize: leading slash, no trailing slash, no double-prefix.
+  if (!raw) return "";
+  return ("/" + raw.replace(/^\/+|\/+$/g, "")).replace(/^\/$/, "");
+}
+
+export function withBase(path) {
+  const base = getApiBase();
+  if (!base) return path;
+  // Avoid double-prefixing if a caller has already supplied an absolute
+  // URL or a path that's been through withBase already.
+  if (/^https?:\/\//i.test(path)) return path;
+  if (path.startsWith(base + "/") || path === base) return path;
+  return base + (path.startsWith("/") ? path : "/" + path);
+}
+
+function getSessionToken() {
+  if (typeof window === "undefined" || !window.localStorage) return null;
+  let raw;
+  try {
+    raw = window.localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  let session;
+  try {
+    session = JSON.parse(raw);
+  } catch {
+    window.localStorage.removeItem(SESSION_KEY);
+    return null;
+  }
+  if (!session || !session.token) return null;
+  if (session.expires_at) {
+    const expiresAt = Date.parse(session.expires_at);
+    if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+      window.localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+  }
+  return session.token;
+}
 
 function getApiToken() {
+  const session = getSessionToken();
+  if (session) return session;
   if (typeof document === "undefined") return null;
   const el = document.querySelector('meta[name="bsh-research-api-token"]');
   return el && el.content ? el.content : null;
 }
 
 export function withApiToken(path) {
+  const url = withBase(path);
   const tok = getApiToken();
-  if (!tok) return path;
-  const sep = path.includes("?") ? "&" : "?";
-  return `${path}${sep}token=${encodeURIComponent(tok)}`;
+  if (!tok) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(tok)}`;
 }
 
 export function apiFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const tok = getApiToken();
   if (tok) headers["Authorization"] = `Bearer ${tok}`;
-  return fetch(path, { ...opts, headers });
+  return fetch(withBase(path), { ...opts, headers });
+}
+
+function _httpError(status, statusText, body) {
+  const err = new Error(`${status} ${statusText}${body ? `: ${body}` : ""}`);
+  err.status = status;
+  return err;
 }
 
 async function request(path, opts = {}) {
@@ -32,13 +102,43 @@ async function request(path, opts = {}) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    if (res.status === 401 && typeof window !== "undefined") {
+      // auth.js listens for this and clears the stale session so the
+      // router guard kicks the user back to /login on next nav.
+      window.dispatchEvent(new CustomEvent("bsh:unauthorized"));
+    }
+    throw _httpError(res.status, res.statusText, text);
   }
   if (res.status === 204) return null;
   return res.json();
 }
 
 export const api = {
+  // --- Auth ---
+  // login() is the only call that runs without a bearer header (it IS
+  // what mints the token). All other /api/* calls go through apiFetch.
+  login: async (email, password) => {
+    const res = await fetch(withBase("/api/auth/token"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const j = await res.json();
+        detail = j?.detail || "";
+      } catch {
+        detail = await res.text().catch(() => "");
+      }
+      throw _httpError(res.status, res.statusText, detail);
+    }
+    return res.json();
+  },
+  me: () => request("/api/auth/me"),
+  logout: () =>
+    request("/api/auth/logout", { method: "POST" }),
+
   options: () => request("/api/options"),
   listReports: () => request("/api/reports"),
   getReport: (id) => request(`/api/reports/${id}`),

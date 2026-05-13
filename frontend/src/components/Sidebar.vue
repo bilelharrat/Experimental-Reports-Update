@@ -1,17 +1,31 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
   FileText,
   Loader2,
   Home,
   Globe,
+  LogOut,
   Newspaper,
   ScrollText,
   ClipboardList,
+  User,
 } from "lucide-vue-next";
 import { appLanguage, setAppLanguage } from "../state.js";
+import { sessionEmail, signOut } from "../auth.js";
 import { useT } from "../i18n.js";
+
+const signingOut = ref(false);
+async function onSignOut() {
+  if (signingOut.value) return;
+  signingOut.value = true;
+  try {
+    await signOut();
+  } finally {
+    signingOut.value = false;
+  }
+}
 
 const t = useT();
 
@@ -364,5 +378,29 @@ const reports = computed(() => props.reports);
       </div>
     </div>
 
+    <div
+      v-if="sessionEmail"
+      class="border-t border-subtle px-3 py-3 flex items-center gap-2"
+    >
+      <User class="h-4 w-4 text-ink-muted shrink-0" />
+      <div class="min-w-0 flex-1">
+        <div class="text-[10px] uppercase tracking-wide text-ink-muted">
+          {{ t("auth.signed_in_as") }}
+        </div>
+        <div class="text-xs text-ink-secondary truncate" :title="sessionEmail">
+          {{ sessionEmail }}
+        </div>
+      </div>
+      <button
+        type="button"
+        @click="onSignOut"
+        :disabled="signingOut"
+        class="p-1.5 rounded hover:bg-surface-muted text-ink-muted hover:text-ink-primary focus-ring disabled:opacity-50"
+        :title="t('auth.sign_out')"
+        :aria-label="t('auth.sign_out')"
+      >
+        <LogOut class="h-4 w-4" />
+      </button>
+    </div>
   </aside>
 </template>
