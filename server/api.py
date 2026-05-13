@@ -28,6 +28,7 @@ from . import (
     browser_archive,
     claude_runner,
     companies_ai,
+    companies_ai_public,
     companies_autocomplete,
     company_translate,
     console_session,
@@ -312,6 +313,7 @@ class CompanyOut(BaseModel):
     notable_acquisitions: list[dict] = Field(default_factory=list)
     language: str | None = None
     translation: dict | None = None
+    trader_snapshot: dict | None = None  # populated for public companies via /trader/refresh
 
 
 class ReportSummary(BaseModel):
@@ -1611,6 +1613,9 @@ _JOB_KIND_PATHS = {
     "console_hydrate": _console_hydrate_path,
     "console_ask": _console_ask_path,
     "console_summary": _console_summary_path,
+    "public_snapshot": lambda key: (
+        storage.DATA_DIR / "_trader" / f"{key}__snapshot.progress.jsonl"
+    ),
 }
 
 
@@ -1683,6 +1688,39 @@ def _memo_kind_records():
             "company_id": init.get("company_id"),
             "run_id": init.get("run_id"),
             "run_dir": init.get("run_dir"),
+            **_common_state_fields(state),
+        }
+
+
+def _public_snapshot_kind_records():
+    """Yield active-jobs rail entries for in-flight trader-snapshot jobs.
+    One progress file per company (idempotent refresh)."""
+    base = storage.DATA_DIR / "_trader"
+    if not base.exists():
+        return
+    for jsonl_path in base.glob("*__snapshot.progress.jsonl"):
+        suffix = "__snapshot.progress.jsonl"
+        name = jsonl_path.name
+        if not name.endswith(suffix):
+            continue
+        company_id = name[: -len(suffix)]
+        state = _scan_progress_state(jsonl_path)
+        company = storage.get_company(company_id) or {}
+        yield {
+            "kind": state.get("kind") or "public_snapshot",
+            "title": state.get("title") or (
+                f"Trader snapshot: {company.get('name') or company_id}"
+            ),
+            "subtitle": state.get("subtitle") or company.get("ticker") or "",
+            "stream_url": (
+                f"/api/companies/{company_id}/trader/refresh/stream"
+            ),
+            "log_url": f"/api/jobs/log?path=public_snapshot:{company_id}",
+            "primary_route": {
+                "name": "research",
+                "params": {"companyId": company_id},
+            },
+            "company_id": company_id,
             **_common_state_fields(state),
         }
 
@@ -1785,6 +1823,7 @@ def get_active_jobs() -> list[dict]:
         _memo_kind_records(),
         _research_summary_kind_records(),
         _console_kind_records(),
+        _public_snapshot_kind_records(),
     ):
         for rec in source:
             if rec.get("terminated"):
@@ -2732,6 +2771,7 @@ def _company_view(c: dict) -> dict:
         "notable_acquisitions": list(c.get("notable_acquisitions") or []),
         "language": c.get("language"),
         "translation": c.get("translation"),
+        "trader_snapshot": c.get("trader_snapshot"),
     }
 
 
@@ -3153,3 +3193,137 @@ def delete_console_session(company_id: str, sid: str) -> Response:
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
     return Response(status_code=204)
+
+
+# ---- Public-company trader snapshot --------------------------------------
+#
+# POST /trader/refresh kicks off a Claude run that populates
+# ``company.trader_snapshot``. Idempotent — concurrent refreshes for the
+# same company share one job. See docs/public-company-trader-view.md §4.
+
+
+def _trader_snapshot_progress_path(company_id: str) -> "Path":
+    from pathlib import Path
+
+    base: Path = storage.DATA_DIR / "_trader"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"{company_id}__snapshot.progress.jsonl"
+
+
+def _run_trader_snapshot_job(company_id: str) -> None:
+    """Background worker for a single trader-snapshot refresh. Writes
+    progress events to JSONL and persists the snapshot on success.
+    """
+    progress = job_progress.ProgressLog(_trader_snapshot_progress_path(company_id))
+    company = storage.get_company(company_id) or {}
+    company_name = company.get("name") or company_id
+    ticker = company.get("ticker") or ""
+    progress.emit(
+        "job_init",
+        kind="public_snapshot",
+        title=f"Trader snapshot: {company_name}",
+        subtitle=ticker or "",
+        company_id=company_id,
+    )
+    progress.emit(
+        "stage", stage="starting",
+        message=f"Refreshing trader snapshot for {company_name}",
+    )
+
+    started_at = datetime.now(timezone.utc)
+    try:
+        snapshot, err = companies_ai_public.generate_snapshot(
+            company=company, progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("trader snapshot crashed for %s", company_id)
+        progress.emit(
+            "error",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return
+
+    if snapshot is None:
+        progress.emit("error", error=err or "Trader snapshot failed")
+        return
+
+    duration_ms = int(
+        (datetime.now(timezone.utc) - started_at).total_seconds() * 1000
+    )
+    snapshot["refreshed_at"] = datetime.now(timezone.utc).isoformat()
+    snapshot["generation_duration_ms"] = duration_ms
+
+    storage.update_company_snapshot(company_id, snapshot)
+    progress.emit(
+        "done",
+        refreshed_at=snapshot["refreshed_at"],
+        duration_ms=duration_ms,
+    )
+
+
+@router.post("/companies/{company_id}/trader/refresh")
+def post_trader_refresh(company_id: str) -> dict:
+    """Kick off (or attach to) a trader-snapshot refresh for a company.
+
+    Returns ``{job_id, stream_url, status}``. ``status`` is
+    ``"queued"`` when a fresh job spawned and ``"already_running"`` when
+    we attached to an existing in-flight refresh.
+
+    Public-only: returns 400 if the company's bucket is private.
+    """
+    company = storage.get_company(company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    company_type = company.get("company_type") or storage.infer_company_type(company)
+    if company_type != "public":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "company_type_not_public",
+                "message": (
+                    f"Company {company_id} is bucketed as "
+                    f"{company_type!r}; the trader snapshot only runs "
+                    "for public companies."
+                ),
+            },
+        )
+
+    path = _trader_snapshot_progress_path(company_id)
+    state = _scan_progress_state(path)
+    if state.get("exists") and not state.get("terminated"):
+        return {
+            "job_id": company_id,
+            "stream_url": (
+                f"/api/companies/{company_id}/trader/refresh/stream"
+            ),
+            "status": "already_running",
+        }
+
+    threading.Thread(
+        target=_run_trader_snapshot_job,
+        args=(company_id,),
+        name=f"trader-snapshot:{company_id}",
+        daemon=True,
+    ).start()
+    return {
+        "job_id": company_id,
+        "stream_url": f"/api/companies/{company_id}/trader/refresh/stream",
+        "status": "queued",
+    }
+
+
+@router.get("/companies/{company_id}/trader/refresh/stream")
+async def stream_trader_refresh(company_id: str) -> "StreamingResponse":
+    """SSE stream of progress events for the in-flight trader-snapshot
+    job for a company. Replays from disk so reconnects don't drop
+    events.
+    """
+    from fastapi.responses import StreamingResponse
+
+    path = _trader_snapshot_progress_path(company_id)
+    gen = _console_event_stream(path)
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

@@ -105,6 +105,17 @@ def update_company(company_id: str, **patch: Any) -> dict | None:
     return None
 
 
+def update_company_snapshot(
+    company_id: str, snapshot: dict
+) -> dict | None:
+    """Persist a freshly-generated ``trader_snapshot`` onto a company
+    record. ``snapshot`` is the dict returned by
+    ``companies_ai_public.generate_snapshot`` plus a ``refreshed_at`` and
+    optional ``generation_cost_usd`` / ``generation_duration_ms``.
+    """
+    return update_company(company_id, trader_snapshot=snapshot)
+
+
 def _slugify(name: str) -> str:
     out = []
     for ch in name.lower():

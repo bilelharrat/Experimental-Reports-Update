@@ -920,6 +920,125 @@ def run_company_search(
     return _parse_search_result(final_text, max_results)
 
 
+def run_public_company_snapshot(
+    *,
+    company_name: str,
+    ticker: str,
+    exchange: str | None,
+    schema: dict,
+    system_prompt: str,
+    timeout_sec: int = 600,
+    progress=None,
+) -> tuple[dict | None, str | None]:
+    """Spawn ``claude -p`` to produce one public-company trader snapshot.
+
+    Always streams (so the AI rail can tail the run). Returns
+    ``(snapshot, error)``; ``snapshot`` is the parsed dict on success.
+    Uses the same WebSearch/WebFetch tool surface as the deep-search
+    flow but with a snapshot-shaped JSON schema instead of the match-
+    list shape.
+    """
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not found on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and run `claude` "
+            "once to authenticate."
+        )
+
+    exchange_line = f" on {exchange}" if exchange else ""
+    user_prompt = (
+        f"{system_prompt}\n\n"
+        f"Target company: {company_name} ({ticker}){exchange_line}.\n\n"
+        "Produce the snapshot now. Use WebSearch and WebFetch on Yahoo "
+        "Finance, Nasdaq, the SEC, IR pages, and recent news sources. "
+        "Output ONE JSON object matching the attached schema."
+    )
+
+    # Per-snapshot work dir — Claude needs an --add-dir target even
+    # though we don't expect any tool writes here.
+    work_dir = Path("/tmp") / f"bsh_public_snapshot_{ticker.lower()}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", user_prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "WebSearch,WebFetch",
+        "--json-schema", json.dumps(schema),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    stderr_log: list[str] = []
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text: str | None = None
+    try:
+        for line in proc.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if progress is not None:
+                try:
+                    _process_search_event(event, progress, state)
+                except Exception:  # noqa: BLE001
+                    logger.exception("public-snapshot event handling failed")
+            if event.get("type") == "result":
+                structured = state.get("structured_output")
+                if isinstance(structured, dict):
+                    final_text = json.dumps(structured)
+                else:
+                    final_text = event.get("result")
+        proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return None, f"claude snapshot timed out after {timeout_sec}s"
+
+    if proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return None, (
+            f"claude exited {proc.returncode}"
+            + (f": {tail[:600]}" if tail else "")
+        )
+
+    if not final_text:
+        return None, "claude returned empty result"
+
+    parsed = _parse_json_tolerant(final_text)
+    if not isinstance(parsed, dict):
+        # Try to recover from a fenced block.
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        return None, "claude's final answer didn't parse as a JSON object"
+
+    return parsed, None
+
+
 def _parse_search_result(
     final_text: str | None, max_results: int
 ) -> tuple[list[dict] | None, str | None]:
