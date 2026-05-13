@@ -26,12 +26,30 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import claude_runner, console_store, files_store, job_progress, research_store
+from . import claude_runner, console_store, files_store, job_progress, research_store, storage
 
 logger = logging.getLogger(__name__)
 
 
-SKILL_PATH = Path(__file__).parent / "skills" / "bsh_company_console.md"
+# Two analyst personas — the runtime picks one per session based on the
+# target company's company_type. See docs/public-company-trader-view.md §5.
+SKILLS_DIR = Path(__file__).parent / "skills"
+PRIVATE_SKILL_PATH = SKILLS_DIR / "bsh_company_console.md"
+PUBLIC_SKILL_PATH = SKILLS_DIR / "bsh_company_console_public.md"
+SKILL_PATH = PRIVATE_SKILL_PATH  # back-compat alias; some call sites still import this
+
+
+def _resolve_skill_path(company_id: str) -> Path:
+    """Pick the right --append-system-prompt file given a company id.
+
+    Public companies get the trader-analyst persona; private (and all
+    fallbacks, including not-found) get the default analyst persona.
+    """
+    company = storage.get_company(company_id) if company_id else None
+    if not company:
+        return PRIVATE_SKILL_PATH
+    company_type = company.get("company_type") or storage.infer_company_type(company)
+    return PUBLIC_SKILL_PATH if company_type == "public" else PRIVATE_SKILL_PATH
 
 
 # ---- Cancel-event registry ---------------------------------------------
@@ -173,13 +191,22 @@ class _SessionDispatcher:
             turn_id=turn_id,
         )
 
+        # Use the skill path recorded at session-create time so re-typing
+        # the company mid-session doesn't change the analyst persona
+        # mid-conversation. Falls back to PRIVATE for older sessions
+        # that predate Phase 4 and never wrote skill_path to disk.
+        recorded_skill = meta.get("skill_path")
+        skill_path = Path(recorded_skill) if recorded_skill else PRIVATE_SKILL_PATH
+        if not skill_path.exists():
+            skill_path = PRIVATE_SKILL_PATH
+
         started = time.monotonic()
         try:
             outcome = claude_runner.run_console_ask(
                 claude_session_id=meta["claude_session_id"],
                 work_dir=console_store.workdir(self.company_id, self.session_id),
                 user_prompt=prompt,
-                skill_path=SKILL_PATH,
+                skill_path=skill_path,
                 progress=progress,
                 attachments=attachments,
                 output_language=meta.get("output_language"),
@@ -326,10 +353,14 @@ def create_session(
         included_files=included,
         output_language=output_language,
     )
-    # Track hydration status separately so a partial / interrupted hydrate
-    # is visible to the frontend and recoverable on restart.
+    # Lock in the right analyst persona for this session — recorded so
+    # the choice is stable across the session's lifetime even if the
+    # underlying company gets re-typed later.
+    skill_path = _resolve_skill_path(company_id)
     meta = console_store.update_meta(
-        company_id, meta["id"], hydration_status="in_progress",
+        company_id, meta["id"],
+        hydration_status="in_progress",
+        skill_path=str(skill_path),
     ) or meta
 
     console_store.stage_docs(
@@ -351,7 +382,7 @@ def create_session(
                 claude_session_id=meta["claude_session_id"],
                 work_dir=console_store.workdir(company_id, meta["id"]),
                 file_list=sources,
-                skill_path=SKILL_PATH,
+                skill_path=skill_path,
                 progress=progress,
                 output_language=output_language,
             )
@@ -558,6 +589,8 @@ def _write_error_assistant_turn(
 
 __all__ = [
     "SKILL_PATH",
+    "PRIVATE_SKILL_PATH",
+    "PUBLIC_SKILL_PATH",
     "create_session",
     "submit_ask",
     "archive_session",

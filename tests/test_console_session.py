@@ -357,6 +357,132 @@ def test_auto_rename_skipped_after_second_turn(tmp_consoles, monkeypatch):
     assert console_store.load_meta(COMPANY, sid)["title"] == "Manually picked"
 
 
+# ---- Persona swap by company_type --------------------------------------
+
+
+def test_public_company_uses_trader_persona(tmp_consoles, monkeypatch):
+    """When the target company is public, hydrate + ask both receive the
+    trader-analyst skill file, not the default analyst persona.
+    """
+    from server import storage
+
+    # Seed a public company in the same DATA_DIR the storage layer is
+    # rooted to. The tmp_consoles fixture redirects only console paths;
+    # we need to also redirect storage to a clean companies.yaml for
+    # this test.
+    storage_dir = tmp_consoles["root"]
+    monkeypatch.setattr(storage, "DATA_DIR", storage_dir)
+    monkeypatch.setattr(storage, "COMPANIES_FILE", storage_dir / "companies.yaml")
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {"id": COMPANY, "name": "AMD", "ticker": "AMD",
+         "status": "public", "company_type": "public"},
+    ])
+
+    captured = {"hydrate": [], "ask": []}
+
+    def fake_hydrate(*, skill_path, **kw):
+        captured["hydrate"].append(Path(skill_path).name)
+        return _stub_hydrate_ok(**kw)
+
+    def fake_ask(*, skill_path, **kw):
+        captured["ask"].append(Path(skill_path).name)
+        return _make_stub_ask(reply_text="ok")(**kw)
+
+    monkeypatch.setattr(claude_runner, "run_console_hydrate", fake_hydrate)
+    monkeypatch.setattr(claude_runner, "run_console_ask", fake_ask)
+
+    meta = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+    )
+    assert meta["skill_path"].endswith("bsh_company_console_public.md")
+
+    sid = meta["id"]
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and not captured["hydrate"]:
+        time.sleep(0.02)
+    assert captured["hydrate"] == ["bsh_company_console_public.md"]
+
+    info = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="hi", attachments=[],
+    )
+    _wait_for_assistant(COMPANY, sid, info["turn_id"])
+    assert captured["ask"] == ["bsh_company_console_public.md"]
+
+
+def test_private_company_uses_default_persona(tmp_consoles, monkeypatch):
+    from server import storage
+    storage_dir = tmp_consoles["root"]
+    monkeypatch.setattr(storage, "DATA_DIR", storage_dir)
+    monkeypatch.setattr(storage, "COMPANIES_FILE", storage_dir / "companies.yaml")
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {"id": COMPANY, "name": "Anduril", "status": "private",
+         "company_type": "private"},
+    ])
+
+    captured = []
+
+    def fake_hydrate(*, skill_path, **kw):
+        captured.append(Path(skill_path).name)
+        return _stub_hydrate_ok(**kw)
+
+    monkeypatch.setattr(claude_runner, "run_console_hydrate", fake_hydrate)
+    monkeypatch.setattr(claude_runner, "run_console_ask",
+                        _make_stub_ask(reply_text="ok"))
+
+    meta = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+    )
+    assert meta["skill_path"].endswith("bsh_company_console.md")
+
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and not captured:
+        time.sleep(0.02)
+    assert captured == ["bsh_company_console.md"]
+
+
+def test_skill_path_survives_company_retype(tmp_consoles, monkeypatch):
+    """A session created when the company was private must keep using
+    the default persona even if the company later flips to public."""
+    from server import storage
+    storage_dir = tmp_consoles["root"]
+    monkeypatch.setattr(storage, "DATA_DIR", storage_dir)
+    monkeypatch.setattr(storage, "COMPANIES_FILE", storage_dir / "companies.yaml")
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {"id": COMPANY, "name": "Foo", "status": "private",
+         "company_type": "private"},
+    ])
+
+    monkeypatch.setattr(claude_runner, "run_console_hydrate", _stub_hydrate_ok)
+    monkeypatch.setattr(claude_runner, "run_console_ask",
+                        _make_stub_ask(reply_text="ok"))
+
+    meta = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+    )
+    sid = meta["id"]
+    # Now the company gets re-typed to public.
+    storage.update_company(COMPANY, company_type="public", ticker="FOO",
+                           status="public")
+
+    captured = []
+
+    def fake_ask(*, skill_path, **kw):
+        captured.append(Path(skill_path).name)
+        return _make_stub_ask(reply_text="ok")(**kw)
+
+    monkeypatch.setattr(claude_runner, "run_console_ask", fake_ask)
+    info = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="hi", attachments=[],
+    )
+    _wait_for_assistant(COMPANY, sid, info["turn_id"])
+    # Session was created when the company was private, so the
+    # private persona should stay locked in even after re-typing.
+    assert captured == ["bsh_company_console.md"]
+
+
 def test_cancel_in_flight_turn(tmp_consoles, monkeypatch):
     """When ask is in flight, cancel_turn returns True and sets the
     registered event; after it completes, cancel returns False."""
