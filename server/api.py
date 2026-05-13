@@ -293,6 +293,7 @@ class CompanyOut(BaseModel):
     industry: str | None = None
     exchange: str | None = None
     status: str | None = None
+    company_type: str | None = None  # "public" | "private" (see storage.infer_company_type)
     hq: str | None = None
     founded_year: int | None = None
     website: str | None = None
@@ -2712,6 +2713,7 @@ def _company_view(c: dict) -> dict:
         "industry": c.get("industry"),
         "exchange": c.get("exchange"),
         "status": c.get("status"),
+        "company_type": c.get("company_type") or storage.infer_company_type(c),
         "hq": c.get("hq"),
         "founded_year": c.get("founded_year"),
         "website": c.get("website"),

@@ -125,6 +125,29 @@ _LEGAL_SUFFIX_RE = re.compile(
 )
 
 
+# Bucket the deep-search ``status`` field (plus a ticker-presence fallback)
+# into a two-value discriminator the UI and Console use to dispatch.
+# See docs/public-company-trader-view.md §1.
+def infer_company_type(record: dict) -> str:
+    """Return ``"public"`` or ``"private"`` for a company record.
+
+    Rules:
+      - status == "public" → public
+      - status in {"private","subsidiary","nonprofit"} → private
+      - status missing/null:
+          * non-empty ticker → public (ticker presence is a strong
+            signal; deep-search just didn't classify)
+          * empty ticker → private
+    """
+    status = (record.get("status") or "").strip().lower()
+    if status == "public":
+        return "public"
+    if status in {"private", "subsidiary", "nonprofit"}:
+        return "private"
+    ticker = (record.get("ticker") or "").strip()
+    return "public" if ticker else "private"
+
+
 def _normalize_company_name(name: str) -> str:
     """Lowercase + strip punctuation + drop trailing legal suffixes.
 
@@ -205,6 +228,9 @@ def upsert_company_from_match(match: dict) -> dict:
                 existing["description"] = match["description"]
             if not existing.get("sector") and match.get("sector"):
                 existing["sector"] = match["sector"]
+            # Refresh company_type so a record's bucket tracks new ticker /
+            # status info from the latest deep-search hit.
+            existing["company_type"] = infer_company_type(existing)
             companies[found_idx] = existing
             _write_yaml(COMPANIES_FILE, companies)
             return {**existing}
@@ -226,6 +252,7 @@ def upsert_company_from_match(match: dict) -> dict:
             "sector": match.get("sector"),
             **enrichment,
         }
+        new_entry["company_type"] = infer_company_type(new_entry)
         companies.append(new_entry)
         _write_yaml(COMPANIES_FILE, companies)
         return {**new_entry}
@@ -399,8 +426,32 @@ _SEED_COMPANIES = [
 
 
 def bootstrap_seed_data() -> None:
-    """Write a starter company list if the data directory is empty."""
+    """Write a starter company list if the data directory is empty, then
+    backfill the ``company_type`` discriminator on every existing record
+    so the public/private dispatch in the rest of the app has something
+    to switch on. Idempotent.
+    """
     with _LOCK:
         _ensure_dirs()
         if not COMPANIES_FILE.exists():
             _write_yaml(COMPANIES_FILE, _SEED_COMPANIES)
+        _backfill_company_types()
+
+
+def _backfill_company_types() -> None:
+    """Set ``company_type`` on any record missing it. Caller holds the
+    lock.
+    """
+    companies = _read_yaml(COMPANIES_FILE, [])
+    if not isinstance(companies, list):
+        return
+    changed = False
+    for c in companies:
+        if not isinstance(c, dict):
+            continue
+        if c.get("company_type") in ("public", "private"):
+            continue
+        c["company_type"] = infer_company_type(c)
+        changed = True
+    if changed:
+        _write_yaml(COMPANIES_FILE, companies)
