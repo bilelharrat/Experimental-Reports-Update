@@ -21,6 +21,7 @@ import {
 import { api } from "../api.js";
 import { appLanguage } from "../state.js";
 import { useT } from "../i18n.js";
+import TraderView from "./TraderView.vue";
 
 const t = useT();
 
@@ -370,6 +371,14 @@ const earningsLine = computed(() => {
       </div>
     </div>
   </header>
+
+  <!-- Public companies render the trader-cards strip first; private
+       companies fall straight through to the insights section below. -->
+  <TraderView
+    v-if="company.company_type === 'public'"
+    :company="company"
+    @refreshed="(c) => c && $emit('refreshed', c)"
+  />
 
   <div v-if="hasInsights" class="mt-4 space-y-2">
     <div class="flex items-center justify-between">

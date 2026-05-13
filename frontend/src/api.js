@@ -354,6 +354,16 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // ---- Public-company trader snapshot ----
+  // POST kicks off (or attaches to) a refresh; SSE streams claude_action
+  // events; on `done`, the company record's trader_snapshot is fresh.
+  trader: {
+    refresh: (companyId) =>
+      request(`/api/companies/${companyId}/trader/refresh`, { method: "POST" }),
+    streamUrl: (companyId) =>
+      withApiToken(`/api/companies/${companyId}/trader/refresh/stream`),
+  },
+
   // ---- Console (per-company Q&A sessions) ----
   //
   // See docs/console-feature.md. All routes inherit the api_router auth
