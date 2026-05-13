@@ -2608,6 +2608,56 @@ def run_console_ask(
     return outcome
 
 
+def run_console_title(
+    *,
+    user_prompt: str,
+    assistant_text: str,
+    timeout_sec: int = 30,
+) -> str | None:
+    """Generate a 3-6 word title for a Console session given its first turn.
+
+    Tiny single-shot Claude call (~$0.001). Returns the title or None on
+    any failure — the caller falls back to the timestamp title.
+    """
+    if not is_available():
+        return None
+    prompt = (
+        "Below is the first Q&A turn from a research analyst's Console "
+        "session. Reply with a 3-6 word title for the session — concise, "
+        "specific to the topic. No quotes, no trailing punctuation, no "
+        '"Re:" prefix. Reply with just the title text and nothing else.\n\n'
+        f"USER: {user_prompt[:1000]}\n\nASSISTANT: {assistant_text[:1500]}"
+    )
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "json",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--no-session-persistence",
+        "--allowedTools", "",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout_sec,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        envelope = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    text = (envelope.get("result") or "").strip()
+    # Strip surrounding quotes / trailing punctuation if Claude defied the
+    # instruction.
+    text = text.strip().strip('"').strip("'").rstrip(".!?")
+    if not text or len(text) > 80:
+        return None
+    return text
+
+
 def run_console_summary(
     *,
     turns: list[dict],

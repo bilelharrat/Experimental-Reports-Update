@@ -257,6 +257,68 @@ def test_recover_is_idempotent(tmp_consoles, monkeypatch):
 # ---- Cancel -------------------------------------------------------------
 
 
+def test_auto_rename_after_first_successful_turn(tmp_consoles, monkeypatch):
+    """Once the first assistant record lands, run_console_title is called
+    in a background thread and the session's meta.title is updated.
+    """
+    monkeypatch.setattr(claude_runner, "run_console_hydrate", _stub_hydrate_ok)
+    monkeypatch.setattr(claude_runner, "run_console_ask",
+                        _make_stub_ask(reply_text="Burn was $14.2M last Q."))
+    monkeypatch.setattr(claude_runner, "run_console_title",
+                        lambda **kw: "AMI Burn Rate Q1 2025")
+    meta = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+    )
+    sid = meta["id"]
+    assert meta["title"].startswith("Session ·")  # default
+
+    info = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid,
+        prompt="What was burn last quarter?", attachments=[],
+    )
+    _wait_for_assistant(COMPANY, sid, info["turn_id"])
+
+    # Auto-rename runs in a daemon thread; poll briefly.
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        m = console_store.load_meta(COMPANY, sid)
+        if m and m.get("title") == "AMI Burn Rate Q1 2025":
+            return
+        time.sleep(0.05)
+    pytest.fail(f"title was not auto-renamed; current={m.get('title')!r}")
+
+
+def test_auto_rename_skipped_after_second_turn(tmp_consoles, monkeypatch):
+    """If the title is already set, _maybe_auto_rename short-circuits."""
+    title_calls = []
+    monkeypatch.setattr(claude_runner, "run_console_hydrate", _stub_hydrate_ok)
+    monkeypatch.setattr(claude_runner, "run_console_ask",
+                        _make_stub_ask(reply_text="ok"))
+
+    def fake_title(**kw):
+        title_calls.append(kw)
+        return "Should not be called"
+    monkeypatch.setattr(claude_runner, "run_console_title", fake_title)
+
+    meta = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+    )
+    sid = meta["id"]
+    # Pretend the user already set a manual title.
+    console_store.update_meta(COMPANY, sid, title="Manually picked")
+
+    info = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="hi", attachments=[],
+    )
+    _wait_for_assistant(COMPANY, sid, info["turn_id"])
+    # Give the daemon a beat to NOT do anything.
+    time.sleep(0.1)
+    assert title_calls == []
+    assert console_store.load_meta(COMPANY, sid)["title"] == "Manually picked"
+
+
 def test_cancel_in_flight_turn(tmp_consoles, monkeypatch):
     """When ask is in flight, cancel_turn returns True and sets the
     registered event; after it completes, cancel returns False."""

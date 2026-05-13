@@ -40,6 +40,27 @@ const pendingText = ref("");       // accumulating assistant text
 const pendingAction = ref("");     // "tool_use: Read deck.pdf" etc.
 const pendingQueuePos = ref(0);
 
+// Turn IDs the user has submitted but that are still waiting in the
+// server-side queue (server runs one ask per session at a time). The
+// pendingTurnId is the head of the queue; queuedTurns is everything
+// behind it.
+const queuedTurns = ref([]); // string[] turn_ids
+
+const queuedDisplay = computed(() => {
+  // Look up each queued turn id in `turns` so we can show the original
+  // prompt text alongside the "queued — position N" badge.
+  return queuedTurns.value.map((tid, i) => {
+    const userRecord = turns.value.find(
+      (t) => t.id === tid && t.role === "user",
+    );
+    return {
+      turn_id: tid,
+      position: i + 1, // 1-indexed: position 1 = next up after pending
+      prompt: userRecord?.text || "",
+    };
+  });
+});
+
 // Hydration tail (one at a time per active session — we just show the latest
 // stage message and switch to "ready" when done).
 const hydrationStage = ref("");
@@ -59,6 +80,30 @@ const includeBg = ref(true);
 const includeLib = ref(true);
 const creating = ref(false);
 const sessionLimitError = ref(null);
+const estimate = ref(null);
+const estimateLoading = ref(false);
+let estimateDebounce = null;
+
+function refreshEstimate() {
+  clearTimeout(estimateDebounce);
+  estimateDebounce = setTimeout(async () => {
+    estimateLoading.value = true;
+    try {
+      estimate.value = await api.console.estimate(props.companyId, {
+        include_background_docs: includeBg.value,
+        include_library_docs: includeLib.value,
+      });
+    } catch {
+      estimate.value = null;
+    } finally {
+      estimateLoading.value = false;
+    }
+  }, 150);
+}
+
+watch([includeBg, includeLib, showCreate], () => {
+  if (showCreate.value) refreshEstimate();
+});
 
 const activeSessions = computed(() =>
   sessions.value.filter((s) => s.status === "active"),
@@ -151,9 +196,11 @@ onBeforeUnmount(closeStreams);
 
 function openCreate() {
   sessionLimitError.value = null;
+  estimate.value = null;
   showCreate.value = true;
   includeBg.value = true;
   includeLib.value = true;
+  refreshEstimate();
 }
 
 async function confirmCreate() {
@@ -252,6 +299,13 @@ function openAskStream(sid, turnId) {
         turns.value = await api.console.getTurns(props.companyId, sid);
         activeMeta.value = await api.console.getSession(props.companyId, sid);
       } catch { /* ignore */ }
+      // If more turns are queued client-side, advance to the next.
+      if (queuedTurns.value.length) {
+        const next = queuedTurns.value[0];
+        queuedTurns.value = queuedTurns.value.slice(1);
+        pendingQueuePos.value = 0;
+        openAskStream(sid, next);
+      }
       scrollToBottom();
     }
   };
@@ -307,8 +361,6 @@ async function send() {
       prompt.value.trim(),
       stagedFiles.value,
     );
-    pendingQueuePos.value = info.queue_position;
-    openAskStream(activeId.value, info.turn_id);
     // Optimistically push the user turn so it shows up before the next
     // getTurns refresh.
     turns.value = [
@@ -321,6 +373,16 @@ async function send() {
         attachments: stagedFiles.value.map((f) => ({ name: f.name })),
       },
     ];
+    // Either start streaming this turn now (queue is empty) or enqueue
+    // it client-side until the active turn finishes. We don't open SSE
+    // for queued items because their progress file doesn't exist yet
+    // and the stream endpoint times out after 5s waiting for it.
+    if (pendingTurnId.value) {
+      queuedTurns.value = [...queuedTurns.value, info.turn_id];
+    } else {
+      pendingQueuePos.value = info.queue_position;
+      openAskStream(activeId.value, info.turn_id);
+    }
     prompt.value = "";
     stagedFiles.value = [];
     await nextTick();
@@ -412,31 +474,35 @@ function attachmentUrl(turn, att) {
 <template>
   <div class="bg-surface border border-subtle rounded-card shadow-card p-4 flex flex-col gap-3"
        style="min-height: 500px;">
-    <!-- Tab strip -->
-    <div class="flex items-center gap-2 flex-wrap">
-      <button
-        v-for="s in activeSessions"
-        :key="s.id"
-        @click="selectSession(s.id)"
-        :class="[
-          'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm focus-ring',
-          activeId === s.id
-            ? 'bg-accent text-white'
-            : 'bg-surface-muted text-ink-secondary hover:bg-surface',
-        ]"
-      >
-        <span class="h-1.5 w-1.5 rounded-full"
-              :class="activeId === s.id ? 'bg-white' : 'bg-accent'"></span>
-        <span class="truncate max-w-[160px]">{{ s.title }}</span>
-      </button>
-      <button
-        @click="openCreate"
-        class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm bg-surface-muted text-ink-primary hover:bg-surface border border-subtle focus-ring"
-      >
-        <Plus class="h-3.5 w-3.5" />
-        {{ tr("console.new_console") }}
-      </button>
-      <div v-if="archivedSessions.length" class="ml-auto">
+    <!-- Tab strip — horizontal scroll handles overflow when many tabs. -->
+    <div class="flex items-center gap-2">
+      <div class="flex-1 overflow-x-auto">
+        <div class="flex items-center gap-2 w-max">
+          <button
+            v-for="s in activeSessions"
+            :key="s.id"
+            @click="selectSession(s.id)"
+            :class="[
+              'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm focus-ring flex-shrink-0',
+              activeId === s.id
+                ? 'bg-accent text-white'
+                : 'bg-surface-muted text-ink-secondary hover:bg-surface',
+            ]"
+          >
+            <span class="h-1.5 w-1.5 rounded-full"
+                  :class="activeId === s.id ? 'bg-white' : 'bg-accent'"></span>
+            <span class="truncate max-w-[160px]">{{ s.title }}</span>
+          </button>
+          <button
+            @click="openCreate"
+            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm bg-surface-muted text-ink-primary hover:bg-surface border border-subtle focus-ring flex-shrink-0"
+          >
+            <Plus class="h-3.5 w-3.5" />
+            {{ tr("console.new_console") }}
+          </button>
+        </div>
+      </div>
+      <div v-if="archivedSessions.length" class="flex-shrink-0">
         <ConsoleSessions :company-id="companyId" :sessions="archivedSessions" />
       </div>
     </div>
@@ -566,6 +632,21 @@ function attachmentUrl(turn, att) {
           <div v-if="pendingAction" class="text-xs text-ink-muted italic">{{ pendingAction }}</div>
           <div class="whitespace-pre-wrap text-ink-primary">{{ pendingText }}</div>
         </div>
+
+        <!-- Queued turns (waiting for prior to complete) -->
+        <div
+          v-for="q in queuedDisplay"
+          :key="'q:' + q.turn_id"
+          class="space-y-1 opacity-70"
+        >
+          <div class="text-xs uppercase tracking-wide text-ink-muted">
+            ▶ {{ tr("console.claude") }}
+            <span class="normal-case tracking-normal">
+              ({{ tr("console.queued_position", { n: q.position }) }})
+            </span>
+          </div>
+          <div class="text-xs text-ink-muted italic">⋯</div>
+        </div>
       </div>
 
       <!-- Input -->
@@ -643,19 +724,69 @@ function attachmentUrl(turn, att) {
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       @click.self="showCreate = false"
     >
-      <div class="bg-surface rounded-card shadow-card border border-subtle p-6 max-w-md w-full space-y-4">
+      <div class="bg-surface rounded-card shadow-card border border-subtle p-6 max-w-lg w-full space-y-4 max-h-[80vh] overflow-y-auto">
         <h3 class="font-display text-lg font-semibold text-ink-primary">
           {{ tr("console.create_console") }}
         </h3>
         <p class="text-sm text-ink-secondary">{{ tr("console.empty_help") }}</p>
+
         <label class="flex items-center gap-2 text-sm text-ink-primary">
           <input type="checkbox" v-model="includeBg" class="rounded" />
-          {{ tr("console.include_background_docs", { count: "—" }) }}
+          {{
+            tr("console.include_background_docs", {
+              count: estimate?.files?.filter((f) => f.kind === "research").length ?? "—",
+            })
+          }}
         </label>
         <label class="flex items-center gap-2 text-sm text-ink-primary">
           <input type="checkbox" v-model="includeLib" class="rounded" />
-          {{ tr("console.include_library_docs", { count: "—" }) }}
+          {{
+            tr("console.include_library_docs", {
+              count: estimate?.files?.filter((f) => f.kind === "library").length ?? "—",
+            })
+          }}
         </label>
+
+        <!-- File list + cost estimate -->
+        <div
+          v-if="estimateLoading"
+          class="rounded-lg border border-subtle bg-surface-muted p-3 text-xs text-ink-muted"
+        >
+          {{ tr("console.estimate_loading") }}
+        </div>
+        <div
+          v-else-if="estimate && estimate.files?.length"
+          class="rounded-lg border border-subtle bg-surface-muted p-3 space-y-2 text-xs"
+        >
+          <div class="font-medium text-ink-primary uppercase tracking-wide text-[10px]">
+            {{ tr("console.estimate_files", { count: estimate.files.length }) }}
+          </div>
+          <ul class="space-y-0.5 text-ink-secondary max-h-40 overflow-y-auto">
+            <li
+              v-for="f in estimate.files"
+              :key="f.kind + ':' + f.id"
+              class="flex items-center justify-between gap-2"
+            >
+              <span class="truncate">{{ f.filename }}</span>
+              <span class="text-ink-muted whitespace-nowrap">{{ Math.round((f.size_bytes || 0) / 1024) }} KB</span>
+            </li>
+          </ul>
+          <div class="border-t border-subtle pt-2 text-ink-secondary">
+            {{
+              tr("console.estimate_cost", {
+                cost: "$" + (estimate.cost_usd_est || 0).toFixed(2),
+                seconds: estimate.duration_est_s || 0,
+              })
+            }}
+          </div>
+        </div>
+        <div
+          v-else-if="estimate"
+          class="rounded-lg border border-subtle bg-surface-muted p-3 text-xs text-ink-muted"
+        >
+          {{ tr("console.estimate_zero") }}
+        </div>
+
         <div v-if="sessionLimitError" class="text-xs text-danger">
           {{ sessionLimitError }}
         </div>

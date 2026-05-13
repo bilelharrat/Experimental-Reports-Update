@@ -1577,6 +1577,21 @@ def _memo_stream_path_for_report(report_id: str):
     return memo_prep.stream_path(repo_root / run_dir)
 
 
+def _console_hydrate_path(key: str):
+    company_id, sid = key.split("/", 1)
+    return console_store.hydrate_progress_path(company_id, sid)
+
+
+def _console_summary_path(key: str):
+    company_id, sid = key.split("/", 1)
+    return console_store.summary_progress_path(company_id, sid)
+
+
+def _console_ask_path(key: str):
+    company_id, sid, turn_id = key.split("/", 2)
+    return console_store.ask_progress_path(company_id, sid, turn_id)
+
+
 _JOB_KIND_PATHS = {
     "summary": lambda key: (
         files_store._company_dir(key.split("/", 1)[0])
@@ -1592,6 +1607,9 @@ _JOB_KIND_PATHS = {
     "research_summary": lambda key: research_store.quick_summary_progress_path(
         key.split("/", 1)[0], key.split("/", 1)[1]
     ),
+    "console_hydrate": _console_hydrate_path,
+    "console_ask": _console_ask_path,
+    "console_summary": _console_summary_path,
 }
 
 
@@ -1668,6 +1686,79 @@ def _memo_kind_records():
         }
 
 
+def _console_kind_records():
+    """Yield active-jobs rail entries for Console hydrate/ask/summary jobs.
+
+    Scans ``data/consoles/<company>/sessions/<sid>/`` for the three kinds
+    of progress JSONLs the Console writes. Lightweight — re-globs on each
+    call, no caching, mirrors the other ``_*_kind_records`` helpers.
+    """
+    if not console_store.CONSOLES_ROOT.exists():
+        return
+    for sdir in console_store.CONSOLES_ROOT.glob("*/sessions/*"):
+        if not sdir.is_dir():
+            continue
+        company_id = sdir.parent.parent.name
+        sid = sdir.name
+
+        for jsonl_path, kind, log_token, key in (
+            (sdir / "hydrate.progress.jsonl", "console_hydrate",
+             "console_hydrate", f"{company_id}/{sid}"),
+            (sdir / "summary.progress.jsonl", "console_summary",
+             "console_summary", f"{company_id}/{sid}"),
+        ):
+            if not jsonl_path.exists():
+                continue
+            state = _scan_progress_state(jsonl_path)
+            yield {
+                "kind": state.get("kind") or kind,
+                "title": state.get("title") or "Console",
+                "subtitle": state.get("subtitle") or "Console",
+                "stream_url": (
+                    f"/api/companies/{company_id}/console/sessions/{sid}"
+                    + (
+                        "/hydrate/stream" if kind == "console_hydrate"
+                        else "/summary/stream"
+                    )
+                ),
+                "log_url": f"/api/jobs/log?path={log_token}:{key}",
+                "primary_route": {
+                    "name": "research",
+                    "params": {"companyId": company_id},
+                    "query": {"tab": "console"},
+                },
+                "company_id": company_id,
+                "session_id": sid,
+                **_common_state_fields(state),
+            }
+
+        ask_dir = sdir / "ask"
+        if not ask_dir.exists():
+            continue
+        for jsonl_path in ask_dir.glob("*.progress.jsonl"):
+            turn_id = jsonl_path.name.removesuffix(".progress.jsonl")
+            state = _scan_progress_state(jsonl_path)
+            yield {
+                "kind": state.get("kind") or "console_ask",
+                "title": state.get("title") or "Console Q&A",
+                "subtitle": state.get("subtitle") or "Console",
+                "stream_url": (
+                    f"/api/companies/{company_id}/console/sessions/{sid}"
+                    f"/ask/stream/{turn_id}"
+                ),
+                "log_url": f"/api/jobs/log?path=console_ask:{company_id}/{sid}/{turn_id}",
+                "primary_route": {
+                    "name": "research",
+                    "params": {"companyId": company_id},
+                    "query": {"tab": "console"},
+                },
+                "company_id": company_id,
+                "session_id": sid,
+                "turn_id": turn_id,
+                **_common_state_fields(state),
+            }
+
+
 def _resolve_job_log_path(combined: str):
     """Resolve a `kind:key` token into its on-disk JSONL path."""
     if ":" not in combined:
@@ -1692,6 +1783,7 @@ def get_active_jobs() -> list[dict]:
         _pdf_translation_kind_records(),
         _memo_kind_records(),
         _research_summary_kind_records(),
+        _console_kind_records(),
     ):
         for rec in source:
             if rec.get("terminated"):
@@ -2723,6 +2815,54 @@ def list_console_sessions(company_id: str) -> list[dict]:
     ]
 
 
+# Rough heuristics for the cost-estimate endpoint. Tokens-per-byte for
+# document content is highly variable; the goal here is to give the user
+# an order-of-magnitude before they spend real money on hydration.
+_EST_TOKENS_PER_BYTE = 0.25  # ≈4 bytes/token for text-heavy content
+_EST_USD_PER_M_INPUT = 3.0   # rough Opus 4 input price (cache_creation tier)
+_EST_TOKENS_PER_SECOND = 8000
+
+
+@router.get("/companies/{company_id}/console/estimate")
+def estimate_console_hydration(
+    company_id: str,
+    include_background_docs: bool = True,
+    include_library_docs: bool = True,
+) -> dict:
+    """Preview what the create-console modal will hydrate: file list +
+    rough cost + rough duration. Used by the frontend before the user
+    confirms a Create."""
+    files: list[dict] = []
+    total_bytes = 0
+    if include_background_docs:
+        for entry in research_store.list_files(company_id):
+            files.append({
+                "id": entry["id"],
+                "kind": "research",
+                "filename": entry.get("filename") or entry.get("stored_name"),
+                "size_bytes": int(entry.get("size_bytes") or 0),
+            })
+            total_bytes += int(entry.get("size_bytes") or 0)
+    if include_library_docs:
+        for entry in files_store.list_files(company_id):
+            files.append({
+                "id": entry["id"],
+                "kind": "library",
+                "filename": entry.get("filename") or entry.get("stored_name"),
+                "size_bytes": int(entry.get("size_bytes") or 0),
+            })
+            total_bytes += int(entry.get("size_bytes") or 0)
+    tokens_est = int(total_bytes * _EST_TOKENS_PER_BYTE)
+    cost_usd_est = tokens_est * _EST_USD_PER_M_INPUT / 1_000_000
+    duration_est_s = max(5, int(tokens_est / _EST_TOKENS_PER_SECOND))
+    return {
+        "files": files,
+        "tokens_est": tokens_est,
+        "cost_usd_est": round(cost_usd_est, 3),
+        "duration_est_s": duration_est_s,
+    }
+
+
 @router.post("/companies/{company_id}/console/sessions", status_code=201)
 def create_console_session(
     company_id: str, body: _ConsoleCreateBody | None = None
@@ -2920,6 +3060,28 @@ async def stream_console_hydrate(
 
     try:
         path = console_store.hydrate_progress_path(company_id, sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    gen = _console_event_stream(path)
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get(
+    "/companies/{company_id}/console/sessions/{sid}/summary/stream"
+)
+async def stream_console_summary(
+    company_id: str, sid: str
+) -> "StreamingResponse":
+    """SSE for the archive-summary subprocess. Used by the AI rail to tail
+    the summary as it generates."""
+    from fastapi.responses import StreamingResponse
+
+    try:
+        path = console_store.summary_progress_path(company_id, sid)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     gen = _console_event_stream(path)

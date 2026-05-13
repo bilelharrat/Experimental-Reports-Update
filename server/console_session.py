@@ -213,6 +213,44 @@ class _SessionDispatcher:
                 cost_usd=outcome.get("cost_usd") or 0.0,
             )
 
+        # Auto-rename after the first successful turn lands. Cheap one-shot
+        # Claude call; failure falls back to the timestamp title silently.
+        if outcome.get("ok"):
+            self._maybe_auto_rename(prompt, outcome.get("text") or "")
+
+    def _maybe_auto_rename(self, user_prompt: str, assistant_text: str) -> None:
+        meta = console_store.load_meta(self.company_id, self.session_id)
+        if meta is None:
+            return
+        if not (meta.get("title") or "").startswith("Session ·"):
+            return  # User or a prior auto-rename already set a title.
+        # Only fire when we have exactly the first user/assistant pair.
+        turns = console_store.read_turns(self.company_id, self.session_id)
+        assistants = [t for t in turns if t.get("role") == "assistant"]
+        if len(assistants) != 1:
+            return
+        company_id = self.company_id
+        session_id = self.session_id
+
+        def _worker() -> None:
+            try:
+                title = claude_runner.run_console_title(
+                    user_prompt=user_prompt,
+                    assistant_text=assistant_text,
+                )
+            except Exception:  # noqa: BLE001
+                title = None
+            if title:
+                console_store.update_meta(
+                    company_id, session_id, title=title,
+                )
+
+        threading.Thread(
+            target=_worker,
+            name=f"console-title-{self.session_id[:8]}",
+            daemon=True,
+        ).start()
+
 
 # ---- Dispatcher registry -----------------------------------------------
 

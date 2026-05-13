@@ -362,6 +362,13 @@ export const api = {
   console: {
     listSessions: (companyId) =>
       request(`/api/companies/${companyId}/console/sessions`),
+    estimate: (companyId, { include_background_docs = true, include_library_docs = true } = {}) => {
+      const qs = new URLSearchParams({
+        include_background_docs: include_background_docs ? "true" : "false",
+        include_library_docs: include_library_docs ? "true" : "false",
+      });
+      return request(`/api/companies/${companyId}/console/estimate?${qs}`);
+    },
     createSession: (companyId, { include_background_docs = true, include_library_docs = true } = {}) =>
       request(`/api/companies/${companyId}/console/sessions`, {
         method: "POST",

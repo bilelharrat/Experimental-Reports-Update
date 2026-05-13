@@ -273,3 +273,67 @@ def test_cancel_returns_404_when_no_turn(tmp_consoles, stubbed_claude, client):
         f"/ask/{fake_turn}/cancel"
     )
     assert resp.status_code == 404
+
+
+# ---- Estimate endpoint -------------------------------------------------
+
+
+def test_estimate_zero_for_empty_company(tmp_consoles, stubbed_claude, client):
+    resp = client.get(
+        f"/api/companies/{COMPANY}/console/estimate"
+        "?include_background_docs=true&include_library_docs=true"
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["files"] == []
+    assert body["tokens_est"] == 0
+    assert body["cost_usd_est"] == 0
+    assert body["duration_est_s"] >= 5  # floor
+
+
+def test_estimate_picks_up_research_files(tmp_consoles, stubbed_claude, client):
+    # Drop a fake research file directly onto disk so the estimate sees it.
+    from server import research_store
+    cdir = research_store._company_dir(COMPANY)
+    cdir.mkdir(parents=True, exist_ok=True)
+    payload = b"# Notes\n\n" + b"x" * 4000
+    fid = "abc123def456"
+    (cdir / f"{fid}__notes.md").write_bytes(payload)
+    (cdir / "index.yaml").write_text(
+        '- {"id": "abc123def456", "filename": "notes.md", '
+        f'"stored_name": "{fid}__notes.md", "kind": "text", '
+        f'"size_bytes": {len(payload)}, "uploaded_at": "2026-01-01T00:00:00Z"}}\n',
+        encoding="utf-8",
+    )
+    resp = client.get(
+        f"/api/companies/{COMPANY}/console/estimate"
+        "?include_background_docs=true&include_library_docs=false"
+    )
+    body = resp.json()
+    assert len(body["files"]) == 1
+    assert body["files"][0]["filename"] == "notes.md"
+    # ~0.25 tokens/byte: 4007 bytes → ~1000 tokens, ~$0.003.
+    assert body["tokens_est"] > 0
+    assert body["cost_usd_est"] >= 0
+
+
+# ---- AI rail (/api/jobs/active) ----------------------------------------
+
+
+def test_console_jobs_appear_in_active_jobs(
+    tmp_consoles, stubbed_claude, client,
+):
+    """After creating a session, the hydrate progress file is on disk and
+    /api/jobs/active should surface it until it terminates."""
+    meta = _create(client)
+    # The hydrate worker fires `done` quickly with the stub, so wait a
+    # tiny moment and then check whether a Console entry shows up
+    # either as in-flight or terminated — the aggregator filters
+    # terminated entries out in /jobs/active, so we look at /jobs/log
+    # directly to confirm a Console job log exists.
+    log_resp = client.get(
+        f"/api/jobs/log?path=console_hydrate:{COMPANY}/{meta['id']}"
+    )
+    assert log_resp.status_code == 200
+    events = log_resp.json()
+    assert any(ev.get("type") == "job_init" for ev in events)
