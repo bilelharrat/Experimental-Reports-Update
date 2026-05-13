@@ -16,6 +16,7 @@ import { appLanguage } from "../state.js";
 import CompanyLibrary from "../components/CompanyLibrary.vue";
 import ResearchUploads from "../components/ResearchUploads.vue";
 import CompanyDetail from "../components/CompanyDetail.vue";
+import CompanyConsole from "../components/CompanyConsole.vue";
 
 const tr = useT();
 
@@ -87,6 +88,22 @@ const newAnswer = ref("");
 const submittingThread = ref(false);
 
 const libraryRefresh = ref(0);
+
+// Three-tab shell: overview (default), documents, console. Tab selection
+// is per-mount — switching companies resets to overview. Persisted in the
+// route query so a deep-linked URL preserves the tab.
+const activeTab = ref(route.query.tab || "overview");
+function switchTab(name) {
+  activeTab.value = name;
+  router.replace({
+    name: "research",
+    params: { companyId: props.companyId },
+    query: { ...route.query, tab: name === "overview" ? undefined : name },
+  });
+}
+watch(() => route.query.tab, (v) => {
+  activeTab.value = v || "overview";
+});
 
 let pollId = null;
 
@@ -266,8 +283,50 @@ onUnmounted(stopPolling);
     </div>
     <div v-else class="text-sm text-ink-muted">{{ tr("common.loading") }}</div>
 
+    <!-- Three-tab shell — Overview / Documents / Console. -->
+    <div v-if="company" class="flex items-center gap-1 border-b border-subtle">
+      <button
+        @click="switchTab('overview')"
+        :class="[
+          'px-4 py-2 text-sm font-medium focus-ring rounded-t-lg',
+          activeTab === 'overview'
+            ? 'text-ink-primary border-b-2 border-accent -mb-px'
+            : 'text-ink-muted hover:text-ink-primary',
+        ]"
+      >
+        {{ tr("research.tab_overview") }}
+      </button>
+      <button
+        @click="switchTab('documents')"
+        :class="[
+          'px-4 py-2 text-sm font-medium focus-ring rounded-t-lg',
+          activeTab === 'documents'
+            ? 'text-ink-primary border-b-2 border-accent -mb-px'
+            : 'text-ink-muted hover:text-ink-primary',
+        ]"
+      >
+        {{ tr("research.tab_documents") }}
+      </button>
+      <button
+        @click="switchTab('console')"
+        :class="[
+          'px-4 py-2 text-sm font-medium focus-ring rounded-t-lg',
+          activeTab === 'console'
+            ? 'text-ink-primary border-b-2 border-accent -mb-px'
+            : 'text-ink-muted hover:text-ink-primary',
+        ]"
+      >
+        {{ tr("research.tab_console") }}
+      </button>
+    </div>
+
+    <CompanyConsole
+      v-if="company && activeTab === 'console'"
+      :company-id="companyId"
+    />
+
     <section
-      v-if="company"
+      v-if="company && activeTab === 'overview'"
       class="bg-surface border border-subtle rounded-card shadow-card p-6"
     >
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-4">
@@ -317,7 +376,7 @@ onUnmounted(stopPolling);
     </section>
 
     <section
-      v-if="activeReport"
+      v-if="activeReport && activeTab === 'overview'"
       class="bg-surface border border-subtle rounded-card shadow-card p-6"
     >
       <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -494,17 +553,20 @@ onUnmounted(stopPolling);
       </div>
     </section>
 
-    <ResearchUploads v-if="company" :company-id="companyId" />
+    <ResearchUploads
+      v-if="company && activeTab === 'documents'"
+      :company-id="companyId"
+    />
 
     <CompanyLibrary
-      v-if="company"
+      v-if="company && activeTab === 'documents'"
       :company-id="companyId"
       :refresh-key="libraryRefresh"
       @open-report="openReportFromLibrary"
     />
 
     <section
-      v-if="company"
+      v-if="company && activeTab === 'overview'"
       class="bg-surface border border-subtle rounded-card shadow-card p-6"
     >
       <h2 class="font-display text-lg font-semibold text-ink-primary mb-1">

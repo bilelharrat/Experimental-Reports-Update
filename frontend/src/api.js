@@ -353,4 +353,74 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  // ---- Console (per-company Q&A sessions) ----
+  //
+  // See docs/console-feature.md. All routes inherit the api_router auth
+  // dependency; SSE URLs are wrapped with `withApiToken` so EventSource
+  // can authenticate without setting headers.
+  console: {
+    listSessions: (companyId) =>
+      request(`/api/companies/${companyId}/console/sessions`),
+    createSession: (companyId, { include_background_docs = true, include_library_docs = true } = {}) =>
+      request(`/api/companies/${companyId}/console/sessions`, {
+        method: "POST",
+        body: JSON.stringify({ include_background_docs, include_library_docs }),
+      }),
+    getSession: (companyId, sid) =>
+      request(`/api/companies/${companyId}/console/sessions/${sid}`),
+    getTurns: (companyId, sid) =>
+      request(`/api/companies/${companyId}/console/sessions/${sid}/turns`),
+    ask: async (companyId, sid, prompt, files = []) => {
+      const fd = new FormData();
+      fd.append("prompt", prompt);
+      for (const f of files) fd.append("images", f, f.name);
+      const res = await apiFetch(
+        `/api/companies/${companyId}/console/sessions/${sid}/ask`,
+        { method: "POST", body: fd },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let detail = null;
+        try { detail = JSON.parse(text); } catch { /* keep raw text */ }
+        const err = _httpError(res.status, res.statusText, text);
+        err.detail = detail;
+        throw err;
+      }
+      return res.json();
+    },
+    askStreamUrl: (companyId, sid, turnId) =>
+      withApiToken(
+        `/api/companies/${companyId}/console/sessions/${sid}/ask/stream/${turnId}`,
+      ),
+    hydrateStreamUrl: (companyId, sid) =>
+      withApiToken(
+        `/api/companies/${companyId}/console/sessions/${sid}/hydrate/stream`,
+      ),
+    cancelAsk: async (companyId, sid, turnId) => {
+      const res = await apiFetch(
+        `/api/companies/${companyId}/console/sessions/${sid}/ask/${turnId}/cancel`,
+        { method: "POST" },
+      );
+      if (!res.ok && res.status !== 404) {
+        throw _httpError(res.status, res.statusText, await res.text().catch(() => ""));
+      }
+      return res.status === 204;
+    },
+    attachmentUrl: (companyId, sid, imgId) =>
+      withApiToken(
+        `/api/companies/${companyId}/console/sessions/${sid}/attachments/${imgId}`,
+      ),
+    archive: (companyId, sid) =>
+      request(`/api/companies/${companyId}/console/sessions/${sid}/archive`, {
+        method: "POST",
+      }),
+    deleteSession: async (companyId, sid) => {
+      const res = await apiFetch(
+        `/api/companies/${companyId}/console/sessions/${sid}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw _httpError(res.status, res.statusText, await res.text().catch(() => ""));
+    },
+  },
 };
