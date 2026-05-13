@@ -1,6 +1,7 @@
 """HTTP API for the research center."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import secrets
@@ -52,6 +53,8 @@ logger = logging.getLogger("bsh.api")
 # accepts the token either as:
 #   - ``Authorization: Bearer <token>`` header  (preferred; used by JS
 #     fetch and by external clients e.g. iOS, rt-trans)
+#   - ``Authorization: Bearer sha256:<digest>`` (used by mobile builds so
+#     the raw token does not have to be embedded in the app bundle)
 #   - ``?token=<token>`` query parameter        (for EventSource SSE and
 #     ``<a href="...">`` download links that can't set headers)
 # When the env var is empty/unset the dependency is a no-op so local
@@ -62,8 +65,74 @@ def _expected_token() -> str | None:
     """Read the configured token at call time (so test/runtime changes to
     the environment take effect without restart).
     """
-    val = os.environ.get("BSH_RESEARCH_API_TOKEN") or ""
-    return val.strip() or None
+    return _normalize_api_token(os.environ.get("BSH_RESEARCH_API_TOKEN"))
+
+
+def _normalize_api_token(value: str | None) -> str | None:
+    token_value = (value or "").strip()
+    if token_value.lower().startswith("bearer "):
+        token_value = token_value[7:].strip()
+    return token_value or None
+
+
+def _sha256_token(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _hash_token_digest(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    if not normalized.lower().startswith("sha256:"):
+        return None
+    digest = normalized.split(":", 1)[1].strip().lower()
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        return None
+    return digest
+
+
+def _api_token_matches(presented: str | None, expected: str) -> bool:
+    if not presented:
+        return False
+    if secrets.compare_digest(presented, expected):
+        return True
+
+    expected_hash = _hash_token_digest(expected) or _sha256_token(expected)
+    presented_hash = _hash_token_digest(presented)
+    if presented_hash:
+        return secrets.compare_digest(presented_hash, expected_hash)
+
+    if _hash_token_digest(expected):
+        return secrets.compare_digest(_sha256_token(presented), expected_hash)
+    return False
+
+
+def _describe_api_token(raw_value: str | None, normalized_value: str | None) -> str:
+    normalized = normalized_value or ""
+    raw = (raw_value or "").strip()
+    had_bearer_prefix = raw.lower().startswith("bearer ")
+    if not normalized:
+        return f"present=false raw_len={len(raw)} bearer_prefix={had_bearer_prefix}"
+
+    token_hash = _hash_token_digest(normalized)
+    token_kind = "sha256" if token_hash else "raw"
+    digest = (token_hash or _sha256_token(normalized))[:12]
+    log_full_token = (os.environ.get("BSH_RESEARCH_LOG_AUTH_TOKENS") or "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if log_full_token:
+        display = normalized
+    elif token_hash:
+        display = f"sha256:{token_hash[:12]}..."
+    elif len(normalized) <= 8:
+        display = f"{normalized[:2]}...{normalized[-2:]}"
+    else:
+        display = f"{normalized[:4]}...{normalized[-4:]}"
+    return (
+        f"present=true kind={token_kind} value={display} len={len(normalized)} "
+        f"sha256={digest} bearer_prefix={had_bearer_prefix}"
+    )
 
 
 def require_api_token(
@@ -75,12 +144,21 @@ def require_api_token(
     if not expected:
         return  # dev mode — no token configured
     presented: str | None = None
+    presented_raw: str | None = None
     auth = request.headers.get("authorization") or ""
     if auth.lower().startswith("bearer "):
-        presented = auth[7:].strip() or None
+        presented_raw = auth
+        presented = _normalize_api_token(auth[7:])
     if presented is None and token:
-        presented = token.strip() or None
-    if presented is None or not secrets.compare_digest(presented, expected):
+        presented_raw = token
+        presented = _normalize_api_token(token)
+    if not _api_token_matches(presented, expected):
+        logger.warning(
+            "API token rejected path=%s presented={%s} expected={%s}",
+            request.url.path,
+            _describe_api_token(presented_raw, presented),
+            _describe_api_token(os.environ.get("BSH_RESEARCH_API_TOKEN"), expected),
+        )
         raise HTTPException(
             status_code=401,
             detail="Missing or invalid API token",
@@ -437,6 +515,11 @@ def refresh_company(company_id: str) -> CompanyOut:
     """Re-run the AI deep search for this company by name and merge the new
     enrichment back into the local record. Also patch any other cached search
     results that contain this company so they show the fresh data on next view.
+
+    Progress is streamed into the search-job JSONL so the ActiveJobsRail can
+    surface this work alongside other in-flight Claude tasks. The HTTP call
+    stays synchronous — the response carries the refreshed company once the
+    underlying deep-search returns.
     """
     from . import cache
 
@@ -446,24 +529,57 @@ def refresh_company(company_id: str) -> CompanyOut:
     name = company.get("name") or ""
     if not name:
         raise HTTPException(status_code=400, detail="Company has no name to query")
-    result = companies_ai.deep_search(name, force_refresh=True)
-    matches = result.get("matches") or []
-    chosen: dict | None = next(
-        (m for m in matches if m.get("id") == company_id), None
+
+    progress = job_progress.ProgressLog(
+        _search_progress_path(f"refresh_{company_id}")
     )
-    if chosen is None and matches:
-        chosen = matches[0]
-    _ensure_company_translation(company_id, force=True)
-    refreshed = storage.get_company(company_id) or chosen or company
-    view = _company_view(refreshed)
-    # Patch any cached deep-search result that referenced this company so future
-    # cache hits don't show stale data.
-    cache.update_in_namespace(
-        "companies_ai",
-        predicate=lambda item: item.get("id") == company_id,
-        transform=lambda _item: dict(view),
+    progress.emit(
+        "job_init",
+        kind="search",
+        title=f"Refreshing {name}",
+        subtitle="Company refresh",
+        query=name,
+        refresh=True,
+        company_id=company_id,
     )
-    return CompanyOut(**view)
+    progress.emit("stage", stage="starting", message="Starting refresh", query=name)
+    try:
+        result = companies_ai.deep_search(
+            name, force_refresh=True, progress=progress
+        )
+        matches = result.get("matches") or []
+        chosen: dict | None = next(
+            (m for m in matches if m.get("id") == company_id), None
+        )
+        if chosen is None and matches:
+            chosen = matches[0]
+        progress.emit("stage", stage="translating", message="Translating company record")
+        _ensure_company_translation(company_id, force=True)
+        refreshed = storage.get_company(company_id) or chosen or company
+        view = _company_view(refreshed)
+        # Patch any cached deep-search result that referenced this company so
+        # future cache hits don't show stale data.
+        cache.update_in_namespace(
+            "companies_ai",
+            predicate=lambda item: item.get("id") == company_id,
+            transform=lambda _item: dict(view),
+        )
+        progress.emit(
+            "done",
+            source=result.get("source"),
+            matches=matches,
+            cached_at=result.get("cached_at"),
+            reason=result.get("reason"),
+        )
+        return CompanyOut(**view)
+    except HTTPException:
+        progress.emit("error", error="HTTPException")
+        raise
+    except Exception as exc:  # noqa: BLE001
+        progress.emit(
+            "error", error=f"Refresh crashed: {type(exc).__name__}: {exc}"
+        )
+        raise
 
 
 @router.post("/companies/{company_id}/translate")
