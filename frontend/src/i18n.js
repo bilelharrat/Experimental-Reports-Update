@@ -241,9 +241,9 @@ const messages = {
       "Maximum {limit} active sessions per company. Archive one to start another.",
     "console.no_session_yet": "No active session.",
     "console.error_attachment_too_large":
-      "Image too large. Maximum 10 MB per upload.",
+      "Attachment too large. Maximum 10 MB per upload.",
     "console.error_attachment_type":
-      "Only PNG, JPEG, or WebP images are accepted.",
+      "Only PNG / JPEG / WebP images or PDF / DOC / DOCX documents are accepted.",
     "console.error_attachment_missing": "No image selected.",
     "console.cancelled": "Stopped",
     "console.failed": "Failed",
@@ -473,9 +473,9 @@ const messages = {
       "每个公司最多 {limit} 个活跃会话。请归档一个再新建。",
     "console.no_session_yet": "暂无活跃会话。",
     "console.error_attachment_too_large":
-      "图片过大。每次上传最多 10 MB。",
+      "附件过大。每次上传最多 10 MB。",
     "console.error_attachment_type":
-      "仅接受 PNG、JPEG 或 WebP 图片。",
+      "仅接受 PNG / JPEG / WebP 图片或 PDF / DOC / DOCX 文档。",
     "console.error_attachment_missing": "未选择图片。",
     "console.cancelled": "已停止",
     "console.failed": "失败",

@@ -179,11 +179,65 @@ def test_save_attachment_too_large(tmp_consoles):
         include_library_docs=False, included_files=[],
     )
     sid = meta["id"]
-    huge = b"\x89PNG\r\n\x1a\n" + b"\x00" * (console_store.MAX_IMAGE_BYTES + 1)
+    huge = b"\x89PNG\r\n\x1a\n" + b"\x00" * (console_store.MAX_ATTACHMENT_BYTES + 1)
     with pytest.raises(console_store.AttachmentTooLarge):
         console_store.save_attachment(
             company_id=COMPANY, session_id=sid,
             filename="big.png", data=huge,
+        )
+
+
+def test_save_pdf_attachment(tmp_consoles, pdf_bytes):
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="report.pdf", data=pdf_bytes,
+    )
+    assert record["mime"] == "application/pdf"
+    assert record["stored_name"].endswith(".pdf")
+
+
+def test_save_doc_attachment_requires_extension(tmp_consoles, doc_bytes):
+    """OLE2 magic is shared with .xls/.ppt; we accept only .doc."""
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="notes.doc", data=doc_bytes,
+    )
+    assert record["mime"] == "application/msword"
+    # Same magic with an .xls name is rejected (we don't accept Excel).
+    with pytest.raises(console_store.AttachmentTypeNotAllowed):
+        console_store.save_attachment(
+            company_id=COMPANY, session_id=sid,
+            filename="spreadsheet.xls", data=doc_bytes,
+        )
+
+
+def test_save_docx_attachment_requires_extension(tmp_consoles, docx_bytes):
+    """ZIP magic is shared with .xlsx/.pptx; we accept only .docx."""
+    meta = console_store.create_session(
+        company_id=COMPANY, include_background_docs=False,
+        include_library_docs=False, included_files=[],
+    )
+    sid = meta["id"]
+    record = console_store.save_attachment(
+        company_id=COMPANY, session_id=sid,
+        filename="memo.docx", data=docx_bytes,
+    )
+    assert record["mime"].endswith("wordprocessingml.document")
+    # Same magic but generic .zip is rejected.
+    with pytest.raises(console_store.AttachmentTypeNotAllowed):
+        console_store.save_attachment(
+            company_id=COMPANY, session_id=sid,
+            filename="bundle.zip", data=docx_bytes,
         )
 
 
@@ -201,11 +255,20 @@ def test_save_attachment_wrong_type(tmp_consoles):
         )
 
 
-def test_detect_image_type_sniffing(png_bytes, jpeg_bytes, webp_bytes):
-    assert console_store.detect_image_type(png_bytes) == "image/png"
-    assert console_store.detect_image_type(jpeg_bytes) == "image/jpeg"
-    assert console_store.detect_image_type(webp_bytes) == "image/webp"
-    assert console_store.detect_image_type(b"\x00\x00\x00\x00") is None
+def test_detect_attachment_type_sniffing(
+    png_bytes, jpeg_bytes, webp_bytes, pdf_bytes, doc_bytes, docx_bytes,
+):
+    detect = console_store.detect_attachment_type
+    assert detect(png_bytes) == "image/png"
+    assert detect(jpeg_bytes) == "image/jpeg"
+    assert detect(webp_bytes) == "image/webp"
+    assert detect(pdf_bytes) == "application/pdf"
+    assert detect(doc_bytes, "x.doc") == "application/msword"
+    assert detect(docx_bytes, "x.docx").endswith("wordprocessingml.document")
+    # Ambiguous magics without the right extension fall back to None.
+    assert detect(doc_bytes, "x.xls") is None
+    assert detect(docx_bytes, "x.xlsx") is None
+    assert detect(b"\x00\x00\x00\x00") is None
 
 
 # ---- Workdir staging ----------------------------------------------------

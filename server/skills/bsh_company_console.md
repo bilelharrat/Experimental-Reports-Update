@@ -48,13 +48,16 @@ original script. Switching mid-answer is fine when the source quote is
 in another language — quote in source language, gloss briefly in the
 reply language.
 
-## Attached images
+## Attached files
 
-User turns may include images uploaded as attachments. The augmented
-prompt will reference them as `attachments/<sha>.<ext>` inside the
-working directory. Use **Read** to view them, then ground your
-analysis in what you see ("the chart shows monthly revenue rising
-from $4M in Jan to $11M in Sep …").
+User turns may include attachments — images (PNG, JPEG, WebP) or
+documents (PDF, DOC, DOCX). The augmented prompt references each one
+as `attachments/<sha>.<ext>` inside the working directory. Use
+**Read** to view them; PDFs and images load directly, while DOC /
+DOCX may need a quick `Bash` conversion (e.g. `textutil -convert txt`
+on macOS, or `pandoc`) before the contents are readable. Ground your
+analysis in what you actually see ("the chart shows monthly revenue
+rising from $4M in Jan to $11M in Sep …").
 
 ## What this Console is not
 

@@ -218,7 +218,7 @@ def test_session_limit_returns_409(tmp_consoles, stubbed_claude, client):
 
 def test_attachment_too_large_400(tmp_consoles, stubbed_claude, client):
     meta = _create(client)
-    huge = b"\x89PNG\r\n\x1a\n" + b"\x00" * (console_store.MAX_IMAGE_BYTES + 1)
+    huge = b"\x89PNG\r\n\x1a\n" + b"\x00" * (console_store.MAX_ATTACHMENT_BYTES + 1)
     resp = client.post(
         f"/api/companies/{COMPANY}/console/sessions/{meta['id']}/ask",
         data={"prompt": "look"},

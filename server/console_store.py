@@ -42,9 +42,19 @@ from .files_store import DATA_DIR
 
 # ---- Caps (see §10 of docs/console-feature.md) --------------------------
 
-MAX_IMAGE_BYTES = 10 * 1024 * 1024
-ALLOWED_IMAGE_TYPES: frozenset[str] = frozenset(
-    {"image/png", "image/jpeg", "image/webp"}
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+ALLOWED_ATTACHMENT_TYPES: frozenset[str] = frozenset(
+    {
+        # Images — Claude reads these directly.
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        # Documents — Claude reads PDFs natively; .doc/.docx are accepted
+        # but Claude may need to convert before extracting text.
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
 )
 MAX_ACTIVE_SESSIONS_PER_COMPANY = 6
 
@@ -419,42 +429,68 @@ def stage_docs(
 # ---- Attachments --------------------------------------------------------
 
 
-# 16-byte prefixes for the allowed image types. Cheap content sniffing —
-# rejects renamed payloads (e.g. an .exe with Content-Type: image/png).
-_MAGIC_BYTES: tuple[tuple[bytes, str], ...] = (
+# Magic-byte prefixes for unambiguous formats. For .doc/.docx the magic
+# is shared with other OLE2/ZIP-based files, so detection there also
+# requires the filename extension (see ``detect_attachment_type``).
+_UNAMBIGUOUS_MAGIC: tuple[tuple[bytes, str], ...] = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"\xff\xd8\xff", "image/jpeg"),
-    # WebP: "RIFF" .... "WEBP" — 4 bytes at offset 0 and 4 at offset 8.
-    # We sniff "RIFF" and verify WEBP separately below.
+    (b"%PDF-", "application/pdf"),
 )
+_OLE2_MAGIC = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"  # .doc (and .xls/.ppt — extension disambiguates)
+_ZIP_MAGIC = b"PK\x03\x04"                          # .docx (and .xlsx/.pptx — extension disambiguates)
 
 
-def detect_image_type(data: bytes) -> str | None:
-    """Return the MIME type detected from magic bytes, or None if it's not
-    one of the three allowed types."""
+def detect_attachment_type(
+    data: bytes, filename: str | None = None
+) -> str | None:
+    """Return the MIME type detected from magic bytes, or None if the
+    upload isn't one of the allowed types.
+
+    For .doc (OLE2 compound) and .docx (ZIP-based Office Open XML), the
+    magic alone is ambiguous (other Office formats share it), so we
+    additionally require the filename extension to disambiguate.
+    """
     if not data:
         return None
-    for prefix, mime in _MAGIC_BYTES:
+    for prefix, mime in _UNAMBIGUOUS_MAGIC:
         if data.startswith(prefix):
             return mime
     if len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
+    lower_name = (filename or "").lower()
+    if data.startswith(_OLE2_MAGIC) and lower_name.endswith(".doc"):
+        return "application/msword"
+    if data.startswith(_ZIP_MAGIC) and lower_name.endswith(".docx"):
+        return (
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        )
     return None
+
+
+# Backwards-compat aliases for external callers (and existing tests).
+detect_image_type = detect_attachment_type
+MAX_IMAGE_BYTES = MAX_ATTACHMENT_BYTES
+ALLOWED_IMAGE_TYPES = ALLOWED_ATTACHMENT_TYPES
 
 
 _EXT_FOR_MIME = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
+    "application/pdf": ".pdf",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
 }
 
 
 class AttachmentTooLarge(Exception):
-    """Upload exceeded ``MAX_IMAGE_BYTES``."""
+    """Upload exceeded ``MAX_ATTACHMENT_BYTES``."""
 
 
 class AttachmentTypeNotAllowed(Exception):
-    """Upload's sniffed MIME isn't one of ``ALLOWED_IMAGE_TYPES``."""
+    """Upload's sniffed MIME isn't one of ``ALLOWED_ATTACHMENT_TYPES``."""
 
 
 class SessionLimitReached(Exception):
@@ -468,8 +504,8 @@ def save_attachment(
     filename: str,
     data: bytes,
 ) -> dict:
-    """Validate, sniff, and persist an uploaded image. Returns a record
-    suitable for embedding in the user turn::
+    """Validate, sniff, and persist an uploaded attachment (image or
+    document). Returns a record suitable for embedding in the user turn::
 
         {"id": "<sha256>", "name": "chart.png", "mime": "image/png",
          "size_bytes": 12345}
@@ -478,14 +514,14 @@ def save_attachment(
     canonical store) AND to ``workdir/attachments/<sha>.<ext>`` (so Claude
     can Read them via ``--add-dir workdir``).
     """
-    if len(data) > MAX_IMAGE_BYTES:
+    if len(data) > MAX_ATTACHMENT_BYTES:
         raise AttachmentTooLarge(
-            f"Attachment too large: {len(data)} bytes (max {MAX_IMAGE_BYTES})"
+            f"Attachment too large: {len(data)} bytes (max {MAX_ATTACHMENT_BYTES})"
         )
-    mime = detect_image_type(data)
-    if mime is None or mime not in ALLOWED_IMAGE_TYPES:
+    mime = detect_attachment_type(data, filename)
+    if mime is None or mime not in ALLOWED_ATTACHMENT_TYPES:
         raise AttachmentTypeNotAllowed(
-            "Attachment is not a recognized PNG/JPEG/WebP image"
+            "Attachment is not a recognized PNG/JPEG/WebP image or PDF/DOC/DOCX document"
         )
     sha = hashlib.sha256(data).hexdigest()
     ext = _EXT_FOR_MIME[mime]
@@ -564,6 +600,10 @@ def session_exists(company_id: str, session_id: str) -> bool:
 
 
 __all__ = [
+    "MAX_ATTACHMENT_BYTES",
+    "ALLOWED_ATTACHMENT_TYPES",
+    # Backwards-compat aliases kept for one release; remove once external
+    # callers (none in-tree as of 2026-05-13) have migrated.
     "MAX_IMAGE_BYTES",
     "ALLOWED_IMAGE_TYPES",
     "MAX_ACTIVE_SESSIONS_PER_COMPANY",

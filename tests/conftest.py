@@ -66,3 +66,23 @@ def webp_bytes() -> bytes:
     """RIFF/WEBP container header — magic-byte check needs bytes 0-3 == RIFF
     and 8-11 == WEBP."""
     return b"RIFF\x10\x00\x00\x00WEBPVP8 " + b"\x00" * 16
+
+
+@pytest.fixture
+def pdf_bytes() -> bytes:
+    """Tiny PDF — just the magic header is enough for our sniffer."""
+    return b"%PDF-1.4\n%mock\n1 0 obj <<>> endobj\n%%EOF\n"
+
+
+@pytest.fixture
+def doc_bytes() -> bytes:
+    """OLE2 compound-binary header — same magic shared with .xls/.ppt; the
+    sniffer relies on the .doc extension to disambiguate."""
+    return b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" + b"\x00" * 32
+
+
+@pytest.fixture
+def docx_bytes() -> bytes:
+    """ZIP local-file header — same magic shared with .xlsx/.pptx; the
+    sniffer relies on the .docx extension to disambiguate."""
+    return b"PK\x03\x04" + b"\x00" * 32

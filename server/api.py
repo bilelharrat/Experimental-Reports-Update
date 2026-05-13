@@ -2935,7 +2935,7 @@ async def post_console_ask(
                 status_code=400,
                 detail={
                     "code": "attachment_too_large",
-                    "limit_bytes": console_store.MAX_IMAGE_BYTES,
+                    "limit_bytes": console_store.MAX_ATTACHMENT_BYTES,
                     "message": str(exc),
                 },
             ) from exc
@@ -2944,7 +2944,7 @@ async def post_console_ask(
                 status_code=400,
                 detail={
                     "code": "attachment_type_not_allowed",
-                    "allowed": sorted(console_store.ALLOWED_IMAGE_TYPES),
+                    "allowed": sorted(console_store.ALLOWED_ATTACHMENT_TYPES),
                     "message": str(exc),
                 },
             ) from exc

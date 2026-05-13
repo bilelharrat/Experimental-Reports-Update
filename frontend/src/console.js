@@ -9,12 +9,21 @@ export const WARNING_THRESHOLD = 0.75;
 export const LOCK_THRESHOLD = 0.90;
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+// Images Claude reads natively + document formats we'll accept and let
+// Claude open via its Read tool. Keep in sync with
+// ``server/console_store.py``'s ``ALLOWED_ATTACHMENT_TYPES``.
 export const ATTACHMENT_ALLOWED_MIME = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
-export const ATTACHMENT_ALLOWED_EXT = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+export const ATTACHMENT_ALLOWED_EXT = new Set([
+  ".png", ".jpg", ".jpeg", ".webp",
+  ".pdf", ".doc", ".docx",
+]);
 
 /**
  * Translate one turn's `usage` blob into the meter view-model.

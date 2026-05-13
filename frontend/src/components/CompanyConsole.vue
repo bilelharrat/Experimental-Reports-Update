@@ -683,7 +683,7 @@ function attachmentUrl(turn, att) {
             <span>{{ tr("console.attach") }}</span>
             <input
               type="file"
-              accept="image/png,image/jpeg,image/webp"
+              accept="image/png,image/jpeg,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.pdf,.doc,.docx"
               multiple
               @change="onFilesPicked"
               class="hidden"

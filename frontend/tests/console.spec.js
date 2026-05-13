@@ -108,7 +108,7 @@ describe("validateAttachment", () => {
     expect(err.code).toBe("attachment_too_large");
   });
 
-  it("accepts PNG / JPEG / WebP by MIME", () => {
+  it("accepts PNG / JPEG / WebP images by MIME", () => {
     expect(
       validateAttachment({ name: "a.png", type: "image/png", size: 1000 }),
     ).toBeNull();
@@ -120,9 +120,35 @@ describe("validateAttachment", () => {
     ).toBeNull();
   });
 
+  it("accepts PDF / DOC / DOCX documents by MIME", () => {
+    expect(
+      validateAttachment({ name: "x.pdf", type: "application/pdf", size: 1000 }),
+    ).toBeNull();
+    expect(
+      validateAttachment({
+        name: "x.doc",
+        type: "application/msword",
+        size: 1000,
+      }),
+    ).toBeNull();
+    expect(
+      validateAttachment({
+        name: "x.docx",
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        size: 1000,
+      }),
+    ).toBeNull();
+  });
+
   it("accepts allowed extensions when MIME is missing", () => {
     expect(
       validateAttachment({ name: "a.png", type: "", size: 100 }),
+    ).toBeNull();
+    expect(
+      validateAttachment({ name: "report.pdf", type: "", size: 100 }),
+    ).toBeNull();
+    expect(
+      validateAttachment({ name: "memo.docx", type: "", size: 100 }),
     ).toBeNull();
   });
 
@@ -132,6 +158,9 @@ describe("validateAttachment", () => {
     ).toBe("attachment_type_not_allowed");
     expect(
       validateAttachment({ name: "a.svg", type: "image/svg+xml", size: 100 }).code,
+    ).toBe("attachment_type_not_allowed");
+    expect(
+      validateAttachment({ name: "a.xlsx", type: "application/vnd.ms-excel", size: 100 }).code,
     ).toBe("attachment_type_not_allowed");
   });
 });

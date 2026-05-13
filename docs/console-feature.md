@@ -524,14 +524,19 @@ as constants in `server/console_store.py` for easy adjustment.
 
 ### Attachments
 
-- **Per-image size:** ≤ 10 MB. Larger uploads return
+- **Per-file size:** ≤ 10 MB. Larger uploads return
   `400 {code: "attachment_too_large", limit_bytes: 10485760}`.
-- **Type allowlist:** `image/png`, `image/jpeg`, `image/webp`. Anything
-  else returns `400 {code: "attachment_type_not_allowed"}`.
-- **MIME sniffing:** server verifies by reading the first 16 bytes of
-  each upload (PNG header, JPEG SOI, RIFF/WEBP). The client-supplied
-  `Content-Type` and filename are not trusted; rejecting a renamed
-  `.exe` is a baseline expectation here.
+- **Type allowlist:** images (`image/png`, `image/jpeg`, `image/webp`)
+  and documents (`application/pdf`, `application/msword`,
+  `application/vnd.openxmlformats-officedocument.wordprocessingml.document`).
+  Anything else returns `400 {code: "attachment_type_not_allowed"}`.
+- **MIME sniffing:** server verifies via magic bytes. Images and PDF
+  are unambiguous (PNG header, JPEG SOI, RIFF/WEBP, `%PDF-`). DOC
+  (OLE2 compound) and DOCX (ZIP) share their magic with other Office
+  formats, so detection there additionally requires the filename
+  extension to disambiguate — a `.xls` with the same OLE2 header is
+  rejected. The client-supplied `Content-Type` and filename alone are
+  not trusted; rejecting a renamed `.exe` is a baseline expectation.
 
 ### Sessions
 
