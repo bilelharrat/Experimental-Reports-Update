@@ -182,6 +182,7 @@ class _SessionDispatcher:
                 skill_path=SKILL_PATH,
                 progress=progress,
                 attachments=attachments,
+                output_language=meta.get("output_language"),
                 cancel_event=cancel_event,
             )
         finally:
@@ -286,6 +287,7 @@ def create_session(
     company_id: str,
     include_background_docs: bool,
     include_library_docs: bool,
+    output_language: str = console_store.DEFAULT_OUTPUT_LANGUAGE,
 ) -> dict:
     """Resolve included files, lay out the on-disk session, and kick off
     hydration in a background thread. Returns the persisted meta plus the
@@ -322,6 +324,7 @@ def create_session(
         include_background_docs=include_background_docs,
         include_library_docs=include_library_docs,
         included_files=included,
+        output_language=output_language,
     )
     # Track hydration status separately so a partial / interrupted hydrate
     # is visible to the frontend and recoverable on restart.
@@ -350,6 +353,7 @@ def create_session(
                 file_list=sources,
                 skill_path=SKILL_PATH,
                 progress=progress,
+                output_language=output_language,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("hydrate crashed for sid=%s", meta["id"])

@@ -95,6 +95,44 @@ def test_create_session_no_files(tmp_consoles, monkeypatch):
     )
     assert meta["status"] == "active"
     assert meta["included_files"] == []
+    assert meta["output_language"] == "en"  # default
+
+
+def test_output_language_threads_to_hydrate_and_ask(tmp_consoles, monkeypatch):
+    """The session's output_language must reach claude_runner on both
+    the initial hydration call and every follow-up ask."""
+    captured: dict = {"hydrate": [], "ask": []}
+
+    def fake_hydrate(*, output_language=None, **kw):
+        captured["hydrate"].append(output_language)
+        return _stub_hydrate_ok(**kw)
+
+    def fake_ask(*, output_language=None, **kw):
+        captured["ask"].append(output_language)
+        return _make_stub_ask(reply_text="ok")(**kw)
+
+    monkeypatch.setattr(claude_runner, "run_console_hydrate", fake_hydrate)
+    monkeypatch.setattr(claude_runner, "run_console_ask", fake_ask)
+
+    meta = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+        output_language="zh",
+    )
+    sid = meta["id"]
+    # Hydrate ran in a background thread; wait briefly for the kwarg
+    # to land.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and not captured["hydrate"]:
+        time.sleep(0.02)
+    assert captured["hydrate"] == ["zh"]
+
+    info = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid,
+        prompt="hi", attachments=[],
+    )
+    _wait_for_assistant(COMPANY, sid, info["turn_id"])
+    assert captured["ask"] == ["zh"]
     # Hydration worker writes hydration_status; wait briefly for it.
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:

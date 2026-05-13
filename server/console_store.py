@@ -64,6 +64,10 @@ EVENT_SILENCE_TIMEOUT_S = 90.0
 WATCHDOG_KILL_GRACE_S = 30.0
 WALL_CLOCK_CAP_S = 600.0  # 10 minutes per ask
 
+# Output-language allowlist (see §7? actually §1 — set on create, immutable).
+SUPPORTED_OUTPUT_LANGUAGES = ("en", "zh")
+DEFAULT_OUTPUT_LANGUAGE = "en"
+
 
 # ---- On-disk roots ------------------------------------------------------
 
@@ -183,6 +187,7 @@ def create_session(
     include_background_docs: bool,
     include_library_docs: bool,
     included_files: Iterable[dict],
+    output_language: str = DEFAULT_OUTPUT_LANGUAGE,
     model: str = "claude-opus-4-7-1m",
     title: str | None = None,
 ) -> dict:
@@ -199,6 +204,11 @@ def create_session(
         raise SessionLimitReached(
             f"Company {company_id} already has {active} active sessions "
             f"(max {MAX_ACTIVE_SESSIONS_PER_COMPANY})"
+        )
+    if output_language not in SUPPORTED_OUTPUT_LANGUAGES:
+        raise ValueError(
+            f"Unsupported output_language: {output_language!r} "
+            f"(expected one of {SUPPORTED_OUTPUT_LANGUAGES})"
         )
 
     sid = new_session_id()
@@ -225,6 +235,7 @@ def create_session(
             "include_background_docs": bool(include_background_docs),
             "include_library_docs": bool(include_library_docs),
             "included_files": list(included_files),
+            "output_language": output_language,
             "tokens": {
                 "input": 0,
                 "output": 0,
@@ -610,6 +621,8 @@ __all__ = [
     "EVENT_SILENCE_TIMEOUT_S",
     "WATCHDOG_KILL_GRACE_S",
     "WALL_CLOCK_CAP_S",
+    "SUPPORTED_OUTPUT_LANGUAGES",
+    "DEFAULT_OUTPUT_LANGUAGE",
     "CONTEXT_WINDOW",
     "CONSOLES_ROOT",
     "AttachmentTooLarge",

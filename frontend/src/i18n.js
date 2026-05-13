@@ -255,6 +255,11 @@ const messages = {
     "console.estimate_tokens": "Estimate: ~{tokens} tokens, ~{seconds}s",
     "console.estimate_zero":
       "No documents selected. Console will start without grounding context.",
+    "console.output_language_label": "Output language",
+    "console.output_language_help":
+      "Claude will reply in this language for every turn in this session.",
+    "console.output_language_en": "English",
+    "console.output_language_zh": "中文",
   },
   zh: {
     "nav.home": "首页",
@@ -486,6 +491,10 @@ const messages = {
     "console.estimate_files_empty": "未选择文件。",
     "console.estimate_tokens": "预估：约 {tokens} tokens，约 {seconds} 秒",
     "console.estimate_zero": "未选择文档。控制台将在无背景资料的情况下启动。",
+    "console.output_language_label": "回复语言",
+    "console.output_language_help": "本会话每一轮的回复都将使用此语言。",
+    "console.output_language_en": "English",
+    "console.output_language_zh": "中文",
   },
 };
 

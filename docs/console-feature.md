@@ -143,6 +143,7 @@ the first ask that ships uploads.
   "archived_at": null | "...",
   "include_background_docs": true,
   "include_library_docs": true,
+  "output_language": "en" | "zh",
   "included_file_ids": ["...", "..."],
   "tokens": {
     "input": 342000, "output": 18400,
@@ -161,6 +162,11 @@ the first ask that ships uploads.
   on hydration and `--resume` on every subsequent turn.
 - `title` is initially `"Session · HH:MM"`; auto-replaced with a
   3–6-word LLM-derived label after the first Q&A turn lands.
+- `output_language` is picked at create time (default `"en"`,
+  selectable in the create modal) and is **immutable** for the
+  lifetime of the session. The hydration prompt embeds a directive
+  pinning all output to this language, and `--append-system-prompt`
+  on every turn reinforces it so the rule survives long contexts.
 - `summary` is populated on archive only.
 
 ### `turns.jsonl`

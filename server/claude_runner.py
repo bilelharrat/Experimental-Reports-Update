@@ -2434,11 +2434,40 @@ def _consume_stream(
     }
 
 
-def _console_skill_text(skill_path: Path) -> str:
-    try:
-        return skill_path.read_text(encoding="utf-8")
-    except OSError:
+_CONSOLE_LANGUAGE_NAMES = {
+    "en": "English",
+    "zh": "Simplified Chinese (简体中文)",
+}
+
+
+def _console_language_directive(language: str | None) -> str:
+    """Return the system-prompt block that pins all output to one
+    language for the duration of the Console session. Empty when the
+    caller doesn't specify a language (legacy behavior — Claude mirrors
+    the user's input language per the skill prompt).
+    """
+    name = _CONSOLE_LANGUAGE_NAMES.get(language or "")
+    if not name:
         return ""
+    return (
+        "\n\n## Output language (session-wide)\n\n"
+        f"All replies in this Console session MUST be written in {name}, "
+        "for every turn, regardless of what language the user types in. "
+        "This directive overrides the bilingual default in the analyst "
+        "persona above.\n"
+    )
+
+
+def _console_skill_text(skill_path: Path, language: str | None = None) -> str:
+    """Read the bundled analyst persona and append the session's
+    language directive (if any). Passed verbatim to
+    ``--append-system-prompt`` on every hydrate / ask invocation.
+    """
+    try:
+        text = skill_path.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    return text + _console_language_directive(language)
 
 
 def run_console_hydrate(
@@ -2448,6 +2477,7 @@ def run_console_hydrate(
     file_list: list[Path],
     skill_path: Path,
     progress,
+    output_language: str | None = None,
     cancel_event: threading.Event | None = None,
     event_silence_timeout_s: float = _CONSOLE_EVENT_SILENCE_DEFAULT_S,
     grace_kill_s: float = _CONSOLE_KILL_GRACE_DEFAULT_S,
@@ -2464,18 +2494,25 @@ def run_console_hydrate(
 
     relative_names = [Path(p).name for p in file_list]
     bulleted = "\n".join(f"- {n}" for n in relative_names) or "(no documents staged)"
+    lang_line = ""
+    if output_language and output_language in _CONSOLE_LANGUAGE_NAMES:
+        lang_line = (
+            "All output in this session — starting with the "
+            f"acknowledgement below — must be written in "
+            f"{_CONSOLE_LANGUAGE_NAMES[output_language]}.\n\n"
+        )
     prompt = (
         "You are entering a Console session for a BSH analyst. The "
         "following documents are staged in your current working "
         "directory:\n\n"
         f"{bulleted}\n\n"
+        f"{lang_line}"
         "Use the Read tool on each one to load its contents into your "
-        "context. Then reply with EXACTLY this one-line acknowledgement "
-        "and nothing else:\n\n"
-        "> Ready. N documents loaded.\n\n"
-        "where N is the count of files you successfully read. Do not "
-        "summarize the documents in the reply. Do not preview them. "
-        "Just Read each one and acknowledge."
+        "context. Then reply with EXACTLY a one-line acknowledgement of "
+        "the form `Ready. N documents loaded.` (translated as needed) "
+        "and nothing else, where N is the count of files you successfully "
+        "read. Do not summarize the documents in the reply. Do not "
+        "preview them. Just Read each one and acknowledge."
     )
 
     cmd = [
@@ -2488,7 +2525,7 @@ def run_console_hydrate(
         "--permission-mode", "bypassPermissions",
         "--dangerously-skip-permissions",
         "--allowedTools", "Read,WebSearch,WebFetch,Bash",
-        "--append-system-prompt", _console_skill_text(skill_path),
+        "--append-system-prompt", _console_skill_text(skill_path, output_language),
     ]
 
     progress.emit(
@@ -2534,6 +2571,7 @@ def run_console_ask(
     skill_path: Path,
     progress,
     attachments: list[str] | None = None,
+    output_language: str | None = None,
     cancel_event: threading.Event | None = None,
     event_silence_timeout_s: float = _CONSOLE_EVENT_SILENCE_DEFAULT_S,
     grace_kill_s: float = _CONSOLE_KILL_GRACE_DEFAULT_S,
@@ -2570,7 +2608,7 @@ def run_console_ask(
         "--permission-mode", "bypassPermissions",
         "--dangerously-skip-permissions",
         "--allowedTools", "Read,WebSearch,WebFetch,Bash",
-        "--append-system-prompt", _console_skill_text(skill_path),
+        "--append-system-prompt", _console_skill_text(skill_path, output_language),
     ]
 
     progress.emit(

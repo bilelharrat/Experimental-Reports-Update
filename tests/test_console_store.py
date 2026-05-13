@@ -27,6 +27,7 @@ def test_create_session_round_trip(tmp_consoles):
     assert meta["status"] == "active"
     assert meta["title"].startswith("Session ·")
     assert meta["claude_session_id"]
+    assert meta["output_language"] == "en"  # default
     assert meta["tokens"]["total_cost_usd"] == 0.0
     assert meta["tokens"]["last_turn_usage"] is None
 
@@ -43,6 +44,27 @@ def test_create_session_round_trip(tmp_consoles):
     # Listing returns it.
     sessions = console_store.list_sessions(COMPANY)
     assert [s["id"] for s in sessions] == [sid]
+
+
+def test_create_session_with_zh_output_language(tmp_consoles):
+    meta = console_store.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+        included_files=[], output_language="zh",
+    )
+    assert meta["output_language"] == "zh"
+    # Persists across a reload.
+    refreshed = console_store.load_meta(COMPANY, meta["id"])
+    assert refreshed["output_language"] == "zh"
+
+
+def test_create_session_rejects_unknown_language(tmp_consoles):
+    with pytest.raises(ValueError, match="Unsupported output_language"):
+        console_store.create_session(
+            company_id=COMPANY,
+            include_background_docs=False, include_library_docs=False,
+            included_files=[], output_language="fr",
+        )
 
 
 def test_session_limit_enforced(tmp_consoles):

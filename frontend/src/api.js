@@ -369,10 +369,21 @@ export const api = {
       });
       return request(`/api/companies/${companyId}/console/estimate?${qs}`);
     },
-    createSession: (companyId, { include_background_docs = true, include_library_docs = true } = {}) =>
+    createSession: (
+      companyId,
+      {
+        include_background_docs = true,
+        include_library_docs = true,
+        output_language = "en",
+      } = {},
+    ) =>
       request(`/api/companies/${companyId}/console/sessions`, {
         method: "POST",
-        body: JSON.stringify({ include_background_docs, include_library_docs }),
+        body: JSON.stringify({
+          include_background_docs,
+          include_library_docs,
+          output_language,
+        }),
       }),
     getSession: (companyId, sid) =>
       request(`/api/companies/${companyId}/console/sessions/${sid}`),

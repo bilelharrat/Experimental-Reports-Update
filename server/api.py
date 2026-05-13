@@ -2789,6 +2789,7 @@ def _report_detail(r: dict) -> dict:
 class _ConsoleCreateBody(BaseModel):
     include_background_docs: bool = True
     include_library_docs: bool = True
+    output_language: str = "en"  # "en" or "zh" — validated server-side
 
 
 def _serialize_console_meta(meta: dict) -> dict:
@@ -2873,6 +2874,7 @@ def create_console_session(
             company_id=company_id,
             include_background_docs=body.include_background_docs,
             include_library_docs=body.include_library_docs,
+            output_language=body.output_language,
         )
     except console_store.SessionLimitReached as exc:
         raise HTTPException(
@@ -2882,6 +2884,11 @@ def create_console_session(
                 "limit": console_store.MAX_ACTIVE_SESSIONS_PER_COMPANY,
                 "message": str(exc),
             },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_request", "message": str(exc)},
         ) from exc
     return {
         **_serialize_console_meta(meta),

@@ -272,6 +272,26 @@ def test_cancel_after_some_progress(tmp_path):
 # ---- Subprocess refuses SIGINT, requires SIGKILL -----------------------
 
 
+# ---- Language directive in system prompt -------------------------------
+
+
+def test_language_directive_present_for_zh():
+    text = claude_runner._console_skill_text(
+        claude_runner.SKILL_PATH if hasattr(claude_runner, "SKILL_PATH") else None,
+        language="zh",
+    ) if False else claude_runner._console_language_directive("zh")
+    # Use the helper directly to keep this independent of the on-disk
+    # skill text.
+    assert "Simplified Chinese" in text or "简体中文" in text
+    assert "MUST" in text
+
+
+def test_language_directive_empty_when_unset():
+    assert claude_runner._console_language_directive(None) == ""
+    assert claude_runner._console_language_directive("") == ""
+    assert claude_runner._console_language_directive("fr") == ""
+
+
 def test_sigkill_fallback_when_sigint_ignored(tmp_path, monkeypatch):
     handle = _make_handle(
         [

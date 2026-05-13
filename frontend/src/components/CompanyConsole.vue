@@ -12,6 +12,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { Loader2, Send, StopCircle, Paperclip, X, Plus, Trash2 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import { appLanguage } from "../state.js";
 import ConsoleSessions from "./ConsoleSessions.vue";
 import {
   usageToMeter,
@@ -78,6 +79,7 @@ const attachmentErrors = ref([]);
 const showCreate = ref(false);
 const includeBg = ref(true);
 const includeLib = ref(true);
+const outputLanguage = ref("en");
 const creating = ref(false);
 const sessionLimitError = ref(null);
 const estimate = ref(null);
@@ -200,6 +202,9 @@ function openCreate() {
   showCreate.value = true;
   includeBg.value = true;
   includeLib.value = true;
+  // Default the session output language to whatever the UI is in. The
+  // user can override per session.
+  outputLanguage.value = appLanguage.value === "zh" ? "zh" : "en";
   refreshEstimate();
 }
 
@@ -210,6 +215,7 @@ async function confirmCreate() {
     const meta = await api.console.createSession(props.companyId, {
       include_background_docs: includeBg.value,
       include_library_docs: includeLib.value,
+      output_language: outputLanguage.value,
     });
     showCreate.value = false;
     sessions.value = [meta, ...sessions.value];
@@ -521,7 +527,16 @@ function attachmentUrl(turn, att) {
       <!-- Token meter + banner -->
       <div class="flex items-center gap-3 text-xs text-ink-muted">
         <div class="flex-1">
-          <div>{{ tokensCaption }}</div>
+          <div class="flex items-center gap-2">
+            <span>{{ tokensCaption }}</span>
+            <span
+              v-if="activeMeta.output_language"
+              class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary text-[10px] font-medium uppercase tracking-wider"
+              :title="tr('console.output_language_help')"
+            >
+              {{ activeMeta.output_language }}
+            </span>
+          </div>
           <div class="mt-1 h-1.5 w-full rounded-full bg-surface-muted overflow-hidden">
             <div
               :class="[
@@ -741,6 +756,43 @@ function attachmentUrl(turn, att) {
             })
           }}
         </label>
+
+        <!-- Output-language toggle. Persisted to meta on create and used
+             by the hydration prompt + every ask's system prompt. -->
+        <div class="space-y-1.5">
+          <div class="text-xs font-medium text-ink-primary uppercase tracking-wide">
+            {{ tr("console.output_language_label") }}
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="outputLanguage = 'en'"
+              :class="[
+                'px-3 py-1 rounded text-sm focus-ring',
+                outputLanguage === 'en'
+                  ? 'bg-accent text-white'
+                  : 'bg-surface-muted text-ink-secondary hover:bg-surface',
+              ]"
+            >
+              {{ tr("console.output_language_en") }}
+            </button>
+            <button
+              type="button"
+              @click="outputLanguage = 'zh'"
+              :class="[
+                'px-3 py-1 rounded text-sm focus-ring',
+                outputLanguage === 'zh'
+                  ? 'bg-accent text-white'
+                  : 'bg-surface-muted text-ink-secondary hover:bg-surface',
+              ]"
+            >
+              {{ tr("console.output_language_zh") }}
+            </button>
+          </div>
+          <p class="text-xs text-ink-muted">
+            {{ tr("console.output_language_help") }}
+          </p>
+        </div>
 
         <!-- File list + cost estimate -->
         <div
