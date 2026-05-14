@@ -64,6 +64,8 @@ SCHEMA: dict[str, Any] = {
                     "type": ["string", "null"],
                     "enum": ["bullish", "neutral", "bearish", None],
                 },
+                "trend_en": _STR_NULL,
+                "trend_zh": _STR_NULL,
                 "above_50dma": _BOOL_NULL,
                 "above_200dma": _BOOL_NULL,
                 "ma_crossover_recent": {
@@ -71,6 +73,14 @@ SCHEMA: dict[str, Any] = {
                     "enum": ["golden_cross", "death_cross", None],
                 },
                 "breakout_signals": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "breakout_signals_en": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "breakout_signals_zh": {
                     "type": "array",
                     "items": {"type": "string"},
                 },
@@ -85,8 +95,11 @@ SCHEMA: dict[str, Any] = {
                 },
             },
             "required": [
-                "trend", "above_50dma", "above_200dma",
-                "ma_crossover_recent", "breakout_signals", "notable_levels",
+                "trend", "trend_en", "trend_zh",
+                "above_50dma", "above_200dma",
+                "ma_crossover_recent",
+                "breakout_signals", "breakout_signals_en", "breakout_signals_zh",
+                "notable_levels",
             ],
         },
 
@@ -98,6 +111,8 @@ SCHEMA: dict[str, Any] = {
                     "type": ["string", "null"],
                     "enum": ["Strong Buy", "Buy", "Hold", "Sell", "Strong Sell", None],
                 },
+                "analyst_consensus_en": _STR_NULL,
+                "analyst_consensus_zh": _STR_NULL,
                 "coverage_count": _INT_NULL,
                 "rating_distribution": {
                     "type": ["object", "null"],
@@ -131,17 +146,31 @@ SCHEMA: dict[str, Any] = {
                         "properties": {
                             "firm": {"type": "string"},
                             "action": _STR_NULL,
+                            "action_en": _STR_NULL,
+                            "action_zh": _STR_NULL,
                             "from": _STR_NULL,
+                            "from_en": _STR_NULL,
+                            "from_zh": _STR_NULL,
                             "to": _STR_NULL,
+                            "to_en": _STR_NULL,
+                            "to_zh": _STR_NULL,
                             "date": _STR_NULL,
                             "target": _NUM_NULL,
                         },
-                        "required": ["firm", "action", "from", "to", "date", "target"],
+                        "required": [
+                            "firm",
+                            "action", "action_en", "action_zh",
+                            "from", "from_en", "from_zh",
+                            "to", "to_en", "to_zh",
+                            "date", "target",
+                        ],
                     },
                 },
             },
             "required": [
-                "analyst_consensus", "coverage_count",
+                "analyst_consensus",
+                "analyst_consensus_en", "analyst_consensus_zh",
+                "coverage_count",
                 "rating_distribution", "target_price", "recent_rating_changes",
             ],
         },
@@ -199,13 +228,22 @@ SCHEMA: dict[str, Any] = {
                         ],
                     },
                     "title": {"type": "string"},
+                    "title_en": _STR_NULL,
+                    "title_zh": _STR_NULL,
                     "summary": _STR_NULL,
+                    "summary_en": _STR_NULL,
+                    "summary_zh": _STR_NULL,
                     "est_impact": {
                         "type": ["string", "null"],
                         "enum": ["high", "medium", "low", None],
                     },
                 },
-                "required": ["date", "type", "title", "summary", "est_impact"],
+                "required": [
+                    "date", "type",
+                    "title", "title_en", "title_zh",
+                    "summary", "summary_en", "summary_zh",
+                    "est_impact",
+                ],
             },
         },
 
@@ -216,16 +254,64 @@ SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "properties": {
                     "headline": {"type": "string"},
+                    "headline_en": _STR_NULL,
+                    "headline_zh": _STR_NULL,
                     "date": _STR_NULL,
                     "summary": _STR_NULL,
+                    "summary_en": _STR_NULL,
+                    "summary_zh": _STR_NULL,
                     "bias": {
                         "type": ["string", "null"],
                         "enum": ["positive", "negative", "neutral", None],
                     },
                     "source_url": _STR_NULL,
                 },
-                "required": ["headline", "date", "summary", "bias", "source_url"],
+                "required": [
+                    "headline", "headline_en", "headline_zh",
+                    "date",
+                    "summary", "summary_en", "summary_zh",
+                    "bias", "source_url",
+                ],
             },
+        },
+
+        "tech_movers": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "updated_at": _STR_NULL,
+                "movers": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "ticker": {"type": "string"},
+                            "company_en": {"type": "string"},
+                            "company_zh": {"type": "string"},
+                            "change_pct_1d": _NUM_NULL,
+                            "direction": {
+                                "type": ["string", "null"],
+                                "enum": ["up", "down", "flat", None],
+                            },
+                            "market_driver_en": {"type": "string"},
+                            "market_driver_zh": {"type": "string"},
+                            "source_url": _STR_NULL,
+                        },
+                        "required": [
+                            "ticker",
+                            "company_en",
+                            "company_zh",
+                            "change_pct_1d",
+                            "direction",
+                            "market_driver_en",
+                            "market_driver_zh",
+                            "source_url",
+                        ],
+                    },
+                },
+            },
+            "required": ["updated_at", "movers"],
         },
     },
     "required": [
@@ -235,6 +321,7 @@ SCHEMA: dict[str, Any] = {
         "heat_card",
         "catalysts",
         "trader_news",
+        "tech_movers",
     ],
 }
 
@@ -250,22 +337,43 @@ SYSTEM_PROMPT = (
     "numbers — if a field can't be verified from a public source, return "
     "null. The user is making a snap trading decision; a null is much "
     "better than a guess.\n\n"
+    "BILINGUAL OUTPUT — every prose field in this schema has paired "
+    "`_en` (English) and `_zh` (Simplified Chinese) siblings. Populate "
+    "BOTH for every item. The Chinese version is a faithful translation "
+    "of the same fact, not a different summary, not a transliteration of "
+    "English words. Use natural trader/finance Chinese (e.g. "
+    "'看涨'/'看跌'/'中性' for trend, '强力买入'/'买入'/'持有'/'卖出'/"
+    "'强力卖出' for ratings, '上调'/'下调'/'首次覆盖'/'重申' for rating "
+    "actions, '财报'/'指引'/'监管'/'会议'/'产品'/'法律'/'分红' for "
+    "catalyst types). Keep tickers, firm names, and product codes in "
+    "Latin script in both languages. If a field is genuinely unknown, "
+    "return null in BOTH `_en` and `_zh` (don't fabricate a translation "
+    "of nothing). Legacy single-language fields (`trend`, "
+    "`breakout_signals`, `analyst_consensus`, `title`, `summary`, "
+    "`headline`, and `recent_rating_changes[*].action/from/to`) should "
+    "carry the same content as the `_en` variant for back-compat with "
+    "consumers that haven't been updated yet.\n\n"
     "Per-card guidance:\n"
     "- price_card: last close + percent returns vs prior day, 5 trading "
     "  days, 30 calendar days, year-to-date, and trailing 12 months, "
     "  plus the 30-day return relative to a sector ETF and to the S&P "
     "  500. Currency is the listing currency (USD for US, etc.).\n"
     "- momentum_card: trend label (bullish/neutral/bearish — your call "
-    "  given price action and MA position), whether the close is above "
-    "  the 50-day and 200-day MAs, any recent golden/death cross, "
-    "  any breakout/breakdown signals (e.g. '5-day high', '20-day low', "
-    "  'channel break'), and approximate nearest support / resistance "
-    "  levels.\n"
-    "- sentiment_card: current analyst consensus + coverage count + "
-    "  rating distribution + price-target mean/high/low + the last 30 "
-    "  days of meaningful rating changes (firm, action, from→to, "
-    "  target). Source from a reputable aggregator (Yahoo Finance, "
-    "  Nasdaq, MarketBeat, Zacks).\n"
+    "  given price action and MA position) plus localized trend_en/"
+    "  trend_zh display strings, whether the close is above the 50-day "
+    "  and 200-day MAs, any recent golden/death cross, breakout/"
+    "  breakdown signals (e.g. '5-day high', '20-day low', "
+    "  'channel break') with parallel breakout_signals_en and "
+    "  breakout_signals_zh arrays of the SAME length and order, and "
+    "  approximate nearest support / resistance levels.\n"
+    "- sentiment_card: current analyst consensus (enum + "
+    "  analyst_consensus_en/analyst_consensus_zh display strings) + "
+    "  coverage count + rating distribution + price-target mean/high/"
+    "  low + the last 30 days of meaningful rating changes (firm, "
+    "  action, from→to, target). Each rating change carries bilingual "
+    "  action_en/action_zh, from_en/from_zh, to_en/to_zh strings. "
+    "  Source from a reputable aggregator (Yahoo Finance, Nasdaq, "
+    "  MarketBeat, Zacks).\n"
     "- heat_card: relative volume vs 20-day average, 30-day implied "
     "  volatility (percent), 1-year IV percentile, options skew "
     "  direction (call_bid / balanced / put_bid), news-item count in "
@@ -277,10 +385,26 @@ SYSTEM_PROMPT = (
     "  CFIUS, DOJ), conferences, product launches, legal milestones "
     "  (court rulings, settlements), ex-dividend dates, M&A votes. "
     "  Each one gets a type tag and your read on est_impact "
-    "  (high/medium/low).\n"
+    "  (high/medium/low). Provide title_en/title_zh and "
+    "  summary_en/summary_zh for every item.\n"
     "- trader_news: 3-5 items from the LAST 14 DAYS that meaningfully "
-    "  moved the stock or are likely to. Tag bias (positive/negative/"
-    "  neutral). Always include a source_url.\n\n"
+    "  moved the stock or are likely to. Provide headline_en/"
+    "  headline_zh and summary_en/summary_zh for every item. Tag bias "
+    "  (positive/negative/neutral). Always include a source_url.\n\n"
+    "- tech_movers: the top 5-8 one-day movers among liquid public "
+    "  technology stocks today. Include both sharp gainers and sharp "
+    "  decliners when available. updated_at should be today's market "
+    "  date or an ISO timestamp. For each mover, provide ticker, "
+    "  company_en, company_zh, 1-day percent move, direction "
+    "  (up/down/flat), and concise market_driver_en + market_driver_zh "
+    "  explaining what moved it (earnings, guidance, analyst action, "
+    "  product news, regulatory item, sector/AI/chip/software macro "
+    "  flow, M&A, rates, etc.). Chinese fields must be usable UI copy, "
+    "  not machine placeholders. If a company has no widely used Chinese "
+    "  name, use a clear transliteration or the English name in "
+    "  company_zh. Always include a source_url when publicly available. "
+    "  This section is daily market context, not necessarily related to "
+    "  the target company.\n\n"
     "Return ONE JSON object matching the attached schema. No preamble, "
     "no markdown fences — just the JSON."
 )

@@ -80,13 +80,19 @@ def stub_generate(monkeypatch):
                 },
                 "momentum_card": {
                     "trend": "bullish",
+                    "trend_en": "Bullish",
+                    "trend_zh": "看涨",
                     "above_50dma": True, "above_200dma": True,
                     "ma_crossover_recent": None,
                     "breakout_signals": ["5-day high"],
+                    "breakout_signals_en": ["5-day high"],
+                    "breakout_signals_zh": ["创5日新高"],
                     "notable_levels": {"support": 162.0, "resistance": 178.5},
                 },
                 "sentiment_card": {
                     "analyst_consensus": "Buy",
+                    "analyst_consensus_en": "Buy",
+                    "analyst_consensus_zh": "买入",
                     "coverage_count": 51,
                     "rating_distribution": {
                         "strong_buy": 18, "buy": 20,
@@ -111,19 +117,42 @@ def stub_generate(monkeypatch):
                     {
                         "date": "2026-07-30", "type": "earnings",
                         "title": "Q2 2026 earnings",
+                        "title_en": "Q2 2026 earnings",
+                        "title_zh": "2026年第二季度财报",
                         "summary": "After-hours; consensus EPS $1.28",
+                        "summary_en": "After-hours; consensus EPS $1.28",
+                        "summary_zh": "盘后发布；市场预期每股收益 1.28 美元。",
                         "est_impact": "high",
                     },
                 ],
                 "trader_news": [
                     {
                         "headline": "Q1 beat on data-center",
+                        "headline_en": "Q1 beat on data-center",
+                        "headline_zh": "第一季度数据中心业务超预期",
                         "date": "2026-05-07",
                         "summary": "Data-center +47% YoY",
+                        "summary_en": "Data-center +47% YoY",
+                        "summary_zh": "数据中心业务同比增长47%。",
                         "bias": "positive",
                         "source_url": "https://example.com/q1",
                     },
                 ],
+                "tech_movers": {
+                    "updated_at": "2026-05-13T20:15:00Z",
+                    "movers": [
+                        {
+                            "ticker": "NVDA",
+                            "company_en": "NVIDIA",
+                            "company_zh": "英伟达",
+                            "change_pct_1d": 5.8,
+                            "direction": "up",
+                            "market_driver_en": "AI data-center demand read-through.",
+                            "market_driver_zh": "AI 数据中心需求带来板块联动。",
+                            "source_url": "https://example.com/nvda",
+                        },
+                    ],
+                },
             },
             None,
         )
@@ -146,8 +175,8 @@ def _disable_auth(monkeypatch):
 # ---- Schema sanity ------------------------------------------------------
 
 
-def test_schema_has_six_card_topics():
-    """All six top-level cards from the design doc are required and
+def test_schema_has_trader_topics():
+    """All top-level cards from the design doc are required and
     schema-typed.
     """
     schema = companies_ai_public.SCHEMA
@@ -155,7 +184,7 @@ def test_schema_has_six_card_topics():
     required = set(schema.get("required") or [])
     assert required == {
         "price_card", "momentum_card", "sentiment_card",
-        "heat_card", "catalysts", "trader_news",
+        "heat_card", "catalysts", "trader_news", "tech_movers",
     }
     # Spot-check: price_card has the per-window returns the trader UI expects.
     price_required = set(
@@ -166,6 +195,60 @@ def test_schema_has_six_card_topics():
         "vs_sector_30d_pct", "vs_sp500_30d_pct",
     ):
         assert k in price_required
+
+
+def test_schema_requires_bilingual_prose_fields():
+    """Every prose field that the iOS app localizes must have paired
+    `_en` / `_zh` siblings in the required list. The strict-mode
+    generator needs them to land in the JSON or the snapshot is
+    rejected.
+    """
+    props = companies_ai_public.SCHEMA["properties"]
+
+    momentum_required = set(props["momentum_card"]["required"])
+    assert {"trend_en", "trend_zh"} <= momentum_required
+    assert {"breakout_signals_en", "breakout_signals_zh"} <= momentum_required
+
+    sentiment_required = set(props["sentiment_card"]["required"])
+    assert {"analyst_consensus_en", "analyst_consensus_zh"} <= sentiment_required
+    rating_change_required = set(
+        props["sentiment_card"]
+        ["properties"]["recent_rating_changes"]
+        ["items"]["required"]
+    )
+    for k in ("action_en", "action_zh", "from_en", "from_zh", "to_en", "to_zh"):
+        assert k in rating_change_required, k
+
+    catalyst_required = set(
+        props["catalysts"]["items"]["required"]
+    )
+    for k in ("title_en", "title_zh", "summary_en", "summary_zh"):
+        assert k in catalyst_required, k
+
+    news_required = set(
+        props["trader_news"]["items"]["required"]
+    )
+    for k in ("headline_en", "headline_zh", "summary_en", "summary_zh"):
+        assert k in news_required, k
+
+
+def test_system_prompt_instructs_bilingual_output():
+    """A sanity guard so future prompt edits don't silently drop the
+    bilingual instruction — the iOS app depends on `_en` / `_zh` being
+    populated.
+    """
+    prompt = companies_ai_public.SYSTEM_PROMPT
+    assert "BILINGUAL" in prompt
+    assert "_en" in prompt and "_zh" in prompt
+    # We name the four card-level localized fields explicitly so a
+    # careless refactor that drops them is caught.
+    for token in (
+        "trend_en", "trend_zh",
+        "analyst_consensus_en", "analyst_consensus_zh",
+        "title_en", "title_zh",
+        "headline_en", "headline_zh",
+    ):
+        assert token in prompt, token
 
 
 def test_generate_snapshot_refuses_private_company(monkeypatch):
@@ -205,8 +288,20 @@ def test_refresh_public_company_writes_snapshot(
     snap = _wait_for_done(COMPANY_ID)
     assert snap["price_card"]["last_price"] == 174.22
     assert snap["momentum_card"]["trend"] == "bullish"
+    assert snap["momentum_card"]["trend_zh"] == "看涨"
+    assert snap["sentiment_card"]["analyst_consensus_zh"] == "买入"
+    assert snap["catalysts"][0]["title_zh"]
+    assert snap["catalysts"][0]["summary_zh"]
+    assert snap["trader_news"][0]["headline_zh"]
+    assert snap["trader_news"][0]["summary_zh"]
+    assert snap["tech_movers"]["movers"][0]["ticker"] == "NVDA"
+    assert snap["tech_movers"]["movers"][0]["market_driver_zh"]
     assert snap["refreshed_at"]
     assert snap["generation_duration_ms"] >= 0
+    # The job worker stamps the bilingual contract on every snapshot so
+    # the client knows it can render either language without another
+    # refresh.
+    assert snap["available_languages"] == ["en", "zh"]
 
 
 def test_refresh_rejects_private_company(
@@ -236,7 +331,8 @@ def test_refresh_attaches_to_running_job(
         block["event"].wait(timeout=2.0)
         return ({"price_card": None, "momentum_card": None,
                  "sentiment_card": None, "heat_card": None,
-                 "catalysts": [], "trader_news": []}, None)
+                 "catalysts": [], "trader_news": [],
+                 "tech_movers": {"updated_at": None, "movers": []}}, None)
 
     monkeypatch.setattr(
         companies_ai_public, "generate_snapshot", slow_generate,

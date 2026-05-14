@@ -225,6 +225,26 @@ trader_snapshot:
       source_url: https://…
     - headline: "Reuters: hyperscaler deal expanded"
       …
+
+  tech_movers:
+    updated_at: 2026-05-13T20:15:00Z      # daily market context
+    movers:
+      - ticker: NVDA
+        company_en: NVIDIA
+        company_zh: 英伟达
+        change_pct_1d: 5.8
+        direction: up                      # up | down | flat
+        market_driver_en: Analyst target raise and AI data-center demand read-through.
+        market_driver_zh: 分析师上调目标价，并受益于 AI 数据中心需求预期。
+        source_url: https://…
+      - ticker: SNOW
+        company_en: Snowflake
+        company_zh: Snowflake
+        change_pct_1d: -6.4
+        direction: down
+        market_driver_en: Post-earnings guidance reset and software multiple compression.
+        market_driver_zh: 财报后指引下修，叠加软件板块估值压缩。
+        source_url: https://…
 ```
 
 All numeric fields are nullable (`null`) so the model can leave any

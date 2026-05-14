@@ -14,8 +14,9 @@ against the existing FastAPI server.
 In scope:
 
 - Company search + per-company browse (existing `/api/companies/*`).
-- Public-company **Trader view** with the six trader cards (price /
-  momentum / sentiment / heat / catalysts / news), one-tap refresh.
+- Public-company **Trader view** with the six company trader cards
+  (price / momentum / sentiment / heat / catalysts / news), daily
+  top-moving tech stocks, and one-tap refresh.
 - **Console** sessions: create, hydrate, ask, attach images / PDF /
   DOC / DOCX, stop mid-stream, archive, read archived transcripts.
 - Bilingual EN / ZH UI mirroring the web app.
@@ -257,6 +258,7 @@ struct TraderSnapshot: Codable, Hashable {
     let heatCard: HeatCard?
     let catalysts: [Catalyst]
     let traderNews: [TraderNewsItem]
+    let techMovers: TechMovers?
 }
 
 struct PriceCard: Codable, Hashable {
@@ -586,6 +588,7 @@ let stalenessRules: [String: StalenessRule] = [
     "heatCard":      .init(fresh: 6 * 3600, warn: 24 * 3600),
     "catalysts":     .init(fresh: 24 * 3600, warn: 7 * 86400),
     "traderNews":    .init(fresh: 6 * 3600, warn: 24 * 3600),
+    "techMovers":    .init(fresh: 24 * 3600, warn: 48 * 3600),
 ]
 
 func staleness(of refreshedAt: Date?, card: String) -> Staleness {
@@ -600,6 +603,97 @@ func staleness(of refreshedAt: Date?, card: String) -> Staleness {
 UI color picks: `.fresh` → green (`Color.green.opacity(0.15)` + dark
 green text), `.warn` → yellow, `.stale` → red. Match the SF Symbols
 chip styling iOS users expect, not the web's CSS variables.
+
+### Daily top-moving tech stocks
+
+`trader_snapshot.tech_movers` is a daily market-context block generated
+by the same trader refresh job. It is not company-specific; it gives the
+analyst a quick read on what moved liquid public tech stocks today and
+why. The iOS app should render it as a first-class native card in the
+Trader section, after the company-specific cards.
+
+Wire shape:
+
+```json
+{
+  "tech_movers": {
+    "updated_at": "2026-05-13T20:15:00Z",
+    "movers": [
+      {
+        "ticker": "NVDA",
+        "company_en": "NVIDIA",
+        "company_zh": "英伟达",
+        "change_pct_1d": 5.8,
+        "direction": "up",
+        "market_driver_en": "Analyst target raise and AI data-center demand read-through.",
+        "market_driver_zh": "分析师上调目标价，并受益于 AI 数据中心需求预期。",
+        "source_url": "https://..."
+      }
+    ]
+  }
+}
+```
+
+Recommended Swift model:
+
+```swift
+struct TechMovers: Codable, Hashable {
+    let updatedAt: Date?
+    let movers: [TechMover]
+}
+
+struct TechMover: Codable, Identifiable, Hashable {
+    var id: String { [ticker, companyEn, companyZh, sourceUrl].compactMap { $0 }.joined(separator: "::") }
+    let ticker: String
+    let companyEn: String
+    let companyZh: String
+    let changePct1d: Double?
+    let direction: String?        // "up" | "down" | "flat"
+    let marketDriverEn: String
+    let marketDriverZh: String
+    let sourceUrl: String?
+
+    func companyName(language: ContentLanguage) -> String {
+        language == .chinese ? companyZh : companyEn
+    }
+
+    func marketDriver(language: ContentLanguage) -> String {
+        language == .chinese ? marketDriverZh : marketDriverEn
+    }
+}
+```
+
+Visualization requirements:
+
+- Card title: localized app string, e.g. "Top-moving tech stocks" /
+  "科技股异动".
+- Subtitle/staleness: use `tech_movers.updated_at` when present; fall
+  back to `trader_snapshot.refreshed_at` only for older snapshots.
+- Freshness thresholds: fresh under 24 hours, warn from 24-48 hours,
+  stale after 48 hours.
+- Row layout: ticker and signed 1-day percent move on the left; company
+  name, direction chip, driver text, and optional source link on the
+  right.
+- Color: positive/up is green, negative/down is red, flat/unknown is
+  muted slate.
+- Empty state: show a localized empty message when `tech_movers` is
+  missing or `movers` is empty; do not hide the whole Trader section.
+- Limit display to the first 5-8 movers so the mobile card remains
+  scannable.
+
+Localization requirements:
+
+- The backend returns bilingual content for every natural-language field
+  added by this block: `company_en`, `company_zh`, `market_driver_en`,
+  and `market_driver_zh`.
+- Ticker, percent move, dates, source URL, and direction enum are
+  language-neutral. Localize the direction label in the app.
+- The iOS card must render `company_zh` and `market_driver_zh` whenever
+  the active app/company detail language is Chinese; otherwise render
+  the English fields.
+- Keep the decoder backward-compatible for one release by accepting the
+  older `company` and `market_driver` fields as English fallbacks. Do
+  not emit those legacy fields from new backend snapshots.
 
 ### Refresh button while in flight
 

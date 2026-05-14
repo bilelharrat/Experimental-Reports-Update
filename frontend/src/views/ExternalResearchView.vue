@@ -639,7 +639,7 @@ const showFullViewer = ref(false);
               v-if="translation.claude_cost_usd"
               class="text-[10px] text-ink-subtle border-t border-subtle pt-2"
             >
-              Translated by Claude Code · ${{ Number(translation.claude_cost_usd).toFixed(4) }}
+              Translated by Anthropic · ${{ Number(translation.claude_cost_usd).toFixed(4) }}
               <span v-if="translation.claude_duration_ms">
                 · {{ (translation.claude_duration_ms / 1000).toFixed(1) }}s
               </span>

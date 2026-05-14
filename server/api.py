@@ -3252,12 +3252,17 @@ def _run_trader_snapshot_job(company_id: str) -> None:
     )
     snapshot["refreshed_at"] = datetime.now(timezone.utc).isoformat()
     snapshot["generation_duration_ms"] = duration_ms
+    # The schema + prompt instructs Claude to populate _en and _zh
+    # variants of every prose field, so each refresh produces both
+    # languages in one pass. Tell the client what landed.
+    snapshot["available_languages"] = ["en", "zh"]
 
     storage.update_company_snapshot(company_id, snapshot)
     progress.emit(
         "done",
         refreshed_at=snapshot["refreshed_at"],
         duration_ms=duration_ms,
+        available_languages=snapshot["available_languages"],
     )
 
 
