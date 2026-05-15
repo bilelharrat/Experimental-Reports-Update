@@ -34,12 +34,16 @@ SESSION_TTL = timedelta(days=30)
 PBKDF2_ITERATIONS = 200_000
 PBKDF2_ALGO = "sha256"
 
-# Seeded on first start. All three share the same initial password per
-# the operator; a future password-change endpoint will mutate the store.
+# Seeded on first start. The named accounts share the same initial
+# password per the operator; a future password-change endpoint will
+# mutate the store. `guest`/`guest` is a shared low-trust login — the
+# login field accepts any string (no email-format validation), so a
+# bare "guest" username works.
 SEED_USERS: list[tuple[str, str]] = [
     ("robert@bshventures.com", "redapple"),
     ("elina.sun@bshventures.com", "redapple"),
     ("serena@bshfoundation.org", "redapple"),
+    ("guest", "guest"),
 ]
 
 _LOCK = threading.RLock()

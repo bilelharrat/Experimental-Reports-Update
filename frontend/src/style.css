@@ -70,3 +70,68 @@ body {
 .focus-ring {
   @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
 }
+
+/* Rendered Markdown (assistant answers in the Console transcript, etc.).
+   Tailwind's preflight strips list/heading styling, so restore a compact
+   subset here. Targets the classes emitted by src/markdown.js. */
+.md-body {
+  line-height: 1.6;
+  word-break: break-word;
+}
+.md-body > :first-child {
+  margin-top: 0;
+}
+.md-body > :last-child {
+  margin-bottom: 0;
+}
+.md-p {
+  margin: 0.5rem 0;
+}
+.md-list {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+.md-list > li {
+  margin: 0.25rem 0;
+}
+ol.md-list {
+  list-style: decimal;
+}
+ul.md-list {
+  list-style: disc;
+}
+.md-h {
+  font-weight: 600;
+  margin: 0.85rem 0 0.35rem;
+  line-height: 1.3;
+}
+.md-h1 {
+  font-size: 1.25rem;
+}
+.md-h2 {
+  font-size: 1.15rem;
+}
+.md-h3 {
+  font-size: 1.05rem;
+}
+.md-h4,
+.md-h5,
+.md-h6 {
+  font-size: 1rem;
+}
+.md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.875em;
+  background-color: rgb(var(--color-surface-muted));
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+}
+.md-link {
+  color: rgb(var(--color-accent));
+  text-decoration: underline;
+}
+.md-hr {
+  border: 0;
+  border-top: 1px solid rgb(var(--color-border-subtle));
+  margin: 0.85rem 0;
+}

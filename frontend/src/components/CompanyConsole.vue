@@ -14,6 +14,7 @@ import { api } from "../api.js";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import ConsoleSessions from "./ConsoleSessions.vue";
+import { renderMarkdown } from "../markdown.js";
 import {
   usageToMeter,
   formatTokens,
@@ -615,7 +616,12 @@ function attachmentUrl(turn, att) {
               · {{ tr("console.failed") }}
             </span>
           </div>
-          <div class="whitespace-pre-wrap text-ink-primary">{{ t.text || t.error || "" }}</div>
+          <div
+            v-if="t.role === 'assistant' && t.subtype !== 'error' && t.text"
+            class="md-body text-ink-primary"
+            v-html="renderMarkdown(t.text)"
+          ></div>
+          <div v-else class="whitespace-pre-wrap text-ink-primary">{{ t.text || t.error || "" }}</div>
           <div v-if="t.attachments?.length" class="flex flex-wrap gap-2 pt-1">
             <a
               v-for="(att, i) in t.attachments"
@@ -640,7 +646,11 @@ function attachmentUrl(turn, att) {
             </span>
           </div>
           <div v-if="pendingAction" class="text-xs text-ink-muted italic">{{ pendingAction }}</div>
-          <div class="whitespace-pre-wrap text-ink-primary">{{ pendingText }}</div>
+          <div
+            v-if="pendingText"
+            class="md-body text-ink-primary"
+            v-html="renderMarkdown(pendingText)"
+          ></div>
         </div>
 
         <!-- Queued turns (waiting for prior to complete) -->
