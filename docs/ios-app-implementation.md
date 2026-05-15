@@ -695,6 +695,178 @@ Localization requirements:
   older `company` and `market_driver` fields as English fallbacks. Do
   not emit those legacy fields from new backend snapshots.
 
+### Bilingual prose fields + translation-pending banner
+
+Every prose field in `trader_snapshot` lands in three forms: the
+legacy single-language field (`headline`, `title`, `summary`,
+`trend`, `analyst_consensus`, etc.), an English sibling
+(`headline_en`, `title_en`, …), and a Simplified-Chinese sibling
+(`headline_zh`, `title_zh`, …). The Chinese sibling is a faithful
+translation of the English content, not a different summary. The
+legacy field mirrors the English sibling for back-compat with
+clients that haven't migrated; new iOS code should ignore it
+except as a last-resort fallback.
+
+#### Refresh request shape
+
+```http
+POST /api/companies/{id}/trader/refresh
+   ?languages=en,zh
+   &include_translations=true
+   &translation_mode=all
+```
+
+- `languages` — comma-separated list, default `en,zh`. The server
+  records what you asked for on `job_init` for observability; the
+  generator always produces both languages today. Unknown codes
+  are dropped silently, so a typo never lands an empty
+  `available_languages` on the job log.
+- `include_translations` / `translation_mode` — recorded on the
+  job for the same reason; reserved for a future single-language
+  mode.
+
+The POST returns `{job_id, stream_url, status, languages_requested}`.
+Echo `languages_requested` into the UI if you want to surface which
+languages this run targeted.
+
+#### `done` event payload
+
+```json
+{
+  "type": "done",
+  "refreshed_at": "2026-05-13T20:15:00Z",
+  "duration_ms": 12345,
+  "available_languages": ["en", "zh"],
+  "generated_languages": ["en", "zh"]
+}
+```
+
+Both keys carry the same list today; consume `available_languages`
+on iOS and treat `generated_languages` as a future-proofing alias
+(provider-neutral name from the agent-orchestrator doc). Use this
+to flip the translation-pending banner before re-fetching the
+company record, so the UI updates in one hop rather than two.
+
+#### Decode model
+
+Every bilingual model carries paired CodingKey entries plus a
+localized accessor. Pattern, illustrated for `TraderNewsItem`:
+
+```swift
+struct TraderNewsItem: Decodable, Hashable, Identifiable {
+    var headline: String?           // legacy / EN mirror
+    var headlineEnglish: String?    // headline_en
+    var headlineChinese: String?    // headline_zh
+    var summary: String?
+    var summaryEnglish: String?
+    var summaryChinese: String?
+    // ...
+
+    enum CodingKeys: String, CodingKey {
+        case headline
+        case headlineEnglish = "headline_en"
+        case headlineChinese = "headline_zh"
+        case summary
+        case summaryEnglish = "summary_en"
+        case summaryChinese = "summary_zh"
+        // ...
+    }
+
+    func headlineText(language: ContentLanguage) -> String? {
+        TraderLocalizedText.pick(
+            language: language,
+            english: headlineEnglish,
+            chinese: headlineChinese,
+            fallback: headline,
+        )
+    }
+}
+```
+
+The fallback chain, identical for every bilingual model:
+
+```swift
+private enum TraderLocalizedText {
+    static func pick(
+        language: ContentLanguage,
+        english: String?,
+        chinese: String?,
+        fallback: String?,
+    ) -> String? {
+        switch language {
+        case .chinese:
+            return firstNonEmpty(chinese, english, fallback)
+        case .english:
+            return firstNonEmpty(english, fallback, chinese)
+        }
+    }
+    // ...
+}
+```
+
+Asymmetric on purpose: an EN user prefers the legacy field (more
+likely English than the Chinese sibling) over the ZH translation,
+while a ZH user prefers the typed English sibling over an
+unknown-language legacy string. Array fields (e.g.
+`breakout_signals`) use an array-shaped variant of the same
+helper that treats `[]` as "missing" and falls through.
+
+The schema fields that need bilingual siblings today:
+
+- `momentum_card.trend_en` / `trend_zh`
+- `momentum_card.breakout_signals_en` / `breakout_signals_zh`
+- `sentiment_card.analyst_consensus_en` / `analyst_consensus_zh`
+- `sentiment_card.recent_rating_changes[*].action_en` / `_zh`,
+  `from_en` / `_zh`, `to_en` / `_zh`
+- `catalysts[*].title_en` / `title_zh`,
+  `summary_en` / `summary_zh`
+- `trader_news[*].headline_en` / `headline_zh`,
+  `summary_en` / `summary_zh`
+- `tech_movers.movers[*].company_en` / `company_zh`,
+  `market_driver_en` / `market_driver_zh` (already shipped)
+
+Render rule, no exceptions: views read the localized accessor —
+never the raw `headline` / `title` field — so a language switch
+is a one-line change and Chinese readers never see English copy
+on a snapshot the server already translated.
+
+#### `available_languages` and the translation-pending banner
+
+On every successful refresh the worker stamps
+`available_languages: ["en", "zh"]` on the persisted snapshot.
+The iOS view shows a short warning-tinted banner above the cards
+whenever the active display language isn't covered:
+
+```swift
+private var translationPendingMessage: String? {
+    // Legacy snapshots predate the bilingual contract and don't
+    // carry the stamp — silently accept whatever single-language
+    // text they have rather than nagging the user about every
+    // historical row.
+    guard let snapshot, !snapshot.availableLanguages.isEmpty else {
+        return nil
+    }
+    if snapshot.availableLanguages.contains(language) { return nil }
+    return TraderCopy.text(
+        "trader.translation_pending",
+        language,
+        ["lang": TraderCopy.text("trader.language.\(language.rawValue)", language)],
+    )
+}
+```
+
+Strings (already wired into the EN + ZH copy dictionaries):
+
+| Key | EN | ZH |
+|---|---|---|
+| `trader.translation_pending` | This snapshot doesn't have a {lang} translation yet. Refresh to generate one. | 此快照暂无{lang}版本，请刷新生成。 |
+| `trader.language.en` | English | 英文 |
+| `trader.language.zh` | Chinese | 中文 |
+
+The banner uses the `character.bubble` SF Symbol with
+`BSHTheme.warning`. Sits between the live `stage` line and the
+error label.
+
 ### Refresh button while in flight
 
 The server's job is idempotent by company id — two concurrent
@@ -742,6 +914,53 @@ overrides the UI language. Set it from the create-session form
 (default to whatever the UI is in). It is **immutable for the
 session's lifetime** by design (§Console design doc) — show it as a
 read-only badge on the active session.
+
+### Provider attribution labels
+
+Wherever the UI attributes a result to its upstream LLM provider
+(search-result source chip, Active-Jobs cards, ad-hoc agent
+request affordances), render the parent **company name**, not the
+product name:
+
+| Server key (`provider` / `source`) | iOS display label |
+|---|---|
+| `claude`, `claude_code`, `anthropic` | **Anthropic** |
+| `codex`, `openai` | **OpenAI** |
+| `cache`, `fallback`, anything else | render as-is |
+
+The rule is "describe the provider," not "describe the model" —
+chat-speaker labels for the assistant (e.g. `console.claude`,
+`"Claude initialized…"` in a session header) keep the bare model
+name because that's the speaker's identity. CLI install messages
+that name "Claude Code" / "Codex" stay as-is because they point
+the user at the actual product to install.
+
+Centralize the mapping in two places so the rest of the app reads
+them through helpers:
+
+```swift
+extension ActiveJob {
+    var providerLabel: String? {
+        switch (provider ?? latestAction?.provider)?.lowercased() {
+        case "codex", "openai":            return "OpenAI"
+        case "claude", "claude_code",
+             "anthropic":                  return "Anthropic"
+        default:                           return provider?.capitalized
+        }
+    }
+
+    /// Use this when you need a *raw* check (icon / tone). Don't
+    /// branch on the display label — the rename breaks string
+    /// comparisons (`providerLabel == "Codex"` will never match).
+    var isCodexProvider: Bool {
+        let raw = (provider ?? latestAction?.provider)?.lowercased()
+        return raw == "codex" || raw == "openai"
+    }
+}
+```
+
+The `searchStatus` helper in `ResearchStore` follows the same
+table when picking the source chip text on a finished search.
 
 ---
 
@@ -837,16 +1056,108 @@ Two layers, mirroring the backend / frontend split in the rest of
 the repo:
 
 - **Unit tests** (XCTest) for the math + helpers — staleness
-  buckets, token-meter band, attachment preflight. These are pure
-  Swift and run in milliseconds.
+  buckets, token-meter band, attachment preflight, bilingual
+  decode. These are pure Swift and run in milliseconds.
 - **Integration tests** with a `URLProtocol`-based mock that
   intercepts requests and replays canned JSON / SSE responses.
   Cover: login, create session, send turn, cancel, attach image,
   trader refresh end-to-end.
 
 A real-server e2e tier (against the dev backend with a real
-Claude) is overkill for v1 — the backend already has
+upstream LLM) is overkill for v1 — the backend already has
 `@pytest.mark.e2e` covering that contract.
+
+### Test-target setup (`BSHResearchTests`)
+
+The project uses `xcodegen` to keep `BSHResearch.xcodeproj` in
+sync with `project.yml`. Add a unit-test bundle target alongside
+the app:
+
+```yaml
+targets:
+  BSHResearch:
+    # ...existing app config...
+
+  BSHResearchTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BSHResearchTests
+    dependencies:
+      - target: BSHResearch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bsh.research.ios.tests
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        # No TEST_HOST / BUNDLE_LOADER — these decode tests don't
+        # need a UI host application.
+
+schemes:
+  BSHResearch:
+    build:
+      targets:
+        BSHResearch: all
+        BSHResearchTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BSHResearchTests
+```
+
+Regenerate the project and run the bundle:
+
+```sh
+xcodegen generate
+xcodebuild test \
+  -project BSHResearch.xcodeproj \
+  -scheme BSHResearch \
+  -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.5' \
+  -only-testing:BSHResearchTests
+```
+
+### Bilingual decode fixture pattern
+
+Pin all three branches of the localized fallback chain with
+fixture-driven decode tests. Keep the JSON inline as a
+`#"""..."""#` raw string literal so the test is self-contained:
+
+```swift
+final class TraderSnapshotDecodeTests: XCTestCase {
+    private func decode(_ json: String) throws -> TraderSnapshot {
+        // Trader models declare explicit snake_case CodingKey raw
+        // values, so they decode without a `convertFromSnakeCase`
+        // strategy. See "Known issues" for the production-decoder
+        // caveat — the test deliberately uses a plain decoder.
+        let decoder = JSONDecoder()
+        return try decoder.decode(
+            TraderSnapshot.self, from: Data(json.utf8),
+        )
+    }
+
+    func testFullyBilingualPayloadDecodesBothLanguages() throws { ... }
+    func testLegacyPayloadFallsBackToSingleLanguageField() throws { ... }
+    func testPartialBilingualPayloadFallsThrough() throws { ... }
+}
+```
+
+Three minimum fixtures every bilingual model needs:
+
+1. **Full bilingual** — every `_en` and `_zh` populated. Verifies
+   `xxxText(language:)` picks the correct sibling for each
+   language.
+2. **Legacy single-language** — only the bare `headline` /
+   `title` / `trend` fields. Verifies a ZH user still sees the
+   legacy text instead of a blank.
+3. **Partial bilingual** — `available_languages: ["en", "zh"]`
+   but one sibling is `null` or empty array on a per-field
+   basis. Verifies the fallback chain inside a single payload.
+
+Pair these decode tests with at least one snapshot view test
+that flips `appLanguage` between `.english` and `.chinese` and
+asserts the rendered text changes.
 
 ---
 
@@ -886,8 +1197,12 @@ Group by feature so you can scan it cold:
 - `GET /api/companies/autocomplete?q=…` — typeahead
 
 ### Trader (public companies only)
-- `POST /api/companies/{id}/trader/refresh` — kick off snapshot
-- `GET /api/companies/{id}/trader/refresh/stream` — SSE progress
+- `POST /api/companies/{id}/trader/refresh?languages=en,zh&include_translations=true&translation_mode=all` —
+  kick off snapshot. Bilingual contract params are recorded on
+  the job (see §8 Bilingual prose fields).
+- `GET /api/companies/{id}/trader/refresh/stream` — SSE progress.
+  Terminal `done` carries `available_languages` and
+  `generated_languages`.
 
 ### Console
 - See §7 cheat-sheet above (11 routes).
@@ -922,3 +1237,48 @@ repo (each phase is shippable):
 
 Each phase is ~1-2 weeks of focused work. Total ballpark: ~6-8
 weeks for a single iOS dev.
+
+---
+
+## 17. Known issues
+
+### Production decoder silently nils every snake_case `CodingKey`
+
+`JSONDecoder.server` (the shared decoder used for `CompanyDTO`)
+sets `keyDecodingStrategy = .convertFromSnakeCase`. Foundation
+applies that strategy to nested types as well — including
+`TraderSnapshot` and its sub-models, which declare CodingKey raw
+values explicitly in snake_case (`case priceCard = "price_card"`).
+
+The strategy converts incoming JSON keys to camelCase BEFORE
+matching against `CodingKey.stringValue`. So `"price_card"` in
+the wire becomes `"priceCard"` in the internal dict, and the
+CodingKey with stringValue `"price_card"` no longer finds it. The
+decode doesn't throw because every trader field uses
+`decodeIfPresent` / `try?`; the cards simply land as `nil` and
+the UI renders placeholders.
+
+`BSHResearchTests/TraderSnapshotDecodeTests`
+`testKnownProductionDecoderRegression` documents the bug with
+inverted asserts (`XCTAssertNil`, `XCTAssertTrue ... isEmpty`).
+The day someone fixes this, that test flips to failing, which
+is the prompt to update the asserts to the desired post-fix
+behavior.
+
+Two reasonable fixes for a follow-up session:
+
+- **Convert the trader CodingKeys to camelCase raw values.**
+  Match what `convertFromSnakeCase` produces for the structural
+  keys (`priceCard`, `momentumCard`, `tradeNews`, …) and keep
+  explicit `_en` / `_zh` raw values for the bilingual siblings
+  (the strategy produces `trendEn` / `trendZh`, which don't
+  match the Swift property names `trendEnglish` /
+  `trendChinese`). Most surgical.
+- **Route trader payloads through a dedicated decoder without
+  the snake-case strategy.** Extract `trader_snapshot` from
+  `CompanyDTO` as raw JSON data and re-decode with a plain
+  `JSONDecoder()`. Mechanical but isolates the trader models
+  from the global decoder strategy.
+
+Either fix should land alongside an update to the regression
+test that flips it to `XCTAssertNotNil`.

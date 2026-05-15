@@ -37,6 +37,7 @@ from . import (
     external_store,
     external_translate,
     files_store,
+    trader_bilingual_fill,
     generator,
     job_progress,
     link_preview as link_preview_mod,
@@ -347,6 +348,7 @@ class ReportDetail(ReportSummary):
     stream_url: str | None = None
     log_url: str | None = None
     download_urls: dict | None = None
+    preview_urls: dict | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -790,6 +792,49 @@ def download_memo(report_id: str, language: str = "en") -> FileResponse:
         media_type=(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ),
+    )
+
+
+@router.get("/reports/{report_id}/preview")
+def preview_memo(report_id: str, language: str = "en") -> FileResponse:
+    """Serve the rendered PDF of a memo for inline preview.
+
+    Mirrors `download_memo` but targets the `pdf_path` recorded on the
+    memo_files entry (rendered post-run from the .docx) and serves it
+    with an inline disposition so it renders in an <iframe>/embed rather
+    than downloading. Returns 404 if no PDF was produced (e.g. Word
+    automation unavailable) — the .docx download is still offered.
+    """
+    if language not in ("en", "zh"):
+        raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.get("kind") != "investment_memo_latestage":
+        raise HTTPException(
+            status_code=404, detail="Report is not an investment memo"
+        )
+    memo_files = report.get("memo_files") or []
+    target = next((f for f in memo_files if f.get("language") == language), None)
+    if not target or not target.get("pdf_path"):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {language} PDF preview was rendered for this run",
+        )
+    repo_root = memo_prep.DATA_DIR.parent
+    file_path = (repo_root / target["pdf_path"]).resolve()
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"PDF preview not found on disk; the run folder may have "
+                f"been deleted: {target['pdf_path']}"
+            ),
+        )
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/pdf",
+        content_disposition_type="inline",
     )
 
 
@@ -2817,6 +2862,22 @@ def _report_detail(r: dict) -> dict:
             "en": f"/api/reports/{rid}/download?language=en",
             "zh": f"/api/reports/{rid}/download?language=zh",
         }
+        # Only advertise a preview URL for a language whose PDF was
+        # actually rendered (Word automation can be unavailable, or an
+        # older run may predate PDF rendering).
+        memo_files = r.get("memo_files") or []
+        have_pdf = {
+            f.get("language")
+            for f in memo_files
+            if f.get("pdf_path")
+        }
+        preview_urls = {
+            lang: f"/api/reports/{rid}/preview?language={lang}"
+            for lang in ("en", "zh")
+            if lang in have_pdf
+        }
+        if preview_urls:
+            base["preview_urls"] = preview_urls
     return base
 
 
@@ -3210,9 +3271,37 @@ def _trader_snapshot_progress_path(company_id: str) -> "Path":
     return base / f"{company_id}__snapshot.progress.jsonl"
 
 
-def _run_trader_snapshot_job(company_id: str) -> None:
+def _parse_trader_languages(raw: str | None) -> list[str]:
+    """Normalize the `languages` query parameter into a list of
+    canonical language codes. Anything we don't recognize is dropped.
+    Empty / missing input falls back to the full bilingual contract.
+    """
+    if not raw:
+        return ["en", "zh"]
+    parsed = [
+        part.strip().lower()
+        for part in raw.split(",")
+        if part.strip()
+    ]
+    valid = [code for code in parsed if code in {"en", "zh"}]
+    return valid or ["en", "zh"]
+
+
+def _run_trader_snapshot_job(
+    company_id: str,
+    *,
+    languages_requested: list[str] | None = None,
+    include_translations: bool = True,
+    translation_mode: str = "all",
+) -> None:
     """Background worker for a single trader-snapshot refresh. Writes
     progress events to JSONL and persists the snapshot on success.
+
+    ``languages_requested`` / ``include_translations`` / ``translation_mode``
+    are recorded on ``job_init`` for client-side observability. Today
+    the schema + system prompt always produces bilingual output, so
+    these inputs don't affect generation; they're a placeholder for a
+    future single-language mode (Phase 2 of the bilingual rollout).
     """
     progress = job_progress.ProgressLog(_trader_snapshot_progress_path(company_id))
     company = storage.get_company(company_id) or {}
@@ -3224,6 +3313,9 @@ def _run_trader_snapshot_job(company_id: str) -> None:
         title=f"Trader snapshot: {company_name}",
         subtitle=ticker or "",
         company_id=company_id,
+        languages_requested=languages_requested or ["en", "zh"],
+        include_translations=include_translations,
+        translation_mode=translation_mode,
     )
     progress.emit(
         "stage", stage="starting",
@@ -3252,27 +3344,83 @@ def _run_trader_snapshot_job(company_id: str) -> None:
     )
     snapshot["refreshed_at"] = datetime.now(timezone.utc).isoformat()
     snapshot["generation_duration_ms"] = duration_ms
-    # The schema + prompt instructs Claude to populate _en and _zh
-    # variants of every prose field, so each refresh produces both
-    # languages in one pass. Tell the client what landed.
+
+    # Belt-and-suspenders bilingual fill. The system prompt asks the
+    # LLM to populate every `_en` / `_zh` pair, but "best effort" isn't
+    # the contract — every prose field MUST be readable in both
+    # languages or the UI's language toggle reads as broken. This pass
+    # walks the snapshot, finds any pair where exactly one side is
+    # populated, and translates to fill the other side via a single
+    # batched claude call. Errors fall back to the original snapshot
+    # (a logged warning, not a fatal) so the worker never blocks on a
+    # translation hiccup.
+    progress.emit(
+        "stage", stage="bilingual_fill",
+        message="Filling missing translations",
+    )
+    try:
+        trader_bilingual_fill.ensure_bilingual_completeness(snapshot)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "trader_bilingual_fill: completeness pass crashed; "
+            "persisting snapshot as-is",
+        )
+
+    # The schema + prompt + bilingual fill above guarantee both
+    # languages are present on every prose field, so the client can
+    # render either without falling back to nulls.
     snapshot["available_languages"] = ["en", "zh"]
+    # Stamp the trader-snapshot schema version on every write. The
+    # startup migration uses this to detect snapshots produced by an
+    # older code path (e.g. v1 heat_card) and strip the
+    # now-incompatible fields. See docs/heat-card-v2.md §6.
+    snapshot["schema_version"] = (
+        companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION
+    )
 
     storage.update_company_snapshot(company_id, snapshot)
     progress.emit(
         "done",
         refreshed_at=snapshot["refreshed_at"],
         duration_ms=duration_ms,
+        # `available_languages` reflects what landed on the saved
+        # snapshot. `generated_languages` is the provider-neutral name
+        # the agent-orchestrator doc (CODEX_REQUEST_ARCHITECTURE.md)
+        # uses for the same idea — emit both so either adapter's
+        # downstream consumers can read whichever they were coded
+        # against.
         available_languages=snapshot["available_languages"],
+        generated_languages=snapshot["available_languages"],
+        schema_version=snapshot["schema_version"],
     )
 
 
 @router.post("/companies/{company_id}/trader/refresh")
-def post_trader_refresh(company_id: str) -> dict:
+def post_trader_refresh(
+    company_id: str,
+    languages: str | None = None,
+    include_translations: bool = True,
+    translation_mode: str = "all",
+    force: bool = False,
+) -> dict:
     """Kick off (or attach to) a trader-snapshot refresh for a company.
 
-    Returns ``{job_id, stream_url, status}``. ``status`` is
-    ``"queued"`` when a fresh job spawned and ``"already_running"`` when
-    we attached to an existing in-flight refresh.
+    Returns ``{job_id, stream_url, status, languages_requested}``.
+    ``status`` is ``"queued"`` when a fresh job spawned,
+    ``"already_running"`` when we attached to an existing in-flight
+    refresh, and ``"force_queued"`` when ``?force=true`` superseded an
+    in-flight run.
+
+    The bilingual contract: ``languages`` is a comma-separated list of
+    codes (today: ``en``, ``zh``); ``include_translations`` and
+    ``translation_mode`` mirror the iOS request shape. Phase 1 just
+    records these inputs on the job log so clients can observe what was
+    asked for; the generator always produces both languages.
+
+    ``force=true`` is the breaking-schema-change escape hatch (see
+    docs/heat-card-v2.md §6): mark any stale in-flight progress file
+    as terminated, unlink it, and spawn a fresh worker even if the
+    short-circuit would otherwise return ``already_running``.
 
     Public-only: returns 400 if the company's bucket is private.
     """
@@ -3293,27 +3441,57 @@ def post_trader_refresh(company_id: str) -> dict:
             },
         )
 
+    languages_requested = _parse_trader_languages(languages)
+    stream_url = f"/api/companies/{company_id}/trader/refresh/stream"
+
     path = _trader_snapshot_progress_path(company_id)
     state = _scan_progress_state(path)
-    if state.get("exists") and not state.get("terminated"):
+    in_flight = state.get("exists") and not state.get("terminated")
+    if in_flight and not force:
         return {
             "job_id": company_id,
-            "stream_url": (
-                f"/api/companies/{company_id}/trader/refresh/stream"
-            ),
+            "stream_url": stream_url,
             "status": "already_running",
+            "languages_requested": languages_requested,
         }
+    if in_flight and force:
+        # Supersede the stale in-flight worker. We emit a terminal
+        # `error` event so any SSE consumer tailing the old progress
+        # file sees an explicit superseded marker rather than a silent
+        # cut. The old background thread, if still alive, will keep
+        # running but its writes go to a deleted file — harmless.
+        try:
+            tail_progress = job_progress.ProgressLog(path)
+            tail_progress.emit(
+                "error",
+                error="superseded by force-refresh",
+                terminal=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "force-refresh: failed to mark stale progress terminated"
+            )
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            logger.exception("force-refresh: failed to unlink stale progress")
 
     threading.Thread(
         target=_run_trader_snapshot_job,
         args=(company_id,),
+        kwargs={
+            "languages_requested": languages_requested,
+            "include_translations": include_translations,
+            "translation_mode": translation_mode,
+        },
         name=f"trader-snapshot:{company_id}",
         daemon=True,
     ).start()
     return {
         "job_id": company_id,
-        "stream_url": f"/api/companies/{company_id}/trader/refresh/stream",
-        "status": "queued",
+        "stream_url": stream_url,
+        "status": "force_queued" if force else "queued",
+        "languages_requested": languages_requested,
     }
 
 

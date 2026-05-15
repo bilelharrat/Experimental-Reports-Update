@@ -208,6 +208,9 @@ function actionIcon(entry) {
   if (entry.action === "thinking") return Brain;
   if (entry.action === "result") return CheckCircle2;
   if (entry.type === "job_init") return Languages;
+  if (entry.type === "thread_finished") return CheckCircle2;
+  if (entry.type === "thread_failed") return AlertCircle;
+  if (entry.type === "thread_started") return Loader2;
   return null;
 }
 
@@ -233,6 +236,10 @@ function actionLabel(entry) {
       : "";
     return `Done${cost}${dur}`;
   }
+  if (entry.type === "thread_started")
+    return `Started: ${entry.title || entry.thread || "pass"}`;
+  if (entry.type === "thread_finished") return "Pass complete";
+  if (entry.type === "thread_failed") return "Pass failed";
   if (entry.type === "done") return "Job complete";
   if (entry.type === "error") return `Error: ${entry.error || "?"}`;
   return entry.type;

@@ -372,14 +372,10 @@ const earningsLine = computed(() => {
     </div>
   </header>
 
-  <!-- Public companies render the trader-cards strip first; private
-       companies fall straight through to the insights section below. -->
-  <TraderView
-    v-if="company.company_type === 'public'"
-    :company="company"
-    @refreshed="(c) => c && $emit('refreshed', c)"
-  />
-
+  <!-- Insights render first for every company so the dossier reads as
+       a narrative: who they are, what they do, who their people are —
+       then the trader-cards strip (public companies only) follows for
+       market-structure context. -->
   <div v-if="hasInsights" class="mt-4 space-y-2">
     <div class="flex items-center justify-between">
       <h2 class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
@@ -573,4 +569,10 @@ const earningsLine = computed(() => {
       </ul>
     </section>
   </div>
+
+  <TraderView
+    v-if="company.company_type === 'public'"
+    :company="company"
+    @refreshed="(c) => c && $emit('refreshed', c)"
+  />
 </template>

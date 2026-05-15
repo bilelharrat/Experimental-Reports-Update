@@ -45,7 +45,7 @@ from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, HTMLResponse  # noqa: E402
 import mimetypes  # noqa: E402
 
-from . import auth_store, claude_runner, console_session  # noqa: E402
+from . import auth_store, claude_runner, console_session, companies_ai_public  # noqa: E402
 from .api import (  # noqa: E402
     auth_router,
     router as api_router,
@@ -53,7 +53,12 @@ from .api import (  # noqa: E402
     _expected_token,
 )
 from .company_translate import translate_company  # noqa: E402
-from .storage import bootstrap_seed_data, list_companies, update_company  # noqa: E402
+from .storage import (  # noqa: E402
+    bootstrap_seed_data,
+    list_companies,
+    migrate_trader_snapshots,
+    update_company,
+)
 
 logger = logging.getLogger("bsh.startup")
 
@@ -64,9 +69,14 @@ ASSETS_DIR = DIST_DIR / "assets"
 # (api.bshventures.com/research/*). With a non-stripping nginx, the
 # upstream receives the full `/research/...` path; Starlette strips
 # root_path internally before matching, and uses it to generate URLs
-# (OpenAPI servers, request.url_for, etc.). Harmless when called
-# directly at localhost:8010/ — paths without the prefix still route
-# normally because Starlette only strips the prefix when present.
+# (OpenAPI servers, request.url_for, etc.).
+#
+# Consequence: any request path that *starts with* `/research` has that
+# segment stripped before routing — including a hard reload of the
+# client route `/research/<company>`, which becomes `/<company>`. So the
+# SPA page routes can't be reliably enumerated with a `/research` prefix;
+# the catch-all `spa_fallback` at the bottom of this file is what makes
+# deep-link reloads work. See that route's docstring.
 app = FastAPI(title="bsh-research-center", root_path="/research")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
@@ -118,6 +128,19 @@ def _startup() -> None:
         console_session.recover()
     except Exception:  # noqa: BLE001
         logger.exception("Console recovery sweep failed")
+    # Strip any pre-v2 heat_card blocks so iOS / web don't try to read
+    # the legacy shape through the new code. Idempotent on subsequent
+    # restarts. See docs/heat-card-v2.md §6.
+    try:
+        target = companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION
+        n = migrate_trader_snapshots(target_schema_version=target)
+        if n:
+            logger.info(
+                "Migrated %d trader_snapshot record(s) to schema_version=%d.",
+                n, target,
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("trader_snapshot migration failed")
     _start_translation_backfill()
 
 
@@ -275,3 +298,27 @@ def app_icon() -> FileResponse:
     if not icon.exists():
         raise HTTPException(status_code=404)
     return FileResponse(icon)
+
+
+# SPA history-mode fallback. MUST be the last route so every explicit
+# route above (API, /assets, favicons, /, /news/..., etc.) is matched
+# first. Anything that reaches here is a client-side route — serve the
+# shell so a hard reload or shared deep link boots the app and lets
+# Vue Router resolve the path in-browser.
+#
+# Why this is needed even though /research/{company_id} is declared
+# above: Starlette strips `root_path` ("/research") from the request
+# path before route matching. A reload of `/research/<company>` arrives,
+# gets stripped to `/<company>`, and matches none of the prefixed page
+# routes (they'd only match a double-prefixed `/research/research/...`).
+# `/login` has no explicit route at all. A single catch-all fixes both
+# without re-deriving the post-strip path for each client route.
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str) -> HTMLResponse:
+    # API and built assets have their own routes registered earlier and
+    # are matched first; only *unknown* paths under those prefixes fall
+    # through to here. Return a real 404 for those instead of HTML so
+    # clients don't get an HTML body where they expect JSON / a file.
+    if full_path.startswith(("api/", "assets/")):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return _serve_index()

@@ -21,6 +21,7 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import { appLanguage } from "../state.js";
 import {
   cardStaleness,
   changeBias,
@@ -31,6 +32,37 @@ import {
 } from "../trader.js";
 
 const t = useT();
+
+// Bilingual field picker — mirrors iOS TraderLocalizedText.pick. The
+// server now emits paired `<base>_en` / `<base>_zh` for every prose
+// field, and keeps the legacy single-language `<base>` as a back-compat
+// mirror of the English value. We prefer the user's locale, fall back
+// to the other language, and finally to the legacy field.
+function pickLocalized(obj, base) {
+  if (!obj) return "";
+  const en = obj[`${base}_en`];
+  const zh = obj[`${base}_zh`];
+  const fallback = obj[base];
+  const order =
+    appLanguage.value === "zh" ? [zh, en, fallback] : [en, fallback, zh];
+  for (const v of order) {
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return "";
+}
+
+function pickLocalizedArray(obj, base) {
+  if (!obj) return [];
+  const en = obj[`${base}_en`];
+  const zh = obj[`${base}_zh`];
+  const fallback = obj[base];
+  const order =
+    appLanguage.value === "zh" ? [zh, en, fallback] : [en, fallback, zh];
+  for (const v of order) {
+    if (Array.isArray(v) && v.length) return v;
+  }
+  return [];
+}
 
 const props = defineProps({
   company: { type: Object, required: true },
@@ -139,6 +171,137 @@ const price = computed(() => snapshot.value?.price_card || null);
 const momentum = computed(() => snapshot.value?.momentum_card || null);
 const sentiment = computed(() => snapshot.value?.sentiment_card || null);
 const heat = computed(() => snapshot.value?.heat_card || null);
+
+// schema_version 1 (or missing) is the legacy heat_card. The server's
+// startup migration nulls heat_card on those records, so a non-null
+// heat_card here is always v2. Surface a one-line banner when we
+// detect a legacy snapshot so the user knows to refresh.
+const traderSchemaVersion = computed(() =>
+  snapshot.value?.schema_version ?? 1,
+);
+const needsForceRefresh = computed(
+  () => traderSchemaVersion.value < 2 && snapshot.value !== null,
+);
+
+// Bilingual prose pickers — same fallback chain as the rest of the
+// trader cards (user locale → other locale → legacy field if any).
+function localizedPickAvwap(anchor) {
+  return pickLocalized(anchor, "label");
+}
+
+// Confidence badge → CSS + label key.
+function confidenceClass(c) {
+  if (c === "high") return "bg-success-soft text-success-ink";
+  if (c === "medium") return "bg-warning-soft text-warning-ink";
+  if (c === "low") return "bg-surface-muted text-ink-secondary";
+  if (c === "unavailable") return "bg-danger/10 text-danger";
+  return "bg-surface-muted text-ink-muted";
+}
+function confidenceLabel(c) {
+  if (c === "high") return t("trader.heat.confidence.high");
+  if (c === "medium") return t("trader.heat.confidence.medium");
+  if (c === "low") return t("trader.heat.confidence.low");
+  if (c === "unavailable") return t("trader.heat.confidence.unavailable");
+  return "";
+}
+
+// Section is "unavailable" → render the confidence_note instead of
+// trying to lay out null number cells. Returns the bilingual note.
+function sectionUnavailableNote(sec) {
+  if (!sec || sec.confidence !== "unavailable") return null;
+  return pickLocalized(sec, "confidence_note") || null;
+}
+
+// Returns true when a section sub-object has zero useful data.
+function hasNoData(sec) {
+  return sec == null;
+}
+
+// Anchored VWAPs — current price + table of anchors with delta vs current.
+function anchorDeltaPct(anchor, currentPrice) {
+  if (anchor?.price == null || currentPrice == null) return null;
+  return ((currentPrice - anchor.price) / anchor.price) * 100;
+}
+function anchorKindLabel(kind) {
+  return t(`trader.heat.avwap.kind.${kind || "other"}`);
+}
+
+// Float turnover bar width — clamp to 0..100 so a malformed pct_float
+// can't blow out the row.
+function zoneBarWidth(pctFloat) {
+  if (pctFloat == null || !isFinite(pctFloat)) return 0;
+  return Math.min(100, Math.max(0, pctFloat));
+}
+
+// Holder mix rows — drop zero buckets so a thinly-covered name
+// doesn't render five "0%" lines.
+const holderMixRows = computed(() => {
+  const m = heat.value?.holder_mix;
+  if (!m) return [];
+  const buckets = [
+    ["passive", m.passive_pct],
+    ["long_only", m.long_only_pct],
+    ["hedge_fund", m.hedge_fund_pct],
+    ["retail", m.retail_pct],
+    ["insider", m.insider_pct],
+    ["strategic", m.strategic_pct],
+  ];
+  return buckets
+    .filter(([, v]) => v != null && v > 0)
+    .map(([key, v]) => ({
+      label: t(`trader.heat.holder.${key}`),
+      pct: v,
+    }));
+});
+
+// Options regime — show whether current price sits above/below the
+// gamma flip. Falls back to whatever regime_en/zh the model wrote.
+function optionsRegimeText(opt, currentPrice) {
+  const written = pickLocalized(opt, "regime");
+  if (written) return written;
+  if (currentPrice == null || opt?.gamma_flip == null) {
+    return t("trader.heat.options.regime_unknown");
+  }
+  return currentPrice >= opt.gamma_flip
+    ? t("trader.heat.options.regime_above")
+    : t("trader.heat.options.regime_below");
+}
+
+function shortTrendArrow(trend) {
+  if (trend === "rising") return t("trader.heat.short.trend_rising");
+  if (trend === "falling") return t("trader.heat.short.trend_falling");
+  if (trend === "flat") return t("trader.heat.short.trend_flat");
+  return "";
+}
+
+function revisionsArrow(direction) {
+  if (direction === "up") return t("trader.heat.rev.up");
+  if (direction === "down") return t("trader.heat.rev.down");
+  if (direction === "mixed") return t("trader.heat.rev.mixed");
+  return "";
+}
+
+function fragilityRatingLabel(rating) {
+  if (rating === "low") return t("trader.heat.fragility.low");
+  if (rating === "medium") return t("trader.heat.fragility.medium");
+  if (rating === "high") return t("trader.heat.fragility.high");
+  if (rating === "extreme") return t("trader.heat.fragility.extreme");
+  return "—";
+}
+
+async function onForceRefresh() {
+  refreshing.value = true;
+  refreshError.value = null;
+  liveStatus.value = "";
+  try {
+    const job = await api.trader.refresh(props.company.id, { force: true });
+    openStream(job.stream_url);
+  } catch (e) {
+    refreshing.value = false;
+    refreshError.value = e?.message || t("trader.refresh_failed");
+  }
+}
+
 const catalysts = computed(() => snapshot.value?.catalysts || []);
 const traderNews = computed(() => snapshot.value?.trader_news || []);
 
@@ -269,7 +432,7 @@ function socialLabel(s) {
         <div class="flex items-center gap-2 text-sm">
           <TrendingUp v-if="momentum?.trend === 'bullish'" class="h-4 w-4 text-success-ink" />
           <TrendingDown v-else-if="momentum?.trend === 'bearish'" class="h-4 w-4 text-danger" />
-          <span class="capitalize text-ink-primary font-medium">{{ momentum?.trend || "—" }}</span>
+          <span class="capitalize text-ink-primary font-medium">{{ pickLocalized(momentum, 'trend') || "—" }}</span>
         </div>
         <ul class="text-xs space-y-1">
           <li v-if="momentum?.above_50dma !== null && momentum?.above_50dma !== undefined">
@@ -291,9 +454,9 @@ function socialLabel(s) {
             ⚡ {{ t("trader.momentum.death_cross") }}
           </li>
         </ul>
-        <div v-if="momentum?.breakout_signals?.length" class="text-xs">
+        <div v-if="pickLocalizedArray(momentum, 'breakout_signals').length" class="text-xs">
           <span class="text-ink-muted">{{ t("trader.momentum.signals") }}:</span>
-          {{ momentum.breakout_signals.join(", ") }}
+          {{ pickLocalizedArray(momentum, 'breakout_signals').join(", ") }}
         </div>
         <div v-if="momentum?.notable_levels" class="text-xs text-ink-muted">
           {{ t("trader.momentum.support") }}: {{ fmtPrice(momentum.notable_levels.support, price?.currency) }} ·
@@ -313,7 +476,7 @@ function socialLabel(s) {
           </span>
         </div>
         <div class="text-sm text-ink-primary font-medium">
-          {{ sentiment?.analyst_consensus || "—" }}
+          {{ pickLocalized(sentiment, 'analyst_consensus') || "—" }}
           <span v-if="sentiment?.coverage_count" class="text-ink-muted text-xs ml-1">
             · {{ t("trader.sentiment.coverage", { n: sentiment.coverage_count }) }}
           </span>
@@ -353,7 +516,8 @@ function socialLabel(s) {
           </div>
           <ul class="text-ink-secondary">
             <li v-for="(rc, i) in sentiment.recent_rating_changes.slice(0, 3)" :key="i">
-              {{ rc.firm }}: {{ rc.action }} {{ rc.from ? `${rc.from} → ` : '' }}{{ rc.to || '' }}
+              {{ rc.firm }}: {{ pickLocalized(rc, 'action') }}
+              <template v-if="pickLocalized(rc, 'from')">{{ pickLocalized(rc, 'from') }} → </template>{{ pickLocalized(rc, 'to') }}
               <span v-if="rc.target" class="text-ink-muted">· tgt {{ fmtPrice(rc.target, price?.currency) }}</span>
             </li>
           </ul>
@@ -363,50 +527,463 @@ function socialLabel(s) {
         </div>
       </div>
 
-      <!-- Heat -->
-      <div class="bg-surface border border-subtle rounded-card p-4 space-y-1.5 md:col-span-2">
+      <!-- Positioning Structure (heat_card v2) -->
+      <div class="bg-surface border border-subtle rounded-card p-4 space-y-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <Flame class="h-3.5 w-3.5" />
-            {{ t("trader.card.heat") }}
+            {{ t("trader.card.heat.v2") }}
           </div>
           <span :class="['text-[10px] px-1.5 py-0.5 rounded', stalenessClass(staleness('heat_card'))]">
             {{ stalenessLabel(staleness('heat_card')) }}
           </span>
         </div>
-        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-          <div class="text-ink-muted">{{ t("trader.heat.rel_volume") }}</div>
-          <div class="font-mono text-ink-primary">{{ heat?.rel_volume_20d != null ? `${heat.rel_volume_20d.toFixed(2)}×` : "—" }}</div>
-          <div class="text-ink-muted">{{ t("trader.heat.iv_30d") }}</div>
-          <div class="font-mono text-ink-primary">
-            {{ heat?.iv_30d_pct != null ? `${heat.iv_30d_pct.toFixed(1)}%` : "—" }}
-            <span v-if="heat?.iv_percentile_1y != null" class="text-ink-muted">
-              · {{ t("trader.heat.iv_percentile", { p: heat.iv_percentile_1y }) }}
-            </span>
-          </div>
-          <div class="text-ink-muted">{{ t("trader.heat.options_skew") }}</div>
-          <div class="text-ink-primary">{{ skewLabel(heat?.options_skew) }}</div>
-          <div class="text-ink-muted">{{ t("trader.heat.news_flow") }}</div>
-          <div class="font-mono text-ink-primary">{{ fmtCount(heat?.news_flow_24h) }}</div>
-          <div class="text-ink-muted">{{ t("trader.heat.insiders_30d") }}</div>
-          <div class="text-ink-primary">
-            <span v-if="heat?.insider_activity_30d">
-              {{ heat.insider_activity_30d.buys || 0 }} buys ·
-              {{ heat.insider_activity_30d.sells || 0 }} sells
-            </span>
-            <span v-else>—</span>
-          </div>
-          <div class="text-ink-muted">{{ t("trader.heat.short_interest") }}</div>
-          <div class="font-mono text-ink-primary">{{ fmtPct(heat?.short_interest_pct_float) }}</div>
-          <div class="text-ink-muted">{{ t("trader.heat.days_to_cover") }}</div>
-          <div class="font-mono text-ink-primary">{{ heat?.days_to_cover != null ? heat.days_to_cover.toFixed(1) : "—" }}</div>
-          <div class="text-ink-muted">{{ t("trader.heat.social") }}</div>
-          <div class="text-ink-primary">{{ socialLabel(heat?.social_mentions_trend) }}</div>
+
+        <!-- Legacy snapshot detected — refresh needed for v2 shape. -->
+        <div
+          v-if="needsForceRefresh"
+          class="text-xs italic text-warning-ink bg-warning-soft rounded p-2 flex items-center justify-between gap-2"
+        >
+          <span class="min-w-0">{{ t("trader.heat.v2.refresh_required") }}</span>
+          <button
+            type="button"
+            class="text-[11px] font-semibold underline shrink-0 focus-ring rounded"
+            @click="onForceRefresh"
+            :disabled="refreshing"
+          >
+            {{ t("trader.heat.v2.force_refresh") }}
+          </button>
         </div>
+
+        <div v-else-if="!heat" class="text-xs text-ink-muted italic">
+          {{ t("trader.heat.v2.empty") }}
+        </div>
+
+        <template v-else>
+          <!-- 1. Anchored cost basis -->
+          <section v-if="heat.anchored_vwaps" class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                {{ t("trader.heat.section.anchored_vwaps") }}
+              </span>
+              <span
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.anchored_vwaps.confidence)]"
+              >
+                {{ confidenceLabel(heat.anchored_vwaps.confidence) }}
+              </span>
+            </div>
+            <template v-if="sectionUnavailableNote(heat.anchored_vwaps)">
+              <div class="text-[11px] text-ink-muted italic">
+                {{ sectionUnavailableNote(heat.anchored_vwaps) }}
+              </div>
+            </template>
+            <template v-else>
+              <div class="text-sm font-mono text-ink-primary">
+                {{ t("trader.heat.avwap.current") }}
+                {{ fmtPrice(heat.anchored_vwaps.current_price, price?.currency) }}
+              </div>
+              <ul class="space-y-0.5 text-[11px]">
+                <li
+                  v-for="(a, i) in (heat.anchored_vwaps.anchors || [])"
+                  :key="i"
+                  class="flex items-baseline gap-1"
+                >
+                  <span class="text-ink-muted">
+                    {{ t("trader.heat.avwap.vs") }} {{ localizedPickAvwap(a) || anchorKindLabel(a.kind) }}
+                  </span>
+                  <span class="font-mono text-ink-primary">
+                    {{ fmtPrice(a.price, price?.currency) }}
+                  </span>
+                  <span
+                    v-if="anchorDeltaPct(a, heat.anchored_vwaps.current_price) != null"
+                    :class="['font-mono', changeClass(anchorDeltaPct(a, heat.anchored_vwaps.current_price))]"
+                  >
+                    {{ fmtPct(anchorDeltaPct(a, heat.anchored_vwaps.current_price)) }}
+                  </span>
+                </li>
+              </ul>
+            </template>
+          </section>
+
+          <!-- 2. Float turnover zones -->
+          <section v-if="heat.float_turnover_zones" class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                {{ t("trader.heat.section.float_turnover_zones") }}
+              </span>
+              <span
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.float_turnover_zones.confidence)]"
+              >
+                {{ confidenceLabel(heat.float_turnover_zones.confidence) }}
+              </span>
+            </div>
+            <template v-if="sectionUnavailableNote(heat.float_turnover_zones)">
+              <div class="text-[11px] text-ink-muted italic">
+                {{ sectionUnavailableNote(heat.float_turnover_zones) }}
+              </div>
+            </template>
+            <ul v-else class="space-y-1 text-[11px]">
+              <li
+                v-for="(z, i) in (heat.float_turnover_zones.zones || [])"
+                :key="i"
+                class="flex items-center gap-2 min-w-0"
+              >
+                <span class="font-mono text-ink-primary shrink-0">
+                  {{ fmtPrice(z.low, price?.currency) }}–{{ fmtPrice(z.high, price?.currency) }}
+                </span>
+                <div class="flex-1 bg-surface-muted h-1.5 rounded overflow-hidden">
+                  <div
+                    class="h-full bg-accent/70"
+                    :style="{ width: zoneBarWidth(z.pct_float) + '%' }"
+                  />
+                </div>
+                <span class="font-mono text-ink-secondary shrink-0">
+                  {{ z.pct_float != null ? z.pct_float.toFixed(0) + '%' : '—' }}
+                </span>
+              </li>
+            </ul>
+          </section>
+
+          <!-- 3. Holder mix + 4. Options regime (side by side) -->
+          <section
+            v-if="heat.holder_mix || heat.options_positioning"
+            class="grid grid-cols-2 gap-x-3 gap-y-1.5"
+          >
+            <div v-if="heat.holder_mix" class="space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                  {{ t("trader.heat.section.holder_mix") }}
+                </span>
+                <span
+                  :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.holder_mix.confidence)]"
+                >
+                  {{ confidenceLabel(heat.holder_mix.confidence) }}
+                </span>
+              </div>
+              <template v-if="sectionUnavailableNote(heat.holder_mix)">
+                <div class="text-[11px] text-ink-muted italic">
+                  {{ sectionUnavailableNote(heat.holder_mix) }}
+                </div>
+              </template>
+              <template v-else>
+                <ul class="text-[11px] space-y-0.5">
+                  <li
+                    v-for="(row, i) in holderMixRows"
+                    :key="i"
+                    class="flex justify-between"
+                  >
+                    <span class="text-ink-muted">{{ row.label }}</span>
+                    <span class="font-mono text-ink-primary">{{ row.pct.toFixed(0) }}%</span>
+                  </li>
+                </ul>
+                <div
+                  v-if="pickLocalized(heat.holder_mix, 'quality_label')"
+                  class="text-[11px] text-ink-secondary italic mt-1"
+                >
+                  {{ pickLocalized(heat.holder_mix, "quality_label") }}
+                </div>
+              </template>
+            </div>
+
+            <div v-if="heat.options_positioning" class="space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                  {{ t("trader.heat.section.options_positioning") }}
+                </span>
+                <span
+                  :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.options_positioning.confidence)]"
+                >
+                  {{ confidenceLabel(heat.options_positioning.confidence) }}
+                </span>
+              </div>
+              <template v-if="sectionUnavailableNote(heat.options_positioning)">
+                <div class="text-[11px] text-ink-muted italic">
+                  {{ sectionUnavailableNote(heat.options_positioning) }}
+                </div>
+              </template>
+              <template v-else>
+                <ul class="text-[11px] space-y-0.5">
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.options.gamma_flip") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ fmtPrice(heat.options_positioning.gamma_flip, price?.currency) }}
+                    </span>
+                  </li>
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.options.put_wall") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ fmtPrice(heat.options_positioning.put_wall, price?.currency) }}
+                    </span>
+                  </li>
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.options.call_wall") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ fmtPrice(heat.options_positioning.call_wall, price?.currency) }}
+                    </span>
+                  </li>
+                </ul>
+                <div class="text-[11px] text-ink-secondary italic">
+                  {{ optionsRegimeText(heat.options_positioning, heat.anchored_vwaps?.current_price) }}
+                </div>
+              </template>
+            </div>
+          </section>
+
+          <!-- 5. Short pressure + 6. Valuation -->
+          <section
+            v-if="heat.short_pressure || heat.valuation"
+            class="grid grid-cols-2 gap-x-3 gap-y-1.5"
+          >
+            <div v-if="heat.short_pressure" class="space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                  {{ t("trader.heat.section.short_pressure") }}
+                </span>
+                <span
+                  :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.short_pressure.confidence)]"
+                >
+                  {{ confidenceLabel(heat.short_pressure.confidence) }}
+                </span>
+              </div>
+              <template v-if="sectionUnavailableNote(heat.short_pressure)">
+                <div class="text-[11px] text-ink-muted italic">
+                  {{ sectionUnavailableNote(heat.short_pressure) }}
+                </div>
+              </template>
+              <template v-else>
+                <ul class="text-[11px] space-y-0.5">
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.short.si") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ fmtPct(heat.short_pressure.si_pct_float) }}
+                    </span>
+                  </li>
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.short.dtc") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ heat.short_pressure.days_to_cover != null ? heat.short_pressure.days_to_cover.toFixed(1) : "—" }}
+                    </span>
+                  </li>
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.short.borrow") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ fmtPct(heat.short_pressure.borrow_rate_pct) }}
+                      <span class="text-ink-muted ml-0.5">{{ shortTrendArrow(heat.short_pressure.trend) }}</span>
+                    </span>
+                  </li>
+                </ul>
+                <div
+                  v-if="pickLocalized(heat.short_pressure, 'note')"
+                  class="text-[11px] text-ink-secondary italic"
+                >
+                  {{ pickLocalized(heat.short_pressure, "note") }}
+                </div>
+              </template>
+            </div>
+
+            <div v-if="heat.valuation" class="space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                  {{ t("trader.heat.section.valuation") }}
+                </span>
+                <span
+                  :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.valuation.confidence)]"
+                >
+                  {{ confidenceLabel(heat.valuation.confidence) }}
+                </span>
+              </div>
+              <template v-if="sectionUnavailableNote(heat.valuation)">
+                <div class="text-[11px] text-ink-muted italic">
+                  {{ sectionUnavailableNote(heat.valuation) }}
+                </div>
+              </template>
+              <template v-else>
+                <ul class="text-[11px] space-y-0.5">
+                  <li class="flex justify-between gap-1">
+                    <span class="text-ink-muted">{{ t("trader.heat.val.ev_revenue") }}</span>
+                    <span class="font-mono text-ink-primary min-w-0 truncate text-right">
+                      {{ heat.valuation.ev_revenue_current != null ? `${heat.valuation.ev_revenue_current.toFixed(1)}×` : "—" }}
+                      <span v-if="heat.valuation.ev_revenue_5y_percentile != null" class="text-ink-muted">
+                        {{ t("trader.heat.val.ev_revenue_pct", { p: heat.valuation.ev_revenue_5y_percentile }) }}
+                      </span>
+                    </span>
+                  </li>
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.val.fwd_ev_ebitda") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ heat.valuation.fwd_ev_ebitda != null ? `${heat.valuation.fwd_ev_ebitda.toFixed(1)}×` : "—" }}
+                    </span>
+                  </li>
+                  <li class="flex justify-between">
+                    <span class="text-ink-muted">{{ t("trader.heat.val.peg") }}</span>
+                    <span class="font-mono text-ink-primary">
+                      {{ heat.valuation.peg != null ? `${heat.valuation.peg.toFixed(2)}×` : "—" }}
+                    </span>
+                  </li>
+                </ul>
+                <div
+                  v-if="pickLocalized(heat.valuation, 'note')"
+                  class="text-[11px] text-ink-secondary italic"
+                >
+                  {{ pickLocalized(heat.valuation, "note") }}
+                </div>
+              </template>
+            </div>
+          </section>
+
+          <!-- 7. Revisions + 8. Next catalyst -->
+          <section
+            v-if="heat.revisions || heat.next_catalyst"
+            class="grid grid-cols-2 gap-x-3 gap-y-1.5"
+          >
+            <div v-if="heat.revisions" class="space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                  {{ t("trader.heat.section.revisions") }}
+                </span>
+                <span
+                  :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.revisions.confidence)]"
+                >
+                  {{ confidenceLabel(heat.revisions.confidence) }}
+                </span>
+              </div>
+              <template v-if="sectionUnavailableNote(heat.revisions)">
+                <div class="text-[11px] text-ink-muted italic">
+                  {{ sectionUnavailableNote(heat.revisions) }}
+                </div>
+              </template>
+              <template v-else>
+                <div class="text-[11px] font-mono text-ink-primary">
+                  {{ t("trader.heat.rev.30d", {
+                    up: heat.revisions.eps_up_30d ?? "—",
+                    down: heat.revisions.eps_down_30d ?? "—",
+                  }) }}
+                  <span class="text-ink-muted">{{ revisionsArrow(heat.revisions.direction) }}</span>
+                </div>
+                <div class="text-[11px] font-mono text-ink-primary">
+                  {{ t("trader.heat.rev.90d", {
+                    up: heat.revisions.eps_up_90d ?? "—",
+                    down: heat.revisions.eps_down_90d ?? "—",
+                  }) }}
+                </div>
+                <div
+                  v-if="pickLocalized(heat.revisions, 'note')"
+                  class="text-[11px] text-ink-secondary italic"
+                >
+                  {{ pickLocalized(heat.revisions, "note") }}
+                </div>
+              </template>
+            </div>
+
+            <div v-if="heat.next_catalyst" class="space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                  {{ t("trader.heat.section.next_catalyst") }}
+                </span>
+                <span
+                  :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(heat.next_catalyst.confidence)]"
+                >
+                  {{ confidenceLabel(heat.next_catalyst.confidence) }}
+                </span>
+              </div>
+              <template v-if="sectionUnavailableNote(heat.next_catalyst)">
+                <div class="text-[11px] text-ink-muted italic">
+                  {{ sectionUnavailableNote(heat.next_catalyst) }}
+                </div>
+              </template>
+              <template v-else>
+                <div class="text-[11px] text-ink-primary">
+                  {{ pickLocalized(heat.next_catalyst, "label") }}
+                  <span v-if="heat.next_catalyst.date" class="text-ink-muted">
+                    · {{ heat.next_catalyst.date }}
+                  </span>
+                </div>
+                <div
+                  v-if="heat.next_catalyst.implied_move_pct != null"
+                  class="text-[11px] font-mono text-ink-primary"
+                >
+                  {{ t("trader.heat.cat.implied_move", {
+                    pct: heat.next_catalyst.implied_move_pct.toFixed(1),
+                  }) }}
+                </div>
+              </template>
+            </div>
+          </section>
+
+          <!-- Composites: support confidence + fragility + repricing risk -->
+          <section v-if="heat.support_confidence" class="space-y-1">
+            <div class="text-[10px] uppercase tracking-wide text-ink-muted">
+              {{ t("trader.heat.section.support_confidence") }}
+            </div>
+            <ul class="space-y-0.5 text-[11px]">
+              <li
+                v-for="(z, i) in (heat.support_confidence.zones || [])"
+                :key="i"
+                class="flex items-baseline gap-2 min-w-0"
+              >
+                <span class="font-mono text-ink-primary shrink-0">
+                  {{ fmtPrice(z.low, price?.currency) }}–{{ fmtPrice(z.high, price?.currency) }}
+                </span>
+                <span
+                  :class="['text-[9px] uppercase px-1 py-0.5 rounded shrink-0', confidenceClass(z.confidence)]"
+                >
+                  {{ confidenceLabel(z.confidence) }}
+                </span>
+                <span class="text-ink-secondary min-w-0 truncate">
+                  {{ (pickLocalizedArray(z, "reasons") || []).join(" · ") }}
+                </span>
+              </li>
+            </ul>
+          </section>
+
+          <section v-if="heat.fragility" class="space-y-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                {{ t("trader.heat.section.fragility") }}
+              </span>
+              <span class="font-mono text-ink-primary">
+                {{ fragilityRatingLabel(heat.fragility.rating) }}
+                <span v-if="heat.fragility.score != null" class="text-ink-muted ml-1">
+                  {{ t("trader.heat.fragility.score", { score: heat.fragility.score }) }}
+                </span>
+              </span>
+            </div>
+            <div
+              v-if="pickLocalizedArray(heat.fragility, 'drivers').length"
+              class="text-[11px] text-ink-secondary"
+            >
+              {{ pickLocalizedArray(heat.fragility, "drivers").join(" · ") }}
+            </div>
+          </section>
+
+          <section v-if="heat.repricing_risk" class="space-y-1">
+            <div class="text-[10px] uppercase tracking-wide text-ink-muted">
+              {{ t("trader.heat.section.repricing_risk") }}
+            </div>
+            <div class="flex flex-wrap gap-1 text-[11px]">
+              <span class="px-1.5 py-0.5 rounded bg-success-soft text-success-ink">
+                {{ heat.repricing_risk.positive_pct ?? "—" }}% {{ t("trader.heat.repricing.positive") }}
+              </span>
+              <span class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary">
+                {{ heat.repricing_risk.neutral_pct ?? "—" }}% {{ t("trader.heat.repricing.neutral") }}
+              </span>
+              <span class="px-1.5 py-0.5 rounded bg-danger/10 text-danger">
+                {{ heat.repricing_risk.negative_pct ?? "—" }}% {{ t("trader.heat.repricing.negative") }}
+              </span>
+            </div>
+            <div
+              v-if="pickLocalized(heat.repricing_risk, 'note')"
+              class="text-[11px] text-ink-secondary italic"
+            >
+              {{ pickLocalized(heat.repricing_risk, "note") }}
+            </div>
+          </section>
+        </template>
       </div>
 
-      <!-- Catalysts -->
-      <div class="bg-surface border border-subtle rounded-card p-4 space-y-2">
+      <!-- Catalysts — short list (≤5 items), span 2 columns so the row
+           descriptions don't wrap awkwardly. -->
+      <div class="bg-surface border border-subtle rounded-card p-4 space-y-2 md:col-span-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <CalendarClock class="h-3.5 w-3.5" />
@@ -423,7 +1000,10 @@ function socialLabel(s) {
               {{ impactLabel(c.est_impact) }}
             </span>
             <span class="text-ink-primary">
-              {{ catalystTypeLabel(c.type) }} · {{ c.title }}
+              {{ catalystTypeLabel(c.type) }} · {{ pickLocalized(c, 'title') }}
+              <span v-if="pickLocalized(c, 'summary')" class="text-ink-secondary block text-[11px] mt-0.5">
+                {{ pickLocalized(c, 'summary') }}
+              </span>
             </span>
           </li>
         </ul>
@@ -454,10 +1034,10 @@ function socialLabel(s) {
                 rel="noopener"
                 class="text-ink-primary hover:text-accent-hover focus-ring rounded"
               >
-                {{ n.headline }}
+                {{ pickLocalized(n, 'headline') }}
               </a>
-              <span v-else class="text-ink-primary">{{ n.headline }}</span>
-              <div v-if="n.summary" class="text-xs text-ink-secondary mt-0.5">{{ n.summary }}</div>
+              <span v-else class="text-ink-primary">{{ pickLocalized(n, 'headline') }}</span>
+              <div v-if="pickLocalized(n, 'summary')" class="text-xs text-ink-secondary mt-0.5">{{ pickLocalized(n, 'summary') }}</div>
               <div v-if="n.date" class="text-[10px] text-ink-muted mt-0.5 font-mono">{{ n.date }}</div>
             </div>
           </li>

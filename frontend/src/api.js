@@ -358,8 +358,16 @@ export const api = {
   // POST kicks off (or attaches to) a refresh; SSE streams claude_action
   // events; on `done`, the company record's trader_snapshot is fresh.
   trader: {
-    refresh: (companyId) =>
-      request(`/api/companies/${companyId}/trader/refresh`, { method: "POST" }),
+    // `opts.force === true` adds `?force=true`, which supersedes any
+    // stale in-flight refresh. Used by the "Force refresh" affordance
+    // surfaced after a breaking schema change (see docs/heat-card-v2.md).
+    refresh: (companyId, opts = {}) => {
+      const qs = opts.force ? "?force=true" : "";
+      return request(
+        `/api/companies/${companyId}/trader/refresh${qs}`,
+        { method: "POST" },
+      );
+    },
     streamUrl: (companyId) =>
       withApiToken(`/api/companies/${companyId}/trader/refresh/stream`),
   },

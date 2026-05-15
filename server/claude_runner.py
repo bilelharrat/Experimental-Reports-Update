@@ -240,12 +240,36 @@ def _scan_progress_for_slides(text: str, progress, state: dict) -> None:
             )
 
 
+def _thread_for_tool_use(name: str, inp: dict, state: dict) -> str | None:
+    """If this tool_use should be attributed to a sub-thread (e.g. one of
+    the memo skill's parallel analysis passes), return the thread label.
+
+    Driven by `state["thread_map"]` (filename → label). Only writers
+    (Write/Edit) get attributed — Reads/Bash/Grep aren't pass-specific.
+    Runners that don't set `thread_map` get no threading.
+    """
+    thread_map = state.get("thread_map")
+    if not thread_map:
+        return None
+    if name not in ("Write", "Edit"):
+        return None
+    fp = (inp.get("file_path") or "").replace("\\", "/")
+    if not fp:
+        return None
+    leaf = fp.rsplit("/", 1)[-1]
+    return thread_map.get(leaf)
+
+
 def _process_event(event: dict, progress, state: dict) -> None:
     """Translate a stream-json event into our ProgressLog vocabulary.
 
     `state` is per-job mutable scratch — we use it to track the latest tool
     invocation so we can pair tool_result events back to their tool_use, plus
     which slides we've emitted so we can dedup and detect stage transitions.
+
+    If `state["thread_map"]` is set (filename → pass label), Write/Edit
+    events to those files are tagged with `thread=<label>` so the
+    JobLogModal can render them as composite/threaded sub-tasks.
     """
     etype = event.get("type")
     if etype == "system" and event.get("subtype") == "init":
@@ -270,7 +294,27 @@ def _process_event(event: dict, progress, state: dict) -> None:
                 name = block.get("name") or "?"
                 inp = block.get("input") or {}
                 tool_id = block.get("id")
-                state["last_tool"] = {"id": tool_id, "name": name}
+                thread_label = _thread_for_tool_use(name, inp, state)
+                state["last_tool"] = {
+                    "id": tool_id,
+                    "name": name,
+                    "thread": thread_label,
+                }
+                # Track all in-flight tools by id so the user-message
+                # handler can re-attach thread labels even when many
+                # parallel tool calls are pending at once.
+                in_flight = state.setdefault("in_flight", {})
+                if tool_id:
+                    in_flight[tool_id] = {"name": name, "thread": thread_label}
+                if thread_label:
+                    threads_started = state.setdefault("threads_started", set())
+                    if thread_label not in threads_started:
+                        threads_started.add(thread_label)
+                        progress.emit(
+                            "thread_started",
+                            thread=thread_label,
+                            title=thread_label,
+                        )
                 preview = ""
                 if name == "Read":
                     preview = inp.get("file_path") or ""
@@ -337,18 +381,29 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     )
                 else:
                     preview = json.dumps(inp, ensure_ascii=False)
-                progress.emit(
-                    "claude_action",
-                    action="tool_use",
-                    tool=name,
-                    preview=preview[:500],
-                )
+                emit_kwargs = {
+                    "action": "tool_use",
+                    "tool": name,
+                    "preview": preview[:500],
+                }
+                if thread_label:
+                    emit_kwargs["thread"] = thread_label
+                progress.emit("claude_action", **emit_kwargs)
         return
     if etype == "user":
         msg = event.get("message") or {}
         for block in msg.get("content") or []:
             if block.get("type") == "tool_result":
-                tool = state.get("last_tool", {}).get("name", "?")
+                # Prefer the in-flight map keyed by tool_use_id so parallel
+                # calls attribute correctly. Fall back to the last-seen
+                # tool for runners that don't track in_flight.
+                tu_id = block.get("tool_use_id")
+                in_flight = state.get("in_flight") or {}
+                meta = in_flight.pop(tu_id, None) if tu_id else None
+                if meta is None:
+                    meta = state.get("last_tool") or {}
+                tool = meta.get("name") or "?"
+                thread_label = meta.get("thread")
                 content = block.get("content")
                 # Content can be a string or a list of blocks
                 if isinstance(content, list):
@@ -359,13 +414,15 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     content_str = "\n".join(text_pieces)
                 else:
                     content_str = content if isinstance(content, str) else ""
-                progress.emit(
-                    "claude_action",
-                    action="tool_result",
-                    tool=tool,
-                    is_error=bool(block.get("is_error")),
-                    preview=(content_str or "")[:200],
-                )
+                tr_kwargs = {
+                    "action": "tool_result",
+                    "tool": tool,
+                    "is_error": bool(block.get("is_error")),
+                    "preview": (content_str or "")[:200],
+                }
+                if thread_label:
+                    tr_kwargs["thread"] = thread_label
+                progress.emit("claude_action", **tr_kwargs)
         return
     if etype == "result":
         progress.emit(
@@ -1467,6 +1524,27 @@ Begin now: Read pages="1".
 _SKILL_PATH = Path(__file__).resolve().parent / "skills" / "bsh_investment_memo_latestage.md"
 
 
+# Maps the analysis artifacts produced by Serena's memo skill to the
+# human-readable "pass" label the JobLogModal renders. When Claude writes
+# any of these files, _process_event tags the event with `thread=<label>`
+# so the AI-Task modal can group the parallel passes as their own
+# collapsible sections instead of one flat firehose.
+_MEMO_ANALYSIS_PASSES: dict[str, str] = {
+    "pressure_tests.md": "Arithmetic / pressure tests",
+    "time_base_checks.md": "Time-base integrity",
+    "growth_bridge.md": "Growth bridge",
+    "disconfirming_evidence.md": "Alternative explanations",
+    "adoption_ladder.md": "Adoption ladder",
+    "core_franchise_resilience.md": "Core franchise resilience",
+    "claim_register.md": "Claim register",
+    "distribution_notes.md": "Distribution / GTM",
+    "replacement_vs_coexistence.md": "Replacement vs coexistence",
+    "scenario_swim_lanes.md": "Scenario swim lanes",
+    "validation_log.md": "Validation log",
+    "gating_questions.md": "Gating questions",
+}
+
+
 def _load_skill_text() -> str:
     if not _SKILL_PATH.exists():
         raise RuntimeError(f"Skill file missing: {_SKILL_PATH}")
@@ -1686,7 +1764,11 @@ def run_investment_memo(
     )
     stderr_thread.start()
 
-    state: dict[str, Any] = {}
+    # Seed thread_map so _process_event tags Write/Edit events that
+    # target the skill's analysis files with `thread=<pass label>`. That
+    # lets the AI-Task modal group the 8 parallel passes into their own
+    # collapsible sections.
+    state: dict[str, Any] = {"thread_map": _MEMO_ANALYSIS_PASSES}
     result_event: dict | None = None
     try:
         for line in proc.stdout or []:  # type: ignore[union-attr]
@@ -1708,6 +1790,22 @@ def run_investment_memo(
     except subprocess.TimeoutExpired:
         proc.kill()
         return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
+
+    # Close out any pass threads that we opened during the run. The
+    # subprocess having reached `result` is the only completion signal we
+    # have for the individual passes — the skill doesn't emit per-pass
+    # markers — so we attribute success/failure to the overall return.
+    if progress:
+        finish_ok = (
+            proc.returncode == 0
+            and bool(result_event)
+            and result_event.get("subtype") != "error"
+        )
+        for thread_label in state.get("threads_started") or ():
+            progress.emit(
+                "thread_finished" if finish_ok else "thread_failed",
+                thread=thread_label,
+            )
 
     if proc.returncode and proc.returncode != 0:
         tail = "".join(stderr_log[-20:]).strip()

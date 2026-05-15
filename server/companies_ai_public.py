@@ -28,6 +28,22 @@ _STR_NULL = {"type": ["string", "null"]}
 _INT_NULL = {"type": ["integer", "null"]}
 _BOOL_NULL = {"type": ["boolean", "null"]}
 
+# Declarative per-section confidence. "unavailable" means the model
+# couldn't source the data fields; the paired confidence_note_* still
+# has to explain *why* so the iOS UI can render "couldn't source: X"
+# rather than a silent blank. See docs/heat-card-v2.md §4.
+_CONFIDENCE = {
+    "type": ["string", "null"],
+    "enum": ["high", "medium", "low", "unavailable", None],
+}
+
+
+# Current trader_snapshot.schema_version. Bumped when a breaking
+# heat_card / structural change lands. The server's startup migration
+# strips snapshots older than this; the worker stamps the current
+# value on every fresh snapshot it writes. See docs/heat-card-v2.md §6.
+TRADER_SNAPSHOT_SCHEMA_VERSION: int = 2
+
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -175,40 +191,341 @@ SCHEMA: dict[str, Any] = {
             ],
         },
 
+        # heat_card v2 — Positioning Structure. Eight high-signal
+        # institutional sub-objects + three derived composites. Every
+        # estimated section carries a declarative `confidence` enum
+        # and paired bilingual `confidence_note_*` strings. See
+        # docs/heat-card-v2.md for the full spec.
         "heat_card": {
-            "type": "object",
+            "type": ["object", "null"],
             "additionalProperties": False,
             "properties": {
-                "rel_volume_20d": _NUM_NULL,
-                "iv_30d_pct": _NUM_NULL,
-                "iv_percentile_1y": _INT_NULL,
-                "options_skew": {
-                    "type": ["string", "null"],
-                    "enum": ["call_bid", "balanced", "put_bid", None],
-                },
-                "news_flow_24h": _INT_NULL,
-                "insider_activity_30d": {
+
+                # 1. Institutional cost basis — anchored VWAPs.
+                "anchored_vwaps": {
                     "type": ["object", "null"],
                     "additionalProperties": False,
                     "properties": {
-                        "buys": _INT_NULL,
-                        "sells": _INT_NULL,
-                        "net_share_count_change": _INT_NULL,
+                        "current_price": _NUM_NULL,
+                        "anchors": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                            "earnings", "ai_event", "ipo",
+                                            "secondary", "52w_high",
+                                            "macro_event", "other",
+                                        ],
+                                    },
+                                    "label_en": _STR_NULL,
+                                    "label_zh": _STR_NULL,
+                                    "date": _STR_NULL,
+                                    "price": _NUM_NULL,
+                                },
+                                "required": [
+                                    "kind", "label_en", "label_zh",
+                                    "date", "price",
+                                ],
+                            },
+                        },
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
                     },
-                    "required": ["buys", "sells", "net_share_count_change"],
+                    "required": [
+                        "current_price", "anchors",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
                 },
-                "short_interest_pct_float": _NUM_NULL,
-                "days_to_cover": _NUM_NULL,
-                "social_mentions_trend": {
-                    "type": ["string", "null"],
-                    "enum": ["rising", "flat", "falling", None],
+
+                # 2. Float turnover zones — where shares changed hands.
+                "float_turnover_zones": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "zones": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "low": _NUM_NULL,
+                                    "high": _NUM_NULL,
+                                    "pct_float": _NUM_NULL,
+                                    "note_en": _STR_NULL,
+                                    "note_zh": _STR_NULL,
+                                },
+                                "required": [
+                                    "low", "high", "pct_float",
+                                    "note_en", "note_zh",
+                                ],
+                            },
+                        },
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "zones", "confidence",
+                        "confidence_note_en", "confidence_note_zh",
+                    ],
+                },
+
+                # 3. Holder mix — institutional ownership stability.
+                "holder_mix": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "passive_pct": _NUM_NULL,
+                        "long_only_pct": _NUM_NULL,
+                        "hedge_fund_pct": _NUM_NULL,
+                        "retail_pct": _NUM_NULL,
+                        "insider_pct": _NUM_NULL,
+                        "strategic_pct": _NUM_NULL,
+                        "quality_label_en": _STR_NULL,
+                        "quality_label_zh": _STR_NULL,
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "passive_pct", "long_only_pct",
+                        "hedge_fund_pct", "retail_pct",
+                        "insider_pct", "strategic_pct",
+                        "quality_label_en", "quality_label_zh",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
+                },
+
+                # 4. Options positioning — dealer gamma + walls.
+                "options_positioning": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "gamma_flip": _NUM_NULL,
+                        "put_wall": _NUM_NULL,
+                        "call_wall": _NUM_NULL,
+                        "regime_en": _STR_NULL,
+                        "regime_zh": _STR_NULL,
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "gamma_flip", "put_wall", "call_wall",
+                        "regime_en", "regime_zh",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
+                },
+
+                # 5. Short pressure — squeeze fuel + structural shorts.
+                "short_pressure": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "si_pct_float": _NUM_NULL,
+                        "days_to_cover": _NUM_NULL,
+                        "borrow_rate_pct": _NUM_NULL,
+                        "trend": {
+                            "type": ["string", "null"],
+                            "enum": ["rising", "falling", "flat", None],
+                        },
+                        "note_en": _STR_NULL,
+                        "note_zh": _STR_NULL,
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "si_pct_float", "days_to_cover",
+                        "borrow_rate_pct", "trend",
+                        "note_en", "note_zh",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
+                },
+
+                # 6. Relative valuation — downside asymmetry.
+                "valuation": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "ev_revenue_current": _NUM_NULL,
+                        "ev_revenue_5y_percentile": _INT_NULL,
+                        "fwd_ev_ebitda": _NUM_NULL,
+                        "peg": _NUM_NULL,
+                        "note_en": _STR_NULL,
+                        "note_zh": _STR_NULL,
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "ev_revenue_current",
+                        "ev_revenue_5y_percentile",
+                        "fwd_ev_ebitda", "peg",
+                        "note_en", "note_zh",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
+                },
+
+                # 7. Estimate revision momentum.
+                "revisions": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "eps_up_30d": _INT_NULL,
+                        "eps_down_30d": _INT_NULL,
+                        "eps_up_90d": _INT_NULL,
+                        "eps_down_90d": _INT_NULL,
+                        "direction": {
+                            "type": ["string", "null"],
+                            "enum": ["up", "down", "mixed", None],
+                        },
+                        "note_en": _STR_NULL,
+                        "note_zh": _STR_NULL,
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "eps_up_30d", "eps_down_30d",
+                        "eps_up_90d", "eps_down_90d",
+                        "direction", "note_en", "note_zh",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
+                },
+
+                # 8. Next catalyst — repricing trigger + implied move.
+                "next_catalyst": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "label_en": _STR_NULL,
+                        "label_zh": _STR_NULL,
+                        "date": _STR_NULL,
+                        "implied_move_pct": _NUM_NULL,
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "label_en", "label_zh",
+                        "date", "implied_move_pct",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
+                },
+
+                # Composite 1. Support confidence by price zone.
+                "support_confidence": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "zones": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "low": _NUM_NULL,
+                                    "high": _NUM_NULL,
+                                    "confidence": _CONFIDENCE,
+                                    "reasons_en": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "reasons_zh": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                                "required": [
+                                    "low", "high", "confidence",
+                                    "reasons_en", "reasons_zh",
+                                ],
+                            },
+                        },
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "zones", "confidence",
+                        "confidence_note_en", "confidence_note_zh",
+                    ],
+                },
+
+                # Composite 2. Fragility — 0-100 score + drivers.
+                "fragility": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "score": _INT_NULL,
+                        "rating": {
+                            "type": ["string", "null"],
+                            "enum": [
+                                "low", "medium", "high", "extreme", None,
+                            ],
+                        },
+                        "drivers_en": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "drivers_zh": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "score", "rating",
+                        "drivers_en", "drivers_zh",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
+                },
+
+                # Composite 3. Repricing risk — directional probability.
+                "repricing_risk": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "positive_pct": _INT_NULL,
+                        "neutral_pct": _INT_NULL,
+                        "negative_pct": _INT_NULL,
+                        "note_en": _STR_NULL,
+                        "note_zh": _STR_NULL,
+                        "confidence": _CONFIDENCE,
+                        "confidence_note_en": _STR_NULL,
+                        "confidence_note_zh": _STR_NULL,
+                    },
+                    "required": [
+                        "positive_pct", "neutral_pct",
+                        "negative_pct",
+                        "note_en", "note_zh",
+                        "confidence", "confidence_note_en",
+                        "confidence_note_zh",
+                    ],
                 },
             },
             "required": [
-                "rel_volume_20d", "iv_30d_pct", "iv_percentile_1y",
-                "options_skew", "news_flow_24h", "insider_activity_30d",
-                "short_interest_pct_float", "days_to_cover",
-                "social_mentions_trend",
+                "anchored_vwaps", "float_turnover_zones",
+                "holder_mix", "options_positioning",
+                "short_pressure", "valuation", "revisions",
+                "next_catalyst", "support_confidence",
+                "fragility", "repricing_risk",
             ],
         },
 
@@ -337,22 +654,31 @@ SYSTEM_PROMPT = (
     "numbers — if a field can't be verified from a public source, return "
     "null. The user is making a snap trading decision; a null is much "
     "better than a guess.\n\n"
-    "BILINGUAL OUTPUT — every prose field in this schema has paired "
-    "`_en` (English) and `_zh` (Simplified Chinese) siblings. Populate "
-    "BOTH for every item. The Chinese version is a faithful translation "
-    "of the same fact, not a different summary, not a transliteration of "
+    "BILINGUAL OUTPUT — HARD CONTRACT. Every prose field in this "
+    "schema has paired `_en` (English) and `_zh` (Simplified Chinese) "
+    "siblings. The acceptable states for any pair are:\n"
+    "  - BOTH filled — preferred, this is the goal.\n"
+    "  - BOTH null — only when the underlying fact is genuinely "
+    "    unknown / unsourceable.\n"
+    "ONE-FILLED-ONE-NULL IS NEVER ACCEPTABLE. If you can produce the "
+    "English text, you MUST produce the Chinese translation, and vice "
+    "versa — the iOS app's language toggle is broken when a pair is "
+    "half-populated. The Chinese version is a faithful translation of "
+    "the same fact, not a different summary, not a transliteration of "
     "English words. Use natural trader/finance Chinese (e.g. "
     "'看涨'/'看跌'/'中性' for trend, '强力买入'/'买入'/'持有'/'卖出'/"
     "'强力卖出' for ratings, '上调'/'下调'/'首次覆盖'/'重申' for rating "
     "actions, '财报'/'指引'/'监管'/'会议'/'产品'/'法律'/'分红' for "
     "catalyst types). Keep tickers, firm names, and product codes in "
-    "Latin script in both languages. If a field is genuinely unknown, "
-    "return null in BOTH `_en` and `_zh` (don't fabricate a translation "
-    "of nothing). Legacy single-language fields (`trend`, "
-    "`breakout_signals`, `analyst_consensus`, `title`, `summary`, "
-    "`headline`, and `recent_rating_changes[*].action/from/to`) should "
-    "carry the same content as the `_en` variant for back-compat with "
-    "consumers that haven't been updated yet.\n\n"
+    "Latin script in both languages. Legacy single-language fields "
+    "(`trend`, `breakout_signals`, `analyst_consensus`, `title`, "
+    "`summary`, `headline`, and `recent_rating_changes[*].action/from/"
+    "to`) should carry the same content as the `_en` variant for "
+    "back-compat with consumers that haven't been updated yet.\n\n"
+    "Belt-and-suspenders: the server runs a translation pass after "
+    "your output that fills any half-populated pair you leave behind. "
+    "Don't rely on it — produce both languages yourself when you can. "
+    "Save the translation pass for the cases where you couldn't.\n\n"
     "Per-card guidance:\n"
     "- price_card: last close + percent returns vs prior day, 5 trading "
     "  days, 30 calendar days, year-to-date, and trailing 12 months, "
@@ -374,12 +700,73 @@ SYSTEM_PROMPT = (
     "  action_en/action_zh, from_en/from_zh, to_en/to_zh strings. "
     "  Source from a reputable aggregator (Yahoo Finance, Nasdaq, "
     "  MarketBeat, Zacks).\n"
-    "- heat_card: relative volume vs 20-day average, 30-day implied "
-    "  volatility (percent), 1-year IV percentile, options skew "
-    "  direction (call_bid / balanced / put_bid), news-item count in "
-    "  the last 24 hours, insider 30-day activity (buys, sells, net "
-    "  share-count change), short-interest as percent of float, days-"
-    "  to-cover, and qualitative social-mention trend.\n"
+    "- heat_card (Positioning Structure): institutional-trading "
+    "  positioning snapshot in eight sub-objects plus three composites. "
+    "  Every sub-object is independently nullable. Every estimated "
+    "  sub-object MUST carry a declarative `confidence` enum "
+    "  (high/medium/low/unavailable) AND paired bilingual "
+    "  `confidence_note_en` / `confidence_note_zh` strings — these "
+    "  explain *how* you sourced the data and, when "
+    "  confidence==`unavailable`, *why* you couldn't (e.g. \"SpotGamma "
+    "  pay-walled\", \"borrow rate not public\"). NEVER silently leave "
+    "  a section blank — the iOS app renders these notes verbatim. "
+    "  Sub-objects:\n"
+    "    1. anchored_vwaps — current_price + a list of AVWAP anchors "
+    "       from key events (earnings, AI events, IPO, secondaries, "
+    "       52-week high, macro events). Each anchor has kind (enum), "
+    "       label_en, label_zh, date, price. Source from Yahoo charts, "
+    "       sell-side notes, or compute from publicly-listed event "
+    "       dates plus close prices.\n"
+    "    2. float_turnover_zones — top 3-5 price ranges where the "
+    "       most float changed hands. Each zone has low/high price + "
+    "       pct_float (percent of float traded inside the range) + "
+    "       a one-line note_en/note_zh explaining why this zone "
+    "       matters (e.g. \"post-earnings accumulation\").\n"
+    "    3. holder_mix — institutional ownership breakdown as "
+    "       percentages: passive_pct, long_only_pct, hedge_fund_pct, "
+    "       retail_pct, insider_pct, strategic_pct. Should sum to ~100. "
+    "       Plus quality_label_en / quality_label_zh — one-line "
+    "       interpretation (e.g. \"Passive anchor, HF overhang\" / "
+    "       \"被动资金提供锚定，对冲基金存在抛压\").\n"
+    "    4. options_positioning — dealer-gamma regime: gamma_flip "
+    "       price (level below which dealers are short gamma), "
+    "       put_wall (largest put OI), call_wall (largest call OI), "
+    "       plus regime_en / regime_zh one-line summary "
+    "       (e.g. \"Above gamma flip — stable\").\n"
+    "    5. short_pressure — si_pct_float (FINRA), days_to_cover, "
+    "       borrow_rate_pct (broker / Iborrow), trend "
+    "       (rising/falling/flat), plus note_en/note_zh "
+    "       interpreting fragility (e.g. \"High SI + low borrow → "
+    "       weak bearish conviction\").\n"
+    "    6. valuation — ev_revenue_current, "
+    "       ev_revenue_5y_percentile (0-100), fwd_ev_ebitda, peg, "
+    "       plus note_en/note_zh on downside asymmetry "
+    "       (e.g. \"EV/Rev at 18th percentile vs 5y — downside "
+    "       compressed\").\n"
+    "    7. revisions — eps_up_30d, eps_down_30d, eps_up_90d, "
+    "       eps_down_90d (counts), direction (up/down/mixed), plus "
+    "       note_en/note_zh summarizing forward momentum.\n"
+    "    8. next_catalyst — the single most-imminent catalyst that "
+    "       will reprice the name: label_en/label_zh, date, "
+    "       implied_move_pct from the ATM straddle.\n"
+    "    Composite 1. support_confidence — for the top float-turnover "
+    "       zones, rate confidence (high/medium/low) with bilingual "
+    "       reason arrays explaining the weighting (holder quality, "
+    "       valuation, gamma, turnover, insider activity).\n"
+    "    Composite 2. fragility — single 0-100 score + rating "
+    "       (low/medium/high/extreme) + bilingual drivers arrays "
+    "       listing what makes the name fragile (narrative %, leverage, "
+    "       crowding, option instability, liquidity thinness).\n"
+    "    Composite 3. repricing_risk — directional probability "
+    "       distribution: positive_pct, neutral_pct, negative_pct "
+    "       (integers summing to 100) + note_en/note_zh.\n"
+    "  Sources: Whalewisdom / Fintel for holder mix; SpotGamma / "
+    "  Tier1Alpha / CBOE OI for gamma; FINRA SI; Iborrow / broker "
+    "  pages for borrow; YCharts / Macrotrends for valuation history; "
+    "  Zacks / Refinitiv pages on Yahoo Finance for revisions; "
+    "  earnings whisper / options chain for implied moves. If any of "
+    "  these aren't accessible, mark that section "
+    "  confidence=\"unavailable\" and explain in confidence_note_*.\n"
     "- catalysts: dated events in the next ~90 days, sorted earliest "
     "  first. Earnings date, guidance updates, regulatory dates (FDA, "
     "  CFIUS, DOJ), conferences, product launches, legal milestones "

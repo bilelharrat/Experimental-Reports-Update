@@ -4,19 +4,21 @@ import { useRoute, useRouter } from "vue-router";
 import {
   ArrowLeft,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   Loader2,
   Send,
   Sparkles,
 } from "lucide-vue-next";
-import { api } from "../api.js";
+import { api, withApiToken } from "../api.js";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import CompanyLibrary from "../components/CompanyLibrary.vue";
 import ResearchUploads from "../components/ResearchUploads.vue";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import CompanyConsole from "../components/CompanyConsole.vue";
+import FilePreviewModal from "../components/FilePreviewModal.vue";
 
 const tr = useT();
 
@@ -82,6 +84,35 @@ const memoPreview = computed(() => {
   return r.content_en || r.content || "";
 });
 
+// PDF preview popup (reuses the generic FilePreviewModal). `previewFile`
+// non-null = modal open; we hand the modal explicit tokened URLs since
+// it fetches the preview blob with a plain fetch (no auth header).
+const previewFile = ref(null);
+const previewPdfUrl = ref(null);
+const previewDocxUrl = ref(null);
+function openMemoPreview(lang) {
+  const r = activeReport.value;
+  const purl = r?.preview_urls?.[lang];
+  if (!purl) return;
+  previewPdfUrl.value = withApiToken(purl);
+  previewDocxUrl.value = r?.download_urls?.[lang]
+    ? withApiToken(r.download_urls[lang])
+    : null;
+  const name = r?.company_name || company.value?.name || "Memo";
+  previewFile.value = {
+    id: `memo-${r.id}-${lang}`,
+    kind: "pdf",
+    label: `${name} — ${lang === "zh" ? "投资备忘录" : "Investment Memo"}`,
+    filename: `${name} - Investment Memo (${lang.toUpperCase()}).pdf`,
+    language: lang,
+  };
+}
+function closeMemoPreview() {
+  previewFile.value = null;
+  previewPdfUrl.value = null;
+  previewDocxUrl.value = null;
+}
+
 const threads = ref([]);
 const newQuestion = ref("");
 const newAnswer = ref("");
@@ -107,12 +138,38 @@ watch(() => route.query.tab, (v) => {
 
 let pollId = null;
 
+// Map the HTTP status onto a localized title + body. 404 keeps the
+// existing "Company not found" copy; 401/403 explain the session
+// rather than blaming the company id; anything else surfaces a
+// generic error with the underlying status so we don't bury an
+// 5xx as "company not found".
+const companyErrorTitle = computed(() => {
+  const s = companyError.value?.status;
+  if (s === 401 || s === 403) return tr("research.session_expired");
+  if (s === 404) return tr("research.company_not_found");
+  return tr("research.company_load_failed");
+});
+const companyErrorBody = computed(() => {
+  const s = companyError.value?.status;
+  if (s === 401 || s === 403) return tr("research.session_expired_body");
+  if (s === 404) return tr("research.company_not_found_body", { id: props.companyId });
+  return tr("research.company_load_failed_body", { id: props.companyId });
+});
+
 async function loadCompany() {
   companyError.value = null;
   try {
     company.value = await api.getCompany(props.companyId);
   } catch (e) {
-    companyError.value = e.message;
+    // Keep the HTTP status on the error object so the template can
+    // tell "company genuinely missing" from "your session expired" /
+    // "something else went wrong". Distinguishing these is the
+    // difference between "go add this company" and "sign in and
+    // try again".
+    companyError.value = {
+      message: e?.message || String(e),
+      status: e?.status ?? null,
+    };
   }
 }
 
@@ -269,10 +326,13 @@ onUnmounted(stopPolling);
       class="rounded-card border border-subtle bg-surface p-6 text-center"
     >
       <div class="font-display text-lg text-ink-primary">
-        {{ tr("research.company_not_found") }}
+        {{ companyErrorTitle }}
       </div>
       <p class="mt-1 text-sm text-ink-muted">
-        {{ tr("research.company_not_found_body", { id: companyId }) }}
+        {{ companyErrorBody }}
+      </p>
+      <p v-if="companyError.status && companyError.status !== 404" class="mt-1 text-[11px] text-ink-muted font-mono">
+        HTTP {{ companyError.status }} · {{ companyError.message }}
       </p>
       <button
         @click="router.push({ name: 'home' })"
@@ -432,26 +492,45 @@ onUnmounted(stopPolling);
         v-if="isMemo && activeReport.status === 'complete'"
         class="mt-6 space-y-4"
       >
-        <!-- Download row: both .docx files, always available once complete. -->
+        <!-- Download + preview row: both .docx files (always available
+             once complete) plus a PDF preview when one was rendered. -->
         <div class="flex flex-wrap items-center gap-3">
           <a
             v-if="activeReport.download_urls?.en"
-            :href="activeReport.download_urls.en"
+            :href="withApiToken(activeReport.download_urls.en)"
             class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
           >
             <FileText class="h-4 w-4" />
             <span>{{ tr("research.download_en") }}</span>
             <Download class="h-3.5 w-3.5 text-ink-muted" />
           </a>
+          <button
+            v-if="activeReport.preview_urls?.en"
+            type="button"
+            @click="openMemoPreview('en')"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          >
+            <Eye class="h-4 w-4" />
+            <span>{{ tr("research.preview_pdf_en") }}</span>
+          </button>
           <a
             v-if="activeReport.download_urls?.zh"
-            :href="activeReport.download_urls.zh"
+            :href="withApiToken(activeReport.download_urls.zh)"
             class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
           >
             <FileText class="h-4 w-4" />
             <span>{{ tr("research.download_zh") }}</span>
             <Download class="h-3.5 w-3.5 text-ink-muted" />
           </a>
+          <button
+            v-if="activeReport.preview_urls?.zh"
+            type="button"
+            @click="openMemoPreview('zh')"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          >
+            <Eye class="h-4 w-4" />
+            <span>{{ tr("research.preview_pdf_zh") }}</span>
+          </button>
           <a
             v-if="activeReport.run_dir"
             :href="`file://${activeReport.run_dir}`"
@@ -617,5 +696,13 @@ onUnmounted(stopPolling);
         </li>
       </ul>
     </section>
+
+    <FilePreviewModal
+      :file="previewFile"
+      :preview-url="previewPdfUrl"
+      :download-url="previewDocxUrl"
+      :previewable-kinds="['pdf']"
+      @close="closeMemoPreview"
+    />
   </div>
 </template>

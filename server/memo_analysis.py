@@ -28,7 +28,7 @@ import logging
 import threading
 from pathlib import Path
 
-from . import claude_runner, job_progress, memo_prep, storage
+from . import claude_runner, docx_pdf, job_progress, memo_prep, storage
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _run(report_id: str) -> None:
     storage.update_report(
         report_id,
         status="analyzing",
-        stage="Running Serena's memo skill (single Claude subprocess)",
+        stage="Running BSH investment memo skill (Serena's version)",
         progress=15,
     )
 
@@ -154,6 +154,43 @@ def _run(report_id: str) -> None:
         )
         stream.emit("error", error=msg, phase="post_run_check")
         return
+
+    # --- Render PDF previews from the .docx files --------------------
+    # The .docx is the real deliverable; the PDF is a faithful rendition
+    # used only for the in-app preview popup. A conversion failure must
+    # NOT fail the run — we just won't offer a preview for that language.
+    storage.update_report(
+        report_id,
+        stage="Rendering PDF previews",
+        progress=95,
+    )
+    stream.emit("stage", stage="rendering_pdf", message="Rendering PDF previews")
+
+    updated_memo_files: list[dict] = []
+    for entry in memo_files:
+        lang = entry.get("language")
+        new_entry = dict(entry)
+        docx_abs = memo_paths_abs.get(lang)
+        if docx_abs and docx_abs.exists():
+            pdf_abs = docx_abs.with_suffix(".pdf")
+            ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
+            if ok:
+                new_entry["pdf_path"] = memo_prep._rel(pdf_abs)
+            else:
+                logger.warning(
+                    "PDF render failed for %s memo (%s): %s",
+                    lang, report_id, err,
+                )
+                stream.emit(
+                    "claude_action",
+                    action="tool_result",
+                    tool="docx→pdf",
+                    is_error=True,
+                    preview=(err or "PDF conversion failed")[:200],
+                )
+        updated_memo_files.append(new_entry)
+
+    storage.update_report(report_id, memo_files=updated_memo_files)
 
     # The skill is supposed to update the manifest itself with an
     # "Analysis finalization" block. We do not append our own. If the

@@ -116,6 +116,66 @@ def update_company_snapshot(
     return update_company(company_id, trader_snapshot=snapshot)
 
 
+# Marker keys that ONLY existed in the v1 heat_card. Their presence on
+# a saved snapshot proves the snapshot predates the v2 Positioning
+# Structure rewrite and that the iOS / web clients will hit a wall
+# trying to decode the legacy shape through v2 code paths.
+_HEAT_CARD_V1_MARKERS: frozenset[str] = frozenset({
+    "rel_volume_20d", "iv_30d_pct", "iv_percentile_1y",
+    "options_skew", "news_flow_24h", "insider_activity_30d",
+    "social_mentions_trend",
+})
+
+
+def migrate_trader_snapshots(target_schema_version: int) -> int:
+    """One-shot sweep at server startup. For every company whose
+    ``trader_snapshot`` is older than ``target_schema_version`` (or
+    still carries v1-only heat_card keys), strip the ``heat_card``
+    block and bump ``schema_version`` so the iOS / web clients render
+    the empty-state until the user clicks Refresh.
+
+    Returns the number of company records mutated. Idempotent — a
+    second call returns 0.
+
+    See docs/heat-card-v2.md §6 (Schema versioning + legacy migration).
+    """
+    mutated = 0
+    with _LOCK:
+        _ensure_dirs()
+        if not COMPANIES_FILE.exists():
+            return 0
+        companies = list(_read_yaml(COMPANIES_FILE, []))
+        changed = False
+        for c in companies:
+            snap = c.get("trader_snapshot")
+            if not isinstance(snap, dict):
+                continue
+            current = snap.get("schema_version")
+            heat = snap.get("heat_card")
+            has_v1_markers = (
+                isinstance(heat, dict)
+                and any(k in heat for k in _HEAT_CARD_V1_MARKERS)
+            )
+            needs_migration = (
+                (not isinstance(current, int))
+                or current < target_schema_version
+                or has_v1_markers
+            )
+            if not needs_migration:
+                continue
+            # Drop the now-incompatible heat_card; everything else
+            # (price/momentum/sentiment/catalysts/news/tech_movers)
+            # is still valid under v2 so we leave it alone.
+            if "heat_card" in snap:
+                snap["heat_card"] = None
+            snap["schema_version"] = target_schema_version
+            changed = True
+            mutated += 1
+        if changed:
+            _write_yaml(COMPANIES_FILE, companies)
+    return mutated
+
+
 def _slugify(name: str) -> str:
     out = []
     for ch in name.lower():

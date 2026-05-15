@@ -11,7 +11,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server import companies_ai_public, storage
+from server import companies_ai_public, storage, trader_bilingual_fill
 from server.main import app
 
 
@@ -22,12 +22,202 @@ COMPANY_ID = "amd"
 def tmp_storage(monkeypatch, tmp_path):
     """Redirect storage paths so each test has its own companies.yaml +
     trader-progress dir.
+
+    The trader-refresh endpoint spawns a `threading.Thread(daemon=True)`
+    per request. If one of those workers outlives this fixture's
+    teardown, it inherits the un-patched module-level paths and
+    overwrites the real ``data/companies.yaml`` with whatever the test
+    seeded into tmp_path. (See the 2026-05-13 incident: an entire
+    company list got clobbered down to just ``amd``.) Guard with two
+    nets:
+
+    1. Join every ``trader-snapshot:*`` thread before reverting the
+       monkeypatch. If any thread is still alive after 5s, fail loud.
+    2. Snapshot the real file's mtime and assert it didn't move
+       during the test. Catches anything that slips past the join
+       (different thread name, future workflow, etc.).
     """
+    import threading
+    from pathlib import Path
+
     monkeypatch.setattr(storage, "DATA_DIR", tmp_path)
     monkeypatch.setattr(storage, "COMPANIES_FILE", tmp_path / "companies.yaml")
     monkeypatch.setattr(storage, "REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr(storage, "THREADS_DIR", tmp_path / "threads")
-    return tmp_path
+
+    real_companies = (
+        Path(__file__).resolve().parent.parent / "data" / "companies.yaml"
+    )
+    canary_mtime = (
+        real_companies.stat().st_mtime if real_companies.exists() else None
+    )
+
+    try:
+        yield tmp_path
+    finally:
+        for t in threading.enumerate():
+            if t.name.startswith("trader-snapshot:") and t.is_alive():
+                t.join(timeout=5.0)
+                assert not t.is_alive(), (
+                    f"trader-snapshot worker {t.name!r} did not finish "
+                    "within 5s; refusing to tear down tmp_storage "
+                    "because the daemon will write to the real "
+                    "data/companies.yaml after monkeypatch reverts."
+                )
+        if canary_mtime is not None and real_companies.exists():
+            new_mtime = real_companies.stat().st_mtime
+            assert new_mtime == canary_mtime, (
+                "Real data/companies.yaml was modified during the test "
+                f"(mtime {canary_mtime} → {new_mtime}). A background "
+                "thread must have outlived this fixture's teardown — "
+                "investigate before re-running."
+            )
+
+
+def _stub_heat_card_v2() -> dict:
+    """Hand-crafted Positioning Structure (heat_card v2) payload that
+    exercises every required sub-object and confidence path. Used by
+    the fake-generate stub and the round-trip / migration tests.
+    """
+    return {
+        "anchored_vwaps": {
+            "current_price": 446.4,
+            "anchors": [
+                {
+                    "kind": "earnings",
+                    "label_en": "Q1 earnings (May 5)",
+                    "label_zh": "2026年一季度财报（5月5日）",
+                    "date": "2026-05-05",
+                    "price": 421.39,
+                },
+                {
+                    "kind": "52w_high",
+                    "label_en": "52-week high",
+                    "label_zh": "52周高点",
+                    "date": "2026-05-08",
+                    "price": 469.22,
+                },
+            ],
+            "confidence": "medium",
+            "confidence_note_en":
+                "Anchors derived from Yahoo Finance close prices.",
+            "confidence_note_zh":
+                "锚定价取自雅虎财经收盘价。",
+        },
+        "float_turnover_zones": {
+            "zones": [
+                {
+                    "low": 412.0, "high": 425.0, "pct_float": 22.0,
+                    "note_en": "Post-earnings accumulation.",
+                    "note_zh": "财报后吸筹区。",
+                },
+            ],
+            "confidence": "medium",
+            "confidence_note_en":
+                "Estimated from volume-weighted profile.",
+            "confidence_note_zh":
+                "基于成交量加权分布估算。",
+        },
+        "holder_mix": {
+            "passive_pct": 35.0, "long_only_pct": 28.0,
+            "hedge_fund_pct": 22.0, "retail_pct": 10.0,
+            "insider_pct": 1.5, "strategic_pct": 3.5,
+            "quality_label_en": "Passive anchor, HF overhang.",
+            "quality_label_zh": "被动资金提供锚定，对冲基金存在抛压。",
+            "confidence": "high",
+            "confidence_note_en": "13F snapshot via Whalewisdom.",
+            "confidence_note_zh": "13F数据，来源 Whalewisdom。",
+        },
+        "options_positioning": {
+            "gamma_flip": None, "put_wall": None, "call_wall": None,
+            "regime_en": None, "regime_zh": None,
+            "confidence": "unavailable",
+            "confidence_note_en":
+                "SpotGamma pay-walled; CBOE OI not granular enough.",
+            "confidence_note_zh":
+                "SpotGamma 付费墙，CBOE 公开未结合约粒度不足。",
+        },
+        "short_pressure": {
+            "si_pct_float": 2.2, "days_to_cover": 0.8,
+            "borrow_rate_pct": 0.5, "trend": "falling",
+            "note_en": "Low SI + low borrow → weak bearish conviction.",
+            "note_zh": "空头持仓低 + 借券成本低 → 看空动能偏弱。",
+            "confidence": "high",
+            "confidence_note_en": "FINRA SI + Iborrow rate.",
+            "confidence_note_zh": "FINRA 空头数据 + Iborrow 借券利率。",
+        },
+        "valuation": {
+            "ev_revenue_current": 12.0, "ev_revenue_5y_percentile": 18,
+            "fwd_ev_ebitda": 22.0, "peg": 1.4,
+            "note_en":
+                "EV/Rev at 18th percentile vs 5y — downside compressed.",
+            "note_zh":
+                "EV/营收处于5年18百分位，下行空间压缩。",
+            "confidence": "high",
+            "confidence_note_en": "YCharts + Macrotrends.",
+            "confidence_note_zh": "数据来源 YCharts 与 Macrotrends。",
+        },
+        "revisions": {
+            "eps_up_30d": 14, "eps_down_30d": 3,
+            "eps_up_90d": 22, "eps_down_90d": 8,
+            "direction": "up",
+            "note_en": "+14 / −3 EPS revisions (30d) — momentum positive.",
+            "note_zh": "近30天每股收益上修14次/下修3次，趋势偏正。",
+            "confidence": "medium",
+            "confidence_note_en": "Zacks aggregator.",
+            "confidence_note_zh": "Zacks 汇总数据。",
+        },
+        "next_catalyst": {
+            "label_en": "Q2 2026 earnings",
+            "label_zh": "2026年第二季度财报",
+            "date": "2026-07-30",
+            "implied_move_pct": 11.0,
+            "confidence": "high",
+            "confidence_note_en": "ATM straddle around earnings.",
+            "confidence_note_zh": "财报前后ATM跨式期权报价。",
+        },
+        "support_confidence": {
+            "zones": [
+                {
+                    "low": 412.0, "high": 425.0,
+                    "confidence": "high",
+                    "reasons_en": [
+                        "AVWAP from earnings", "22% float turnover",
+                    ],
+                    "reasons_zh": ["财报后VWAP", "22% 换手"],
+                },
+            ],
+            "confidence": "medium",
+            "confidence_note_en":
+                "Weighted from float turnover + holder quality.",
+            "confidence_note_zh":
+                "综合换手区与持有人质量加权。",
+        },
+        "fragility": {
+            "score": 55, "rating": "medium",
+            "drivers_en": [
+                "AI narrative ~55% of valuation",
+                "HF ownership crowded",
+            ],
+            "drivers_zh": [
+                "AI叙事约占估值55%",
+                "对冲基金持仓拥挤",
+            ],
+            "confidence": "medium",
+            "confidence_note_en": "Composite from sub-fields above.",
+            "confidence_note_zh": "由上述子项综合得出。",
+        },
+        "repricing_risk": {
+            "positive_pct": 35, "neutral_pct": 40, "negative_pct": 25,
+            "note_en":
+                "Earnings momentum tilts positive; gamma resistance caps upside.",
+            "note_zh":
+                "盈利动能偏正；伽马阻力限制了上行空间。",
+            "confidence": "medium",
+            "confidence_note_en": "Composite — see drivers above.",
+            "confidence_note_zh": "综合判断，详见上方驱动项。",
+        },
+    }
 
 
 @pytest.fixture
@@ -63,7 +253,20 @@ def private_company(tmp_storage):
 
 @pytest.fixture
 def stub_generate(monkeypatch):
-    """Replace companies_ai_public.generate_snapshot with a fast stub."""
+    """Replace companies_ai_public.generate_snapshot with a fast stub.
+
+    Also short-circuits the bilingual completeness pass to a no-op:
+    the stubs above produce fully bilingual data, so the fill pass
+    has nothing to do — but it would still iterate the snapshot and
+    (if claude is on PATH) probe `is_available()` etc. Skipping it
+    keeps the worker thread sub-millisecond, which keeps the 3-second
+    `_wait_for_done` poll deterministic when the whole suite runs.
+    """
+    monkeypatch.setattr(
+        trader_bilingual_fill, "ensure_bilingual_completeness",
+        lambda snapshot: snapshot,
+    )
+
     def fake_generate(*, company, progress=None):
         if progress is not None:
             progress.emit("claude_action", action="thinking",
@@ -101,18 +304,7 @@ def stub_generate(monkeypatch):
                     "target_price": {"mean": 195.0, "high": 230.0, "low": 148.0},
                     "recent_rating_changes": [],
                 },
-                "heat_card": {
-                    "rel_volume_20d": 1.4, "iv_30d_pct": 42.0,
-                    "iv_percentile_1y": 78, "options_skew": "call_bid",
-                    "news_flow_24h": 11,
-                    "insider_activity_30d": {
-                        "buys": 0, "sells": 2,
-                        "net_share_count_change": -45000,
-                    },
-                    "short_interest_pct_float": 2.1,
-                    "days_to_cover": 1.8,
-                    "social_mentions_trend": "rising",
-                },
+                "heat_card": _stub_heat_card_v2(),
                 "catalysts": [
                     {
                         "date": "2026-07-30", "type": "earnings",
@@ -232,6 +424,80 @@ def test_schema_requires_bilingual_prose_fields():
         assert k in news_required, k
 
 
+def test_heat_card_v2_has_all_sections():
+    """Positioning Structure v2 — eight high-signal fields plus three
+    composites, each independently nullable, each carrying a
+    declarative confidence enum + bilingual confidence note. See
+    docs/heat-card-v2.md.
+    """
+    heat = companies_ai_public.SCHEMA["properties"]["heat_card"]
+    assert heat["type"] == ["object", "null"]
+    required = set(heat["required"])
+    assert required == {
+        "anchored_vwaps", "float_turnover_zones", "holder_mix",
+        "options_positioning", "short_pressure", "valuation",
+        "revisions", "next_catalyst",
+        "support_confidence", "fragility", "repricing_risk",
+    }
+    # Every section that the model fills must carry confidence + note.
+    for section in (
+        "anchored_vwaps", "float_turnover_zones", "holder_mix",
+        "options_positioning", "short_pressure", "valuation",
+        "revisions", "next_catalyst",
+        "support_confidence", "fragility", "repricing_risk",
+    ):
+        sec = heat["properties"][section]
+        sec_required = set(sec["required"])
+        assert {"confidence", "confidence_note_en", "confidence_note_zh"} <= sec_required, (
+            f"{section} is missing the declarative confidence triple"
+        )
+
+
+def test_heat_card_v2_bilingual_inventory():
+    """Each prose field in heat_card v2 must have paired `_en` / `_zh`
+    siblings. Lock the inventory so a refactor that drops one is
+    caught immediately.
+    """
+    heat_props = companies_ai_public.SCHEMA["properties"]["heat_card"]["properties"]
+
+    anchor_item = (
+        heat_props["anchored_vwaps"]["properties"]["anchors"]["items"]
+    )
+    assert {"label_en", "label_zh"} <= set(anchor_item["required"])
+
+    zone_item = (
+        heat_props["float_turnover_zones"]["properties"]["zones"]["items"]
+    )
+    assert {"note_en", "note_zh"} <= set(zone_item["required"])
+
+    for section, fields in [
+        ("holder_mix", {"quality_label_en", "quality_label_zh"}),
+        ("options_positioning", {"regime_en", "regime_zh"}),
+        ("short_pressure", {"note_en", "note_zh"}),
+        ("valuation", {"note_en", "note_zh"}),
+        ("revisions", {"note_en", "note_zh"}),
+        ("next_catalyst", {"label_en", "label_zh"}),
+        ("repricing_risk", {"note_en", "note_zh"}),
+    ]:
+        assert fields <= set(heat_props[section]["required"]), section
+
+    # Composite arrays carry parallel _en / _zh array fields.
+    sc_zone = (
+        heat_props["support_confidence"]
+        ["properties"]["zones"]["items"]
+    )
+    assert {"reasons_en", "reasons_zh"} <= set(sc_zone["required"])
+    assert {"drivers_en", "drivers_zh"} <= set(
+        heat_props["fragility"]["required"]
+    )
+
+
+def test_schema_version_constant_is_at_least_two():
+    """The on-disk schema version must be bumped when heat_card breaks.
+    """
+    assert companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION >= 2
+
+
 def test_system_prompt_instructs_bilingual_output():
     """A sanity guard so future prompt edits don't silently drop the
     bilingual instruction — the iOS app depends on `_en` / `_zh` being
@@ -304,6 +570,60 @@ def test_refresh_public_company_writes_snapshot(
     assert snap["available_languages"] == ["en", "zh"]
 
 
+def test_refresh_records_bilingual_query_params(
+    public_company, stub_generate, client,
+):
+    """The iOS app posts `?languages=en,zh&include_translations=true&
+    translation_mode=all`. Phase 1 records them on the response and on
+    the job_init JSONL event so the client can render a translation-
+    pending hint without re-fetching the company. The generator always
+    produces both languages, so these inputs don't gate generation —
+    yet.
+    """
+    resp = client.post(
+        f"/api/companies/{COMPANY_ID}/trader/refresh"
+        "?languages=en,zh&include_translations=true&translation_mode=all"
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "queued"
+    assert body["languages_requested"] == ["en", "zh"]
+
+    _wait_for_done(COMPANY_ID)
+
+    # The progress log captured the request shape on job_init.
+    import json
+    path = (
+        storage.DATA_DIR / "_trader" / f"{COMPANY_ID}__snapshot.progress.jsonl"
+    )
+    events = [
+        json.loads(line)
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
+    job_init = next(e for e in events if e.get("type") == "job_init")
+    assert job_init["languages_requested"] == ["en", "zh"]
+    assert job_init["include_translations"] is True
+    assert job_init["translation_mode"] == "all"
+
+
+def test_refresh_normalizes_languages_param(
+    public_company, stub_generate, client,
+):
+    """Missing / garbage `languages` falls back to the bilingual
+    default. Unknown codes are dropped silently — we never want a
+    misconfigured client to land an empty `available_languages` on the
+    job log.
+    """
+    resp = client.post(
+        f"/api/companies/{COMPANY_ID}/trader/refresh?languages=fr,en,bogus"
+    )
+    assert resp.status_code == 200
+    # Only `en` is recognized; we don't fail open to the bilingual
+    # default in that case because the caller asked for a subset.
+    assert resp.json()["languages_requested"] == ["en"]
+
+
 def test_refresh_rejects_private_company(
     private_company, stub_generate, client,
 ):
@@ -316,6 +636,104 @@ def test_refresh_404_for_unknown_company(tmp_storage, stub_generate, client):
     storage._write_yaml(storage.COMPANIES_FILE, [])
     resp = client.post("/api/companies/ghost/trader/refresh")
     assert resp.status_code == 404
+
+
+def test_bilingual_snapshot_round_trips_through_storage(public_company):
+    """A freshly generated bilingual snapshot must survive a YAML write
+    + read cycle with every `_en` / `_zh` sibling intact.
+    """
+    snapshot = {
+        "refreshed_at": "2026-05-13T20:15:00Z",
+        "available_languages": ["en", "zh"],
+        "price_card": {
+            "last_price": 174.22, "currency": "USD", "as_of": None,
+            "change_pct_1d": 1.82, "change_pct_5d": None,
+            "change_pct_30d": None, "change_pct_ytd": None,
+            "change_pct_1y": None, "vs_sector_30d_pct": None,
+            "vs_sp500_30d_pct": None,
+        },
+        "momentum_card": {
+            "trend": "bullish",
+            "trend_en": "Bullish",
+            "trend_zh": "看涨",
+            "above_50dma": True, "above_200dma": True,
+            "ma_crossover_recent": None,
+            "breakout_signals": ["5-day high"],
+            "breakout_signals_en": ["5-day high"],
+            "breakout_signals_zh": ["创5日新高"],
+            "notable_levels": None,
+        },
+        "trader_news": [
+            {
+                "headline": "Q1 beat",
+                "headline_en": "Q1 beat",
+                "headline_zh": "第一季度超预期",
+                "date": "2026-05-07",
+                "summary": "Data-center +47% YoY",
+                "summary_en": "Data-center +47% YoY",
+                "summary_zh": "数据中心同比增长47%。",
+                "bias": "positive",
+                "source_url": "https://example.com/q1",
+            },
+        ],
+    }
+
+    storage.update_company_snapshot(COMPANY_ID, snapshot)
+    reloaded = storage.get_company(COMPANY_ID)["trader_snapshot"]
+
+    assert reloaded["available_languages"] == ["en", "zh"]
+    assert reloaded["momentum_card"]["trend_zh"] == "看涨"
+    assert reloaded["momentum_card"]["breakout_signals_zh"] == ["创5日新高"]
+    assert reloaded["trader_news"][0]["headline_zh"] == "第一季度超预期"
+    assert reloaded["trader_news"][0]["summary_zh"] == "数据中心同比增长47%。"
+    # The legacy single-language fields must persist alongside so older
+    # clients keep rendering until they migrate.
+    assert reloaded["momentum_card"]["trend"] == "bullish"
+    assert reloaded["trader_news"][0]["headline"] == "Q1 beat"
+
+
+def test_legacy_snapshot_loads_without_bilingual_fields(public_company):
+    """Snapshots written before the bilingual contract have only the
+    single-language fields and no `available_languages` stamp. The
+    storage layer must round-trip them as-is so existing companies
+    keep working until their next refresh.
+    """
+    legacy = {
+        "refreshed_at": "2026-04-01T10:00:00Z",
+        "generation_duration_ms": 12345,
+        "price_card": {
+            "last_price": 160.0, "currency": "USD", "as_of": None,
+            "change_pct_1d": 0.5, "change_pct_5d": None,
+            "change_pct_30d": None, "change_pct_ytd": None,
+            "change_pct_1y": None, "vs_sector_30d_pct": None,
+            "vs_sp500_30d_pct": None,
+        },
+        "momentum_card": {
+            "trend": "bullish",
+            "above_50dma": True, "above_200dma": True,
+            "ma_crossover_recent": None,
+            "breakout_signals": ["5-day high"],
+            "notable_levels": None,
+        },
+        "trader_news": [
+            {
+                "headline": "Legacy headline",
+                "date": "2026-04-01",
+                "summary": "Legacy summary",
+                "bias": "positive",
+                "source_url": "https://example.com/legacy",
+            },
+        ],
+    }
+
+    storage.update_company_snapshot(COMPANY_ID, legacy)
+    reloaded = storage.get_company(COMPANY_ID)["trader_snapshot"]
+
+    assert "available_languages" not in reloaded
+    assert reloaded["momentum_card"]["trend"] == "bullish"
+    assert "trend_zh" not in reloaded["momentum_card"]
+    assert reloaded["trader_news"][0]["headline"] == "Legacy headline"
+    assert "headline_zh" not in reloaded["trader_news"][0]
 
 
 def test_refresh_attaches_to_running_job(
@@ -346,4 +764,139 @@ def test_refresh_attaches_to_running_job(
     r2 = client.post(f"/api/companies/{COMPANY_ID}/trader/refresh")
     assert r2.json()["status"] == "already_running"
     # Let the slow generate finish so the worker thread exits cleanly.
+    block["event"].set()
+
+
+# ---- Schema version + migration ---------------------------------------
+
+
+def test_migration_strips_v1_heat_card(public_company):
+    """A snapshot written by the v1 code (rel_volume_20d etc. on
+    heat_card, no schema_version) must be migrated to v2 — heat_card
+    nulled out, schema_version stamped — so iOS/web don't decode the
+    legacy shape through v2 paths.
+    """
+    legacy = {
+        "refreshed_at": "2026-04-01T10:00:00Z",
+        # No schema_version → v1 by convention.
+        "price_card": None, "momentum_card": None,
+        "sentiment_card": None,
+        "heat_card": {
+            "rel_volume_20d": 1.4,
+            "iv_30d_pct": 42.0,
+            "iv_percentile_1y": 78,
+            "options_skew": "call_bid",
+            "news_flow_24h": 11,
+            "insider_activity_30d": {"buys": 0, "sells": 2,
+                                     "net_share_count_change": -45000},
+            "short_interest_pct_float": 2.1,
+            "days_to_cover": 1.8,
+            "social_mentions_trend": "rising",
+        },
+        "catalysts": [], "trader_news": [],
+    }
+    storage.update_company_snapshot(COMPANY_ID, legacy)
+
+    n = storage.migrate_trader_snapshots(
+        target_schema_version=companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION,
+    )
+    assert n == 1
+
+    migrated = storage.get_company(COMPANY_ID)["trader_snapshot"]
+    assert migrated["heat_card"] is None
+    assert migrated["schema_version"] == \
+        companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION
+    # Sibling fields untouched.
+    assert migrated["catalysts"] == []
+    assert migrated["refreshed_at"] == "2026-04-01T10:00:00Z"
+
+
+def test_migration_is_idempotent(public_company):
+    storage.update_company_snapshot(COMPANY_ID, {
+        "refreshed_at": "2026-04-01T10:00:00Z",
+        "heat_card": {"rel_volume_20d": 1.4},
+        "schema_version": 1,
+    })
+    target = companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION
+    first = storage.migrate_trader_snapshots(target_schema_version=target)
+    second = storage.migrate_trader_snapshots(target_schema_version=target)
+    assert first == 1
+    assert second == 0
+
+
+def test_migration_leaves_current_snapshots_alone(public_company):
+    """Snapshots that already match the current schema_version
+    shouldn't be touched.
+    """
+    target = companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION
+    storage.update_company_snapshot(COMPANY_ID, {
+        "refreshed_at": "2026-05-13T20:15:00Z",
+        "heat_card": _stub_heat_card_v2(),
+        "schema_version": target,
+    })
+    n = storage.migrate_trader_snapshots(target_schema_version=target)
+    assert n == 0
+    snap = storage.get_company(COMPANY_ID)["trader_snapshot"]
+    assert snap["heat_card"]["anchored_vwaps"]["current_price"] == 446.4
+
+
+def test_done_event_stamps_schema_version(
+    public_company, stub_generate, client,
+):
+    """A fresh refresh end-to-end must stamp schema_version on the
+    saved snapshot AND echo it on the SSE `done` event.
+    """
+    resp = client.post(f"/api/companies/{COMPANY_ID}/trader/refresh")
+    assert resp.status_code == 200
+    snap = _wait_for_done(COMPANY_ID)
+    target = companies_ai_public.TRADER_SNAPSHOT_SCHEMA_VERSION
+    assert snap["schema_version"] == target
+
+    import json
+    path = (
+        storage.DATA_DIR / "_trader" / f"{COMPANY_ID}__snapshot.progress.jsonl"
+    )
+    events = [
+        json.loads(line) for line in path.read_text().splitlines() if line
+    ]
+    done = next(e for e in events if e.get("type") == "done")
+    assert done["schema_version"] == target
+
+
+# ---- Force-refresh ----------------------------------------------------
+
+
+def test_force_refresh_supersedes_in_flight_run(
+    public_company, monkeypatch, client,
+):
+    """`?force=true` must bypass the `already_running` short-circuit
+    and spawn a fresh worker even when a stale progress file exists.
+    """
+    import threading as _threading
+    block = {"event": _threading.Event()}
+
+    def slow_generate(*, company, progress=None):
+        progress.emit("stage", stage="working", message="waiting…")
+        block["event"].wait(timeout=2.0)
+        return ({"price_card": None, "momentum_card": None,
+                 "sentiment_card": None, "heat_card": None,
+                 "catalysts": [], "trader_news": [],
+                 "tech_movers": {"updated_at": None, "movers": []}}, None)
+
+    monkeypatch.setattr(
+        companies_ai_public, "generate_snapshot", slow_generate,
+    )
+
+    r1 = client.post(f"/api/companies/{COMPANY_ID}/trader/refresh")
+    assert r1.json()["status"] == "queued"
+    time.sleep(0.1)
+    # Without `force`, this short-circuits.
+    r2 = client.post(f"/api/companies/{COMPANY_ID}/trader/refresh")
+    assert r2.json()["status"] == "already_running"
+    # With `force=true`, the in-flight is superseded.
+    r3 = client.post(
+        f"/api/companies/{COMPANY_ID}/trader/refresh?force=true"
+    )
+    assert r3.json()["status"] == "force_queued"
+    # Let the original generate finish so the worker thread exits.
     block["event"].set()
