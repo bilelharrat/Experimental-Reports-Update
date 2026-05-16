@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Download,
   Globe,
   Languages,
@@ -397,6 +398,18 @@ const headerSubtitle = computed(() => {
                     {{ actionLabel(entry) }}
                   </div>
                 </div>
+                <!-- End-of-section collapse — live updates auto-scroll to
+                     the bottom, so the header is often out of reach.
+                     Stays pinned to the bottom of the viewport while the
+                     section is on screen. -->
+                <button
+                  type="button"
+                  @click="toggleThread(g.name)"
+                  class="sticky bottom-0 w-full mt-1 px-2 py-1 flex items-center justify-center gap-1.5 text-[11px] text-ink-muted hover:text-ink-primary bg-canvas/95 border-t border-subtle focus-ring"
+                >
+                  <ChevronUp class="h-3 w-3" />
+                  Collapse “{{ g.title }}”
+                </button>
               </div>
             </section>
           </template>

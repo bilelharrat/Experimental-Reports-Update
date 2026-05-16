@@ -33,18 +33,33 @@ import {
 
 const t = useT();
 
+const props = defineProps({
+  company: { type: Object, required: true },
+  // Page-level language ("en" | "zh"). Optional — falls back to the
+  // global appLanguage when absent.
+  language: { type: String, default: null },
+});
+const emit = defineEmits(["refreshed"]);
+
 // Bilingual field picker — mirrors iOS TraderLocalizedText.pick. The
 // server now emits paired `<base>_en` / `<base>_zh` for every prose
 // field, and keeps the legacy single-language `<base>` as a back-compat
 // mirror of the English value. We prefer the user's locale, fall back
 // to the other language, and finally to the legacy field.
+//
+// Effective language: the page-level selection (CompanyDetail's
+// per-page EN/中 toggle, which itself syncs from the global app
+// language) is passed down as the `language` prop and takes precedence.
+// Fall back to the global appLanguage when mounted without a prop.
+const lang = computed(() => props.language || appLanguage.value);
+
 function pickLocalized(obj, base) {
   if (!obj) return "";
   const en = obj[`${base}_en`];
   const zh = obj[`${base}_zh`];
   const fallback = obj[base];
   const order =
-    appLanguage.value === "zh" ? [zh, en, fallback] : [en, fallback, zh];
+    lang.value === "zh" ? [zh, en, fallback] : [en, fallback, zh];
   for (const v of order) {
     if (typeof v === "string" && v.trim()) return v;
   }
@@ -57,17 +72,12 @@ function pickLocalizedArray(obj, base) {
   const zh = obj[`${base}_zh`];
   const fallback = obj[base];
   const order =
-    appLanguage.value === "zh" ? [zh, en, fallback] : [en, fallback, zh];
+    lang.value === "zh" ? [zh, en, fallback] : [en, fallback, zh];
   for (const v of order) {
     if (Array.isArray(v) && v.length) return v;
   }
   return [];
 }
-
-const props = defineProps({
-  company: { type: Object, required: true },
-});
-const emit = defineEmits(["refreshed"]);
 
 const refreshing = ref(false);
 const refreshError = ref(null);

@@ -144,10 +144,35 @@ def _startup() -> None:
     _start_translation_backfill()
 
 
+# Content fields we expect a real translation to populate. A block that
+# has none of these filled is a stale skeleton or a persisted failed
+# attempt (e.g. NVDA: language="other", every field null) — the old
+# `not c.get("translation")` predicate skipped those forever because an
+# all-null dict is truthy. Re-translate them.
+_TRANSLATION_CONTENT_FIELDS = (
+    "description", "sector", "industry", "status", "hq",
+    "employee_band", "parent_company", "key_people", "products",
+    "competitors", "recent_news", "notable_contracts",
+    "notable_acquisitions", "highlight_2026",
+)
+
+
+def _needs_translation(company: dict) -> bool:
+    tr = company.get("translation")
+    if not tr or not isinstance(tr, dict):
+        return True
+    for k in _TRANSLATION_CONTENT_FIELDS:
+        v = tr.get(k)
+        if v not in (None, "", [], {}):
+            return False  # at least one field is genuinely populated
+    return True  # shaped-but-empty / failed block → retranslate
+
+
 def _start_translation_backfill() -> None:
-    """Translate any company record that doesn't yet have a `translation`
-    block. Runs in a background thread so startup isn't blocked. No-op if
-    the Claude CLI isn't installed.
+    """Translate any company record that has no `translation` block, or
+    whose block is empty / a stale failed skeleton. Runs in a background
+    thread so startup isn't blocked. No-op if the Claude CLI isn't
+    installed.
     """
     if not claude_runner.is_available():
         return
@@ -158,7 +183,7 @@ def _start_translation_backfill() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Translation backfill: list_companies failed: %s", exc)
             return
-        pending = [c for c in companies if not c.get("translation")]
+        pending = [c for c in companies if _needs_translation(c)]
         if not pending:
             return
         logger.info(

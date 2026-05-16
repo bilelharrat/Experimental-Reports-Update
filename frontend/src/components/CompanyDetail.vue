@@ -42,15 +42,27 @@ const translationAvailable = computed(
   () => Boolean(props.company.translation),
 );
 
-// Returns the value to display for a top-level field, picking from the
-// translation block when viewLang differs from the source language and a
-// translated value exists. Falls back to the source value.
+// Whether the translation block should be used for the current view.
+// The `translation` block always holds the OPPOSITE-language content of
+// the source. The old gate compared viewLang to `c.language`, which
+// breaks when `c.language` is "other"/null (e.g. NVDA) — it would then
+// show the (Chinese) translation even in English mode. Instead: treat
+// any non-"zh" source as English-ish, and only swap to the translation
+// when the viewer wants the opposite of the source.
+function wantTranslation() {
+  const c = props.company;
+  if (!c.translation) return false;
+  const srcZh = c.language === "zh";
+  if (viewLang.value === "zh") return !srcZh; // want Chinese, source isn't
+  if (viewLang.value === "en") return srcZh; // want English, source is zh
+  return false;
+}
+
+// Top-level scalar field — translated value when available, else source.
 function tr(field) {
   const c = props.company;
-  if (viewLang.value !== "zh" && viewLang.value !== "en") return c[field];
   if (
-    viewLang.value !== c.language &&
-    c.translation &&
+    wantTranslation() &&
     c.translation[field] != null &&
     c.translation[field] !== ""
   ) {
@@ -59,15 +71,17 @@ function tr(field) {
   return c[field];
 }
 
-// For nested objects/arrays — picks the translated array or object when
-// available, else the source.
+// Nested array — use the translated array whenever it's a non-empty
+// array. The old code also required translation.length === source.length
+// and silently fell back to English on any mismatch, which is why AMD's
+// products/competitors/news stayed English while description/sector
+// flipped. A populated translated array is always preferable.
 function trArray(field) {
   const c = props.company;
   if (
-    viewLang.value !== c.language &&
-    c.translation &&
+    wantTranslation() &&
     Array.isArray(c.translation[field]) &&
-    c.translation[field].length === (c[field] || []).length
+    c.translation[field].length
   ) {
     return c.translation[field];
   }
@@ -76,11 +90,7 @@ function trArray(field) {
 
 function trObject(field) {
   const c = props.company;
-  if (
-    viewLang.value !== c.language &&
-    c.translation &&
-    c.translation[field]
-  ) {
+  if (wantTranslation() && c.translation[field]) {
     return c.translation[field];
   }
   return c[field];
@@ -573,6 +583,7 @@ const earningsLine = computed(() => {
   <TraderView
     v-if="company.company_type === 'public'"
     :company="company"
+    :language="viewLang"
     @refreshed="(c) => c && $emit('refreshed', c)"
   />
 </template>
