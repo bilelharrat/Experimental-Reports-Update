@@ -43,6 +43,7 @@ SEED_USERS: list[tuple[str, str]] = [
     ("robert@bshventures.com", "redapple"),
     ("elina.sun@bshventures.com", "redapple"),
     ("serena@bshfoundation.org", "redapple"),
+    ("liupengsen50@gmail.com", "redapple"),
     ("guest", "guest"),
 ]
 

@@ -346,6 +346,39 @@ export const api = {
     const res = await apiFetch(`/api/external/hormuz/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
+
+  // Date-organized Hormuz source library + V3 bilingual appendix.
+  hormuzLibrary: () => request("/api/external/hormuz/library"),
+  uploadHormuzSources: async (fileList) => {
+    const fd = new FormData();
+    for (const f of fileList) fd.append("files", f);
+    const res = await apiFetch("/api/external/hormuz/sources", {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    }
+    return res.json();
+  },
+  hormuzSourceUrl: (date, filename) =>
+    withApiToken(
+      `/api/external/hormuz/sources/${date}/${encodeURIComponent(filename)}`,
+    ),
+  generateHormuzAppendix: async (date) => {
+    const res = await apiFetch(
+      `/api/external/hormuz/appendix/${date}/generate`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    }
+    return res.json();
+  },
+  hormuzAppendixFileUrl: (date, slot) =>
+    withApiToken(`/api/external/hormuz/appendix/${date}/file?slot=${slot}`),
   listThreads: (companyId) =>
     request(`/api/companies/${companyId}/threads`),
   addThread: (companyId, payload) =>
@@ -458,5 +491,18 @@ export const api = {
       );
       if (!res.ok) throw _httpError(res.status, res.statusText, await res.text().catch(() => ""));
     },
+  },
+
+  // Hormuz Console — scoped to the last two days of Hormuz reports.
+  // The fixed id "hormuz" reuses the generic, company-agnostic console
+  // endpoints for everything except create (which stages Hormuz docs).
+  hormuzConsole: {
+    SCOPE: "hormuz",
+    context: () => request("/api/external/hormuz/console/context"),
+    createSession: ({ output_language = "en" } = {}) =>
+      request("/api/external/hormuz/console/sessions", {
+        method: "POST",
+        body: JSON.stringify({ output_language }),
+      }),
   },
 };

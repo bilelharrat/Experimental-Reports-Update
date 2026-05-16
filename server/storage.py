@@ -388,6 +388,30 @@ def create_report(
     return report
 
 
+def create_report_record(**fields: Any) -> dict:
+    """Mint a report record that is NOT company-scoped.
+
+    `create_report` requires a known company; some report kinds (e.g. the
+    Hormuz appendix) aren't tied to a company. This writes a minimal
+    record with a fresh id and whatever fields the caller passes. The
+    caller owns `kind`, `status`, `run_dir`, etc.
+    """
+    report_id = uuid.uuid4().hex[:12]
+    report = {
+        "id": report_id,
+        "status": "queued",
+        "progress": 0,
+        "stage": "Queued",
+        "created_at": _now(),
+        "updated_at": _now(),
+        **fields,
+    }
+    with _LOCK:
+        _ensure_dirs()
+        _write_yaml(_report_path(report_id), report)
+    return report
+
+
 def update_report(report_id: str, **patch: Any) -> dict | None:
     with _LOCK:
         data = get_report(report_id)

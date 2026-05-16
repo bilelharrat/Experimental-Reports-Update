@@ -486,6 +486,12 @@ function onBlur() {
       <SubmitLinkTool />
       <UploadResearchTool />
       <AddHormuzResearchTool />
+      <router-link
+        :to="{ name: 'hormuz-library' }"
+        class="block w-full text-left px-3 py-2 rounded-card border border-subtle bg-surface hover:bg-surface-muted text-sm text-ink-primary focus-ring"
+      >
+        Hormuz source library &amp; V3 appendix →
+      </router-link>
     </div>
   </div>
 </template>

@@ -986,6 +986,7 @@ def run_public_company_snapshot(
     system_prompt: str,
     timeout_sec: int = 600,
     progress=None,
+    focus_hint: str | None = None,
 ) -> tuple[dict | None, str | None]:
     """Spawn ``claude -p`` to produce one public-company trader snapshot.
 
@@ -1003,17 +1004,25 @@ def run_public_company_snapshot(
         )
 
     exchange_line = f" on {exchange}" if exchange else ""
+    focus_block = f"\n\n{focus_hint.strip()}" if focus_hint else ""
     user_prompt = (
         f"{system_prompt}\n\n"
         f"Target company: {company_name} ({ticker}){exchange_line}.\n\n"
         "Produce the snapshot now. Use WebSearch and WebFetch on Yahoo "
         "Finance, Nasdaq, the SEC, IR pages, and recent news sources. "
         "Output ONE JSON object matching the attached schema."
+        f"{focus_block}"
     )
 
     # Per-snapshot work dir — Claude needs an --add-dir target even
-    # though we don't expect any tool writes here.
-    work_dir = Path("/tmp") / f"bsh_public_snapshot_{ticker.lower()}"
+    # though we don't expect any tool writes here. Suffix keeps parallel
+    # per-section passes for the same ticker from colliding.
+    suffix = ""
+    if focus_hint:
+        import hashlib
+
+        suffix = "_" + hashlib.sha1(focus_hint.encode()).hexdigest()[:8]
+    work_dir = Path("/tmp") / f"bsh_public_snapshot_{ticker.lower()}{suffix}"
     work_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
@@ -1551,6 +1560,17 @@ def _load_skill_text() -> str:
     return _SKILL_PATH.read_text(encoding="utf-8")
 
 
+_HORMUZ_SKILL_PATH = (
+    Path(__file__).resolve().parent / "skills" / "bsh_hormuz_appendix.md"
+)
+
+
+def _load_hormuz_skill_text() -> str:
+    if not _HORMUZ_SKILL_PATH.exists():
+        raise RuntimeError(f"Skill file missing: {_HORMUZ_SKILL_PATH}")
+    return _HORMUZ_SKILL_PATH.read_text(encoding="utf-8")
+
+
 def _build_investment_memo_prompt(
     *,
     run_dir: Path,
@@ -1806,6 +1826,207 @@ def run_investment_memo(
                 "thread_finished" if finish_ok else "thread_failed",
                 thread=thread_label,
             )
+
+    if proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "ok": False,
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            ),
+        }
+
+    out: dict = {"ok": True}
+    if result_event:
+        out["cost_usd"] = result_event.get("total_cost_usd")
+        out["duration_ms"] = result_event.get("duration_ms")
+        out["subtype"] = result_event.get("subtype")
+    return out
+
+
+def _build_hormuz_appendix_prompt(
+    *,
+    run_dir: Path,
+    target_date: str,
+    previous_date: str | None,
+    date_range: str,
+    source_paths: list[str],
+    previous_source_paths: list[str],
+    output_basename_cn: str,
+    output_basename_en: str,
+) -> str:
+    """Operational header + the Hormuz skill verbatim (mirrors the memo
+    prompt builder). The header maps the skill's abstract I/O contract to
+    this run's concrete absolute paths."""
+    skill_text = _load_hormuz_skill_text()
+
+    def _bullets(paths: list[str]) -> str:
+        return "\n".join(f"  - `{p}`" for p in paths) or "  - (none)"
+
+    prev_block = (
+        f"- **PREVIOUS_REPORTS** (date `{previous_date}`, baseline only):\n"
+        f"{_bullets(previous_source_paths)}"
+        if previous_date
+        else "- **PREVIOUS_REPORTS:** none — no prior-day baseline exists. "
+        "Treat all probabilities as new and state that explicitly; write "
+        "前值概率 as `N/A（无前日基线）`."
+    )
+
+    return f"""\
+You are running the **bsh-hormuz-appendix-v3** skill for one real run.
+The skill text is included verbatim below. **Follow it exactly.** This
+header only fills in the run-specific I/O contract.
+
+## Run-specific operational context
+
+- **Run folder (your CWD):** `{run_dir}` — write all four output files
+  directly here (no subfolders).
+- **TARGET_DATE:** {target_date}
+- **DATE_RANGE:** {date_range}
+- **OUTPUT_BASENAME_CN:** {output_basename_cn}
+- **OUTPUT_BASENAME_EN:** {output_basename_en}
+- **USER_FOCUS:** (none specified)
+
+## Inputs
+
+- **SOURCE_REPORTS** (date `{target_date}`, the current day):
+{_bullets(source_paths)}
+{prev_block}
+
+Read the source files with the `markitdown` Bash tool if available,
+otherwise `pandoc`, otherwise the Read tool. Do not invent sources.
+
+## Output contract — exactly four files in the run folder
+
+  - `{run_dir}/{output_basename_cn}.md`
+  - `{run_dir}/{output_basename_cn}.pdf`
+  - `{run_dir}/{output_basename_en}.md`
+  - `{run_dir}/{output_basename_en}.pdf`
+
+Phase 1 produces the Chinese Markdown then its PDF; Phase 2 translates
+the Chinese Markdown to English Markdown then renders its PDF. Use the
+PDF recipe in the skill (pandoc → HTML → headless Google Chrome) and run
+the render-check. Do not paste the appendix body into chat.
+
+=================================================================
+SKILL: bsh-hormuz-appendix-v3 (verbatim — follow this)
+=================================================================
+
+{skill_text}
+"""
+
+
+def run_hormuz_appendix(
+    *,
+    run_dir: Path,
+    target_date: str,
+    previous_date: str | None,
+    date_range: str,
+    source_paths: list[str],
+    previous_source_paths: list[str],
+    sources_root: str,
+    output_basename_cn: str,
+    output_basename_en: str,
+    progress=None,
+    timeout_sec: int = 3600,
+) -> dict:
+    """Spawn one `claude -p` running the Hormuz appendix skill verbatim.
+
+    Returns ``{ok, cost_usd, duration_ms, error?}``. Mirrors
+    ``run_investment_memo``.
+    """
+    if not is_available():
+        return {
+            "ok": False,
+            "error": (
+                "Claude Code (`claude`) not found on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and run "
+                "`claude` once to authenticate."
+            ),
+        }
+    if not run_dir.exists():
+        return {"ok": False, "error": f"Run folder missing: {run_dir}"}
+    if not source_paths:
+        return {"ok": False, "error": "No source reports for the target date"}
+
+    prompt = _build_hormuz_appendix_prompt(
+        run_dir=run_dir,
+        target_date=target_date,
+        previous_date=previous_date,
+        date_range=date_range,
+        source_paths=source_paths,
+        previous_source_paths=previous_source_paths,
+        output_basename_cn=output_basename_cn,
+        output_basename_en=output_basename_en,
+    )
+
+    # The skill reads source PDFs under the sources tree and writes the
+    # appendix into the run folder. add-dir both.
+    add_dirs = [str(run_dir), sources_root]
+    cmd = [
+        claude_path() or "claude",
+        "-p",
+        prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Write,Edit,Bash,Grep,Glob",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    for d in add_dirs:
+        cmd += ["--add-dir", d]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="analysis_starting",
+            message="Running Hormuz appendix skill (CN generate → EN translate)",
+            run_dir=str(run_dir),
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": f"Failed to launch claude: {exc}"}
+
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    state: dict[str, Any] = {}
+    result_event: dict | None = None
+    try:
+        for line in proc.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                if progress:
+                    _process_event(event, progress, state)
+            except Exception:
+                logger.exception("progress event handling failed")
+            if event.get("type") == "result":
+                result_event = event
+        proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
 
     if proc.returncode and proc.returncode != 0:
         tail = "".join(stderr_log[-20:]).strip()

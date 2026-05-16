@@ -39,6 +39,9 @@ from . import (
     files_store,
     trader_bilingual_fill,
     generator,
+    hormuz_console,
+    hormuz_prep,
+    hormuz_store,
     job_progress,
     link_preview as link_preview_mod,
     memo_prep,
@@ -319,10 +322,12 @@ class CompanyOut(BaseModel):
 
 class ReportSummary(BaseModel):
     id: str
-    company_id: str
+    # Optional: not every report kind is company-scoped (e.g. the Hormuz
+    # V3 appendix has no company or audience).
+    company_id: str | None = None
     company_name: str | None = None
     report_type: str
-    audience: str
+    audience: str | None = None
     language: str = "en"
     status: str
     progress: int = 0
@@ -1652,6 +1657,8 @@ _JOB_KIND_PATHS = {
     / "translations"
     / f"{key}__translate.progress.jsonl",
     "memo": _memo_stream_path_for_report,
+    # Hormuz appendix reuses the report→run_dir→logs/stream.jsonl resolver.
+    "hormuz": _memo_stream_path_for_report,
     "research_summary": lambda key: research_store.quick_summary_progress_path(
         key.split("/", 1)[0], key.split("/", 1)[1]
     ),
@@ -1732,6 +1739,32 @@ def _memo_kind_records():
             "report_id": report_id,
             "company_id": init.get("company_id"),
             "run_id": init.get("run_id"),
+            "run_dir": init.get("run_dir"),
+            **_common_state_fields(state),
+        }
+
+
+def _hormuz_appendix_kind_records():
+    """Active-jobs rail entries for Hormuz V3 appendix runs.
+
+    One idempotent run folder per date under data/hormuz_appendix/<date>/
+    with logs/stream.jsonl (same layout as memo runs)."""
+    if not hormuz_store.APPENDIX_ROOT.exists():
+        return
+    for jsonl_path in hormuz_store.APPENDIX_ROOT.glob("*/logs/stream.jsonl"):
+        state = _scan_progress_state(jsonl_path)
+        init = state.get("job_init") or {}
+        report_id = init.get("report_id")
+        if not report_id:
+            continue
+        yield {
+            "kind": state.get("kind") or "hormuz",
+            "title": state.get("title") or "Hormuz V3 appendix",
+            "subtitle": state.get("subtitle") or "Bilingual appendix",
+            "stream_url": f"/api/memos/{report_id}/stream",
+            "log_url": f"/api/jobs/log?path=hormuz:{report_id}",
+            "primary_route": {"name": "hormuz-library"},
+            "report_id": report_id,
             "run_dir": init.get("run_dir"),
             **_common_state_fields(state),
         }
@@ -1866,6 +1899,7 @@ def get_active_jobs() -> list[dict]:
         _search_kind_records(),
         _pdf_translation_kind_records(),
         _memo_kind_records(),
+        _hormuz_appendix_kind_records(),
         _research_summary_kind_records(),
         _console_kind_records(),
         _public_snapshot_kind_records(),
@@ -2739,6 +2773,168 @@ async def post_hormuz(
     return external_store.write_item("hormuz_research", record)
 
 
+# ---- Hormuz date-organized source library + V3 appendix ----
+
+def _latest_hormuz_report_for_date(date: str) -> dict | None:
+    """Newest hormuz_appendix report record for a target date, if any."""
+    best = None
+    for r in storage.list_reports():
+        if r.get("kind") != "hormuz_appendix":
+            continue
+        if str(r.get("target_date")) != date:
+            continue
+        if best is None or str(r.get("created_at", "")) > str(
+            best.get("created_at", "")
+        ):
+            best = r
+    return best
+
+
+def _hormuz_library_entry(date: str) -> dict:
+    src = hormuz_store.source_files(date)
+    status = hormuz_store.appendix_status(date)
+    report = _latest_hormuz_report_for_date(date)
+    appendix: dict = {
+        "complete": status["complete"],
+        "files": status["files"],
+    }
+    if report:
+        rid = report["id"]
+        appendix.update(
+            report_id=rid,
+            status=report.get("status"),
+            stage=report.get("stage"),
+            progress=report.get("progress"),
+            stream_url=f"/api/memos/{rid}/stream",
+            log_url=f"/api/jobs/log?path=hormuz:{rid}",
+        )
+    return {
+        "date": date,
+        "sources": [
+            {
+                "filename": p.name,
+                "size_bytes": p.stat().st_size,
+                "url": f"/api/external/hormuz/sources/{date}/{p.name}",
+            }
+            for p in src
+        ],
+        "previous_date": hormuz_store.previous_date(date),
+        "appendix": appendix,
+    }
+
+
+@router.get("/external/hormuz/library")
+def get_hormuz_library() -> list[dict]:
+    """Date-organized Hormuz source library, newest date first, each with
+    its source files and the latest appendix status for that date.
+
+    Folds any files attached to the legacy Hormuz Research items into the
+    date library first (idempotent, best-effort)."""
+    try:
+        hormuz_store.import_legacy_hormuz_files()
+    except Exception:  # noqa: BLE001 — never let backfill break listing
+        logger.exception("legacy Hormuz fold-in failed")
+    return [
+        _hormuz_library_entry(d) for d in hormuz_store.list_source_dates()
+    ]
+
+
+@router.post("/external/hormuz/sources", status_code=201)
+async def post_hormuz_sources(
+    files: list[UploadFile] = File(...),
+) -> dict:
+    """Upload one or more daily source reports (max 10). The date is
+    parsed from each filename (e.g. 中东局势每日研判2026-05-13.pdf →
+    2026-05-13)."""
+    if len(files) > 10:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many files ({len(files)}). Upload at most 10 at a time.",
+        )
+    saved: list[dict] = []
+    errors: list[dict] = []
+    for f in files:
+        if not f or not f.filename:
+            continue
+        data = await f.read()
+        if not data:
+            errors.append({"filename": f.filename, "error": "Empty file"})
+            continue
+        try:
+            saved.append(hormuz_store.save_source(f.filename, data))
+        except ValueError as exc:
+            errors.append({"filename": f.filename, "error": str(exc)})
+    if not saved and errors:
+        raise HTTPException(status_code=400, detail=errors)
+    return {"saved": saved, "errors": errors}
+
+
+@router.get("/external/hormuz/sources/{date}/{filename}")
+def get_hormuz_source_file(date: str, filename: str) -> FileResponse:
+    if not hormuz_store.is_valid_date(date):
+        raise HTTPException(status_code=400, detail="Bad date")
+    p = hormuz_store.resolve_source_file(date, filename)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Source file not found")
+    media = "application/pdf" if p.suffix.lower() == ".pdf" else None
+    return FileResponse(
+        path=str(p),
+        media_type=media,
+        content_disposition_type="inline",
+    )
+
+
+@router.post("/external/hormuz/appendix/{date}/generate", status_code=201)
+def post_hormuz_appendix(date: str) -> dict:
+    """Kick off (or re-run) the bilingual V3 appendix for a date."""
+    try:
+        return hormuz_prep.bootstrap_appendix_run(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/external/hormuz/appendix/{date}")
+def get_hormuz_appendix(date: str) -> dict:
+    if not hormuz_store.is_valid_date(date):
+        raise HTTPException(status_code=400, detail="Bad date")
+    return _hormuz_library_entry(date)
+
+
+_HORMUZ_SLOTS = {
+    "cn_md": ("text/markdown; charset=utf-8", "inline"),
+    "cn_pdf": ("application/pdf", "inline"),
+    "en_md": ("text/markdown; charset=utf-8", "inline"),
+    "en_pdf": ("application/pdf", "inline"),
+}
+
+
+@router.get("/external/hormuz/appendix/{date}/file")
+def get_hormuz_appendix_file(date: str, slot: str = "cn_pdf") -> FileResponse:
+    if not hormuz_store.is_valid_date(date):
+        raise HTTPException(status_code=400, detail="Bad date")
+    if slot not in _HORMUZ_SLOTS:
+        raise HTTPException(
+            status_code=400,
+            detail="slot must be one of cn_md, cn_pdf, en_md, en_pdf",
+        )
+    paths = hormuz_store.appendix_output_paths(date)
+    p = paths[slot]
+    if not p.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {slot} appendix file for {date} (run not complete?)",
+        )
+    media, disp = _HORMUZ_SLOTS[slot]
+    return FileResponse(
+        path=str(p),
+        filename=p.name,
+        media_type=media,
+        content_disposition_type=disp,
+    )
+
+
 @router.get("/external/hormuz")
 def get_hormuz_list() -> list[dict]:
     return external_store.list_items("hormuz_research")
@@ -2998,6 +3194,50 @@ def create_console_session(
         "hydrate_stream_url": (
             f"/api/companies/{company_id}/console/sessions/{meta['id']}"
             "/hydrate/stream"
+        ),
+    }
+
+
+# ---- Hormuz Console ----
+# Scoped to the Strait-of-Hormuz daily reports rather than a company.
+# Only the *create* endpoint is Hormuz-specific (it stages the last two
+# days of source material + the Hormuz persona). Everything else —
+# list/get/turns/ask/stream/archive/delete — reuses the generic
+# /companies/{id}/console/* routes with the fixed id "hormuz", since
+# those handlers are company-agnostic (they never call get_company).
+
+
+@router.get("/external/hormuz/console/context")
+def get_hormuz_console_context() -> dict:
+    """What a new Hormuz console session would load into context."""
+    return hormuz_console.context_preview()
+
+
+@router.post("/external/hormuz/console/sessions", status_code=201)
+def create_hormuz_console_session(body: _ConsoleCreateBody | None = None) -> dict:
+    body = body or _ConsoleCreateBody()
+    try:
+        meta = hormuz_console.create_session(output_language=body.output_language)
+    except console_store.SessionLimitReached as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "session_limit_reached",
+                "limit": console_store.MAX_ACTIVE_SESSIONS_PER_COMPANY,
+                "message": str(exc),
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_request", "message": str(exc)},
+        ) from exc
+    return {
+        **_serialize_console_meta(meta),
+        # Reuse the generic, company-agnostic hydrate stream route.
+        "hydrate_stream_url": (
+            f"/api/companies/{hormuz_console.HORMUZ_ID}/console/sessions"
+            f"/{meta['id']}/hydrate/stream"
         ),
     }
 

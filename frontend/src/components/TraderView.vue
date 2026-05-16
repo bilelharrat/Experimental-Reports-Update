@@ -527,8 +527,8 @@ function socialLabel(s) {
         </div>
       </div>
 
-      <!-- Positioning Structure (heat_card v2) -->
-      <div class="bg-surface border border-subtle rounded-card p-4 space-y-3">
+      <!-- Positioning Structure (heat_card v2) — widest card, 2 cols -->
+      <div class="bg-surface border border-subtle rounded-card p-4 space-y-3 md:col-span-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <Flame class="h-3.5 w-3.5" />
@@ -983,7 +983,8 @@ function socialLabel(s) {
 
       <!-- Catalysts — short list (≤5 items), span 2 columns so the row
            descriptions don't wrap awkwardly. -->
-      <div class="bg-surface border border-subtle rounded-card p-4 space-y-2 md:col-span-2">
+      <!-- Upcoming catalysts — 1 col (Positioning Structure takes the other 2) -->
+      <div class="bg-surface border border-subtle rounded-card p-4 space-y-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <CalendarClock class="h-3.5 w-3.5" />

@@ -6,6 +6,7 @@ import ResearchView from "./views/ResearchView.vue";
 import ExternalNewsView from "./views/ExternalNewsView.vue";
 import ExternalResearchView from "./views/ExternalResearchView.vue";
 import HormuzResearchView from "./views/HormuzResearchView.vue";
+import HormuzLibraryView from "./views/HormuzLibraryView.vue";
 import { isAuthenticated, validateSession } from "./auth.js";
 
 export const router = createRouter({
@@ -35,6 +36,11 @@ export const router = createRouter({
       name: "external-research",
       component: ExternalResearchView,
       props: true,
+    },
+    {
+      path: "/hormuz",
+      name: "hormuz-library",
+      component: HormuzLibraryView,
     },
     {
       path: "/hormuz/:id",

@@ -10,7 +10,9 @@ for the pipeline.
 """
 from __future__ import annotations
 
+import copy
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import claude_runner
@@ -684,6 +686,24 @@ SYSTEM_PROMPT = (
     "  days, 30 calendar days, year-to-date, and trailing 12 months, "
     "  plus the 30-day return relative to a sector ETF and to the S&P "
     "  500. Currency is the listing currency (USD for US, etc.).\n"
+    "  HOW TO GET change_pct_30d / vs_sector_30d_pct / vs_sp500_30d_pct "
+    "  (these are frequently left null — do NOT skip them): WebFetch the "
+    "  Yahoo Finance historical-prices page for the ticker "
+    "  (finance.yahoo.com/quote/<TICKER>/history) and read the close ~30 "
+    "  CALENDAR days ago (use the nearest trading day on/just before that "
+    "  date). change_pct_30d = (last_close / close_30cal_days_ago - 1) * "
+    "  100, rounded to 1 decimal. Then do the SAME 30-day return for the "
+    "  S&P 500 (ticker ^GSPC) and for the company's sector ETF, and "
+    "  report the DIFFERENCES: vs_sp500_30d_pct = stock_30d - sp500_30d; "
+    "  vs_sector_30d_pct = stock_30d - sector_etf_30d. Sector→ETF map: "
+    "  tech/software→XLK (software-heavy→IGV), semiconductors→SOXX, "
+    "  internet/comms→XLC, energy→XLE, financials→XLF, healthcare/"
+    "  biotech→XLV, consumer discretionary→XLY, consumer staples→XLP, "
+    "  industrials→XLI, materials→XLB, utilities→XLU, real estate→XLRE. "
+    "  Pick the closest fit for the company's primary business. Only "
+    "  return null for one of these three if the underlying historical "
+    "  series genuinely can't be fetched — then say so is implied by the "
+    "  null (there is no note field here).\n"
     "- momentum_card: trend label (bullish/neutral/bearish — your call "
     "  given price action and MA position) plus localized trend_en/"
     "  trend_zh display strings, whether the close is above the 50-day "
@@ -797,12 +817,89 @@ SYSTEM_PROMPT = (
 )
 
 
+# --- Parallel section passes ------------------------------------------------
+#
+# The seven top-level snapshot sections have ZERO data dependencies on each
+# other (each sources its own web data). Generating them in one Claude run
+# serializes ~7 independent research jobs behind one another. Instead we fan
+# out one `claude -p` per section, run them concurrently, and merge — wall
+# time ≈ the slowest section instead of the sum. Same idea as the memo
+# skill's parallel passes. Each pass tags its progress events with a
+# `thread` label so the Active-Jobs modal renders them as grouped
+# sub-tasks (the composite view already exists).
+
+_PRICE_FOCUS = (
+    "FOCUS: produce ONLY the `price_card` object. Spend your effort getting "
+    "change_pct_30d, vs_sector_30d_pct and vs_sp500_30d_pct right — fetch the "
+    "Yahoo Finance history page and compute them per the price_card guidance "
+    "above. Do not return null for these unless the history truly can't be "
+    "fetched."
+)
+
+# pass_id, thread label, [top-level schema keys], focus hint
+SNAPSHOT_PASSES: list[tuple[str, str, list[str], str]] = [
+    ("price", "Price & returns", ["price_card"], _PRICE_FOCUS),
+    ("momentum", "Momentum", ["momentum_card"], ""),
+    ("sentiment", "Analyst sentiment", ["sentiment_card"], ""),
+    ("heat", "Positioning structure", ["heat_card"], ""),
+    ("catalysts", "Upcoming catalysts", ["catalysts"], ""),
+    ("news", "Trader news", ["trader_news"], ""),
+    ("movers", "Tech movers", ["tech_movers"], ""),
+]
+
+# Safe placeholders for a section whose pass failed, so consumers
+# (frontend optional-chaining, bilingual fill, schema-version stamp) keep
+# working with partial results instead of crashing.
+_EMPTY_SECTION: dict[str, Any] = {
+    "price_card": {},
+    "momentum_card": {},
+    "sentiment_card": {},
+    "heat_card": {},
+    "catalysts": [],
+    "trader_news": [],
+    "tech_movers": {"updated_at": None, "movers": []},
+}
+
+
+def _sub_schema(keys: list[str]) -> dict:
+    """A schema that accepts only the given top-level section keys."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {k: copy.deepcopy(SCHEMA["properties"][k]) for k in keys},
+        "required": list(keys),
+    }
+
+
+class _ThreadProgress:
+    """Wraps a ProgressLog so every emit from one parallel pass carries a
+    stable `thread` label — that's what makes the JobLogModal group the
+    passes into collapsible sections (composite view)."""
+
+    def __init__(self, base, thread: str):
+        self._base = base
+        self._thread = thread
+
+    def emit(self, type_: str, **fields: Any) -> None:
+        fields.setdefault("thread", self._thread)
+        self._base.emit(type_, **fields)
+
+    @property
+    def is_terminated(self) -> bool:
+        try:
+            return self._base.is_terminated
+        except Exception:  # noqa: BLE001
+            return False
+
+
 def generate_snapshot(
     *, company: dict, progress=None
 ) -> tuple[dict | None, str | None]:
-    """Spawn ``claude -p`` to produce a fresh trader snapshot for one
-    public company. Returns ``(snapshot, error)`` — on success ``error``
-    is None.
+    """Produce a fresh trader snapshot by fanning the seven sections out
+    into concurrent ``claude -p`` runs and merging. Returns
+    ``(snapshot, error)`` — ``error`` is None if at least one section
+    came back; a section whose pass failed is filled with a safe empty
+    placeholder so partial snapshots still render.
     """
     name = company.get("name") or company.get("id") or "Unknown"
     ticker = company.get("ticker") or ""
@@ -821,12 +918,77 @@ def generate_snapshot(
             "`npm install -g @anthropic-ai/claude-code` and authenticate."
         )
 
-    snapshot, err = claude_runner.run_public_company_snapshot(
-        company_name=name,
-        ticker=ticker,
-        exchange=exchange,
-        schema=SCHEMA,
-        system_prompt=SYSTEM_PROMPT,
-        progress=progress,
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="parallel_dispatch",
+            message=(
+                f"Gathering {len(SNAPSHOT_PASSES)} sections in parallel"
+            ),
+            passes=[p[1] for p in SNAPSHOT_PASSES],
+        )
+
+    def _run_pass(spec: tuple[str, str, list[str], str]):
+        pass_id, label, keys, focus = spec
+        sub_progress = (
+            _ThreadProgress(progress, label) if progress is not None else None
+        )
+        if sub_progress is not None:
+            sub_progress.emit("thread_started", title=label)
+        focus_hint = (
+            focus
+            or (
+                f"FOCUS: produce ONLY the following top-level field(s): "
+                f"{', '.join(keys)}. Output a JSON object containing exactly "
+                f"those key(s) and nothing else, matching the schema."
+            )
+        )
+        try:
+            part, err = claude_runner.run_public_company_snapshot(
+                company_name=name,
+                ticker=ticker,
+                exchange=exchange,
+                schema=_sub_schema(keys),
+                system_prompt=SYSTEM_PROMPT,
+                progress=sub_progress,
+                focus_hint=focus_hint,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("snapshot pass %s crashed", pass_id)
+            part, err = None, f"{type(exc).__name__}: {exc}"
+        if sub_progress is not None:
+            sub_progress.emit(
+                "thread_finished" if (part and not err) else "thread_failed",
+                error=err or None,
+            )
+        return pass_id, keys, part, err
+
+    merged: dict[str, Any] = {}
+    errors: list[str] = []
+    with ThreadPoolExecutor(max_workers=len(SNAPSHOT_PASSES)) as pool:
+        for pass_id, keys, part, err in pool.map(_run_pass, SNAPSHOT_PASSES):
+            for k in keys:
+                if isinstance(part, dict) and k in part and part[k] is not None:
+                    merged[k] = part[k]
+                else:
+                    merged[k] = copy.deepcopy(_EMPTY_SECTION[k])
+                    if err:
+                        errors.append(f"{pass_id}: {err}")
+
+    got_any = any(
+        merged.get(k) not in (None, {}, [], _EMPTY_SECTION.get(k))
+        for k in _EMPTY_SECTION
     )
-    return snapshot, err
+    if not got_any:
+        return None, (
+            "All snapshot sections failed. "
+            + " | ".join(errors[:7]) if errors else "no data returned"
+        )
+
+    if errors and progress is not None:
+        progress.emit(
+            "stage",
+            stage="partial_snapshot",
+            message=f"{len(errors)} section(s) failed; returning partial",
+        )
+    return merged, None
