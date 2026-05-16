@@ -36,6 +36,17 @@ let hydrateEventSource = null;
 const prompt = ref("");
 const creating = ref(false);
 
+// New-session language picker. "New session" opens this; the session is
+// only created once the user confirms a language (default = app lang).
+const showCreate = ref(false);
+const newLang = ref(appLanguage.value === "zh" ? "zh" : "en");
+
+function openCreate() {
+  newLang.value = appLanguage.value === "zh" ? "zh" : "en";
+  loadError.value = null;
+  showCreate.value = true;
+}
+
 const activeSessions = computed(() =>
   sessions.value.filter((s) => s.status === "active"),
 );
@@ -119,8 +130,9 @@ async function createSession() {
   loadError.value = null;
   try {
     const meta = await api.hormuzConsole.createSession({
-      output_language: appLanguage.value === "zh" ? "zh" : "en",
+      output_language: newLang.value === "zh" ? "zh" : "en",
     });
+    showCreate.value = false;
     sessions.value = [meta, ...sessions.value];
     activeId.value = meta.id;
     activeMeta.value = meta;
@@ -370,7 +382,7 @@ function turnTime(ts) {
             <span class="truncate max-w-[160px]">{{ s.title }}</span>
           </button>
           <button
-            @click="createSession"
+            @click="openCreate"
             :disabled="creating || !(ctx && ctx.file_count)"
             class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm bg-surface-muted text-ink-primary hover:bg-surface border border-subtle focus-ring flex-shrink-0 disabled:opacity-50"
           >
@@ -532,5 +544,89 @@ function turnTime(ts) {
         </span>
       </div>
     </div>
+
+    <!-- New-session language picker -->
+    <Teleport to="body">
+      <div
+        v-if="showCreate"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        @click.self="showCreate = false"
+      >
+        <div
+          class="bg-surface rounded-card shadow-card-raised border border-subtle w-full max-w-md p-5 space-y-4"
+        >
+          <div>
+            <div class="font-display text-base font-semibold text-ink-primary">
+              New Hormuz console session
+            </div>
+            <p class="mt-1 text-xs text-ink-muted">
+              <template v-if="ctx && ctx.dates?.length">
+                Loads the last {{ ctx.dates.length }} day(s)
+                ({{ ctx.dates.join(", ") }}) — {{ ctx.file_count }}
+                document(s) into context.
+              </template>
+              <template v-else>
+                No source reports yet — upload reports in the Library tab.
+              </template>
+            </p>
+          </div>
+
+          <div>
+            <div
+              class="text-[11px] uppercase tracking-wide text-ink-muted mb-1.5"
+            >
+              Response language
+            </div>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                @click="newLang = 'en'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-sm border focus-ring',
+                  newLang === 'en'
+                    ? 'bg-accent text-white border-accent'
+                    : 'bg-surface-muted text-ink-secondary border-subtle hover:bg-surface',
+                ]"
+              >
+                English
+              </button>
+              <button
+                type="button"
+                @click="newLang = 'zh'"
+                :class="[
+                  'px-3 py-1.5 rounded-lg text-sm border focus-ring',
+                  newLang === 'zh'
+                    ? 'bg-accent text-white border-accent'
+                    : 'bg-surface-muted text-ink-secondary border-subtle hover:bg-surface',
+                ]"
+              >
+                中文
+              </button>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              @click="showCreate = false"
+              :disabled="creating"
+              class="px-3 py-1.5 rounded-lg text-sm border border-subtle text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              @click="createSession"
+              :disabled="creating || !(ctx && ctx.file_count)"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-accent text-white hover:bg-accent-hover focus-ring disabled:opacity-50"
+            >
+              <Loader2 v-if="creating" class="h-4 w-4 animate-spin" />
+              <Plus v-else class="h-4 w-4" />
+              Start session
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
