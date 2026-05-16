@@ -7,7 +7,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { Loader2, Send, StopCircle, Plus, Trash2, Archive } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
-import { appLanguage } from "../state.js";
 import { renderMarkdown } from "../markdown.js";
 import { usageToMeter, formatTokens, formatCost, CONTEXT_WINDOW } from "../console.js";
 
@@ -39,10 +38,12 @@ const creating = ref(false);
 // New-session language picker. "New session" opens this; the session is
 // only created once the user confirms a language (default = app lang).
 const showCreate = ref(false);
-const newLang = ref(appLanguage.value === "zh" ? "zh" : "en");
+// Hormuz reports are Chinese-source; default the console to Chinese
+// regardless of the global app language (user can switch per session).
+const newLang = ref("zh");
 
 function openCreate() {
-  newLang.value = appLanguage.value === "zh" ? "zh" : "en";
+  newLang.value = "zh";
   loadError.value = null;
   showCreate.value = true;
 }

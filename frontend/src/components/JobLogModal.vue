@@ -47,6 +47,12 @@ const finalDuration = ref(null);
 const feedRef = ref(null);
 let activeStream = null;
 
+// Wall-clock elapsed across the WHOLE job (all sub-sessions / parallel
+// threads), not any single run's duration_ms. Ticks once a second while
+// the job is live, then freezes at the last event's timestamp.
+const nowMs = ref(Date.now());
+let clockId = null;
+
 // For composite jobs (memo runs): events carry a `thread` field. The
 // modal groups them into per-thread sections so the user can see each
 // sub-task's progress independently. Threads are sorted by first-seen
@@ -98,11 +104,33 @@ const grouped = computed(() => {
       if (e.duration_ms != null) g.duration = e.duration_ms;
     } else if (e.type === "thread_failed" || e.is_error || e.type === "error") {
       // Only mark a thread failed if the error belongs to it.
-      if (e.thread || e.is_error) g.status = "failed";
+      if (e.thread || e.is_error) {
+        g.status = "failed";
+        if (e.type === "thread_failed") g.finishedAt = e.ts;
+      }
     }
   }
   return ordered;
 });
+
+// Per-sub-step wall-clock elapsed: (finish ts, or `now` while the step
+// is still running, or the step's last event ts once the overall job
+// ended) − the step's first event ts. Same clock as totalElapsedMs.
+function groupElapsedMs(g) {
+  const start = _eventMs({ ts: g.startedAt });
+  if (start == null) return null;
+  let end;
+  if (g.finishedAt) {
+    end = _eventMs({ ts: g.finishedAt });
+  } else if (g.status === "running" && !terminated.value) {
+    end = nowMs.value;
+  } else {
+    const last = g.events.length ? g.events[g.events.length - 1] : null;
+    end = last ? _eventMs(last) : start;
+  }
+  if (end == null) end = start;
+  return Math.max(0, end - start);
+}
 
 const isComposite = computed(() =>
   events.value.some((e) => !!e.thread),
@@ -182,10 +210,19 @@ function closeStream() {
 }
 
 onMounted(async () => {
+  clockId = setInterval(() => {
+    if (!terminated.value) nowMs.value = Date.now();
+  }, 1000);
   await loadHistory();
   if (!terminated.value) openStream();
 });
-onBeforeUnmount(closeStream);
+onBeforeUnmount(() => {
+  closeStream();
+  if (clockId) {
+    clearInterval(clockId);
+    clockId = null;
+  }
+});
 
 watch(
   () => props.job.log_url,
@@ -244,6 +281,48 @@ function actionLabel(entry) {
   if (entry.type === "done") return "Job complete";
   if (entry.type === "error") return `Error: ${entry.error || "?"}`;
   return entry.type;
+}
+
+function _eventMs(e) {
+  const d = e && e.ts ? Date.parse(e.ts) : NaN;
+  return Number.isFinite(d) ? d : null;
+}
+
+// Total elapsed = last event ts (or `now` while running) − first event
+// ts, spanning every sub-session/thread in the transcript.
+const totalElapsedMs = computed(() => {
+  const evs = events.value;
+  if (!evs.length) return null;
+  let first = null;
+  for (const e of evs) {
+    const t = _eventMs(e);
+    if (t != null) {
+      first = t;
+      break;
+    }
+  }
+  if (first == null) return null;
+  let last = null;
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const t = _eventMs(evs[i]);
+    if (t != null) {
+      last = t;
+      break;
+    }
+  }
+  const end = terminated.value ? (last != null ? last : first) : nowMs.value;
+  return Math.max(0, end - first);
+});
+
+function fmtElapsed(ms) {
+  if (ms == null) return "";
+  const totalS = Math.floor(ms / 1000);
+  if (totalS < 60) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(totalS / 60);
+  const s = totalS % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
 }
 
 const headerSubtitle = computed(() => {
@@ -352,16 +431,17 @@ const headerSubtitle = computed(() => {
                   {{ g.events.length }} event{{ g.events.length === 1 ? "" : "s" }}
                 </span>
                 <span
+                  v-if="groupElapsedMs(g) != null"
+                  class="text-[10px] text-ink-muted font-normal tabular-nums"
+                  :title="'Elapsed for this step'"
+                >
+                  {{ fmtElapsed(groupElapsedMs(g)) }}
+                </span>
+                <span
                   v-if="g.cost != null"
                   class="text-[10px] text-ink-muted font-normal"
                 >
                   ${{ Number(g.cost).toFixed(4) }}
-                </span>
-                <span
-                  v-if="g.duration != null"
-                  class="text-[10px] text-ink-muted font-normal"
-                >
-                  {{ (g.duration / 1000).toFixed(1) }}s
                 </span>
                 <ChevronRight
                   v-if="!expandedThreads.has(g.name)"
@@ -448,6 +528,12 @@ const headerSubtitle = computed(() => {
           class="border-t border-subtle px-4 py-2 flex items-center justify-between gap-3 text-xs text-ink-muted bg-surface-muted"
         >
           <div class="flex items-center gap-3">
+            <span v-if="totalElapsedMs != null">
+              Elapsed
+              <span class="text-ink-primary font-mono">
+                {{ fmtElapsed(totalElapsedMs) }}
+              </span>
+            </span>
             <span v-if="finalCost != null">
               Cost
               <span class="text-ink-primary font-mono">

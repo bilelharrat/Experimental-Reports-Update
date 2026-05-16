@@ -632,26 +632,49 @@ function socialLabel(s) {
                 {{ sectionUnavailableNote(heat.float_turnover_zones) }}
               </div>
             </template>
-            <ul v-else class="space-y-1 text-[11px]">
-              <li
-                v-for="(z, i) in (heat.float_turnover_zones.zones || [])"
-                :key="i"
-                class="flex items-center gap-2 min-w-0"
-              >
-                <span class="font-mono text-ink-primary shrink-0">
-                  {{ fmtPrice(z.low, price?.currency) }}–{{ fmtPrice(z.high, price?.currency) }}
-                </span>
-                <div class="flex-1 bg-surface-muted h-1.5 rounded overflow-hidden">
+            <template v-else>
+              <ul class="space-y-1.5 text-[11px]">
+                <li
+                  v-for="(z, i) in (heat.float_turnover_zones.zones || [])"
+                  :key="i"
+                  class="space-y-0.5 min-w-0"
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="font-mono text-ink-primary shrink-0">
+                      {{ fmtPrice(z.low, price?.currency) }}–{{ fmtPrice(z.high, price?.currency) }}
+                    </span>
+                    <div class="flex-1 bg-surface-muted h-1.5 rounded overflow-hidden">
+                      <div
+                        class="h-full bg-accent/70"
+                        :style="{ width: zoneBarWidth(z.pct_float) + '%' }"
+                      />
+                    </div>
+                    <span class="font-mono text-ink-secondary shrink-0">
+                      {{ z.pct_float != null ? z.pct_float.toFixed(0) + '%' : '—' }}
+                    </span>
+                  </div>
                   <div
-                    class="h-full bg-accent/70"
-                    :style="{ width: zoneBarWidth(z.pct_float) + '%' }"
-                  />
-                </div>
-                <span class="font-mono text-ink-secondary shrink-0">
-                  {{ z.pct_float != null ? z.pct_float.toFixed(0) + '%' : '—' }}
-                </span>
-              </li>
-            </ul>
+                    v-if="pickLocalized(z, 'note')"
+                    class="text-[11px] text-ink-secondary leading-snug"
+                  >
+                    {{ pickLocalized(z, "note") }}
+                  </div>
+                </li>
+              </ul>
+              <!-- When pct_float is unsourceable the model explains why
+                   in confidence_note (often at 'low', not 'unavailable',
+                   so sectionUnavailableNote doesn't catch it). Surface it
+                   so the row of "—" isn't mistaken for missing data. -->
+              <div
+                v-if="
+                  heat.float_turnover_zones.confidence !== 'high' &&
+                  pickLocalized(heat.float_turnover_zones, 'confidence_note')
+                "
+                class="text-[10px] text-ink-muted italic leading-snug"
+              >
+                {{ pickLocalized(heat.float_turnover_zones, "confidence_note") }}
+              </div>
+            </template>
           </section>
 
           <!-- 3. Holder mix + 4. Options regime (side by side) -->
