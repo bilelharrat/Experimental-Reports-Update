@@ -150,13 +150,32 @@ export function firstCloseAfter(ms) {
  *              (so a Fri-after-close run is fresh through Mon's close);
  *   - "warn"   once one session has closed since (≈1 trading day old);
  *   - "stale"  once a second session has closed (≈2+ trading days old).
+ *
+ * When the snapshot carries an authoritative `market_session`
+ * (reported by the generator from the live exchange calendar — it
+ * knows holidays, half-days AND unscheduled closures a rule-based
+ * calendar can't), its `next_close` is used as the exact fresh→stale
+ * boundary. The built-in NYSE calendar is the fallback and powers the
+ * softer warn→stale tier.
+ *
  * Returns "unknown" for missing/unparseable input.
  */
-export function sessionStaleness(refreshedAtISO, nowMs = Date.now()) {
+export function sessionStaleness(refreshedAtISO, opts = {}) {
+  // Back-compat: a bare number/Date is treated as `nowMs`.
+  if (typeof opts === "number") opts = { nowMs: opts };
+  const nowMs = opts.nowMs ?? Date.now();
+  const ms = opts.marketSession;
   if (!refreshedAtISO) return "unknown";
   const ts = Date.parse(refreshedAtISO);
   if (!Number.isFinite(ts)) return "unknown";
-  const staleAt = firstCloseAfter(ts);
+
+  let staleAt = null;
+  const authNext = ms && ms.next_close ? Date.parse(ms.next_close) : NaN;
+  if (Number.isFinite(authNext) && authNext > ts) {
+    staleAt = authNext; // authoritative next real session close
+  }
+  if (staleAt === null) staleAt = firstCloseAfter(ts); // calendar fallback
+
   if (nowMs < staleAt) return "fresh";
   const warnEnd = firstCloseAfter(staleAt);
   if (nowMs < warnEnd) return "warn";

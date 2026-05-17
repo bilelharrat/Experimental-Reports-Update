@@ -594,6 +594,40 @@ SCHEMA: dict[str, Any] = {
             },
         },
 
+        # Authoritative exchange trading-session calendar as of
+        # generation. The web/iOS clients use last_close / next_close to
+        # measure freshness in *trading sessions* (a Fri-after-close run
+        # is current until the next real session close), correctly
+        # handling weekends, holidays, half-days AND unscheduled
+        # closures that a rule-based calendar cannot know.
+        "market_session": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "properties": {
+                "exchange": _STR_NULL,
+                "tz": _STR_NULL,
+                "as_of": _STR_NULL,
+                "is_open_now": _BOOL_NULL,
+                "last_session_date": _STR_NULL,
+                "last_close": _STR_NULL,
+                "next_session_date": _STR_NULL,
+                "next_open": _STR_NULL,
+                "next_close": _STR_NULL,
+                "next_is_early_close": _BOOL_NULL,
+                "source_url": _STR_NULL,
+                "confidence": _CONFIDENCE,
+                "confidence_note_en": _STR_NULL,
+                "confidence_note_zh": _STR_NULL,
+            },
+            "required": [
+                "exchange", "tz", "as_of", "is_open_now",
+                "last_session_date", "last_close",
+                "next_session_date", "next_open", "next_close",
+                "next_is_early_close", "source_url",
+                "confidence", "confidence_note_en", "confidence_note_zh",
+            ],
+        },
+
         "tech_movers": {
             "type": "object",
             "additionalProperties": False,
@@ -640,6 +674,7 @@ SCHEMA: dict[str, Any] = {
         "heat_card",
         "catalysts",
         "trader_news",
+        "market_session",
         "tech_movers",
     ],
 }
@@ -812,6 +847,20 @@ SYSTEM_PROMPT = (
     "  company_zh. Always include a source_url when publicly available. "
     "  This section is daily market context, not necessarily related to "
     "  the target company.\n\n"
+    "- market_session: the target exchange's authoritative trading "
+    "  calendar AS OF NOW. You already look up recent prices and dates — "
+    "  use the same sources to report, in ISO 8601 WITH the "
+    "  America/New_York UTC offset (e.g. 2026-05-15T16:00:00-04:00): "
+    "  last_session_date + last_close (the most recent COMPLETED regular "
+    "  session), next_session_date + next_open + next_close (the next "
+    "  SCHEDULED regular session), is_open_now, and next_is_early_close "
+    "  (true for 1:00pm ET half-days). Account for weekends, exchange "
+    "  holidays, half-days, AND any unscheduled closures you find "
+    "  (e.g. national day of mourning, weather). Clients measure "
+    "  freshness in trading sessions from these, so they must be the "
+    "  real session boundaries, not rule-of-thumb guesses. Set the "
+    "  confidence triad; use confidence=`unavailable` with a reason "
+    "  note if you cannot source the calendar.\n\n"
     "Return ONE JSON object matching the attached schema. No preamble, "
     "no markdown fences — just the JSON.\n\n"
     "STRICT-SCHEMA SELF-CHECK (do this before you emit the structured "
@@ -819,9 +868,10 @@ SYSTEM_PROMPT = (
     "sub-object (especially every heat_card sub-object) is missing its "
     "`confidence`, `confidence_note_en`, or `confidence_note_zh`, the "
     "ENTIRE output is rejected and the whole run is wasted. Before "
-    "emitting, walk every heat_card sub-object and confirm all three "
-    "are present (use confidence=`unavailable` with a reason note rather "
-    "than omitting them). Never drop the triad to save space."
+    "emitting, walk every heat_card sub-object AND market_session and "
+    "confirm all three are present (use confidence=`unavailable` with a "
+    "reason note rather than omitting them). Never drop the triad to "
+    "save space."
 )
 
 

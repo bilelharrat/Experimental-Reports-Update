@@ -67,6 +67,35 @@ describe("cardStaleness (trading-session based)", () => {
   });
 });
 
+describe("cardStaleness with authoritative market_session", () => {
+  afterEach(() => vi.useRealTimers());
+  const at = (iso) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse(iso));
+  };
+
+  it("uses market_session.next_close as the exact fresh boundary, overriding the rule calendar", () => {
+    // Thu-after-close run. The built-in calendar would say the next
+    // close is Fri 2026-05-22. But the exchange had an UNSCHEDULED
+    // closure Fri, and Mon 2026-05-25 is Memorial Day — so the real
+    // next session close is Tue 2026-05-26.
+    const refreshed = "2026-05-21T20:30:00Z";
+    const ms = { next_close: "2026-05-26T16:00:00-04:00" };
+    at("2026-05-22T21:00:00Z"); // Fri, past the *rule* close
+    expect(cardStaleness(refreshed, "price_card")).not.toBe("fresh"); // calendar-only
+    expect(cardStaleness(refreshed, "price_card", ms)).toBe("fresh"); // authoritative
+    at("2026-05-26T20:30:00Z"); // Tue, just after the real close
+    expect(cardStaleness(refreshed, "price_card", ms)).toBe("warn");
+  });
+
+  it("ignores a bogus market_session (next_close <= refreshed) and falls back to the calendar", () => {
+    const refreshed = "2026-05-15T20:30:00Z"; // Fri after close
+    const bogus = { next_close: "2026-05-10T16:00:00-04:00" }; // before refresh
+    at("2026-05-18T18:00:00Z"); // Mon before close
+    expect(cardStaleness(refreshed, "price_card", bogus)).toBe("fresh");
+  });
+});
+
 describe("stalenessColor", () => {
   it("maps buckets to color labels", () => {
     expect(stalenessColor("fresh")).toBe("fresh");

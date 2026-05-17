@@ -21,13 +21,14 @@ export const STALENESS = {
 };
 
 /**
- * Given an ISO timestamp (and a card name, kept for API stability),
- * return "fresh" | "warn" | "stale" | "unknown" based on how many NYSE
- * trading sessions have closed since the snapshot was generated.
+ * Given an ISO timestamp, a card name (kept for API stability), and the
+ * snapshot's optional authoritative `market_session`, return "fresh" |
+ * "warn" | "stale" | "unknown" based on how many trading sessions have
+ * closed since the snapshot was generated.
  */
-export function cardStaleness(refreshedAtISO, card) {
+export function cardStaleness(refreshedAtISO, card, marketSession = null) {
   if (card && !STALENESS[card]) return "unknown";
-  return sessionStaleness(refreshedAtISO);
+  return sessionStaleness(refreshedAtISO, { marketSession });
 }
 
 /**

@@ -86,9 +86,10 @@ let activeStream = null;
 
 const snapshot = computed(() => props.company.trader_snapshot || null);
 const refreshedAt = computed(() => snapshot.value?.refreshed_at || null);
+const marketSession = computed(() => snapshot.value?.market_session || null);
 
 function staleness(cardKey) {
-  return cardStaleness(refreshedAt.value, cardKey);
+  return cardStaleness(refreshedAt.value, cardKey, marketSession.value);
 }
 
 function stalenessClass(bucket) {
