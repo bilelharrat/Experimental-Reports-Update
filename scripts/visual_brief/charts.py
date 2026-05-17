@@ -83,17 +83,17 @@ def _smooth_path(pts: list[tuple[float, float]]) -> str:
 
 
 # ---- area / line chart -------------------------------------------------
-def area_chart(payload: dict, *, accent: str = "cyan",
+def area_chart(payload: dict, *, accent: str = "cyan", locale: str = "en",
                w: int = 1010, h: int = 600) -> str:
     series = payload.get("series") or []
     unit = payload.get("unit", "")
     pts = [(p["x"], p["y"]) for p in series if p.get("y") is not None]
     if len(pts) < 2:
         return f'<svg viewBox="0 0 {w} {h}"></svg>'
-    ml, mr, mt, mb = 70, 22, 24, 46
+    ml, mr, mt, mb = 70, 22, 60, 46
     ys = [p[1] for p in pts]
     lo, hi = min(ys), max(ys)
-    tks = _ticks(lo - (hi - lo) * 0.08, hi + (hi - lo) * 0.12)
+    tks = _ticks(lo - (hi - lo) * 0.06, hi + (hi - lo) * 0.07)
     ylo, yhi = tks[0], tks[-1]
     n = len(pts)
 
@@ -142,6 +142,35 @@ def area_chart(payload: dict, *, accent: str = "cyan",
         f'fill="#eaf9ff" font-size="20" font-weight="850">'
         f'{_esc(_fmt(pts[-1][1], unit))}</text>'
     )
+    # event markers — leader line from a top label down to the actual
+    # data point, with a value pill at the point. (Markers come from
+    # brief.json; no derived/computed series are drawn.)
+    xstr = [str(p["x"]) for p in series if p.get("y") is not None]
+    msvg = []
+    slots = []
+    for mkr in payload.get("markers", []):
+        xs = str(mkr.get("x"))
+        if xs not in xstr:
+            continue
+        i = xstr.index(xs)
+        gx, gy = X(i), Y(pts[i][1])
+        lab = mkr.get("label", "")
+        if isinstance(lab, dict):
+            lab = lab.get(locale) or lab.get("en") or ""
+        ly = mt - 34
+        slots.append((gx, gy, lab, pts[i][1]))
+    for gx, gy, lab, yval in slots:
+        msvg.append(
+            f'<line x1="{gx:.1f}" y1="{mt-22:.1f}" x2="{gx:.1f}" '
+            f'y2="{gy-12:.1f}" stroke="{C["gold"]}" stroke-opacity=".5" '
+            f'stroke-dasharray="3 5"/>'
+            f'<circle cx="{gx:.1f}" cy="{gy:.1f}" r="6" fill="{C["gold"]}" '
+            f'stroke="#06101f" stroke-width="2"/>'
+            f'<text x="{gx:.1f}" y="{mt-30:.1f}" text-anchor="middle" '
+            f'fill="#dfe9f4" font-size="14" font-weight="800">{_esc(lab)}</text>'
+            f'<text x="{gx:.1f}" y="{gy-22:.1f}" text-anchor="middle" '
+            f'fill="{C["gold"]}" font-size="13" font-weight="800">'
+            f'{_esc(_fmt(yval, unit))}</text>')
     return f'''<svg viewBox="0 0 {w} {h}" width="100%"
   font-family="Inter,system-ui,sans-serif">
  <defs>
@@ -163,7 +192,7 @@ def area_chart(payload: dict, *, accent: str = "cyan",
  <path d="{area}" fill="url(#ac_area)"/>
  <path d="{line}" fill="none" stroke="url(#ac_line)" stroke-width="4"
    stroke-linecap="round" stroke-linejoin="round" filter="url(#ac_glow)"/>
- {''.join(xl)}{mk}
+ {''.join(msvg)}{''.join(xl)}{mk}
 </svg>'''
 
 
@@ -232,14 +261,17 @@ def donut_legend(payload: dict, *, locale: str = "en") -> str:
         lbl = _esc(lbl.get(locale, lbl.get("en", "")) if isinstance(lbl, dict) else lbl)
         pct = s["value"] / total * 100
         rows.append(
-            f'<div style="display:grid;grid-template-columns:16px 1fr auto auto;'
-            f'align-items:center;column-gap:16px;padding:13px 4px;'
+            f'<div style="display:grid;grid-template-columns:16px 1fr auto;'
+            f'align-items:center;column-gap:18px;padding:15px 4px;'
             f'border-top:1px solid rgba(255,255,255,.07)">'
             f'<i style="width:16px;height:16px;border-radius:5px;background:{col}"></i>'
-            f'<span style="font-size:15.5px;color:#c7d8e8;font-weight:650">{lbl}</span>'
-            f'<b style="font-size:16px;color:#eaf5ff;font-weight:850">{_fmt(s["value"],unit)}</b>'
-            f'<span style="font-size:15px;color:#8fa6bb;min-width:46px;'
-            f'text-align:right">{pct:.0f}%</span></div>'
+            f'<span style="font-size:15.5px;color:#c7d8e8;font-weight:650;'
+            f'line-height:1.3">{lbl}</span>'
+            f'<span style="text-align:right;line-height:1.15">'
+            f'<b style="display:block;font-size:18px;color:#eaf5ff;'
+            f'font-weight:850">{_fmt(s["value"],unit)}</b>'
+            f'<span style="font-size:13px;color:#8fa6bb;font-weight:700">'
+            f'{pct:.0f}%</span></span></div>'
         )
     return ('<div style="display:flex;flex-direction:column">'
             + "".join(rows) + "</div>")
@@ -297,7 +329,8 @@ def waterfall(payload: dict, *, w: int = 1010, h: int = 640) -> str:
             out.append(
                 f'<line x1="{x-(bw-iw)/2+2:.1f}" y1="{prev_top:.1f}" '
                 f'x2="{x:.1f}" y2="{prev_top:.1f}" '
-                f'stroke="rgba(255,255,255,.22)" stroke-dasharray="3 4"/>')
+                f'stroke="rgba(255,255,255,.55)" stroke-width="2" '
+                f'stroke-dasharray="5 4"/>')
         bh = max(3, yb - yt)
         out.append(
             f'<rect x="{x:.1f}" y="{yt:.1f}" width="{iw:.1f}" '
@@ -313,10 +346,20 @@ def waterfall(payload: dict, *, w: int = 1010, h: int = 640) -> str:
         prev_top = Y(t)
     base_y = Y(start["value"])
     baseline = (f'<line x1="{ml}" y1="{base_y:.1f}" x2="{w-mr}" y2="{base_y:.1f}" '
-                f'stroke="{C["blue"]}" stroke-opacity=".28" stroke-dasharray="2 7"/>')
+                f'stroke="{C["blue"]}" stroke-opacity=".35" stroke-dasharray="2 7"/>')
+    net = end["value"] - start["value"]
+    net_s = ("+" if net >= 0 else "") + _fmt(net, unit)
+    nx = ml + (w - ml - mr) * 0.5
+    netcall = (
+        f'<g transform="translate({nx:.0f},2)">'
+        f'<rect x="-120" y="0" width="240" height="42" rx="13" '
+        f'fill="rgba(55,240,164,.14)" stroke="{C["green"]}" '
+        f'stroke-opacity=".55"/>'
+        f'<text x="0" y="28" text-anchor="middle" fill="#9bffd9" '
+        f'font-size="21" font-weight="900">{_esc(net_s)} net</text></g>')
     return (f'<svg viewBox="0 0 {w} {h}" width="100%" '
             f'font-family="Inter,system-ui,sans-serif"><defs>{defs}</defs>'
-            + "".join(grid) + baseline + "".join(out) + "</svg>")
+            + "".join(grid) + baseline + "".join(out) + netcall + "</svg>")
 
 
 # ---- grouped bars ------------------------------------------------------
@@ -328,7 +371,7 @@ def grouped_bars(payload: dict, *, w: int = 1010, h: int = 460) -> str:
         return f'<svg viewBox="0 0 {w} {h}"></svg>'
     allv = [v for s in series for v in s["values"] if v is not None]
     lo = min(0, min(allv)); hi = max(allv)
-    tks = _ticks(lo, hi * 1.14, 5)
+    tks = _ticks(lo, hi * 1.06, 5)
     ylo, yhi = tks[0], tks[-1]
     ml, mr, mt, mb = 64, 16, 24, 52
     gn, sn = len(groups), len(series)
@@ -355,6 +398,7 @@ def grouped_bars(payload: dict, *, w: int = 1010, h: int = 460) -> str:
     base = Y(0)
     for gi, g in enumerate(groups):
         gx = ml + gi * gw + gw * 0.19
+        est = str(g).rstrip().endswith("E")
         for si, s in enumerate(series):
             v = s["values"][gi]
             if v is None:
@@ -366,9 +410,11 @@ def grouped_bars(payload: dict, *, w: int = 1010, h: int = 460) -> str:
             bw2 = bw * 0.86
             by = min(y, base)
             bh = max(3, abs(base - y))
+            extra = (' opacity=".50" stroke="#ffffff" stroke-opacity=".5" '
+                     'stroke-dasharray="5 4"') if est else ""
             bars.append(
                 f'<rect x="{x:.1f}" y="{by:.1f}" width="{bw2:.1f}" '
-                f'height="{bh:.1f}" rx="6" fill="url(#gb{ci})" '
+                f'height="{bh:.1f}" rx="6" fill="url(#gb{ci})"{extra} '
                 f'filter="drop-shadow(0 7px 16px {col}45)"/>'
                 f'<rect x="{x:.1f}" y="{by:.1f}" width="{bw2:.1f}" height="3.5" '
                 f'rx="2" fill="#ffffff" opacity=".30"/>'
@@ -377,20 +423,78 @@ def grouped_bars(payload: dict, *, w: int = 1010, h: int = 460) -> str:
                 f'{_esc(_fmt(v,unit))}</text>')
         bars.append(
             f'<text x="{ml+gi*gw+gw/2:.1f}" y="{h-mb+24:.1f}" '
-            f'text-anchor="middle" fill="#9fb6cb" font-size="14">'
+            f'text-anchor="middle" fill="{"#7f97ad" if est else "#9fb6cb"}" '
+            f'font-size="14" font-weight="{700 if est else 600}">'
             f'{_esc(g)}</text>')
     return (f'<svg viewBox="0 0 {w} {h}" width="100%" '
             f'font-family="Inter,system-ui,sans-serif"><defs>{gbdefs}</defs>'
             + "".join(grid) + "".join(bars) + "</svg>")
 
 
-def series_legend(payload: dict) -> str:
+def series_legend(payload: dict, *, locale: str = "en") -> str:
     cols = [C[a] for a in ["cyan", "violet", "gold", "green"]]
     out = []
     for i, s in enumerate(payload.get("series", [])):
+        nm = s.get("name", "")
+        if isinstance(nm, dict):
+            nm = nm.get(locale) or nm.get("en") or ""
         out.append(f'<div class="lg"><i style="background:{cols[i%4]}"></i>'
-                   f'{_esc(s.get("name",""))}</div>')
+                   f'{_esc(nm)}</div>')
     return '<div class="legend">' + "".join(out) + "</div>"
+
+
+def dispersion_strip(d: dict, *, locale: str = "en",
+                     w: int = 1010, h: int = 210) -> str:
+    lo, hi = float(d["min"]), float(d["max"])
+    mean, cur = float(d["mean"]), float(d["current"])
+    unit = d.get("unit", "$")
+    ml, mr = 80, 80
+    y = h * 0.50
+    span = (hi - lo) or 1
+
+    def X(v):
+        return ml + (w - ml - mr) * (max(lo, min(hi, v)) - lo) / span
+
+    def tick(v, lab, color):
+        x = X(v)
+        return (
+            f'<line x1="{x:.1f}" y1="{y:.1f}" x2="{x:.1f}" '
+            f'y2="{y+18:.1f}" stroke="{color}" stroke-width="3"/>'
+            f'<text x="{x:.1f}" y="{y+50:.1f}" text-anchor="middle" '
+            f'fill="#eaf5ff" font-size="23" font-weight="900">'
+            f'{_esc(_fmt(v,unit))}</text>'
+            f'<text x="{x:.1f}" y="{y+74:.1f}" text-anchor="middle" '
+            f'fill="#90a8bd" font-size="13" font-weight="800" '
+            f'letter-spacing="1">{_esc(lab)}</text>')
+
+    lab = ({"min": "低", "mean": "均值", "max": "高", "cur": "现价"}
+           if locale == "zh" else
+           {"min": "LOW", "mean": "MEAN", "max": "HIGH", "cur": "NOW"})
+    cx = X(cur)
+    return f'''<svg viewBox="0 0 {w} {h}" width="100%"
+  font-family="Inter,system-ui,sans-serif">
+ <defs><linearGradient id="dsp" x1="0" y1="0" x2="1" y2="0">
+  <stop offset="0" stop-color="{C['red']}"/><stop offset=".5"
+  stop-color="{C['gold']}"/><stop offset="1" stop-color="{C['green']}"/>
+ </linearGradient></defs>
+ <rect x="{ml}" y="{y-7:.1f}" width="{w-ml-mr}" height="14" rx="7"
+  fill="url(#dsp)" opacity=".85"/>
+ {tick(lo,lab['min'],C['red'])}
+ {tick(mean,lab['mean'],C['gold'])}
+ {tick(hi,lab['max'],C['green'])}
+ <line x1="{cx:.1f}" y1="{y-46:.1f}" x2="{cx:.1f}" y2="{y+14:.1f}"
+  stroke="#eaf9ff" stroke-width="3"/>
+ <circle cx="{cx:.1f}" cy="{y:.1f}" r="11" fill="#eaf9ff"
+  stroke="{C['cyan']}" stroke-width="4"/>
+ <g transform="translate({cx:.1f},{y-46:.1f})">
+  <rect x="-66" y="-44" width="132" height="44" rx="12"
+   fill="rgba(70,230,255,.16)" stroke="{C['cyan']}" stroke-opacity=".6"/>
+  <text x="0" y="-15" text-anchor="middle" fill="#cdf6ff"
+   font-size="20" font-weight="900">{_esc(_fmt(cur,unit))}</text>
+ </g>
+ <text x="{cx:.1f}" y="{y-58:.1f}" text-anchor="middle" fill="{C['cyan']}"
+  font-size="12" font-weight="900" letter-spacing="1.5">{_esc(lab['cur'])}</text>
+</svg>'''
 
 
 # ---- score donut (gauge) ----------------------------------------------

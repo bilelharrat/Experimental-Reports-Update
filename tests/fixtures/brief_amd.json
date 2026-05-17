@@ -29,6 +29,11 @@
         "core": "AMD",
         "sub_en": "ACCUMULATE · DATA-CENTER LED",
         "sub_zh": "逻辑：数据中心驱动",
+        "hero_stats": [
+          { "k": { "en": "1-yr return", "zh": "一年回报" }, "v": "+92%" },
+          { "k": { "en": "52-wk range", "zh": "52 周区间" }, "v": "$95–$183" },
+          { "k": { "en": "30d vs SOX", "zh": "30 日 vs 半导体" }, "v": "+14%" }
+        ],
         "tags": [
           { "en": "Mega-cap · Semis", "zh": "巨头 · 半导体" },
           { "en": "AI accelerators · #2", "zh": "AI 加速器 · 第二" },
@@ -43,7 +48,7 @@
           { "label": { "en": "FY24 revenue", "zh": "FY24 营收" }, "value": "$25.8B", "note": { "en": "+14% YoY", "zh": "同比 +14%" }, "tone": "good" },
           { "label": { "en": "Data Center", "zh": "数据中心" }, "value": "+94%", "note": { "en": "YoY; now 49% of mix", "zh": "同比；现占 49%" }, "tone": "good" },
           { "label": { "en": "Non-GAAP GM", "zh": "非 GAAP 毛利率" }, "value": "53%", "note": { "en": "+4pts in 2 yrs", "zh": "两年 +4 个百分点" }, "tone": "good" },
-          { "label": { "en": "Key risk", "zh": "核心风险" }, "value": "Customer mix", "note": { "en": "few hyperscalers dominate", "zh": "少数云厂商主导" }, "tone": "warn" }
+          { "label": { "en": "Key risk", "zh": "核心风险" }, "value": { "en": "Customer mix", "zh": "客户集中" }, "note": { "en": "few hyperscalers dominate", "zh": "少数云厂商主导" }, "tone": "warn" }
         ]
       },
       "footer": { "en": "Executive verdict · one-screen thesis", "zh": "核心结论 · 一屏论点" },
@@ -58,13 +63,18 @@
         "zh": "这是 12 个月的价值重估，而非短期脉冲。"
       },
       "dek": {
-        "en": "Price has compounded with each data-center print rather than on a single headline. Trend is intact above both moving averages; the question is durability of the multiple, not direction.",
-        "zh": "股价随每一次数据中心业绩兑现而逐级抬升，而非依赖单一消息。趋势仍站稳于两条均线之上；问题在于估值倍数能否持续，而非方向。"
+        "en": "Price has compounded step-wise with each data-center print rather than on a single headline. The question is durability of the multiple, not direction — the marked prints show where the re-rating happened.",
+        "zh": "股价随每一次数据中心业绩兑现而逐级抬升，而非依赖单一消息。问题在于估值倍数能否持续，而非方向 —— 标注的业绩节点显示了重估发生之处。"
       },
       "viz": {
         "kind": "area_chart",
         "unit": "$",
         "accent": "cyan",
+        "markers": [
+          { "x": "Jul", "label": { "en": "MI300 ramp", "zh": "MI300 放量" } },
+          { "x": "Oct", "label": { "en": "Q3 DC print", "zh": "Q3 数据中心业绩" } },
+          { "x": "Jan'26", "label": { "en": "FY guide raise", "zh": "全年指引上调" } }
+        ],
         "series": [
           { "x": "May'25", "y": 95.2 }, { "x": "Jun", "y": 102.8 },
           { "x": "Jul", "y": 118.4 }, { "x": "Aug", "y": 109.1 },
@@ -155,8 +165,8 @@
         "unit": "%",
         "groups": ["FY22", "FY23", "FY24", "FY25E"],
         "series": [
-          { "name": "Non-GAAP gross margin", "values": [49, 50, 53, 55] },
-          { "name": "Non-GAAP operating margin", "values": [22, 21, 24, 27] }
+          { "name": { "en": "Non-GAAP gross margin", "zh": "非 GAAP 毛利率" }, "values": [49, 50, 53, 55] },
+          { "name": { "en": "Non-GAAP operating margin", "zh": "非 GAAP 经营利润率" }, "values": [22, 21, 24, 27] }
         ]
       },
       "callout": {
@@ -187,10 +197,10 @@
           { "label": { "en": "Process (TSMC)", "zh": "制程(台积电)" }, "strength": { "en": "Shared", "zh": "共享" } }
         ],
         "cards": [
-          { "title": { "en": "EPYC server share", "zh": "EPYC 服务器份额" }, "tag": { "en": "Strong", "zh": "强" }, "detail": { "en": "Multi-year share gains vs Intel; sticky in cloud fleets.", "zh": "对英特尔多年持续夺份;在云厂商机群中黏性高。" }, "weight": 82 },
-          { "title": { "en": "Instinct MI roadmap", "zh": "Instinct MI 路线图" }, "tag": { "en": "Improving", "zh": "改善中" }, "detail": { "en": "MI300 → MI350 → MI400 annual cadence credible.", "zh": "MI300 → MI350 → MI400 年度节奏可信。" }, "weight": 64 },
-          { "title": { "en": "ROCm ecosystem", "zh": "ROCm 生态" }, "tag": { "en": "Catching up", "zh": "追赶中" }, "detail": { "en": "Framework support up; still behind CUDA gravity.", "zh": "框架支持提升;仍落后于 CUDA 引力。" }, "weight": 46 },
-          { "title": { "en": "Customer engineering", "zh": "客户工程绑定" }, "tag": { "en": "Medium", "zh": "中" }, "detail": { "en": "Co-design wins with select hyperscalers.", "zh": "与部分云厂商的协同设计中标。" }, "weight": 58 }
+          { "title": { "en": "EPYC server share", "zh": "EPYC 服务器份额" }, "tag": { "en": "Strong", "zh": "强" }, "detail": { "en": "Multi-year share gains vs Intel that prove sticky once qualified into cloud fleets — the durable, fundable part of the moat.", "zh": "对英特尔多年持续夺份;一旦进入云厂商机群验证即高度黏着 —— 护城河中可持续、可估值的部分。" }, "weight": 82 },
+          { "title": { "en": "Instinct MI roadmap", "zh": "Instinct MI 路线图" }, "tag": { "en": "Improving", "zh": "改善中" }, "detail": { "en": "An MI300 → MI350 → MI400 annual cadence that is now credible on hardware; execution risk is supply, not silicon.", "zh": "MI300 → MI350 → MI400 的年度节奏在硬件层面已可信;执行风险在供给而非芯片本身。" }, "weight": 64 },
+          { "title": { "en": "ROCm ecosystem", "zh": "ROCm 生态" }, "tag": { "en": "Catching up", "zh": "追赶中" }, "detail": { "en": "Framework support is rising fast but still trails CUDA's gravity — this layer should be priced as improving, not won.", "zh": "框架支持快速提升,但仍落后于 CUDA 引力 —— 该层应按“改善中、尚未确立”定价。" }, "weight": 46 },
+          { "title": { "en": "Customer engineering", "zh": "客户工程绑定" }, "tag": { "en": "Medium", "zh": "中" }, "detail": { "en": "Co-design wins with select hyperscalers create real lock-in, but the base is still narrow versus the incumbent.", "zh": "与部分云厂商的协同设计中标形成真实锁定,但相对在位者客户基数仍窄。" }, "weight": 58 }
         ]
       },
       "callout": {
@@ -242,10 +252,10 @@
         "kind": "compete",
         "score": { "kind": "score_donut", "score": 2, "out_of": 5, "caption": { "en": "displacement vs coexistence", "zh": "替代 vs 共存" } },
         "cards": [
-          { "title": { "en": "NVIDIA", "zh": "英伟达" }, "tag": { "en": "Incumbent", "zh": "在位者" }, "detail": { "en": "CUDA gravity + systems; the bar AMD is measured against.", "zh": "CUDA 引力 + 系统级方案;AMD 的对标基准。" }, "weight": 95 },
-          { "title": { "en": "Intel", "zh": "英特尔" }, "tag": { "en": "Receding", "zh": "退守" }, "detail": { "en": "Server share donor; Gaudi traction limited.", "zh": "服务器份额持续流失;Gaudi 进展有限。" }, "weight": 40 },
-          { "title": { "en": "Hyperscaler in-house", "zh": "云厂商自研" }, "tag": { "en": "Structural", "zh": "结构性" }, "detail": { "en": "TPU / Trainium / Maia cap merchant TAM at the top.", "zh": "TPU / Trainium / Maia 封顶第三方市场上限。" }, "weight": 68 },
-          { "title": { "en": "Arm server", "zh": "Arm 服务器" }, "tag": { "en": "Adjacent", "zh": "邻近" }, "detail": { "en": "Pressures x86 at the efficiency edge over time.", "zh": "长期在能效侧对 x86 形成压力。" }, "weight": 50 }
+          { "title": { "en": "NVIDIA", "zh": "英伟达" }, "tag": { "en": "Incumbent", "zh": "在位者" }, "detail": { "en": "CUDA + systems is the switching-cost moat AMD is measured against. AMD wins the second socket on price/perf, rarely the first.", "zh": "CUDA + 系统构成 AMD 对标的转换成本护城河。AMD 凭性价比拿下第二供应商位,极少拿下首选位。" }, "weight": 95 },
+          { "title": { "en": "Intel", "zh": "英特尔" }, "tag": { "en": "Receding", "zh": "退守" }, "detail": { "en": "A net server-share donor to AMD; Gaudi accelerator traction has stayed limited and is not a near-term threat.", "zh": "服务器份额持续向 AMD 流失;Gaudi 加速器进展有限,短期内非威胁。" }, "weight": 40 },
+          { "title": { "en": "Hyperscaler in-house", "zh": "云厂商自研" }, "tag": { "en": "Structural", "zh": "结构性" }, "detail": { "en": "TPU / Trainium / Maia cap the merchant accelerator TAM at the very top — a permanent ceiling on #1+#2 combined.", "zh": "TPU / Trainium / Maia 在顶部封顶第三方加速器市场 —— 对第一名+第二名合计构成永久天花板。" }, "weight": 68 },
+          { "title": { "en": "Arm server", "zh": "Arm 服务器" }, "tag": { "en": "Adjacent", "zh": "邻近" }, "detail": { "en": "Pressures the x86 franchise at the power-efficiency edge over a multi-year horizon rather than head-on today.", "zh": "在多年维度上从能效侧挤压 x86 业务,而非当下正面竞争。" }, "weight": 50 }
         ]
       },
       "footer": { "en": "Competitive map · second-source dynamics", "zh": "竞争图谱 · 第二供应商逻辑" },
@@ -266,10 +276,10 @@
       "viz": {
         "kind": "timeline",
         "nodes": [
-          { "date": "2026-01", "label": { "en": "Q4'25 earnings", "zh": "Q4’25 财报" }, "impact": "high", "note": { "en": "First clean read on MI350 contribution + DC mix.", "zh": "首个关于 MI350 贡献与数据中心结构的清晰读数。" } },
-          { "date": "2026-02", "label": { "en": "MI350 volume ramp", "zh": "MI350 量产爬坡" }, "impact": "high", "note": { "en": "Supply (CoWoS/HBM) is the binding constraint.", "zh": "供给(CoWoS/HBM)是约束瓶颈。" } },
-          { "date": "2026-06", "label": { "en": "Advancing AI 2026", "zh": "Advancing AI 2026" }, "impact": "medium", "note": { "en": "MI400 / Helios rack systems detail + customers.", "zh": "MI400 / Helios 机架系统细节与客户。" } },
-          { "date": "2026-H2", "label": { "en": "MI400 / rack launch", "zh": "MI400 / 机架发布" }, "impact": "high", "note": { "en": "Rack-scale is the credibility test vs NVIDIA.", "zh": "机架级方案是对标英伟达的可信度考验。" } }
+          { "date": "2026-01", "label": { "en": "Q4'25 earnings", "zh": "Q4’25 财报" }, "impact": "high", "note": { "en": "First clean read on MI350 contribution + DC mix.", "zh": "首个关于 MI350 贡献与数据中心结构的清晰读数。" }, "watch": { "en": "DC revenue run-rate vs the implied MI350 ramp curve.", "zh": "数据中心营收年化值 vs MI350 隐含放量曲线。" } },
+          { "date": "2026-02", "label": { "en": "MI350 volume ramp", "zh": "MI350 量产爬坡" }, "impact": "high", "note": { "en": "Supply (CoWoS/HBM) is the binding constraint.", "zh": "供给(CoWoS/HBM)是约束瓶颈。" }, "watch": { "en": "Any CoWoS/HBM allocation commentary on the call.", "zh": "电话会上任何关于 CoWoS/HBM 配额的措辞。" } },
+          { "date": "2026-06", "label": { "en": "Advancing AI 2026", "zh": "Advancing AI 2026" }, "impact": "medium", "note": { "en": "MI400 / Helios rack systems detail + customers.", "zh": "MI400 / Helios 机架系统细节与客户。" }, "watch": { "en": "Named rack-scale customers, not just specs.", "zh": "公布机架级客户名单,而不仅是规格。" } },
+          { "date": "2026-H2", "label": { "en": "MI400 / rack launch", "zh": "MI400 / 机架发布" }, "impact": "high", "note": { "en": "Rack-scale is the credibility test vs NVIDIA.", "zh": "机架级方案是对标英伟达的可信度考验。" }, "watch": { "en": "Shipping rack systems vs slideware timelines.", "zh": "实际出货机架系统 vs PPT 时间表。" } }
         ]
       },
       "footer": { "en": "Dated catalysts · next ~12 months", "zh": "时点催化剂 · 未来约 12 个月" },
@@ -295,10 +305,11 @@
           { "label": { "en": "Short interest", "zh": "做空比例" }, "value": "2.4%", "note": { "en": "of float — low", "zh": "占流通股 — 低" }, "tone": "good" },
           { "label": { "en": "Options skew", "zh": "期权偏斜" }, "value": "Call-bid", "note": { "en": "upside positioning", "zh": "偏向看涨" }, "tone": "good" }
         ],
+        "dispersion": { "min": 120, "mean": 205, "max": 280, "current": 182, "unit": "$" },
         "bars": {
           "unit": "",
           "groups": ["Strong Buy", "Buy", "Hold", "Sell"],
-          "series": [ { "name": "Analysts", "values": [16, 14, 9, 1] } ]
+          "series": [ { "name": { "en": "Analysts", "zh": "分析师家数" }, "values": [16, 14, 9, 1] } ]
         }
       },
       "footer": { "en": "Sell-side distribution · positioning", "zh": "卖方分布 · 持仓定位" },
@@ -319,11 +330,11 @@
       "viz": {
         "kind": "scenario_set",
         "bear": { "moic": "0.7x", "fill": 22, "rows": [
-          ["FY27E rev", "$34B"], ["DC mix", "55%"], ["GM", "52%"], ["Multiple", "20x"] ] },
+          [{ "en": "FY27E rev", "zh": "FY27E 营收" }, "$34B"], [{ "en": "DC mix", "zh": "数据中心占比" }, "55%"], [{ "en": "GM", "zh": "毛利率" }, "52%"], [{ "en": "Multiple", "zh": "估值倍数" }, "20x"] ] },
         "base": { "moic": "1.8x", "fill": 52, "rows": [
-          ["FY27E rev", "$44B"], ["DC mix", "64%"], ["GM", "55%"], ["Multiple", "28x"] ] },
+          [{ "en": "FY27E rev", "zh": "FY27E 营收" }, "$44B"], [{ "en": "DC mix", "zh": "数据中心占比" }, "64%"], [{ "en": "GM", "zh": "毛利率" }, "55%"], [{ "en": "Multiple", "zh": "估值倍数" }, "28x"] ] },
         "bull": { "moic": "3.1x", "fill": 86, "rows": [
-          ["FY27E rev", "$56B"], ["DC mix", "72%"], ["GM", "58%"], ["Multiple", "34x"] ] }
+          [{ "en": "FY27E rev", "zh": "FY27E 营收" }, "$56B"], [{ "en": "DC mix", "zh": "数据中心占比" }, "72%"], [{ "en": "GM", "zh": "毛利率" }, "58%"], [{ "en": "Multiple", "zh": "估值倍数" }, "34x"] ] }
       },
       "callout": {
         "en": "<b>Sensitivity:</b> entry above the base multiple subtracts roughly a full turn of MoIC for the same operating outcome.",
@@ -347,12 +358,12 @@
       "viz": {
         "kind": "gate_grid",
         "gates": [
-          { "title": { "en": "Accelerator share", "zh": "加速器份额" }, "body": { "en": "Merchant GPU share trending toward double digits by FY27.", "zh": "到 FY27 第三方 GPU 份额向两位数迈进。" } },
-          { "title": { "en": "ROCm adoption", "zh": "ROCm 采用" }, "body": { "en": "Independent shops shipping on ROCm, not just lighthouse accounts.", "zh": "独立团队在 ROCm 上落地,而不仅是标杆客户。" } },
-          { "title": { "en": "Supply unlock", "zh": "供给解锁" }, "body": { "en": "CoWoS / HBM allocation rising fast enough to meet bookings.", "zh": "CoWoS / HBM 配额提升足以满足在手订单。" } },
-          { "title": { "en": "Gross-margin path", "zh": "毛利率路径" }, "body": { "en": "GM holds 55%+ as accelerators scale (not dilutive).", "zh": "加速器放量后毛利率守住 55%+(非摊薄)。" } },
-          { "title": { "en": "Customer breadth", "zh": "客户广度" }, "body": { "en": "Revenue concentration easing beyond a few hyperscalers.", "zh": "营收集中度从少数云厂商扩散开。" } },
-          { "title": { "en": "Entry discipline", "zh": "买点纪律" }, "body": { "en": "Accumulate into multiple compression, not into momentum highs.", "zh": "在倍数压缩时增持,而非在动量高点追入。" } }
+          { "title": { "en": "Accelerator share", "zh": "加速器份额" }, "body": { "en": "Merchant GPU share trending toward double digits by FY27.", "zh": "到 FY27 第三方 GPU 份额向两位数迈进。" }, "status": { "level": "monitor", "label": { "en": "Monitor", "zh": "观察" } }, "metric": { "en": "Need: merchant GPU share > 10% by FY27E", "zh": "需达成:FY27E 第三方 GPU 份额 > 10%" } },
+          { "title": { "en": "ROCm adoption", "zh": "ROCm 采用" }, "body": { "en": "Independent shops shipping on ROCm, not just lighthouse accounts.", "zh": "独立团队在 ROCm 上落地,而不仅是标杆客户。" }, "status": { "level": "notmet", "label": { "en": "Not met", "zh": "未达成" } }, "metric": { "en": "Need: 3+ non-lighthouse ROCm references", "zh": "需达成:3 个以上非标杆 ROCm 案例" } },
+          { "title": { "en": "Supply unlock", "zh": "供给解锁" }, "body": { "en": "CoWoS / HBM allocation rising fast enough to meet bookings.", "zh": "CoWoS / HBM 配额提升足以满足在手订单。" }, "status": { "level": "monitor", "label": { "en": "Monitor", "zh": "观察" } }, "metric": { "en": "Need: stated allocation growth ≥ booking growth", "zh": "需达成:配额增速 ≥ 订单增速" } },
+          { "title": { "en": "Gross-margin path", "zh": "毛利率路径" }, "body": { "en": "GM holds 55%+ as accelerators scale (not dilutive).", "zh": "加速器放量后毛利率守住 55%+(非摊薄)。" }, "status": { "level": "ontrack", "label": { "en": "On track", "zh": "推进中" } }, "metric": { "en": "Need: non-GAAP GM ≥ 55% through FY26E", "zh": "需达成:FY26E 前非 GAAP 毛利率 ≥ 55%" } },
+          { "title": { "en": "Customer breadth", "zh": "客户广度" }, "body": { "en": "Revenue concentration easing beyond a few hyperscalers.", "zh": "营收集中度从少数云厂商扩散开。" }, "status": { "level": "notmet", "label": { "en": "Not met", "zh": "未达成" } }, "metric": { "en": "Need: top-3 customer mix trending down", "zh": "需达成:前三大客户占比下行" } },
+          { "title": { "en": "Entry discipline", "zh": "买点纪律" }, "body": { "en": "Accumulate into multiple compression, not into momentum highs.", "zh": "在倍数压缩时增持,而非在动量高点追入。" }, "status": { "level": "ontrack", "label": { "en": "On track", "zh": "推进中" } }, "metric": { "en": "Rule: scale in only < 28x fwd", "zh": "规则:仅在 < 28 倍前瞻估值时加仓" } }
         ]
       },
       "footer": { "en": "Decision gates · preserve the right to say no", "zh": "决策关卡 · 保留说不的权利" },
@@ -373,12 +384,12 @@
       "viz": {
         "kind": "source_table",
         "rows": [
-          { "label": "FY24 revenue & segments", "url": "ir.amd.com — FY24 10-K", "date": "2025-01" },
-          { "label": "Non-GAAP margins", "url": "ir.amd.com — reconciliations", "date": "2025-01" },
-          { "label": "Price path", "url": "finance.yahoo.com/quote/AMD", "date": "2026-05" },
-          { "label": "Analyst distribution", "url": "rating aggregators", "date": "2026-05" },
-          { "label": "Supply / risk factors", "url": "ir.amd.com — 10-K risk factors", "date": "2025-01" },
-          { "label": "Roadmap & ROCm", "url": "amd.com — Advancing AI", "date": "2025-10" }
+          { "label": { "en": "FY24 revenue & segments", "zh": "FY24 营收与板块" }, "url": "ir.amd.com — FY24 10-K", "type": { "en": "10-K", "zh": "10-K" }, "date": "2025-01" },
+          { "label": { "en": "Non-GAAP margins", "zh": "非 GAAP 利润率" }, "url": "ir.amd.com — reconciliations", "type": { "en": "Filing", "zh": "财报附注" }, "date": "2025-01" },
+          { "label": { "en": "Price path", "zh": "股价路径" }, "url": "finance.yahoo.com/quote/AMD", "type": { "en": "Market", "zh": "行情" }, "date": "2026-05" },
+          { "label": { "en": "Analyst distribution", "zh": "分析师分布" }, "url": "rating aggregators", "type": { "en": "Market", "zh": "行情" }, "date": "2026-05" },
+          { "label": { "en": "Supply / risk factors", "zh": "供应 / 风险因素" }, "url": "ir.amd.com — 10-K risk factors", "type": { "en": "10-K", "zh": "10-K" }, "date": "2025-01" },
+          { "label": { "en": "Roadmap & ROCm", "zh": "路线图与 ROCm" }, "url": "amd.com — Advancing AI", "type": { "en": "Press", "zh": "官方" }, "date": "2025-10" }
         ]
       },
       "footer": { "en": "Sources · prototype figures illustrative", "zh": "来源 · 原型数据仅供示意" },

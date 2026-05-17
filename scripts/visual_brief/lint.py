@@ -110,7 +110,11 @@ def _truthfulness(brief: dict) -> list[dict]:
                 expect += [charts._fmt(v["start"]["value"], u),
                            charts._fmt(v["end"]["value"], u)]
             elif v.get("kind") == "hero":
-                expect += [m["value"] for m in v.get("quad", [])]
+                for m in v.get("quad", []):
+                    val = m.get("value")
+                    if isinstance(val, dict):
+                        val = val.get(loc) or val.get("en")
+                    expect.append(val)
             for s in expect:
                 if s and s not in html:
                     f.append({"severity": "error", "code": "chart_untruthful",
