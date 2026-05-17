@@ -813,7 +813,15 @@ SYSTEM_PROMPT = (
     "  This section is daily market context, not necessarily related to "
     "  the target company.\n\n"
     "Return ONE JSON object matching the attached schema. No preamble, "
-    "no markdown fences — just the JSON."
+    "no markdown fences — just the JSON.\n\n"
+    "STRICT-SCHEMA SELF-CHECK (do this before you emit the structured "
+    "output): the output is validated in strict mode — if ANY estimated "
+    "sub-object (especially every heat_card sub-object) is missing its "
+    "`confidence`, `confidence_note_en`, or `confidence_note_zh`, the "
+    "ENTIRE output is rejected and the whole run is wasted. Before "
+    "emitting, walk every heat_card sub-object and confirm all three "
+    "are present (use confidence=`unavailable` with a reason note rather "
+    "than omitting them). Never drop the triad to save space."
 )
 
 

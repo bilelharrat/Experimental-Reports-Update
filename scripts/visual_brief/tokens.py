@@ -37,7 +37,7 @@ def hex_of(name: str) -> str:
 # ---- global stylesheet -------------------------------------------------
 GLOBAL_CSS = f"""
 :root {{
-  --page-w:{PAGE_W}px; --page-h:{PAGE_H}px; --pad:{PAGE_PAD}px;
+  --page-w:{PAGE_W}px; --page-h:{PAGE_H}px; --pad:{PAGE_PAD}px; --pad-x:30px;
   --bg:{PALETTE['bg']}; --ink:{PALETTE['ink']}; --muted:{PALETTE['muted']};
   --faint:{PALETTE['faint']}; --cyan:{PALETTE['cyan']}; --blue:{PALETTE['blue']};
   --violet:{PALETTE['violet']}; --green:{PALETTE['green']}; --gold:{PALETTE['gold']};
@@ -56,24 +56,25 @@ html,body{{background:#02040a;color:var(--ink);
 html[lang="zh"] body{{
   font-family:"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei","Inter",sans-serif;
 }}
-.deck{{display:flex;flex-direction:column;align-items:center;gap:44px;padding:48px 0 64px;}}
+/* full-bleed: every page spans the window edge-to-edge, no centered
+   fixed-width column. Rasterized output stays exact because the Chrome
+   window is forced to PAGE_W and the @page box is fixed (see print). */
+.deck{{display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0;}}
 
 .page{{
   position:relative;overflow:hidden;
   display:flex;flex-direction:column;
-  width:var(--page-w);height:var(--page-h);
-  padding:var(--pad);
+  width:100%;min-height:var(--page-h);
+  padding:var(--pad) var(--pad-x);
   background:
     radial-gradient(840px 620px at 88% 8%, rgba(70,230,255,.16), transparent 56%),
     radial-gradient(680px 560px at 4% 104%, rgba(55,240,164,.10), transparent 60%),
     radial-gradient(560px 520px at 100% 100%, rgba(184,120,255,.10), transparent 58%),
     linear-gradient(160deg,#0a1730 0%,#06101f 56%,#03101a 100%);
-  border:1px solid rgba(96,190,255,.26);
-  border-radius:28px;
-  box-shadow:var(--shadow);
+  border:0;border-bottom:1px solid rgba(96,190,255,.18);
+  border-radius:0;
 }}
-.page::before{{content:"";position:absolute;inset:13px;border:1px solid rgba(82,200,255,.12);
-  border-radius:18px;pointer-events:none;}}
+.page::before{{content:"";position:absolute;inset:0;border:0;pointer-events:none;}}
 .page-grid{{position:absolute;inset:0;pointer-events:none;opacity:.55;
   background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),
     linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);

@@ -12,33 +12,49 @@ import {
   changeBias,
 } from "../src/trader.js";
 
-describe("cardStaleness", () => {
-  const FROZEN_NOW = Date.parse("2026-05-13T18:00:00Z");
-
-  beforeEach(() => {
+describe("cardStaleness (trading-session based)", () => {
+  // NYSE close is 16:00 ET. May 2026 is EDT (UTC-4): Fri 2026-05-15
+  // close = 20:00Z, Mon 2026-05-18 close = 20:00Z. Memorial Day 2026 =
+  // Mon 2026-05-25 (market closed).
+  afterEach(() => vi.useRealTimers());
+  const at = (iso) => {
     vi.useFakeTimers();
-    vi.setSystemTime(FROZEN_NOW);
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+    vi.setSystemTime(Date.parse(iso));
+  };
 
-  it("returns 'unknown' for null / unparseable input", () => {
+  it("returns 'unknown' for null / unparseable input or unknown card", () => {
+    at("2026-05-18T18:00:00Z");
     expect(cardStaleness(null, "price_card")).toBe("unknown");
     expect(cardStaleness("not-a-date", "price_card")).toBe("unknown");
-    expect(cardStaleness("2026-05-13T17:55:00Z", "unknown_card")).toBe("unknown");
+    expect(cardStaleness("2026-05-18T17:55:00Z", "unknown_card")).toBe("unknown");
   });
 
-  it("price_card: <1h is fresh, 1-4h is warn, >=4h is stale", () => {
-    expect(cardStaleness("2026-05-13T17:30:00Z", "price_card")).toBe("fresh");
-    expect(cardStaleness("2026-05-13T15:30:00Z", "price_card")).toBe("warn");
-    expect(cardStaleness("2026-05-13T13:00:00Z", "price_card")).toBe("stale");
+  it("Friday-after-close run stays FRESH through the weekend until Monday's close", () => {
+    const friAfterClose = "2026-05-15T20:30:00Z"; // 16:30 ET Fri
+    at("2026-05-16T12:00:00Z"); // Saturday
+    expect(cardStaleness(friAfterClose, "price_card")).toBe("fresh");
+    at("2026-05-18T18:00:00Z"); // Mon 14:00 ET, before Mon close
+    expect(cardStaleness(friAfterClose, "price_card")).toBe("fresh");
   });
 
-  it("sentiment_card is more forgiving than price (24h / 7d)", () => {
-    expect(cardStaleness("2026-05-13T05:00:00Z", "sentiment_card")).toBe("fresh");
-    expect(cardStaleness("2026-05-10T18:00:00Z", "sentiment_card")).toBe("warn");
-    expect(cardStaleness("2026-04-01T18:00:00Z", "sentiment_card")).toBe("stale");
+  it("goes to WARN only once the next session has closed (≈1 trading day)", () => {
+    const friAfterClose = "2026-05-15T20:30:00Z";
+    at("2026-05-18T20:30:00Z"); // Mon, just after Mon 16:00 ET close
+    expect(cardStaleness(friAfterClose, "price_card")).toBe("warn");
+  });
+
+  it("becomes STALE after a second session closes", () => {
+    const friAfterClose = "2026-05-15T20:30:00Z";
+    at("2026-05-19T21:00:00Z"); // Tue, after Tue close (2 sessions on)
+    expect(cardStaleness(friAfterClose, "price_card")).toBe("stale");
+  });
+
+  it("holidays don't count: Fri-before-Memorial-Day fresh through the holiday Monday", () => {
+    const friBeforeHoliday = "2026-05-22T20:30:00Z"; // Fri 16:30 ET
+    at("2026-05-25T18:00:00Z"); // Memorial Day Mon (market closed)
+    expect(cardStaleness(friBeforeHoliday, "heat_card")).toBe("fresh");
+    at("2026-05-26T18:00:00Z"); // Tue 14:00 ET, before Tue close
+    expect(cardStaleness(friBeforeHoliday, "heat_card")).toBe("fresh");
   });
 
   it("every card from the spec table is present", () => {

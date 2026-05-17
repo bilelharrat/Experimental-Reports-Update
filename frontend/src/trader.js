@@ -2,34 +2,32 @@
 // docs/public-company-trader-view.md §6). Kept out of TraderView.vue so
 // they're unit-testable from vitest.
 
-// Per-card staleness thresholds in milliseconds. The table here is the
-// authoritative spec for the colored badge on each card.
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
+import { sessionStaleness } from "./marketCalendar.js";
 
+// Freshness is measured in *trading sessions*, not wall-clock. A
+// snapshot stays "fresh" until the next NYSE session close after it was
+// generated — so a run after Friday's close is good through Monday's
+// close, and weekends/holidays don't count. See marketCalendar.js.
+//
+// Cards are still listed so the UI can iterate them and keep a per-card
+// badge; the rule itself is unified (one snapshot, one session age).
 export const STALENESS = {
-  price_card:     { fresh: 1 * HOUR_MS,  warn: 4 * HOUR_MS },
-  momentum_card:  { fresh: 4 * HOUR_MS,  warn: 24 * HOUR_MS },
-  sentiment_card: { fresh: 24 * HOUR_MS, warn: 7 * DAY_MS },
-  heat_card:      { fresh: 6 * HOUR_MS,  warn: 24 * HOUR_MS },
-  catalysts:      { fresh: 24 * HOUR_MS, warn: 7 * DAY_MS },
-  trader_news:    { fresh: 6 * HOUR_MS,  warn: 24 * HOUR_MS },
+  price_card: { sessions: 1 },
+  momentum_card: { sessions: 1 },
+  sentiment_card: { sessions: 1 },
+  heat_card: { sessions: 1 },
+  catalysts: { sessions: 1 },
+  trader_news: { sessions: 1 },
 };
 
 /**
- * Given an ISO timestamp and a card name, return one of "fresh" |
- * "warn" | "stale" | "unknown".
+ * Given an ISO timestamp (and a card name, kept for API stability),
+ * return "fresh" | "warn" | "stale" | "unknown" based on how many NYSE
+ * trading sessions have closed since the snapshot was generated.
  */
 export function cardStaleness(refreshedAtISO, card) {
-  if (!refreshedAtISO) return "unknown";
-  const ts = Date.parse(refreshedAtISO);
-  if (!Number.isFinite(ts)) return "unknown";
-  const cfg = STALENESS[card];
-  if (!cfg) return "unknown";
-  const age = Date.now() - ts;
-  if (age < cfg.fresh) return "fresh";
-  if (age < cfg.warn) return "warn";
-  return "stale";
+  if (card && !STALENESS[card]) return "unknown";
+  return sessionStaleness(refreshedAtISO);
 }
 
 /**

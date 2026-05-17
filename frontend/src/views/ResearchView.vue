@@ -305,7 +305,7 @@ onUnmounted(stopPolling);
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto px-8 py-10 space-y-8">
+  <div class="w-full px-8 py-10 space-y-8">
     <div>
       <button
         @click="router.push({ name: 'home' })"
