@@ -1,0 +1,172 @@
+{
+  "meta": {
+    "ticker": "NVDA",
+    "name": { "en": "NVIDIA Corporation", "zh": "英伟达公司" },
+    "exchange": "NASDAQ",
+    "sector": { "en": "Semiconductors · AI Compute Platform", "zh": "半导体 · AI 算力平台" },
+    "as_of": "2026-05-16",
+    "posture": { "en": "HOLD-HIGH", "zh": "高位持有" },
+    "disclaimer": { "en": "Prototype — figures illustrative, verify before use", "zh": "原型 — 数据仅供示意,使用前请核实" }
+  },
+  "pages": [
+    {
+      "page_type": "cover_verdict",
+      "kicker": { "en": "01 · Verdict", "zh": "01 · 结论" },
+      "headline": { "en": "NVIDIA is not a chip company — it is the toll booth on AI infrastructure.", "zh": "英伟达不是芯片公司 —— 它是 AI 基础设施的收费站。" },
+      "dek": { "en": "Data Center is ~88% of revenue and the platform (CUDA + systems) is the moat. The debate is durability of pricing, not whether it leads.", "zh": "数据中心约占营收 88%,平台(CUDA + 系统)即护城河。分歧在于定价的可持续性,而非是否领先。" },
+      "viz": {
+        "kind": "hero", "signature": "orbit", "core": "NVDA",
+        "sub_en": "HOLD-HIGH · PLATFORM TOLL", "sub_zh": "高位持有 · 平台收费",
+        "tags": [ { "en": "Mega-cap · AI", "zh": "巨头 · AI" }, { "en": "Platform leader", "zh": "平台领导者" }, { "en": "Posture: HOLD-HIGH", "zh": "立场:高位持有" } ],
+        "thesis": [
+          { "en": "<b>One segment is the company</b> — Data Center ~88% of revenue.", "zh": "<b>一个板块就是整家公司</b> —— 数据中心约占营收 88%。" },
+          { "en": "<b>Software is the moat</b> — CUDA + systems lock the platform.", "zh": "<b>软件是护城河</b> —— CUDA + 系统锁定平台。" },
+          { "en": "<b>Underwrite pricing power, not share</b> — share is ~maxed.", "zh": "<b>按定价权而非份额定价</b> —— 份额已近见顶。" }
+        ],
+        "quad": [
+          { "label": { "en": "FY25 revenue", "zh": "FY25 营收" }, "value": "$130.5B", "note": { "en": "+114% YoY", "zh": "同比 +114%" }, "tone": "good" },
+          { "label": { "en": "Data Center", "zh": "数据中心" }, "value": "88%", "note": { "en": "of revenue mix", "zh": "占营收结构" }, "tone": "good" },
+          { "label": { "en": "Non-GAAP GM", "zh": "非 GAAP 毛利率" }, "value": "75%", "note": { "en": "structurally high", "zh": "结构性高位" }, "tone": "good" },
+          { "label": { "en": "Key risk", "zh": "核心风险" }, "value": "Concentration", "note": { "en": "one segment, few buyers", "zh": "单一板块,少数买家" }, "tone": "warn" }
+        ]
+      },
+      "footer": { "en": "Executive verdict · one-screen thesis", "zh": "核心结论 · 一屏论点" },
+      "sources": [ { "label": "NVIDIA FY25 10-K", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "the_tape",
+      "kicker": { "en": "02 · The tape", "zh": "02 · 盘面" },
+      "headline": { "en": "A parabola that keeps re-basing higher.", "zh": "一条不断在更高位重新筑底的抛物线。" },
+      "dek": { "en": "Every data-center print resets the base. Trend is intact; the only real question is multiple compression risk, not direction.", "zh": "每一次数据中心业绩都抬高基准。趋势完好;唯一真问题是估值压缩风险,而非方向。" },
+      "viz": { "kind": "area_chart", "unit": "$", "accent": "green",
+        "series": [ {"x":"May'25","y":94.1},{"x":"Jun","y":110.6},{"x":"Jul","y":122.3},{"x":"Aug","y":118.7},{"x":"Sep","y":131.9},{"x":"Oct","y":140.2},{"x":"Nov","y":138.5},{"x":"Dec","y":149.8},{"x":"Jan'26","y":162.4},{"x":"Feb","y":158.1},{"x":"Mar","y":171.6},{"x":"Apr","y":166.9},{"x":"May'26","y":181.3} ] },
+      "footer": { "en": "Illustrative price path · momentum read", "zh": "示意股价路径 · 动量判读" },
+      "sources": [ { "label": "Exchange close prices", "url": "https://finance.yahoo.com/quote/NVDA" } ]
+    },
+    {
+      "page_type": "why_it_moves",
+      "kicker": { "en": "03 · Why it moves", "zh": "03 · 增长引擎" },
+      "headline": { "en": "There is one slice. The rest is rounding.", "zh": "只有一块。其余都是零头。" },
+      "dek": { "en": "Data Center dwarfs everything. Gaming is a healthy but irrelevant-to-thesis cash line; ProViz and Auto are optionality.", "zh": "数据中心碾压一切。游戏是健康但与逻辑无关的现金流;专业可视化与汽车属于期权价值。" },
+      "viz": { "kind": "donut", "unit": "$B", "center": { "en": "FY25 REVENUE", "zh": "FY25 营收" },
+        "slices": [
+          { "label": { "en": "Data Center — GPU + systems + networking", "zh": "数据中心 — GPU + 系统 + 网络" }, "value": 115.2, "accent": "green" },
+          { "label": { "en": "Gaming — GeForce", "zh": "游戏 — GeForce" }, "value": 11.4, "accent": "cyan" },
+          { "label": { "en": "Professional Visualization", "zh": "专业可视化" }, "value": 1.9, "accent": "violet" },
+          { "label": { "en": "Automotive + OEM", "zh": "汽车 + OEM" }, "value": 2.0, "accent": "gold" }
+        ],
+        "bullets": [
+          { "en": "<b>Data Center +143% YoY</b> — Hopper→Blackwell ramp plus networking attach.", "zh": "<b>数据中心同比 +143%</b> —— Hopper→Blackwell 放量叠加网络配套。" },
+          { "en": "<b>Gaming steady</b> — healthy but ~9% of mix; not a thesis lever.", "zh": "<b>游戏平稳</b> —— 健康但仅约占 9%;非逻辑杠杆。" },
+          { "en": "<b>Concentration is the risk</b> — one segment, a handful of buyers.", "zh": "<b>集中度即风险</b> —— 单一板块,少数买家。" },
+          { "en": "<b>Optionality below</b> — ProViz/Auto are call options, not base case.", "zh": "<b>下方是期权</b> —— 专业可视化/汽车是看涨期权,非基准情形。" }
+        ]
+      },
+      "footer": { "en": "Segment mix · single-engine concentration", "zh": "板块结构 · 单引擎集中" },
+      "sources": [ { "label": "NVIDIA FY25 segment results", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "revenue_bridge",
+      "kicker": { "en": "04 · Growth quality", "zh": "04 · 增长质量" },
+      "headline": { "en": "+$69.6B in one year — almost all of it one segment.", "zh": "一年净增 696 亿美元 —— 几乎全部来自一个板块。" },
+      "dek": { "en": "This is not diversified growth. Data Center alone added ~$68B; the bridge is essentially a single bar.", "zh": "这不是多元化增长。仅数据中心就增加约 680 亿美元;增长桥本质上只有一根柱子。" },
+      "viz": { "kind": "waterfall", "unit": "$B",
+        "start": { "label": "FY24", "value": 60.9 },
+        "steps": [
+          { "label": "Data Center", "value": 67.7, "kind": "add" },
+          { "label": "Gaming", "value": 1.0, "kind": "add" },
+          { "label": "Pro Viz", "value": 0.4, "kind": "add" },
+          { "label": "Automotive", "value": 0.6, "kind": "add" },
+          { "label": "OEM / Other", "value": -0.1, "kind": "subtract" }
+        ],
+        "end": { "label": "FY25", "value": 130.5 } },
+      "footer": { "en": "Revenue bridge · single-segment growth", "zh": "营收桥 · 单板块增长" },
+      "sources": [ { "label": "NVIDIA FY24 vs FY25 10-K", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "unit_economics",
+      "kicker": { "en": "05 · Unit economics", "zh": "05 · 单位经济" },
+      "headline": { "en": "Software-like margins on hardware volume.", "zh": "硬件出货量,软件级利润率。" },
+      "dek": { "en": "Gross margin sits in the mid-70s and operating margin in the low-60s — extraordinary for a hardware vendor and the core of the bull case.", "zh": "毛利率维持在 75% 上下,经营利润率在 60% 出头 —— 对硬件厂商而言极为罕见,也是多头逻辑的核心。" },
+      "viz": { "kind": "grouped_bars", "unit": "%", "groups": ["FY23","FY24","FY25","FY26E"],
+        "series": [ { "name": "Non-GAAP gross margin", "values": [60, 73, 75, 76] }, { "name": "Non-GAAP operating margin", "values": [35, 55, 63, 65] } ] },
+      "callout": { "en": "<b>Read:</b> margins this high invite competition and pricing scrutiny — durability, not level, is the question.", "zh": "<b>判读:</b>如此高的利润率会招致竞争与定价审视 —— 问题在可持续性,而非高度。" },
+      "footer": { "en": "Margin trajectory · software-like", "zh": "利润率轨迹 · 软件化" },
+      "sources": [ { "label": "NVIDIA non-GAAP reconciliations", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "supply_chain",
+      "kicker": { "en": "06 · Supply chain", "zh": "06 · 供应链" },
+      "headline": { "en": "The leader shares the same chokepoints as everyone else.", "zh": "领导者与所有人共用同一批咽喉。" },
+      "dek": { "en": "Design and software are owned; leading-edge capacity, advanced packaging and HBM are rented and industry-constrained.", "zh": "设计与软件自有;先进产能、先进封装与 HBM 皆为外租且受全行业约束。" },
+      "viz": { "kind": "matrix", "cards": [
+        { "title": { "en": "Leading-edge wafers", "zh": "先进制程晶圆" }, "tag": { "en": "Critical", "zh": "关键" }, "detail": { "en": "TSMC — single-source for the roadmap.", "zh": "台积电 — 路线图单一来源。" }, "weight": 94 },
+        { "title": { "en": "CoWoS packaging", "zh": "CoWoS 封装" }, "tag": { "en": "Critical", "zh": "关键" }, "detail": { "en": "Advanced packaging gates GPU volume directly.", "zh": "先进封装直接限制 GPU 出货。" }, "weight": 90 },
+        { "title": { "en": "HBM memory", "zh": "HBM 显存" }, "tag": { "en": "Tight", "zh": "紧张" }, "detail": { "en": "SK Hynix / Samsung / Micron allocation.", "zh": "SK 海力士 / 三星 / 美光按配额。" }, "weight": 84 },
+        { "title": { "en": "Customer concentration", "zh": "客户集中度" }, "tag": { "en": "Risk", "zh": "风险" }, "detail": { "en": "A few hyperscalers drive the order book.", "zh": "少数云厂商主导订单簿。" }, "weight": 76 },
+        { "title": { "en": "In-house ASICs", "zh": "自研 ASIC" }, "tag": { "en": "Structural", "zh": "结构性" }, "detail": { "en": "TPU/Trainium/Maia cap top-end TAM.", "zh": "TPU/Trainium/Maia 封顶高端市场。" }, "weight": 70 },
+        { "title": { "en": "Export controls", "zh": "出口管制" }, "tag": { "en": "Risk", "zh": "风险" }, "detail": { "en": "China rules cap a defined TAM slice.", "zh": "对华规则封顶既定市场份额。" }, "weight": 64 }
+      ] },
+      "footer": { "en": "Upstream dependency map", "zh": "上游依赖图谱" },
+      "sources": [ { "label": "NVIDIA 10-K risk factors", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "competitive_field",
+      "kicker": { "en": "07 · Competitive reality", "zh": "07 · 竞争现实" },
+      "headline": { "en": "A 4/5 insulation score: hard to displace, not impossible to erode.", "zh": "4/5 的护城河评分:难以替代,但并非不可侵蚀。" },
+      "dek": { "en": "CUDA + systems make displacement expensive. Erosion comes from in-house silicon and AMD as a credible second source, not a head-on replacement.", "zh": "CUDA + 系统让替代成本高昂。侵蚀来自自研芯片与作为可信第二供应商的 AMD,而非正面替代。" },
+      "viz": { "kind": "compete",
+        "score": { "kind": "score_donut", "score": 4, "out_of": 5, "caption": { "en": "competitive insulation", "zh": "竞争隔离度" } },
+        "cards": [
+          { "title": { "en": "AMD", "zh": "AMD" }, "tag": { "en": "Second source", "zh": "第二供应商" }, "detail": { "en": "Credible #2; pressures pricing at the margin.", "zh": "可信的第二名;边际上压制定价。" }, "weight": 58 },
+          { "title": { "en": "Hyperscaler ASICs", "zh": "云厂商 ASIC" }, "tag": { "en": "Structural", "zh": "结构性" }, "detail": { "en": "TPU/Trainium/Maia erode top-end share.", "zh": "TPU/Trainium/Maia 侵蚀高端份额。" }, "weight": 72 },
+          { "title": { "en": "Intel", "zh": "英特尔" }, "tag": { "en": "Distant", "zh": "落后" }, "detail": { "en": "Gaudi traction limited; not a near threat.", "zh": "Gaudi 进展有限;非近端威胁。" }, "weight": 28 },
+          { "title": { "en": "Open software", "zh": "开放软件" }, "tag": { "en": "Slow burn", "zh": "缓慢" }, "detail": { "en": "Triton/ROCm chip away at CUDA gravity slowly.", "zh": "Triton/ROCm 缓慢削弱 CUDA 引力。" }, "weight": 44 }
+        ] },
+      "footer": { "en": "Competitive map · insulation, not invulnerability", "zh": "竞争图谱 · 隔离而非无敌" },
+      "sources": [ { "label": "Industry share data", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "catalysts",
+      "kicker": { "en": "08 · Catalysts", "zh": "08 · 催化剂" },
+      "headline": { "en": "Every print is a referendum on demand durability.", "zh": "每次业绩都是对需求可持续性的公投。" },
+      "dek": { "en": "The variable under test never changes: is hyperscaler capex still accelerating, or digesting?", "zh": "被检验的变量从未改变:云厂商资本开支仍在加速,还是在消化?" },
+      "viz": { "kind": "timeline", "nodes": [
+        { "date": "2026-02", "label": { "en": "Q4 FY26 earnings", "zh": "Q4 FY26 财报" }, "impact": "high", "note": { "en": "Blackwell ramp + data-center guide are the whole tape.", "zh": "Blackwell 放量与数据中心指引就是全部盘面。" } },
+        { "date": "2026-03", "label": { "en": "GTC 2026", "zh": "GTC 2026" }, "impact": "high", "note": { "en": "Next-gen architecture + systems roadmap.", "zh": "下一代架构与系统路线图。" } },
+        { "date": "2026-Q2", "label": { "en": "Hyperscaler capex", "zh": "云厂商资本开支" }, "impact": "high", "note": { "en": "Read-through from MSFT/GOOG/AMZN/META guides.", "zh": "来自微软/谷歌/亚马逊/Meta 指引的传导。" } },
+        { "date": "2026-H2", "label": { "en": "Export-rule updates", "zh": "出口规则更新" }, "impact": "medium", "note": { "en": "China-facing TAM is a recurring swing factor.", "zh": "面向中国的市场是反复出现的摆动因素。" } }
+      ] },
+      "footer": { "en": "Dated catalysts · next ~12 months", "zh": "时点催化剂 · 未来约 12 个月" },
+      "sources": [ { "label": "NVIDIA IR calendar", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "scenario_math",
+      "kicker": { "en": "09 · Scenario math", "zh": "09 · 情景测算" },
+      "headline": { "en": "At this size, the multiple does the heavy lifting.", "zh": "在这个体量,估值倍数承担了主要变量。" },
+      "dek": { "en": "Revenue can keep compounding, but from a $130B base the return is dominated by what multiple the market assigns to durable AI infrastructure.", "zh": "营收仍可复利,但从 1300 亿美元基数出发,回报由市场赋予“可持续 AI 基础设施”的倍数主导。" },
+      "viz": { "kind": "scenario_set",
+        "bear": { "moic": "0.6x", "fill": 20, "rows": [ ["FY28E rev","$190B"], ["DC mix","86%"], ["GM","72%"], ["Multiple","22x"] ] },
+        "base": { "moic": "1.5x", "fill": 50, "rows": [ ["FY28E rev","$255B"], ["DC mix","89%"], ["GM","76%"], ["Multiple","30x"] ] },
+        "bull": { "moic": "2.6x", "fill": 84, "rows": [ ["FY28E rev","$330B"], ["DC mix","91%"], ["GM","78%"], ["Multiple","36x"] ] } },
+      "callout": { "en": "<b>Sensitivity:</b> at this scale a 5-turn multiple change swings MoIC more than any plausible revenue beat.", "zh": "<b>敏感性:</b>在此体量,5 倍的倍数变化对 MoIC 的影响大于任何合理的营收超预期。" },
+      "footer": { "en": "Scenario swim-lanes · multiple-dominated", "zh": "情景泳道 · 倍数主导" },
+      "sources": [ { "label": "Model — illustrative", "url": "https://investor.nvidia.com" } ]
+    },
+    {
+      "page_type": "sources",
+      "kicker": { "en": "10 · Provenance", "zh": "10 · 来源" },
+      "headline": { "en": "Every figure is traceable.", "zh": "每一个数字都可溯源。" },
+      "dek": { "en": "This prototype uses illustrative figures. In production every number is null-over-invented and carries the source below.", "zh": "本原型使用示意数据。在正式版本中,每个数字“宁缺勿造”,并附下列来源。" },
+      "viz": { "kind": "source_table", "rows": [
+        { "label": "FY25 revenue & segments", "url": "investor.nvidia.com — FY25 10-K", "date": "2025-02" },
+        { "label": "Non-GAAP margins", "url": "investor.nvidia.com — reconciliations", "date": "2025-02" },
+        { "label": "Price path", "url": "finance.yahoo.com/quote/NVDA", "date": "2026-05" },
+        { "label": "Supply / risk factors", "url": "investor.nvidia.com — 10-K", "date": "2025-02" },
+        { "label": "Roadmap", "url": "nvidia.com — GTC", "date": "2026-03" }
+      ] },
+      "footer": { "en": "Sources · prototype figures illustrative", "zh": "来源 · 原型数据仅供示意" },
+      "sources": []
+    }
+  ]
+}

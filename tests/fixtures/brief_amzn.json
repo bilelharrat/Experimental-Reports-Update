@@ -1,0 +1,168 @@
+{
+  "meta": {
+    "ticker": "AMZN",
+    "name": { "en": "Amazon.com, Inc.", "zh": "亚马逊公司" },
+    "exchange": "NASDAQ",
+    "sector": { "en": "Internet Retail · Cloud Infrastructure", "zh": "互联网零售 · 云基础设施" },
+    "as_of": "2026-05-16",
+    "posture": { "en": "ACCUMULATE", "zh": "逢低增持" },
+    "disclaimer": { "en": "Prototype — figures illustrative, verify before use", "zh": "原型 — 数据仅供示意,使用前请核实" }
+  },
+  "pages": [
+    {
+      "page_type": "cover_verdict",
+      "kicker": { "en": "01 · Verdict", "zh": "01 · 结论" },
+      "headline": { "en": "A $638B retailer wrapped around a $108B profit engine.", "zh": "一家 6380 亿美元营收的零售商,包裹着一台 1080 亿美元的利润引擎。" },
+      "dek": { "en": "Retail funds scale; AWS funds earnings. The investable question is operating-margin trajectory, not top-line growth.", "zh": "零售支撑规模,AWS 支撑利润。可投资的问题是经营利润率的轨迹,而非营收增速。" },
+      "viz": {
+        "kind": "hero", "signature": "price_arc", "core": "AMZN",
+        "sub_en": "ACCUMULATE · MARGIN STORY", "sub_zh": "逢低增持 · 利润率逻辑",
+        "tags": [ { "en": "Mega-cap · Internet", "zh": "巨头 · 互联网" }, { "en": "Cloud + Retail + Ads", "zh": "云 + 零售 + 广告" }, { "en": "Posture: ACCUMULATE", "zh": "立场:逢低增持" } ],
+        "thesis": [
+          { "en": "<b>AWS is the earnings</b> — ~17% of sales, the majority of operating income.", "zh": "<b>AWS 即利润</b> —— 约占营收 17%,却贡献大部分经营利润。" },
+          { "en": "<b>Retail is the moat + the drag</b> — scale and logistics, thin margin.", "zh": "<b>零售是护城河也是拖累</b> —— 规模与物流,利润微薄。" },
+          { "en": "<b>Underwrite margin mix-shift</b> — ads + AWS lift consolidated margin.", "zh": "<b>按利润率结构迁移定价</b> —— 广告 + AWS 抬升合并利润率。" }
+        ],
+        "quad": [
+          { "label": { "en": "FY24 net sales", "zh": "FY24 净销售额" }, "value": "$638B", "note": { "en": "+11% YoY", "zh": "同比 +11%" }, "tone": "good" },
+          { "label": { "en": "AWS revenue", "zh": "AWS 营收" }, "value": "$107.6B", "note": { "en": "~17% of mix", "zh": "约占 17%" }, "tone": "good" },
+          { "label": { "en": "Consol. op margin", "zh": "合并经营利润率" }, "value": "11%", "note": { "en": "AWS-led expansion", "zh": "AWS 驱动扩张" }, "tone": "good" },
+          { "label": { "en": "Key risk", "zh": "核心风险" }, "value": "AWS decel", "note": { "en": "earnings ride on it", "zh": "利润系于此" }, "tone": "warn" }
+        ]
+      },
+      "footer": { "en": "Executive verdict · one-screen thesis", "zh": "核心结论 · 一屏论点" },
+      "sources": [ { "label": "Amazon FY24 10-K", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "the_tape",
+      "kicker": { "en": "02 · The tape", "zh": "02 · 盘面" },
+      "headline": { "en": "Re-rated on margin, not on revenue.", "zh": "重估来自利润率,而非营收。" },
+      "dek": { "en": "The move tracks operating-income inflection (AWS reacceleration + retail cost discipline), not the top line.", "zh": "走势跟随经营利润拐点(AWS 重新加速 + 零售成本纪律),而非营收。" },
+      "viz": { "kind": "area_chart", "unit": "$", "accent": "cyan",
+        "series": [ {"x":"May'25","y":182.4},{"x":"Jun","y":189.1},{"x":"Jul","y":201.7},{"x":"Aug","y":196.3},{"x":"Sep","y":210.8},{"x":"Oct","y":219.4},{"x":"Nov","y":214.0},{"x":"Dec","y":226.7},{"x":"Jan'26","y":238.5},{"x":"Feb","y":231.2},{"x":"Mar","y":244.9},{"x":"Apr","y":239.6},{"x":"May'26","y":252.8} ] },
+      "footer": { "en": "Illustrative price path · momentum read", "zh": "示意股价路径 · 动量判读" },
+      "sources": [ { "label": "Exchange close prices", "url": "https://finance.yahoo.com/quote/AMZN" } ]
+    },
+    {
+      "page_type": "why_it_moves",
+      "kicker": { "en": "03 · Why it moves", "zh": "03 · 增长引擎" },
+      "headline": { "en": "Three businesses, two roles: scale vs. profit.", "zh": "三块业务,两种角色:规模 vs 利润。" },
+      "dek": { "en": "North America and International are the volume; AWS is the profit. Advertising (inside retail) is the quiet margin accelerant.", "zh": "北美与国际是规模;AWS 是利润。广告(归在零售内)是安静的利润率加速器。" },
+      "viz": { "kind": "donut", "unit": "$B", "center": { "en": "FY24 NET SALES", "zh": "FY24 净销售额" },
+        "slices": [
+          { "label": { "en": "North America — retail + ads", "zh": "北美 — 零售 + 广告" }, "value": 387.5, "accent": "cyan" },
+          { "label": { "en": "International — retail", "zh": "国际 — 零售" }, "value": 142.9, "accent": "blue" },
+          { "label": { "en": "AWS — cloud infrastructure", "zh": "AWS — 云基础设施" }, "value": 107.6, "accent": "green" }
+        ],
+        "bullets": [
+          { "en": "<b>North America scale</b> — the logistics + Prime flywheel; thin margin by design.", "zh": "<b>北美规模</b> —— 物流 + Prime 飞轮;利润率天然微薄。" },
+          { "en": "<b>International turning</b> — losses narrowing toward profitability.", "zh": "<b>国际转正</b> —— 亏损收窄,趋向盈利。" },
+          { "en": "<b>AWS is the engine</b> — ~17% of sales, majority of operating income.", "zh": "<b>AWS 是引擎</b> —— 约占 17% 营收,贡献大部分经营利润。" },
+          { "en": "<b>Ads are hidden margin</b> — high-margin revenue booked within retail.", "zh": "<b>广告是隐藏利润</b> —— 高毛利营收计入零售口径。" }
+        ]
+      },
+      "footer": { "en": "Segment mix · scale vs profit roles", "zh": "板块结构 · 规模与利润角色" },
+      "sources": [ { "label": "Amazon FY24 segment results", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "revenue_bridge",
+      "kicker": { "en": "04 · Growth quality", "zh": "04 · 增长质量" },
+      "headline": { "en": "+$63B added — balanced, but AWS carries the profit.", "zh": "净增 630 亿美元 —— 较为均衡,但利润由 AWS 承担。" },
+      "dek": { "en": "Unlike a single-engine grower, top-line growth here is spread. The asymmetry is in margin: AWS dollars are worth far more.", "zh": "与单引擎增长不同,这里营收增长较为分散。不对称体现在利润:AWS 的每一美元含金量高得多。" },
+      "viz": { "kind": "waterfall", "unit": "$B",
+        "start": { "label": "FY23", "value": 574.8 },
+        "steps": [
+          { "label": "North America", "value": 34.7, "kind": "add" },
+          { "label": "International", "value": 11.7, "kind": "add" },
+          { "label": "AWS", "value": 16.8, "kind": "add" }
+        ],
+        "end": { "label": "FY24", "value": 638.0 } },
+      "footer": { "en": "Revenue bridge · balanced top line", "zh": "营收桥 · 均衡的营收" },
+      "sources": [ { "label": "Amazon FY23 vs FY24 10-K", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "unit_economics",
+      "kicker": { "en": "05 · Unit economics", "zh": "05 · 单位经济" },
+      "headline": { "en": "Two margin profiles in one P&L.", "zh": "一张损益表,两种利润率画像。" },
+      "dek": { "en": "Consolidated operating margin is climbing off a thin retail base while AWS runs ~35%+ — the consolidated line is a mix-shift story.", "zh": "合并经营利润率从微薄的零售基数上行,而 AWS 维持 35%+ —— 合并口径是结构迁移的故事。" },
+      "viz": { "kind": "grouped_bars", "unit": "%", "groups": ["FY22","FY23","FY24","FY25E"],
+        "series": [ { "name": "Consolidated operating margin", "values": [2, 6, 11, 12] }, { "name": "AWS operating margin", "values": [28, 30, 37, 38] } ] },
+      "callout": { "en": "<b>Read:</b> the bull case is consolidated margin converging toward the AWS+ads mix, not retail margin alone.", "zh": "<b>判读:</b>多头逻辑是合并利润率向 AWS+广告结构收敛,而非单靠零售利润率。" },
+      "footer": { "en": "Margin trajectory · mix-shift", "zh": "利润率轨迹 · 结构迁移" },
+      "sources": [ { "label": "Amazon segment operating income", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "supply_chain",
+      "kicker": { "en": "06 · Dependencies", "zh": "06 · 依赖关系" },
+      "headline": { "en": "Mostly self-owned — the dependencies are demand-side.", "zh": "大体自有 —— 依赖主要在需求侧。" },
+      "dek": { "en": "Amazon owns fulfilment and much of AWS silicon. The exposures are cloud demand cyclicality, capex intensity, and labour/regulatory.", "zh": "亚马逊自有履约与大量 AWS 芯片。风险敞口在云需求周期、资本开支强度,以及人力/监管。" },
+      "viz": { "kind": "matrix", "cards": [
+        { "title": { "en": "AWS demand cycle", "zh": "AWS 需求周期" }, "tag": { "en": "Key", "zh": "关键" }, "detail": { "en": "Enterprise cloud optimization swings growth.", "zh": "企业云优化左右增长。" }, "weight": 82 },
+        { "title": { "en": "Capex intensity", "zh": "资本开支强度" }, "tag": { "en": "Watch", "zh": "关注" }, "detail": { "en": "AI data-center build weighs on free cash flow.", "zh": "AI 数据中心建设拖累自由现金流。" }, "weight": 74 },
+        { "title": { "en": "Fulfilment network", "zh": "履约网络" }, "tag": { "en": "Owned", "zh": "自有" }, "detail": { "en": "Logistics largely in-house — a moat, not a risk.", "zh": "物流基本自营 —— 是护城河而非风险。" }, "weight": 40 },
+        { "title": { "en": "Custom silicon", "zh": "自研芯片" }, "tag": { "en": "Owned", "zh": "自有" }, "detail": { "en": "Graviton/Trainium reduce vendor dependency.", "zh": "Graviton/Trainium 降低对供应商依赖。" }, "weight": 46 },
+        { "title": { "en": "Labour / regulatory", "zh": "人力 / 监管" }, "tag": { "en": "Risk", "zh": "风险" }, "detail": { "en": "Antitrust + labour cost are recurring overhangs.", "zh": "反垄断 + 人力成本是反复出现的压制。" }, "weight": 66 },
+        { "title": { "en": "Consumer demand", "zh": "消费需求" }, "tag": { "en": "Cyclical", "zh": "周期性" }, "detail": { "en": "Retail volume tracks the consumer cycle.", "zh": "零售销量跟随消费周期。" }, "weight": 58 }
+      ] },
+      "footer": { "en": "Dependency map · demand-side", "zh": "依赖图谱 · 需求侧" },
+      "sources": [ { "label": "Amazon 10-K risk factors", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "competitive_field",
+      "kicker": { "en": "07 · Competitive reality", "zh": "07 · 竞争现实" },
+      "headline": { "en": "A 3/5 score: dominant in two arenas, contested in both.", "zh": "3/5 评分:在两个战场领先,但都被持续挑战。" },
+      "dek": { "en": "AWS leads cloud but Azure/GCP grow faster off smaller bases; retail leads scale but faces Walmart and global marketplaces.", "zh": "AWS 在云端领先,但 Azure/GCP 以较小基数更快增长;零售规模领先,但面对沃尔玛与全球电商平台。" },
+      "viz": { "kind": "compete",
+        "score": { "kind": "score_donut", "score": 3, "out_of": 5, "caption": { "en": "competitive position", "zh": "竞争地位" } },
+        "cards": [
+          { "title": { "en": "Microsoft Azure", "zh": "微软 Azure" }, "tag": { "en": "Fast-grower", "zh": "高增长" }, "detail": { "en": "Enterprise + AI bundle pressures AWS growth.", "zh": "企业 + AI 捆绑压制 AWS 增速。" }, "weight": 78 },
+          { "title": { "en": "Google Cloud", "zh": "谷歌云" }, "tag": { "en": "Gaining", "zh": "追赶" }, "detail": { "en": "AI/data workloads winning share off a small base.", "zh": "AI/数据负载以小基数夺份。" }, "weight": 64 },
+          { "title": { "en": "Walmart", "zh": "沃尔玛" }, "tag": { "en": "Retail rival", "zh": "零售对手" }, "detail": { "en": "Omni-channel + ads narrowing the gap.", "zh": "全渠道 + 广告缩小差距。" }, "weight": 60 },
+          { "title": { "en": "Global marketplaces", "zh": "全球电商平台" }, "tag": { "en": "Adjacent", "zh": "邻近" }, "detail": { "en": "Temu/Shein pressure low-end retail economics.", "zh": "Temu/Shein 挤压低端零售经济性。" }, "weight": 52 }
+        ] },
+      "footer": { "en": "Competitive map · contested leadership", "zh": "竞争图谱 · 被挑战的领先" },
+      "sources": [ { "label": "Industry share data", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "catalysts",
+      "kicker": { "en": "08 · Catalysts", "zh": "08 · 催化剂" },
+      "headline": { "en": "AWS growth and capex are the entire debate.", "zh": "AWS 增速与资本开支就是全部分歧。" },
+      "dek": { "en": "Each event tests two linked variables: AWS reacceleration and how much free cash flow the AI build consumes.", "zh": "每个事件检验两个关联变量:AWS 重新加速,以及 AI 建设消耗多少自由现金流。" },
+      "viz": { "kind": "timeline", "nodes": [
+        { "date": "2026-02", "label": { "en": "Q4'25 earnings", "zh": "Q4’25 财报" }, "impact": "high", "note": { "en": "AWS growth rate + FY26 capex guide.", "zh": "AWS 增速 + FY26 资本开支指引。" } },
+        { "date": "2026-Q1", "label": { "en": "AWS backlog", "zh": "AWS 在手合同" }, "impact": "high", "note": { "en": "Commitment backlog signals durable demand.", "zh": "承诺合同储备显示需求可持续性。" } },
+        { "date": "2026-Q2", "label": { "en": "Retail margin", "zh": "零售利润率" }, "impact": "medium", "note": { "en": "North America margin + ads contribution.", "zh": "北美利润率 + 广告贡献。" } },
+        { "date": "2026-H2", "label": { "en": "Free cash flow", "zh": "自由现金流" }, "impact": "high", "note": { "en": "Does AI capex break the FCF recovery?", "zh": "AI 资本开支是否打断自由现金流复苏?" } }
+      ] },
+      "footer": { "en": "Dated catalysts · next ~12 months", "zh": "时点催化剂 · 未来约 12 个月" },
+      "sources": [ { "label": "Amazon IR calendar", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "scenario_math",
+      "kicker": { "en": "09 · Scenario math", "zh": "09 · 情景测算" },
+      "headline": { "en": "The same revenue is a 0.8x or a 2.4x on margin alone.", "zh": "相同营收,仅凭利润率即可是 0.8 倍或 2.4 倍。" },
+      "dek": { "en": "Top line is predictable; return is decided by where consolidated operating margin lands as the mix shifts to AWS and ads.", "zh": "营收可预测;回报取决于结构向 AWS 与广告迁移后,合并经营利润率落在何处。" },
+      "viz": { "kind": "scenario_set",
+        "bear": { "moic": "0.8x", "fill": 26, "rows": [ ["FY27E sales","$720B"], ["AWS mix","18%"], ["Op margin","9%"], ["Multiple","26x"] ] },
+        "base": { "moic": "1.6x", "fill": 52, "rows": [ ["FY27E sales","$770B"], ["AWS mix","20%"], ["Op margin","13%"], ["Multiple","32x"] ] },
+        "bull": { "moic": "2.4x", "fill": 80, "rows": [ ["FY27E sales","$810B"], ["AWS mix","22%"], ["Op margin","16%"], ["Multiple","38x"] ] } },
+      "callout": { "en": "<b>Sensitivity:</b> a 3-point swing in consolidated operating margin moves equity value more than a $90B revenue swing.", "zh": "<b>敏感性:</b>合并经营利润率 3 个百分点的波动,对股权价值的影响大于 900 亿美元营收的波动。" },
+      "footer": { "en": "Scenario swim-lanes · margin-decided", "zh": "情景泳道 · 利润率决定" },
+      "sources": [ { "label": "Model — illustrative", "url": "https://ir.aboutamazon.com" } ]
+    },
+    {
+      "page_type": "sources",
+      "kicker": { "en": "10 · Provenance", "zh": "10 · 来源" },
+      "headline": { "en": "Every figure is traceable.", "zh": "每一个数字都可溯源。" },
+      "dek": { "en": "This prototype uses illustrative figures. In production every number is null-over-invented and carries the source below.", "zh": "本原型使用示意数据。在正式版本中,每个数字“宁缺勿造”,并附下列来源。" },
+      "viz": { "kind": "source_table", "rows": [
+        { "label": "FY24 sales & segments", "url": "ir.aboutamazon.com — FY24 10-K", "date": "2025-02" },
+        { "label": "Segment operating income", "url": "ir.aboutamazon.com — 10-K", "date": "2025-02" },
+        { "label": "Price path", "url": "finance.yahoo.com/quote/AMZN", "date": "2026-05" },
+        { "label": "Risk factors", "url": "ir.aboutamazon.com — 10-K", "date": "2025-02" }
+      ] },
+      "footer": { "en": "Sources · prototype figures illustrative", "zh": "来源 · 原型数据仅供示意" },
+      "sources": []
+    }
+  ]
+}

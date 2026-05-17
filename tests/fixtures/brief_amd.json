@@ -1,0 +1,388 @@
+{
+  "meta": {
+    "ticker": "AMD",
+    "name": { "en": "Advanced Micro Devices, Inc.", "zh": "超威半导体公司" },
+    "exchange": "NASDAQ",
+    "sector": { "en": "Semiconductors · Data-Center Compute", "zh": "半导体 · 数据中心算力" },
+    "as_of": "2026-05-16",
+    "posture": { "en": "ACCUMULATE", "zh": "逢低增持" },
+    "disclaimer": {
+      "en": "Prototype — figures illustrative, verify before use",
+      "zh": "原型 — 数据仅供示意，使用前请核实"
+    }
+  },
+  "pages": [
+    {
+      "page_type": "cover_verdict",
+      "kicker": { "en": "01 · Verdict", "zh": "01 · 结论" },
+      "headline": {
+        "en": "AMD is no longer the cheap alternative — it is the second AI compute platform.",
+        "zh": "AMD 不再是廉价替代品 —— 它已成为第二个 AI 算力平台。"
+      },
+      "dek": {
+        "en": "Data Center is now half of revenue and growing ~2x company average. The thesis is no longer “catch up to Intel,” it is “how much of the accelerator TAM does the #2 vendor capture.”",
+        "zh": "数据中心已占营收的一半，且增速约为公司平均的两倍。投资逻辑不再是“追赶英特尔”，而是“第二供应商能在加速器市场中拿下多少份额”。"
+      },
+      "viz": {
+        "kind": "hero",
+        "signature": "price_arc",
+        "core": "AMD",
+        "sub_en": "ACCUMULATE · DATA-CENTER LED",
+        "sub_zh": "逻辑：数据中心驱动",
+        "tags": [
+          { "en": "Mega-cap · Semis", "zh": "巨头 · 半导体" },
+          { "en": "AI accelerators · #2", "zh": "AI 加速器 · 第二" },
+          { "en": "Posture: ACCUMULATE", "zh": "立场：逢低增持" }
+        ],
+        "thesis": [
+          { "en": "<b>Data Center is the whole story</b> — 49% of mix, growing ~2x company.", "zh": "<b>数据中心就是全部逻辑</b> —— 占比 49%,增速约为公司两倍。" },
+          { "en": "<b>Margin follows mix</b> — accelerators + EPYC lift non-GAAP GM to 53%.", "zh": "<b>利润率随结构走</b> —— 加速器 + EPYC 推动非 GAAP 毛利率至 53%。" },
+          { "en": "<b>Underwrite the #2, not the catch-up</b> — share of accelerator TAM is the variable.", "zh": "<b>按“第二名”而非“追赶者”定价</b> —— 加速器份额是关键变量。" }
+        ],
+        "quad": [
+          { "label": { "en": "FY24 revenue", "zh": "FY24 营收" }, "value": "$25.8B", "note": { "en": "+14% YoY", "zh": "同比 +14%" }, "tone": "good" },
+          { "label": { "en": "Data Center", "zh": "数据中心" }, "value": "+94%", "note": { "en": "YoY; now 49% of mix", "zh": "同比；现占 49%" }, "tone": "good" },
+          { "label": { "en": "Non-GAAP GM", "zh": "非 GAAP 毛利率" }, "value": "53%", "note": { "en": "+4pts in 2 yrs", "zh": "两年 +4 个百分点" }, "tone": "good" },
+          { "label": { "en": "Key risk", "zh": "核心风险" }, "value": "Customer mix", "note": { "en": "few hyperscalers dominate", "zh": "少数云厂商主导" }, "tone": "warn" }
+        ]
+      },
+      "footer": { "en": "Executive verdict · one-screen thesis", "zh": "核心结论 · 一屏论点" },
+      "sources": [ { "label": "AMD FY24 10-K", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "the_tape",
+      "kicker": { "en": "02 · The tape", "zh": "02 · 盘面" },
+      "headline": {
+        "en": "A 12-month re-rating, not a spike.",
+        "zh": "这是 12 个月的价值重估，而非短期脉冲。"
+      },
+      "dek": {
+        "en": "Price has compounded with each data-center print rather than on a single headline. Trend is intact above both moving averages; the question is durability of the multiple, not direction.",
+        "zh": "股价随每一次数据中心业绩兑现而逐级抬升，而非依赖单一消息。趋势仍站稳于两条均线之上；问题在于估值倍数能否持续，而非方向。"
+      },
+      "viz": {
+        "kind": "area_chart",
+        "unit": "$",
+        "accent": "cyan",
+        "series": [
+          { "x": "May'25", "y": 95.2 }, { "x": "Jun", "y": 102.8 },
+          { "x": "Jul", "y": 118.4 }, { "x": "Aug", "y": 109.1 },
+          { "x": "Sep", "y": 124.7 }, { "x": "Oct", "y": 141.3 },
+          { "x": "Nov", "y": 133.6 }, { "x": "Dec", "y": 152.9 },
+          { "x": "Jan'26", "y": 168.2 }, { "x": "Feb", "y": 159.4 },
+          { "x": "Mar", "y": 171.8 }, { "x": "Apr", "y": 165.0 },
+          { "x": "May'26", "y": 182.6 }
+        ]
+      },
+      "footer": { "en": "Illustrative price path · momentum read", "zh": "示意股价路径 · 动量判读" },
+      "sources": [ { "label": "Exchange close prices", "url": "https://finance.yahoo.com/quote/AMD" } ]
+    },
+
+    {
+      "page_type": "why_it_moves",
+      "kicker": { "en": "03 · Why it moves", "zh": "03 · 增长引擎" },
+      "headline": {
+        "en": "One segment now sets the stock.",
+        "zh": "如今,一个板块就决定了股价。"
+      },
+      "dek": {
+        "en": "Four reportable segments, but Data Center alone explains the re-rating. Gaming and Embedded are cyclically depressed; Client is a steady recovery.",
+        "zh": "四个可报告板块,但只有数据中心解释了此次重估。游戏与嵌入式处于周期性低谷;客户端是稳健复苏。"
+      },
+      "viz": {
+        "kind": "donut",
+        "unit": "$B",
+        "center": { "en": "FY24 REVENUE", "zh": "FY24 营收" },
+        "slices": [
+          { "label": { "en": "Data Center — EPYC + Instinct MI", "zh": "数据中心 — EPYC + Instinct MI" }, "value": 12.58, "accent": "cyan" },
+          { "label": { "en": "Client — Ryzen PC/notebook", "zh": "客户端 — Ryzen PC/笔电" }, "value": 7.06, "accent": "blue" },
+          { "label": { "en": "Embedded — Xilinx FPGA/adaptive", "zh": "嵌入式 — 赛灵思 FPGA/自适应" }, "value": 3.56, "accent": "violet" },
+          { "label": { "en": "Gaming — semi-custom + Radeon", "zh": "游戏 — 半定制 + Radeon" }, "value": 2.60, "accent": "gold" }
+        ],
+        "bullets": [
+          { "en": "<b>Data Center +94% YoY</b> — MI300 ramp + EPYC server share gains compound together.", "zh": "<b>数据中心同比 +94%</b> — MI300 放量与 EPYC 服务器份额提升叠加共振。" },
+          { "en": "<b>Client recovering</b> — PC refresh + AI-PC mix lift average selling price.", "zh": "<b>客户端复苏</b> — PC 换机周期叠加 AI-PC 拉高平均售价。" },
+          { "en": "<b>Embedded down</b> — post-Xilinx inventory digestion across industrial/comms.", "zh": "<b>嵌入式下滑</b> — 并购赛灵思后,工业/通信渠道仍在去库存。" },
+          { "en": "<b>Gaming declining by design</b> — console cycle late-stage; not a thesis driver.", "zh": "<b>游戏主动收缩</b> — 主机周期进入末段;非投资逻辑要点。" }
+        ]
+      },
+      "footer": { "en": "Segment mix · structural drivers", "zh": "板块结构 · 结构性驱动" },
+      "sources": [ { "label": "AMD FY24 segment results", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "revenue_bridge",
+      "kicker": { "en": "04 · Growth quality", "zh": "04 · 增长质量" },
+      "headline": {
+        "en": "+$3.1B of net growth hides a violent internal rotation.",
+        "zh": "净增 31 亿美元的背后,是一场剧烈的内部轮动。"
+      },
+      "dek": {
+        "en": "Headline growth is modest. The real story is Data Center adding ~$4.9B while Gaming sheds ~$3.6B — the company is being remade, not just grown.",
+        "zh": "表观增速温和。真正的故事是数据中心增加约 49 亿美元,而游戏萎缩约 36 亿美元 —— 公司是在被重塑,而不仅是增长。"
+      },
+      "viz": {
+        "kind": "waterfall",
+        "unit": "$B",
+        "start": { "label": "FY23", "value": 22.68 },
+        "steps": [
+          { "label": "Data Center", "value": 4.90, "kind": "add" },
+          { "label": "Client", "value": 2.41, "kind": "add" },
+          { "label": "Embedded", "value": -0.99, "kind": "subtract" },
+          { "label": "Gaming", "value": -3.61, "kind": "subtract" },
+          { "label": "Other / FX", "value": 0.40, "kind": "add" }
+        ],
+        "end": { "label": "FY24", "value": 25.79 }
+      },
+      "footer": { "en": "Revenue bridge · rotation, not just growth", "zh": "营收桥 · 轮动而非单纯增长" },
+      "sources": [ { "label": "AMD FY23 vs FY24 10-K", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "unit_economics",
+      "kicker": { "en": "05 · Unit economics", "zh": "05 · 单位经济" },
+      "headline": {
+        "en": "Mix is doing the margin work.",
+        "zh": "结构改善正在替公司做毛利率的活。"
+      },
+      "dek": {
+        "en": "Gross margin climbs as accelerators and EPYC displace console silicon. Operating leverage is the watch-item: opex (R&D + GTM) is rising into the AI roadmap.",
+        "zh": "随着加速器与 EPYC 取代主机芯片,毛利率持续上行。需重点关注经营杠杆:为支撑 AI 路线图,研发与市场费用同步攀升。"
+      },
+      "viz": {
+        "kind": "grouped_bars",
+        "unit": "%",
+        "groups": ["FY22", "FY23", "FY24", "FY25E"],
+        "series": [
+          { "name": "Non-GAAP gross margin", "values": [49, 50, 53, 55] },
+          { "name": "Non-GAAP operating margin", "values": [22, 21, 24, 27] }
+        ]
+      },
+      "callout": {
+        "en": "<b>Read:</b> margin expansion is real but mix-driven — it holds only if Data Center keeps out-growing the rest.",
+        "zh": "<b>判读:</b>毛利率扩张是真实的,但由结构驱动 —— 只有数据中心持续快于其他板块,它才能维持。"
+      },
+      "footer": { "en": "Margin trajectory · mix-led", "zh": "利润率轨迹 · 结构主导" },
+      "sources": [ { "label": "AMD non-GAAP reconciliations", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "moat_integration",
+      "kicker": { "en": "06 · Moat", "zh": "06 · 护城河" },
+      "headline": {
+        "en": "The moat is software adoption, not silicon.",
+        "zh": "护城河是软件采用,而非芯片本身。"
+      },
+      "dek": {
+        "en": "The hardware is competitive. The durable question is whether ROCm + framework support reaches the switching-cost gravity CUDA already has.",
+        "zh": "硬件已具竞争力。真正持久的问题是:ROCm 与框架支持能否达到 CUDA 已具备的转换成本引力。"
+      },
+      "viz": {
+        "kind": "moat",
+        "pyramid": [
+          { "label": { "en": "Installed base", "zh": "装机基础" }, "strength": { "en": "Growing", "zh": "增长中" } },
+          { "label": { "en": "ROCm software", "zh": "ROCm 软件栈" }, "strength": { "en": "Closing", "zh": "追赶中" } },
+          { "label": { "en": "x86 + EPYC", "zh": "x86 + EPYC" }, "strength": { "en": "Strong", "zh": "强" } },
+          { "label": { "en": "Process (TSMC)", "zh": "制程(台积电)" }, "strength": { "en": "Shared", "zh": "共享" } }
+        ],
+        "cards": [
+          { "title": { "en": "EPYC server share", "zh": "EPYC 服务器份额" }, "tag": { "en": "Strong", "zh": "强" }, "detail": { "en": "Multi-year share gains vs Intel; sticky in cloud fleets.", "zh": "对英特尔多年持续夺份;在云厂商机群中黏性高。" }, "weight": 82 },
+          { "title": { "en": "Instinct MI roadmap", "zh": "Instinct MI 路线图" }, "tag": { "en": "Improving", "zh": "改善中" }, "detail": { "en": "MI300 → MI350 → MI400 annual cadence credible.", "zh": "MI300 → MI350 → MI400 年度节奏可信。" }, "weight": 64 },
+          { "title": { "en": "ROCm ecosystem", "zh": "ROCm 生态" }, "tag": { "en": "Catching up", "zh": "追赶中" }, "detail": { "en": "Framework support up; still behind CUDA gravity.", "zh": "框架支持提升;仍落后于 CUDA 引力。" }, "weight": 46 },
+          { "title": { "en": "Customer engineering", "zh": "客户工程绑定" }, "tag": { "en": "Medium", "zh": "中" }, "detail": { "en": "Co-design wins with select hyperscalers.", "zh": "与部分云厂商的协同设计中标。" }, "weight": 58 }
+        ]
+      },
+      "callout": {
+        "en": "<b>Pricing implication:</b> credit the EPYC franchise fully; price the accelerator moat as <b>improving, not won.</b>",
+        "zh": "<b>估值含义:</b>EPYC 业务给予充分溢价;加速器护城河应按<b>“改善中,尚未确立”</b>定价。"
+      },
+      "footer": { "en": "Moat layers · software is the gate", "zh": "护城河分层 · 软件是关口" },
+      "sources": [ { "label": "AMD Advancing AI · ROCm docs", "url": "https://www.amd.com/rocm" } ]
+    },
+
+    {
+      "page_type": "supply_chain",
+      "kicker": { "en": "07 · Supply chain", "zh": "07 · 供应链" },
+      "headline": {
+        "en": "Fabless means concentrated dependency by design.",
+        "zh": "无晶圆模式,意味着依赖关系天然集中。"
+      },
+      "dek": {
+        "en": "AMD owns design and ecosystem; it rents leading-edge capacity. The single-point exposures are advanced nodes, advanced packaging, and HBM — the same chokepoints as every AI vendor.",
+        "zh": "AMD 拥有设计与生态,但租用先进产能。单点风险集中在先进制程、先进封装与 HBM —— 与所有 AI 厂商同处一个咽喉。"
+      },
+      "viz": {
+        "kind": "matrix",
+        "cards": [
+          { "title": { "en": "Leading-edge wafers", "zh": "先进制程晶圆" }, "tag": { "en": "Critical", "zh": "关键" }, "detail": { "en": "TSMC N4/N3 — effectively single-source for the roadmap.", "zh": "台积电 N4/N3 — 路线图实质单一来源。" }, "weight": 92 },
+          { "title": { "en": "Advanced packaging", "zh": "先进封装" }, "tag": { "en": "Critical", "zh": "关键" }, "detail": { "en": "CoWoS / SoIC capacity gates MI accelerator volume.", "zh": "CoWoS / SoIC 产能直接限制 MI 加速器出货。" }, "weight": 88 },
+          { "title": { "en": "HBM memory", "zh": "HBM 显存" }, "tag": { "en": "Tight", "zh": "紧张" }, "detail": { "en": "SK Hynix / Samsung / Micron — industry-wide allocation.", "zh": "SK 海力士 / 三星 / 美光 — 全行业按配额分配。" }, "weight": 80 },
+          { "title": { "en": "Substrates / ABF", "zh": "基板 / ABF" }, "tag": { "en": "Watch", "zh": "关注" }, "detail": { "en": "Eased vs 2022 but still cyclical for high-end.", "zh": "较 2022 年缓解,但高端仍有周期性。" }, "weight": 52 },
+          { "title": { "en": "Customer concentration", "zh": "客户集中度" }, "tag": { "en": "Risk", "zh": "风险" }, "detail": { "en": "A handful of hyperscalers drive accelerator demand.", "zh": "少数云厂商主导加速器需求。" }, "weight": 70 },
+          { "title": { "en": "Geopolitical / export", "zh": "地缘 / 出口管制" }, "tag": { "en": "Risk", "zh": "风险" }, "detail": { "en": "China AI-accelerator export rules cap a TAM slice.", "zh": "对华 AI 加速器出口规则封顶部分市场。" }, "weight": 60 }
+        ]
+      },
+      "footer": { "en": "Upstream dependency map", "zh": "上游依赖图谱" },
+      "sources": [ { "label": "AMD 10-K risk factors", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "competitive_field",
+      "kicker": { "en": "08 · Competitive reality", "zh": "08 · 竞争现实" },
+      "headline": {
+        "en": "A 2/5 displacement score: AMD wins the second socket, not the first.",
+        "zh": "2/5 的替代评分:AMD 拿下第二供应商位,而非首选位。"
+      },
+      "dek": {
+        "en": "Buyers add AMD for supply diversity and price/perf, rarely to rip out the incumbent. The bull case needs that to shift from dual-source insurance toward primary share.",
+        "zh": "买家引入 AMD 是为了供应多元化与性价比,极少为替换在位者。多头逻辑需要这一点从“双源保险”转向“主份额”。"
+      },
+      "viz": {
+        "kind": "compete",
+        "score": { "kind": "score_donut", "score": 2, "out_of": 5, "caption": { "en": "displacement vs coexistence", "zh": "替代 vs 共存" } },
+        "cards": [
+          { "title": { "en": "NVIDIA", "zh": "英伟达" }, "tag": { "en": "Incumbent", "zh": "在位者" }, "detail": { "en": "CUDA gravity + systems; the bar AMD is measured against.", "zh": "CUDA 引力 + 系统级方案;AMD 的对标基准。" }, "weight": 95 },
+          { "title": { "en": "Intel", "zh": "英特尔" }, "tag": { "en": "Receding", "zh": "退守" }, "detail": { "en": "Server share donor; Gaudi traction limited.", "zh": "服务器份额持续流失;Gaudi 进展有限。" }, "weight": 40 },
+          { "title": { "en": "Hyperscaler in-house", "zh": "云厂商自研" }, "tag": { "en": "Structural", "zh": "结构性" }, "detail": { "en": "TPU / Trainium / Maia cap merchant TAM at the top.", "zh": "TPU / Trainium / Maia 封顶第三方市场上限。" }, "weight": 68 },
+          { "title": { "en": "Arm server", "zh": "Arm 服务器" }, "tag": { "en": "Adjacent", "zh": "邻近" }, "detail": { "en": "Pressures x86 at the efficiency edge over time.", "zh": "长期在能效侧对 x86 形成压力。" }, "weight": 50 }
+        ]
+      },
+      "footer": { "en": "Competitive map · second-source dynamics", "zh": "竞争图谱 · 第二供应商逻辑" },
+      "sources": [ { "label": "Mercury / industry share data", "url": "https://www.amd.com" } ]
+    },
+
+    {
+      "page_type": "catalysts",
+      "kicker": { "en": "09 · Catalysts", "zh": "09 · 催化剂" },
+      "headline": {
+        "en": "The next two prints are the whole debate.",
+        "zh": "接下来两次业绩,就是全部分歧所在。"
+      },
+      "dek": {
+        "en": "Each event is a check on the same variable: is the accelerator ramp tracking the roadmap, or slipping a quarter?",
+        "zh": "每个事件都在检验同一个变量:加速器放量是按路线图推进,还是延后一个季度?"
+      },
+      "viz": {
+        "kind": "timeline",
+        "nodes": [
+          { "date": "2026-01", "label": { "en": "Q4'25 earnings", "zh": "Q4’25 财报" }, "impact": "high", "note": { "en": "First clean read on MI350 contribution + DC mix.", "zh": "首个关于 MI350 贡献与数据中心结构的清晰读数。" } },
+          { "date": "2026-02", "label": { "en": "MI350 volume ramp", "zh": "MI350 量产爬坡" }, "impact": "high", "note": { "en": "Supply (CoWoS/HBM) is the binding constraint.", "zh": "供给(CoWoS/HBM)是约束瓶颈。" } },
+          { "date": "2026-06", "label": { "en": "Advancing AI 2026", "zh": "Advancing AI 2026" }, "impact": "medium", "note": { "en": "MI400 / Helios rack systems detail + customers.", "zh": "MI400 / Helios 机架系统细节与客户。" } },
+          { "date": "2026-H2", "label": { "en": "MI400 / rack launch", "zh": "MI400 / 机架发布" }, "impact": "high", "note": { "en": "Rack-scale is the credibility test vs NVIDIA.", "zh": "机架级方案是对标英伟达的可信度考验。" } }
+        ]
+      },
+      "footer": { "en": "Dated catalysts · next ~12 months", "zh": "时点催化剂 · 未来约 12 个月" },
+      "sources": [ { "label": "AMD IR calendar", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "sentiment",
+      "kicker": { "en": "10 · Sentiment", "zh": "10 · 情绪与定位" },
+      "headline": {
+        "en": "Consensus is constructive but the dispersion is wide.",
+        "zh": "市场共识偏正面,但分歧区间很宽。"
+      },
+      "dek": {
+        "en": "Most of the street is Buy, but the target range is unusually wide — the disagreement is entirely about accelerator share, not the core franchise.",
+        "zh": "多数卖方为买入,但目标价区间异常宽 —— 分歧完全在于加速器份额,而非核心业务。"
+      },
+      "viz": {
+        "kind": "sentiment",
+        "quad": [
+          { "label": { "en": "Consensus", "zh": "评级共识" }, "value": "Buy", "note": { "en": "40 covering analysts", "zh": "40 家覆盖" }, "tone": "good" },
+          { "label": { "en": "Mean target", "zh": "目标价均值" }, "value": "$205", "note": { "en": "range $120–$280", "zh": "区间 $120–$280" }, "tone": "warn" },
+          { "label": { "en": "Short interest", "zh": "做空比例" }, "value": "2.4%", "note": { "en": "of float — low", "zh": "占流通股 — 低" }, "tone": "good" },
+          { "label": { "en": "Options skew", "zh": "期权偏斜" }, "value": "Call-bid", "note": { "en": "upside positioning", "zh": "偏向看涨" }, "tone": "good" }
+        ],
+        "bars": {
+          "unit": "",
+          "groups": ["Strong Buy", "Buy", "Hold", "Sell"],
+          "series": [ { "name": "Analysts", "values": [16, 14, 9, 1] } ]
+        }
+      },
+      "footer": { "en": "Sell-side distribution · positioning", "zh": "卖方分布 · 持仓定位" },
+      "sources": [ { "label": "Analyst rating aggregators", "url": "https://finance.yahoo.com/quote/AMD" } ]
+    },
+
+    {
+      "page_type": "scenario_math",
+      "kicker": { "en": "11 · Scenario math", "zh": "11 · 情景测算" },
+      "headline": {
+        "en": "The same company is a 0.7x or a 3x — entry and share decide it.",
+        "zh": "同一家公司,可能是 0.7 倍或 3 倍 —— 取决于买点与份额。"
+      },
+      "dek": {
+        "en": "Return is dominated by two variables: accelerator share captured by FY27 and the multiple the market pays for #2 vs duopoly status.",
+        "zh": "回报由两个变量主导:到 FY27 拿下的加速器份额,以及市场为“第二名 vs 双寡头”支付的倍数。"
+      },
+      "viz": {
+        "kind": "scenario_set",
+        "bear": { "moic": "0.7x", "fill": 22, "rows": [
+          ["FY27E rev", "$34B"], ["DC mix", "55%"], ["GM", "52%"], ["Multiple", "20x"] ] },
+        "base": { "moic": "1.8x", "fill": 52, "rows": [
+          ["FY27E rev", "$44B"], ["DC mix", "64%"], ["GM", "55%"], ["Multiple", "28x"] ] },
+        "bull": { "moic": "3.1x", "fill": 86, "rows": [
+          ["FY27E rev", "$56B"], ["DC mix", "72%"], ["GM", "58%"], ["Multiple", "34x"] ] }
+      },
+      "callout": {
+        "en": "<b>Sensitivity:</b> entry above the base multiple subtracts roughly a full turn of MoIC for the same operating outcome.",
+        "zh": "<b>敏感性:</b>买点高于基准倍数,在相同经营结果下大约抹去整整一倍 MoIC。"
+      },
+      "footer": { "en": "Scenario swim-lanes · entry-sensitive", "zh": "情景泳道 · 对买点敏感" },
+      "sources": [ { "label": "Model — illustrative", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "risk_gates",
+      "kicker": { "en": "12 · What changes our mind", "zh": "12 · 何以改变结论" },
+      "headline": {
+        "en": "Six gates turn ACCUMULATE into conviction — or into a pass.",
+        "zh": "六道关卡,决定“增持”升级为重仓,还是放弃。"
+      },
+      "dek": {
+        "en": "A polished report should not hide what it does not yet know. These are the exact checks that move position size.",
+        "zh": "一份精致的报告不应掩盖尚未确知之处。以下正是决定仓位大小的检验项。"
+      },
+      "viz": {
+        "kind": "gate_grid",
+        "gates": [
+          { "title": { "en": "Accelerator share", "zh": "加速器份额" }, "body": { "en": "Merchant GPU share trending toward double digits by FY27.", "zh": "到 FY27 第三方 GPU 份额向两位数迈进。" } },
+          { "title": { "en": "ROCm adoption", "zh": "ROCm 采用" }, "body": { "en": "Independent shops shipping on ROCm, not just lighthouse accounts.", "zh": "独立团队在 ROCm 上落地,而不仅是标杆客户。" } },
+          { "title": { "en": "Supply unlock", "zh": "供给解锁" }, "body": { "en": "CoWoS / HBM allocation rising fast enough to meet bookings.", "zh": "CoWoS / HBM 配额提升足以满足在手订单。" } },
+          { "title": { "en": "Gross-margin path", "zh": "毛利率路径" }, "body": { "en": "GM holds 55%+ as accelerators scale (not dilutive).", "zh": "加速器放量后毛利率守住 55%+(非摊薄)。" } },
+          { "title": { "en": "Customer breadth", "zh": "客户广度" }, "body": { "en": "Revenue concentration easing beyond a few hyperscalers.", "zh": "营收集中度从少数云厂商扩散开。" } },
+          { "title": { "en": "Entry discipline", "zh": "买点纪律" }, "body": { "en": "Accumulate into multiple compression, not into momentum highs.", "zh": "在倍数压缩时增持,而非在动量高点追入。" } }
+        ]
+      },
+      "footer": { "en": "Decision gates · preserve the right to say no", "zh": "决策关卡 · 保留说不的权利" },
+      "sources": [ { "label": "Internal IC checklist", "url": "https://ir.amd.com" } ]
+    },
+
+    {
+      "page_type": "sources",
+      "kicker": { "en": "13 · Provenance", "zh": "13 · 来源" },
+      "headline": {
+        "en": "Every figure is traceable.",
+        "zh": "每一个数字都可溯源。"
+      },
+      "dek": {
+        "en": "This prototype uses illustrative figures. In production every number is null-over-invented and carries the source below.",
+        "zh": "本原型使用示意数据。在正式版本中,每个数字“宁缺勿造”,并附下列来源。"
+      },
+      "viz": {
+        "kind": "source_table",
+        "rows": [
+          { "label": "FY24 revenue & segments", "url": "ir.amd.com — FY24 10-K", "date": "2025-01" },
+          { "label": "Non-GAAP margins", "url": "ir.amd.com — reconciliations", "date": "2025-01" },
+          { "label": "Price path", "url": "finance.yahoo.com/quote/AMD", "date": "2026-05" },
+          { "label": "Analyst distribution", "url": "rating aggregators", "date": "2026-05" },
+          { "label": "Supply / risk factors", "url": "ir.amd.com — 10-K risk factors", "date": "2025-01" },
+          { "label": "Roadmap & ROCm", "url": "amd.com — Advancing AI", "date": "2025-10" }
+        ]
+      },
+      "footer": { "en": "Sources · prototype figures illustrative", "zh": "来源 · 原型数据仅供示意" },
+      "sources": []
+    }
+  ]
+}
