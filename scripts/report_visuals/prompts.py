@@ -84,10 +84,18 @@ _FALLBACK = (
 )
 
 
+def _en(v) -> str:
+    # After the bilingual pass an overlay field is a {"en","zh"} dict.
+    # Art is language-free, so subject derivation always keys off EN.
+    if isinstance(v, dict):
+        v = v.get("en") or ""
+    return str(v or "")
+
+
 def _section(page: dict) -> str:
     # strip a leading "NN · " / "NN -" ordinal from the kicker
     import re
-    k = (page.get("kicker") or "").lower()
+    k = _en(page.get("kicker")).lower()
     return re.sub(r"^\s*\d+\s*[·\-.]\s*", "", k).strip()
 
 
@@ -97,7 +105,7 @@ def _subject(page: dict) -> str:
         if any(k in sec for k in keys):
             return subj
     # headline fallback only if the section name matched nothing
-    head = (page.get("headline") or "").lower()
+    head = _en(page.get("headline")).lower()
     for keys, subj in _BANK:
         if any(k in head for k in keys):
             return subj

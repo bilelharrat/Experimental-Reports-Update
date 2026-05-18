@@ -11,7 +11,7 @@ import datetime as _dt
 import json
 from pathlib import Path
 
-from . import imagegen, prompts, render
+from . import imagegen, prompts, render, translate
 from .parse import parse_deck
 
 REPO = Path(__file__).resolve().parents[2]
@@ -39,6 +39,12 @@ def main() -> None:
     if not pages:
         raise SystemExit("no pages parsed")
     total = max(p["page"] for p in parse_deck(src))
+
+    if "zh" in locales:
+        print(f"[i18n] translating {len(pages)} pages → zh via Claude Code …")
+        translate.bilingualize(pages, locales=locales)
+        done = sum(1 for p in pages if isinstance(p.get("headline"), dict))
+        print(f"[i18n] {done}/{len(pages)} pages bilingual")
 
     ts = _dt.datetime.now().strftime("%Y-%m-%d__%H%M%S")
     run = REPO / "data" / "report_visuals" / args.deck / ts
