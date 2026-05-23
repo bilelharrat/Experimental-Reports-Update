@@ -1,13 +1,13 @@
-"""Per-company file uploads (presentations, PDFs).
+"""Per-company file uploads (presentations, PDFs, Markdown notes).
 
 Each company gets a directory under `data/uploads/<company_id>/` with an
 `index.yaml` recording the metadata for every upload (id, original filename,
 size, content type, uploaded_at). The bytes live next to the index in files
 named `<file_id>__<sanitized_original>.
 
-Only PPT, PPTX, and PDF are accepted. Filenames are sanitized to prevent
-path traversal — even though the filename is never used as a directory
-component, we want predictable inspection on disk.
+Only PPT, PPTX, PDF, and MD are accepted. Filenames are sanitized to
+prevent path traversal — even though the filename is never used as a
+directory component, we want predictable inspection on disk.
 
 PPT/PPTX uploads are auto-converted to PDF (cached as `<id>__preview.pdf`
 next to the original) using Microsoft PowerPoint via AppleScript. This runs
@@ -42,8 +42,10 @@ ALLOWED_TYPES: dict[str, str] = {
     "application/pdf": "pdf",
     "application/vnd.ms-powerpoint": "ppt",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "text/markdown": "md",
+    "text/x-markdown": "md",
 }
-ALLOWED_EXTENSIONS = {".pdf", ".ppt", ".pptx"}
+ALLOWED_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".md"}
 
 _LOCK = threading.RLock()
 
@@ -93,8 +95,6 @@ def _write_index(company_id: str, entries: list[dict]) -> None:
 
 
 def _kind_from(content_type: str | None, filename: str) -> str | None:
-    if content_type and content_type in ALLOWED_TYPES:
-        return ALLOWED_TYPES[content_type]
     ext = Path(filename).suffix.lower()
     if ext == ".pdf":
         return "pdf"
@@ -102,7 +102,18 @@ def _kind_from(content_type: str | None, filename: str) -> str | None:
         return "pptx"
     if ext == ".ppt":
         return "ppt"
+    if ext == ".md":
+        return "md"
+    if content_type and content_type in ALLOWED_TYPES:
+        return ALLOWED_TYPES[content_type]
     return None
+
+
+def _content_type_for(kind: str, content_type: str | None) -> str:
+    """Normalize stored content types for kinds browsers report loosely."""
+    if kind == "md":
+        return "text/markdown"
+    return content_type or ""
 
 
 def list_files(company_id: str) -> list[dict]:
@@ -147,7 +158,9 @@ def upload_file(
 
     kind = _kind_from(content_type, filename)
     if kind is None:
-        raise ValueError("Unsupported file type — only PDF, PPT, PPTX are accepted")
+        raise ValueError(
+            "Unsupported file type — only PDF, PPT, PPTX, and MD are accepted"
+        )
 
     safe_name = _sanitize_filename(filename)
     file_id = uuid.uuid4().hex[:12]
@@ -168,7 +181,7 @@ def upload_file(
             "stored_name": stored_name,
             "kind": kind,
             "language": language,
-            "content_type": content_type or "",
+            "content_type": _content_type_for(kind, content_type),
             "size_bytes": len(data),
             "uploaded_at": _now(),
             "label": (label or "").strip() or None,
@@ -365,16 +378,17 @@ def get_or_create_preview(
 ) -> tuple[Path | None, str | None]:
     """Return `(pdf_path, error)` for the given file.
 
-    PDFs return their original path. PPT/PPTX return a cached preview, running
-    PowerPoint conversion synchronously if the cache is empty. On failure the
-    error string explains why so the API can surface it to the UI.
+    PDFs and Markdown return their original path. PPT/PPTX return a cached
+    preview, running PowerPoint conversion synchronously if the cache is empty.
+    On failure the error string explains why so the API can surface it to the
+    UI.
     """
     found = get_file(company_id, file_id)
     if found is None:
         return None, "File not found."
     record, src_path = found
     kind = record.get("kind")
-    if kind == "pdf":
+    if kind in ("pdf", "md"):
         return src_path, None
     if kind not in ("ppt", "pptx"):
         return None, f"Unsupported file kind: {kind}"

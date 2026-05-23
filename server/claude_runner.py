@@ -19,8 +19,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -29,6 +31,39 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _terminate_process_group(proc: subprocess.Popen, *, grace_s: float = 2.0) -> None:
+    """Terminate a subprocess and its children when we own its session."""
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            return
+    try:
+        proc.wait(timeout=grace_s)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            return
+    try:
+        proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def is_available() -> bool:
@@ -289,7 +324,9 @@ def _process_event(event: dict, progress, state: dict) -> None:
             if btype == "text":
                 text = (block.get("text") or "").strip()
                 if text:
-                    progress.emit("claude_action", action="thinking", text=text[:600])
+                    progress.emit(
+                        "claude_action", action="thinking", text=text[:600]
+                    )
             elif btype == "tool_use":
                 name = block.get("name") or "?"
                 inp = block.get("input") or {}
@@ -1580,6 +1617,8 @@ def _build_investment_memo_prompt(
     settings_path: Path,
     companies_yaml_path: Path,
     memo_paths: dict[str, str],
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
 ) -> str:
     """Build the prompt for one Claude subprocess running Serena's skill.
 
@@ -1588,6 +1627,7 @@ def _build_investment_memo_prompt(
       - maps the skill's `[BSH Assistant]/` paths onto our `data/` tree,
       - lists the actual inputs (Serena_Background.md + the
         companies.yaml record) — note: no Document Library files,
+      - carries non-fatal scope warnings from prep into the analysis,
       - hints that the eight orthogonal analysis passes have no
         inter-dependencies and should run via parallel tool calls in a
         single response.
@@ -1596,12 +1636,33 @@ def _build_investment_memo_prompt(
     """
     skill_text = _load_skill_text()
     rel_run_dir = run_dir.name
+    scope_warning_block = ""
+    if scope_check and scope_check.get("outcome") == "warn":
+        warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
+        scope_warning_block = f"""\
+## Scope-warning override from prep
+
+The pre-run scope check produced a **non-fatal warning**:
+
+- classification: `{scope_check.get('classification')}`
+- reason: {scope_check.get('reason') or '(no reason recorded)'}
+
+{warning_lines if warning_lines else "- No additional warnings recorded."}
+
+Proceed with the memo anyway. Do **not** stop or decline solely because the
+company is early-stage or indeterminate. Instead, make the stage mismatch,
+thin late-stage diligence base, missing unit economics, and fit with the
+late-stage/pre-IPO memo framework explicit caveats in the memo. Preserve the
+late-stage analytical standard where possible, but label assumptions and
+confidence limits clearly.
+
+"""
 
     return f"""\
 You are running the **bsh-investment-memo-latestage-v1** skill (Serena's
 script) for one real run. The skill text is included verbatim below.
-**Follow it exactly.** The only deviation from the text is the
-parallel-passes hint below.
+**Follow it exactly.** The only deviations from the text are the non-fatal
+scope-warning override and the parallel-passes hint below.
 
 ## Run-specific operational context
 
@@ -1611,6 +1672,7 @@ parallel-passes hint below.
 - **Company:** {company_name} (slug `{company_slug}`)
 - **Run ID:** {run_id}
 
+{scope_warning_block}\
 ## Inputs (Serena's "company folder" + Settings)
 
 The skill text describes a `[BSH Assistant]/[Company Name]/` folder
@@ -1693,6 +1755,8 @@ def run_investment_memo(
     settings_path: Path,
     companies_yaml_path: Path,
     memo_paths: dict[str, str],
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
     progress=None,
     timeout_sec: int = 3600,
 ) -> dict:
@@ -1732,6 +1796,8 @@ def run_investment_memo(
         settings_path=settings_path,
         companies_yaml_path=companies_yaml_path,
         memo_paths=memo_paths,
+        scope_check=scope_check,
+        warnings=warnings,
     )
 
     # The skill needs Read access to two paths outside the run folder:
@@ -1775,6 +1841,7 @@ def run_investment_memo(
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return {"ok": False, "error": f"Failed to launch claude: {exc}"}
@@ -1806,9 +1873,20 @@ def run_investment_memo(
                 logger.exception("progress event handling failed")
             if event.get("type") == "result":
                 result_event = event
-        proc.wait(timeout=timeout_sec)
+                break
+        if result_event is not None:
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "memo claude subprocess kept running after result; "
+                    "terminating process group"
+                )
+                _terminate_process_group(proc, grace_s=2.0)
+        else:
+            proc.wait(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
-        proc.kill()
+        _terminate_process_group(proc, grace_s=2.0)
         return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
 
     # Close out any pass threads that we opened during the run. The
@@ -1817,9 +1895,7 @@ def run_investment_memo(
     # markers — so we attribute success/failure to the overall return.
     if progress:
         finish_ok = (
-            proc.returncode == 0
-            and bool(result_event)
-            and result_event.get("subtype") != "error"
+            bool(result_event) and result_event.get("subtype") != "error"
         )
         for thread_label in state.get("threads_started") or ():
             progress.emit(
@@ -1827,7 +1903,16 @@ def run_investment_memo(
                 thread=thread_label,
             )
 
-    if proc.returncode and proc.returncode != 0:
+    if result_event and result_event.get("subtype") == "error":
+        return {
+            "ok": False,
+            "error": result_event.get("error") or "Claude skill run failed",
+            "cost_usd": result_event.get("total_cost_usd"),
+            "duration_ms": result_event.get("duration_ms"),
+            "subtype": result_event.get("subtype"),
+        }
+
+    if result_event is None and proc.returncode and proc.returncode != 0:
         tail = "".join(stderr_log[-20:]).strip()
         return {
             "ok": False,
@@ -2049,6 +2134,37 @@ def run_hormuz_appendix(
 # --- Generic structured-prompt helper -------------------------------------
 
 _JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _process_structured_prompt_event(event: dict, progress) -> None:
+    """Translate text-only structured-prompt stream events for the job rail."""
+    etype = event.get("type")
+    if etype == "system" and event.get("subtype") == "init":
+        progress.emit(
+            "claude_action",
+            action="init",
+            session=event.get("session_id"),
+            model=event.get("model"),
+            tools=event.get("tools") or [],
+        )
+        return
+    if etype == "assistant":
+        msg = event.get("message") or {}
+        for block in msg.get("content") or []:
+            if block.get("type") == "text":
+                text = (block.get("text") or "").strip()
+                if text:
+                    progress.emit("claude_action", action="thinking", text=text[:600])
+        return
+    if etype == "result":
+        progress.emit(
+            "claude_action",
+            action="result",
+            subtype=event.get("subtype"),
+            cost_usd=event.get("total_cost_usd"),
+            duration_ms=event.get("duration_ms"),
+            usage=event.get("usage"),
+        )
 
 
 QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
@@ -2446,6 +2562,7 @@ def run_structured_prompt(
     schema: dict,
     name: str = "structured_output",
     timeout_sec: int = 180,
+    progress=None,
 ) -> tuple[dict | None, str | None]:
     """Run a one-shot `claude -p` call and parse a strict-JSON response.
 
@@ -2488,34 +2605,90 @@ def run_structured_prompt(
     cmd = [
         claude_path() or "claude",
         "-p", combined,
-        "--output-format", "json",
+        "--output-format", "stream-json" if progress else "json",
+        *(["--verbose"] if progress else []),
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Analyzing with Claude",
+            name=name,
         )
-    except subprocess.TimeoutExpired:
-        return None, f"claude timed out after {timeout_sec}s ({name})"
-    except FileNotFoundError as exc:
-        return None, f"Failed to launch claude: {exc}"
+        stderr_log: list[str] = []
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError as exc:
+            return None, f"Failed to launch claude: {exc}"
 
-    if proc.returncode != 0:
-        tail = (proc.stderr or "").strip()[-600:]
-        return None, f"claude exited {proc.returncode}: {tail}"
+        stderr_thread = threading.Thread(
+            target=_drain_stderr, args=(proc, stderr_log), daemon=True
+        )
+        stderr_thread.start()
 
-    try:
-        envelope = json.loads(proc.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        return None, f"claude returned non-JSON envelope: {exc}"
+        final_text = ""
+        result_event: dict | None = None
+        try:
+            for line in proc.stdout or []:  # type: ignore[union-attr]
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                try:
+                    _process_structured_prompt_event(event, progress)
+                except Exception:  # noqa: BLE001
+                    logger.exception("structured-prompt progress handling failed")
+                if event.get("type") == "result":
+                    result_event = event
+                    final_text = (event.get("result") or "").strip()
+            proc.wait(timeout=timeout_sec)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            return None, f"claude timed out after {timeout_sec}s ({name})"
 
-    final_text = (envelope.get("result") or "").strip()
-    if not final_text:
-        return None, "claude returned empty result"
+        if proc.returncode != 0:
+            tail = "".join(stderr_log[-20:]).strip()[-600:]
+            return None, f"claude exited {proc.returncode}: {tail}"
+        if not final_text and result_event:
+            final_text = (result_event.get("result") or "").strip()
+        if not final_text:
+            return None, "claude returned empty result"
+    else:
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
+            )
+        except subprocess.TimeoutExpired:
+            return None, f"claude timed out after {timeout_sec}s ({name})"
+        except FileNotFoundError as exc:
+            return None, f"Failed to launch claude: {exc}"
+
+        if proc.returncode != 0:
+            tail = (proc.stderr or "").strip()[-600:]
+            return None, f"claude exited {proc.returncode}: {tail}"
+
+        try:
+            envelope = json.loads(proc.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            return None, f"claude returned non-JSON envelope: {exc}"
+
+        final_text = (envelope.get("result") or "").strip()
+        if not final_text:
+            return None, "claude returned empty result"
 
     # First try: parse the whole thing as JSON.
     parsed = _parse_json_tolerant(final_text)

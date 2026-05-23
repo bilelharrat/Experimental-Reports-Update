@@ -24,6 +24,7 @@ What this worker deliberately does **not** do (see `docs/architecture.md`):
 """
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from pathlib import Path
@@ -31,6 +32,113 @@ from pathlib import Path
 from . import claude_runner, docx_pdf, job_progress, memo_prep, storage
 
 logger = logging.getLogger(__name__)
+
+
+def _memo_paths_abs(report: dict) -> dict[str, Path]:
+    memo_files = report.get("memo_files") or []
+    paths: dict[str, Path] = {}
+    for entry in memo_files:
+        lang = entry.get("language")
+        rel = entry.get("path")
+        if lang and rel:
+            paths[str(lang)] = memo_prep.DATA_DIR.parent / rel
+    return paths
+
+
+def _scan_memo_stream(run_dir: Path) -> dict:
+    """Summarize the memo stream enough for stale-run recovery."""
+    path = memo_prep.stream_path(run_dir)
+    state = {
+        "terminal": None,
+        "success_result": None,
+        "open_threads": set(),
+    }
+    if not path.exists():
+        return state
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                etype = entry.get("type")
+                if etype in ("done", "error"):
+                    state["terminal"] = entry
+                elif etype == "thread_started" and entry.get("thread"):
+                    state["open_threads"].add(entry["thread"])
+                elif (
+                    etype in ("thread_finished", "thread_failed")
+                    and entry.get("thread")
+                ):
+                    state["open_threads"].discard(entry["thread"])
+                elif (
+                    etype == "claude_action"
+                    and entry.get("action") == "result"
+                    and entry.get("subtype") != "error"
+                    and state["success_result"] is None
+                ):
+                    state["success_result"] = entry
+    except Exception:
+        logger.exception("failed to scan memo progress stream for %s", run_dir)
+    return state
+
+
+def recover_stale_reports() -> int:
+    """Mark memo runs complete when Claude succeeded but finalization was lost.
+
+    The memo skill can finish and write both DOCX files while the Python
+    worker is later interrupted or stuck in optional PDF-preview rendering.
+    This startup sweep is deliberately conservative: it only repairs runs
+    with a successful Claude result and both expected memo files on disk.
+    """
+    recovered = 0
+    for report in storage.list_reports():
+        if report.get("kind") != "investment_memo_latestage":
+            continue
+        if report.get("status") in ("complete", "failed_scope_check"):
+            continue
+        run_dir = _resolve_run_dir(report)
+        if run_dir is None or not run_dir.exists():
+            continue
+        stream_state = _scan_memo_stream(run_dir)
+        if stream_state.get("terminal") is not None:
+            continue
+        result = stream_state.get("success_result")
+        if not result:
+            continue
+        memo_paths_abs = _memo_paths_abs(report)
+        if not memo_paths_abs or not all(
+            p.exists() for p in memo_paths_abs.values()
+        ):
+            continue
+
+        stream = job_progress.ProgressLog(
+            memo_prep.stream_path(run_dir), truncate=False
+        )
+        for thread_label in sorted(stream_state.get("open_threads") or ()):
+            stream.emit("thread_finished", thread=thread_label)
+        storage.update_report(
+            report["id"],
+            status="complete",
+            stage="Memo ready",
+            progress=100,
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+        )
+        stream.emit(
+            "done",
+            report_id=report["id"],
+            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+            cost_usd=result.get("cost_usd"),
+            duration_ms=result.get("duration_ms"),
+            recovered=True,
+        )
+        recovered += 1
+    return recovered
 
 
 def start_analysis(report_id: str) -> threading.Thread:
@@ -110,6 +218,8 @@ def _run(report_id: str) -> None:
         settings_path=memo_prep.SETTINGS_FILE,
         companies_yaml_path=memo_prep.COMPANIES_FILE,
         memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+        scope_check=report.get("scope_check"),
+        warnings=list(report.get("warnings") or []),
         progress=stream,
         timeout_sec=3600,
     )
@@ -173,7 +283,14 @@ def _run(report_id: str) -> None:
         docx_abs = memo_paths_abs.get(lang)
         if docx_abs and docx_abs.exists():
             pdf_abs = docx_abs.with_suffix(".pdf")
-            ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
+            try:
+                ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "PDF render crashed for %s memo (%s)", lang, report_id
+                )
+                ok = False
+                err = f"PDF conversion crashed: {type(exc).__name__}: {exc}"
             if ok:
                 new_entry["pdf_path"] = memo_prep._rel(pdf_abs)
             else:

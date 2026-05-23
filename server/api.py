@@ -849,9 +849,9 @@ def post_memo_prep(payload: MemoPrepRequest) -> ReportDetail:
 
     Synchronously resolves the company, mints the run folder, runs the
     late-stage / pre-IPO scope check, stages source materials, and writes
-    the manifest skeleton. On scope-check failure the run folder is
-    preserved (browseable in the sidebar with a failed badge) and the
-    response carries `status: failed_scope_check` plus the scope reason.
+    the manifest skeleton. Early-stage signals are non-fatal warnings and
+    continue into analysis; hard out-of-scope failures preserve the run
+    folder and return `status: failed_scope_check` plus the scope reason.
     """
     try:
         result = memo_prep.bootstrap_memo_run(payload.company_id)
@@ -979,11 +979,12 @@ async def post_file(
 
 @router.get("/companies/{company_id}/files/{file_id}/preview")
 def get_file_preview(company_id: str, file_id: str) -> FileResponse:
-    """Return a PDF preview suitable for an <iframe>.
+    """Return an inline preview suitable for the frontend preview modal.
 
-    PDFs are streamed inline as-is. PPT/PPTX files are converted via Microsoft
-    PowerPoint (cached on disk after the first run); the conversion runs
-    synchronously here for files that weren't converted on upload yet.
+    PDFs and Markdown are streamed inline as-is. PPT/PPTX files are converted
+    via Microsoft PowerPoint (cached on disk after the first run); the
+    conversion runs synchronously here for files that weren't converted on
+    upload yet.
     """
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -997,11 +998,19 @@ def get_file_preview(company_id: str, file_id: str) -> FileResponse:
             status_code=415,
             detail=err or "Preview not available.",
         )
-    base = (record.get("filename") or "preview").rsplit(".", 1)[0]
+    kind = record.get("kind")
+    filename = record.get("filename") or "preview"
+    if kind == "md":
+        media_type = "text/markdown; charset=utf-8"
+        inline_name = filename
+    else:
+        media_type = "application/pdf"
+        base = filename.rsplit(".", 1)[0]
+        inline_name = f"{base}.pdf"
     return FileResponse(
         path=str(pdf_path),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{base}.pdf"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{inline_name}"'},
     )
 
 
@@ -1022,6 +1031,8 @@ def get_file(
     record, path = found
     filename = record.get("filename") or "file"
     media_type = record.get("content_type") or "application/octet-stream"
+    if record.get("kind") == "md":
+        media_type = "text/markdown; charset=utf-8"
     if inline:
         # FileResponse's `filename` arg always sets attachment; build the
         # header by hand to keep `inline` disposition.
@@ -1596,6 +1607,49 @@ def _pdf_translation_kind_records():
         }
 
 
+def _external_research_analysis_progress_path(item_id: str):
+    base = external_store._kind_dir("external_research") / "analysis"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / f"{item_id}__analysis.progress.jsonl"
+
+
+def _external_research_analysis_kind_records():
+    base = external_store._kind_dir("external_research") / "analysis"
+    if not base.exists():
+        return
+    for jsonl_path in base.glob("*__analysis.progress.jsonl"):
+        suffix = "__analysis.progress.jsonl"
+        name = jsonl_path.name
+        if not name.endswith(suffix):
+            continue
+        item_id = name[: -len(suffix)]
+        state = _scan_progress_state(jsonl_path)
+        item = external_store.get_item("external_research", item_id) or {}
+        yield {
+            "kind": state.get("kind") or "external_research",
+            "title": (
+                state.get("title")
+                or item.get("title")
+                or item.get("filename")
+                or "External research"
+            ),
+            "subtitle": (
+                state.get("subtitle")
+                or item.get("source_company")
+                or "Document analysis"
+            ),
+            "stream_url": f"/api/external/research/{item_id}/analysis/stream",
+            "log_url": f"/api/jobs/log?path=external_research:{item_id}",
+            "primary_route": {
+                "name": "external-research",
+                "params": {"id": item_id},
+            },
+            "item_id": item_id,
+            "filename": item.get("filename"),
+            **_common_state_fields(state),
+        }
+
+
 def _common_state_fields(state: dict) -> dict:
     return {
         "started_at": state.get("started_at"),
@@ -1656,6 +1710,7 @@ _JOB_KIND_PATHS = {
     "pdf_translation": lambda key: external_store._kind_dir("external_research")
     / "translations"
     / f"{key}__translate.progress.jsonl",
+    "external_research": _external_research_analysis_progress_path,
     "memo": _memo_stream_path_for_report,
     # Hormuz appendix reuses the report→run_dir→logs/stream.jsonl resolver.
     "hormuz": _memo_stream_path_for_report,
@@ -1898,6 +1953,7 @@ def get_active_jobs() -> list[dict]:
         _summary_kind_records(),
         _search_kind_records(),
         _pdf_translation_kind_records(),
+        _external_research_analysis_kind_records(),
         _memo_kind_records(),
         _hormuz_appendix_kind_records(),
         _research_summary_kind_records(),
@@ -2342,24 +2398,53 @@ def retry_news(item_id: str) -> dict:
 def _run_external_research_analysis(
     item_id: str, file_path: str, hint_title: str | None
 ) -> None:
+    progress = job_progress.ProgressLog(
+        _external_research_analysis_progress_path(item_id)
+    )
+    item = external_store.get_item("external_research", item_id) or {}
+    progress.emit(
+        "job_init",
+        kind="external_research",
+        title=(
+            hint_title
+            or item.get("title")
+            or item.get("filename")
+            or "External research"
+        ),
+        subtitle=item.get("source_company") or "Document analysis",
+        item_id=item_id,
+        filename=item.get("filename"),
+        source_company=item.get("source_company"),
+    )
     try:
+        progress.emit("stage", stage="extracting", message="Extracting text")
         external_store.update_item("external_research", item_id, status="extracting")
         text = _extract_text_from_file(file_path)
         if not text:
+            message = "Couldn't extract text from this file type."
             external_store.update_item(
                 "external_research",
                 item_id,
                 status="ready",
-                analysis_error="Couldn't extract text from this file type.",
+                analysis_error=message,
             )
+            progress.emit("error", error=message)
             return
+        progress.emit(
+            "stage",
+            stage="analyzing",
+            message="Analyzing extracted text",
+            raw_text_chars=len(text),
+        )
         external_store.update_item(
             "external_research",
             item_id,
             status="analyzing",
             raw_text_chars=len(text),
         )
-        analysis = text_analysis.analyze(text, hint_title=hint_title)
+        analysis = text_analysis.analyze(
+            text, hint_title=hint_title, progress=progress
+        )
         if "error" in analysis:
             external_store.update_item(
                 "external_research",
@@ -2367,7 +2452,9 @@ def _run_external_research_analysis(
                 status="ready",
                 analysis_error=analysis["error"],
             )
+            progress.emit("error", error=analysis["error"])
             return
+        progress.emit("stage", stage="saving", message="Saving analysis")
         external_store.update_item(
             "external_research",
             item_id,
@@ -2378,7 +2465,15 @@ def _run_external_research_analysis(
             translation=analysis.get("translation"),
             title=(analysis.get("title") or hint_title or "Untitled"),
         )
+        progress.emit(
+            "done",
+            item_id=item_id,
+            title=(analysis.get("title") or hint_title or "Untitled"),
+            summary=analysis.get("summary"),
+            key_point_count=len(analysis.get("key_points") or []),
+        )
     except Exception as exc:  # noqa: BLE001
+        progress.emit("error", error=f"{type(exc).__name__}: {exc}")
         external_store.update_item(
             "external_research",
             item_id,
@@ -2484,6 +2579,64 @@ def get_external_research(item_id: str) -> dict:
     if item is None:
         raise HTTPException(status_code=404, detail="Research item not found")
     return item
+
+
+@router.get("/external/research/{item_id}/analysis/stream")
+async def stream_external_research_analysis_progress(item_id: str):
+    """SSE tail of the upload-analysis progress JSONL for this item."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    if external_store.get_item("external_research", item_id) is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+
+    progress_path = _external_research_analysis_progress_path(item_id)
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/external/research/{item_id}/file")

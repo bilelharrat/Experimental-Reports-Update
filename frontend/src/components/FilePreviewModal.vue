@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { renderMarkdown } from "../markdown.js";
 
 const props = defineProps({
   companyId: { type: String, default: null },
@@ -23,7 +24,7 @@ const props = defineProps({
   // server-side PPT→PDF conversion, so that caller narrows the set.
   previewableKinds: {
     type: Array,
-    default: () => ["pdf", "ppt", "pptx", "image"],
+    default: () => ["pdf", "ppt", "pptx", "image", "md", "markdown"],
   },
 });
 const emit = defineEmits(["close"]);
@@ -47,10 +48,26 @@ const canPreview = computed(
 const isPpt = computed(() =>
   props.file && (props.file.kind === "ppt" || props.file.kind === "pptx"),
 );
+const filenameExt = computed(() => {
+  const filename = props.file?.filename || props.file?.label || "";
+  const dot = filename.lastIndexOf(".");
+  return dot >= 0 ? filename.slice(dot).toLowerCase() : "";
+});
+const isMarkdown = computed(
+  () =>
+    props.file &&
+    (["md", "markdown"].includes(props.file.kind) ||
+      (props.file.kind === "text" &&
+        [".md", ".markdown"].includes(filenameExt.value))),
+);
+const markdownHtml = computed(() =>
+  isMarkdown.value ? renderMarkdown(previewText.value || "") : "",
+);
 
 const previewLoading = ref(false);
 const previewError = ref(null);
 const previewBlobUrl = ref(null);
+const previewText = ref(null);
 let abortCtl = null;
 
 function clearBlob() {
@@ -58,6 +75,7 @@ function clearBlob() {
     URL.revokeObjectURL(previewBlobUrl.value);
     previewBlobUrl.value = null;
   }
+  previewText.value = null;
 }
 
 async function loadPreview() {
@@ -78,6 +96,10 @@ async function loadPreview() {
         // not JSON, ignore
       }
       previewError.value = detail;
+      return;
+    }
+    if (isMarkdown.value) {
+      previewText.value = await res.text();
       return;
     }
     const blob = await res.blob();
@@ -200,6 +222,16 @@ watch(
             class="w-full h-full border-0"
             :title="file?.filename"
           ></iframe>
+
+          <div
+            v-else-if="isMarkdown && previewText !== null"
+            class="h-full overflow-auto bg-surface"
+          >
+            <article
+              class="md-body max-w-4xl mx-auto px-6 py-6 text-sm text-ink-primary"
+              v-html="markdownHtml"
+            ></article>
+          </div>
 
           <div
             v-else-if="previewLoading"

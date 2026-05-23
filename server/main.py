@@ -45,7 +45,13 @@ from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, HTMLResponse  # noqa: E402
 import mimetypes  # noqa: E402
 
-from . import auth_store, claude_runner, console_session, companies_ai_public  # noqa: E402
+from . import (  # noqa: E402
+    auth_store,
+    claude_runner,
+    companies_ai_public,
+    console_session,
+    memo_analysis,
+)
 from .api import (  # noqa: E402
     auth_router,
     router as api_router,
@@ -128,6 +134,12 @@ def _startup() -> None:
         console_session.recover()
     except Exception:  # noqa: BLE001
         logger.exception("Console recovery sweep failed")
+    try:
+        n = memo_analysis.recover_stale_reports()
+        if n:
+            logger.info("Recovered %d stale memo report(s).", n)
+    except Exception:  # noqa: BLE001
+        logger.exception("Memo recovery sweep failed")
     # Strip any pre-v2 heat_card blocks so iOS / web don't try to read
     # the legacy shape through the new code. Idempotent on subsequent
     # restarts. See docs/heat-card-v2.md §6.

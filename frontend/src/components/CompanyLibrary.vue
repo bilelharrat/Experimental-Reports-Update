@@ -44,7 +44,12 @@ const languageFilter = ref("all"); // "all" | "en" | "zh"
 
 const LANG_LABELS = { en: "English", zh: "中文" };
 
-const ACCEPT = ".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const ACCEPT =
+  ".pdf,.ppt,.pptx,.md," +
+  "application/pdf," +
+  "application/vnd.ms-powerpoint," +
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation," +
+  "text/markdown,text/x-markdown";
 
 async function load() {
   loading.value = true;
@@ -120,9 +125,13 @@ function fmtDate(iso) {
 }
 
 function iconFor(kind) {
-  if (kind === "pdf") return FileText;
+  if (kind === "pdf" || kind === "md" || kind === "markdown") return FileText;
   if (kind === "ppt" || kind === "pptx") return Presentation;
   return FileImage;
+}
+
+function canSummarize(f) {
+  return f && ["pdf", "ppt", "pptx"].includes(f.kind);
 }
 
 function summaryPreview(summary) {
@@ -365,6 +374,7 @@ const counts = computed(() => {
               >{{ (f.language || "en").toUpperCase() }}</span
             >
             <button
+              v-if="canSummarize(f)"
               type="button"
               @click="summarize(f)"
               class="p-1.5 rounded hover:bg-accent-soft text-ink-muted hover:text-accent-ink focus-ring"
@@ -405,7 +415,7 @@ const counts = computed(() => {
             </button>
             </div>
             <button
-              v-if="f.summary && f.summary.exec_summary"
+              v-if="canSummarize(f) && f.summary && f.summary.exec_summary"
               type="button"
               @click="summarize(f)"
               class="w-full text-left px-3 py-2 border-t border-subtle hover:bg-surface focus-ring rounded-b-lg flex items-start gap-2 group"

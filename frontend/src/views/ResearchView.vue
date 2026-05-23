@@ -471,6 +471,24 @@ onUnmounted(stopPolling);
         ></div>
       </div>
 
+      <div
+        v-if="
+          isMemo &&
+          activeReport.scope_check &&
+          activeReport.scope_check.outcome === 'warn'
+        "
+        class="mt-4 rounded-lg border border-warning bg-warning-soft p-4 text-sm text-warning-ink"
+      >
+        <div class="font-semibold mb-1">
+          {{
+            tr("research.scope_check_warning", {
+              classification: activeReport.scope_check.classification,
+            })
+          }}
+        </div>
+        <p>{{ activeReport.scope_check.reason }}</p>
+      </div>
+
       <ul
         v-if="activeReport.stages && activeReport.stages.length"
         class="mt-4 space-y-1 text-sm"

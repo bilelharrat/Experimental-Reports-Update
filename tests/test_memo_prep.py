@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from server import claude_runner, memo_prep
+
+
+def test_early_stage_round_is_scope_warning_not_failure():
+    assessment = memo_prep._assess_stage(
+        {"latest_funding": {"round": "Series A"}}
+    )
+
+    assert assessment["outcome"] == "warn"
+    assert assessment["classification"] == "early-stage"
+    assert "series a" in assessment["reason"]
+
+
+def test_low_total_funding_is_scope_warning_not_failure():
+    assessment = memo_prep._assess_stage({"total_funding_usd": "$3M"})
+
+    assert assessment["outcome"] == "warn"
+    assert assessment["classification"] == "early-stage"
+
+
+def test_nonprofit_scope_check_remains_hard_failure():
+    assessment = memo_prep._assess_stage({"status": "nonprofit"})
+
+    assert assessment["outcome"] == "fail"
+    assert assessment["classification"] == "out-of-scope"
+
+
+def test_investment_memo_prompt_carries_scope_warning_override(tmp_path):
+    prompt = claude_runner._build_investment_memo_prompt(
+        run_dir=tmp_path,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+        scope_check={
+            "outcome": "warn",
+            "classification": "early-stage",
+            "reason": "Latest funding round 'series a' is early-stage.",
+        },
+        warnings=["Latest funding round 'series a' is early-stage."],
+    )
+
+    assert "Scope-warning override from prep" in prompt
+    assert "Proceed with the memo anyway" in prompt
+    assert "Do **not** stop or decline solely because" in prompt

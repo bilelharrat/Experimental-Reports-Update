@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -24,7 +25,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CONVERSION_TIMEOUT = float(os.environ.get("DOCX_PDF_TIMEOUT", "180"))
+CONVERSION_TIMEOUT = float(os.environ.get("DOCX_PDF_TIMEOUT", "45"))
 
 # Word runs in macOS's App Sandbox and can't read project paths
 # (data/memos/...) or per-process tempdirs (/var/folders/...). /tmp is
@@ -72,6 +73,47 @@ def _interpret_applescript_error(detail: str) -> str:
     return detail[:600]
 
 
+def _run_osascript(args: list[str]) -> subprocess.CompletedProcess[bytes]:
+    """Run osascript with a timeout that also cleans up stuck children."""
+    proc = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=CONVERSION_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        try:
+            stdout, stderr = proc.communicate(timeout=5.0)
+        except Exception:
+            stdout = exc.output or b""
+            stderr = exc.stderr or b""
+        raise subprocess.TimeoutExpired(
+            args,
+            CONVERSION_TIMEOUT,
+            output=stdout,
+            stderr=stderr,
+        ) from exc
+    if proc.returncode:
+        raise subprocess.CalledProcessError(
+            proc.returncode,
+            args,
+            output=stdout,
+            stderr=stderr,
+        )
+    return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+
+
 def convert_docx_to_pdf(src: Path, dst: Path) -> tuple[bool, str | None]:
     """Render ``src`` (.docx) to ``dst`` (.pdf) via Word.
 
@@ -104,17 +146,12 @@ def convert_docx_to_pdf(src: Path, dst: Path) -> tuple[bool, str | None]:
         staged_out = stage_dir / "out.pdf"
 
         try:
-            subprocess.run(
-                [
-                    "osascript",
-                    str(script_file),
-                    str(staged_in),
-                    str(staged_out),
-                ],
-                check=True,
-                timeout=CONVERSION_TIMEOUT,
-                capture_output=True,
-            )
+            _run_osascript([
+                "osascript",
+                str(script_file),
+                str(staged_in),
+                str(staged_out),
+            ])
         except FileNotFoundError as exc:
             msg = f"osascript not found: {exc}"
             logger.warning("Can't convert %s: %s", src, msg)

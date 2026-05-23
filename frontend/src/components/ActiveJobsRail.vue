@@ -73,9 +73,22 @@ function kindIcon(kind) {
   if (kind === "search") return Search;
   if (kind === "pdf_translation") return Languages;
   if (kind === "summary") return FileText;
+  if (kind === "external_research") return FileText;
   if (kind === "research_summary") return Sparkles;
   if (kind === "memo") return Sparkles;
   return Sparkles;
+}
+
+function kindLabel(kind) {
+  if (kind === "search") return "search";
+  if (kind === "pdf_translation") return "translation";
+  if (kind === "summary") return "deck summary";
+  if (kind === "external_research") return "research analysis";
+  if (kind === "research_summary") return "file summary";
+  if (kind === "memo") return "memo";
+  if (kind === "public_snapshot") return "trader snapshot";
+  if (kind?.startsWith("console_")) return "console";
+  return kind || "task";
 }
 
 // Pick an icon for the "latest action" line so a glance tells you whether
@@ -181,10 +194,12 @@ const visible = computed(() => jobs.value.length > 0);
                   />
                 </div>
                 <div class="text-xs text-ink-muted truncate">
-                  <span class="font-mono uppercase text-[10px] mr-1.5">{{
-                    j.kind
+                  <span class="font-mono uppercase text-[10px]">{{
+                    kindLabel(j.kind)
                   }}</span>
-                  <span>{{ j.subtitle }}</span>
+                  <span v-if="j.subtitle" class="text-ink-muted">
+                    · {{ j.subtitle }}
+                  </span>
                 </div>
                 <div
                   v-if="j.latest_stage"

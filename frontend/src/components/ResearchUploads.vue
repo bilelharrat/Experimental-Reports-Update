@@ -790,7 +790,7 @@ function formatCost(c) {
       :file="previewing"
       :preview-url="previewUrl"
       :download-url="downloadUrl"
-      :previewable-kinds="['pdf', 'image']"
+      :previewable-kinds="['pdf', 'image', 'text']"
       @close="previewing = null"
     />
   </section>

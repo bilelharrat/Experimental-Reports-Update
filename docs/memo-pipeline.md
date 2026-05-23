@@ -13,7 +13,7 @@ POST /api/reports  (report_type = "Investment Memo (Late-Stage)")
   ▼
 memo_prep.bootstrap_memo_run(company_id)          # synchronous, seconds
   ├── Resolve company → look up the record in data/companies.yaml
-  ├── Scope check    → late-stage / pre-IPO only; fail early-stage
+  ├── Scope check    → late-stage / pre-IPO preferred; warn early-stage
   ├── Mint run dir   → data/memos/<slug>/<YYYY-MM-DD>__<HHMMSS>__<slug>__memo-run/
   ├── Create subdirs → memo/, analysis/, logs/, logs/previews/, logs/previews_cn/
   ├── Write skeleton → logs/run_manifest.md (run_id, company, skill version)
@@ -141,7 +141,7 @@ any prior run.
 **Python (this codebase):**
 
 - Versioned run-folder creation + manifest skeleton (`memo_prep.py`).
-- Scope check (late-stage / pre-IPO; refuse early-stage).
+- Scope check (late-stage / pre-IPO preferred; warn early-stage).
 - Report record bookkeeping (`server/storage.py`).
 - Spawning one Claude subprocess and translating its stream-json output
   into our progress events (`server/claude_runner.py`).
@@ -173,11 +173,13 @@ decides:
 - `latest_funding.round` matches a late-stage pattern (Series D+, Late,
   Growth, Pre-IPO, Secondary, IPO) → **pass**.
 - `latest_funding.round` matches an early-stage pattern (Pre-Seed,
-  Seed, Series A/B) → **fail**.
+  Seed, Series A/B) → **warn**.
 - `total_funding_usd >= $50M` → **pass** (late-stage signal).
-- `total_funding_usd < $5M` → **fail** (early-stage signal).
+- `total_funding_usd < $5M` → **warn** (early-stage signal).
 - Otherwise → **warn** (pass with a warning; the skill verifies stage
   in its Section II).
 
-Failed scope checks preserve the run folder so the UI can show the
-reason; no Claude invocation is spent.
+Early-stage scope warnings continue into analysis and must be carried
+as explicit stage-fit caveats in the memo. Hard scope failures, such as
+nonprofit / out-of-scope records, preserve the run folder so the UI can
+show the reason; no Claude invocation is spent.

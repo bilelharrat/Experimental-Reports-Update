@@ -86,7 +86,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def analyze(text: str, *, hint_title: str | None = None) -> dict:
+def analyze(text: str, *, hint_title: str | None = None, progress=None) -> dict:
     """Run analysis on `text` via Claude CLI.
 
     Returns a dict with ``summary``, ``key_points``, ``language``,
@@ -112,6 +112,7 @@ def analyze(text: str, *, hint_title: str | None = None) -> dict:
         schema=ANALYSIS_SCHEMA,
         name="external_analysis",
         timeout_sec=240,
+        progress=progress,
     )
     if err is not None:
         logger.warning("text_analysis failed: %s", err)

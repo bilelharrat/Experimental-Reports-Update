@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronUp,
   Download,
+  FileText,
   Globe,
   Languages,
   Loader2,
@@ -245,11 +246,26 @@ function actionIcon(entry) {
   if (entry.tool === "WebFetch") return Download;
   if (entry.action === "thinking") return Brain;
   if (entry.action === "result") return CheckCircle2;
-  if (entry.type === "job_init") return Languages;
+  if (entry.type === "job_init") {
+    if (entry.kind === "pdf_translation") return Languages;
+    return FileText;
+  }
   if (entry.type === "thread_finished") return CheckCircle2;
   if (entry.type === "thread_failed") return AlertCircle;
   if (entry.type === "thread_started") return Loader2;
   return null;
+}
+
+function kindLabel(kind) {
+  if (kind === "search") return "search";
+  if (kind === "pdf_translation") return "translation";
+  if (kind === "summary") return "deck summary";
+  if (kind === "external_research") return "research analysis";
+  if (kind === "research_summary") return "file summary";
+  if (kind === "memo") return "memo";
+  if (kind === "public_snapshot") return "trader snapshot";
+  if (kind?.startsWith("console_")) return "console";
+  return kind || "task";
 }
 
 function actionLabel(entry) {
@@ -349,7 +365,7 @@ const headerSubtitle = computed(() => {
             <div
               class="text-[10px] uppercase tracking-wider text-ink-muted font-mono"
             >
-              {{ job.kind }}
+              {{ kindLabel(job.kind) }}
             </div>
             <div
               class="text-base font-display font-semibold text-ink-primary truncate"

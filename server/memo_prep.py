@@ -95,7 +95,7 @@ def _assess_stage(company: dict) -> dict:
 
     Returns ``{outcome, classification, reason, signals}`` where ``outcome``
     is ``pass`` (proceed), ``fail`` (hard refuse), or ``warn`` (proceed
-    under late-stage assumption with a recorded warning).
+    with a recorded scope warning).
     """
     status = (company.get("status") or "").strip().lower()
     if status == "nonprofit":
@@ -137,12 +137,13 @@ def _assess_stage(company: dict) -> dict:
             }
         if any(k in round_raw for k in _EARLY_STAGE_ROUNDS):
             return {
-                "outcome": "fail",
+                "outcome": "warn",
                 "classification": "early-stage",
                 "reason": (
-                    f"Latest funding round '{round_raw}' is early-stage; the "
-                    f"{SKILL_NAME} skill is scoped to late-stage and pre-IPO only. "
-                    "Use the early-stage memo workflow instead."
+                    f"Latest funding round '{round_raw}' is early-stage for the "
+                    f"{SKILL_NAME} memo workflow. Proceeding as a scope-warning "
+                    "exception; treat stage fit and thin late-stage diligence as "
+                    "explicit caveats in the memo."
                 ),
                 "signals": signals,
             }
@@ -162,12 +163,13 @@ def _assess_stage(company: dict) -> dict:
             }
         if total < _EARLY_STAGE_FUNDING_CEILING_USD:
             return {
-                "outcome": "fail",
+                "outcome": "warn",
                 "classification": "early-stage",
                 "reason": (
                     f"Total funding (~${total/1_000_000:.1f}M) is below the "
-                    "late-stage floor; treating as early-stage and refusing the "
-                    "late-stage memo skill."
+                    "late-stage floor. Proceeding as a scope-warning exception; "
+                    "treat stage fit and thin late-stage diligence as explicit "
+                    "caveats in the memo."
                 ),
                 "signals": signals,
             }
@@ -308,10 +310,11 @@ def _write_scope_failure(run_dir: Path, *, company: dict, stage: dict) -> Path:
 def bootstrap_memo_run(company_id: str) -> dict:
     """Run the synchronous prep stage for an investment-memo job.
 
-    Returns a result dict. On scope-check failure, ``failed`` is True,
-    the run folder is preserved for browsing, and the report record is
-    marked ``failed_scope_check``. Raises ``ValueError`` for caller-
-    facing errors (unknown company, missing settings).
+    Returns a result dict. Hard scope failures (for example nonprofit /
+    out-of-scope) mark the report ``failed_scope_check``. Early-stage
+    signals are warnings: prep continues and the analysis worker receives
+    the warning context. Raises ``ValueError`` for caller-facing errors
+    (unknown company, missing settings).
     """
     company = storage.get_company(company_id)
     if company is None:
