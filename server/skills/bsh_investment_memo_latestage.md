@@ -1501,6 +1501,21 @@ Preserve in original Latin form (do **not** translate):
 - File paths, URLs, code blocks, and run-folder references
 - Source citation markers and document filenames
 
+### Chinese Localization Quality Bar
+
+The Chinese memo must read like it was written by a bilingual investment analyst, not machine-translated. Faithful content does **not** mean literal wording.
+
+Rules:
+- Write for mainland Chinese institutional investors. Prefer natural finance / research Chinese over word-by-word translation.
+- If an English term has no idiomatic Chinese equivalent, keep the English term and add a short Chinese gloss on first mention. It is better to preserve English than to invent awkward Chinese.
+- Preserve product names, framework/library names, model names, company names, tickers, acronyms, metrics, numbers, dates, and URLs unless there is a widely used Chinese name.
+- Reorder clauses so the Chinese sentence reads naturally. Do not preserve English syntax when it produces stiff or confusing Chinese.
+- Do **not** translate "tailwind" as "顺风". Depending on context, use "行业利好", "需求侧利好", "结构性利好", "顺势因素", or keep `tailwind（利好因素）`.
+- Do **not** translate coined phrases like "credible second wave" as "可信第二波". Translate the meaning instead: "第二轮增长的可信度", "有望形成第二波增长", "第二波增长是否成立", or keep the English phrase with a short gloss if the phrase is being discussed as a term of art.
+- Do **not** translate "runway" mechanically as "跑道" unless the phrase is already idiomatic in context. Prefer "现金可支撑时间", "增长空间", or `runway（可支撑时间/增长空间）`.
+- Do **not** translate "stickiness" as a literal physical adjective. Use "客户黏性", "用户黏性", or describe retention / switching costs.
+- For English category labels embedded in Chinese paragraphs, keep the English where it is clearer and explain once: e.g., `OEM（原始设备制造商）`, `API（应用程序接口）`, `SaaS`, `ARR`.
+
 ### Section Header Translations (Use Exactly These)
 
 | English | Simplified Chinese |
@@ -1598,6 +1613,7 @@ Use exactly these strings:
 - Do not soften critical warnings, valuation timing caveats, or disconfirming evidence in translation. Tone-shift in either direction is a defect.
 - Do not introduce new analysis in the Chinese memo that is not in the English memo.
 - Use formal written Chinese (书面语), not colloquial register. The audience is institutional investors.
+- Use idiomatic Chinese finance / research phrasing. If a literal translation sounds odd, keep the English term with a brief Chinese explanation rather than forcing a calque.
 - Numerical and currency formatting stays in original form (e.g., `$420M`, not `4.2亿美元`) unless Serena specifies localization.
 - Dates stay in `YYYY-MM-DD` form.
 - Inline citation markers and source identifiers stay in their original form.

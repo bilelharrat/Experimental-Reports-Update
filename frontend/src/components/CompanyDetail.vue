@@ -135,21 +135,6 @@ async function refresh() {
   }
 }
 
-const logoUrl = computed(() => {
-  const d = props.company.logo_domain || extractDomain(props.company.website);
-  return d ? `https://www.google.com/s2/favicons?domain=${d}&sz=128` : null;
-});
-
-function extractDomain(url) {
-  if (!url) return null;
-  try {
-    const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
-    return u.hostname.replace(/^www\./, "");
-  } catch {
-    return null;
-  }
-}
-
 const websiteHref = computed(() => {
   const w = props.company.website;
   if (!w) return null;
@@ -215,14 +200,7 @@ const earningsLine = computed(() => {
     <div
       class="h-14 w-14 rounded-card bg-surface-muted border border-subtle grid place-items-center shrink-0 overflow-hidden"
     >
-      <img
-        v-if="logoUrl"
-        :src="logoUrl"
-        :alt="company.name"
-        class="h-full w-full object-contain"
-        @error="(e) => (e.target.style.display = 'none')"
-      />
-      <Building2 v-else class="h-6 w-6 text-ink-muted" />
+      <Building2 class="h-6 w-6 text-ink-muted" />
     </div>
 
     <div class="flex-1 min-w-0">

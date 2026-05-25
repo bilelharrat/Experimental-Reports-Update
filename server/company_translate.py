@@ -25,6 +25,7 @@ import logging
 from typing import Any
 
 from . import claude_runner
+from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,8 @@ SYSTEM_PROMPT = (
     "recognized form in the target language; otherwise keep the original.\n"
     "- Preserve technical terminology, product names, and acronyms — translate "
     "the surrounding context but keep proper nouns recognizable.\n"
+    "- When translating into Chinese, apply this style guide:\n"
+    f"{INVESTMENT_RESEARCH_CHINESE_STYLE}"
     "- For arrays, return the SAME number of items in the same order.\n"
     "- For null/missing fields in the source, return null in the translation."
 )

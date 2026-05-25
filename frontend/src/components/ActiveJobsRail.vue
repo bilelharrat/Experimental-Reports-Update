@@ -11,6 +11,7 @@ import {
   Loader2,
   MousePointerClick,
   Pencil,
+  RefreshCw,
   Search,
   Sparkles,
   Terminal,
@@ -22,12 +23,17 @@ const jobs = ref([]);
 const collapsed = ref(false);
 const openJob = ref(null);
 let pollId = null;
+let polling = false;
 
 async function tick() {
+  if (polling) return;
+  polling = true;
   try {
     jobs.value = await api.listActiveJobs();
   } catch {
     // network blip — keep prior value
+  } finally {
+    polling = false;
   }
 }
 
@@ -46,6 +52,9 @@ function pct(j) {
   if (j.kind === "pdf_translation" && j.page_count && j.page_no) {
     return Math.round((j.page_no / j.page_count) * 100);
   }
+  if (j.kind === "public_snapshot_bulk" && j.total_count && j.index) {
+    return Math.round((j.index / j.total_count) * 100);
+  }
   return null;
 }
 
@@ -55,6 +64,9 @@ function progressText(j) {
   }
   if (j.kind === "pdf_translation" && j.page_count && j.page_no) {
     return `page ${j.page_no}/${j.page_count}`;
+  }
+  if (j.kind === "public_snapshot_bulk" && j.total_count && j.index) {
+    return `${j.index}/${j.total_count}`;
   }
   return null;
 }
@@ -76,6 +88,7 @@ function kindIcon(kind) {
   if (kind === "external_research") return FileText;
   if (kind === "research_summary") return Sparkles;
   if (kind === "memo") return Sparkles;
+  if (kind === "public_snapshot_bulk") return RefreshCw;
   return Sparkles;
 }
 
@@ -87,6 +100,7 @@ function kindLabel(kind) {
   if (kind === "research_summary") return "file summary";
   if (kind === "memo") return "memo";
   if (kind === "public_snapshot") return "trader snapshot";
+  if (kind === "public_snapshot_bulk") return "stock views";
   if (kind?.startsWith("console_")) return "console";
   return kind || "task";
 }

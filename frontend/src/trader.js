@@ -18,6 +18,7 @@ export const STALENESS = {
   heat_card: { sessions: 1 },
   catalysts: { sessions: 1 },
   trader_news: { sessions: 1 },
+  research_overview: { sessions: 1 },
 };
 
 /**

@@ -31,6 +31,7 @@ import logging
 from typing import Any, Iterator
 
 from . import claude_runner
+from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +252,8 @@ _SYSTEM_PROMPT_BASE = (
     "You translate trader / finance text {direction}. Preserve every "
     "ticker, firm name, product code, and number verbatim. Keep tone "
     "neutral and natural in the target language. Do not add or remove "
-    "content. Output the JSON object only."
+    "content. Output the JSON object only.\n\n"
+    f"{INVESTMENT_RESEARCH_CHINESE_STYLE}"
 )
 
 

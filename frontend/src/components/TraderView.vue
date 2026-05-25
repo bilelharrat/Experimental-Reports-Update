@@ -9,12 +9,20 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
+  Boxes,
+  Brain,
   CalendarClock,
+  CircleDollarSign,
+  ClipboardList,
   Flame,
   Gauge,
   Loader2,
+  Network,
   Newspaper,
+  Radar,
   RefreshCw,
+  Target,
   TrendingDown,
   TrendingUp,
   Users,
@@ -315,6 +323,31 @@ async function onForceRefresh() {
 
 const catalysts = computed(() => snapshot.value?.catalysts || []);
 const traderNews = computed(() => snapshot.value?.trader_news || []);
+const researchOverview = computed(() => snapshot.value?.research_overview || null);
+const businessMix = computed(() => researchOverview.value?.business_mix || null);
+const financialQuality = computed(() =>
+  researchOverview.value?.financial_quality || null,
+);
+const growthDurability = computed(() =>
+  researchOverview.value?.growth_durability || null,
+);
+const peerContext = computed(() => researchOverview.value?.peer_context || null);
+const scenarioMatrix = computed(() =>
+  researchOverview.value?.scenario_matrix || null,
+);
+const diligenceQuestions = computed(() =>
+  researchOverview.value?.diligence_questions || null,
+);
+const hasResearchOverview = computed(() =>
+  Boolean(
+    businessMix.value ||
+      financialQuality.value ||
+      growthDurability.value ||
+      peerContext.value ||
+      scenarioMatrix.value ||
+      diligenceQuestions.value,
+  ),
+);
 
 function biasLabel(b) {
   if (b === "positive") return t("trader.bias.positive");
@@ -356,6 +389,106 @@ function socialLabel(s) {
   if (s === "flat") return t("trader.heat.social_flat");
   if (s === "falling") return t("trader.heat.social_falling");
   return "—";
+}
+
+function fmtPlainPct(v, digits = 1) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(digits)}%`;
+}
+
+function fmtBp(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const sign = n > 0 ? "+" : "";
+  return `${sign}${Math.round(n)} bp`;
+}
+
+function pctWidth(v, fallback = 0) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(100, Math.max(0, n));
+}
+
+function signedBarWidth(v) {
+  const n = Math.abs(Number(v));
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(6, n * 1.5));
+}
+
+const segmentColors = [
+  "bg-accent",
+  "bg-success",
+  "bg-warning",
+  "bg-danger",
+  "bg-ink-muted",
+  "bg-accent-hover",
+];
+
+function segmentColor(i) {
+  return segmentColors[i % segmentColors.length];
+}
+
+function scoreToneClass(score) {
+  const n = Number(score);
+  if (!Number.isFinite(n)) return "bg-surface-muted text-ink-muted";
+  if (n >= 70) return "bg-success-soft text-success-ink";
+  if (n >= 45) return "bg-warning-soft text-warning-ink";
+  return "bg-danger/10 text-danger";
+}
+
+function metricToneClass(direction) {
+  if (direction === "strong") return "bg-success";
+  if (direction === "weak") return "bg-danger";
+  return "bg-warning";
+}
+
+function metricTextClass(direction) {
+  if (direction === "strong") return "text-success-ink";
+  if (direction === "weak") return "text-danger";
+  return "text-warning-ink";
+}
+
+function mixSignalLabel(signal) {
+  if (!signal) return "";
+  return t(`trader.research.signal_${signal}`);
+}
+
+function peerCompanyName(peer) {
+  if (!peer) return "";
+  if (lang.value === "zh") return peer.company_zh || peer.company_en || peer.ticker;
+  return peer.company_en || peer.company_zh || peer.ticker;
+}
+
+function scenarioLabel(scenario) {
+  if (!scenario) return "";
+  return pickLocalized(scenario, "label") ||
+    t(`trader.research.case_${scenario.case || "base"}`);
+}
+
+function scenarioToneClass(kind) {
+  if (kind === "bull") return "bg-success-soft text-success-ink";
+  if (kind === "bear") return "bg-danger/10 text-danger";
+  return "bg-accent-soft text-accent-ink";
+}
+
+function severityClass(severity) {
+  if (severity === "critical") return "bg-danger/10 text-danger";
+  if (severity === "important") return "bg-warning-soft text-warning-ink";
+  return "bg-surface-muted text-ink-secondary";
+}
+
+function severityLabel(severity) {
+  if (severity === "critical") return t("trader.research.severity_critical");
+  if (severity === "important") return t("trader.research.severity_important");
+  return t("trader.research.severity_watch");
+}
+
+function sourceLabel(section) {
+  if (!section?.source_url) return "";
+  return t("trader.research.source");
 }
 </script>
 
@@ -1079,6 +1212,401 @@ function socialLabel(s) {
         </ul>
         <div v-else class="text-xs text-ink-muted italic">{{ t("trader.news.empty") }}</div>
       </div>
+
+      <!-- Research Overview — second card group with non-tape context. -->
+      <section class="md:col-span-3 space-y-3 pt-1">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <Radar class="h-3.5 w-3.5" />
+            {{ t("trader.card.research_overview") }}
+          </div>
+          <div class="flex items-center gap-2 text-[10px] text-ink-muted">
+            <span
+              v-if="researchOverview?.updated_at"
+              class="font-mono"
+            >
+              {{ t("trader.refreshed_at", { when: relativeAge(researchOverview.updated_at) }) }}
+            </span>
+            <span :class="['px-1.5 py-0.5 rounded', stalenessClass(staleness('research_overview'))]">
+              {{ stalenessLabel(staleness('research_overview')) }}
+            </span>
+          </div>
+        </div>
+
+        <div
+          v-if="!hasResearchOverview"
+          class="rounded-card border border-dashed border-subtle p-5 text-sm text-ink-secondary text-center"
+        >
+          {{ t("trader.research.empty") }}
+        </div>
+
+        <div v-else class="grid gap-3 lg:grid-cols-3">
+          <!-- Business mix -->
+          <div
+            v-if="businessMix"
+            class="bg-surface border border-subtle rounded-card p-4 space-y-3 lg:col-span-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <Boxes class="h-3.5 w-3.5" />
+                {{ t("trader.research.business_mix") }}
+              </div>
+              <span
+                v-if="businessMix.confidence"
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(businessMix.confidence)]"
+              >
+                {{ confidenceLabel(businessMix.confidence) }}
+              </span>
+            </div>
+            <div v-if="pickLocalized(businessMix, 'headline')" class="text-sm text-ink-primary">
+              {{ pickLocalized(businessMix, "headline") }}
+            </div>
+            <div
+              v-if="businessMix.segments?.length"
+              class="flex h-3 overflow-hidden rounded bg-surface-muted"
+            >
+              <div
+                v-for="(seg, i) in businessMix.segments"
+                :key="i"
+                :class="['h-full', segmentColor(i)]"
+                :style="{ width: pctWidth(seg.revenue_pct) + '%' }"
+              />
+            </div>
+            <ul v-if="businessMix.segments?.length" class="space-y-2 text-xs">
+              <li
+                v-for="(seg, i) in businessMix.segments"
+                :key="`${i}-${pickLocalized(seg, 'name')}`"
+                class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
+              >
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span :class="['h-2 w-2 rounded-full shrink-0', segmentColor(i)]" />
+                    <span class="font-medium text-ink-primary truncate">
+                      {{ pickLocalized(seg, "name") || "—" }}
+                    </span>
+                    <span
+                      v-if="mixSignalLabel(seg.signal)"
+                      class="text-[10px] px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary shrink-0"
+                    >
+                      {{ mixSignalLabel(seg.signal) }}
+                    </span>
+                  </div>
+                  <div
+                    v-if="pickLocalized(seg, 'note')"
+                    class="text-[11px] text-ink-secondary mt-0.5 leading-snug"
+                  >
+                    {{ pickLocalized(seg, "note") }}
+                  </div>
+                </div>
+                <div class="font-mono text-ink-primary sm:text-right whitespace-nowrap">
+                  {{ fmtPlainPct(seg.revenue_pct) }}
+                  <span :class="['ml-1', changeClass(seg.growth_pct)]">
+                    {{ fmtPct(seg.growth_pct) }}
+                  </span>
+                </div>
+              </li>
+            </ul>
+            <div class="flex items-center justify-between gap-2 text-[10px] text-ink-muted">
+              <span v-if="businessMix.confidence !== 'high' && pickLocalized(businessMix, 'confidence_note')">
+                {{ pickLocalized(businessMix, "confidence_note") }}
+              </span>
+              <a
+                v-if="businessMix.source_url"
+                :href="businessMix.source_url"
+                target="_blank"
+                rel="noopener"
+                class="text-accent hover:text-accent-hover focus-ring rounded ml-auto"
+              >
+                {{ sourceLabel(businessMix) }}
+              </a>
+            </div>
+          </div>
+
+          <!-- Financial quality -->
+          <div
+            v-if="financialQuality"
+            class="bg-surface border border-subtle rounded-card p-4 space-y-3"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <CircleDollarSign class="h-3.5 w-3.5" />
+                {{ t("trader.research.financial_quality") }}
+              </div>
+              <span
+                v-if="financialQuality.confidence"
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(financialQuality.confidence)]"
+              >
+                {{ confidenceLabel(financialQuality.confidence) }}
+              </span>
+            </div>
+            <div class="flex items-end justify-between gap-3">
+              <div>
+                <div class="text-3xl font-display text-ink-primary leading-none">
+                  {{ financialQuality.score ?? "—" }}
+                </div>
+                <div class="text-[10px] uppercase tracking-wide text-ink-muted mt-1">
+                  {{ t("trader.research.quality_score") }}
+                </div>
+              </div>
+              <span :class="['text-[10px] px-1.5 py-0.5 rounded', scoreToneClass(financialQuality.score)]">
+                {{ financialQuality.score != null ? `${financialQuality.score}/100` : "—" }}
+              </span>
+            </div>
+            <div class="h-1.5 rounded bg-surface-muted overflow-hidden">
+              <div
+                class="h-full bg-accent"
+                :style="{ width: pctWidth(financialQuality.score) + '%' }"
+              />
+            </div>
+            <p v-if="pickLocalized(financialQuality, 'summary')" class="text-xs text-ink-secondary leading-snug">
+              {{ pickLocalized(financialQuality, "summary") }}
+            </p>
+            <ul v-if="financialQuality.metrics?.length" class="space-y-2 text-xs">
+              <li v-for="(m, i) in financialQuality.metrics.slice(0, 5)" :key="i" class="space-y-1">
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="text-ink-muted min-w-0 truncate">{{ pickLocalized(m, "label") }}</span>
+                  <span :class="['font-mono shrink-0', metricTextClass(m.direction)]">{{ m.value || "—" }}</span>
+                </div>
+                <div class="h-1 rounded bg-surface-muted overflow-hidden">
+                  <div
+                    :class="['h-full', metricToneClass(m.direction)]"
+                    :style="{ width: pctWidth(m.percentile) + '%' }"
+                  />
+                </div>
+                <div v-if="pickLocalized(m, 'note')" class="text-[11px] text-ink-secondary leading-snug">
+                  {{ pickLocalized(m, "note") }}
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Growth durability -->
+          <div
+            v-if="growthDurability"
+            class="bg-surface border border-subtle rounded-card p-4 space-y-3"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <BarChart3 class="h-3.5 w-3.5" />
+                {{ t("trader.research.growth_durability") }}
+              </div>
+              <span
+                v-if="growthDurability.confidence"
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(growthDurability.confidence)]"
+              >
+                {{ confidenceLabel(growthDurability.confidence) }}
+              </span>
+            </div>
+            <p v-if="pickLocalized(growthDurability, 'thesis')" class="text-sm text-ink-primary leading-snug">
+              {{ pickLocalized(growthDurability, "thesis") }}
+            </p>
+            <ul v-if="growthDurability.horizons?.length" class="space-y-2 text-xs">
+              <li
+                v-for="(h, i) in growthDurability.horizons"
+                :key="`${h.period}-${i}`"
+                class="space-y-1"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-mono text-ink-primary">{{ h.period }}</span>
+                  <span class="font-mono text-ink-muted">
+                    {{ fmtPlainPct(h.revenue_growth_pct) }} {{ t("trader.research.rev") }} ·
+                    {{ fmtPlainPct(h.eps_growth_pct) }} {{ t("trader.research.eps") }}
+                  </span>
+                </div>
+                <div class="grid grid-cols-[52px_minmax(0,1fr)] items-center gap-2">
+                  <span class="text-[10px] text-ink-muted">{{ t("trader.research.rev") }}</span>
+                  <div class="h-1.5 rounded bg-surface-muted overflow-hidden">
+                    <div
+                      class="h-full bg-success"
+                      :style="{ width: pctWidth(h.revenue_growth_pct, 4) + '%' }"
+                    />
+                  </div>
+                  <span class="text-[10px] text-ink-muted">{{ t("trader.research.eps") }}</span>
+                  <div class="h-1.5 rounded bg-surface-muted overflow-hidden">
+                    <div
+                      class="h-full bg-accent"
+                      :style="{ width: pctWidth(h.eps_growth_pct, 4) + '%' }"
+                    />
+                  </div>
+                </div>
+                <div class="flex items-start justify-between gap-2 text-[11px]">
+                  <span v-if="pickLocalized(h, 'note')" class="text-ink-secondary leading-snug">
+                    {{ pickLocalized(h, "note") }}
+                  </span>
+                  <span :class="['font-mono shrink-0', changeClass(h.margin_delta_bp)]">
+                    {{ fmtBp(h.margin_delta_bp) }}
+                  </span>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Peer context -->
+          <div
+            v-if="peerContext"
+            class="bg-surface border border-subtle rounded-card p-4 space-y-3 lg:col-span-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <Network class="h-3.5 w-3.5" />
+                {{ t("trader.research.peer_context") }}
+              </div>
+              <span
+                v-if="peerContext.confidence"
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(peerContext.confidence)]"
+              >
+                {{ confidenceLabel(peerContext.confidence) }}
+              </span>
+            </div>
+            <p v-if="pickLocalized(peerContext, 'summary')" class="text-sm text-ink-primary leading-snug">
+              {{ pickLocalized(peerContext, "summary") }}
+            </p>
+            <ul v-if="peerContext.peers?.length" class="space-y-2 text-xs">
+              <li
+                v-for="(peer, i) in peerContext.peers"
+                :key="`${peer.ticker}-${i}`"
+                class="grid gap-2 sm:grid-cols-[92px_minmax(0,1fr)_auto] sm:items-center"
+              >
+                <div class="min-w-0">
+                  <div class="font-mono text-ink-primary">{{ peer.ticker }}</div>
+                  <div class="text-[10px] text-ink-muted truncate">{{ peerCompanyName(peer) }}</div>
+                </div>
+                <div class="space-y-1 min-w-0">
+                  <div class="h-1.5 rounded bg-surface-muted overflow-hidden">
+                    <div class="h-full bg-accent" :style="{ width: pctWidth(peer.score) + '%' }" />
+                  </div>
+                  <div v-if="pickLocalized(peer, 'note')" class="text-[11px] text-ink-secondary truncate">
+                    {{ pickLocalized(peer, "note") }}
+                  </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 font-mono text-[11px] text-right">
+                  <span :class="scoreToneClass(peer.score) + ' rounded px-1 py-0.5'">
+                    {{ peer.score ?? "—" }}
+                  </span>
+                  <span :class="changeClass(peer.revenue_growth_pct)">
+                    {{ fmtPct(peer.revenue_growth_pct) }}
+                  </span>
+                  <span :class="changeClass(peer.valuation_premium_pct)">
+                    {{ fmtPct(peer.valuation_premium_pct) }}
+                  </span>
+                </div>
+              </li>
+            </ul>
+            <div class="grid grid-cols-[92px_minmax(0,1fr)_auto] gap-2 text-[10px] text-ink-muted">
+              <span />
+              <span>{{ t("trader.research.peer_score") }}</span>
+              <span class="grid grid-cols-3 gap-2 text-right">
+                <span>{{ t("trader.research.score") }}</span>
+                <span>{{ t("trader.research.growth") }}</span>
+                <span>{{ t("trader.research.premium") }}</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Scenario matrix -->
+          <div
+            v-if="scenarioMatrix"
+            class="bg-surface border border-subtle rounded-card p-4 space-y-3 lg:col-span-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <Target class="h-3.5 w-3.5" />
+                {{ t("trader.research.scenario_matrix") }}
+              </div>
+              <span
+                v-if="scenarioMatrix.confidence"
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(scenarioMatrix.confidence)]"
+              >
+                {{ confidenceLabel(scenarioMatrix.confidence) }}
+              </span>
+            </div>
+            <p v-if="pickLocalized(scenarioMatrix, 'summary')" class="text-sm text-ink-primary leading-snug">
+              {{ pickLocalized(scenarioMatrix, "summary") }}
+            </p>
+            <ul v-if="scenarioMatrix.scenarios?.length" class="space-y-3 text-xs">
+              <li v-for="(s, i) in scenarioMatrix.scenarios" :key="`${s.case}-${i}`" class="space-y-1.5">
+                <div class="flex items-center justify-between gap-2">
+                  <span :class="['text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide', scenarioToneClass(s.case)]">
+                    {{ scenarioLabel(s) }}
+                  </span>
+                  <span class="font-mono text-ink-primary">
+                    {{ fmtPlainPct(s.probability_pct, 0) }}
+                    <span :class="['ml-2', changeClass(s.implied_return_pct)]">
+                      {{ fmtPct(s.implied_return_pct) }}
+                    </span>
+                  </span>
+                </div>
+                <div class="relative h-2 rounded bg-surface-muted overflow-hidden">
+                  <div class="absolute inset-y-0 left-1/2 w-px bg-strong/70" />
+                  <div
+                    :class="[
+                      'absolute inset-y-0',
+                      changeBias(s.implied_return_pct) === 'down'
+                        ? 'right-1/2 bg-danger'
+                        : 'left-1/2 bg-success',
+                    ]"
+                    :style="{ width: signedBarWidth(s.implied_return_pct) + '%' }"
+                  />
+                </div>
+                <div v-if="pickLocalized(s, 'key_driver')" class="text-[11px] text-ink-secondary leading-snug">
+                  {{ pickLocalized(s, "key_driver") }}
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Diligence questions -->
+          <div
+            v-if="diligenceQuestions"
+            class="bg-surface border border-subtle rounded-card p-4 space-y-3"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <ClipboardList class="h-3.5 w-3.5" />
+                {{ t("trader.research.diligence_questions") }}
+              </div>
+              <span
+                v-if="diligenceQuestions.confidence"
+                :class="['text-[9px] px-1 py-0.5 rounded', confidenceClass(diligenceQuestions.confidence)]"
+              >
+                {{ confidenceLabel(diligenceQuestions.confidence) }}
+              </span>
+            </div>
+            <p v-if="pickLocalized(diligenceQuestions, 'summary')" class="text-sm text-ink-primary leading-snug">
+              {{ pickLocalized(diligenceQuestions, "summary") }}
+            </p>
+            <ul v-if="diligenceQuestions.questions?.length" class="space-y-3 text-xs">
+              <li v-for="(q, i) in diligenceQuestions.questions" :key="i" class="space-y-1.5">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="flex items-start gap-1.5 min-w-0">
+                    <AlertTriangle
+                      v-if="q.severity === 'critical'"
+                      class="h-3.5 w-3.5 text-danger mt-0.5 shrink-0"
+                    />
+                    <Brain
+                      v-else
+                      class="h-3.5 w-3.5 text-ink-muted mt-0.5 shrink-0"
+                    />
+                    <span class="font-medium text-ink-primary leading-snug">
+                      {{ pickLocalized(q, "question") || "—" }}
+                    </span>
+                  </div>
+                  <span :class="['text-[10px] px-1.5 py-0.5 rounded shrink-0', severityClass(q.severity)]">
+                    {{ severityLabel(q.severity) }}
+                  </span>
+                </div>
+                <div v-if="pickLocalized(q, 'why_it_matters')" class="text-[11px] text-ink-secondary leading-snug">
+                  {{ pickLocalized(q, "why_it_matters") }}
+                </div>
+                <div v-if="pickLocalized(q, 'evidence_gap')" class="text-[11px] text-ink-muted leading-snug">
+                  {{ t("trader.research.evidence_gap") }}:
+                  {{ pickLocalized(q, "evidence_gap") }}
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
     </div>
   </section>
 </template>

@@ -376,7 +376,8 @@ def test_schema_has_trader_topics():
     required = set(schema.get("required") or [])
     assert required == {
         "price_card", "momentum_card", "sentiment_card",
-        "heat_card", "catalysts", "trader_news", "tech_movers",
+        "heat_card", "catalysts", "trader_news",
+        "research_overview", "market_session", "tech_movers",
     }
     # Spot-check: price_card has the per-window returns the trader UI expects.
     price_required = set(
@@ -422,6 +423,28 @@ def test_schema_requires_bilingual_prose_fields():
     )
     for k in ("headline_en", "headline_zh", "summary_en", "summary_zh"):
         assert k in news_required, k
+
+    overview = props["research_overview"]["properties"]
+    business_required = set(
+        overview["business_mix"]["properties"]["segments"]
+        ["items"]["required"]
+    )
+    for k in ("name_en", "name_zh", "note_en", "note_zh"):
+        assert k in business_required, k
+    quality_required = set(
+        overview["financial_quality"]["properties"]["metrics"]
+        ["items"]["required"]
+    )
+    for k in ("label_en", "label_zh", "note_en", "note_zh"):
+        assert k in quality_required, k
+    scenario_required = set(
+        overview["scenario_matrix"]["properties"]["scenarios"]
+        ["items"]["required"]
+    )
+    for k in (
+        "label_en", "label_zh", "key_driver_en", "key_driver_zh",
+    ):
+        assert k in scenario_required, k
 
 
 def test_heat_card_v2_has_all_sections():
@@ -542,6 +565,24 @@ def _wait_for_done(company_id, *, timeout=3.0):
     raise AssertionError("trader_snapshot did not land")
 
 
+def _wait_for_progress_done(path, *, timeout=3.0):
+    import json
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            events = [
+                json.loads(line)
+                for line in path.read_text().splitlines()
+                if line.strip()
+            ]
+            for event in reversed(events):
+                if event.get("type") in {"done", "error"}:
+                    return event
+        time.sleep(0.05)
+    raise AssertionError("progress log did not terminate")
+
+
 def test_refresh_public_company_writes_snapshot(
     public_company, stub_generate, client,
 ):
@@ -568,6 +609,59 @@ def test_refresh_public_company_writes_snapshot(
     # the client knows it can render either language without another
     # refresh.
     assert snap["available_languages"] == ["en", "zh"]
+
+
+def test_refresh_all_public_companies_writes_each_public_snapshot(
+    tmp_storage, stub_generate, client,
+):
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {
+            "id": COMPANY_ID,
+            "name": "Advanced Micro Devices, Inc.",
+            "ticker": "AMD",
+            "exchange": "NASDAQ",
+            "status": "public",
+            "company_type": "public",
+        },
+        {
+            "id": "nvda",
+            "name": "NVIDIA Corporation",
+            "ticker": "NVDA",
+            "exchange": "NASDAQ",
+            "status": "public",
+            "company_type": "public",
+        },
+        {
+            "id": "anduril",
+            "name": "Anduril Industries",
+            "status": "private",
+            "company_type": "private",
+        },
+    ])
+
+    resp = client.post("/api/companies/trader/refresh-all?languages=en")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "queued"
+    assert body["languages_requested"] == ["en"]
+    assert body["total_count"] == 2
+    assert body["queued_count"] == 2
+    assert body["company_ids"] == [COMPANY_ID, "nvda"]
+
+    amd = _wait_for_done(COMPANY_ID)
+    nvda = _wait_for_done("nvda")
+    assert amd["price_card"]["last_price"] == 174.22
+    assert nvda["price_card"]["last_price"] == 174.22
+    assert storage.get_company("anduril").get("trader_snapshot") is None
+
+    done = _wait_for_progress_done(
+        storage.DATA_DIR / "_trader" / "__all_public_refresh.progress.jsonl"
+    )
+    assert done["type"] == "done"
+    assert done["total_count"] == 2
+    assert done["refreshed_count"] == 2
+    assert done["skipped_count"] == 0
+    assert done["failed_count"] == 0
 
 
 def test_refresh_records_bilingual_query_params(

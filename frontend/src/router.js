@@ -7,10 +7,33 @@ import ExternalNewsView from "./views/ExternalNewsView.vue";
 import ExternalResearchView from "./views/ExternalResearchView.vue";
 import HormuzResearchView from "./views/HormuzResearchView.vue";
 import HormuzLibraryView from "./views/HormuzLibraryView.vue";
+import WeeklySummaryView from "./views/WeeklySummaryView.vue";
 import { isAuthenticated, validateSession } from "./auth.js";
 
+function routerHistoryBase() {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return "/";
+  }
+  const metaBase =
+    document
+      .querySelector('meta[name="bsh-research-api-base"]')
+      ?.content?.trim() || "";
+  const viteBase = import.meta.env.BASE_URL || "/";
+  const raw = metaBase || viteBase;
+  const normalized = raw
+    ? ("/" + raw.replace(/^\/+|\/+$/g, "")).replace(/^\/$/, "")
+    : "";
+  if (!normalized) return "/";
+
+  const path = window.location.pathname;
+  if (path === normalized || path.startsWith(`${normalized}/`)) {
+    return normalized;
+  }
+  return "/";
+}
+
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(routerHistoryBase()),
   routes: [
     {
       path: "/login",
@@ -19,6 +42,11 @@ export const router = createRouter({
       meta: { public: true },
     },
     { path: "/", name: "home", component: HomeView },
+    {
+      path: "/weekly-summary",
+      name: "weekly-summary",
+      component: WeeklySummaryView,
+    },
     {
       path: "/research/:companyId",
       name: "research",

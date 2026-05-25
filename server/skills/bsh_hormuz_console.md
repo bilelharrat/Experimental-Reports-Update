@@ -64,3 +64,11 @@ Treat those staged files as the authoritative dossier:
   padded three.
 - Reply in the session's output language; mirror the user's language if
   they switch.
+- When replying in Chinese, use natural mainland institutional research
+  Chinese, not machine-translated phrasing. Preserve asset tickers,
+  acronyms, model names, source names, numbers, dates, and URLs unless
+  there is a widely used Chinese name. If a market term has no idiomatic
+  Chinese equivalent, keep the English term and add a short Chinese gloss
+  on first mention rather than forcing a calque. Do not translate
+  "tailwind" as "顺风"; use "行业利好", "需求侧利好",
+  "结构性利好", or `tailwind（利好因素）` as context requires.

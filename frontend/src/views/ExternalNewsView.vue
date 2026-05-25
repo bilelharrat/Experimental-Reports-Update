@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   ArrowLeft,
@@ -73,6 +73,11 @@ async function remove() {
 }
 
 const retrying = ref(false);
+const refreshDisabled = computed(
+  () =>
+    retrying.value ||
+    ["queued", "fetching", "analyzing"].includes(item.value?.status),
+);
 async function retry() {
   retrying.value = true;
   try {
@@ -104,14 +109,7 @@ async function retry() {
         <div
           class="h-12 w-12 rounded-card bg-surface-muted border border-subtle grid place-items-center shrink-0 overflow-hidden"
         >
-          <img
-            v-if="item.favicon"
-            :src="item.favicon"
-            alt=""
-            class="h-6 w-6 object-contain"
-            @error="(e) => (e.target.style.display = 'none')"
-          />
-          <Globe v-else class="h-5 w-5 text-ink-muted" />
+          <Globe class="h-5 w-5 text-ink-muted" />
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-xs uppercase tracking-wider text-ink-muted">
@@ -167,6 +165,15 @@ async function retry() {
             </span>
           </div>
         </div>
+        <button
+          @click="retry"
+          :disabled="refreshDisabled"
+          class="p-1.5 rounded hover:bg-surface-muted text-ink-muted hover:text-ink-primary focus-ring disabled:opacity-50"
+          :title="retrying ? 'Refreshing archive' : 'Refresh archive'"
+        >
+          <Loader2 v-if="retrying" class="h-4 w-4 animate-spin" />
+          <RefreshCw v-else class="h-4 w-4" />
+        </button>
         <button
           @click="remove"
           class="p-1.5 rounded hover:bg-danger-soft text-ink-muted hover:text-danger-ink focus-ring"

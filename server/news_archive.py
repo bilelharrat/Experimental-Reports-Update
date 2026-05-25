@@ -15,8 +15,9 @@ import mimetypes
 import re
 import shutil
 from dataclasses import dataclass, field
+from io import BytesIO
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -40,6 +41,22 @@ IMAGE_EXTS = {
     ".svg",
     ".webp",
 }
+NON_IMAGE_EXTS = {
+    ".css",
+    ".eot",
+    ".html",
+    ".htm",
+    ".js",
+    ".json",
+    ".map",
+    ".mjs",
+    ".otf",
+    ".ttf",
+    ".txt",
+    ".woff",
+    ".woff2",
+    ".xml",
+}
 IMAGE_URL_MARKERS = (
     "avatar",
     "imageview",
@@ -49,6 +66,8 @@ IMAGE_URL_MARKERS = (
     "webp",
     "webpic",
 )
+WECHAT_RENDER_QUERY_PARAMS = {"usepicprefetch", "watermark", "wxfrom"}
+WECHAT_IMAGE_FORMATS = {"jpeg", "jpg", "png", "webp", "gif"}
 URL_ATTRS = (
     "src",
     "href",
@@ -216,22 +235,35 @@ def _download_assets(
         max_redirects=5,
     ) as client:
         for url in urls:
-            try:
-                response = client.get(url)
-                response.raise_for_status()
-                content = response.content[: MAX_ASSET_BYTES + 1]
-                if len(content) > MAX_ASSET_BYTES:
-                    failures[url] = "asset_too_large"
-                    continue
-                ctype = response.headers.get("content-type", "").split(";")[0].strip()
-                if ctype and not (ctype.startswith("image/") or ctype in {"binary/octet-stream", "application/octet-stream"}):
-                    failures[url] = f"not_image_content_type:{ctype}"
-                    continue
-                filename = _asset_filename(url, ctype, content)
-                (asset_dir / filename).write_bytes(content)
-                downloaded[url] = filename
-            except Exception as exc:  # noqa: BLE001
-                failures[url] = f"{type(exc).__name__}: {exc}"
+            last_error = "download_failed"
+            for candidate in _download_candidates(url):
+                try:
+                    response = client.get(candidate)
+                    response.raise_for_status()
+                    content = response.content[: MAX_ASSET_BYTES + 1]
+                    if len(content) > MAX_ASSET_BYTES:
+                        last_error = "asset_too_large"
+                        continue
+                    ctype = (
+                        response.headers.get("content-type", "").split(";")[0].strip()
+                    )
+                    if ctype and not (
+                        ctype.startswith("image/")
+                        or ctype in {"binary/octet-stream", "application/octet-stream"}
+                    ):
+                        last_error = f"not_image_content_type:{ctype}"
+                        continue
+                    if _looks_like_wechat_placeholder(url, content, ctype):
+                        last_error = "wechat_placeholder_image"
+                        continue
+                    filename = _asset_filename(url, ctype, content)
+                    (asset_dir / filename).write_bytes(content)
+                    downloaded[url] = filename
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_error = f"{type(exc).__name__}: {exc}"
+            else:
+                failures[url] = last_error
     return downloaded, failures
 
 
@@ -355,12 +387,91 @@ def _is_imageish_url(url: str) -> bool:
     parsed = urlparse(url)
     path_lower = parsed.path.lower()
     suffix = Path(path_lower).suffix
-    if suffix == ".map":
+    if suffix in NON_IMAGE_EXTS:
         return False
     if suffix in IMAGE_EXTS:
         return True
+    if _is_wechat_image_url(url):
+        return True
     lowered = url.lower()
     return any(marker in lowered for marker in IMAGE_URL_MARKERS)
+
+
+def _is_wechat_image_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower().split(":", 1)[0]
+    if not (
+        host == "qpic.cn"
+        or host.endswith(".qpic.cn")
+        or host == "qlogo.cn"
+        or host.endswith(".qlogo.cn")
+    ):
+        return False
+    path_lower = parsed.path.lower()
+    query = {
+        key.lower(): value.lower()
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+    }
+    if query.get("wx_fmt") in WECHAT_IMAGE_FORMATS:
+        return True
+    if query.get("tp") in WECHAT_IMAGE_FORMATS:
+        return True
+    return any(
+        marker in path_lower
+        for marker in (
+            "/mmbiz_",
+            "/sz_mmbiz_",
+            "/mmhead/",
+            "/mmbiz/",
+        )
+    )
+
+
+def _download_candidates(url: str) -> list[str]:
+    candidates = [url]
+    if not _is_wechat_image_url(url):
+        return candidates
+
+    parsed = urlparse(url)
+    variants = []
+    if parsed.scheme == "http":
+        variants.append(urlunparse(parsed._replace(scheme="https")))
+
+    query_items = parse_qsl(parsed.query, keep_blank_values=True)
+    trimmed_query_items = [
+        (key, value)
+        for key, value in query_items
+        if key.lower() not in WECHAT_RENDER_QUERY_PARAMS
+    ]
+    if trimmed_query_items != query_items:
+        trimmed = parsed._replace(query=urlencode(trimmed_query_items))
+        variants.append(urlunparse(trimmed))
+        if trimmed.scheme == "http":
+            variants.append(urlunparse(trimmed._replace(scheme="https")))
+
+    for variant in variants:
+        if variant not in candidates:
+            candidates.append(variant)
+    return candidates
+
+
+def _looks_like_wechat_placeholder(url: str, content: bytes, content_type: str) -> bool:
+    parsed = urlparse(url)
+    path_lower = parsed.path.lower()
+    if not _is_wechat_image_url(url) or not any(
+        marker in path_lower for marker in ("/mmbiz_jpg/", "/sz_mmbiz_jpg/")
+    ):
+        return False
+    if len(content) > 50_000 or not content_type.startswith("image/"):
+        return False
+    try:
+        from PIL import Image
+
+        with Image.open(BytesIO(content)) as img:
+            width, height = img.size
+    except Exception:  # noqa: BLE001
+        return False
+    return width <= 220 and height <= 220
 
 
 def _asset_filename(url: str, content_type: str, content: bytes) -> str:

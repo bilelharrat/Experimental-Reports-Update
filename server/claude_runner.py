@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,8 +42,10 @@ def _terminate_process_group(proc: subprocess.Popen, *, grace_s: float = 2.0) ->
     try:
         os.killpg(proc.pid, signal.SIGTERM)
     except ProcessLookupError:
-        return
+        pass
     except Exception:
+        pass
+    if proc.poll() is None:
         try:
             proc.terminate()
         except Exception:
@@ -54,8 +58,10 @@ def _terminate_process_group(proc: subprocess.Popen, *, grace_s: float = 2.0) ->
     try:
         os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
-        return
+        pass
     except Exception:
+        pass
+    if proc.poll() is None:
         try:
             proc.kill()
         except Exception:
@@ -750,7 +756,8 @@ STAGE 3 — TRANSLATE.
 Once all {last_page} bullets are in progress.md, compose the bilingual
 content. For every English string you'll emit (exec summary, section
 titles, section bodies), prepare the matching 简体中文 rendering — natural
-language, same facts, same numbers.
+language, same facts, same numbers. Apply this Chinese style guide:
+{INVESTMENT_RESEARCH_CHINESE_STYLE}
 
 STAGE 4 — STRUCTURE OUTPUT.
 Write the final JSON to ./summary.json using the Write tool. The schema
@@ -869,6 +876,119 @@ def _process_search_event(event: dict, progress, state: dict) -> None:
         return
 
 
+def _start_stream_json_reader(proc: subprocess.Popen):
+    """Read Claude stream-json stdout on a side thread so callers can enforce
+    wall-clock and silence timeouts while waiting for the next line.
+    """
+    import queue as _queue
+
+    events: _queue.Queue = _queue.Queue()
+
+    def reader() -> None:
+        try:
+            stdout = proc.stdout
+            if stdout is None:
+                return
+            for line in stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.put(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        finally:
+            events.put(None)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    return events, thread
+
+
+def _consume_stream_json_process(
+    proc: subprocess.Popen,
+    *,
+    stderr_log: list[str],
+    progress,
+    state: dict,
+    event_handler,
+    timeout_sec: float,
+    timeout_label: str,
+    silence_timeout_sec: float = 120.0,
+) -> tuple[str | None, str | None]:
+    """Consume Claude stream-json without blocking forever on stdout.
+
+    Returns ``(final_text, error)``. ``final_text`` prefers a captured
+    StructuredOutput payload when present, matching the previous parser
+    behavior.
+    """
+    import queue as _queue
+
+    events, reader = _start_stream_json_reader(proc)
+    start = time.monotonic()
+    last_event_at = start
+    final_text: str | None = None
+    interrupted: str | None = None
+
+    while True:
+        now = time.monotonic()
+        if now - start > timeout_sec:
+            interrupted = f"{timeout_label} timed out after {timeout_sec:g}s"
+            break
+        if now - last_event_at > silence_timeout_sec:
+            interrupted = (
+                f"{timeout_label} stalled after {silence_timeout_sec:g}s "
+                "without output"
+            )
+            break
+        try:
+            event = events.get(timeout=0.25)
+        except _queue.Empty:
+            if proc.poll() is not None and not reader.is_alive():
+                break
+            continue
+
+        if event is None:
+            break
+
+        last_event_at = time.monotonic()
+        try:
+            event_handler(event, progress, state)
+        except Exception:  # noqa: BLE001
+            logger.exception("%s event handling failed", timeout_label)
+        if event.get("type") == "result":
+            structured = state.get("structured_output")
+            if isinstance(structured, dict):
+                final_text = json.dumps(structured)
+            else:
+                final_text = event.get("result")
+
+    if interrupted is not None:
+        _terminate_process_group(proc, grace_s=5.0)
+        if progress is not None:
+            progress.emit(
+                "claude_action",
+                action="interrupted",
+                reason=interrupted,
+            )
+        return None, interrupted
+
+    try:
+        proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        _terminate_process_group(proc, grace_s=5.0)
+        return None, f"{timeout_label} did not exit cleanly"
+
+    if proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return None, (
+            f"claude exited {proc.returncode}"
+            + (f": {tail[:600]}" if tail else "")
+        )
+
+    return final_text, None
+
+
 def run_company_search(
     *,
     query: str,
@@ -964,6 +1084,7 @@ def run_company_search(
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return None, f"Failed to launch claude: {exc}"
@@ -975,41 +1096,17 @@ def run_company_search(
     stderr_thread.start()
 
     state: dict[str, Any] = {}
-    final_text: str | None = None
-    try:
-        for line in proc_stream.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            try:
-                _process_search_event(event, progress, state)
-            except Exception:
-                logger.exception("search progress event handling failed")
-            if event.get("type") == "result":
-                # When --json-schema produced a StructuredOutput tool call,
-                # the JSON lives in that tool's `input` and the assistant
-                # `result` text is just a prose summary. Prefer the
-                # structured payload; fall back to the raw result text.
-                structured = state.get("structured_output")
-                if isinstance(structured, dict):
-                    final_text = json.dumps(structured)
-                else:
-                    final_text = event.get("result")
-        proc_stream.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc_stream.kill()
-        return None, f"claude search timed out after {timeout_sec}s"
-
-    if proc_stream.returncode and proc_stream.returncode != 0:
-        tail = "".join(stderr_log[-20:]).strip()
-        return None, (
-            f"claude exited {proc_stream.returncode}"
-            + (f": {tail[:600]}" if tail else "")
-        )
+    final_text, stream_error = _consume_stream_json_process(
+        proc_stream,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label="claude search",
+    )
+    if stream_error:
+        return None, stream_error
 
     return _parse_search_result(final_text, max_results)
 
@@ -1084,6 +1181,7 @@ def run_public_company_snapshot(
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return None, f"Failed to launch claude: {exc}"
@@ -1094,38 +1192,17 @@ def run_public_company_snapshot(
     ).start()
 
     state: dict[str, Any] = {}
-    final_text: str | None = None
-    try:
-        for line in proc.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if progress is not None:
-                try:
-                    _process_search_event(event, progress, state)
-                except Exception:  # noqa: BLE001
-                    logger.exception("public-snapshot event handling failed")
-            if event.get("type") == "result":
-                structured = state.get("structured_output")
-                if isinstance(structured, dict):
-                    final_text = json.dumps(structured)
-                else:
-                    final_text = event.get("result")
-        proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        return None, f"claude snapshot timed out after {timeout_sec}s"
-
-    if proc.returncode and proc.returncode != 0:
-        tail = "".join(stderr_log[-20:]).strip()
-        return None, (
-            f"claude exited {proc.returncode}"
-            + (f": {tail[:600]}" if tail else "")
-        )
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label="claude snapshot",
+    )
+    if stream_error:
+        return None, stream_error
 
     if not final_text:
         return None, "claude returned empty result"
@@ -1133,6 +1210,114 @@ def run_public_company_snapshot(
     parsed = _parse_json_tolerant(final_text)
     if not isinstance(parsed, dict):
         # Try to recover from a fenced block.
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        return None, "claude's final answer didn't parse as a JSON object"
+
+    return parsed, None
+
+
+def run_web_research_json(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    name: str = "web_research",
+    timeout_sec: int = 900,
+    progress=None,
+    use_json_schema: bool = True,
+) -> tuple[dict | None, str | None]:
+    """Run a WebSearch/WebFetch-grounded Claude job and return strict JSON.
+
+    This is the generic sibling of ``run_company_search`` and
+    ``run_public_company_snapshot``: callers own the prompt + schema, while
+    this helper owns CLI invocation, progress translation, and tolerant JSON
+    parsing.
+    """
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not found on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and run `claude` "
+            "once to authenticate."
+        )
+
+    import hashlib
+
+    key = hashlib.sha1(f"{name}\n{user_prompt}".encode("utf-8")).hexdigest()[:10]
+    work_dir = Path("/tmp") / f"bsh_{name}_{key}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    schema_instruction = (
+        "attached schema" if use_json_schema else "JSON schema included below"
+    )
+    schema_block = (
+        ""
+        if use_json_schema
+        else "\n\nJSON schema:\n" + json.dumps(schema, ensure_ascii=False)
+    )
+    combined_prompt = (
+        f"{system_prompt.strip()}\n\n"
+        f"{user_prompt.strip()}\n\n"
+        "Use WebSearch and WebFetch to verify current facts, prices, dates, "
+        "and sources. Do not invent unavailable fields; use null where the "
+        f"schema permits it. Output ONE JSON object matching the {schema_instruction}. "
+        "No markdown fences, preamble, or commentary."
+        f"{schema_block}"
+    )
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", combined_prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "WebSearch,WebFetch",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    if use_json_schema:
+        cmd += ["--json-schema", json.dumps(schema)]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    stderr_log: list[str] = []
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label="claude web research",
+    )
+    if stream_error:
+        return None, stream_error
+
+    if not final_text:
+        return None, "claude returned empty result"
+
+    parsed = _parse_json_tolerant(final_text)
+    if not isinstance(parsed, dict):
         m = _JSON_OBJ_RE.search(final_text)
         if m:
             parsed = _parse_json_tolerant(m.group(0))
@@ -1553,6 +1738,8 @@ QUALITY BAR
 - Preserve every block — don't drop content.
 - Headings stay headings; lists stay lists; tables stay structured.
 - Numbers, dates, money, URLs, ISO codes, model numbers: unchanged.
+- When translating into Chinese, apply this style guide:
+{INVESTMENT_RESEARCH_CHINESE_STYLE}
 
 JSON SAFETY
 - Inside any string value, never use unescaped ASCII double quotes. For
@@ -2351,7 +2538,8 @@ def _quick_summary_read_instructions(kind: str, filename: str) -> str:
             f"different language. Preserve numbers / dates / currency / "
             f"percentages / proper nouns in their original Latin form. "
             f"Use Chinese-style punctuation (，。；：「」《》) inside "
-            f"Chinese sentences."
+            f"Chinese sentences.\n"
+            f"{INVESTMENT_RESEARCH_CHINESE_STYLE}"
         )
     return f"Use the Read tool on `{filename}`."
 
@@ -2428,6 +2616,8 @@ OUTPUT REQUIREMENTS:
   percentages, and dates in their original Latin form. Preserve proper
   nouns (company names, product names, people) in the form they appear
   in the source — do not transliterate.
+- When producing Chinese fields, apply this style guide:
+{INVESTMENT_RESEARCH_CHINESE_STYLE}
 - summary_en / summary_zh: 3–4 sentences each. No marketing adjectives,
   no "this document covers various topics" filler. summary_zh is a
   faithful translation of summary_en (or vice versa), not a different
@@ -3060,12 +3250,18 @@ def _console_language_directive(language: str | None) -> str:
     name = _CONSOLE_LANGUAGE_NAMES.get(language or "")
     if not name:
         return ""
+    style = (
+        f"\nWhen writing in Simplified Chinese, apply this style guide:\n"
+        f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n"
+        if language == "zh"
+        else ""
+    )
     return (
         "\n\n## Output language (session-wide)\n\n"
         f"All replies in this Console session MUST be written in {name}, "
         "for every turn, regardless of what language the user types in. "
         "This directive overrides the bilingual default in the analyst "
-        "persona above.\n"
+        f"persona above.\n{style}"
     )
 
 
@@ -3112,6 +3308,11 @@ def run_console_hydrate(
             f"acknowledgement below — must be written in "
             f"{_CONSOLE_LANGUAGE_NAMES[output_language]}.\n\n"
         )
+        if output_language == "zh":
+            lang_line += (
+                "When writing in Simplified Chinese, apply this style guide:\n"
+                f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n"
+            )
     prompt = (
         "You are entering a Console session for a BSH analyst. The "
         "following documents are staged in your current working "

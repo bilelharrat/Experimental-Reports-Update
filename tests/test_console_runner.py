@@ -5,6 +5,7 @@ spawning Claude.
 """
 from __future__ import annotations
 
+import json
 import signal
 import subprocess
 import threading
@@ -59,6 +60,61 @@ class FakeProc:
         return self._returncode
 
 
+class BlockingStdout:
+    def __init__(self, lines: list[str], stop_event: threading.Event, *, block_after: bool):
+        self._lines = list(lines)
+        self._stop_event = stop_event
+        self._block_after = block_after
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._lines:
+            return self._lines.pop(0)
+        if self._block_after:
+            while not self._stop_event.is_set():
+                time.sleep(0.02)
+        raise StopIteration
+
+
+class FakeStreamProc:
+    def __init__(self, lines: list[str], *, exit_code: int | None, block_after: bool = False):
+        self.pid = 99999999
+        self._returncode: int | None = exit_code
+        self._stop_event = threading.Event()
+        self.stdout = BlockingStdout(lines, self._stop_event, block_after=block_after)
+        self.stderr = None
+        self.terminate_called = False
+        self.kill_called = False
+
+    def poll(self):
+        return self._returncode
+
+    @property
+    def returncode(self):
+        return self._returncode
+
+    def terminate(self):
+        self.terminate_called = True
+        self._stop_event.set()
+        if self._returncode is None:
+            self._returncode = -15
+
+    def kill(self):
+        self.kill_called = True
+        self._stop_event.set()
+        if self._returncode is None:
+            self._returncode = -9
+
+    def wait(self, timeout=None):
+        if self._returncode is None:
+            if timeout is not None:
+                raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout)
+            self._returncode = 0
+        return self._returncode
+
+
 def _make_handle(events, *, exit_code=None, keep_reader_alive=False):
     """Build a _ConsoleRunHandle with pre-queued events.
 
@@ -88,6 +144,10 @@ def _make_handle(events, *, exit_code=None, keep_reader_alive=False):
 
 def _new_progress(tmp_path):
     return job_progress.ProgressLog(tmp_path / "progress.jsonl")
+
+
+def _json_line(event: dict) -> str:
+    return json.dumps(event) + "\n"
 
 
 # ---- Clean-success path -------------------------------------------------
@@ -122,6 +182,70 @@ def test_clean_result_event(tmp_path):
     assert out["cost_usd"] == 0.018
     assert out["usage"]["input_tokens"] == 10
     assert state.get("assistant_text_parts") == ["Ready."]
+
+
+def test_stream_json_consumer_prefers_structured_output(tmp_path):
+    proc = FakeStreamProc(
+        [
+            _json_line(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "name": "StructuredOutput",
+                                "input": {"matches": [{"name": "ZaiNar"}]},
+                            }
+                        ]
+                    },
+                }
+            ),
+            _json_line({"type": "result", "result": "ignored prose"}),
+        ],
+        exit_code=0,
+    )
+    progress = _new_progress(tmp_path)
+    state: dict = {}
+
+    final_text, err = claude_runner._consume_stream_json_process(
+        proc,
+        stderr_log=[],
+        progress=progress,
+        state=state,
+        event_handler=claude_runner._process_search_event,
+        timeout_sec=5.0,
+        timeout_label="claude search",
+        silence_timeout_sec=1.0,
+    )
+
+    assert err is None
+    assert json.loads(final_text) == {"matches": [{"name": "ZaiNar"}]}
+
+
+def test_stream_json_consumer_interrupts_silent_process(tmp_path):
+    proc = FakeStreamProc(
+        [_json_line({"type": "system", "subtype": "init", "model": "claude"})],
+        exit_code=None,
+        block_after=True,
+    )
+    progress = _new_progress(tmp_path)
+    state: dict = {}
+
+    final_text, err = claude_runner._consume_stream_json_process(
+        proc,
+        stderr_log=[],
+        progress=progress,
+        state=state,
+        event_handler=claude_runner._process_search_event,
+        timeout_sec=5.0,
+        timeout_label="claude search",
+        silence_timeout_sec=0.2,
+    )
+
+    assert final_text is None
+    assert "stalled after 0.2s without output" in err
+    assert proc.terminate_called is True
 
 
 # ---- Subprocess died with no result event -------------------------------

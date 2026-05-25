@@ -6,7 +6,9 @@ import logging
 import os
 import secrets
 import threading
+import time
 from datetime import datetime, timezone
+from urllib.parse import unquote, urlparse
 
 from fastapi import (
     APIRouter,
@@ -49,9 +51,17 @@ from . import (
     research_store,
     storage,
     text_analysis,
+    weekly_stocks,
 )
 
 logger = logging.getLogger("bsh.api")
+
+ACTIVE_JOB_MAX_IDLE_SECONDS = int(
+    os.environ.get("BSH_ACTIVE_JOB_MAX_IDLE_SECONDS", "1800")
+)
+SEARCH_JOB_MAX_IDLE_SECONDS = int(
+    os.environ.get("BSH_SEARCH_JOB_MAX_IDLE_SECONDS", "180")
+)
 
 
 # ---- Auth ---------------------------------------------------------------
@@ -504,13 +514,29 @@ def post_companies_search_start(q: str = "", refresh: bool = False) -> dict:
 
     # Idempotency: attach to an in-flight job for the same query.
     state = _scan_progress_state(path)
-    if state.get("exists") and not state.get("terminated"):
+    in_flight = _progress_state_in_flight(
+        state, max_idle_seconds=SEARCH_JOB_MAX_IDLE_SECONDS
+    )
+    if in_flight:
         return {
             "cached": False,
             "job_id": job_id,
             "stream_url": f"/api/companies/search/stream/{job_id}",
             "status": "already_running",
         }
+    if state.get("exists") and not state.get("terminated"):
+        try:
+            job_progress.ProgressLog(path).emit(
+                "error",
+                error="superseded stale company search",
+                terminal=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("company search: failed to terminate stale log")
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            logger.exception("company search: failed to unlink stale log")
 
     threading.Thread(
         target=_run_search_job,
@@ -577,6 +603,121 @@ async def stream_search_progress(job_id: str):
 
     return StreamingResponse(
         event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ---- Weekly hot-stock dashboard -----------------------------------------
+
+
+def _run_weekly_stocks_job() -> None:
+    """Background worker for the weekly hot-stock dashboard refresh."""
+    progress = job_progress.ProgressLog(weekly_stocks.progress_path())
+    progress.emit(
+        "job_init",
+        kind="weekly_stocks",
+        title="Weekly stock summary",
+        subtitle="Hot stocks research",
+    )
+    progress.emit(
+        "stage",
+        stage="starting",
+        message="Starting weekly hot-stock research",
+    )
+    try:
+        summary, err = weekly_stocks.generate_summary(progress=progress)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("weekly stocks job crashed")
+        progress.emit(
+            "error",
+            error=f"Weekly stock research crashed: {type(exc).__name__}: {exc}",
+        )
+        return
+    if err:
+        progress.emit("error", error=err)
+        return
+    progress.emit(
+        "done",
+        generated_at=summary.get("generated_at") if summary else None,
+        summary=summary,
+    )
+
+
+@router.get("/weekly-stocks")
+def get_weekly_stocks() -> dict:
+    """Return the cached weekly hot-stock dashboard payload, if any."""
+    summary = weekly_stocks.load_summary()
+    prompt_en = (
+        summary.get("research_prompt_en")
+        if isinstance(summary, dict) and summary.get("research_prompt_en")
+        else weekly_stocks.build_research_prompt()
+    )
+    prompt_zh = (
+        summary.get("research_prompt_zh")
+        if isinstance(summary, dict) and summary.get("research_prompt_zh")
+        else weekly_stocks.build_research_prompt_zh()
+    )
+    return {
+        "summary": summary,
+        "prompt": prompt_en,
+        "prompt_en": prompt_en,
+        "prompt_zh": prompt_zh,
+        "schema_version": weekly_stocks.SCHEMA_VERSION,
+    }
+
+
+@router.post("/weekly-stocks/refresh")
+def post_weekly_stocks_refresh(force: bool = False) -> dict:
+    """Kick off or attach to the weekly hot-stock dashboard refresh."""
+    path = weekly_stocks.progress_path()
+    state = _scan_progress_state(path)
+    in_flight = _progress_state_in_flight(state)
+    stream_url = "/api/weekly-stocks/refresh/stream"
+    if in_flight and not force:
+        return {
+            "job_id": "weekly",
+            "stream_url": stream_url,
+            "status": "already_running",
+        }
+    if state.get("exists") and not state.get("terminated"):
+        try:
+            tail_progress = job_progress.ProgressLog(path)
+            tail_progress.emit(
+                "error",
+                error=(
+                    "superseded by force-refresh"
+                    if force
+                    else "superseded stale weekly refresh"
+                ),
+                terminal=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("weekly refresh: failed to terminate stale log")
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            logger.exception("weekly refresh: failed to unlink stale log")
+
+    threading.Thread(
+        target=_run_weekly_stocks_job,
+        name="weekly-stocks",
+        daemon=True,
+    ).start()
+    return {
+        "job_id": "weekly",
+        "stream_url": stream_url,
+        "status": "force_queued" if force else "queued",
+    }
+
+
+@router.get("/weekly-stocks/refresh/stream")
+async def stream_weekly_stocks_refresh() -> "StreamingResponse":
+    from fastapi.responses import StreamingResponse
+
+    gen = _console_event_stream(weekly_stocks.progress_path())
+    return StreamingResponse(
+        gen(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -1270,6 +1411,8 @@ def _scan_progress_state(path: "Path") -> dict:
         "slide_count": None,
         "page_no": None,
         "page_count": None,
+        "index": None,
+        "total_count": None,
         "speed": None,
         "claude_cost_usd": None,
         "claude_duration_ms": None,
@@ -1305,6 +1448,8 @@ def _scan_progress_state(path: "Path") -> dict:
                     state["kind"] = entry.get("kind")
                     state["title"] = entry.get("title")
                     state["subtitle"] = entry.get("subtitle")
+                    if "total_count" in entry:
+                        state["total_count"] = entry["total_count"]
                 elif etype in ("done", "error"):
                     state["terminated"] = True
                     state["terminal_type"] = etype
@@ -1323,6 +1468,10 @@ def _scan_progress_state(path: "Path") -> dict:
                         state["page_no"] = entry["page_no"]
                     if "page_count" in entry:
                         state["page_count"] = entry["page_count"]
+                    if "index" in entry:
+                        state["index"] = entry["index"]
+                    if "total_count" in entry:
+                        state["total_count"] = entry["total_count"]
                     if "speed" in entry:
                         state["speed"] = entry["speed"]
                 elif etype == "claude_action":
@@ -1350,6 +1499,52 @@ def _scan_progress_state(path: "Path") -> dict:
     except Exception:
         pass
     return state
+
+
+def _progress_idle_seconds(state: dict) -> float | None:
+    ts = state.get("last_event_at")
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds())
+
+
+def _progress_path_recent(path: "Path", *, max_idle_seconds: int) -> bool:
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return False
+    return (time.time() - mtime) <= max_idle_seconds
+
+
+def _progress_state_in_flight(
+    state: dict, *, max_idle_seconds: int = ACTIVE_JOB_MAX_IDLE_SECONDS
+) -> bool:
+    if not state.get("exists") or state.get("terminated"):
+        return False
+    latest = state.get("latest_action") or {}
+    if (
+        latest.get("action") == "tool_result"
+        and latest.get("tool") == "StructuredOutput"
+        and latest.get("is_error")
+    ):
+        return False
+    idle = _progress_idle_seconds(state)
+    return idle is None or idle <= max_idle_seconds
+
+
+def _scan_active_progress_state(path: "Path") -> dict | None:
+    if not _progress_path_recent(
+        path, max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
+    ):
+        return None
+    state = _scan_progress_state(path)
+    return state if _progress_state_in_flight(state) else None
 
 
 def _run_summary_job(company_id: str, file_id: str, speed: str = "auto") -> None:
@@ -1521,7 +1716,9 @@ def _summary_kind_records():
         if not name.endswith(suffix):
             continue
         file_id = name[: -len(suffix)]
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         record, _ = _fs.get_file(company_id, file_id) or (None, None)
         title = (
             (state.get("title"))
@@ -1565,7 +1762,9 @@ def _search_kind_records():
         if not name.endswith(suffix):
             continue
         job_id = name[: -len(suffix)]
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         yield {
             "kind": state.get("kind") or "search",
             "title": state.get("title") or "Company search",
@@ -1588,7 +1787,9 @@ def _pdf_translation_kind_records():
         if not name.endswith(suffix):
             continue
         item_id = name[: -len(suffix)]
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         item = external_store.get_item("external_research", item_id) or {}
         yield {
             "kind": state.get("kind") or "pdf_translation",
@@ -1623,7 +1824,9 @@ def _external_research_analysis_kind_records():
         if not name.endswith(suffix):
             continue
         item_id = name[: -len(suffix)]
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         item = external_store.get_item("external_research", item_id) or {}
         yield {
             "kind": state.get("kind") or "external_research",
@@ -1662,6 +1865,8 @@ def _common_state_fields(state: dict) -> dict:
         "terminal_type": state.get("terminal_type"),
         "error": state.get("error"),
         "latest_action": state.get("latest_action"),
+        "index": state.get("index"),
+        "total_count": state.get("total_count"),
         "tool_count": state.get("tool_count"),
     }
 
@@ -1723,7 +1928,28 @@ _JOB_KIND_PATHS = {
     "public_snapshot": lambda key: (
         storage.DATA_DIR / "_trader" / f"{key}__snapshot.progress.jsonl"
     ),
+    "public_snapshot_bulk": lambda key: _trader_refresh_all_progress_path(),
+    "weekly_stocks": lambda key: weekly_stocks.progress_path(),
 }
+
+
+def _weekly_stocks_kind_records():
+    """Yield the weekly stock refresh job for the active-jobs rail."""
+    jsonl_path = weekly_stocks.progress_path()
+    if not jsonl_path.exists():
+        return
+    state = _scan_active_progress_state(jsonl_path)
+    if state is None:
+        return
+    yield {
+        "kind": state.get("kind") or "weekly_stocks",
+        "title": state.get("title") or "Weekly stock summary",
+        "subtitle": state.get("subtitle") or "Hot stocks research",
+        "stream_url": "/api/weekly-stocks/refresh/stream",
+        "log_url": "/api/jobs/log?path=weekly_stocks:weekly",
+        "primary_route": {"name": "weekly-summary"},
+        **_common_state_fields(state),
+    }
 
 
 def _research_summary_kind_records():
@@ -1739,7 +1965,9 @@ def _research_summary_kind_records():
         if not name.endswith(suffix):
             continue
         file_id = name[: -len(suffix)]
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         record_tuple = research_store.get_file(company_id, file_id)
         record = record_tuple[0] if record_tuple else None
         title = (
@@ -1776,7 +2004,9 @@ def _memo_kind_records():
     if not memo_prep.MEMOS_ROOT.exists():
         return
     for jsonl_path in memo_prep.MEMOS_ROOT.glob("*/*/logs/stream.jsonl"):
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         init = state.get("job_init") or {}
         report_id = init.get("report_id")
         if not report_id:
@@ -1807,7 +2037,9 @@ def _hormuz_appendix_kind_records():
     if not hormuz_store.APPENDIX_ROOT.exists():
         return
     for jsonl_path in hormuz_store.APPENDIX_ROOT.glob("*/logs/stream.jsonl"):
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         init = state.get("job_init") or {}
         report_id = init.get("report_id")
         if not report_id:
@@ -1837,7 +2069,9 @@ def _public_snapshot_kind_records():
         if not name.endswith(suffix):
             continue
         company_id = name[: -len(suffix)]
-        state = _scan_progress_state(jsonl_path)
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
         company = storage.get_company(company_id) or {}
         yield {
             "kind": state.get("kind") or "public_snapshot",
@@ -1856,6 +2090,25 @@ def _public_snapshot_kind_records():
             "company_id": company_id,
             **_common_state_fields(state),
         }
+
+
+def _public_snapshot_bulk_kind_records():
+    """Yield the active-jobs rail entry for the bulk public-stock refresh."""
+    jsonl_path = _trader_refresh_all_progress_path()
+    if not jsonl_path.exists():
+        return
+    state = _scan_active_progress_state(jsonl_path)
+    if state is None:
+        return
+    yield {
+        "kind": state.get("kind") or "public_snapshot_bulk",
+        "title": state.get("title") or "Refresh all stock views",
+        "subtitle": state.get("subtitle") or "Public companies",
+        "stream_url": "/api/companies/trader/refresh-all/stream",
+        "log_url": "/api/jobs/log?path=public_snapshot_bulk:all",
+        "primary_route": {"name": "home"},
+        **_common_state_fields(state),
+    }
 
 
 def _console_kind_records():
@@ -1881,7 +2134,9 @@ def _console_kind_records():
         ):
             if not jsonl_path.exists():
                 continue
-            state = _scan_progress_state(jsonl_path)
+            state = _scan_active_progress_state(jsonl_path)
+            if state is None:
+                continue
             yield {
                 "kind": state.get("kind") or kind,
                 "title": state.get("title") or "Console",
@@ -1909,7 +2164,9 @@ def _console_kind_records():
             continue
         for jsonl_path in ask_dir.glob("*.progress.jsonl"):
             turn_id = jsonl_path.name.removesuffix(".progress.jsonl")
-            state = _scan_progress_state(jsonl_path)
+            state = _scan_active_progress_state(jsonl_path)
+            if state is None:
+                continue
             yield {
                 "kind": state.get("kind") or "console_ask",
                 "title": state.get("title") or "Console Q&A",
@@ -1958,7 +2215,9 @@ def get_active_jobs() -> list[dict]:
         _hormuz_appendix_kind_records(),
         _research_summary_kind_records(),
         _console_kind_records(),
+        _public_snapshot_bulk_kind_records(),
         _public_snapshot_kind_records(),
+        _weekly_stocks_kind_records(),
     ):
         for rec in source:
             if rec.get("terminated"):
@@ -2239,7 +2498,7 @@ def _run_news_analysis(item_id: str, url: str) -> None:
                 browser_error = rendered.error
 
         archived_image = archive.public_url(preview.image, item_id) or preview.image
-        archived_favicon = archive.public_url(preview.favicon, item_id) or preview.favicon
+        archived_favicon = archive.public_url(preview.favicon, item_id)
         archive_diagnostics = {
             **archive.diagnostics,
             "browser_fallback_status": browser_status,
@@ -2285,6 +2544,41 @@ def _run_news_analysis(item_id: str, url: str) -> None:
         )
 
 
+def _news_asset_filename_from_api_url(item_id: str, url: str | None) -> str | None:
+    if not url:
+        return None
+    path = urlparse(url).path if "://" in url else url
+    marker = f"/api/external/news/{item_id}/assets/"
+    if marker not in path:
+        return None
+    return unquote(path.split(marker, 1)[1])
+
+
+def _news_asset_exists(item_id: str, filename: str | None) -> bool:
+    if not filename:
+        return False
+    root = external_store.archive_asset_dir("news", item_id).resolve()
+    try:
+        resolved = external_store.archive_asset_path(
+            "news", item_id, filename
+        ).resolve()
+    except OSError:
+        return False
+    return root in resolved.parents and resolved.is_file()
+
+
+def _external_item_response(item: dict) -> dict:
+    """Return a UI-safe external item without broken decorative favicon URLs."""
+    out = dict(item)
+    if out.get("kind") != "news":
+        return out
+    item_id = str(out.get("id") or "")
+    filename = _news_asset_filename_from_api_url(item_id, out.get("favicon"))
+    if not _news_asset_exists(item_id, filename):
+        out["favicon"] = None
+    return out
+
+
 @router.post("/external/news", status_code=201)
 def post_news(payload: NewsCreateIn) -> dict:
     url = (payload.url or "").strip()
@@ -2311,7 +2605,7 @@ def post_news(payload: NewsCreateIn) -> dict:
 
 @router.get("/external/news")
 def get_news_list() -> list[dict]:
-    return external_store.list_items("news")
+    return [_external_item_response(item) for item in external_store.list_items("news")]
 
 
 @router.get("/external/news/{item_id}")
@@ -2319,7 +2613,7 @@ def get_news(item_id: str) -> dict:
     item = external_store.get_item("news", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="News item not found")
-    return item
+    return _external_item_response(item)
 
 
 @router.get("/external/news/{item_id}/archive", response_class=Response)
@@ -2880,7 +3174,10 @@ def retry_external_research(item_id: str) -> dict:
 @router.get("/external/feed")
 def get_external_feed() -> list[dict]:
     """Combined news + external_research, sorted newest first."""
-    return external_store.list_news_and_research()
+    return [
+        _external_item_response(item)
+        for item in external_store.list_news_and_research()
+    ]
 
 
 # ---- Hormuz research (internal, no AI) ----
@@ -3664,6 +3961,14 @@ def _trader_snapshot_progress_path(company_id: str) -> "Path":
     return base / f"{company_id}__snapshot.progress.jsonl"
 
 
+def _trader_refresh_all_progress_path() -> "Path":
+    from pathlib import Path
+
+    base: Path = storage.DATA_DIR / "_trader"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "__all_public_refresh.progress.jsonl"
+
+
 def _parse_trader_languages(raw: str | None) -> list[str]:
     """Normalize the `languages` query parameter into a list of
     canonical language codes. Anything we don't recognize is dropped.
@@ -3788,6 +4093,225 @@ def _run_trader_snapshot_job(
     )
 
 
+def _public_companies_for_trader_refresh() -> list[dict]:
+    """Return tracked public companies in a stable ticker/name order."""
+    companies: list[dict] = []
+    for company in storage.list_companies():
+        if not isinstance(company, dict):
+            continue
+        company_type = company.get("company_type") or storage.infer_company_type(
+            company
+        )
+        if company_type == "public":
+            companies.append(company)
+    companies.sort(
+        key=lambda c: str(
+            c.get("ticker") or c.get("name") or c.get("id") or ""
+        ).lower()
+    )
+    return companies
+
+
+def _summarize_trader_refresh_queue(
+    companies: list[dict], *, force: bool = False
+) -> dict:
+    queued = 0
+    already_running = 0
+    skipped = 0
+    company_ids: list[str] = []
+    for company in companies:
+        company_id = (company.get("id") or "").strip()
+        ticker = (company.get("ticker") or "").strip()
+        if not company_id or not ticker:
+            skipped += 1
+            continue
+        state = _scan_progress_state(_trader_snapshot_progress_path(company_id))
+        if _progress_state_in_flight(state) and not force:
+            already_running += 1
+            continue
+        queued += 1
+        company_ids.append(company_id)
+    return {
+        "total_count": len(companies),
+        "queued_count": queued,
+        "already_running_count": already_running,
+        "skipped_count": skipped,
+        "company_ids": company_ids,
+    }
+
+
+def _supersede_progress_file(path: "Path", *, reason: str) -> None:
+    if not path.exists():
+        return
+    try:
+        job_progress.ProgressLog(path, truncate=False).emit(
+            "error",
+            error=reason,
+            terminal=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to mark stale progress terminated")
+    try:
+        path.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to unlink stale progress")
+
+
+def _run_refresh_all_trader_snapshots_job(
+    *,
+    force: bool = False,
+    languages_requested: list[str] | None = None,
+    include_translations: bool = True,
+    translation_mode: str = "all",
+) -> None:
+    """Sequentially refresh every tracked public-company trader snapshot."""
+    progress = job_progress.ProgressLog(_trader_refresh_all_progress_path())
+    companies = _public_companies_for_trader_refresh()
+    total_count = len(companies)
+    progress.emit(
+        "job_init",
+        kind="public_snapshot_bulk",
+        title="Refresh all stock views",
+        subtitle=f"{total_count} public companies",
+        total_count=total_count,
+        force=force,
+        languages_requested=languages_requested or ["en", "zh"],
+        include_translations=include_translations,
+        translation_mode=translation_mode,
+    )
+
+    if not companies:
+        progress.emit(
+            "done",
+            total_count=0,
+            refreshed_count=0,
+            skipped_count=0,
+            failed_count=0,
+            results=[],
+        )
+        return
+
+    refreshed_count = 0
+    skipped_count = 0
+    failed_count = 0
+    results: list[dict] = []
+
+    for idx, company in enumerate(companies, start=1):
+        company_id = (company.get("id") or "").strip()
+        company_name = company.get("name") or company_id or "Unknown company"
+        ticker = (company.get("ticker") or "").strip()
+
+        if not company_id:
+            skipped_count += 1
+            results.append({
+                "company_id": None,
+                "company_name": company_name,
+                "ticker": ticker,
+                "status": "skipped_missing_id",
+            })
+            continue
+        if not ticker:
+            skipped_count += 1
+            progress.emit(
+                "stage",
+                stage="skipped",
+                message=f"Skipped {company_name}: missing ticker",
+                company_id=company_id,
+                company_name=company_name,
+                ticker=ticker,
+                index=idx,
+                total_count=total_count,
+            )
+            results.append({
+                "company_id": company_id,
+                "company_name": company_name,
+                "ticker": ticker,
+                "status": "skipped_missing_ticker",
+            })
+            continue
+
+        snapshot_path = _trader_snapshot_progress_path(company_id)
+        state = _scan_progress_state(snapshot_path)
+        if _progress_state_in_flight(state) and not force:
+            skipped_count += 1
+            progress.emit(
+                "stage",
+                stage="already_running",
+                message=f"Skipped {company_name}: refresh already running",
+                company_id=company_id,
+                company_name=company_name,
+                ticker=ticker,
+                index=idx,
+                total_count=total_count,
+            )
+            results.append({
+                "company_id": company_id,
+                "company_name": company_name,
+                "ticker": ticker,
+                "status": "already_running",
+            })
+            continue
+        if _progress_state_in_flight(state) and force:
+            _supersede_progress_file(
+                snapshot_path, reason="superseded by bulk force-refresh"
+            )
+
+        progress.emit(
+            "stage",
+            stage="refreshing_company",
+            message=f"Refreshing {ticker} ({idx}/{total_count})",
+            company_id=company_id,
+            company_name=company_name,
+            ticker=ticker,
+            index=idx,
+            total_count=total_count,
+        )
+        try:
+            _run_trader_snapshot_job(
+                company_id,
+                languages_requested=languages_requested,
+                include_translations=include_translations,
+                translation_mode=translation_mode,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("bulk trader refresh crashed for %s", company_id)
+            failed_count += 1
+            results.append({
+                "company_id": company_id,
+                "company_name": company_name,
+                "ticker": ticker,
+                "status": "error",
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            continue
+
+        final_state = _scan_progress_state(snapshot_path)
+        if final_state.get("terminal_type") == "done":
+            refreshed_count += 1
+            status = "done"
+        else:
+            failed_count += 1
+            status = "error"
+        result = {
+            "company_id": company_id,
+            "company_name": company_name,
+            "ticker": ticker,
+            "status": status,
+        }
+        if final_state.get("error"):
+            result["error"] = final_state["error"]
+        results.append(result)
+
+    progress.emit(
+        "done",
+        total_count=total_count,
+        refreshed_count=refreshed_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+        results=results,
+    )
+
+
 @router.post("/companies/{company_id}/trader/refresh")
 def post_trader_refresh(
     company_id: str,
@@ -3888,6 +4412,55 @@ def post_trader_refresh(
     }
 
 
+@router.post("/companies/trader/refresh-all")
+def post_trader_refresh_all(
+    languages: str | None = None,
+    include_translations: bool = True,
+    translation_mode: str = "all",
+    force: bool = False,
+) -> dict:
+    """Refresh trader snapshots for every tracked public company."""
+    languages_requested = _parse_trader_languages(languages)
+    stream_url = "/api/companies/trader/refresh-all/stream"
+    companies = _public_companies_for_trader_refresh()
+    queue = _summarize_trader_refresh_queue(companies, force=force)
+
+    path = _trader_refresh_all_progress_path()
+    state = _scan_progress_state(path)
+    in_flight = _progress_state_in_flight(state)
+    if in_flight and not force:
+        return {
+            "job_id": "all",
+            "stream_url": stream_url,
+            "status": "already_running",
+            "languages_requested": languages_requested,
+            **queue,
+        }
+    if in_flight and force:
+        _supersede_progress_file(
+            path, reason="superseded by bulk force-refresh"
+        )
+
+    threading.Thread(
+        target=_run_refresh_all_trader_snapshots_job,
+        kwargs={
+            "force": force,
+            "languages_requested": languages_requested,
+            "include_translations": include_translations,
+            "translation_mode": translation_mode,
+        },
+        name="trader-snapshot:all",
+        daemon=True,
+    ).start()
+    return {
+        "job_id": "all",
+        "stream_url": stream_url,
+        "status": "force_queued" if force else "queued",
+        "languages_requested": languages_requested,
+        **queue,
+    }
+
+
 @router.get("/companies/{company_id}/trader/refresh/stream")
 async def stream_trader_refresh(company_id: str) -> "StreamingResponse":
     """SSE stream of progress events for the in-flight trader-snapshot
@@ -3898,6 +4471,19 @@ async def stream_trader_refresh(company_id: str) -> "StreamingResponse":
 
     path = _trader_snapshot_progress_path(company_id)
     gen = _console_event_stream(path)
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/companies/trader/refresh-all/stream")
+async def stream_trader_refresh_all() -> "StreamingResponse":
+    """SSE stream for the bulk public-company trader refresh."""
+    from fastapi.responses import StreamingResponse
+
+    gen = _console_event_stream(_trader_refresh_all_progress_path())
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",

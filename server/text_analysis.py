@@ -20,6 +20,7 @@ import logging
 from typing import Any
 
 from . import claude_runner
+from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,8 @@ SYSTEM_PROMPT = (
     "key points, and a full translation of the source content. If the source "
     "is neither English nor Chinese, translate to English. The translation "
     "should preserve nuance and technical terminology.\n\n"
+    "When translating or summarizing into Chinese, apply this style guide:\n"
+    f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n"
     "Bullets should be terse and concrete (numbers, names, dates) — not "
     "marketing fluff. Don't invent details that aren't in the source. If the "
     "content is short, that's fine — return fewer bullets."

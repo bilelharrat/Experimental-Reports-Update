@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from . import claude_runner
+from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,25 @@ _CONFIDENCE = {
     "type": ["string", "null"],
     "enum": ["high", "medium", "low", "unavailable", None],
 }
+_CONFIDENCE_REQUIRED = [
+    "confidence", "confidence_note_en", "confidence_note_zh",
+]
+
+
+def _localized_props(base: str) -> dict[str, Any]:
+    return {f"{base}_en": _STR_NULL, f"{base}_zh": _STR_NULL}
+
+
+def _localized_required(base: str) -> list[str]:
+    return [f"{base}_en", f"{base}_zh"]
+
+
+def _confidence_props() -> dict[str, Any]:
+    return {
+        "confidence": _CONFIDENCE,
+        "confidence_note_en": _STR_NULL,
+        "confidence_note_zh": _STR_NULL,
+    }
 
 
 # Current trader_snapshot.schema_version. Bumped when a breaking
@@ -594,6 +614,240 @@ SCHEMA: dict[str, Any] = {
             },
         },
 
+        "research_overview": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "properties": {
+                "updated_at": _STR_NULL,
+                "business_mix": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        **_localized_props("headline"),
+                        "segments": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    **_localized_props("name"),
+                                    "revenue_pct": _NUM_NULL,
+                                    "growth_pct": _NUM_NULL,
+                                    "signal": {
+                                        "type": ["string", "null"],
+                                        "enum": [
+                                            "growth_engine", "cash_engine",
+                                            "drag", "emerging", "cyclical",
+                                            None,
+                                        ],
+                                    },
+                                    **_localized_props("note"),
+                                },
+                                "required": [
+                                    *_localized_required("name"),
+                                    "revenue_pct", "growth_pct", "signal",
+                                    *_localized_required("note"),
+                                ],
+                            },
+                        },
+                        "source_url": _STR_NULL,
+                        **_confidence_props(),
+                    },
+                    "required": [
+                        *_localized_required("headline"),
+                        "segments", "source_url", *_CONFIDENCE_REQUIRED,
+                    ],
+                },
+                "financial_quality": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "score": _INT_NULL,
+                        **_localized_props("summary"),
+                        "metrics": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    **_localized_props("label"),
+                                    "value": _STR_NULL,
+                                    "percentile": _NUM_NULL,
+                                    "direction": {
+                                        "type": ["string", "null"],
+                                        "enum": ["strong", "neutral", "weak", None],
+                                    },
+                                    **_localized_props("note"),
+                                },
+                                "required": [
+                                    *_localized_required("label"),
+                                    "value", "percentile", "direction",
+                                    *_localized_required("note"),
+                                ],
+                            },
+                        },
+                        "source_url": _STR_NULL,
+                        **_confidence_props(),
+                    },
+                    "required": [
+                        "score", *_localized_required("summary"),
+                        "metrics", "source_url", *_CONFIDENCE_REQUIRED,
+                    ],
+                },
+                "growth_durability": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        **_localized_props("thesis"),
+                        "horizons": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "period": {"type": "string"},
+                                    "revenue_growth_pct": _NUM_NULL,
+                                    "eps_growth_pct": _NUM_NULL,
+                                    "margin_delta_bp": _NUM_NULL,
+                                    **_localized_props("note"),
+                                },
+                                "required": [
+                                    "period", "revenue_growth_pct",
+                                    "eps_growth_pct", "margin_delta_bp",
+                                    *_localized_required("note"),
+                                ],
+                            },
+                        },
+                        "source_url": _STR_NULL,
+                        **_confidence_props(),
+                    },
+                    "required": [
+                        *_localized_required("thesis"),
+                        "horizons", "source_url", *_CONFIDENCE_REQUIRED,
+                    ],
+                },
+                "peer_context": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        **_localized_props("summary"),
+                        "peers": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "ticker": {"type": "string"},
+                                    "company_en": {"type": "string"},
+                                    "company_zh": {"type": "string"},
+                                    "score": _INT_NULL,
+                                    "revenue_growth_pct": _NUM_NULL,
+                                    "gross_margin_pct": _NUM_NULL,
+                                    "valuation_premium_pct": _NUM_NULL,
+                                    **_localized_props("note"),
+                                },
+                                "required": [
+                                    "ticker", "company_en", "company_zh",
+                                    "score", "revenue_growth_pct",
+                                    "gross_margin_pct",
+                                    "valuation_premium_pct",
+                                    *_localized_required("note"),
+                                ],
+                            },
+                        },
+                        "source_url": _STR_NULL,
+                        **_confidence_props(),
+                    },
+                    "required": [
+                        *_localized_required("summary"),
+                        "peers", "source_url", *_CONFIDENCE_REQUIRED,
+                    ],
+                },
+                "scenario_matrix": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        **_localized_props("summary"),
+                        "scenarios": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "case": {
+                                        "type": "string",
+                                        "enum": ["bear", "base", "bull"],
+                                    },
+                                    **_localized_props("label"),
+                                    "probability_pct": _NUM_NULL,
+                                    "implied_return_pct": _NUM_NULL,
+                                    **_localized_props("key_driver"),
+                                },
+                                "required": [
+                                    "case", *_localized_required("label"),
+                                    "probability_pct", "implied_return_pct",
+                                    *_localized_required("key_driver"),
+                                ],
+                            },
+                        },
+                        "source_url": _STR_NULL,
+                        **_confidence_props(),
+                    },
+                    "required": [
+                        *_localized_required("summary"),
+                        "scenarios", "source_url", *_CONFIDENCE_REQUIRED,
+                    ],
+                },
+                "diligence_questions": {
+                    "type": ["object", "null"],
+                    "additionalProperties": False,
+                    "properties": {
+                        **_localized_props("summary"),
+                        "questions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    **_localized_props("question"),
+                                    **_localized_props("why_it_matters"),
+                                    "severity": {
+                                        "type": ["string", "null"],
+                                        "enum": [
+                                            "watch", "important", "critical",
+                                            None,
+                                        ],
+                                    },
+                                    **_localized_props("evidence_gap"),
+                                },
+                                "required": [
+                                    *_localized_required("question"),
+                                    *_localized_required("why_it_matters"),
+                                    "severity",
+                                    *_localized_required("evidence_gap"),
+                                ],
+                            },
+                        },
+                        "source_url": _STR_NULL,
+                        **_confidence_props(),
+                    },
+                    "required": [
+                        *_localized_required("summary"),
+                        "questions", "source_url", *_CONFIDENCE_REQUIRED,
+                    ],
+                },
+            },
+            "required": [
+                "updated_at",
+                "business_mix",
+                "financial_quality",
+                "growth_durability",
+                "peer_context",
+                "scenario_matrix",
+                "diligence_questions",
+            ],
+        },
+
         # Authoritative exchange trading-session calendar as of
         # generation. The web/iOS clients use last_close / next_close to
         # measure freshness in *trading sessions* (a Fri-after-close run
@@ -674,6 +928,7 @@ SCHEMA: dict[str, Any] = {
         "heat_card",
         "catalysts",
         "trader_news",
+        "research_overview",
         "market_session",
         "tech_movers",
     ],
@@ -683,8 +938,9 @@ SCHEMA: dict[str, Any] = {
 SYSTEM_PROMPT = (
     "You are a sell-side trader's research desk. Given a publicly-traded "
     "company (ticker + name), produce a JSON snapshot covering price "
-    "action, momentum, sentiment, heat, upcoming catalysts, and "
-    "trader-relevant news.\n\n"
+    "action, momentum, sentiment, heat, upcoming catalysts, "
+    "trader-relevant news, and a research-grade overview that goes "
+    "beyond commodity quote-page facts.\n\n"
     "Use WebSearch and WebFetch aggressively against Yahoo Finance, "
     "Nasdaq, the official IR page, the SEC, Refinitiv-style aggregator "
     "pages, Reuters, Bloomberg, and recent analyst reports. NEVER invent "
@@ -712,6 +968,7 @@ SYSTEM_PROMPT = (
     "`summary`, `headline`, and `recent_rating_changes[*].action/from/"
     "to`) should carry the same content as the `_en` variant for "
     "back-compat with consumers that haven't been updated yet.\n\n"
+    f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n"
     "Belt-and-suspenders: the server runs a translation pass after "
     "your output that fills any half-populated pair you leave behind. "
     "Don't rely on it — produce both languages yourself when you can. "
@@ -833,6 +1090,48 @@ SYSTEM_PROMPT = (
     "  moved the stock or are likely to. Provide headline_en/"
     "  headline_zh and summary_en/summary_zh for every item. Tag bias "
     "  (positive/negative/neutral). Always include a source_url.\n\n"
+    "- research_overview: a second, non-duplicative group of cards for "
+    "  fundamental / strategic context. Do NOT repeat price returns, "
+    "  moving averages, analyst ratings, upcoming catalysts, or recent "
+    "  news already covered by the trader cards. This section should be "
+    "  better than a generic finance overview because it synthesizes "
+    "  segment economics, quality, peers, scenarios, and diligence gaps "
+    "  into visualizable facts. updated_at should be an ISO timestamp or "
+    "  today's date. Every sub-object carries confidence + bilingual "
+    "  confidence notes. Sub-objects:\n"
+    "    1. business_mix — 3-6 revenue / profit pools or end markets. "
+    "       Each segment gets name_en/name_zh, revenue_pct, growth_pct, "
+    "       signal (growth_engine/cash_engine/drag/emerging/cyclical), "
+    "       and note_en/note_zh explaining what makes it matter.\n"
+    "    2. financial_quality — score 0-100 plus 4-6 metrics such as "
+    "       gross margin, operating margin, FCF margin, R&D/revenue, "
+    "       net cash/debt, ROIC, inventory turns, or SBC/revenue. Each "
+    "       metric gets label_en/zh, value as a compact display string, "
+    "       percentile (0-100, against peers or company history), "
+    "       direction (strong/neutral/weak), and note_en/zh.\n"
+    "    3. growth_durability — forward revenue/EPS/margin trajectory "
+    "       by annual or quarterly horizon. Use consensus estimates and "
+    "       official guidance when public. The thesis_en/zh should say "
+    "       whether growth is compounding, normalizing, or at risk.\n"
+    "    4. peer_context — 4-6 closest public peers with ticker, "
+    "       company_en/company_zh, score 0-100, revenue growth, gross "
+    "       margin, valuation premium/discount vs the peer set, and a "
+    "       short note_en/zh. This powers a relative-quality scoreboard, "
+    "       not another related-stocks list.\n"
+    "    5. scenario_matrix — bear/base/bull cases with probability_pct, "
+    "       implied_return_pct, label_en/zh, and key_driver_en/zh. These "
+    "       are desk scenarios derived from consensus, valuation, and "
+    "       thesis drivers, not sell-side target prices copied from the "
+    "       sentiment card.\n"
+    "    6. diligence_questions — 3-5 unresolved questions with "
+    "       severity (watch/important/critical), why_it_matters_en/zh, "
+    "       and evidence_gap_en/zh. Favor disconfirming evidence and "
+    "       hard-to-answer questions over generic risks.\n"
+    "  Suggested sources: latest 10-K/10-Q, earnings slides/transcript, "
+    "  official IR KPI tables, segment notes, YCharts/Macrotrends, "
+    "  Nasdaq/Yahoo financials, peer filings, and reputable current "
+    "  market-data aggregators. Return null for specific numbers you "
+    "  cannot verify; explain the sourcing gap in confidence_note_*.\n\n"
     "- tech_movers: the top 5-8 one-day movers among liquid public "
     "  technology stocks today. Include both sharp gainers and sharp "
     "  decliners when available. updated_at should be today's market "
@@ -868,7 +1167,8 @@ SYSTEM_PROMPT = (
     "sub-object (especially every heat_card sub-object) is missing its "
     "`confidence`, `confidence_note_en`, or `confidence_note_zh`, the "
     "ENTIRE output is rejected and the whole run is wasted. Before "
-    "emitting, walk every heat_card sub-object AND market_session and "
+    "emitting, walk every heat_card sub-object, every research_overview "
+    "sub-object, AND market_session and "
     "confirm all three are present (use confidence=`unavailable` with a "
     "reason note rather than omitting them). Never drop the triad to "
     "save space."
@@ -877,9 +1177,9 @@ SYSTEM_PROMPT = (
 
 # --- Parallel section passes ------------------------------------------------
 #
-# The seven top-level snapshot sections have ZERO data dependencies on each
+# The top-level snapshot sections have ZERO data dependencies on each
 # other (each sources its own web data). Generating them in one Claude run
-# serializes ~7 independent research jobs behind one another. Instead we fan
+# serializes independent research jobs behind one another. Instead we fan
 # out one `claude -p` per section, run them concurrently, and merge — wall
 # time ≈ the slowest section instead of the sum. Same idea as the memo
 # skill's parallel passes. Each pass tags its progress events with a
@@ -902,6 +1202,8 @@ SNAPSHOT_PASSES: list[tuple[str, str, list[str], str]] = [
     ("heat", "Positioning structure", ["heat_card"], ""),
     ("catalysts", "Upcoming catalysts", ["catalysts"], ""),
     ("news", "Trader news", ["trader_news"], ""),
+    ("overview", "Research overview", ["research_overview"], ""),
+    ("session", "Market session", ["market_session"], ""),
     ("movers", "Tech movers", ["tech_movers"], ""),
 ]
 
@@ -915,6 +1217,8 @@ _EMPTY_SECTION: dict[str, Any] = {
     "heat_card": {},
     "catalysts": [],
     "trader_news": [],
+    "research_overview": None,
+    "market_session": None,
     "tech_movers": {"updated_at": None, "movers": []},
 }
 
@@ -953,7 +1257,7 @@ class _ThreadProgress:
 def generate_snapshot(
     *, company: dict, progress=None
 ) -> tuple[dict | None, str | None]:
-    """Produce a fresh trader snapshot by fanning the seven sections out
+    """Produce a fresh trader snapshot by fanning the sections out
     into concurrent ``claude -p`` runs and merging. Returns
     ``(snapshot, error)`` — ``error`` is None if at least one section
     came back; a section whose pass failed is filled with a safe empty

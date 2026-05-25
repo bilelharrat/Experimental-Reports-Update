@@ -60,7 +60,7 @@ describe("cardStaleness (trading-session based)", () => {
   it("every card from the spec table is present", () => {
     for (const key of [
       "price_card", "momentum_card", "sentiment_card",
-      "heat_card", "catalysts", "trader_news",
+      "heat_card", "catalysts", "trader_news", "research_overview",
     ]) {
       expect(STALENESS[key]).toBeDefined();
     }

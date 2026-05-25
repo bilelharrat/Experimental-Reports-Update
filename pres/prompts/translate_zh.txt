@@ -14,6 +14,8 @@ TRANSLATION GUIDELINES
 - Preserve numbers, dates, currency symbols, percentages, and inline symbols (~, $, +, %, /, etc.) exactly where they appear.
 - Be concise. Slides have limited render space. Prefer the shortest natural Chinese phrasing that preserves meaning. Do not pad with filler.
 - Match register to role: titles get punchy noun phrases; body gets full sentences; metric labels stay short; footnotes/disclaimers stay literal.
+- Write like a bilingual investment analyst, not a machine translator. If an English term has no idiomatic Chinese equivalent, keep the English term and add a short Chinese gloss only when needed for comprehension.
+- Avoid awkward calques: do not translate "tailwind" as "顺风"; use "行业利好", "需求侧利好", "结构性利好", or keep `tailwind（利好因素）` depending on space. Do not translate coined phrases like "credible second wave" as "可信第二波"; render the meaning, e.g. "第二轮增长的可信度" or "有望形成第二波增长".
 - Preserve a `\n` line break in zh_text only if the source text has a `\n` AND breaking there is natural in Chinese. Otherwise, output a single line and let the renderer wrap.
 - Do not translate untranslatable identifiers: ticker symbols, file paths, URLs, code, version numbers, model IDs.
 - Do not add explanations, parenthetical English, or notes inside zh_text.

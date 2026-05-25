@@ -373,6 +373,187 @@ describe("TraderView Positioning Structure (heat_card v2)", () => {
   });
 });
 
+describe("TraderView Research Overview", () => {
+  const researchSnapshot = {
+    refreshed_at: new Date().toISOString(),
+    schema_version: 2,
+    price_card: {
+      last_price: 174.22, currency: "USD", as_of: null,
+      change_pct_1d: null, change_pct_5d: null, change_pct_30d: null,
+      change_pct_ytd: null, change_pct_1y: null,
+      vs_sector_30d_pct: null, vs_sp500_30d_pct: null,
+    },
+    momentum_card: {
+      trend: null, above_50dma: null, above_200dma: null,
+      ma_crossover_recent: null, breakout_signals: [],
+      notable_levels: null,
+    },
+    sentiment_card: {
+      analyst_consensus: null, coverage_count: null,
+      rating_distribution: null, target_price: null,
+      recent_rating_changes: [],
+    },
+    heat_card: null,
+    catalysts: [],
+    trader_news: [],
+    research_overview: {
+      updated_at: new Date().toISOString(),
+      business_mix: {
+        headline_en: "Data center is the growth engine; gaming is the drag.",
+        headline_zh: "数据中心是增长引擎，游戏业务拖累增长。",
+        segments: [
+          {
+            name_en: "Data Center", name_zh: "数据中心",
+            revenue_pct: 52, growth_pct: 47, signal: "growth_engine",
+            note_en: "MI accelerators drive mix shift.",
+            note_zh: "MI 加速器推动结构转变。",
+          },
+          {
+            name_en: "Gaming", name_zh: "游戏",
+            revenue_pct: 14, growth_pct: -22, signal: "drag",
+            note_en: "Console cycle pressure.",
+            note_zh: "主机周期带来压力。",
+          },
+        ],
+        source_url: "https://example.com/segments",
+        confidence: "high",
+        confidence_note_en: "Company segment filing.",
+        confidence_note_zh: "公司分部披露。",
+      },
+      financial_quality: {
+        score: 74,
+        summary_en: "Margins are improving while R&D remains high.",
+        summary_zh: "利润率改善，同时研发投入仍高。",
+        metrics: [
+          {
+            label_en: "Gross margin", label_zh: "毛利率",
+            value: "54%", percentile: 70, direction: "strong",
+            note_en: "Above peer median.",
+            note_zh: "高于同业中位数。",
+          },
+        ],
+        source_url: "https://example.com/financials",
+        confidence: "medium",
+        confidence_note_en: "Company financials and peer comps.",
+        confidence_note_zh: "公司财务和同业对比。",
+      },
+      growth_durability: {
+        thesis_en: "Growth depends on AI accelerator ramps.",
+        thesis_zh: "增长取决于 AI 加速器爬坡。",
+        horizons: [
+          {
+            period: "FY26", revenue_growth_pct: 28,
+            eps_growth_pct: 36, margin_delta_bp: 180,
+            note_en: "AI offsets PC normalization.",
+            note_zh: "AI 抵消 PC 正常化。",
+          },
+        ],
+        source_url: "https://example.com/estimates",
+        confidence: "medium",
+        confidence_note_en: "Consensus estimates.",
+        confidence_note_zh: "市场一致预期。",
+      },
+      peer_context: {
+        summary_en: "AMD screens higher growth, lower margin than NVDA.",
+        summary_zh: "AMD 增速较高，但毛利率低于英伟达。",
+        peers: [
+          {
+            ticker: "NVDA", company_en: "NVIDIA", company_zh: "英伟达",
+            score: 92, revenue_growth_pct: 38, gross_margin_pct: 74,
+            valuation_premium_pct: 120,
+            note_en: "Best-in-class accelerator margin.",
+            note_zh: "加速器利润率同业领先。",
+          },
+        ],
+        source_url: "https://example.com/peers",
+        confidence: "medium",
+        confidence_note_en: "Public peer data.",
+        confidence_note_zh: "公开同业数据。",
+      },
+      scenario_matrix: {
+        summary_en: "Upside requires accelerator share gains.",
+        summary_zh: "上行需要加速器份额提升。",
+        scenarios: [
+          {
+            case: "bull", label_en: "Bull case", label_zh: "牛市情景",
+            probability_pct: 30, implied_return_pct: 35,
+            key_driver_en: "MI share accelerates.",
+            key_driver_zh: "MI 份额加速提升。",
+          },
+          {
+            case: "bear", label_en: "Bear case", label_zh: "熊市情景",
+            probability_pct: 20, implied_return_pct: -28,
+            key_driver_en: "GPU supply disappoints.",
+            key_driver_zh: "GPU 供应不及预期。",
+          },
+        ],
+        source_url: "https://example.com/scenarios",
+        confidence: "low",
+        confidence_note_en: "Desk scenario math.",
+        confidence_note_zh: "交易台情景测算。",
+      },
+      diligence_questions: {
+        summary_en: "The hard question is whether AI share gains persist.",
+        summary_zh: "核心问题是 AI 份额提升能否持续。",
+        questions: [
+          {
+            question_en: "Can AMD keep hyperscaler wins beyond pilot volume?",
+            question_zh: "AMD 能否将超大客户试点量转化为持续订单？",
+            why_it_matters_en: "Sustained orders decide AI revenue durability.",
+            why_it_matters_zh: "持续订单决定 AI 收入可持续性。",
+            severity: "critical",
+            evidence_gap_en: "Customer-level disclosure remains limited.",
+            evidence_gap_zh: "客户层面披露有限。",
+          },
+        ],
+        source_url: "https://example.com/questions",
+        confidence: "medium",
+        confidence_note_en: "Cross-checked against filings and call.",
+        confidence_note_zh: "对照文件和电话会。",
+      },
+    },
+  };
+
+  afterEach(() => {
+    appLanguage.value = "en";
+  });
+
+  it("renders the second research card group with visual sections", () => {
+    appLanguage.value = "en";
+    const wrapper = mountWith({
+      id: "amd", name: "AMD", company_type: "public",
+      trader_snapshot: researchSnapshot,
+    });
+    const text = wrapper.text();
+    expect(text).toContain("Research Overview");
+    expect(text).toContain("Business mix");
+    expect(text).toContain("Data Center");
+    expect(text).toContain("Financial quality");
+    expect(text).toContain("74/100");
+    expect(text).toContain("Growth durability");
+    expect(text).toContain("Peer context");
+    expect(text).toContain("Scenario matrix");
+    expect(text).toContain("Diligence questions");
+    expect(text).toContain("Can AMD keep hyperscaler wins");
+  });
+
+  it("localizes research overview prose and labels", async () => {
+    appLanguage.value = "zh";
+    const wrapper = mountWith({
+      id: "amd", name: "AMD", company_type: "public",
+      trader_snapshot: researchSnapshot,
+    });
+    const text = wrapper.text();
+    expect(text).toContain("研究概览");
+    expect(text).toContain("业务结构");
+    expect(text).toContain("数据中心");
+    expect(text).toContain("财务质量");
+    expect(text).toContain("增长持续性");
+    expect(text).toContain("尽调问题");
+    expect(text).toContain("AMD 能否将超大客户试点量转化为持续订单？");
+  });
+});
+
 describe("TraderView bilingual rendering", () => {
   // The server emits paired `<base>_en` / `<base>_zh` for every prose
   // field plus a legacy single-language `<base>`. The component picks

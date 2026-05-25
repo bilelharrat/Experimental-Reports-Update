@@ -58,7 +58,10 @@ function routeFor(item) {
   return { name: "home" };
 }
 
-const reports = computed(() => props.reports);
+// /api/reports can include non-company reports, but this sidebar section
+// links into /research/:companyId. Keep those unrouteable records out of the
+// RouterLink render path so a null company_id cannot crash Vue Router.
+const reports = computed(() => props.reports.filter((r) => r?.company_id));
 </script>
 
 <template>
@@ -207,15 +210,7 @@ const reports = computed(() => props.reports);
           class="block px-3 py-2 rounded-lg hover:bg-surface-muted focus-ring"
         >
           <div class="flex items-start gap-2">
-            <img
-              v-if="item.favicon"
-              :src="item.favicon"
-              alt=""
-              class="h-4 w-4 mt-0.5 shrink-0 object-contain"
-              @error="(e) => (e.target.style.display = 'none')"
-            />
             <Globe
-              v-else
               class="h-4 w-4 mt-0.5 text-ink-muted shrink-0"
             />
             <div class="min-w-0 flex-1">

@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
+
 logger = logging.getLogger(__name__)
 
 
@@ -207,6 +209,7 @@ SYSTEM_PROMPT = (
     "Both languages must convey the SAME information. The Chinese version "
     "is not a word-for-word translation — render naturally in 简体中文 "
     "while preserving every fact and number.\n\n"
+    f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n\n"
     "HARD RULES — every word earns its place:\n"
     "- No marketing adjectives (\"innovative\", \"leading\", \"world-class\", "
     "\"cutting-edge\") unless they appear verbatim in the deck.\n"
@@ -227,6 +230,7 @@ QUALITY_BAR = (
     "slide_refs as integer 1-indexed slide numbers.\n"
     "- Both languages (`en` and `zh` / 简体中文) must convey the SAME "
     "information. The Chinese version is naturally rendered, not literal.\n"
+    f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n"
     "- No marketing adjectives ('innovative', 'leading', 'world-class') "
     "unless the deck uses them as a direct quote.\n"
     "- No throat-clearing sentences. If you'd write 'the deck covers various "

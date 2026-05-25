@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 
 from server import claude_runner
+from server.chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ _SYSTEM_PROMPT = (
     "(ARR, IC, S&P 100, IPO), number, currency amount, and symbol "
     "verbatim. Preserve any leading ordinal and separator in a label "
     "exactly (e.g. \"01 · Verdict\" → \"01 · 结论\"). Do not add, drop, "
-    "or reorder content. Output the JSON object only."
+    "or reorder content. Output the JSON object only.\n\n"
+    f"{INVESTMENT_RESEARCH_CHINESE_STYLE}"
 )
 
 _SCHEMA = {

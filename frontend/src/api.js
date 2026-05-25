@@ -96,9 +96,24 @@ function _httpError(status, statusText, body) {
 }
 
 async function request(path, opts = {}) {
+  const { timeoutMs, ...fetchOpts } = opts;
+  let timeoutId = null;
+  let controller = null;
+  if (timeoutMs && !fetchOpts.signal) {
+    controller = new AbortController();
+    fetchOpts.signal = controller.signal;
+    timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  }
   const res = await apiFetch(path, {
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-    ...opts,
+    headers: { "Content-Type": "application/json", ...(fetchOpts.headers || {}) },
+    ...fetchOpts,
+  }).catch((e) => {
+    if (e?.name === "AbortError") {
+      throw new Error("Request timed out");
+    }
+    throw e;
+  }).finally(() => {
+    if (timeoutId != null) window.clearTimeout(timeoutId);
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -211,7 +226,7 @@ export const api = {
     withApiToken(
       `/api/companies/${companyId}/files/${fileId}/summary/stream`,
     ),
-  listActiveJobs: () => request("/api/jobs/active"),
+  listActiveJobs: () => request("/api/jobs/active", { timeoutMs: 8000 }),
   deleteFileSummary: async (companyId, fileId) => {
     const res = await apiFetch(
       `/api/companies/${companyId}/files/${fileId}/summary`,
@@ -379,6 +394,20 @@ export const api = {
   },
   hormuzAppendixFileUrl: (date, slot) =>
     withApiToken(`/api/external/hormuz/appendix/${date}/file?slot=${slot}`),
+
+  // ---- Weekly hot-stock dashboard ----
+  weeklyStocks: {
+    get: () => request("/api/weekly-stocks", { timeoutMs: 15000 }),
+    refresh: ({ force = false } = {}) => {
+      const qs = force ? "?force=true" : "";
+      return request(`/api/weekly-stocks/refresh${qs}`, {
+        method: "POST",
+        timeoutMs: 15000,
+      });
+    },
+    streamUrl: () => withApiToken("/api/weekly-stocks/refresh/stream"),
+  },
+
   listThreads: (companyId) =>
     request(`/api/companies/${companyId}/threads`),
   addThread: (companyId, payload) =>
@@ -401,8 +430,17 @@ export const api = {
         { method: "POST" },
       );
     },
+    refreshAll: (opts = {}) => {
+      const qs = opts.force ? "?force=true" : "";
+      return request(`/api/companies/trader/refresh-all${qs}`, {
+        method: "POST",
+        timeoutMs: 15000,
+      });
+    },
     streamUrl: (companyId) =>
       withApiToken(`/api/companies/${companyId}/trader/refresh/stream`),
+    refreshAllStreamUrl: () =>
+      withApiToken("/api/companies/trader/refresh-all/stream"),
   },
 
   // ---- Console (per-company Q&A sessions) ----

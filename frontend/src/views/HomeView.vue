@@ -14,6 +14,8 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  Flame,
+  RefreshCw,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
@@ -33,6 +35,9 @@ const error = ref(null);
 
 const searchResults = ref(null); // { source, matches } | null
 const searching = ref(false);
+const refreshingStockViews = ref(false);
+const stockRefreshMessage = ref(null);
+const stockRefreshError = ref(null);
 
 // Live progress feed during a Claude Code / OpenAI search
 const progressEvents = ref([]); // [{type, action, tool, preview, text, ts}]
@@ -42,6 +47,8 @@ const progressFeedRef = ref(null);
 // full action log.
 const progressExpanded = ref(false);
 let activeEventSource = null;
+let progressIdleTimer = null;
+const SEARCH_PROGRESS_IDLE_MS = 150000;
 
 const lastProgressEvent = computed(() => {
   const list = progressEvents.value;
@@ -100,10 +107,24 @@ async function pickSuggestion(s) {
 }
 
 function closeProgressStream() {
+  if (progressIdleTimer) {
+    clearTimeout(progressIdleTimer);
+    progressIdleTimer = null;
+  }
   if (activeEventSource) {
     activeEventSource.close();
     activeEventSource = null;
   }
+}
+
+function armProgressIdleTimer() {
+  if (progressIdleTimer) clearTimeout(progressIdleTimer);
+  progressIdleTimer = setTimeout(() => {
+    if (!searching.value) return;
+    error.value = t("home.search_stalled");
+    searching.value = false;
+    closeProgressStream();
+  }, SEARCH_PROGRESS_IDLE_MS);
 }
 
 function handleProgressEvent(entry) {
@@ -125,10 +146,11 @@ function handleProgressEvent(entry) {
     searching.value = false;
     closeProgressStream();
   } else if (entry.type === "error") {
-    error.value = entry.error || "Search failed";
+    error.value = entry.error || t("home.search_failed");
     searching.value = false;
     closeProgressStream();
   }
+  if (searching.value) armProgressIdleTimer();
   // Auto-scroll the feed to the latest event.
   nextTick(() => {
     const el = progressFeedRef.value;
@@ -165,6 +187,7 @@ async function runDeepSearch({ refresh = false } = {}) {
     // which sets searching=false on `done` or `error`.
     const es = new EventSource(api.searchStreamUrl(start.job_id));
     activeEventSource = es;
+    armProgressIdleTimer();
     es.onmessage = (msg) => {
       try {
         const entry = JSON.parse(msg.data);
@@ -181,6 +204,35 @@ async function runDeepSearch({ refresh = false } = {}) {
   } catch (e) {
     error.value = e.message;
     searching.value = false;
+  }
+}
+
+async function refreshAllStockViews() {
+  if (refreshingStockViews.value) return;
+  refreshingStockViews.value = true;
+  stockRefreshMessage.value = null;
+  stockRefreshError.value = null;
+  try {
+    const result = await api.trader.refreshAll();
+    const queued = result.queued_count ?? 0;
+    const total = result.total_count ?? 0;
+    if (!total) {
+      stockRefreshMessage.value = t("home.refresh_stock_views_none");
+    } else if (result.status === "already_running") {
+      stockRefreshMessage.value = t("home.refresh_stock_views_running", {
+        total,
+      });
+    } else {
+      stockRefreshMessage.value = t("home.refresh_stock_views_started", {
+        queued,
+        total,
+      });
+    }
+  } catch (e) {
+    stockRefreshError.value =
+      e?.message || t("home.refresh_stock_views_failed");
+  } finally {
+    refreshingStockViews.value = false;
   }
 }
 
@@ -222,6 +274,9 @@ function actionLabel(entry) {
       ? ` · ${(entry.duration_ms / 1000).toFixed(1)}s`
       : "";
     return `Done${cost}${dur}`;
+  }
+  if (entry.action === "interrupted") {
+    return entry.reason || t("home.search_failed");
   }
   return entry.type;
 }
@@ -267,16 +322,60 @@ function onBlur() {
 
 <template>
   <div class="max-w-4xl mx-auto px-8 py-12">
-    <header class="mb-10">
-      <div class="text-xs uppercase tracking-wider text-ink-muted mb-2">
-        {{ t("home.eyebrow") }}
+    <header class="mb-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div class="min-w-0">
+        <div class="text-xs uppercase tracking-wider text-ink-muted mb-2">
+          {{ t("home.eyebrow") }}
+        </div>
+        <h1 class="font-display text-3xl font-semibold text-ink-primary">
+          {{ t("home.title") }}
+        </h1>
+        <p class="mt-2 text-ink-secondary">
+          {{ t("home.subtitle") }}
+        </p>
       </div>
-      <h1 class="font-display text-3xl font-semibold text-ink-primary">
-        {{ t("home.title") }}
-      </h1>
-      <p class="mt-2 text-ink-secondary">
-        {{ t("home.subtitle") }}
-      </p>
+      <div class="shrink-0 flex flex-col items-stretch gap-2 sm:items-end">
+        <div class="flex flex-wrap items-center gap-2 sm:justify-end">
+          <router-link
+            :to="{ name: 'weekly-summary' }"
+            class="inline-flex items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted focus-ring"
+          >
+            <Flame class="h-4 w-4 text-accent" />
+            {{ t("home.weekly_summary") }}
+          </router-link>
+          <button
+            type="button"
+            :disabled="refreshingStockViews"
+            @click="refreshAllStockViews"
+            class="inline-flex items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted disabled:opacity-60 focus-ring"
+          >
+            <Loader2
+              v-if="refreshingStockViews"
+              class="h-4 w-4 animate-spin text-accent"
+            />
+            <RefreshCw v-else class="h-4 w-4 text-accent" />
+            <span>
+              {{
+                refreshingStockViews
+                  ? t("home.refreshing_stock_views")
+                  : t("home.refresh_stock_views")
+              }}
+            </span>
+          </button>
+        </div>
+        <p
+          v-if="stockRefreshMessage"
+          class="text-xs text-ink-muted sm:max-w-xs sm:text-right"
+        >
+          {{ stockRefreshMessage }}
+        </p>
+        <p
+          v-if="stockRefreshError"
+          class="text-xs text-danger sm:max-w-xs sm:text-right"
+        >
+          {{ stockRefreshError }}
+        </p>
+      </div>
     </header>
 
     <form @submit.prevent="runDeepSearch" class="relative">

@@ -113,12 +113,6 @@ function cancel() {
         />
         <div class="flex-1 min-w-0">
           <div class="text-xs text-ink-muted truncate">
-            <img
-              v-if="preview.favicon"
-              :src="preview.favicon"
-              alt=""
-              class="h-3 w-3 inline mr-1 align-text-bottom"
-            />
             <span>{{ preview.site_name || preview.domain }}</span>
           </div>
           <div class="text-sm font-medium text-ink-primary mt-0.5">
