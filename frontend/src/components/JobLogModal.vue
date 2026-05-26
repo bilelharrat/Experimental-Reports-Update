@@ -10,6 +10,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { apiFetch, withApiToken } from "../api.js";
+import { useT } from "../i18n.js";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -32,6 +33,7 @@ const props = defineProps({
 });
 const emit = defineEmits(["close"]);
 const router = useRouter();
+const t = useT();
 
 function goToResult() {
   if (!props.job.primary_route) return;
@@ -85,7 +87,7 @@ const grouped = computed(() => {
         finishedAt: null,
         cost: null,
         duration: null,
-        title: name === "main" ? "Run-level events" : name,
+        title: name === "main" ? t("jobs.modal.run_level_events") : name,
       });
       ordered.push(groups.get(name));
     }
@@ -154,7 +156,7 @@ function ingest(entry) {
     terminated.value = true;
   } else if (entry.type === "error") {
     terminated.value = true;
-    errorText.value = entry.error || "Job failed";
+    errorText.value = entry.error || t("jobs.modal.job_failed");
   }
   events.value.push(entry);
   nextTick(() => {
@@ -257,28 +259,36 @@ function actionIcon(entry) {
 }
 
 function kindLabel(kind) {
-  if (kind === "search") return "search";
-  if (kind === "pdf_translation") return "translation";
-  if (kind === "summary") return "deck summary";
-  if (kind === "external_research") return "research analysis";
-  if (kind === "research_summary") return "file summary";
-  if (kind === "memo") return "memo";
-  if (kind === "public_snapshot") return "trader snapshot";
-  if (kind?.startsWith("console_")) return "console";
-  return kind || "task";
+  if (kind?.startsWith("console_")) return t("jobs.kind.console");
+  const key = {
+    search: "jobs.kind.search",
+    pdf_translation: "jobs.kind.pdf_translation",
+    summary: "jobs.kind.summary",
+    external_research: "jobs.kind.external_research",
+    research_summary: "jobs.kind.research_summary",
+    memo: "jobs.kind.memo",
+    public_snapshot: "jobs.kind.public_snapshot",
+    public_snapshot_bulk: "jobs.kind.public_snapshot_bulk",
+    company_regen_all: "jobs.kind.company_regen_all",
+  }[kind];
+  return key ? t(key) : kind || t("jobs.kind.task");
 }
 
 function actionLabel(entry) {
   if (entry.type === "job_init")
-    return `${entry.title || "Job"} · ${entry.subtitle || entry.kind || ""}`;
+    return `${entry.title || t("jobs.modal.job")} · ${
+      entry.subtitle || entry.kind || ""
+    }`;
   if (entry.type === "stage") return entry.message || entry.stage;
   if (entry.action === "init")
-    return `Claude initialized (${entry.model || "claude"})`;
-  if (entry.action === "thinking") return entry.text || "Thinking…";
+    return `${t("jobs.action.claude_initialized")} (${entry.model || "claude"})`;
+  if (entry.action === "thinking") return entry.text || t("jobs.action.thinking");
   if (entry.action === "tool_use")
     return `${entry.tool}: ${entry.preview || ""}`;
   if (entry.action === "tool_result") {
-    const status = entry.is_error ? "error" : "ok";
+    const status = entry.is_error
+      ? t("jobs.action.tool_error")
+      : t("jobs.action.tool_ok");
     return `${entry.tool} → ${status}`;
   }
   if (entry.action === "result") {
@@ -288,14 +298,17 @@ function actionLabel(entry) {
     const dur = entry.duration_ms
       ? ` · ${(entry.duration_ms / 1000).toFixed(1)}s`
       : "";
-    return `Done${cost}${dur}`;
+    return `${t("jobs.action.run_finished")}${cost}${dur}`;
   }
   if (entry.type === "thread_started")
-    return `Started: ${entry.title || entry.thread || "pass"}`;
-  if (entry.type === "thread_finished") return "Pass complete";
-  if (entry.type === "thread_failed") return "Pass failed";
-  if (entry.type === "done") return "Job complete";
-  if (entry.type === "error") return `Error: ${entry.error || "?"}`;
+    return t("jobs.modal.started", {
+      title: entry.title || entry.thread || t("jobs.modal.pass"),
+    });
+  if (entry.type === "thread_finished") return t("jobs.modal.pass_complete");
+  if (entry.type === "thread_failed") return t("jobs.modal.pass_failed");
+  if (entry.type === "done") return t("jobs.modal.job_complete");
+  if (entry.type === "error")
+    return t("jobs.modal.error", { error: entry.error || "?" });
   return entry.type;
 }
 
@@ -344,9 +357,21 @@ function fmtElapsed(ms) {
 const headerSubtitle = computed(() => {
   if (stage.value?.message) return stage.value.message;
   if (terminated.value && errorText.value) return errorText.value;
-  if (terminated.value) return "Complete";
-  return "Working…";
+  if (terminated.value) return t("jobs.modal.complete");
+  return t("jobs.modal.working");
 });
+
+function eventCountText(count) {
+  return count === 1
+    ? t("jobs.modal.event_count_one")
+    : t("jobs.modal.event_count", { count });
+}
+
+function liveTailText(count) {
+  return count === 1
+    ? t("jobs.modal.live_tail_one")
+    : t("jobs.modal.live_tail", { count });
+}
 </script>
 
 <template>
@@ -394,7 +419,7 @@ const headerSubtitle = computed(() => {
             type="button"
             @click="emit('close')"
             class="p-1 text-ink-muted hover:text-ink-primary focus-ring rounded"
-            title="Close"
+            :title="t('jobs.modal.close')"
           >
             <X class="h-4 w-4" />
           </button>
@@ -408,7 +433,7 @@ const headerSubtitle = computed(() => {
             v-if="events.length === 0"
             class="px-2 py-4 text-ink-muted italic"
           >
-            Waiting for events…
+            {{ t("jobs.modal.waiting") }}
           </div>
 
           <!-- Composite job: collapsible per-thread sections. -->
@@ -444,12 +469,12 @@ const headerSubtitle = computed(() => {
                   {{ g.title }}
                 </div>
                 <span class="text-[10px] text-ink-muted font-normal">
-                  {{ g.events.length }} event{{ g.events.length === 1 ? "" : "s" }}
+                  {{ eventCountText(g.events.length) }}
                 </span>
                 <span
                   v-if="groupElapsedMs(g) != null"
                   class="text-[10px] text-ink-muted font-normal tabular-nums"
-                  :title="'Elapsed for this step'"
+                  :title="t('jobs.modal.elapsed_title')"
                 >
                   {{ fmtElapsed(groupElapsedMs(g)) }}
                 </span>
@@ -504,7 +529,7 @@ const headerSubtitle = computed(() => {
                   class="sticky bottom-0 w-full mt-1 px-2 py-1 flex items-center justify-center gap-1.5 text-[11px] text-ink-muted hover:text-ink-primary bg-canvas/95 border-t border-subtle focus-ring"
                 >
                   <ChevronUp class="h-3 w-3" />
-                  Collapse “{{ g.title }}”
+                  {{ t("jobs.modal.collapse_step", { title: g.title }) }}
                 </button>
               </div>
             </section>
@@ -545,27 +570,25 @@ const headerSubtitle = computed(() => {
         >
           <div class="flex items-center gap-3">
             <span v-if="totalElapsedMs != null">
-              Elapsed
+              {{ t("jobs.modal.elapsed") }}
               <span class="text-ink-primary font-mono">
                 {{ fmtElapsed(totalElapsedMs) }}
               </span>
             </span>
             <span v-if="finalCost != null">
-              Cost
+              {{ t("jobs.modal.cost") }}
               <span class="text-ink-primary font-mono">
                 ${{ Number(finalCost).toFixed(4) }}
               </span>
             </span>
             <span v-if="finalDuration != null">
-              Duration
+              {{ t("jobs.modal.duration") }}
               <span class="text-ink-primary font-mono">
                 {{ (finalDuration / 1000).toFixed(1) }}s
               </span>
             </span>
             <span v-if="!finalCost && !finalDuration && !terminated">
-              Live tail · {{ events.length }} event{{
-                events.length === 1 ? "" : "s"
-              }}
+              {{ liveTailText(events.length) }}
             </span>
           </div>
           <div class="flex items-center gap-2">
@@ -576,14 +599,14 @@ const headerSubtitle = computed(() => {
               class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface focus-ring text-ink-secondary inline-flex items-center gap-1"
             >
               <ArrowUpRight class="h-3 w-3" />
-              View result
+              {{ t("jobs.modal.view_result") }}
             </button>
             <button
               type="button"
               @click="emit('close')"
               class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface focus-ring text-ink-secondary"
             >
-              Close
+              {{ t("jobs.modal.close") }}
             </button>
           </div>
         </footer>

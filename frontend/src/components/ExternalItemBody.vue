@@ -1,10 +1,13 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { Languages } from "lucide-vue-next";
+import { useT } from "../i18n.js";
 
 const props = defineProps({
   item: { type: Object, required: true },
 });
+
+const t = useT();
 
 // Tab state: source (item.language) or translation (item.translation.language)
 const tab = ref("source");
@@ -59,7 +62,7 @@ const langLabel = (code) =>
             : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
         ]"
       >
-        Source · {{ langLabel(sourceLang) }}
+        {{ t("external.source_panel") }} · {{ langLabel(sourceLang) }}
       </button>
       <button
         type="button"
@@ -71,13 +74,13 @@ const langLabel = (code) =>
             : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
         ]"
       >
-        Translation · {{ langLabel(targetLang) }}
+        {{ t("external.translation_panel") }} · {{ langLabel(targetLang) }}
       </button>
     </div>
 
     <section v-if="view.summary">
       <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
-        Summary
+        {{ t("external.summary") }}
       </h3>
       <p class="text-ink-secondary leading-relaxed whitespace-pre-wrap">
         {{ view.summary }}
@@ -86,7 +89,7 @@ const langLabel = (code) =>
 
     <section v-if="view.key_points.length">
       <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
-        Key points
+        {{ t("external.key_points") }}
       </h3>
       <ul class="space-y-1.5 list-disc pl-5 text-ink-secondary">
         <li v-for="(kp, i) in view.key_points" :key="i">
@@ -99,7 +102,7 @@ const langLabel = (code) =>
       <summary
         class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-ink-muted hover:text-ink-primary"
       >
-        Full translation
+        {{ t("external.full_translation") }}
       </summary>
       <pre
         class="mt-2 whitespace-pre-wrap font-body text-sm leading-relaxed text-ink-primary bg-surface-muted rounded-lg p-4 border border-subtle"

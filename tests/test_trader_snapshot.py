@@ -11,7 +11,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from server import companies_ai_public, storage, trader_bilingual_fill
+from server import (
+    companies_ai,
+    companies_ai_public,
+    company_translate,
+    storage,
+    trader_bilingual_fill,
+)
 from server.main import app
 
 
@@ -56,10 +62,13 @@ def tmp_storage(monkeypatch, tmp_path):
         yield tmp_path
     finally:
         for t in threading.enumerate():
-            if t.name.startswith("trader-snapshot:") and t.is_alive():
+            if (
+                t.name.startswith("trader-snapshot:")
+                or t.name == "company-regen-all"
+            ) and t.is_alive():
                 t.join(timeout=5.0)
                 assert not t.is_alive(), (
-                    f"trader-snapshot worker {t.name!r} did not finish "
+                    f"background worker {t.name!r} did not finish "
                     "within 5s; refusing to tear down tmp_storage "
                     "because the daemon will write to the real "
                     "data/companies.yaml after monkeypatch reverts."
@@ -662,6 +671,103 @@ def test_refresh_all_public_companies_writes_each_public_snapshot(
     assert done["refreshed_count"] == 2
     assert done["skipped_count"] == 0
     assert done["failed_count"] == 0
+
+
+def test_regen_all_refreshes_summaries_and_public_trader_views(
+    tmp_storage, stub_generate, monkeypatch, client,
+):
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {
+            "id": COMPANY_ID,
+            "name": "Advanced Micro Devices, Inc.",
+            "ticker": "AMD",
+            "exchange": "NASDAQ",
+            "status": "public",
+            "company_type": "public",
+            "description": "Old AMD summary.",
+        },
+        {
+            "id": "anduril",
+            "name": "Anduril Industries",
+            "status": "private",
+            "company_type": "private",
+            "description": "Old Anduril summary.",
+        },
+    ])
+
+    def fake_deep_search(query, *, force_refresh=False, progress=None):
+        assert force_refresh is True
+        company = next(
+            c for c in storage.list_companies() if c.get("name") == query
+        )
+        updated = storage.update_company(
+            company["id"],
+            description=f"Fresh summary for {query}.",
+            recent_news=[
+                {
+                    "headline": f"{query} update",
+                    "date": "2026-05-25",
+                    "summary": "Fresh company news.",
+                },
+            ],
+        )
+        if progress is not None:
+            progress.emit(
+                "claude_action",
+                action="thinking",
+                text=f"search {query}",
+            )
+        return {
+            "source": "claude_code",
+            "matches": [updated],
+            "cached_at": "2026-05-25T00:00:00+00:00",
+        }
+
+    def fake_translate(company):
+        return {
+            "language": "en",
+            "translation": {
+                "language": "zh",
+                "description": f"ZH {company['description']}",
+                "recent_news": [
+                    {
+                        "headline": "ZH update",
+                        "summary": "ZH Fresh company news.",
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(companies_ai, "deep_search", fake_deep_search)
+    monkeypatch.setattr(company_translate, "translate_company", fake_translate)
+
+    resp = client.post("/api/companies/regen-all")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "queued"
+    assert body["languages_requested"] == ["en", "zh"]
+    assert body["total_count"] == 2
+    assert body["public_trader_count"] == 1
+    assert body["company_ids"] == [COMPANY_ID, "anduril"]
+
+    done = _wait_for_progress_done(
+        storage.DATA_DIR / "_regen" / "__all_companies_regen.progress.jsonl"
+    )
+    assert done["type"] == "done"
+    assert done["total_count"] == 2
+    assert done["summary_refreshed_count"] == 2
+    assert done["summary_failed_count"] == 0
+    assert done["trader_refreshed_count"] == 1
+    assert done["trader_failed_count"] == 0
+
+    amd = storage.get_company(COMPANY_ID)
+    anduril = storage.get_company("anduril")
+    assert amd["description"] == "Fresh summary for Advanced Micro Devices, Inc.."
+    assert amd["translation"]["description"].startswith("ZH Fresh summary")
+    assert amd["trader_snapshot"]["available_languages"] == ["en", "zh"]
+    assert anduril["description"] == "Fresh summary for Anduril Industries."
+    assert anduril["translation"]["description"].startswith("ZH Fresh summary")
+    assert anduril.get("trader_snapshot") is None
 
 
 def test_refresh_records_bilingual_query_params(

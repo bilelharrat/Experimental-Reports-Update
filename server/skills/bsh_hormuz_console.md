@@ -71,4 +71,8 @@ Treat those staged files as the authoritative dossier:
   Chinese equivalent, keep the English term and add a short Chinese gloss
   on first mention rather than forcing a calque. Do not translate
   "tailwind" as "顺风"; use "行业利好", "需求侧利好",
-  "结构性利好", or `tailwind（利好因素）` as context requires.
+  "结构性利好", or `tailwind（利好因素）` as context requires. Do not
+  translate "runway" mechanically as "跑道" unless that is already
+  idiomatic in context; prefer "现金可支撑时间" or "增长空间". Translate
+  "stickiness" as "客户黏性" / "用户黏性", or describe retention and
+  switching costs directly.

@@ -38,6 +38,9 @@ const searching = ref(false);
 const refreshingStockViews = ref(false);
 const stockRefreshMessage = ref(null);
 const stockRefreshError = ref(null);
+const regeneratingAll = ref(false);
+const regenAllMessage = ref(null);
+const regenAllError = ref(null);
 
 // Live progress feed during a Claude Code / OpenAI search
 const progressEvents = ref([]); // [{type, action, tool, preview, text, ts}]
@@ -236,6 +239,32 @@ async function refreshAllStockViews() {
   }
 }
 
+async function regenAllCompanies() {
+  if (regeneratingAll.value) return;
+  regeneratingAll.value = true;
+  regenAllMessage.value = null;
+  regenAllError.value = null;
+  try {
+    const result = await api.regenAllCompanies();
+    const total = result.total_count ?? 0;
+    const publicCount = result.public_trader_count ?? 0;
+    if (!total) {
+      regenAllMessage.value = t("home.regen_all_none");
+    } else if (result.status === "already_running") {
+      regenAllMessage.value = t("home.regen_all_running", { total });
+    } else {
+      regenAllMessage.value = t("home.regen_all_started", {
+        total,
+        public: publicCount,
+      });
+    }
+  } catch (e) {
+    regenAllError.value = e?.message || t("home.regen_all_failed");
+  } finally {
+    regeneratingAll.value = false;
+  }
+}
+
 onBeforeUnmount(closeProgressStream);
 
 // Display helpers for the progress feed.
@@ -250,21 +279,24 @@ function actionIcon(entry) {
 
 function actionLabel(entry) {
   if (entry.type === "stage") return entry.message || entry.stage;
-  if (entry.action === "init") return `Claude initialized (${entry.model || "claude"})`;
-  if (entry.action === "thinking") return entry.text || "Thinking…";
+  if (entry.action === "init")
+    return `${t("jobs.action.claude_initialized")} (${entry.model || "claude"})`;
+  if (entry.action === "thinking") return entry.text || t("jobs.action.thinking");
   if (entry.action === "tool_use") {
-    if (entry.tool === "WebSearch") return `Web search: ${entry.preview}`;
-    if (entry.tool === "WebFetch") return `Fetch: ${entry.preview}`;
+    if (entry.tool === "WebSearch")
+      return `${t("home.progress_web_search")}: ${entry.preview}`;
+    if (entry.tool === "WebFetch")
+      return `${t("home.progress_fetch")}: ${entry.preview}`;
     return `${entry.tool}: ${entry.preview || ""}`;
   }
   if (entry.action === "tool_result") {
     if (entry.is_error) {
       const reason = (entry.preview || "").trim();
       return reason
-        ? `${entry.tool} → error: ${reason.slice(0, 160)}`
-        : `${entry.tool} → error`;
+        ? `${entry.tool} → ${t("jobs.action.tool_error")}: ${reason.slice(0, 160)}`
+        : `${entry.tool} → ${t("jobs.action.tool_error")}`;
     }
-    return `${entry.tool} → ok`;
+    return `${entry.tool} → ${t("jobs.action.tool_ok")}`;
   }
   if (entry.action === "result") {
     const cost = entry.cost_usd
@@ -273,7 +305,7 @@ function actionLabel(entry) {
     const dur = entry.duration_ms
       ? ` · ${(entry.duration_ms / 1000).toFixed(1)}s`
       : "";
-    return `Done${cost}${dur}`;
+    return `${t("home.progress_done")}${cost}${dur}`;
   }
   if (entry.action === "interrupted") {
     return entry.reason || t("home.search_failed");
@@ -289,12 +321,12 @@ function formatCachedAt(iso) {
   const ageSec = Math.max(0, Math.round((now - d.getTime()) / 1000));
   const ageStr =
     ageSec < 60
-      ? "just now"
+      ? t("home.cache_just_now")
       : ageSec < 3600
-      ? `${Math.round(ageSec / 60)}m ago`
+      ? t("home.cache_minutes_ago", { n: Math.round(ageSec / 60) })
       : ageSec < 86400
-      ? `${Math.round(ageSec / 3600)}h ago`
-      : `${Math.round(ageSec / 86400)}d ago`;
+      ? t("home.cache_hours_ago", { n: Math.round(ageSec / 3600) })
+      : t("home.cache_days_ago", { n: Math.round(ageSec / 86400) });
   return { full: d.toLocaleString(), age: ageStr };
 }
 
@@ -334,20 +366,39 @@ function onBlur() {
           {{ t("home.subtitle") }}
         </p>
       </div>
-      <div class="shrink-0 flex flex-col items-stretch gap-2 sm:items-end">
-        <div class="flex flex-wrap items-center gap-2 sm:justify-end">
+      <div class="w-full shrink-0 flex flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+        <div class="flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pb-0">
           <router-link
             :to="{ name: 'weekly-summary' }"
-            class="inline-flex items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted focus-ring"
+            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted focus-ring"
           >
             <Flame class="h-4 w-4 text-accent" />
             {{ t("home.weekly_summary") }}
           </router-link>
           <button
             type="button"
+            :disabled="regeneratingAll"
+            @click="regenAllCompanies"
+            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted disabled:opacity-60 focus-ring"
+          >
+            <Loader2
+              v-if="regeneratingAll"
+              class="h-4 w-4 animate-spin text-accent"
+            />
+            <Sparkles v-else class="h-4 w-4 text-accent" />
+            <span>
+              {{
+                regeneratingAll
+                  ? t("home.regenerating_all")
+                  : t("home.regen_all")
+              }}
+            </span>
+          </button>
+          <button
+            type="button"
             :disabled="refreshingStockViews"
             @click="refreshAllStockViews"
-            class="inline-flex items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted disabled:opacity-60 focus-ring"
+            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted disabled:opacity-60 focus-ring"
           >
             <Loader2
               v-if="refreshingStockViews"
@@ -375,6 +426,18 @@ function onBlur() {
         >
           {{ stockRefreshError }}
         </p>
+        <p
+          v-if="regenAllMessage"
+          class="text-xs text-ink-muted sm:max-w-xs sm:text-right"
+        >
+          {{ regenAllMessage }}
+        </p>
+        <p
+          v-if="regenAllError"
+          class="text-xs text-danger sm:max-w-xs sm:text-right"
+        >
+          {{ regenAllError }}
+        </p>
       </div>
     </header>
 
@@ -394,7 +457,7 @@ function onBlur() {
       <button
         type="submit"
         :disabled="!query.trim() || searching"
-        class="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-60 focus-ring"
+        class="absolute right-2 top-1/2 -translate-y-1/2 inline-flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-60 focus-ring"
       >
         <Sparkles class="h-3.5 w-3.5" />
         <span>{{ searching ? t("home.searching") : t("home.search") }}</span>
@@ -589,7 +652,7 @@ function onBlur() {
         :to="{ name: 'hormuz-library' }"
         class="block w-full text-left px-3 py-2 rounded-card border border-subtle bg-surface hover:bg-surface-muted text-sm text-ink-primary focus-ring"
       >
-        Hormuz source library &amp; V3 appendix →
+        {{ t("home.hormuz_library") }}
       </router-link>
     </div>
   </div>

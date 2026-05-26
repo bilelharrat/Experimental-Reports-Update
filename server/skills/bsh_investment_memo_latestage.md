@@ -1525,7 +1525,7 @@ Rules:
 | Table of Contents | 目录 |
 | I. Executive Summary | 一、核心摘要 |
 | Investment Opportunity | 投资机会 |
-| Investment Thesis | 投资论点 |
+| Investment Thesis | 投资逻辑 |
 | Investment Risk | 投资风险 |
 | Investment Recommendation | 投资建议 |
 | Open Questions | 待解决问题 |
@@ -1578,7 +1578,7 @@ Use these on first mention if the audience may benefit. Do not over-translate; f
 | NRR | 净收入留存率 |
 | Gross retention | 毛留存率 |
 | Burn rate | 现金消耗率 |
-| Runway | 资金跑道 |
+| Runway | 现金可支撑时间 / 增长空间（按语境） |
 | GTM | 市场进入策略 |
 | Moat | 护城河 |
 | Deployment depth | 部署深度 |
@@ -1586,7 +1586,7 @@ Use these on first mention if the audience may benefit. Do not over-translate; f
 | Stale-mark multiple | 旧基准估值倍数 |
 | Contemporaneous multiple | 同期估值倍数 |
 | Forward multiple | 前瞻估值倍数 |
-| Growth bridge | 增长桥接 |
+| Growth bridge | 增长拆解 |
 | Capital structure | 资本结构 |
 | Dilution | 股权稀释 |
 | Liquidation preference | 清算优先权 |

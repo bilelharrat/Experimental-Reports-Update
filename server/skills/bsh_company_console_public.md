@@ -72,7 +72,11 @@ on first mention. Avoid awkward calques: do not translate "tailwind" as
 "顺风"; use "行业利好", "需求侧利好", "结构性利好", or
 `tailwind（利好因素）`. Do not translate coined phrases like
 "credible second wave" as "可信第二波"; render the meaning instead,
-such as "第二轮增长的可信度" or "有望形成第二波增长".
+such as "第二轮增长的可信度" or "有望形成第二波增长". Do not translate
+"runway" mechanically as "跑道" unless that is already idiomatic in
+context; prefer "现金可支撑时间" or "增长空间". Translate "stickiness"
+as "客户黏性" / "用户黏性", or describe retention and switching costs
+directly.
 
 ## Attached files
 

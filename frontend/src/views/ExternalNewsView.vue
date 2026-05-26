@@ -11,9 +11,11 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import ExternalItemBody from "../components/ExternalItemBody.vue";
+import { useT } from "../i18n.js";
 
 const props = defineProps({ id: { type: String, required: true } });
 const router = useRouter();
+const t = useT();
 
 const item = ref(null);
 const error = ref(null);
@@ -67,7 +69,7 @@ watch(
 onUnmounted(stopPolling);
 
 async function remove() {
-  if (!confirm("Delete this news item, archived HTML, and local assets?")) return;
+  if (!confirm(t("news.delete_confirm"))) return;
   await api.deleteNews(props.id);
   router.push({ name: "home" });
 }
@@ -97,12 +99,14 @@ async function retry() {
       @click="router.push({ name: 'home' })"
       class="text-sm text-ink-muted hover:text-ink-primary inline-flex items-center gap-1 focus-ring rounded"
     >
-      <ArrowLeft class="h-4 w-4" /> Back
+      <ArrowLeft class="h-4 w-4" /> {{ t("common.back") }}
     </button>
 
     <div v-if="error" class="text-sm text-danger">{{ error }}</div>
 
-    <div v-if="!item && !error" class="text-sm text-ink-muted">Loading…</div>
+    <div v-if="!item && !error" class="text-sm text-ink-muted">
+      {{ t("common.loading") }}
+    </div>
 
     <template v-if="item">
       <header class="flex items-start gap-4 border-b border-subtle pb-5">
@@ -113,7 +117,7 @@ async function retry() {
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-xs uppercase tracking-wider text-ink-muted">
-            News · {{ item.domain || item.site_name || "link" }}
+            {{ t("news.type") }} · {{ item.domain || item.site_name || t("news.link") }}
           </div>
           <h1
             class="font-display text-2xl font-semibold text-ink-primary mt-0.5"
@@ -132,7 +136,11 @@ async function retry() {
               {{ (item.final_url || item.source_url).replace(/^https?:\/\//, "").slice(0, 80) }}
             </a>
             <span v-if="item.captured_at"
-              >Captured {{ new Date(item.captured_at).toLocaleString() }}</span
+              >{{
+                t("news.captured", {
+                  time: new Date(item.captured_at).toLocaleString(),
+                })
+              }}</span
             >
             <a
               v-if="item.archive_path"
@@ -140,7 +148,7 @@ async function retry() {
               target="_blank"
               rel="noopener"
               class="text-ink-muted hover:text-ink-primary underline focus-ring rounded"
-              >View archived HTML</a
+              >{{ t("news.view_archive") }}</a
             >
             <span
               v-if="item.language"
@@ -150,12 +158,12 @@ async function retry() {
             <span
               v-if="item.status === 'ready'"
               class="px-1.5 py-0.5 rounded bg-success-soft text-success-ink"
-              >Ready</span
+              >{{ t("news.ready") }}</span
             >
             <span
               v-else-if="item.status === 'failed'"
               class="px-1.5 py-0.5 rounded bg-danger-soft text-danger-ink"
-              >Failed</span
+              >{{ t("news.failed") }}</span
             >
             <span
               v-else
@@ -169,7 +177,7 @@ async function retry() {
           @click="retry"
           :disabled="refreshDisabled"
           class="p-1.5 rounded hover:bg-surface-muted text-ink-muted hover:text-ink-primary focus-ring disabled:opacity-50"
-          :title="retrying ? 'Refreshing archive' : 'Refresh archive'"
+          :title="retrying ? t('news.refreshing_archive') : t('news.refresh_archive')"
         >
           <Loader2 v-if="retrying" class="h-4 w-4 animate-spin" />
           <RefreshCw v-else class="h-4 w-4" />
@@ -177,7 +185,7 @@ async function retry() {
         <button
           @click="remove"
           class="p-1.5 rounded hover:bg-danger-soft text-ink-muted hover:text-danger-ink focus-ring"
-          title="Delete"
+          :title="t('common.delete')"
         >
           <Trash2 class="h-4 w-4" />
         </button>
@@ -187,7 +195,7 @@ async function retry() {
         v-if="item.analysis_error"
         class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
       >
-        <span>Analysis incomplete — {{ item.analysis_error }}</span>
+        <span>{{ t("external.analysis_incomplete", { error: item.analysis_error }) }}</span>
         <button
           type="button"
           @click="retry"
@@ -196,7 +204,7 @@ async function retry() {
         >
           <Loader2 v-if="retrying" class="h-3 w-3 animate-spin" />
           <RefreshCw v-else class="h-3 w-3" />
-          <span>Retry</span>
+          <span>{{ t("common.retry") }}</span>
         </button>
       </div>
 

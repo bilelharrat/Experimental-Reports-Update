@@ -182,6 +182,15 @@ export const api = {
   getCompany: (id) => request(`/api/companies/${id}`),
   refreshCompany: (id) =>
     request(`/api/companies/${id}/refresh`, { method: "POST" }),
+  regenAllCompanies: ({ force = false } = {}) => {
+    const qs = force ? "?force=true" : "";
+    return request(`/api/companies/regen-all${qs}`, {
+      method: "POST",
+      timeoutMs: 15000,
+    });
+  },
+  regenAllCompaniesStreamUrl: () =>
+    withApiToken("/api/companies/regen-all/stream"),
   generateReport: (payload) =>
     request("/api/reports", {
       method: "POST",

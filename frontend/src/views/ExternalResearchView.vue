@@ -83,7 +83,7 @@ watch(
 onUnmounted(stopPolling);
 
 async function remove() {
-  if (!confirm("Delete this research item and its uploaded file?")) return;
+  if (!confirm(t("external.delete_confirm"))) return;
   await api.deleteExternalResearch(props.id);
   router.push({ name: "home" });
 }
@@ -172,7 +172,7 @@ function handleTranslateEvent(entry) {
     // Reload the item to pick up the persisted pdf_translation block.
     load();
   } else if (entry.type === "error") {
-    translateError.value = entry.error || "Translation failed";
+    translateError.value = entry.error || t("external.translation_failed_short");
     translating.value = false;
     closeTranslateStream();
   }
@@ -225,11 +225,14 @@ onBeforeUnmount(closeTranslateStream);
 // Display helpers for the progress feed (mirrors HomeView search feed).
 function actionLabel(entry) {
   if (entry.type === "stage") return entry.message || entry.stage;
-  if (entry.action === "init") return `Claude initialized (${entry.model || "claude"})`;
-  if (entry.action === "thinking") return entry.text || "Thinking…";
+  if (entry.action === "init")
+    return `${t("jobs.action.claude_initialized")} (${entry.model || "claude"})`;
+  if (entry.action === "thinking") return entry.text || t("jobs.action.thinking");
   if (entry.action === "tool_use") return `${entry.tool}: ${entry.preview || ""}`;
   if (entry.action === "tool_result") {
-    const status = entry.is_error ? "error" : "ok";
+    const status = entry.is_error
+      ? t("jobs.action.tool_error")
+      : t("jobs.action.tool_ok");
     return `${entry.tool} → ${status}`;
   }
   if (entry.action === "result") {
@@ -239,7 +242,7 @@ function actionLabel(entry) {
     const dur = entry.duration_ms
       ? ` · ${(entry.duration_ms / 1000).toFixed(1)}s`
       : "";
-    return `Done${cost}${dur}`;
+    return `${t("home.progress_done")}${cost}${dur}`;
   }
   return entry.type;
 }
@@ -258,11 +261,13 @@ const showFullViewer = ref(false);
       @click="router.push({ name: 'home' })"
       class="text-sm text-ink-muted hover:text-ink-primary inline-flex items-center gap-1 focus-ring rounded"
     >
-      <ArrowLeft class="h-4 w-4" /> Back
+      <ArrowLeft class="h-4 w-4" /> {{ t("external.back") }}
     </button>
 
     <div v-if="error" class="text-sm text-danger">{{ error }}</div>
-    <div v-if="!item && !error" class="text-sm text-ink-muted">Loading…</div>
+    <div v-if="!item && !error" class="text-sm text-ink-muted">
+      {{ t("external.loading") }}
+    </div>
 
     <template v-if="item">
       <header class="flex items-start gap-4 border-b border-subtle pb-4">
@@ -273,7 +278,7 @@ const showFullViewer = ref(false);
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-xs uppercase tracking-wider text-ink-muted">
-            External research
+            {{ t("external.type") }}
           </div>
           <h1
             class="font-display text-2xl font-semibold text-ink-primary mt-0.5"
@@ -298,23 +303,27 @@ const showFullViewer = ref(false);
               {{ item.contact_email }}
             </a>
             <span v-if="item.captured_at"
-              >Captured {{ new Date(item.captured_at).toLocaleString() }}</span
+              >{{
+                t("news.captured", {
+                  time: new Date(item.captured_at).toLocaleString(),
+                })
+              }}</span
             >
             <span
               v-if="detectedLang"
               class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary font-mono uppercase"
-              :title="`Detected source language: ${langLabel(detectedLang)}`"
+              :title="t('external.detected_source_language', { lang: langLabel(detectedLang) })"
               >{{ detectedLang }}</span
             >
             <span
               v-if="item.status === 'ready'"
               class="px-1.5 py-0.5 rounded bg-success-soft text-success-ink"
-              >Ready</span
+              >{{ t("news.ready") }}</span
             >
             <span
               v-else-if="item.status === 'failed'"
               class="px-1.5 py-0.5 rounded bg-danger-soft text-danger-ink"
-              >Failed</span
+              >{{ t("news.failed") }}</span
             >
             <span
               v-else
@@ -335,14 +344,14 @@ const showFullViewer = ref(false);
           :href="fileUrl"
           :download="item.filename"
           class="p-1.5 rounded hover:bg-surface-muted text-ink-muted hover:text-ink-primary focus-ring"
-          :title="`Download ${item.filename}`"
+          :title="t('external.download_tooltip', { file: item.filename })"
         >
           <Download class="h-4 w-4" />
         </a>
         <button
           @click="remove"
           class="p-1.5 rounded hover:bg-danger-soft text-ink-muted hover:text-danger-ink focus-ring"
-          title="Delete"
+          :title="t('external.delete')"
         >
           <Trash2 class="h-4 w-4" />
         </button>
@@ -355,11 +364,11 @@ const showFullViewer = ref(false);
       >
         <AlertCircle class="h-4 w-4 mt-0.5 shrink-0" />
         <div class="flex-1">
-          Source detected as
+          {{ t("external.source_detected_as") }}
           <strong>{{ langLabel(detectedLang) }}</strong>
-          but your app language is
+          {{ t("external.but_app_language_is") }}
           <strong>{{ langLabel(appLanguage) }}</strong>.
-          Generate a high-quality {{ langLabel(appLanguage) }} translation?
+          {{ t("external.generate_translation_question", { lang: langLabel(appLanguage) }) }}
         </div>
         <button
           type="button"
@@ -367,7 +376,7 @@ const showFullViewer = ref(false);
           class="text-xs px-2 py-1 rounded border border-warning/40 hover:bg-warning/10 text-warning-ink focus-ring inline-flex items-center gap-1.5 shrink-0"
         >
           <Languages class="h-3 w-3" />
-          Translate
+          {{ t("external.translate") }}
         </button>
       </div>
 
@@ -375,7 +384,7 @@ const showFullViewer = ref(false);
         v-if="item.analysis_error"
         class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
       >
-        <span>Analysis incomplete — {{ item.analysis_error }}</span>
+        <span>{{ t("external.analysis_incomplete", { error: item.analysis_error }) }}</span>
         <button
           type="button"
           @click="retry"
@@ -384,7 +393,7 @@ const showFullViewer = ref(false);
         >
           <Loader2 v-if="retrying" class="h-3 w-3 animate-spin" />
           <RefreshCw v-else class="h-3 w-3" />
-          <span>Retry</span>
+          <span>{{ t("external.retry") }}</span>
         </button>
       </div>
       <div
@@ -409,7 +418,7 @@ const showFullViewer = ref(false);
             class="px-3 py-2 border-b border-subtle bg-surface-muted flex items-center justify-between text-sm"
           >
             <span class="font-medium text-ink-primary">
-              Source · {{ langLabel(detectedLang) }}
+              {{ t("external.source_panel") }} · {{ langLabel(detectedLang) }}
             </span>
             <div class="flex items-center gap-2">
               <button
@@ -417,7 +426,11 @@ const showFullViewer = ref(false);
                 @click="showFullViewer = !showFullViewer"
                 class="text-xs px-2 py-0.5 rounded border border-subtle hover:bg-surface focus-ring text-ink-secondary"
               >
-                {{ showFullViewer ? "Side-by-side" : "Full width" }}
+                {{
+                  showFullViewer
+                    ? t("external.side_by_side")
+                    : t("external.full_width")
+                }}
               </button>
               <a
                 :href="fileUrl"
@@ -425,7 +438,7 @@ const showFullViewer = ref(false);
                 class="text-xs text-accent hover:text-accent-hover inline-flex items-center gap-1 focus-ring rounded"
               >
                 <Download class="h-3 w-3" />
-                Download
+                {{ t("external.download") }}
               </a>
             </div>
           </header>
@@ -446,7 +459,7 @@ const showFullViewer = ref(false);
           >
             <span class="font-medium text-ink-primary inline-flex items-center gap-1.5">
               <Languages class="h-3.5 w-3.5 text-ink-muted" />
-              Translation
+              {{ t("external.translation_panel") }}
               <span v-if="translation?.target_language" class="text-ink-muted">
                 · {{ langLabel(translation.target_language) }}
               </span>
@@ -456,10 +469,10 @@ const showFullViewer = ref(false);
               type="button"
               @click="startTranslation"
               class="text-xs px-2 py-0.5 rounded border border-subtle hover:bg-surface focus-ring text-ink-secondary inline-flex items-center gap-1"
-              :title="`Re-translate using current app language (${langLabel(appLanguage)})`"
+              :title="t('external.retranslate_title', { lang: langLabel(appLanguage) })"
             >
               <RefreshCw class="h-3 w-3" />
-              Re-translate
+              {{ t("external.retranslate") }}
             </button>
           </header>
 
@@ -470,8 +483,11 @@ const showFullViewer = ref(false);
           >
             <Languages class="h-8 w-8 text-ink-muted" />
             <div class="text-sm text-ink-secondary">
-              Generate a high-quality {{ langLabel(appLanguage) }} translation
-              that preserves headings, paragraphs, and lists.
+              {{
+                t("external.empty_translate_prompt", {
+                  lang: langLabel(appLanguage),
+                })
+              }}
             </div>
             <button
               type="button"
@@ -480,7 +496,7 @@ const showFullViewer = ref(false);
               class="px-3 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1.5"
             >
               <Languages class="h-3.5 w-3.5" />
-              Translate to {{ langLabel(appLanguage) }}
+              {{ t("external.translate_to", { lang: langLabel(appLanguage) }) }}
             </button>
           </div>
 
@@ -494,7 +510,7 @@ const showFullViewer = ref(false);
             >
               <Loader2 class="h-4 w-4 animate-spin text-accent shrink-0" />
               <span class="text-ink-primary font-medium">
-                {{ translateStage?.message || "Starting translation…" }}
+                {{ translateStage?.message || t("external.starting_translation") }}
               </span>
               <span
                 v-if="translateStage?.stage"
@@ -541,7 +557,7 @@ const showFullViewer = ref(false);
             <div class="flex items-start gap-2">
               <AlertCircle class="h-4 w-4 mt-0.5 shrink-0" />
               <div class="flex-1">
-                Translation failed: {{ translateError }}
+                {{ t("external.translation_failed", { error: translateError }) }}
               </div>
             </div>
             <button
@@ -550,7 +566,7 @@ const showFullViewer = ref(false);
               class="mt-3 text-xs px-2 py-1 rounded border border-danger/40 hover:bg-danger/10 text-danger-ink focus-ring inline-flex items-center gap-1.5"
             >
               <RefreshCw class="h-3 w-3" />
-              Retry
+              {{ t("external.retry") }}
             </button>
           </div>
 
@@ -572,7 +588,7 @@ const showFullViewer = ref(false);
                 class="text-[10px] uppercase tracking-wider text-ink-muted border-t border-subtle pt-2"
                 v-if="pi > 0"
               >
-                Page {{ page.page }}
+                {{ t("external.page", { page: page.page }) }}
               </div>
               <template v-for="(b, bi) in page.blocks" :key="bi">
                 <h1
@@ -639,7 +655,7 @@ const showFullViewer = ref(false);
               v-if="translation.claude_cost_usd"
               class="text-[10px] text-ink-subtle border-t border-subtle pt-2"
             >
-              Translated by Anthropic · ${{ Number(translation.claude_cost_usd).toFixed(4) }}
+              {{ t("external.translated_by") }} · ${{ Number(translation.claude_cost_usd).toFixed(4) }}
               <span v-if="translation.claude_duration_ms">
                 · {{ (translation.claude_duration_ms / 1000).toFixed(1) }}s
               </span>

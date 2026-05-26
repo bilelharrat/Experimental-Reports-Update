@@ -43,10 +43,25 @@ function fmtAge(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const sec = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
-  if (sec < 60) return "now";
-  if (sec < 3600) return `${Math.round(sec / 60)}m`;
-  if (sec < 86400) return `${Math.round(sec / 3600)}h`;
-  return `${Math.round(sec / 86400)}d`;
+  if (sec < 60) return t("sidebar.age_now");
+  if (sec < 3600) return t("sidebar.age_minutes", { n: Math.round(sec / 60) });
+  if (sec < 86400) return t("sidebar.age_hours", { n: Math.round(sec / 3600) });
+  return t("sidebar.age_days", { n: Math.round(sec / 86400) });
+}
+
+function reportTypeLabel(type) {
+  if (appLanguage.value !== "zh") return type;
+  if (type === "Investment Memo (Late-Stage)") {
+    return t("research.report_type.investment_memo_late_stage");
+  }
+  return type;
+}
+
+function audienceLabel(audience) {
+  if (appLanguage.value !== "zh") return audience;
+  if (audience === "Internal") return t("research.audience.internal");
+  if (audience === "External") return t("research.audience.external");
+  return audience;
 }
 
 function routeFor(item) {
@@ -137,7 +152,7 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
           v-if="loading && reports.length === 0"
           class="px-3 py-2 text-sm text-ink-muted flex items-center gap-2"
         >
-          <Loader2 class="h-4 w-4 animate-spin" /> Loading…
+          <Loader2 class="h-4 w-4 animate-spin" /> {{ t("common.loading") }}
         </div>
         <div v-else-if="error" class="px-3 py-2 text-sm text-danger">
           {{ error }}
@@ -165,7 +180,7 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
                 {{ r.company_name || r.company_id }}
               </div>
               <div class="text-xs text-ink-muted truncate">
-                {{ r.report_type }} · {{ r.audience }}
+                {{ reportTypeLabel(r.report_type) }} · {{ audienceLabel(r.audience) }}
               </div>
               <div class="mt-1 flex items-center gap-2 text-xs">
                 <span
@@ -215,16 +230,17 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
             />
             <div class="min-w-0 flex-1">
               <div class="text-[15px] font-semibold leading-snug text-ink-primary line-clamp-2">
-                {{ item.title || item.source_url || "Untitled" }}
+                {{ item.title || item.source_url || t("sidebar.untitled") }}
               </div>
               <div class="mt-0.5 text-[11px] text-ink-muted truncate">
-                <span>{{ item.domain || item.site_name || "link" }}</span>
+                <span>{{ item.domain || item.site_name || t("news.link") }}</span>
                 <span class="text-ink-subtle">
-                  · {{ fmtAge(item.captured_at) }} ago</span
+                  · {{ fmtAge(item.captured_at) }}</span
                 >
+                <span v-if="item.language" class="text-ink-subtle"> · </span>
                 <span
                   v-if="item.language"
-                  class="ml-1 px-1 py-0.5 rounded bg-surface-muted text-ink-muted font-mono text-[10px] uppercase"
+                  class="px-1 py-0.5 rounded bg-surface-muted text-ink-muted font-mono text-[10px] uppercase"
                   >{{ item.language }}</span
                 >
               </div>
@@ -257,7 +273,7 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
                 <span
                   v-else-if="item.status === 'failed'"
                   class="px-1 py-0.5 rounded bg-danger-soft text-danger-ink text-[10px]"
-                  >Failed</span
+                  >{{ t("news.failed") }}</span
                 >
               </div>
             </div>
@@ -289,16 +305,17 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
             <FileText class="h-4 w-4 mt-0.5 text-ink-muted shrink-0" />
             <div class="min-w-0 flex-1">
               <div class="text-[15px] font-semibold leading-snug text-ink-primary line-clamp-2">
-                {{ item.title || "Untitled" }}
+                {{ item.title || t("sidebar.untitled") }}
               </div>
               <div class="mt-0.5 text-[11px] text-ink-muted truncate">
-                <span>{{ item.source_company || "external" }}</span>
+                <span>{{ item.source_company || t("sidebar.external_source") }}</span>
                 <span class="text-ink-subtle">
-                  · {{ fmtAge(item.captured_at) }} ago</span
+                  · {{ fmtAge(item.captured_at) }}</span
                 >
+                <span v-if="item.language" class="text-ink-subtle"> · </span>
                 <span
                   v-if="item.language"
-                  class="ml-1 px-1 py-0.5 rounded bg-surface-muted text-ink-muted font-mono text-[10px] uppercase"
+                  class="px-1 py-0.5 rounded bg-surface-muted text-ink-muted font-mono text-[10px] uppercase"
                   >{{ item.language }}</span
                 >
               </div>
@@ -330,7 +347,7 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
                 <span
                   v-else-if="item.status === 'failed'"
                   class="px-1 py-0.5 rounded bg-danger-soft text-danger-ink text-[10px]"
-                  >Failed</span
+                  >{{ t("news.failed") }}</span
                 >
               </div>
             </div>
@@ -365,7 +382,7 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
                 {{ item.title }}
               </div>
               <div class="text-xs text-ink-muted truncate">
-                {{ fmtAge(item.captured_at) }} ago
+                {{ fmtAge(item.captured_at) }}
               </div>
             </div>
           </div>

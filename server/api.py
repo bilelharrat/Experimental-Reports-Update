@@ -759,6 +759,52 @@ def _ensure_company_translation(company_id: str | None, *, force: bool = False) 
     )
 
 
+def _refresh_company_summary(company_id: str, *, progress=None) -> dict:
+    """Re-run company deep-search enrichment and force its translation.
+
+    Shared by the per-company refresh endpoint and the bulk regen-all job.
+    Returns the refreshed ``CompanyOut``-shaped view plus the upstream search
+    metadata the caller may want to expose in progress logs.
+    """
+    company = storage.get_company(company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    name = company.get("name") or ""
+    if not name:
+        raise HTTPException(status_code=400, detail="Company has no name to query")
+
+    result = companies_ai.deep_search(name, force_refresh=True, progress=progress)
+    matches = result.get("matches") or []
+    chosen: dict | None = next(
+        (m for m in matches if m.get("id") == company_id), None
+    )
+    if chosen is None and matches:
+        chosen = matches[0]
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="translating",
+            message="Translating company record",
+        )
+    _ensure_company_translation(company_id, force=True)
+    refreshed = storage.get_company(company_id) or chosen or company
+    view = _company_view(refreshed)
+    # Patch any cached deep-search result that referenced this company so
+    # future cache hits don't show stale data.
+    cache.update_in_namespace(
+        "companies_ai",
+        predicate=lambda item: item.get("id") == company_id,
+        transform=lambda _item: dict(view),
+    )
+    return {
+        "view": view,
+        "source": result.get("source"),
+        "matches": matches,
+        "cached_at": result.get("cached_at"),
+        "reason": result.get("reason"),
+    }
+
+
 @router.get("/companies/{company_id}")
 def get_company(company_id: str) -> CompanyOut:
     company = storage.get_company(company_id)
@@ -778,8 +824,6 @@ def refresh_company(company_id: str) -> CompanyOut:
     stays synchronous — the response carries the refreshed company once the
     underlying deep-search returns.
     """
-    from . import cache
-
     company = storage.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -801,34 +845,15 @@ def refresh_company(company_id: str) -> CompanyOut:
     )
     progress.emit("stage", stage="starting", message="Starting refresh", query=name)
     try:
-        result = companies_ai.deep_search(
-            name, force_refresh=True, progress=progress
-        )
-        matches = result.get("matches") or []
-        chosen: dict | None = next(
-            (m for m in matches if m.get("id") == company_id), None
-        )
-        if chosen is None and matches:
-            chosen = matches[0]
-        progress.emit("stage", stage="translating", message="Translating company record")
-        _ensure_company_translation(company_id, force=True)
-        refreshed = storage.get_company(company_id) or chosen or company
-        view = _company_view(refreshed)
-        # Patch any cached deep-search result that referenced this company so
-        # future cache hits don't show stale data.
-        cache.update_in_namespace(
-            "companies_ai",
-            predicate=lambda item: item.get("id") == company_id,
-            transform=lambda _item: dict(view),
-        )
+        result = _refresh_company_summary(company_id, progress=progress)
         progress.emit(
             "done",
             source=result.get("source"),
-            matches=matches,
+            matches=result.get("matches") or [],
             cached_at=result.get("cached_at"),
             reason=result.get("reason"),
         )
-        return CompanyOut(**view)
+        return CompanyOut(**result["view"])
     except HTTPException:
         progress.emit("error", error="HTTPException")
         raise
@@ -1929,6 +1954,7 @@ _JOB_KIND_PATHS = {
         storage.DATA_DIR / "_trader" / f"{key}__snapshot.progress.jsonl"
     ),
     "public_snapshot_bulk": lambda key: _trader_refresh_all_progress_path(),
+    "company_regen_all": lambda key: _company_regen_all_progress_path(),
     "weekly_stocks": lambda key: weekly_stocks.progress_path(),
 }
 
@@ -2111,6 +2137,25 @@ def _public_snapshot_bulk_kind_records():
     }
 
 
+def _company_regen_all_kind_records():
+    """Yield the active-jobs rail entry for the all-company regeneration."""
+    jsonl_path = _company_regen_all_progress_path()
+    if not jsonl_path.exists():
+        return
+    state = _scan_active_progress_state(jsonl_path)
+    if state is None:
+        return
+    yield {
+        "kind": state.get("kind") or "company_regen_all",
+        "title": state.get("title") or "Regenerate all company views",
+        "subtitle": state.get("subtitle") or "Tracked companies",
+        "stream_url": "/api/companies/regen-all/stream",
+        "log_url": "/api/jobs/log?path=company_regen_all:all",
+        "primary_route": {"name": "home"},
+        **_common_state_fields(state),
+    }
+
+
 def _console_kind_records():
     """Yield active-jobs rail entries for Console hydrate/ask/summary jobs.
 
@@ -2215,6 +2260,7 @@ def get_active_jobs() -> list[dict]:
         _hormuz_appendix_kind_records(),
         _research_summary_kind_records(),
         _console_kind_records(),
+        _company_regen_all_kind_records(),
         _public_snapshot_bulk_kind_records(),
         _public_snapshot_kind_records(),
         _weekly_stocks_kind_records(),
@@ -3969,6 +4015,14 @@ def _trader_refresh_all_progress_path() -> "Path":
     return base / "__all_public_refresh.progress.jsonl"
 
 
+def _company_regen_all_progress_path() -> "Path":
+    from pathlib import Path
+
+    base: Path = storage.DATA_DIR / "_regen"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "__all_companies_regen.progress.jsonl"
+
+
 def _parse_trader_languages(raw: str | None) -> list[str]:
     """Normalize the `languages` query parameter into a list of
     canonical language codes. Anything we don't recognize is dropped.
@@ -4155,6 +4209,256 @@ def _supersede_progress_file(path: "Path", *, reason: str) -> None:
         path.unlink(missing_ok=True)
     except Exception:  # noqa: BLE001
         logger.exception("failed to unlink stale progress")
+
+
+class _ProgressContext:
+    """Attach per-company metadata to nested progress events."""
+
+    def __init__(self, progress: job_progress.ProgressLog, **context):
+        self.progress = progress
+        self.context = context
+
+    def emit(self, type_: str, **fields) -> None:
+        self.progress.emit(type_, **{**self.context, **fields})
+
+
+def _tracked_companies_for_regen() -> list[dict]:
+    """Return every tracked company in a stable public/private/name order."""
+    companies = [
+        company
+        for company in storage.list_companies()
+        if isinstance(company, dict)
+    ]
+    companies.sort(
+        key=lambda c: (
+            0
+            if (c.get("company_type") or storage.infer_company_type(c)) == "public"
+            else 1,
+            str(c.get("ticker") or c.get("name") or c.get("id") or "").lower(),
+        )
+    )
+    return companies
+
+
+def _summarize_company_regen_queue(companies: list[dict]) -> dict:
+    public_trader_count = 0
+    private_count = 0
+    company_ids: list[str] = []
+    for company in companies:
+        company_id = (company.get("id") or "").strip()
+        if company_id:
+            company_ids.append(company_id)
+        company_type = company.get("company_type") or storage.infer_company_type(
+            company
+        )
+        if company_type == "public" and (company.get("ticker") or "").strip():
+            public_trader_count += 1
+        else:
+            private_count += 1
+    return {
+        "total_count": len(companies),
+        "queued_count": len(companies),
+        "public_trader_count": public_trader_count,
+        "private_count": private_count,
+        "company_ids": company_ids,
+    }
+
+
+def _run_regen_all_companies_job(*, force: bool = False) -> None:
+    """Refresh every tracked company's dossier and public trader snapshot."""
+    progress = job_progress.ProgressLog(_company_regen_all_progress_path())
+    companies = _tracked_companies_for_regen()
+    queue = _summarize_company_regen_queue(companies)
+    total_count = queue["total_count"]
+    progress.emit(
+        "job_init",
+        kind="company_regen_all",
+        title="Regenerate all company views",
+        subtitle=f"{total_count} tracked companies",
+        total_count=total_count,
+        force=force,
+        languages_requested=["en", "zh"],
+        include_translations=True,
+        translation_mode="all",
+        public_trader_count=queue["public_trader_count"],
+        private_count=queue["private_count"],
+    )
+
+    if not companies:
+        progress.emit(
+            "done",
+            total_count=0,
+            summary_refreshed_count=0,
+            summary_failed_count=0,
+            trader_refreshed_count=0,
+            trader_skipped_count=0,
+            trader_failed_count=0,
+            results=[],
+        )
+        return
+
+    summary_refreshed_count = 0
+    summary_failed_count = 0
+    trader_refreshed_count = 0
+    trader_skipped_count = 0
+    trader_failed_count = 0
+    results: list[dict] = []
+
+    for idx, company in enumerate(companies, start=1):
+        company_id = (company.get("id") or "").strip()
+        company_name = company.get("name") or company_id or "Unknown company"
+        ticker = (company.get("ticker") or "").strip()
+        company_type = company.get("company_type") or storage.infer_company_type(
+            company
+        )
+        result: dict = {
+            "company_id": company_id or None,
+            "company_name": company_name,
+            "ticker": ticker,
+            "company_type": company_type,
+            "summary_status": "pending",
+            "trader_status": "not_applicable",
+        }
+        context = {
+            "company_id": company_id,
+            "company_name": company_name,
+            "ticker": ticker,
+            "company_type": company_type,
+            "index": idx,
+            "total_count": total_count,
+        }
+
+        if not company_id:
+            summary_failed_count += 1
+            result["summary_status"] = "skipped_missing_id"
+            results.append(result)
+            progress.emit(
+                "stage",
+                stage="skipped",
+                message=f"Skipped {company_name}: missing company id",
+                **context,
+            )
+            continue
+        if not company_name:
+            summary_failed_count += 1
+            result["summary_status"] = "skipped_missing_name"
+            results.append(result)
+            progress.emit(
+                "stage",
+                stage="skipped",
+                message=f"Skipped {company_id}: missing company name",
+                **context,
+            )
+            continue
+
+        scoped_progress = _ProgressContext(progress, **context)
+        progress.emit(
+            "stage",
+            stage="refreshing_summary",
+            message=f"Refreshing {company_name} summary ({idx}/{total_count})",
+            **context,
+        )
+        try:
+            summary = _refresh_company_summary(
+                company_id, progress=scoped_progress
+            )
+            summary_refreshed_count += 1
+            result["summary_status"] = "done"
+            result["summary_source"] = summary.get("source")
+            if summary.get("reason"):
+                result["summary_reason"] = summary.get("reason")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("regen-all summary refresh crashed for %s", company_id)
+            summary_failed_count += 1
+            result["summary_status"] = "error"
+            result["summary_error"] = f"{type(exc).__name__}: {exc}"
+
+        refreshed = storage.get_company(company_id) or company
+        ticker = (refreshed.get("ticker") or "").strip()
+        company_type = refreshed.get("company_type") or storage.infer_company_type(
+            refreshed
+        )
+        result["ticker"] = ticker
+        result["company_type"] = company_type
+        context.update({"ticker": ticker, "company_type": company_type})
+
+        if company_type != "public":
+            results.append(result)
+            continue
+        if not ticker:
+            trader_skipped_count += 1
+            result["trader_status"] = "skipped_missing_ticker"
+            progress.emit(
+                "stage",
+                stage="skipped_trader",
+                message=f"Skipped {company_name} trader view: missing ticker",
+                **context,
+            )
+            results.append(result)
+            continue
+
+        snapshot_path = _trader_snapshot_progress_path(company_id)
+        state = _scan_progress_state(snapshot_path)
+        if _progress_state_in_flight(state) and not force:
+            trader_skipped_count += 1
+            result["trader_status"] = "already_running"
+            progress.emit(
+                "stage",
+                stage="trader_already_running",
+                message=(
+                    f"Skipped {company_name} trader view: refresh already running"
+                ),
+                **context,
+            )
+            results.append(result)
+            continue
+        if _progress_state_in_flight(state) and force:
+            _supersede_progress_file(
+                snapshot_path, reason="superseded by regen-all force-refresh"
+            )
+
+        progress.emit(
+            "stage",
+            stage="refreshing_trader",
+            message=f"Refreshing {ticker} trader view ({idx}/{total_count})",
+            **context,
+        )
+        try:
+            _run_trader_snapshot_job(
+                company_id,
+                languages_requested=["en", "zh"],
+                include_translations=True,
+                translation_mode="all",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("regen-all trader refresh crashed for %s", company_id)
+            trader_failed_count += 1
+            result["trader_status"] = "error"
+            result["trader_error"] = f"{type(exc).__name__}: {exc}"
+            results.append(result)
+            continue
+
+        final_state = _scan_progress_state(snapshot_path)
+        if final_state.get("terminal_type") == "done":
+            trader_refreshed_count += 1
+            result["trader_status"] = "done"
+        else:
+            trader_failed_count += 1
+            result["trader_status"] = "error"
+            if final_state.get("error"):
+                result["trader_error"] = final_state["error"]
+        results.append(result)
+
+    progress.emit(
+        "done",
+        total_count=total_count,
+        summary_refreshed_count=summary_refreshed_count,
+        summary_failed_count=summary_failed_count,
+        trader_refreshed_count=trader_refreshed_count,
+        trader_skipped_count=trader_skipped_count,
+        trader_failed_count=trader_failed_count,
+        results=results,
+    )
 
 
 def _run_refresh_all_trader_snapshots_job(
@@ -4461,6 +4765,49 @@ def post_trader_refresh_all(
     }
 
 
+@router.post("/companies/regen-all")
+def post_companies_regen_all(force: bool = False) -> dict:
+    """Regenerate every tracked company's summary and public trader view.
+
+    This is the broad admin refresh: every tracked company gets a fresh
+    deep-search dossier plus forced company translation; companies that are
+    public after that refresh also get a bilingual trader snapshot.
+    """
+    stream_url = "/api/companies/regen-all/stream"
+    companies = _tracked_companies_for_regen()
+    queue = _summarize_company_regen_queue(companies)
+
+    path = _company_regen_all_progress_path()
+    state = _scan_progress_state(path)
+    in_flight = _progress_state_in_flight(state)
+    if in_flight and not force:
+        return {
+            "job_id": "all",
+            "stream_url": stream_url,
+            "status": "already_running",
+            "languages_requested": ["en", "zh"],
+            **queue,
+        }
+    if in_flight and force:
+        _supersede_progress_file(
+            path, reason="superseded by regen-all force-refresh"
+        )
+
+    threading.Thread(
+        target=_run_regen_all_companies_job,
+        kwargs={"force": force},
+        name="company-regen-all",
+        daemon=True,
+    ).start()
+    return {
+        "job_id": "all",
+        "stream_url": stream_url,
+        "status": "force_queued" if force else "queued",
+        "languages_requested": ["en", "zh"],
+        **queue,
+    }
+
+
 @router.get("/companies/{company_id}/trader/refresh/stream")
 async def stream_trader_refresh(company_id: str) -> "StreamingResponse":
     """SSE stream of progress events for the in-flight trader-snapshot
@@ -4471,6 +4818,19 @@ async def stream_trader_refresh(company_id: str) -> "StreamingResponse":
 
     path = _trader_snapshot_progress_path(company_id)
     gen = _console_event_stream(path)
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/companies/regen-all/stream")
+async def stream_companies_regen_all() -> "StreamingResponse":
+    """SSE stream for all-company summary + trader-view regeneration."""
+    from fastapi.responses import StreamingResponse
+
+    gen = _console_event_stream(_company_regen_all_progress_path())
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",

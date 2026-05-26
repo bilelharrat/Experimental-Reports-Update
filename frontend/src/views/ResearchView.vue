@@ -26,7 +26,7 @@ const tr = useT();
 // "Internal"). Map them to localized display labels here; unknown values fall
 // through to the raw string so new server-side options keep working.
 const REPORT_TYPE_ZH = {
-  "Investment Memo (Late-Stage)": "投资备忘录（后期 / Pre-IPO）",
+  "Investment Memo (Late-Stage)": "投资备忘录（Late-Stage / Pre-IPO）",
 };
 const AUDIENCE_ZH = {
   Internal: "内部",

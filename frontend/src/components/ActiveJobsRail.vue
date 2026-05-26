@@ -17,8 +17,10 @@ import {
   Terminal,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
 import JobLogModal from "./JobLogModal.vue";
 
+const t = useT();
 const jobs = ref([]);
 const collapsed = ref(false);
 const openJob = ref(null);
@@ -52,7 +54,11 @@ function pct(j) {
   if (j.kind === "pdf_translation" && j.page_count && j.page_no) {
     return Math.round((j.page_no / j.page_count) * 100);
   }
-  if (j.kind === "public_snapshot_bulk" && j.total_count && j.index) {
+  if (
+    (j.kind === "public_snapshot_bulk" || j.kind === "company_regen_all") &&
+    j.total_count &&
+    j.index
+  ) {
     return Math.round((j.index / j.total_count) * 100);
   }
   return null;
@@ -65,7 +71,11 @@ function progressText(j) {
   if (j.kind === "pdf_translation" && j.page_count && j.page_no) {
     return `page ${j.page_no}/${j.page_count}`;
   }
-  if (j.kind === "public_snapshot_bulk" && j.total_count && j.index) {
+  if (
+    (j.kind === "public_snapshot_bulk" || j.kind === "company_regen_all") &&
+    j.total_count &&
+    j.index
+  ) {
     return `${j.index}/${j.total_count}`;
   }
   return null;
@@ -76,9 +86,9 @@ function fmtAge(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const sec = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
-  if (sec < 60) return `${sec}s`;
-  if (sec < 3600) return `${Math.round(sec / 60)}m`;
-  return `${Math.round(sec / 3600)}h`;
+  if (sec < 60) return t("jobs.age.seconds", { n: sec });
+  if (sec < 3600) return t("jobs.age.minutes", { n: Math.round(sec / 60) });
+  return t("jobs.age.hours", { n: Math.round(sec / 3600) });
 }
 
 function kindIcon(kind) {
@@ -89,20 +99,24 @@ function kindIcon(kind) {
   if (kind === "research_summary") return Sparkles;
   if (kind === "memo") return Sparkles;
   if (kind === "public_snapshot_bulk") return RefreshCw;
+  if (kind === "company_regen_all") return RefreshCw;
   return Sparkles;
 }
 
 function kindLabel(kind) {
-  if (kind === "search") return "search";
-  if (kind === "pdf_translation") return "translation";
-  if (kind === "summary") return "deck summary";
-  if (kind === "external_research") return "research analysis";
-  if (kind === "research_summary") return "file summary";
-  if (kind === "memo") return "memo";
-  if (kind === "public_snapshot") return "trader snapshot";
-  if (kind === "public_snapshot_bulk") return "stock views";
-  if (kind?.startsWith("console_")) return "console";
-  return kind || "task";
+  if (kind?.startsWith("console_")) return t("jobs.kind.console");
+  const key = {
+    search: "jobs.kind.search",
+    pdf_translation: "jobs.kind.pdf_translation",
+    summary: "jobs.kind.summary",
+    external_research: "jobs.kind.external_research",
+    research_summary: "jobs.kind.research_summary",
+    memo: "jobs.kind.memo",
+    public_snapshot: "jobs.kind.public_snapshot",
+    public_snapshot_bulk: "jobs.kind.public_snapshot_bulk",
+    company_regen_all: "jobs.kind.company_regen_all",
+  }[kind];
+  return key ? t(key) : kind || t("jobs.kind.task");
 }
 
 // Pick an icon for the "latest action" line so a glance tells you whether
@@ -126,19 +140,27 @@ function actionLine(a) {
   const trim = (s, n) =>
     s && s.length > n ? s.slice(0, n) + "…" : s || "";
   if (a.action === "thinking") {
-    const t = (a.text || "").replace(/\s+/g, " ").trim();
-    return trim(t, 200) || "Thinking…";
+    const thought = (a.text || "").replace(/\s+/g, " ").trim();
+    return trim(thought, 200) || t("jobs.action.thinking");
   }
   if (a.action === "tool_use") {
     const preview = (a.preview || "").replace(/\s+/g, " ").trim();
     return `${a.tool}: ${trim(preview, 160)}`;
   }
   if (a.action === "tool_result") {
-    return `${a.tool} → ${a.is_error ? "error" : "ok"}`;
+    return `${a.tool} → ${
+      a.is_error ? t("jobs.action.tool_error") : t("jobs.action.tool_ok")
+    }`;
   }
-  if (a.action === "init") return "Claude initialized";
-  if (a.action === "result") return "Run finished";
+  if (a.action === "init") return t("jobs.action.claude_initialized");
+  if (a.action === "result") return t("jobs.action.run_finished");
   return null;
+}
+
+function toolCallText(count) {
+  return count === 1
+    ? t("jobs.tool_call_one")
+    : t("jobs.tool_calls", { count });
 }
 
 function open(j) {
@@ -167,14 +189,14 @@ const visible = computed(() => jobs.value.length > 0);
           <span class="relative inline-flex h-2 w-2 rounded-full bg-accent"></span>
         </span>
         <span class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-          AI tasks · {{ jobs.length }}
+          {{ t("jobs.rail_title") }} · {{ jobs.length }}
         </span>
         <span class="flex-1"></span>
         <button
           type="button"
           @click="collapsed = !collapsed"
           class="text-ink-muted hover:text-ink-primary text-xs focus-ring rounded inline-flex items-center"
-          :title="collapsed ? 'Expand' : 'Collapse'"
+          :title="collapsed ? t('jobs.expand') : t('jobs.collapse')"
         >
           <ChevronRight v-if="collapsed" class="h-3.5 w-3.5" />
           <ChevronDown v-else class="h-3.5 w-3.5" />
@@ -191,7 +213,7 @@ const visible = computed(() => jobs.value.length > 0);
             type="button"
             @click="open(j)"
             class="w-full text-left p-3 hover:bg-surface-muted focus-ring group"
-            :title="'Click to open the live transcript'"
+            :title="t('jobs.open_transcript')"
           >
             <div class="flex items-start gap-2">
               <component
@@ -249,13 +271,13 @@ const visible = computed(() => jobs.value.length > 0);
                 >
                   <span v-if="progressText(j)">{{ progressText(j) }}</span>
                   <span v-if="j.tool_count">
-                    {{ j.tool_count }} tool call{{ j.tool_count === 1 ? "" : "s" }}
+                    {{ toolCallText(j.tool_count) }}
                   </span>
                   <span v-if="j.claude_cost_usd != null">
                     ${{ Number(j.claude_cost_usd).toFixed(4) }}
                   </span>
                   <span v-if="j.last_event_at" class="ml-auto">
-                    {{ fmtAge(j.last_event_at) }} ago
+                    {{ t("jobs.age_ago", { age: fmtAge(j.last_event_at) }) }}
                   </span>
                 </div>
               </div>
