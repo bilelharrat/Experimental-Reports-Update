@@ -6,12 +6,14 @@ so these tests run in <1s without spawning claude.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 from server import (
+    api as server_api,
     companies_ai,
     companies_ai_public,
     company_translate,
@@ -693,6 +695,15 @@ def test_regen_all_refreshes_summaries_and_public_trader_views(
             "company_type": "private",
             "description": "Old Anduril summary.",
         },
+        {
+            "id": "nvda",
+            "name": "NVIDIA Corporation",
+            "ticker": "NVDA",
+            "exchange": "NASDAQ",
+            "status": "public",
+            "company_type": "public",
+            "description": "Old NVIDIA summary.",
+        },
     ])
 
     def fake_deep_search(query, *, force_refresh=False, progress=None):
@@ -746,28 +757,556 @@ def test_regen_all_refreshes_summaries_and_public_trader_views(
     body = resp.json()
     assert body["status"] == "queued"
     assert body["languages_requested"] == ["en", "zh"]
-    assert body["total_count"] == 2
-    assert body["public_trader_count"] == 1
-    assert body["company_ids"] == [COMPANY_ID, "anduril"]
+    assert body["total_count"] == 3
+    assert body["public_trader_count"] == 2
+    assert body["company_ids"] == [COMPANY_ID, "nvda", "anduril"]
 
     done = _wait_for_progress_done(
         storage.DATA_DIR / "_regen" / "__all_companies_regen.progress.jsonl"
     )
     assert done["type"] == "done"
-    assert done["total_count"] == 2
-    assert done["summary_refreshed_count"] == 2
+    assert done["total_count"] == 3
+    assert done["summary_refreshed_count"] == 3
     assert done["summary_failed_count"] == 0
-    assert done["trader_refreshed_count"] == 1
+    assert done["trader_refreshed_count"] == 2
     assert done["trader_failed_count"] == 0
 
     amd = storage.get_company(COMPANY_ID)
     anduril = storage.get_company("anduril")
+    nvda = storage.get_company("nvda")
     assert amd["description"] == "Fresh summary for Advanced Micro Devices, Inc.."
     assert amd["translation"]["description"].startswith("ZH Fresh summary")
     assert amd["trader_snapshot"]["available_languages"] == ["en", "zh"]
     assert anduril["description"] == "Fresh summary for Anduril Industries."
     assert anduril["translation"]["description"].startswith("ZH Fresh summary")
     assert anduril.get("trader_snapshot") is None
+    assert nvda["description"] == "Fresh summary for NVIDIA Corporation."
+    assert nvda["translation"]["description"].startswith("ZH Fresh summary")
+    assert nvda["trader_snapshot"]["available_languages"] == ["en", "zh"]
+
+
+def test_regen_all_backs_off_until_reset_then_retries(
+    tmp_storage, monkeypatch, client,
+):
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {
+            "id": "anduril",
+            "name": "Anduril Industries",
+            "status": "private",
+            "company_type": "private",
+            "description": "Old Anduril summary.",
+        },
+    ])
+    monkeypatch.setenv("BSH_REGEN_BACKOFF_MAX_SLEEP_SECONDS", "0")
+    calls = {"count": 0}
+
+    def fake_deep_search(query, *, force_refresh=False, progress=None):
+        assert query == "Anduril Industries"
+        assert force_refresh is True
+        calls["count"] += 1
+        if calls["count"] == 1:
+            if progress is not None:
+                progress.emit(
+                    "claude_action",
+                    action="thinking",
+                    text=(
+                        "You've hit your session limit · resets 2am "
+                        "(America/Los_Angeles)"
+                    ),
+                )
+            return {
+                "source": "fallback",
+                "matches": [],
+                "reason": "claude exited 1",
+            }
+        updated = storage.update_company(
+            "anduril",
+            description="Fresh Anduril summary after reset.",
+        )
+        return {
+            "source": "claude_code",
+            "matches": [updated],
+            "cached_at": "2026-05-25T00:00:00+00:00",
+        }
+
+    def fake_translate(company):
+        return {
+            "language": "en",
+            "translation": {
+                "language": "zh",
+                "description": f"ZH {company['description']}",
+            },
+        }
+
+    monkeypatch.setattr(companies_ai, "deep_search", fake_deep_search)
+    monkeypatch.setattr(company_translate, "translate_company", fake_translate)
+
+    resp = client.post("/api/companies/regen-all")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "queued"
+
+    progress_path = (
+        storage.DATA_DIR / "_regen" / "__all_companies_regen.progress.jsonl"
+    )
+    done = _wait_for_progress_done(progress_path)
+    assert done["type"] == "done"
+    assert done["summary_refreshed_count"] == 1
+    assert done["summary_failed_count"] == 0
+    assert calls["count"] == 2
+
+    import json
+
+    events = [
+        json.loads(line)
+        for line in progress_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        event.get("type") == "stage" and event.get("stage") == "backing_off"
+        for event in events
+    )
+    assert not any(event.get("type") == "error" for event in events)
+
+    state = json.loads(
+        (storage.DATA_DIR / "_regen" / "__all_companies_regen.state.json")
+        .read_text()
+    )
+    assert state["status"] == "done"
+    assert state["items"]["anduril"]["summary_status"] == "done"
+    assert storage.get_company("anduril")["description"] == (
+        "Fresh Anduril summary after reset."
+    )
+
+
+def test_regen_reset_parser_handles_wall_clock_boundary():
+    reason = "You've hit your session limit · resets 2am (America/Los_Angeles)"
+
+    before_reset = datetime(2026, 5, 26, 8, 0, tzinfo=timezone.utc)
+    assert server_api._parse_regen_reset_delay_seconds(
+        reason, now=before_reset,
+    ) == 3600
+
+    just_after_reset = datetime(2026, 5, 26, 9, 1, tzinfo=timezone.utc)
+    assert server_api._parse_regen_reset_delay_seconds(
+        reason, now=just_after_reset,
+    ) == 300
+
+
+def test_regen_repair_rewrites_bad_next_day_backoff(tmp_storage):
+    state = {
+        "status": "backing_off",
+        "backoff_kind": "provider_limit",
+        "backoff_reason": (
+            "You've hit your session limit · resets 2am "
+            "(America/Los_Angeles)"
+        ),
+        "backoff_started_at": "2026-05-26T09:01:00+00:00",
+        "backoff_until": "2026-05-27T08:59:59+00:00",
+        "backoff_seconds": 86339,
+    }
+
+    assert server_api._repair_provider_limit_backoff(state) is True
+    assert state["backoff_seconds"] == 300
+    assert state["backoff_until"] == "2026-05-26T09:06:00+00:00"
+
+
+def test_regen_all_proactively_backs_off_at_usage_window_guard(
+    tmp_storage, monkeypatch, client,
+):
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {
+            "id": "anduril",
+            "name": "Anduril Industries",
+            "status": "private",
+            "company_type": "private",
+            "description": "Old Anduril summary.",
+        },
+        {
+            "id": "stripe",
+            "name": "Stripe",
+            "status": "private",
+            "company_type": "private",
+            "description": "Old Stripe summary.",
+        },
+    ])
+    monkeypatch.setenv("BSH_REGEN_USAGE_WINDOW_SECONDS", "1")
+    monkeypatch.setenv("BSH_REGEN_USAGE_WINDOW_PAUSE_FRACTION", "0.01")
+    monkeypatch.setenv("BSH_REGEN_BACKOFF_MAX_SLEEP_SECONDS", "0")
+    calls: list[str] = []
+
+    def fake_deep_search(query, *, force_refresh=False, progress=None):
+        assert force_refresh is True
+        calls.append(query)
+        if len(calls) == 1:
+            time.sleep(0.03)
+        company = next(
+            c for c in storage.list_companies() if c.get("name") == query
+        )
+        updated = storage.update_company(
+            company["id"],
+            description=f"Fresh summary for {query}.",
+        )
+        return {
+            "source": "claude_code",
+            "matches": [updated],
+            "cached_at": "2026-05-25T00:00:00+00:00",
+        }
+
+    def fake_translate(company):
+        return {
+            "language": "en",
+            "translation": {
+                "language": "zh",
+                "description": f"ZH {company['description']}",
+            },
+        }
+
+    monkeypatch.setattr(companies_ai, "deep_search", fake_deep_search)
+    monkeypatch.setattr(company_translate, "translate_company", fake_translate)
+
+    resp = client.post("/api/companies/regen-all")
+    assert resp.status_code == 200, resp.text
+
+    progress_path = (
+        storage.DATA_DIR / "_regen" / "__all_companies_regen.progress.jsonl"
+    )
+    done = _wait_for_progress_done(progress_path)
+    assert done["type"] == "done"
+    assert done["summary_refreshed_count"] == 2
+    assert calls == ["Anduril Industries", "Stripe"]
+
+    import json
+
+    events = [
+        json.loads(line)
+        for line in progress_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        event.get("type") == "stage"
+        and event.get("stage") == "backing_off"
+        and event.get("backoff_kind") == "proactive_usage_window"
+        for event in events
+    )
+
+    state = json.loads(
+        (storage.DATA_DIR / "_regen" / "__all_companies_regen.state.json")
+        .read_text()
+    )
+    assert state["status"] == "done"
+    assert state["usage_window_seconds"] == 1.0
+    assert state["usage_window_pause_fraction"] == 0.01
+
+
+def test_regen_all_backs_off_when_trader_progress_reports_session_limit(
+    tmp_storage, monkeypatch, client,
+):
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {
+            "id": COMPANY_ID,
+            "name": "Advanced Micro Devices, Inc.",
+            "ticker": "AMD",
+            "exchange": "NASDAQ",
+            "status": "public",
+            "company_type": "public",
+            "description": "Old AMD summary.",
+        },
+    ])
+    monkeypatch.setenv("BSH_REGEN_BACKOFF_MAX_SLEEP_SECONDS", "0")
+    generate_calls = {"count": 0}
+
+    def fake_deep_search(query, *, force_refresh=False, progress=None):
+        updated = storage.update_company(
+            COMPANY_ID,
+            description=f"Fresh summary for {query}.",
+        )
+        return {
+            "source": "claude_code",
+            "matches": [updated],
+            "cached_at": "2026-05-25T00:00:00+00:00",
+        }
+
+    def fake_translate(company):
+        return {
+            "language": "en",
+            "translation": {
+                "language": "zh",
+                "description": f"ZH {company['description']}",
+            },
+        }
+
+    def fake_generate(*, company, progress=None):
+        generate_calls["count"] += 1
+        if generate_calls["count"] == 1:
+            if progress is not None:
+                progress.emit(
+                    "claude_action",
+                    action="thinking",
+                    text=(
+                        "You've hit your session limit · resets 2am "
+                        "(America/Los_Angeles)"
+                    ),
+                )
+            return None, "claude exited 1"
+        return (
+            {
+                "price_card": None,
+                "momentum_card": None,
+                "sentiment_card": None,
+                "heat_card": None,
+                "catalysts": [],
+                "trader_news": [],
+                "research_overview": None,
+                "market_session": None,
+                "tech_movers": {"updated_at": None, "movers": []},
+            },
+            None,
+        )
+
+    monkeypatch.setattr(companies_ai, "deep_search", fake_deep_search)
+    monkeypatch.setattr(company_translate, "translate_company", fake_translate)
+    monkeypatch.setattr(companies_ai_public, "generate_snapshot", fake_generate)
+    monkeypatch.setattr(
+        trader_bilingual_fill,
+        "ensure_bilingual_completeness",
+        lambda snapshot: snapshot,
+    )
+
+    resp = client.post("/api/companies/regen-all")
+    assert resp.status_code == 200, resp.text
+
+    progress_path = (
+        storage.DATA_DIR / "_regen" / "__all_companies_regen.progress.jsonl"
+    )
+    done = _wait_for_progress_done(progress_path)
+    assert done["type"] == "done"
+    assert done["trader_refreshed_count"] == 1
+    assert done["trader_failed_count"] == 0
+    assert generate_calls["count"] == 2
+
+    import json
+
+    events = [
+        json.loads(line)
+        for line in progress_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert any(
+        event.get("type") == "stage"
+        and event.get("stage") == "backing_off"
+        and event.get("backoff_kind") == "provider_limit"
+        and event.get("phase") == "trader"
+        for event in events
+    )
+
+
+def test_regen_all_resume_preserves_done_and_retries_recoverable_checkpoint(
+    tmp_storage, stub_generate, monkeypatch, client,
+):
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {
+            "id": COMPANY_ID,
+            "name": "Advanced Micro Devices, Inc.",
+            "ticker": "AMD",
+            "exchange": "NASDAQ",
+            "status": "public",
+            "company_type": "public",
+            "description": "Already fresh AMD.",
+            "trader_snapshot": {"available_languages": ["en", "zh"]},
+        },
+        {
+            "id": "aapl",
+            "name": "Apple Inc.",
+            "ticker": "AAPL",
+            "exchange": "NASDAQ",
+            "status": "public",
+            "company_type": "public",
+            "description": "Old Apple summary.",
+        },
+    ])
+    server_api._write_regen_checkpoint({
+        "schema_version": 1,
+        "status": "done_with_errors",
+        "started_at": "2026-05-25T00:00:00+00:00",
+        "updated_at": "2026-05-25T00:00:00+00:00",
+        "completed_at": "2026-05-25T01:00:00+00:00",
+        "force": False,
+        "languages_requested": ["en", "zh"],
+        "include_translations": True,
+        "translation_mode": "all",
+        "order": [COMPANY_ID, "aapl"],
+        "items": {
+            COMPANY_ID: {
+                "company_id": COMPANY_ID,
+                "company_name": "Advanced Micro Devices, Inc.",
+                "ticker": "AMD",
+                "company_type": "public",
+                "summary_status": "done",
+                "summary_source": "claude_code",
+                "summary_refreshed_at": "2026-05-25T00:05:00+00:00",
+                "trader_status": "done",
+                "trader_refreshed_at": "2026-05-25T00:10:00+00:00",
+            },
+            "aapl": {
+                "company_id": "aapl",
+                "company_name": "Apple Inc.",
+                "ticker": "AAPL",
+                "company_type": "public",
+                "summary_status": "done",
+                "summary_source": "fallback",
+                "summary_reason": "claude exited 1",
+                "summary_refreshed_at": "2026-05-25T00:15:00+00:00",
+                "trader_status": "error",
+                "trader_error": "all snapshot sections failed: claude exited 1",
+            },
+        },
+    })
+    calls: list[str] = []
+
+    def fake_deep_search(query, *, force_refresh=False, progress=None):
+        assert force_refresh is True
+        calls.append(query)
+        assert query == "Apple Inc."
+        updated = storage.update_company(
+            "aapl",
+            description="Fresh Apple summary after resume.",
+        )
+        return {
+            "source": "claude_code",
+            "matches": [updated],
+            "cached_at": "2026-05-25T00:00:00+00:00",
+        }
+
+    def fake_translate(company):
+        return {
+            "language": "en",
+            "translation": {
+                "language": "zh",
+                "description": f"ZH {company['description']}",
+            },
+        }
+
+    monkeypatch.setattr(companies_ai, "deep_search", fake_deep_search)
+    monkeypatch.setattr(company_translate, "translate_company", fake_translate)
+
+    resp = client.post("/api/companies/regen-all")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "resumed"
+
+    done = _wait_for_progress_done(
+        storage.DATA_DIR / "_regen" / "__all_companies_regen.progress.jsonl"
+    )
+    assert done["type"] == "done"
+    assert done["failed_count"] == 0
+    assert calls == ["Apple Inc."]
+
+    import json
+
+    state = json.loads(
+        (storage.DATA_DIR / "_regen" / "__all_companies_regen.state.json")
+        .read_text()
+    )
+    assert state["status"] == "done"
+    assert state["items"][COMPANY_ID]["summary_refreshed_at"] == (
+        "2026-05-25T00:05:00+00:00"
+    )
+    assert state["items"][COMPANY_ID]["trader_refreshed_at"] == (
+        "2026-05-25T00:10:00+00:00"
+    )
+    assert state["items"]["aapl"]["summary_status"] == "done"
+    assert state["items"]["aapl"]["summary_source"] == "claude_code"
+    assert state["items"]["aapl"]["trader_status"] == "done"
+    assert storage.get_company(COMPANY_ID)["description"] == "Already fresh AMD."
+    assert storage.get_company("aapl")["description"] == (
+        "Fresh Apple summary after resume."
+    )
+
+
+def test_regen_all_startup_resume_uses_checkpoint(
+    tmp_storage, monkeypatch,
+):
+    storage._write_yaml(storage.COMPANIES_FILE, [
+        {
+            "id": COMPANY_ID,
+            "name": "Advanced Micro Devices, Inc.",
+            "status": "private",
+            "company_type": "private",
+            "description": "Already fresh.",
+        },
+        {
+            "id": "anduril",
+            "name": "Anduril Industries",
+            "status": "private",
+            "company_type": "private",
+            "description": "Old Anduril summary.",
+        },
+    ])
+    server_api._write_regen_checkpoint({
+        "schema_version": 1,
+        "status": "running",
+        "started_at": "2026-05-25T00:00:00+00:00",
+        "updated_at": "2026-05-25T00:00:00+00:00",
+        "completed_at": None,
+        "force": False,
+        "languages_requested": ["en", "zh"],
+        "include_translations": True,
+        "translation_mode": "all",
+        "order": [COMPANY_ID, "anduril"],
+        "items": {
+            COMPANY_ID: {
+                "company_id": COMPANY_ID,
+                "company_name": "Advanced Micro Devices, Inc.",
+                "ticker": "",
+                "company_type": "private",
+                "summary_status": "done",
+                "summary_refreshed_at": "2026-05-25T00:00:00+00:00",
+                "trader_status": "not_applicable",
+            },
+            "anduril": {
+                "company_id": "anduril",
+                "company_name": "Anduril Industries",
+                "ticker": "",
+                "company_type": "private",
+                "summary_status": "pending",
+                "trader_status": "not_applicable",
+            },
+        },
+    })
+
+    def fake_deep_search(query, *, force_refresh=False, progress=None):
+        assert query == "Anduril Industries"
+        updated = storage.update_company(
+            "anduril",
+            description="Fresh Anduril summary from startup resume.",
+        )
+        return {
+            "source": "claude_code",
+            "matches": [updated],
+            "cached_at": "2026-05-25T00:00:00+00:00",
+        }
+
+    def fake_translate(company):
+        return {
+            "language": "en",
+            "translation": {
+                "language": "zh",
+                "description": f"ZH {company['description']}",
+            },
+        }
+
+    monkeypatch.setattr(companies_ai, "deep_search", fake_deep_search)
+    monkeypatch.setattr(company_translate, "translate_company", fake_translate)
+
+    assert server_api.resume_regen_all_if_needed() is True
+    done = _wait_for_progress_done(
+        storage.DATA_DIR / "_regen" / "__all_companies_regen.progress.jsonl"
+    )
+    assert done["type"] == "done"
+    assert done["summary_refreshed_count"] == 2
+    assert storage.get_company(COMPANY_ID)["description"] == "Already fresh."
+    assert storage.get_company("anduril")["description"] == (
+        "Fresh Anduril summary from startup resume."
+    )
 
 
 def test_refresh_records_bilingual_query_params(

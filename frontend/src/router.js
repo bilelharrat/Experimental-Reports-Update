@@ -8,6 +8,7 @@ import ExternalResearchView from "./views/ExternalResearchView.vue";
 import HormuzResearchView from "./views/HormuzResearchView.vue";
 import HormuzLibraryView from "./views/HormuzLibraryView.vue";
 import WeeklySummaryView from "./views/WeeklySummaryView.vue";
+import TraderStatsView from "./views/TraderStatsView.vue";
 import { isAuthenticated, validateSession } from "./auth.js";
 
 function routerHistoryBase() {
@@ -46,6 +47,11 @@ export const router = createRouter({
       path: "/weekly-summary",
       name: "weekly-summary",
       component: WeeklySummaryView,
+    },
+    {
+      path: "/trader-stats",
+      name: "trader-stats",
+      component: TraderStatsView,
     },
     {
       path: "/research/:companyId",

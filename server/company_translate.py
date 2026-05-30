@@ -239,6 +239,9 @@ def translate_company(company: dict) -> dict:
         timeout_sec=240,
     )
     if err is not None:
-        logger.warning("Company translation failed: %s", err)
+        if claude_runner.provider_limit_reason(err, include_bare_claude_exit=True):
+            logger.debug("Company translation deferred: %s", err)
+        else:
+            logger.warning("Company translation failed: %s", err)
         return {"language": "other", "translation": None, "error": err}
     return data

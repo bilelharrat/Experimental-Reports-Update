@@ -1,13 +1,15 @@
 """HTTP API for the research center."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import logging
 import os
+import re
 import secrets
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import unquote, urlparse
 
 from fastapi import (
@@ -51,6 +53,7 @@ from . import (
     research_store,
     storage,
     text_analysis,
+    trader_stats,
     weekly_stocks,
 )
 
@@ -660,10 +663,25 @@ def get_weekly_stocks() -> dict:
     )
     return {
         "summary": summary,
+        "draft": weekly_stocks.load_draft(),
         "prompt": prompt_en,
         "prompt_en": prompt_en,
         "prompt_zh": prompt_zh,
+        "refresh_state": _weekly_refresh_state_payload(),
         "schema_version": weekly_stocks.SCHEMA_VERSION,
+    }
+
+
+def _weekly_refresh_state_payload() -> dict | None:
+    path = weekly_stocks.progress_path()
+    state = _scan_progress_state(path)
+    if not state.get("exists"):
+        return None
+    return {
+        "kind": state.get("kind") or "weekly_stocks",
+        "title": state.get("title") or "Weekly stock summary",
+        "subtitle": state.get("subtitle") or "Hot stocks research",
+        **_common_state_fields(state),
     }
 
 
@@ -698,6 +716,13 @@ def post_weekly_stocks_refresh(force: bool = False) -> dict:
             path.unlink(missing_ok=True)
         except Exception:  # noqa: BLE001
             logger.exception("weekly refresh: failed to unlink stale log")
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+        weekly_stocks.clear_draft()
+    except Exception:  # noqa: BLE001
+        logger.exception("weekly refresh: failed to clear previous progress log")
 
     threading.Thread(
         target=_run_weekly_stocks_job,
@@ -1451,6 +1476,9 @@ def _scan_progress_state(path: "Path") -> dict:
         # real time without making the user open the modal.
         "latest_action": None,
         "tool_count": 0,
+        "backoff_until": None,
+        "backoff_remaining_seconds": None,
+        "recoverable": None,
     }
     if not path.exists():
         return state
@@ -1499,6 +1527,49 @@ def _scan_progress_state(path: "Path") -> dict:
                         state["total_count"] = entry["total_count"]
                     if "speed" in entry:
                         state["speed"] = entry["speed"]
+                    if "backoff_until" in entry:
+                        state["backoff_until"] = entry["backoff_until"]
+                    if "backoff_remaining_seconds" in entry:
+                        state["backoff_remaining_seconds"] = entry[
+                            "backoff_remaining_seconds"
+                        ]
+                    if "recoverable" in entry:
+                        state["recoverable"] = entry["recoverable"]
+                elif etype == "candidates":
+                    state["latest_stage_key"] = "candidates"
+                    state["latest_stage"] = entry.get("message") or "Found candidates"
+                    state["total_count"] = entry.get("total_count")
+                    state["index"] = 0
+                elif etype == "stock_started":
+                    state["latest_stage_key"] = "stock_started"
+                    state["latest_stage"] = (
+                        entry.get("message")
+                        or f"Researching {entry.get('ticker') or 'stock'}"
+                    )
+                    state["index"] = entry.get("index")
+                    state["total_count"] = entry.get("total_count")
+                elif etype == "stock_done":
+                    state["latest_stage_key"] = "stock_done"
+                    state["latest_stage"] = (
+                        entry.get("message")
+                        or f"Completed {entry.get('ticker') or 'stock'}"
+                    )
+                    state["index"] = entry.get("index")
+                    state["total_count"] = entry.get("total_count")
+                elif etype == "stock_error":
+                    state["latest_stage_key"] = "stock_error"
+                    state["latest_stage"] = (
+                        entry.get("message")
+                        or f"Skipped {entry.get('ticker') or 'stock'}"
+                    )
+                    state["index"] = entry.get("index")
+                    state["total_count"] = entry.get("total_count")
+                    state["error"] = entry.get("error") or state.get("error")
+                elif etype == "publish_done":
+                    state["latest_stage_key"] = "publish_done"
+                    state["latest_stage"] = (
+                        entry.get("message") or "Published weekly dashboard"
+                    )
                 elif etype == "claude_action":
                     action = entry.get("action")
                     if action == "result":
@@ -1893,6 +1964,9 @@ def _common_state_fields(state: dict) -> dict:
         "index": state.get("index"),
         "total_count": state.get("total_count"),
         "tool_count": state.get("tool_count"),
+        "backoff_until": state.get("backoff_until"),
+        "backoff_remaining_seconds": state.get("backoff_remaining_seconds"),
+        "recoverable": state.get("recoverable"),
     }
 
 
@@ -4023,6 +4097,14 @@ def _company_regen_all_progress_path() -> "Path":
     return base / "__all_companies_regen.progress.jsonl"
 
 
+def _company_regen_all_state_path() -> "Path":
+    from pathlib import Path
+
+    base: Path = storage.DATA_DIR / "_regen"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "__all_companies_regen.state.json"
+
+
 def _parse_trader_languages(raw: str | None) -> list[str]:
     """Normalize the `languages` query parameter into a list of
     canonical language codes. Anything we don't recognize is dropped.
@@ -4057,6 +4139,11 @@ def _run_trader_snapshot_job(
     """
     progress = job_progress.ProgressLog(_trader_snapshot_progress_path(company_id))
     company = storage.get_company(company_id) or {}
+    previous_snapshot = copy.deepcopy(
+        company.get("trader_snapshot")
+        if isinstance(company.get("trader_snapshot"), dict)
+        else {}
+    )
     company_name = company.get("name") or company_id
     ticker = company.get("ticker") or ""
     progress.emit(
@@ -4131,6 +4218,24 @@ def _run_trader_snapshot_job(
     )
 
     storage.update_company_snapshot(company_id, snapshot)
+    try:
+        stats_record = trader_stats.record_trader_refresh(
+            company_id=company_id,
+            company=company,
+            previous_snapshot=previous_snapshot,
+            new_snapshot=snapshot,
+            progress_path=_trader_snapshot_progress_path(company_id),
+            duration_ms=duration_ms,
+        )
+        progress.emit(
+            "stage",
+            stage="stats_recorded",
+            message="Recorded refresh stats",
+            total_tokens=stats_record.get("token_usage", {}).get("total_tokens"),
+            change_pct=stats_record.get("change_summary", {}).get("change_pct"),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("trader stats recording failed for %s", company_id)
     progress.emit(
         "done",
         refreshed_at=snapshot["refreshed_at"],
@@ -4217,8 +4322,15 @@ class _ProgressContext:
     def __init__(self, progress: job_progress.ProgressLog, **context):
         self.progress = progress
         self.context = context
+        self.backoff_reason: str | None = None
 
     def emit(self, type_: str, **fields) -> None:
+        if type_ == "claude_action":
+            reason = _regen_backoff_reason(
+                fields.get("text") or fields.get("preview") or fields.get("error")
+            )
+            if reason:
+                self.backoff_reason = reason
         self.progress.emit(type_, **{**self.context, **fields})
 
 
@@ -4241,9 +4353,160 @@ def _tracked_companies_for_regen() -> list[dict]:
 
 
 def _summarize_company_regen_queue(companies: list[dict]) -> dict:
+    checkpoint = _load_regen_checkpoint()
+    if _regen_checkpoint_complete(checkpoint, companies):
+        checkpoint = None
+    return _summarize_regen_checkpoint(companies, checkpoint)
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _load_regen_checkpoint() -> dict | None:
+    import json as _json
+
+    path = _company_regen_all_state_path()
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = _json.load(f)
+    except Exception:  # noqa: BLE001
+        logger.exception("regen-all: failed to read checkpoint")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_regen_checkpoint(state: dict) -> None:
+    import json as _json
+
+    path = _company_regen_all_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state["updated_at"] = _iso_now()
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        _json.dump(state, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    tmp.replace(path)
+
+
+def _regen_item_for_company(company: dict, existing: dict | None = None) -> dict:
+    company_id = (company.get("id") or "").strip()
+    company_type = company.get("company_type") or storage.infer_company_type(company)
+    item = dict(existing or {})
+    item.update({
+        "company_id": company_id or None,
+        "company_name": company.get("name") or company_id or "Unknown company",
+        "ticker": (company.get("ticker") or "").strip(),
+        "company_type": company_type,
+    })
+    item.setdefault("summary_status", "pending")
+    item.setdefault(
+        "trader_status",
+        "pending" if company_type == "public" else "not_applicable",
+    )
+    if company_type != "public" and item.get("trader_status") != "done":
+        item["trader_status"] = "not_applicable"
+    if company_type == "public" and item.get("trader_status") == "not_applicable":
+        item["trader_status"] = "pending"
+    return item
+
+
+def _new_regen_checkpoint(companies: list[dict], *, force: bool = False) -> dict:
+    started = _iso_now()
+    usage_window_seconds = _regen_usage_window_seconds()
+    usage_window_pause_fraction = _regen_usage_window_pause_fraction()
+    order: list[str] = []
+    items: dict[str, dict] = {}
+    for company in companies:
+        company_id = (company.get("id") or "").strip()
+        if not company_id:
+            continue
+        order.append(company_id)
+        items[company_id] = _regen_item_for_company(company)
+    return {
+        "schema_version": 1,
+        "status": "running",
+        "started_at": started,
+        "updated_at": started,
+        "completed_at": None,
+        "force": force,
+        "languages_requested": ["en", "zh"],
+        "include_translations": True,
+        "translation_mode": "all",
+        "usage_window_started_at": started,
+        "usage_window_seconds": usage_window_seconds,
+        "usage_window_pause_fraction": usage_window_pause_fraction,
+        "order": order,
+        "items": items,
+    }
+
+
+_REGEN_SUMMARY_TERMINAL_STATUSES = {
+    "done",
+    "error",
+    "skipped_missing_id",
+    "skipped_missing_name",
+}
+_REGEN_TRADER_TERMINAL_STATUSES = {
+    "done",
+    "not_applicable",
+    "skipped_missing_ticker",
+    "error",
+}
+
+
+def _regen_item_done(item: dict) -> bool:
+    summary_done = _regen_summary_done(item)
+    trader_status = item.get("trader_status")
+    trader_done = trader_status in (
+        "done",
+        "not_applicable",
+        "skipped_missing_ticker",
+    )
+    return summary_done and trader_done
+
+
+def _regen_item_terminal(item: dict) -> bool:
+    summary_status = item.get("summary_status")
+    summary_terminal = summary_status in _REGEN_SUMMARY_TERMINAL_STATUSES
+    if summary_status == "done" and not _regen_summary_done(item):
+        summary_terminal = False
+    return (
+        summary_terminal
+        and item.get("trader_status") in _REGEN_TRADER_TERMINAL_STATUSES
+    )
+
+
+def _regen_summary_done(item: dict) -> bool:
+    if item.get("summary_status") != "done":
+        return False
+    return not (
+        item.get("summary_source") == "fallback"
+        and _regen_retryable_error_text(item.get("summary_reason"))
+    )
+
+
+def _summarize_regen_checkpoint(
+    companies: list[dict], state: dict | None = None
+) -> dict:
+    items = state.get("items") if isinstance(state, dict) else {}
+    if not isinstance(items, dict):
+        items = {}
+    company_ids: list[str] = []
     public_trader_count = 0
     private_count = 0
-    company_ids: list[str] = []
+    pending_count = 0
+    completed_count = 0
+    failed_count = 0
+    summary_done_count = 0
+    summary_failed_count = 0
+    trader_done_count = 0
+    trader_skipped_count = 0
+    trader_failed_count = 0
+    detail_items: list[dict] = []
+
     for company in companies:
         company_id = (company.get("id") or "").strip()
         if company_id:
@@ -4251,24 +4514,783 @@ def _summarize_company_regen_queue(companies: list[dict]) -> dict:
         company_type = company.get("company_type") or storage.infer_company_type(
             company
         )
-        if company_type == "public" and (company.get("ticker") or "").strip():
+        requires_trader = company_type == "public" and bool(
+            (company.get("ticker") or "").strip()
+        )
+        if requires_trader:
             public_trader_count += 1
         else:
             private_count += 1
+
+        item = _regen_item_for_company(company, items.get(company_id))
+        summary_status = item.get("summary_status") or "pending"
+        trader_status = item.get("trader_status") or (
+            "pending" if requires_trader else "not_applicable"
+        )
+        if _regen_summary_done(item):
+            summary_done_count += 1
+        if trader_status == "done":
+            trader_done_count += 1
+        if summary_status in {
+            "error",
+            "skipped_missing_id",
+            "skipped_missing_name",
+        }:
+            summary_failed_count += 1
+        if trader_status == "skipped_missing_ticker":
+            trader_skipped_count += 1
+        if trader_status == "error":
+            trader_failed_count += 1
+        if summary_status in {
+            "error",
+            "skipped_missing_id",
+            "skipped_missing_name",
+        } or trader_status == "error":
+            failed_count += 1
+        if _regen_item_done(item):
+            completed_count += 1
+        if not _regen_item_terminal(item):
+            pending_count += 1
+        detail_items.append(item)
+
     return {
         "total_count": len(companies),
-        "queued_count": len(companies),
+        "queued_count": pending_count,
+        "pending_count": pending_count,
+        "completed_count": completed_count,
+        "failed_count": failed_count,
+        "summary_done_count": summary_done_count,
+        "summary_refreshed_count": summary_done_count,
+        "summary_failed_count": summary_failed_count,
+        "trader_done_count": trader_done_count,
+        "trader_refreshed_count": trader_done_count,
+        "trader_skipped_count": trader_skipped_count,
+        "trader_failed_count": trader_failed_count,
         "public_trader_count": public_trader_count,
         "private_count": private_count,
         "company_ids": company_ids,
+        "checkpoint_status": state.get("status") if isinstance(state, dict) else None,
+        "checkpoint_updated_at": (
+            state.get("updated_at") if isinstance(state, dict) else None
+        ),
+        "backoff_until": state.get("backoff_until") if isinstance(state, dict) else None,
+        "backoff_reason": state.get("backoff_reason") if isinstance(state, dict) else None,
+        "backoff_phase": state.get("backoff_phase") if isinstance(state, dict) else None,
+        "backoff_company_id": (
+            state.get("backoff_company_id") if isinstance(state, dict) else None
+        ),
+        "backoff_kind": state.get("backoff_kind") if isinstance(state, dict) else None,
+        "usage_window_started_at": (
+            state.get("usage_window_started_at") if isinstance(state, dict) else None
+        ),
+        "usage_window_seconds": (
+            state.get("usage_window_seconds") if isinstance(state, dict) else None
+        ),
+        "usage_window_pause_fraction": (
+            state.get("usage_window_pause_fraction")
+            if isinstance(state, dict)
+            else None
+        ),
+        "items": detail_items,
     }
+
+
+def _regen_checkpoint_complete(
+    state: dict | None, companies: list[dict]
+) -> bool:
+    if not state:
+        return False
+    if state.get("schema_version") != 1:
+        return False
+    summary = _summarize_regen_checkpoint(companies, state)
+    return summary.get("pending_count") == 0 and summary.get("failed_count") == 0
+
+
+def _regen_usage_window_seconds() -> float:
+    raw = os.environ.get("BSH_REGEN_USAGE_WINDOW_SECONDS", str(5 * 60 * 60))
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return float(5 * 60 * 60)
+
+
+def _regen_usage_window_pause_fraction() -> float:
+    raw = os.environ.get("BSH_REGEN_USAGE_WINDOW_PAUSE_FRACTION", "0.8")
+    try:
+        value = float(raw)
+    except ValueError:
+        return 0.8
+    return min(0.99, max(0.01, value))
+
+
+def _ensure_regen_usage_window(state: dict) -> None:
+    state["usage_window_seconds"] = _regen_usage_window_seconds()
+    state["usage_window_pause_fraction"] = _regen_usage_window_pause_fraction()
+    if not state.get("usage_window_started_at"):
+        state["usage_window_started_at"] = state.get("started_at") or _iso_now()
+
+
+def _regen_usage_window_bounds(state: dict) -> tuple[datetime, datetime, datetime]:
+    _ensure_regen_usage_window(state)
+    started = _parse_iso_datetime(state.get("usage_window_started_at"))
+    if started is None:
+        started = datetime.now(timezone.utc)
+        state["usage_window_started_at"] = started.isoformat()
+    window_seconds = float(state.get("usage_window_seconds") or 5 * 60 * 60)
+    pause_fraction = float(state.get("usage_window_pause_fraction") or 0.8)
+    threshold = started + timedelta(seconds=window_seconds * pause_fraction)
+    reset_at = started + timedelta(seconds=window_seconds)
+    return started, threshold, reset_at
+
+
+def _usage_window_label(state: dict) -> str:
+    seconds = float(state.get("usage_window_seconds") or 5 * 60 * 60)
+    fraction = float(state.get("usage_window_pause_fraction") or 0.8)
+    hours = seconds / 3600
+    hour_label = f"{hours:g} hour" if hours == 1 else f"{hours:g} hours"
+    return f"{int(round(fraction * 100))}% of {hour_label}"
+
+
+def _reset_recoverable_regen_statuses(item: dict, *, keep_backoff: bool) -> dict:
+    """Turn statuses that could only have existed mid-worker back to pending."""
+    for status_key, error_key in (
+        ("summary_status", "summary_error"),
+        ("trader_status", "trader_error"),
+    ):
+        status = item.get(status_key)
+        if status == "running" or (status == "blocked_backoff" and not keep_backoff):
+            item[status_key] = "pending"
+            item.pop(error_key, None)
+        elif status == "error" and _regen_retryable_error_text(item.get(error_key)):
+            item[status_key] = "pending"
+            item.pop(error_key, None)
+
+    if (
+        item.get("summary_status") == "done"
+        and item.get("summary_source") == "fallback"
+        and _regen_retryable_error_text(item.get("summary_reason"))
+    ):
+        item["summary_status"] = "pending"
+        for key in ("summary_source", "summary_reason", "summary_refreshed_at"):
+            item.pop(key, None)
+    return item
+
+
+def _prepare_regen_checkpoint(
+    companies: list[dict], *, force: bool = False
+) -> tuple[dict, bool]:
+    """Return ``(checkpoint, resumed)`` for the next regen-all run."""
+    existing = None if force else _load_regen_checkpoint()
+    _repair_provider_limit_backoff(existing)
+    if (
+        existing is None
+        or existing.get("schema_version") != 1
+        or _regen_checkpoint_complete(existing, companies)
+    ):
+        state = _new_regen_checkpoint(companies, force=force)
+        _write_regen_checkpoint(state)
+        return state, False
+
+    old_items = existing.get("items") if isinstance(existing.get("items"), dict) else {}
+    keep_backoff = bool(
+        existing.get("status") in {"backing_off", "paused_backoff"}
+        and existing.get("backoff_until")
+    )
+    order: list[str] = []
+    items: dict[str, dict] = {}
+    for company in companies:
+        company_id = (company.get("id") or "").strip()
+        if not company_id:
+            continue
+        order.append(company_id)
+        items[company_id] = _reset_recoverable_regen_statuses(
+            _regen_item_for_company(company, old_items.get(company_id)),
+            keep_backoff=keep_backoff,
+        )
+    existing.update({
+        "status": "backing_off" if keep_backoff else "running",
+        "completed_at": None,
+        "force": False,
+        "order": order,
+        "items": items,
+    })
+    _ensure_regen_usage_window(existing)
+    _write_regen_checkpoint(existing)
+    return existing, True
+
+
+def _checkpoint_item(state: dict, item: dict) -> None:
+    company_id = item.get("company_id")
+    if not company_id:
+        return
+    items = state.setdefault("items", {})
+    items[company_id] = item
+    _write_regen_checkpoint(state)
+
+
+def _regen_backoff_reason(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    lowered = text.lower()
+    markers = (
+        "usage limit",
+        "rate limit",
+        "quota",
+        "too many requests",
+        "429",
+        "limit reached",
+        "daily limit",
+        "weekly limit",
+        "try again later",
+        "overloaded",
+        "session limit",
+        "resets ",
+    )
+    return text if any(marker in lowered for marker in markers) else None
+
+
+def _regen_retryable_error_text(value) -> bool:
+    if value is None:
+        return False
+    text = str(value).strip()
+    lowered = text.lower()
+    return bool(
+        _regen_backoff_reason(text)
+        or "claude exited 1" in lowered
+        or "all snapshot sections failed" in lowered
+    )
+
+
+def _parse_regen_reset_delay_seconds(
+    text: str, *, now: datetime | None = None
+) -> int | None:
+    """Parse provider messages like ``Resets in 2 hr 44 min``."""
+    if not text:
+        return None
+    lowered = text.lower()
+    retry_after = re.search(r"retry[-\s]?after[:=\s]+(\d+)", lowered)
+    if retry_after:
+        return int(retry_after.group(1))
+
+    window = lowered
+    marker = re.search(
+        r"(?:resets?|reset|retry|try again|available again)\s+in\s+",
+        lowered,
+    )
+    if marker:
+        window = lowered[marker.end(): marker.end() + 80]
+
+    total = 0.0
+    for raw, unit in re.findall(
+        r"(\d+(?:\.\d+)?)\s*"
+        r"(days?|d|hours?|hrs?|hr|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)",
+        window,
+    ):
+        amount = float(raw)
+        unit = unit.lower()
+        if unit.startswith("d"):
+            total += amount * 86400
+        elif unit.startswith("h"):
+            total += amount * 3600
+        elif unit.startswith("m"):
+            total += amount * 60
+        elif unit.startswith("s"):
+            total += amount
+    if total >= 0 and re.search(r"\d", window) and total:
+        return int(total)
+    if re.search(r"\b0\s*(?:min|m|sec|s|hr|h)", window):
+        return 0
+
+    reset_at = re.search(
+        r"(?:resets?|reset)\s+(?:at\s+)?"
+        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)"
+        r"(?:\s*\(([^)]+)\))?",
+        text,
+        re.IGNORECASE,
+    )
+    if reset_at:
+        hour = int(reset_at.group(1))
+        minute = int(reset_at.group(2) or "0")
+        meridiem = reset_at.group(3).lower()
+        tz_name = reset_at.group(4) or "UTC"
+        if meridiem == "pm" and hour != 12:
+            hour += 12
+        if meridiem == "am" and hour == 12:
+            hour = 0
+        try:
+            from zoneinfo import ZoneInfo
+
+            zone = ZoneInfo(tz_name)
+        except Exception:
+            zone = timezone.utc
+        now_utc = now or datetime.now(timezone.utc)
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+        now_local = now_utc.astimezone(zone)
+        candidate = now_local.replace(
+            hour=hour,
+            minute=minute,
+            second=0,
+            microsecond=0,
+        )
+        if candidate <= now_local:
+            # Claude can report an exact wall-clock reset just after the
+            # boundary. Treat that as a short retry, not "same time tomorrow".
+            if (now_local - candidate).total_seconds() <= 30 * 60:
+                return 5 * 60
+            candidate += timedelta(days=1)
+        return max(
+            0,
+            int(
+                (candidate.astimezone(timezone.utc) - now_utc).total_seconds()
+            ),
+        )
+    return None
+
+
+def _format_regen_backoff(seconds: int | float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    seconds = max(0, int(seconds))
+    if seconds == 0:
+        return "now"
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days} day{'s' if days != 1 else ''}")
+    if hours:
+        parts.append(f"{hours} hr")
+    if minutes:
+        parts.append(f"{minutes} min")
+    if not parts and secs:
+        parts.append(f"{secs} sec")
+    return " ".join(parts[:2]) if parts else "now"
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _seconds_until_iso(value: str | None) -> int:
+    dt = _parse_iso_datetime(value)
+    if dt is None:
+        return 0
+    return max(0, int((dt - datetime.now(timezone.utc)).total_seconds()))
+
+
+def _repair_provider_limit_backoff(state: dict | None) -> bool:
+    """Correct persisted provider-limit backoffs computed by older parsers."""
+    if not isinstance(state, dict):
+        return False
+    if (
+        state.get("backoff_kind") != "provider_limit"
+        or not state.get("backoff_until")
+        or not state.get("backoff_reason")
+    ):
+        return False
+    started = (
+        _parse_iso_datetime(state.get("backoff_started_at"))
+        or _parse_iso_datetime(state.get("usage_window_started_at"))
+        or datetime.now(timezone.utc)
+    )
+    delay = _parse_regen_reset_delay_seconds(
+        str(state.get("backoff_reason") or ""),
+        now=started,
+    )
+    if delay is None:
+        return False
+    repaired_until = started + timedelta(seconds=delay)
+    current_until = _parse_iso_datetime(state.get("backoff_until"))
+    if (
+        current_until is not None
+        and repaired_until >= current_until - timedelta(seconds=60)
+    ):
+        return False
+
+    state["backoff_until"] = repaired_until.isoformat()
+    state["backoff_seconds"] = delay
+    state["backoff_remaining_seconds"] = _seconds_until_iso(
+        state["backoff_until"]
+    )
+    _write_regen_checkpoint(state)
+    return True
+
+
+def _regen_default_backoff_seconds() -> int:
+    raw = os.environ.get("BSH_REGEN_DEFAULT_BACKOFF_SECONDS", "900")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 900
+
+
+def _regen_sleep_seconds(seconds: int) -> int:
+    raw = os.environ.get("BSH_REGEN_BACKOFF_MAX_SLEEP_SECONDS")
+    if raw is None:
+        return max(0, int(seconds))
+    try:
+        cap = max(0, int(float(raw)))
+    except ValueError:
+        return max(0, int(seconds))
+    return min(max(0, int(seconds)), cap)
+
+
+def _clear_regen_backoff(
+    state: dict,
+    item: dict | None = None,
+    phase: str | None = None,
+) -> None:
+    if item is not None and phase in {"summary", "trader"}:
+        status_key = "summary_status" if phase == "summary" else "trader_status"
+        error_key = "summary_error" if phase == "summary" else "trader_error"
+        if item.get(status_key) == "blocked_backoff":
+            item[status_key] = "pending"
+        item.pop(error_key, None)
+        _checkpoint_item(state, item)
+
+    state["usage_window_started_at"] = _iso_now()
+    _ensure_regen_usage_window(state)
+    for key in (
+        "backoff_kind",
+        "backoff_reason",
+        "backoff_phase",
+        "backoff_company_id",
+        "backoff_until",
+        "backoff_seconds",
+        "backoff_started_at",
+        "backoff_remaining_seconds",
+    ):
+        state.pop(key, None)
+    state["status"] = "running"
+    _write_regen_checkpoint(state)
+
+
+def _sleep_regen_backoff(
+    state: dict,
+    progress: job_progress.ProgressLog,
+    *,
+    item: dict | None = None,
+    phase: str | None = None,
+    context: dict | None = None,
+    resumed: bool = False,
+) -> None:
+    sleep_for = _regen_sleep_seconds(_seconds_until_iso(state.get("backoff_until")))
+    backoff_kind = state.get("backoff_kind") or "provider_limit"
+    if backoff_kind == "proactive_usage_window":
+        prefix = (
+            "Resuming usage-window guard"
+            if resumed
+            else f"Usage window guard reached {_usage_window_label(state)}"
+        )
+        heartbeat_prefix = "Usage window reset pending"
+    else:
+        prefix = "Resuming usage-limit backoff" if resumed else "Usage limit hit"
+        heartbeat_prefix = "Usage limit reset pending"
+    fields = dict(context or {})
+    fields.update({
+        "recoverable": True,
+        "backoff": True,
+        "backoff_kind": backoff_kind,
+        "phase": phase or state.get("backoff_phase"),
+        "backoff_until": state.get("backoff_until"),
+        "backoff_seconds": state.get("backoff_seconds"),
+        "backoff_remaining_seconds": _seconds_until_iso(state.get("backoff_until")),
+    })
+    progress.emit(
+        "stage",
+        stage="backing_off",
+        message=(
+            f"{prefix}; retrying at next window in "
+            f"{_format_regen_backoff(fields['backoff_remaining_seconds'])}"
+        ),
+        **fields,
+    )
+    deadline = time.monotonic() + sleep_for
+    next_heartbeat = time.monotonic() + 300
+    while True:
+        remaining_sleep = max(0.0, deadline - time.monotonic())
+        if remaining_sleep <= 0:
+            break
+        time.sleep(min(60.0, remaining_sleep))
+        now = time.monotonic()
+        if now >= next_heartbeat:
+            remaining = _seconds_until_iso(state.get("backoff_until"))
+            state["backoff_remaining_seconds"] = remaining
+            _write_regen_checkpoint(state)
+            progress.emit(
+                "stage",
+                stage="backing_off",
+                message=(
+                    f"{heartbeat_prefix}; retrying in "
+                    f"{_format_regen_backoff(remaining)}"
+                ),
+                **{
+                    **fields,
+                    "backoff_remaining_seconds": remaining,
+                },
+            )
+            next_heartbeat = now + 300
+
+    _clear_regen_backoff(state, item=item, phase=phase)
+
+
+def _backoff_regen_until_reset(
+    state: dict,
+    progress: job_progress.ProgressLog,
+    *,
+    reason: str,
+    item: dict | None = None,
+    phase: str,
+    context: dict | None = None,
+) -> None:
+    delay = _parse_regen_reset_delay_seconds(reason)
+    if delay is None:
+        delay = _regen_default_backoff_seconds()
+    until = datetime.now(timezone.utc) + timedelta(seconds=delay)
+    if item is not None:
+        status_key = "summary_status" if phase == "summary" else "trader_status"
+        error_key = "summary_error" if phase == "summary" else "trader_error"
+        item[status_key] = "blocked_backoff"
+        item[error_key] = reason
+        _checkpoint_item(state, item)
+    state.update({
+        "status": "backing_off",
+        "backoff_kind": "provider_limit",
+        "backoff_reason": reason,
+        "backoff_phase": phase,
+        "backoff_company_id": item.get("company_id") if item else None,
+        "backoff_until": until.isoformat(),
+        "backoff_seconds": delay,
+        "backoff_started_at": _iso_now(),
+        "completed_at": None,
+    })
+    _write_regen_checkpoint(state)
+    _sleep_regen_backoff(
+        state,
+        progress,
+        item=item,
+        phase=phase,
+        context=context,
+    )
+
+
+def _progress_log_backoff_reason(path: "Path") -> str | None:
+    import json as _json
+
+    if not path.exists():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return None
+    for line in reversed(lines[-200:]):
+        if not line.strip():
+            continue
+        try:
+            entry = _json.loads(line)
+        except _json.JSONDecodeError:
+            continue
+        reason = _regen_backoff_reason(
+            entry.get("text")
+            or entry.get("preview")
+            or entry.get("error")
+            or entry.get("message")
+        )
+        if reason:
+            return reason
+    return None
+
+
+def _maybe_proactive_regen_window_backoff(
+    state: dict,
+    progress: job_progress.ProgressLog,
+    *,
+    phase: str,
+    context: dict | None = None,
+) -> bool:
+    """Pause before starting another LLM call once 80% of the window is used."""
+    _ensure_regen_usage_window(state)
+    _, threshold, reset_at = _regen_usage_window_bounds(state)
+    now = datetime.now(timezone.utc)
+    if now >= reset_at:
+        state["usage_window_started_at"] = now.isoformat()
+        _write_regen_checkpoint(state)
+        return False
+    if now < threshold:
+        return False
+
+    delay = max(0.0, (reset_at - now).total_seconds())
+    state.update({
+        "status": "backing_off",
+        "backoff_kind": "proactive_usage_window",
+        "backoff_reason": (
+            f"Reached {_usage_window_label(state)} usage-window guard"
+        ),
+        "backoff_phase": phase,
+        "backoff_company_id": (
+            (context or {}).get("company_id") if isinstance(context, dict) else None
+        ),
+        "backoff_until": reset_at.isoformat(),
+        "backoff_seconds": delay,
+        "backoff_started_at": _iso_now(),
+        "completed_at": None,
+    })
+    _write_regen_checkpoint(state)
+    _sleep_regen_backoff(
+        state,
+        progress,
+        phase=phase,
+        context=context,
+    )
+    return True
+
+
+def _honor_existing_regen_backoff(
+    state: dict,
+    progress: job_progress.ProgressLog,
+) -> None:
+    if not state.get("backoff_until"):
+        return
+    _repair_provider_limit_backoff(state)
+    phase = state.get("backoff_phase") or "summary"
+    company_id = state.get("backoff_company_id")
+    item = None
+    if company_id:
+        raw_item = (state.get("items") or {}).get(company_id)
+        if isinstance(raw_item, dict):
+            item = raw_item
+    context = {
+        "company_id": company_id,
+        "company_name": item.get("company_name") if item else None,
+        "ticker": item.get("ticker") if item else None,
+        "company_type": item.get("company_type") if item else None,
+    }
+    _sleep_regen_backoff(
+        state,
+        progress,
+        item=item,
+        phase=phase,
+        context={k: v for k, v in context.items() if v is not None},
+        resumed=True,
+    )
+
+
+def _regen_all_thread_running() -> bool:
+    return any(
+        t.name == "company-regen-all" and t.is_alive()
+        for t in threading.enumerate()
+    )
+
+
+def _regen_resume_candidate(state: dict | None, companies: list[dict]) -> bool:
+    if not isinstance(state, dict) or state.get("schema_version") != 1:
+        return False
+    if state.get("status") not in {"running", "backing_off", "paused_backoff"}:
+        return False
+    return not _regen_checkpoint_complete(state, companies)
+
+
+def _regen_status_payload(companies: list[dict] | None = None) -> dict:
+    companies = companies if companies is not None else _tracked_companies_for_regen()
+    checkpoint = _load_regen_checkpoint()
+    _repair_provider_limit_backoff(checkpoint)
+    summary = _summarize_regen_checkpoint(companies, checkpoint)
+    progress_state = _scan_progress_state(_company_regen_all_progress_path())
+    in_flight = _regen_all_thread_running() or _progress_state_in_flight(
+        progress_state
+    )
+    backoff_until = summary.get("backoff_until")
+    return {
+        "job_id": "all",
+        "stream_url": "/api/companies/regen-all/stream",
+        "status": (
+            checkpoint.get("status")
+            if isinstance(checkpoint, dict) and checkpoint.get("status")
+            else "idle"
+        ),
+        "in_flight": in_flight,
+        "languages_requested": ["en", "zh"],
+        "backoff_until": backoff_until,
+        "backoff_remaining_seconds": _seconds_until_iso(backoff_until),
+        **summary,
+    }
+
+
+def resume_regen_all_if_needed() -> bool:
+    """Resume a durable regen-all checkpoint after a server restart."""
+    companies = _tracked_companies_for_regen()
+    checkpoint = _load_regen_checkpoint()
+    if not _regen_resume_candidate(checkpoint, companies):
+        return False
+    if _regen_all_thread_running():
+        return False
+    path = _company_regen_all_progress_path()
+    if path.exists():
+        _supersede_progress_file(
+            path,
+            reason="superseded by regen-all server-restart resume",
+        )
+    threading.Thread(
+        target=_run_regen_all_companies_job,
+        kwargs={"force": False},
+        name="company-regen-all",
+        daemon=True,
+    ).start()
+    return True
+
+
+def _exception_text(exc: Exception) -> str:
+    detail = getattr(exc, "detail", None)
+    if detail:
+        return str(detail)
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _wait_for_existing_trader_refresh(
+    path: "Path",
+    progress: job_progress.ProgressLog,
+    *,
+    context: dict,
+) -> dict:
+    state = _scan_progress_state(path)
+    if not _progress_state_in_flight(state):
+        return state
+    next_heartbeat = time.monotonic()
+    while _progress_state_in_flight(state):
+        if time.monotonic() >= next_heartbeat:
+            progress.emit(
+                "stage",
+                stage="waiting_trader",
+                message=(
+                    "Waiting for existing trader-view refresh to finish"
+                ),
+                **context,
+            )
+            next_heartbeat = time.monotonic() + 60
+        time.sleep(2)
+        state = _scan_progress_state(path)
+    return state
 
 
 def _run_regen_all_companies_job(*, force: bool = False) -> None:
     """Refresh every tracked company's dossier and public trader snapshot."""
     progress = job_progress.ProgressLog(_company_regen_all_progress_path())
     companies = _tracked_companies_for_regen()
-    queue = _summarize_company_regen_queue(companies)
+    state, resumed = _prepare_regen_checkpoint(companies, force=force)
+    _ensure_regen_usage_window(state)
+    _write_regen_checkpoint(state)
+    queue = _summarize_regen_checkpoint(companies, state)
     total_count = queue["total_count"]
     progress.emit(
         "job_init",
@@ -4277,14 +5299,29 @@ def _run_regen_all_companies_job(*, force: bool = False) -> None:
         subtitle=f"{total_count} tracked companies",
         total_count=total_count,
         force=force,
+        resumed=resumed,
+        checkpoint_status=state.get("status"),
+        pending_count=queue["pending_count"],
+        completed_count=queue["completed_count"],
+        failed_count=queue["failed_count"],
         languages_requested=["en", "zh"],
         include_translations=True,
         translation_mode="all",
         public_trader_count=queue["public_trader_count"],
         private_count=queue["private_count"],
+        backoff_until=state.get("backoff_until"),
+        usage_window_started_at=state.get("usage_window_started_at"),
+        usage_window_seconds=state.get("usage_window_seconds"),
+        usage_window_pause_fraction=state.get("usage_window_pause_fraction"),
     )
 
+    if state.get("backoff_until"):
+        _honor_existing_regen_backoff(state, progress)
+
     if not companies:
+        state["status"] = "done"
+        state["completed_at"] = _iso_now()
+        _write_regen_checkpoint(state)
         progress.emit(
             "done",
             total_count=0,
@@ -4297,28 +5334,15 @@ def _run_regen_all_companies_job(*, force: bool = False) -> None:
         )
         return
 
-    summary_refreshed_count = 0
-    summary_failed_count = 0
-    trader_refreshed_count = 0
-    trader_skipped_count = 0
-    trader_failed_count = 0
-    results: list[dict] = []
-
+    items = state.setdefault("items", {})
     for idx, company in enumerate(companies, start=1):
         company_id = (company.get("id") or "").strip()
-        company_name = company.get("name") or company_id or "Unknown company"
+        raw_company_name = (company.get("name") or "").strip()
+        company_name = raw_company_name or company_id or "Unknown company"
         ticker = (company.get("ticker") or "").strip()
         company_type = company.get("company_type") or storage.infer_company_type(
             company
         )
-        result: dict = {
-            "company_id": company_id or None,
-            "company_name": company_name,
-            "ticker": ticker,
-            "company_type": company_type,
-            "summary_status": "pending",
-            "trader_status": "not_applicable",
-        }
         context = {
             "company_id": company_id,
             "company_name": company_name,
@@ -4329,9 +5353,6 @@ def _run_regen_all_companies_job(*, force: bool = False) -> None:
         }
 
         if not company_id:
-            summary_failed_count += 1
-            result["summary_status"] = "skipped_missing_id"
-            results.append(result)
             progress.emit(
                 "stage",
                 stage="skipped",
@@ -4339,125 +5360,332 @@ def _run_regen_all_companies_job(*, force: bool = False) -> None:
                 **context,
             )
             continue
-        if not company_name:
-            summary_failed_count += 1
-            result["summary_status"] = "skipped_missing_name"
-            results.append(result)
+
+        item = _regen_item_for_company(company, items.get(company_id))
+        items[company_id] = item
+
+        if not raw_company_name:
+            item["summary_status"] = "skipped_missing_name"
+            item["summary_error"] = "Company has no name to query"
+            _checkpoint_item(state, item)
             progress.emit(
                 "stage",
                 stage="skipped",
                 message=f"Skipped {company_id}: missing company name",
                 **context,
             )
-            continue
-
-        scoped_progress = _ProgressContext(progress, **context)
-        progress.emit(
-            "stage",
-            stage="refreshing_summary",
-            message=f"Refreshing {company_name} summary ({idx}/{total_count})",
-            **context,
-        )
-        try:
-            summary = _refresh_company_summary(
-                company_id, progress=scoped_progress
+        elif item.get("summary_status") == "done":
+            progress.emit(
+                "stage",
+                stage="summary_already_done",
+                message=f"Summary already refreshed for {company_name}",
+                **context,
             )
-            summary_refreshed_count += 1
-            result["summary_status"] = "done"
-            result["summary_source"] = summary.get("source")
-            if summary.get("reason"):
-                result["summary_reason"] = summary.get("reason")
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("regen-all summary refresh crashed for %s", company_id)
-            summary_failed_count += 1
-            result["summary_status"] = "error"
-            result["summary_error"] = f"{type(exc).__name__}: {exc}"
+        elif item.get("summary_status") in _REGEN_SUMMARY_TERMINAL_STATUSES:
+            progress.emit(
+                "stage",
+                stage="summary_skipped_terminal",
+                message=f"Summary previously ended for {company_name}",
+                **context,
+            )
+        else:
+            scoped_progress = _ProgressContext(progress, **context)
+            while item.get("summary_status") != "done":
+                if _maybe_proactive_regen_window_backoff(
+                    state,
+                    progress,
+                    phase="summary",
+                    context=context,
+                ):
+                    continue
+                item["summary_status"] = "running"
+                item["summary_started_at"] = _iso_now()
+                item.pop("summary_error", None)
+                _checkpoint_item(state, item)
+                progress.emit(
+                    "stage",
+                    stage="refreshing_summary",
+                    message=(
+                        f"Refreshing {company_name} summary "
+                        f"({idx}/{total_count})"
+                    ),
+                    **context,
+                )
+                try:
+                    summary = _refresh_company_summary(
+                        company_id, progress=scoped_progress
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    error_text = _exception_text(exc)
+                    reason = (
+                        scoped_progress.backoff_reason
+                        or _regen_backoff_reason(error_text)
+                    )
+                    if reason:
+                        _backoff_regen_until_reset(
+                            state,
+                            progress,
+                            reason=reason,
+                            item=item,
+                            phase="summary",
+                            context=context,
+                        )
+                        continue
+                    logger.exception(
+                        "regen-all summary refresh crashed for %s", company_id
+                    )
+                    item["summary_status"] = "error"
+                    item["summary_error"] = error_text
+                    _checkpoint_item(state, item)
+                    progress.emit(
+                        "stage",
+                        stage="summary_failed",
+                        message=f"Summary failed for {company_name}",
+                        error=error_text,
+                        **context,
+                    )
+                    break
+
+                reason = scoped_progress.backoff_reason or _regen_backoff_reason(
+                    summary.get("reason")
+                )
+                if reason is None and _regen_retryable_error_text(summary.get("reason")):
+                    reason = summary.get("reason")
+                if summary.get("source") == "fallback" and reason:
+                    _backoff_regen_until_reset(
+                        state,
+                        progress,
+                        reason=reason,
+                        item=item,
+                        phase="summary",
+                        context=context,
+                    )
+                    continue
+
+                item["summary_status"] = "done"
+                item["summary_source"] = summary.get("source")
+                item["summary_refreshed_at"] = _iso_now()
+                item.pop("summary_error", None)
+                if summary.get("reason"):
+                    item["summary_reason"] = summary.get("reason")
+                else:
+                    item.pop("summary_reason", None)
+                _checkpoint_item(state, item)
+                break
 
         refreshed = storage.get_company(company_id) or company
         ticker = (refreshed.get("ticker") or "").strip()
         company_type = refreshed.get("company_type") or storage.infer_company_type(
             refreshed
         )
-        result["ticker"] = ticker
-        result["company_type"] = company_type
+        item["ticker"] = ticker
+        item["company_type"] = company_type
+        if company_type != "public" and item.get("trader_status") != "done":
+            item["trader_status"] = "not_applicable"
+        if company_type == "public" and item.get("trader_status") == "not_applicable":
+            item["trader_status"] = "pending"
         context.update({"ticker": ticker, "company_type": company_type})
+        _checkpoint_item(state, item)
 
         if company_type != "public":
-            results.append(result)
+            progress.emit(
+                "stage",
+                stage="trader_not_applicable",
+                message=f"No trader view needed for {company_name}",
+                **context,
+            )
             continue
         if not ticker:
-            trader_skipped_count += 1
-            result["trader_status"] = "skipped_missing_ticker"
+            item["trader_status"] = "skipped_missing_ticker"
+            item["trader_error"] = "Public company is missing a ticker"
+            _checkpoint_item(state, item)
             progress.emit(
                 "stage",
                 stage="skipped_trader",
                 message=f"Skipped {company_name} trader view: missing ticker",
                 **context,
             )
-            results.append(result)
+            continue
+        if item.get("trader_status") == "done":
+            progress.emit(
+                "stage",
+                stage="trader_already_done",
+                message=f"Trader view already refreshed for {ticker}",
+                **context,
+            )
+            continue
+        if item.get("trader_status") in _REGEN_TRADER_TERMINAL_STATUSES:
+            progress.emit(
+                "stage",
+                stage="trader_skipped_terminal",
+                message=f"Trader view previously ended for {ticker}",
+                **context,
+            )
             continue
 
         snapshot_path = _trader_snapshot_progress_path(company_id)
-        state = _scan_progress_state(snapshot_path)
-        if _progress_state_in_flight(state) and not force:
-            trader_skipped_count += 1
-            result["trader_status"] = "already_running"
+        while item.get("trader_status") != "done":
+            if _maybe_proactive_regen_window_backoff(
+                state,
+                progress,
+                phase="trader",
+                context=context,
+            ):
+                continue
+            existing_state = _scan_progress_state(snapshot_path)
+            if _progress_state_in_flight(existing_state) and force:
+                _supersede_progress_file(
+                    snapshot_path,
+                    reason="superseded by regen-all force-refresh",
+                )
+            elif _progress_state_in_flight(existing_state):
+                final_state = _wait_for_existing_trader_refresh(
+                    snapshot_path,
+                    progress,
+                    context=context,
+                )
+                if final_state.get("terminal_type") == "done":
+                    item["trader_status"] = "done"
+                    item["trader_refreshed_at"] = _iso_now()
+                    item.pop("trader_error", None)
+                    _checkpoint_item(state, item)
+                    break
+                reason = (
+                    _progress_log_backoff_reason(snapshot_path)
+                    or _regen_backoff_reason(final_state.get("error"))
+                )
+                if reason is None and _regen_retryable_error_text(
+                    final_state.get("error")
+                ):
+                    reason = final_state.get("error")
+                if reason:
+                    _backoff_regen_until_reset(
+                        state,
+                        progress,
+                        reason=reason,
+                        item=item,
+                        phase="trader",
+                        context=context,
+                    )
+                    continue
+            elif existing_state.get("exists") and not existing_state.get("terminated"):
+                _supersede_progress_file(
+                    snapshot_path,
+                    reason="superseded stale trader refresh during regen-all",
+                )
+
+            item["trader_status"] = "running"
+            item["trader_started_at"] = _iso_now()
+            item.pop("trader_error", None)
+            _checkpoint_item(state, item)
             progress.emit(
                 "stage",
-                stage="trader_already_running",
-                message=(
-                    f"Skipped {company_name} trader view: refresh already running"
-                ),
+                stage="refreshing_trader",
+                message=f"Refreshing {ticker} trader view ({idx}/{total_count})",
                 **context,
             )
-            results.append(result)
-            continue
-        if _progress_state_in_flight(state) and force:
-            _supersede_progress_file(
-                snapshot_path, reason="superseded by regen-all force-refresh"
+            try:
+                _run_trader_snapshot_job(
+                    company_id,
+                    languages_requested=["en", "zh"],
+                    include_translations=True,
+                    translation_mode="all",
+                )
+            except Exception as exc:  # noqa: BLE001
+                error_text = _exception_text(exc)
+                reason = (
+                    _progress_log_backoff_reason(snapshot_path)
+                    or _regen_backoff_reason(error_text)
+                )
+                if reason is None and _regen_retryable_error_text(error_text):
+                    reason = error_text
+                if reason:
+                    _backoff_regen_until_reset(
+                        state,
+                        progress,
+                        reason=reason,
+                        item=item,
+                        phase="trader",
+                        context=context,
+                    )
+                    continue
+                logger.exception("regen-all trader refresh crashed for %s", company_id)
+                item["trader_status"] = "error"
+                item["trader_error"] = error_text
+                _checkpoint_item(state, item)
+                progress.emit(
+                    "stage",
+                    stage="trader_failed",
+                    message=f"Trader view failed for {ticker}",
+                    error=error_text,
+                    **context,
+                )
+                break
+
+            final_state = _scan_progress_state(snapshot_path)
+            if final_state.get("terminal_type") == "done":
+                item["trader_status"] = "done"
+                item["trader_refreshed_at"] = _iso_now()
+                item.pop("trader_error", None)
+                _checkpoint_item(state, item)
+                break
+            error_text = final_state.get("error") or "Trader snapshot failed"
+            reason = (
+                _progress_log_backoff_reason(snapshot_path)
+                or _regen_backoff_reason(error_text)
             )
+            if reason is None and _regen_retryable_error_text(error_text):
+                reason = error_text
+            if reason:
+                _backoff_regen_until_reset(
+                    state,
+                    progress,
+                    reason=reason,
+                    item=item,
+                    phase="trader",
+                    context=context,
+                )
+                continue
+            item["trader_status"] = "error"
+            item["trader_error"] = error_text
+            _checkpoint_item(state, item)
+            progress.emit(
+                "stage",
+                stage="trader_failed",
+                message=f"Trader view failed for {ticker}",
+                error=error_text,
+                **context,
+            )
+            break
 
         progress.emit(
             "stage",
-            stage="refreshing_trader",
-            message=f"Refreshing {ticker} trader view ({idx}/{total_count})",
+            stage="company_done",
+            message=f"Finished {company_name}",
+            summary_status=item.get("summary_status"),
+            trader_status=item.get("trader_status"),
             **context,
         )
-        try:
-            _run_trader_snapshot_job(
-                company_id,
-                languages_requested=["en", "zh"],
-                include_translations=True,
-                translation_mode="all",
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("regen-all trader refresh crashed for %s", company_id)
-            trader_failed_count += 1
-            result["trader_status"] = "error"
-            result["trader_error"] = f"{type(exc).__name__}: {exc}"
-            results.append(result)
-            continue
 
-        final_state = _scan_progress_state(snapshot_path)
-        if final_state.get("terminal_type") == "done":
-            trader_refreshed_count += 1
-            result["trader_status"] = "done"
-        else:
-            trader_failed_count += 1
-            result["trader_status"] = "error"
-            if final_state.get("error"):
-                result["trader_error"] = final_state["error"]
-        results.append(result)
-
+    final_summary = _summarize_regen_checkpoint(companies, state)
+    state["status"] = (
+        "done_with_errors" if final_summary["failed_count"] else "done"
+    )
+    state["completed_at"] = _iso_now()
+    _write_regen_checkpoint(state)
     progress.emit(
         "done",
         total_count=total_count,
-        summary_refreshed_count=summary_refreshed_count,
-        summary_failed_count=summary_failed_count,
-        trader_refreshed_count=trader_refreshed_count,
-        trader_skipped_count=trader_skipped_count,
-        trader_failed_count=trader_failed_count,
-        results=results,
+        pending_count=final_summary["pending_count"],
+        completed_count=final_summary["completed_count"],
+        failed_count=final_summary["failed_count"],
+        summary_refreshed_count=final_summary["summary_refreshed_count"],
+        summary_failed_count=final_summary["summary_failed_count"],
+        trader_refreshed_count=final_summary["trader_refreshed_count"],
+        trader_skipped_count=final_summary["trader_skipped_count"],
+        trader_failed_count=final_summary["trader_failed_count"],
+        checkpoint_status=state["status"],
+        results=final_summary["items"],
     )
 
 
@@ -4614,6 +5842,24 @@ def _run_refresh_all_trader_snapshots_job(
         failed_count=failed_count,
         results=results,
     )
+
+
+@router.get("/trader/stats")
+def get_trader_stats(limit: int = Query(default=30, ge=1, le=250)) -> dict:
+    """Return per-symbol trader refresh token/change history."""
+    return trader_stats.build_dashboard(storage.list_companies(), limit=limit)
+
+
+@router.get("/trader/stats/{company_id}")
+def get_trader_stats_for_company(
+    company_id: str,
+    limit: int = Query(default=80, ge=1, le=500),
+) -> dict:
+    """Return longitudinal trader refresh stats for one company."""
+    company = storage.get_company(company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return trader_stats.build_company_stats(company_id, company, limit=limit)
 
 
 @router.post("/companies/{company_id}/trader/refresh")
@@ -4775,22 +6021,37 @@ def post_companies_regen_all(force: bool = False) -> dict:
     """
     stream_url = "/api/companies/regen-all/stream"
     companies = _tracked_companies_for_regen()
-    queue = _summarize_company_regen_queue(companies)
+    checkpoint = None if force else _load_regen_checkpoint()
+    if _regen_checkpoint_complete(checkpoint, companies):
+        checkpoint = None
+    queue = _summarize_regen_checkpoint(companies, checkpoint)
+    will_resume = bool(
+        not force
+        and isinstance(checkpoint, dict)
+        and checkpoint.get("schema_version") == 1
+    )
 
     path = _company_regen_all_progress_path()
-    state = _scan_progress_state(path)
-    in_flight = _progress_state_in_flight(state)
+    progress_state = _scan_progress_state(path)
+    in_flight = _regen_all_thread_running() or _progress_state_in_flight(
+        progress_state
+    )
     if in_flight and not force:
         return {
             "job_id": "all",
             "stream_url": stream_url,
             "status": "already_running",
+            "resumed": will_resume,
             "languages_requested": ["en", "zh"],
             **queue,
         }
     if in_flight and force:
         _supersede_progress_file(
             path, reason="superseded by regen-all force-refresh"
+        )
+    elif progress_state.get("exists") and not progress_state.get("terminated"):
+        _supersede_progress_file(
+            path, reason="superseded stale regen-all progress"
         )
 
     threading.Thread(
@@ -4802,10 +6063,17 @@ def post_companies_regen_all(force: bool = False) -> dict:
     return {
         "job_id": "all",
         "stream_url": stream_url,
-        "status": "force_queued" if force else "queued",
+        "status": "force_queued" if force else "resumed" if will_resume else "queued",
+        "resumed": will_resume,
         "languages_requested": ["en", "zh"],
         **queue,
     }
+
+
+@router.get("/companies/regen-all/status")
+def get_companies_regen_all_status() -> dict:
+    """Return durable checkpoint state for the all-company regeneration."""
+    return _regen_status_payload()
 
 
 @router.get("/companies/{company_id}/trader/refresh/stream")

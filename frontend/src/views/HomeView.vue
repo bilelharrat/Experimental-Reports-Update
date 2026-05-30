@@ -12,6 +12,7 @@ import {
   Brain,
   CheckCircle2,
   AlertCircle,
+  BarChart3,
   ChevronDown,
   ChevronRight,
   Flame,
@@ -250,8 +251,15 @@ async function regenAllCompanies() {
     const publicCount = result.public_trader_count ?? 0;
     if (!total) {
       regenAllMessage.value = t("home.regen_all_none");
+    } else if (result.checkpoint_status === "backing_off") {
+      regenAllMessage.value = t("home.regen_all_backing_off");
     } else if (result.status === "already_running") {
       regenAllMessage.value = t("home.regen_all_running", { total });
+    } else if (result.resumed || result.status === "resumed") {
+      regenAllMessage.value = t("home.regen_all_resumed", {
+        pending: result.pending_count ?? result.queued_count ?? 0,
+        completed: result.completed_count ?? 0,
+      });
     } else {
       regenAllMessage.value = t("home.regen_all_started", {
         total,
@@ -374,6 +382,13 @@ function onBlur() {
           >
             <Flame class="h-4 w-4 text-accent" />
             {{ t("home.weekly_summary") }}
+          </router-link>
+          <router-link
+            :to="{ name: 'trader-stats' }"
+            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted focus-ring"
+          >
+            <BarChart3 class="h-4 w-4 text-accent" />
+            {{ t("home.trader_stats") }}
           </router-link>
           <button
             type="button"

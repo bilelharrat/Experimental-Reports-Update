@@ -191,6 +191,8 @@ export const api = {
   },
   regenAllCompaniesStreamUrl: () =>
     withApiToken("/api/companies/regen-all/stream"),
+  regenAllCompaniesStatus: () =>
+    request("/api/companies/regen-all/status", { timeoutMs: 8000 }),
   generateReport: (payload) =>
     request("/api/reports", {
       method: "POST",
@@ -446,6 +448,15 @@ export const api = {
         timeoutMs: 15000,
       });
     },
+    stats: (limit = 60) =>
+      request(`/api/trader/stats?limit=${encodeURIComponent(limit)}`, {
+        timeoutMs: 15000,
+      }),
+    statsFor: (companyId, limit = 100) =>
+      request(
+        `/api/trader/stats/${companyId}?limit=${encodeURIComponent(limit)}`,
+        { timeoutMs: 15000 },
+      ),
     streamUrl: (companyId) =>
       withApiToken(`/api/companies/${companyId}/trader/refresh/stream`),
     refreshAllStreamUrl: () =>

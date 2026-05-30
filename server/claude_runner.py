@@ -81,6 +81,79 @@ def claude_path() -> str | None:
     return shutil.which("claude")
 
 
+_PROVIDER_LIMIT_MARKERS = (
+    "usage limit",
+    "rate limit",
+    "quota",
+    "too many requests",
+    "429",
+    "limit reached",
+    "daily limit",
+    "weekly limit",
+    "try again later",
+    "overloaded",
+    "session limit",
+    "resets ",
+    "reset at",
+    "retry after",
+)
+
+
+def provider_limit_reason(
+    value: Any, *, include_bare_claude_exit: bool = False
+) -> str | None:
+    """Return text if it looks like a provider quota / rate-limit failure."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if any(marker in lowered for marker in _PROVIDER_LIMIT_MARKERS):
+        return text
+    if include_bare_claude_exit and "claude exited 1" in lowered:
+        return text
+    return None
+
+
+def _extract_claude_output_message(text: str | None) -> str | None:
+    if not text or not text.strip():
+        return None
+    stripped = text.strip()
+    candidates = [stripped, *reversed(stripped.splitlines())]
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            for key in ("error", "message", "result"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return stripped
+
+
+def _subprocess_output_tail(*parts: str | None, limit: int = 600) -> str:
+    messages = []
+    seen = set()
+    for part in parts:
+        message = _extract_claude_output_message(part)
+        if message and message not in seen:
+            messages.append(message)
+            seen.add(message)
+    text = "\n".join(messages)
+    return text[-limit:] if text else ""
+
+
+def _claude_exit_error(
+    returncode: int | None, *output_parts: str | None, limit: int = 600
+) -> str:
+    tail = _subprocess_output_tail(*output_parts, limit=limit)
+    base = f"claude exited {returncode}"
+    return f"{base}: {tail}" if tail else base
+
+
 def health_check(*, timeout_sec: int = 60) -> dict:
     """Run a tiny one-shot prompt against `claude` and report what happened.
 
@@ -157,10 +230,7 @@ def health_check(*, timeout_sec: int = 60) -> dict:
             "path": path,
             "version": version,
             "duration_ms": duration_ms,
-            "error": (
-                f"claude exited {proc.returncode}: "
-                f"{(proc.stderr or '').strip()[:600]}"
-            ),
+            "error": _claude_exit_error(proc.returncode, proc.stderr, proc.stdout),
         }
 
     try:
@@ -980,10 +1050,8 @@ def _consume_stream_json_process(
         return None, f"{timeout_label} did not exit cleanly"
 
     if proc.returncode and proc.returncode != 0:
-        tail = "".join(stderr_log[-20:]).strip()
-        return None, (
-            f"claude exited {proc.returncode}"
-            + (f": {tail[:600]}" if tail else "")
+        return None, _claude_exit_error(
+            proc.returncode, "".join(stderr_log[-20:])
         )
 
     return final_text, None
@@ -1065,8 +1133,9 @@ def run_company_search(
             return None, f"Failed to launch claude: {exc}"
 
         if proc.returncode != 0:
-            tail = (proc.stderr or "").strip()[-600:]
-            return None, f"claude exited {proc.returncode}: {tail}"
+            return None, _claude_exit_error(
+                proc.returncode, proc.stderr, proc.stdout
+            )
 
         try:
             envelope = json.loads(proc.stdout or "{}")
@@ -1226,6 +1295,7 @@ def run_web_research_json(
     schema: dict,
     name: str = "web_research",
     timeout_sec: int = 900,
+    silence_timeout_sec: int = 120,
     progress=None,
     use_json_schema: bool = True,
 ) -> tuple[dict | None, str | None]:
@@ -1308,6 +1378,7 @@ def run_web_research_json(
         state=state,
         event_handler=_process_search_event,
         timeout_sec=timeout_sec,
+        silence_timeout_sec=silence_timeout_sec,
         timeout_label="claude web research",
     )
     if stream_error:
@@ -2848,8 +2919,9 @@ def run_structured_prompt(
             return None, f"claude timed out after {timeout_sec}s ({name})"
 
         if proc.returncode != 0:
-            tail = "".join(stderr_log[-20:]).strip()[-600:]
-            return None, f"claude exited {proc.returncode}: {tail}"
+            return None, _claude_exit_error(
+                proc.returncode, "".join(stderr_log[-20:])
+            )
         if not final_text and result_event:
             final_text = (result_event.get("result") or "").strip()
         if not final_text:
@@ -2868,8 +2940,9 @@ def run_structured_prompt(
             return None, f"Failed to launch claude: {exc}"
 
         if proc.returncode != 0:
-            tail = (proc.stderr or "").strip()[-600:]
-            return None, f"claude exited {proc.returncode}: {tail}"
+            return None, _claude_exit_error(
+                proc.returncode, proc.stderr, proc.stdout
+            )
 
         try:
             envelope = json.loads(proc.stdout or "{}")

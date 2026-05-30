@@ -19,6 +19,11 @@ def tmp_weekly(monkeypatch, tmp_path):
         "PROGRESS_PATH",
         tmp_path / "weekly_summary.progress.jsonl",
     )
+    monkeypatch.setattr(
+        weekly_stocks,
+        "DRAFT_PATH",
+        tmp_path / "weekly_summary.draft.json",
+    )
     yield tmp_path
     for t in threading.enumerate():
         if t.name == "weekly-stocks" and t.is_alive():
@@ -192,6 +197,63 @@ def _sample_summary() -> dict:
     }
 
 
+def _sample_scan() -> dict:
+    tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
+    candidates = []
+    for index, ticker in enumerate(tickers, start=1):
+        candidates.append(
+            {
+                "rank": index,
+                "ticker": ticker,
+                "name": f"{ticker} Corp",
+                "exchange": "NASDAQ",
+                "sector": "Technology",
+                "sector_en": "Technology",
+                "sector_zh": "科技",
+                "score_hint": 100 - index,
+                "weekly_change_pct": 30 - index,
+                "catalyst": "Fresh catalyst.",
+                "catalyst_en": "Fresh catalyst.",
+                "catalyst_zh": "新催化剂。",
+                "reason": "Strong weekly setup.",
+                "reason_en": "Strong weekly setup.",
+                "reason_zh": "本周走势强劲。",
+                "sources": [
+                    {
+                        "label": "Scan source",
+                        "label_en": "Scan source",
+                        "label_zh": "扫描来源",
+                        "url": f"https://example.com/{ticker.lower()}",
+                        "date": "2026-05-28",
+                    }
+                ],
+            }
+        )
+    scan = _sample_summary()
+    scan.pop("sector_mix")
+    scan.pop("stocks")
+    scan["candidates"] = candidates
+    return scan
+
+
+def _sample_stock(ticker: str, index: int) -> dict:
+    stock = dict(_sample_summary()["stocks"][0])
+    stock["ticker"] = ticker
+    stock["name"] = f"{ticker} Corp"
+    stock["score"] = 100 - index
+    stock["weekly_change_pct"] = 30 - index
+    stock["sources"] = [
+        {
+            "label": f"{ticker} source",
+            "label_en": f"{ticker} source",
+            "label_zh": f"{ticker} 来源",
+            "url": f"https://example.com/detail/{ticker.lower()}",
+            "date": "2026-05-28",
+        }
+    ]
+    return stock
+
+
 def test_weekly_stocks_refresh_persists_summary(tmp_weekly, monkeypatch, client):
     def fake_generate(progress=None):
         if progress:
@@ -246,3 +308,90 @@ def test_weekly_refresh_supersedes_failed_structured_output_log(
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "queued"
+
+
+def test_weekly_refresh_clears_previous_terminal_stream(
+    tmp_weekly, monkeypatch, client
+):
+    progress = job_progress.ProgressLog(weekly_stocks.progress_path())
+    progress.emit("done", generated_at="old", summary={"week_label": "old"})
+
+    def fake_generate(progress=None):
+        summary = _sample_summary()
+        summary["week_label"] = "Fresh week"
+        return weekly_stocks.save_summary(summary), None
+
+    monkeypatch.setattr(weekly_stocks, "generate_summary", fake_generate)
+
+    resp = client.post("/api/weekly-stocks/refresh")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "queued"
+
+    deadline = time.monotonic() + 3.0
+    progress_text = ""
+    while time.monotonic() < deadline:
+        progress_text = weekly_stocks.progress_path().read_text(encoding="utf-8")
+        if "Fresh week" in progress_text:
+            break
+        time.sleep(0.05)
+
+    assert "Fresh week" in progress_text
+    assert '"week_label": "old"' not in progress_text
+
+
+def test_weekly_stocks_response_includes_refresh_state(tmp_weekly, client):
+    progress = job_progress.ProgressLog(weekly_stocks.progress_path())
+    progress.emit(
+        "job_init",
+        kind="weekly_stocks",
+        title="Weekly stock summary",
+        subtitle="Hot stocks research",
+    )
+    progress.emit("error", error="research stalled")
+
+    body = client.get("/api/weekly-stocks").json()
+
+    assert body["refresh_state"]["kind"] == "weekly_stocks"
+    assert body["refresh_state"]["terminal_type"] == "error"
+    assert body["refresh_state"]["error"] == "research stalled"
+
+
+def test_weekly_generate_summary_runs_phased_pipeline(tmp_weekly, monkeypatch):
+    calls = []
+    tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
+
+    def fake_run_web_research_json(**kwargs):
+        calls.append(kwargs)
+        name = kwargs["name"]
+        if name == "weekly_scan":
+            return _sample_scan(), None
+        ticker = name.removeprefix("weekly_stock_").upper()
+        assert ticker in tickers
+        return _sample_stock(ticker, tickers.index(ticker) + 1), None
+
+    monkeypatch.setattr(
+        weekly_stocks.claude_runner,
+        "run_web_research_json",
+        fake_run_web_research_json,
+    )
+    progress = job_progress.ProgressLog(weekly_stocks.progress_path())
+
+    summary, err = weekly_stocks.generate_summary(progress=progress)
+
+    assert err is None
+    assert summary["stocks"][0]["ticker"] == "AAA"
+    assert len(summary["stocks"]) == 6
+    assert calls[0]["name"] == "weekly_scan"
+    assert calls[0]["timeout_sec"] <= 115
+    assert all(call["timeout_sec"] <= 115 for call in calls[1:])
+
+    progress_text = weekly_stocks.progress_path().read_text(encoding="utf-8")
+    assert '"type": "candidates"' in progress_text
+    assert '"type": "stock_started"' in progress_text
+    assert '"type": "stock_done"' in progress_text
+    assert '"type": "publish_done"' in progress_text
+
+    draft = weekly_stocks.load_draft()
+    assert draft["status"] == "complete"
+    assert draft["completed_count"] == 6

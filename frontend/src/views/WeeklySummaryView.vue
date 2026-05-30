@@ -46,10 +46,20 @@ const UI = {
     notGenerated: "Not generated",
     na: "n/a",
     startStatus: "Starting weekly research",
+    waitingStatus: "Waiting for the updated summary",
     loadError: "Could not load weekly summary.",
     startError: "Could not start weekly research.",
     failed: "Weekly research failed.",
-    streamStalled: "Weekly research stream stalled. Try refresh again.",
+    streamStalled: "Weekly research stream stalled. Checking for the updated summary.",
+    noChange: "Refresh finished, but the weekly summary did not change.",
+    lastFailed: "Last refresh failed",
+    updated: "Updated",
+    progressTitle: "Refresh progress",
+    candidates: "Candidates",
+    completed: "Completed",
+    skipped: "Skipped",
+    building: "Building",
+    published: "Published",
   },
   zh: {
     back: "首页",
@@ -78,10 +88,20 @@ const UI = {
     notGenerated: "暂未生成",
     na: "N/A",
     startStatus: "正在启动每周研究",
+    waitingStatus: "正在等待更新后的摘要",
     loadError: "无法加载每周股票摘要。",
     startError: "无法启动每周研究。",
     failed: "每周研究失败。",
-    streamStalled: "每周研究进度已中断。请重新刷新。",
+    streamStalled: "每周研究进度已中断。正在检查更新后的摘要。",
+    noChange: "刷新已结束，但每周股票摘要没有变化。",
+    lastFailed: "上次刷新失败",
+    updated: "已更新",
+    progressTitle: "刷新进度",
+    candidates: "候选",
+    completed: "已完成",
+    skipped: "已跳过",
+    building: "正在生成",
+    published: "已发布",
   },
 };
 
@@ -89,11 +109,13 @@ const loading = ref(true);
 const refreshing = ref(false);
 const error = ref(null);
 const payload = ref(null);
+const refreshDraft = ref(null);
 const liveStatus = ref("");
 const expandedPrompt = ref(false);
 const viewLang = ref(appLanguage.value);
 let activeStream = null;
 let streamIdleTimer = null;
+let activeRefreshContext = null;
 
 const summary = computed(() => {
   const data = payload.value?.summary || null;
@@ -115,6 +137,15 @@ const prompt = computed(() => {
 const stocks = computed(() => summary.value?.stocks || []);
 const sourceList = computed(() => summary.value?.sources || []);
 const leader = computed(() => stocks.value[0] || null);
+const draftCandidates = computed(() => refreshDraft.value?.candidates || []);
+const draftStocks = computed(() => refreshDraft.value?.stocks || []);
+const draftErrors = computed(() => refreshDraft.value?.errors || []);
+const draftTotal = computed(
+  () =>
+    refreshDraft.value?.total_count ||
+    draftCandidates.value.length ||
+    draftStocks.value.length,
+);
 const sectorMax = computed(() =>
   Math.max(1, ...(summary.value?.sector_mix || []).map((s) => s.count || 0)),
 );
@@ -156,6 +187,8 @@ async function loadSummary() {
   error.value = null;
   try {
     payload.value = await api.weeklyStocks.get();
+    refreshDraft.value = payload.value?.draft || null;
+    applyRefreshState(payload.value?.refresh_state);
   } catch (e) {
     error.value = e?.message || ui.value.loadError;
   } finally {
@@ -163,63 +196,228 @@ async function loadSummary() {
   }
 }
 
+function applyRefreshState(state) {
+  if (!state || state.terminal_type !== "error") return;
+  const lastEventAt = Date.parse(state.last_event_at || state.started_at || "");
+  if (Number.isNaN(lastEventAt)) return;
+  if (Date.now() - lastEventAt > 30 * 60 * 1000) return;
+  const generatedAt = Date.parse(summary.value?.generated_at || "");
+  if (!Number.isNaN(generatedAt) && generatedAt >= lastEventAt - 2000) return;
+  error.value = `${ui.value.lastFailed}: ${state.error || ui.value.failed}`;
+}
+
+async function initializeWeeklySummary() {
+  await loadSummary();
+  await attachActiveWeeklyRefresh();
+}
+
+async function attachActiveWeeklyRefresh() {
+  if (refreshing.value) return;
+  let jobs = [];
+  try {
+    jobs = await api.listActiveJobs();
+  } catch {
+    return;
+  }
+  const job = jobs.find(
+    (item) =>
+      item?.kind === "weekly_stocks" ||
+      item?.stream_url === "/api/weekly-stocks/refresh/stream",
+  );
+  if (!job) return;
+  const startedAtMs = Date.parse(job.started_at || "");
+  const context = {
+    startedAtMs: Number.isNaN(startedAtMs) ? Date.now() : startedAtMs,
+    previousFingerprint: summaryFingerprint(summary.value),
+    settled: false,
+  };
+  activeRefreshContext = context;
+  refreshing.value = true;
+  error.value = null;
+  liveStatus.value = activeJobStatus(job);
+  openStream(context);
+}
+
+function activeJobStatus(job) {
+  if (job?.latest_stage) return job.latest_stage;
+  const action = job?.latest_action || {};
+  if (action.action === "tool_use" && action.tool) {
+    return `${action.tool}: ${(action.preview || "").slice(0, 90)}`;
+  }
+  if (action.preview) return String(action.preview).slice(0, 90);
+  return ui.value.waitingStatus;
+}
+
 async function refreshSummary({ force = false } = {}) {
   if (refreshing.value) return;
+  const context = {
+    startedAtMs: Date.now(),
+    previousFingerprint: summaryFingerprint(summary.value),
+    settled: false,
+  };
+  refreshDraft.value = {
+    status: "running",
+    phase: "starting",
+    candidates: [],
+    stocks: [],
+    errors: [],
+  };
+  activeRefreshContext = context;
   refreshing.value = true;
   error.value = null;
   liveStatus.value = ui.value.startStatus;
   try {
     await api.weeklyStocks.refresh({ force });
-    openStream();
+    openStream(context);
   } catch (e) {
+    activeRefreshContext = null;
     refreshing.value = false;
     liveStatus.value = "";
     error.value = e?.message || ui.value.startError;
   }
 }
 
-function openStream() {
+function openStream(context) {
   closeStream();
   const es = new EventSource(api.weeklyStocks.streamUrl());
   activeStream = es;
-  armStreamIdleTimer();
+  armStreamIdleTimer(context);
   es.onmessage = async (ev) => {
-    armStreamIdleTimer();
+    if (context.settled || activeRefreshContext !== context) return;
+    armStreamIdleTimer(context);
     let entry;
     try {
       entry = JSON.parse(ev.data);
     } catch {
       return;
     }
-    if (entry.type === "stage" && entry.message) {
+    if (!isFreshEvent(entry, context)) {
+      if (entry.type === "done" || entry.type === "error") {
+        liveStatus.value = ui.value.waitingStatus;
+      }
+      return;
+    }
+    if (applyDraftEvent(entry)) {
+      return;
+    } else if (entry.type === "stage" && entry.message) {
       liveStatus.value = entry.message;
     } else if (entry.type === "claude_action" && entry.action === "tool_use") {
       liveStatus.value = `${entry.tool}: ${(entry.preview || "").slice(0, 90)}`;
     } else if (entry.type === "claude_action" && entry.action === "thinking") {
       liveStatus.value = (entry.text || "").slice(0, 90);
     } else if (entry.type === "done") {
-      closeStream();
-      refreshing.value = false;
-      liveStatus.value = "";
       if (entry.summary) {
+        settleRefresh(context);
         payload.value = {
           ...(payload.value || {}),
           summary: entry.summary,
         };
       } else {
-        await loadSummary();
+        await finishRefreshFromPolling(context);
       }
     } else if (entry.type === "error") {
-      closeStream();
-      refreshing.value = false;
-      liveStatus.value = "";
-      error.value = entry.error || ui.value.failed;
+      settleRefresh(context, entry.error || ui.value.failed);
     }
   };
-  es.onerror = () => {
-    if (activeStream !== es || !refreshing.value) return;
-    stopRefreshingWithError(ui.value.streamStalled);
+  es.onerror = async () => {
+    if (activeStream !== es || !refreshing.value || context.settled) return;
+    liveStatus.value = ui.value.streamStalled;
+    await finishRefreshFromPolling(context);
   };
+}
+
+function applyDraftEvent(entry) {
+  if (entry.type === "candidates") {
+    refreshDraft.value = {
+      ...(refreshDraft.value || {}),
+      status: "running",
+      phase: "details",
+      candidates: entry.candidates || [],
+      stocks: [],
+      errors: [],
+      total_count: entry.total_count || (entry.candidates || []).length,
+    };
+    liveStatus.value = entry.message || ui.value.candidates;
+    return true;
+  }
+  if (entry.type === "stock_started") {
+    refreshDraft.value = {
+      ...(refreshDraft.value || {}),
+      status: "running",
+      phase: "details",
+      active_ticker: entry.ticker,
+      index: entry.index,
+      total_count: entry.total_count || draftTotal.value,
+    };
+    liveStatus.value = `${ui.value.building} ${entry.ticker || ""}`.trim();
+    return true;
+  }
+  if (entry.type === "stock_done") {
+    const current = refreshDraft.value || {};
+    const nextStocks = upsertByTicker(current.stocks || [], entry.stock);
+    refreshDraft.value = {
+      ...current,
+      status: "running",
+      phase: "details",
+      active_ticker: null,
+      stocks: nextStocks,
+      completed_count: entry.completed_count || nextStocks.length,
+      index: entry.index,
+      total_count: entry.total_count || current.total_count || nextStocks.length,
+    };
+    liveStatus.value = entry.message || `${ui.value.completed} ${entry.ticker || ""}`.trim();
+    return true;
+  }
+  if (entry.type === "stock_error") {
+    const current = refreshDraft.value || {};
+    refreshDraft.value = {
+      ...current,
+      status: "running",
+      phase: "details",
+      active_ticker: null,
+      errors: [
+        ...(current.errors || []),
+        {
+          ticker: entry.ticker,
+          error: entry.error,
+        },
+      ],
+      index: entry.index,
+      total_count: entry.total_count || current.total_count,
+    };
+    liveStatus.value = entry.message || `${ui.value.skipped} ${entry.ticker || ""}`.trim();
+    return true;
+  }
+  if (entry.type === "publish_done") {
+    refreshDraft.value = {
+      ...(refreshDraft.value || {}),
+      status: "complete",
+      phase: "published",
+      completed_count: entry.completed_count,
+      skipped_count: entry.skipped_count,
+      summary_generated_at: entry.generated_at,
+    };
+    liveStatus.value = entry.message || ui.value.published;
+    return true;
+  }
+  return false;
+}
+
+function upsertByTicker(items, nextItem) {
+  if (!nextItem || !nextItem.ticker) return items || [];
+  const ticker = String(nextItem.ticker).toUpperCase();
+  const out = [];
+  let found = false;
+  for (const item of items || []) {
+    if (String(item?.ticker || "").toUpperCase() === ticker) {
+      out.push(nextItem);
+      found = true;
+    } else {
+      out.push(item);
+    }
+  }
+  if (!found) out.push(nextItem);
+  return out;
 }
 
 function closeStream() {
@@ -237,19 +435,88 @@ function closeStream() {
   }
 }
 
-function armStreamIdleTimer() {
+function armStreamIdleTimer(context) {
   if (streamIdleTimer) window.clearTimeout(streamIdleTimer);
   streamIdleTimer = window.setTimeout(() => {
-    stopRefreshingWithError(ui.value.streamStalled);
+    if (context?.settled) return;
+    liveStatus.value = ui.value.streamStalled;
+    finishRefreshFromPolling(context);
   }, 120000);
 }
 
-function stopRefreshingWithError(message) {
+function settleRefresh(context, message = "") {
+  if (context) {
+    context.settled = true;
+  }
+  if (!context || activeRefreshContext === context) {
+    activeRefreshContext = null;
+  }
   closeStream();
   refreshing.value = false;
   liveStatus.value = "";
-  error.value = message;
-  loadSummary();
+  error.value = message || null;
+}
+
+async function finishRefreshFromPolling(context) {
+  if (!context || context.settled || activeRefreshContext !== context) return;
+  closeStream();
+  liveStatus.value = ui.value.waitingStatus;
+  try {
+    const updated = await waitForUpdatedSummary(context);
+    if (context.settled || activeRefreshContext !== context) return;
+    payload.value = updated;
+    settleRefresh(context);
+  } catch (e) {
+    if (context.settled || activeRefreshContext !== context) return;
+    settleRefresh(context, e?.message || ui.value.noChange);
+  }
+}
+
+async function waitForUpdatedSummary(context) {
+  const deadline = Date.now() + 15 * 60 * 1000;
+  let latest = null;
+  while (Date.now() < deadline && !context.settled) {
+    latest = await api.weeklyStocks.get();
+    if (summaryIsFresh(latest?.summary, context)) {
+      return latest;
+    }
+    await sleep(3000);
+  }
+  throw new Error(ui.value.noChange);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isFreshEvent(entry, context) {
+  const ts = Date.parse(entry?.ts || "");
+  if (Number.isNaN(ts)) return true;
+  return ts >= context.startedAtMs - 2000;
+}
+
+function summaryIsFresh(nextSummary, context) {
+  if (!nextSummary) return false;
+  const generatedAt = Date.parse(nextSummary.generated_at || "");
+  if (!Number.isNaN(generatedAt) && generatedAt >= context.startedAtMs - 2000) {
+    return true;
+  }
+  if (!context.previousFingerprint) return true;
+  return summaryFingerprint(nextSummary) !== context.previousFingerprint;
+}
+
+function summaryFingerprint(value) {
+  if (!value) return "";
+  return [
+    value.generated_at || "",
+    value.as_of || "",
+    value.week_label || "",
+    value.market_pulse || "",
+    (value.stocks || [])
+      .map((stock) => `${stock.rank}:${stock.ticker}:${stock.score}`)
+      .join("|"),
+    (value.watchlist || []).map((item) => item.ticker).join("|"),
+  ].join("||");
 }
 
 function fmtPct(value) {
@@ -303,7 +570,7 @@ function refreshedAtLabel(iso) {
   return d.toLocaleString(viewLang.value === "zh" ? "zh-CN" : "en-US");
 }
 
-onMounted(loadSummary);
+onMounted(initializeWeeklySummary);
 onBeforeUnmount(closeStream);
 </script>
 
@@ -328,6 +595,13 @@ onBeforeUnmount(closeStream);
           >
             <CalendarClock class="h-3.5 w-3.5" />
             {{ weekLabel }}
+          </span>
+          <span
+            v-if="summary?.generated_at"
+            class="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2.5 py-1 text-xs text-accent-ink"
+          >
+            <RefreshCw class="h-3.5 w-3.5" />
+            {{ ui.updated }} {{ refreshedAtLabel(summary.generated_at) }}
           </span>
         </div>
         <p class="mt-2 max-w-3xl text-sm text-ink-secondary">
@@ -407,6 +681,68 @@ onBeforeUnmount(closeStream);
     >
       <Loader2 class="h-4 w-4 animate-spin" />
       <span class="truncate">{{ liveStatus }}</span>
+    </div>
+
+    <div
+      v-if="refreshing && refreshDraft"
+      class="mt-3 rounded-card border border-subtle bg-surface px-4 py-3 shadow-card"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm font-semibold text-ink-primary">
+          {{ ui.progressTitle }}
+        </div>
+        <div class="flex items-center gap-3 text-xs text-ink-muted">
+          <span>{{ ui.completed }} {{ draftStocks.length }}/{{ draftTotal || "?" }}</span>
+          <span v-if="draftErrors.length">{{ ui.skipped }} {{ draftErrors.length }}</span>
+        </div>
+      </div>
+      <div
+        v-if="draftCandidates.length"
+        class="mt-3 flex flex-wrap gap-1.5"
+      >
+        <span
+          v-for="candidate in draftCandidates"
+          :key="candidate.ticker"
+          class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-muted px-2 py-1 text-[11px] text-ink-secondary"
+        >
+          <span class="font-mono">{{ candidate.ticker }}</span>
+          <span v-if="candidate.score_hint" class="text-ink-muted">
+            {{ Math.round(candidate.score_hint) }}
+          </span>
+        </span>
+      </div>
+      <div
+        v-if="draftStocks.length"
+        class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        <div
+          v-for="stock in draftStocks"
+          :key="stock.ticker"
+          class="min-w-0 rounded-lg border border-success/25 bg-success-soft px-3 py-2"
+        >
+          <div class="flex items-center justify-between gap-2 text-xs">
+            <span class="truncate font-mono font-semibold text-success-ink">
+              {{ stock.ticker }}
+            </span>
+            <span class="text-success-ink">{{ Math.round(stock.score || 0) }}</span>
+          </div>
+          <div class="mt-1 truncate text-[11px] text-ink-muted">
+            {{ pick(stock, "why_awesome") || stock.name }}
+          </div>
+        </div>
+      </div>
+      <div
+        v-if="draftErrors.length"
+        class="mt-3 flex flex-wrap gap-1.5"
+      >
+        <span
+          v-for="item in draftErrors"
+          :key="item.ticker + item.error"
+          class="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning-soft px-2 py-1 text-[11px] text-warning-ink"
+        >
+          {{ item.ticker || ui.skipped }}
+        </span>
+      </div>
     </div>
 
     <div v-if="error" class="mt-5 rounded-card border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger-ink">

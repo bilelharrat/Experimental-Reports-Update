@@ -57,6 +57,7 @@ from .api import (  # noqa: E402
     router as api_router,
     require_api_token,
     _expected_token,
+    resume_regen_all_if_needed,
 )
 from .company_translate import translate_company  # noqa: E402
 from .storage import (  # noqa: E402
@@ -140,6 +141,11 @@ def _startup() -> None:
             logger.info("Recovered %d stale memo report(s).", n)
     except Exception:  # noqa: BLE001
         logger.exception("Memo recovery sweep failed")
+    try:
+        if resume_regen_all_if_needed():
+            logger.info("Resumed all-company regeneration from checkpoint.")
+    except Exception:  # noqa: BLE001
+        logger.exception("All-company regeneration recovery failed")
     # Strip any pre-v2 heat_card blocks so iOS / web don't try to read
     # the legacy shape through the new code. Idempotent on subsequent
     # restarts. See docs/heat-card-v2.md §6.
@@ -180,51 +186,76 @@ def _needs_translation(company: dict) -> bool:
     return True  # shaped-but-empty / failed block → retranslate
 
 
+def _run_translation_backfill_once() -> None:
+    try:
+        companies = list_companies()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Translation backfill: list_companies failed: %s", exc)
+        return
+    pending = [c for c in companies if _needs_translation(c)]
+    if not pending:
+        return
+    logger.info(
+        "Translation backfill: %d company record(s) to translate.",
+        len(pending),
+    )
+    paused = False
+    for idx, c in enumerate(pending, start=1):
+        cid = c.get("id")
+        if not cid:
+            continue
+        try:
+            result = translate_company(c)
+            err = result.get("error")
+            limit_reason = claude_runner.provider_limit_reason(
+                err, include_bare_claude_exit=True
+            )
+            if limit_reason:
+                remaining = len(pending) - idx + 1
+                logger.warning(
+                    "Translation backfill paused at %s: %s. "
+                    "%d record(s) remain pending.",
+                    cid, limit_reason, remaining,
+                )
+                paused = True
+                break
+            update_company(
+                cid,
+                language=result.get("language"),
+                translation=result.get("translation"),
+            )
+            if err:
+                logger.warning("Translation backfill for %s: %s", cid, err)
+        except Exception as exc:  # noqa: BLE001
+            err = f"{type(exc).__name__}: {exc}"
+            limit_reason = claude_runner.provider_limit_reason(
+                err, include_bare_claude_exit=True
+            )
+            if limit_reason:
+                remaining = len(pending) - idx + 1
+                logger.warning(
+                    "Translation backfill paused at %s: %s. "
+                    "%d record(s) remain pending.",
+                    cid, limit_reason, remaining,
+                )
+                paused = True
+                break
+            logger.warning("Translation backfill for %s failed: %s", cid, exc)
+    if not paused:
+        logger.info("Translation backfill: complete.")
+
+
 def _start_translation_backfill() -> None:
-    """Translate any company record that has no `translation` block, or
-    whose block is empty / a stale failed skeleton. Runs in a background
-    thread so startup isn't blocked. No-op if the Claude CLI isn't
-    installed.
+    """Backfill missing company translations without blocking startup.
+
+    If Claude reports a quota / rate-limit failure, pause the backfill and
+    leave the remaining records untouched so a later restart can retry them.
     """
     if not claude_runner.is_available():
         return
 
-    def _worker() -> None:
-        try:
-            companies = list_companies()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Translation backfill: list_companies failed: %s", exc)
-            return
-        pending = [c for c in companies if _needs_translation(c)]
-        if not pending:
-            return
-        logger.info(
-            "Translation backfill: %d company record(s) to translate.",
-            len(pending),
-        )
-        for c in pending:
-            cid = c.get("id")
-            if not cid:
-                continue
-            try:
-                result = translate_company(c)
-                update_company(
-                    cid,
-                    language=result.get("language"),
-                    translation=result.get("translation"),
-                )
-                if result.get("error"):
-                    logger.warning(
-                        "Translation backfill for %s: %s", cid, result["error"]
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Translation backfill for %s failed: %s", cid, exc
-                )
-        logger.info("Translation backfill: complete.")
-
     threading.Thread(
-        target=_worker,
+        target=_run_translation_backfill_once,
         name="company-translation-backfill",
         daemon=True,
     ).start()
