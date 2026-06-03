@@ -294,6 +294,35 @@ export const api = {
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
 
+  memoAnalysis: {
+    get: (companyId) =>
+      request(`/api/companies/${companyId}/memo-analysis`),
+    runTool: (companyId, toolName) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis/tools/${encodeURIComponent(toolName)}/run`,
+        { method: "POST", timeoutMs: 30000 },
+      ),
+    patchArtifact: (companyId, artifactName, patch) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis/artifacts/${encodeURIComponent(artifactName)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    patchTask: (companyId, taskId, patch) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis/research-tasks/${encodeURIComponent(taskId)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    runTask: (companyId, taskId) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis/research-tasks/${encodeURIComponent(taskId)}/run`,
+        { method: "POST", timeoutMs: 30000 },
+      ),
+    approve: (companyId) =>
+      request(`/api/companies/${companyId}/memo-analysis/approve`, {
+        method: "POST",
+      }),
+  },
+
   // External news, research, and Hormuz
   externalFeed: () => request("/api/external/feed"),
   listNews: () => request("/api/external/news"),

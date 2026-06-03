@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import job_progress, storage
+from . import job_progress, serena_analysis, storage
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,11 @@ SKILL_NAME = "bsh-investment-memo-latestage-v1"
 SKILL_VERSION = 1
 JOB_KIND = "memo"
 REPORT_TYPE = "Investment Memo (Late-Stage)"
+
+
+class AnalysisSessionNotReadyError(ValueError):
+    """Raised when a requested analysis session cannot drive memo generation."""
+
 
 # --- Stage classification --------------------------------------------------
 
@@ -193,6 +198,25 @@ def _company_slug(company: dict) -> str:
     return str(company.get("id"))
 
 
+def _validate_analysis_session_for_memo(
+    slug: str,
+    analysis_session_id: str,
+    analysis_session: dict,
+) -> None:
+    if not analysis_session.get("approved_for_memo"):
+        raise AnalysisSessionNotReadyError(
+            f"Analysis session {analysis_session_id} for {slug} is not approved "
+            "for memo generation."
+        )
+    artifacts = analysis_session.get("artifacts") or {}
+    thesis = artifacts.get("thesis_spine")
+    if not isinstance(thesis, dict) or not thesis.get("approved"):
+        raise AnalysisSessionNotReadyError(
+            f"Analysis session {analysis_session_id} for {slug} does not have "
+            "an approved thesis spine."
+        )
+
+
 def _make_run_dir(slug: str, run_id: str) -> Path:
     base = MEMOS_ROOT / slug / f"{run_id}__{slug}__memo-run"
     folder = base
@@ -236,12 +260,15 @@ def _write_manifest_skeleton(
     stage: dict,
     memo_paths: dict[str, str],
     warnings: list[str],
+    analysis_session_id: str | None = None,
 ) -> Path:
     lines: list[str] = ["# Investment Memo Run Manifest", ""]
     lines.append(f"- run_id: {run_id}")
     lines.append(f"- company: {company.get('name')} ({company.get('id')})")
     lines.append(f"- skill: {SKILL_NAME}")
     lines.append(f"- skill_version: {SKILL_VERSION}")
+    if analysis_session_id:
+        lines.append(f"- analysis_session_id: {analysis_session_id}")
     lines.append(f"- created_at: {_now().isoformat()}")
     lines.append("- status: ready_for_analysis")
     lines.append(
@@ -307,7 +334,9 @@ def _write_scope_failure(run_dir: Path, *, company: dict, stage: dict) -> Path:
 
 # --- Public entry ----------------------------------------------------------
 
-def bootstrap_memo_run(company_id: str) -> dict:
+def bootstrap_memo_run(
+    company_id: str, *, analysis_session_id: str | None = None
+) -> dict:
     """Run the synchronous prep stage for an investment-memo job.
 
     Returns a result dict. Hard scope failures (for example nonprofit /
@@ -323,14 +352,26 @@ def bootstrap_memo_run(company_id: str) -> dict:
         raise RuntimeError(
             f"Settings file missing: {SETTINGS_FILE}. Place serena_background.md "
             "in data/settings/ before running prep."
-        )
+    )
 
     slug = _company_slug(company)
+    company_name = company.get("name") or slug
+    analysis_session = None
+    if analysis_session_id:
+        analysis_session = serena_analysis.get_session(slug, analysis_session_id)
+        if analysis_session is None:
+            raise ValueError(
+                f"Unknown analysis_session_id for {slug}: {analysis_session_id}"
+            )
+        _validate_analysis_session_for_memo(
+            slug,
+            analysis_session_id,
+            analysis_session,
+        )
+
     run_id = _run_id()
     run_dir = _make_run_dir(slug, run_id)
     stream = job_progress.ProgressLog(stream_path(run_dir))
-
-    company_name = company.get("name") or slug
     memo_paths = {
         "en": str(run_dir / "memo" / _memo_filename(company_name, run_id, "en")),
         "zh": str(run_dir / "memo" / _memo_filename(company_name, run_id, "zh")),
@@ -358,6 +399,12 @@ def bootstrap_memo_run(company_id: str) -> dict:
         skill_version=SKILL_VERSION,
         run_id=run_id,
         warnings=[],
+        analysis_session_id=analysis_session_id,
+        analysis_session_approved=(
+            bool(analysis_session.get("approved_for_memo"))
+            if analysis_session
+            else False
+        ),
     )
 
     stream.emit(
@@ -437,6 +484,7 @@ def bootstrap_memo_run(company_id: str) -> dict:
         stage=stage_assessment,
         memo_paths=memo_paths,
         warnings=warnings,
+        analysis_session_id=analysis_session_id,
     )
 
     storage.update_report(

@@ -156,6 +156,11 @@ const messages = {
     "research.generating": "Generating…",
     "research.generating_hint":
       "You can leave this page; the report continues in the background.",
+    "research.memo_studio_unapproved_block_title":
+      "Memo Studio draft needs review",
+    "research.memo_studio_unapproved_block_body":
+      "This company has unapproved Memo Studio work. Approve it in Memo Studio before generating a regular investment memo.",
+    "research.open_memo_studio": "Open Memo Studio",
     "research.status_complete": "Complete",
     "research.download_en": "Download English (.docx)",
     "research.download_zh": "下载中文 (.docx)",
@@ -245,6 +250,7 @@ const messages = {
     "jobs.kind.summary": "deck summary",
     "jobs.kind.external_research": "research analysis",
     "jobs.kind.research_summary": "file summary",
+    "jobs.kind.serena_research_task": "memo research",
     "jobs.kind.memo": "memo",
     "jobs.kind.public_snapshot": "trader snapshot",
     "jobs.kind.public_snapshot_bulk": "stock views",
@@ -354,6 +360,7 @@ const messages = {
     // Research-view tab strip
     "research.tab_overview": "Overview",
     "research.tab_documents": "Documents",
+    "research.tab_analysis": "Memo Studio",
     "research.tab_console": "Console",
     // Console
     "console.tab_label": "Console",
@@ -762,6 +769,11 @@ const messages = {
     "research.generate_button": "生成报告",
     "research.generating": "生成中…",
     "research.generating_hint": "可以离开此页面；报告会在后台继续生成。",
+    "research.memo_studio_unapproved_block_title":
+      "备忘录工作台草稿待审核",
+    "research.memo_studio_unapproved_block_body":
+      "该公司有尚未批准的备忘录工作台分析。请先在备忘录工作台批准分析，再生成常规投资备忘录。",
+    "research.open_memo_studio": "打开备忘录工作台",
     "research.status_complete": "已完成",
     "research.download_en": "下载英文 (.docx)",
     "research.download_zh": "下载中文 (.docx)",
@@ -846,6 +858,7 @@ const messages = {
     "jobs.kind.summary": "演示摘要",
     "jobs.kind.external_research": "研究分析",
     "jobs.kind.research_summary": "文件摘要",
+    "jobs.kind.serena_research_task": "备忘录研究",
     "jobs.kind.memo": "投资备忘录",
     "jobs.kind.public_snapshot": "交易快照",
     "jobs.kind.public_snapshot_bulk": "交易视图",
@@ -953,6 +966,7 @@ const messages = {
     // Research-view tab strip
     "research.tab_overview": "概览",
     "research.tab_documents": "文档",
+    "research.tab_analysis": "备忘录工作台",
     "research.tab_console": "控制台",
     // Console
     "console.tab_label": "控制台",

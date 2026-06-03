@@ -51,6 +51,7 @@ from . import (
     memo_prep,
     news_archive,
     research_store,
+    serena_analysis,
     storage,
     text_analysis,
     trader_stats,
@@ -353,6 +354,8 @@ class ReportSummary(BaseModel):
     run_dir: str | None = None
     skill: str | None = None
     memo_files: list[dict] = Field(default_factory=list)
+    analysis_session_id: str | None = None
+    analysis_session_approved: bool = False
 
 
 class ReportDetail(ReportSummary):
@@ -374,6 +377,7 @@ class GenerateRequest(BaseModel):
     report_type: str
     audience: str
     language: str = "en"
+    analysis_session_id: str | None = None
 
 
 class MemoPrepRequest(BaseModel):
@@ -381,6 +385,7 @@ class MemoPrepRequest(BaseModel):
     memo-run bootstrap (company resolve, scope check, run-folder mint,
     input staging) before the long-running analysis composite job."""
     company_id: str
+    analysis_session_id: str | None = None
 
 
 class ThreadIn(BaseModel):
@@ -926,7 +931,12 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
     # legacy placeholder generator.
     if payload.report_type == memo_prep.REPORT_TYPE:
         try:
-            result = memo_prep.bootstrap_memo_run(payload.company_id)
+            result = memo_prep.bootstrap_memo_run(
+                payload.company_id,
+                analysis_session_id=payload.analysis_session_id,
+            )
+        except memo_prep.AnalysisSessionNotReadyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -1045,7 +1055,12 @@ def post_memo_prep(payload: MemoPrepRequest) -> ReportDetail:
     folder and return `status: failed_scope_check` plus the scope reason.
     """
     try:
-        result = memo_prep.bootstrap_memo_run(payload.company_id)
+        result = memo_prep.bootstrap_memo_run(
+            payload.company_id,
+            analysis_session_id=payload.analysis_session_id,
+        )
+    except memo_prep.AnalysisSessionNotReadyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -1136,6 +1151,148 @@ def get_company_reports(company_id: str) -> list[ReportSummary]:
         for r in storage.list_reports()
         if r.get("company_id") == company_id
     ]
+
+
+@router.get("/companies/{company_id}/memo-analysis")
+def get_memo_analysis(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        session = serena_analysis.get_current_session(company_id, create=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if session is None:
+        raise HTTPException(status_code=404, detail="Memo analysis not found")
+    return session
+
+
+@router.post("/companies/{company_id}/memo-analysis/tools/{tool_name}/run")
+def run_memo_analysis_tool(company_id: str, tool_name: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.run_tool(company_id, tool_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/companies/{company_id}/memo-analysis/artifacts/{artifact_name}")
+def patch_memo_analysis_artifact(
+    company_id: str,
+    artifact_name: str,
+    patch: dict,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.patch_artifact(company_id, artifact_name, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/companies/{company_id}/memo-analysis/research-tasks/{task_id}")
+def patch_memo_analysis_research_task(
+    company_id: str,
+    task_id: str,
+    patch: dict,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.patch_research_task(company_id, task_id, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/companies/{company_id}/memo-analysis/research-tasks/{task_id}/run",
+    status_code=202,
+)
+def run_memo_analysis_research_task(company_id: str, task_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.start_research_task_job(company_id, task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/companies/{company_id}/memo-analysis/sessions/{session_id}/research-tasks/{task_id}/stream"
+)
+async def stream_memo_analysis_research_task(
+    company_id: str,
+    session_id: str,
+    task_id: str,
+) -> "StreamingResponse":
+    """SSE stream for one Memo Studio research-task job."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if serena_analysis.get_session(company_id, session_id) is None:
+        raise HTTPException(status_code=404, detail="Memo analysis session not found")
+
+    progress_path = serena_analysis.research_task_progress_path(
+        company_id, session_id, task_id
+    )
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this task\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/companies/{company_id}/memo-analysis/approve")
+def approve_memo_analysis(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.approve(company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/companies/{company_id}/files")
@@ -2003,6 +2160,11 @@ def _console_ask_path(key: str):
     return console_store.ask_progress_path(company_id, sid, turn_id)
 
 
+def _serena_research_task_path(key: str):
+    company_id, session_id, task_id = key.split("/", 2)
+    return serena_analysis.research_task_progress_path(company_id, session_id, task_id)
+
+
 _JOB_KIND_PATHS = {
     "summary": lambda key: (
         files_store._company_dir(key.split("/", 1)[0])
@@ -2024,6 +2186,7 @@ _JOB_KIND_PATHS = {
     "console_hydrate": _console_hydrate_path,
     "console_ask": _console_ask_path,
     "console_summary": _console_summary_path,
+    "serena_research_task": _serena_research_task_path,
     "public_snapshot": lambda key: (
         storage.DATA_DIR / "_trader" / f"{key}__snapshot.progress.jsonl"
     ),
@@ -2307,6 +2470,50 @@ def _console_kind_records():
             }
 
 
+def _serena_research_task_kind_records():
+    """Yield active-jobs rail entries for Memo Studio research-task jobs."""
+    if not serena_analysis.ANALYSIS_ROOT.exists():
+        return
+    suffix = ".progress.jsonl"
+    for jsonl_path in serena_analysis.ANALYSIS_ROOT.glob("*/*/logs/*.progress.jsonl"):
+        if not jsonl_path.name.endswith(suffix):
+            continue
+        task_id = jsonl_path.name[: -len(suffix)]
+        session_dir = jsonl_path.parent.parent
+        company_dir = session_dir.parent
+        session_id = session_dir.name
+        company_id = company_dir.name
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
+        init = state.get("job_init") or {}
+        yield {
+            "kind": state.get("kind") or "serena_research_task",
+            "title": state.get("title") or "Memo Studio research task",
+            "subtitle": state.get("subtitle") or (
+                (storage.get_company(company_id) or {}).get("name") or company_id
+            ),
+            "stream_url": (
+                f"/api/companies/{company_id}/memo-analysis/sessions/{session_id}"
+                f"/research-tasks/{task_id}/stream"
+            ),
+            "log_url": (
+                f"/api/jobs/log?path=serena_research_task:"
+                f"{company_id}/{session_id}/{task_id}"
+            ),
+            "primary_route": {
+                "name": "research",
+                "params": {"companyId": company_id},
+                "query": {"tab": "analysis"},
+            },
+            "company_id": company_id,
+            "session_id": session_id,
+            "task_id": task_id,
+            "risk_id": init.get("risk_id"),
+            **_common_state_fields(state),
+        }
+
+
 def _resolve_job_log_path(combined: str):
     """Resolve a `kind:key` token into its on-disk JSONL path."""
     if ":" not in combined:
@@ -2334,6 +2541,7 @@ def get_active_jobs() -> list[dict]:
         _hormuz_appendix_kind_records(),
         _research_summary_kind_records(),
         _console_kind_records(),
+        _serena_research_task_kind_records(),
         _company_regen_all_kind_records(),
         _public_snapshot_bulk_kind_records(),
         _public_snapshot_kind_records(),
@@ -3604,6 +3812,8 @@ def _report_summary(r: dict) -> dict:
         "run_dir": r.get("run_dir"),
         "skill": r.get("skill"),
         "memo_files": list(r.get("memo_files") or []),
+        "analysis_session_id": r.get("analysis_session_id"),
+        "analysis_session_approved": bool(r.get("analysis_session_approved")),
     }
 
 

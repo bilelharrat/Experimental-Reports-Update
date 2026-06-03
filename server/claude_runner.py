@@ -1875,6 +1875,8 @@ def _build_investment_memo_prompt(
     settings_path: Path,
     companies_yaml_path: Path,
     memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
 ) -> str:
@@ -1916,6 +1918,52 @@ confidence limits clearly.
 
 """
 
+    research_block = ""
+    if research_dir and research_dir.exists():
+        research_block = f"""\
+The skill text describes a `[BSH Assistant]/[Company Name]/` folder
+that historically held PitchBook PDFs, partner notes, CB Insights
+exports, etc. **For this run, that folder maps to this absolute path:**
+
+  `{research_dir}`
+
+Read the raw files in that folder before memo writing. Use the files
+themselves, not just quick summaries or index metadata. Continue to
+apply source-provenance discipline: company-originated material,
+investor/intermediary estimates, independent secondary sources, and
+internal analysis must remain clearly separated.
+
+"""
+    else:
+        research_block = """\
+The skill text describes a `[BSH Assistant]/[Company Name]/` folder
+that historically held PitchBook PDFs, partner notes, CB Insights
+exports, etc. **For this run, that folder is not populated.** Treat
+the company folder as empty — proceed without external research
+materials, exactly as the skill says to do when the folder is absent.
+
+"""
+
+    analysis_block = ""
+    if analysis_session_path and analysis_session_path.exists():
+        analysis_block = f"""\
+## Serena-approved analysis packet
+
+Serena has prepared a pre-memo analysis session for this run. Read this
+folder before drafting the memo:
+
+  `{analysis_session_path}`
+
+Start with `memo_packet.md`, then use the YAML artifacts as needed:
+strategic risks, risk priorities, research tasks, thesis spine, chart
+specs, narrative hooks, and benchmark dashboard. Treat the approved
+thesis spine as the memo's authorship layer: the final memo structure
+still follows the skill, but Investment Highlights, Investment Risks,
+Top 3 Gating Questions, chart choices, and opening/ending framing should
+come from this packet unless the evidence directly contradicts it.
+
+"""
+
     return f"""\
 You are running the **bsh-investment-memo-latestage-v1** skill (Serena's
 script) for one real run. The skill text is included verbatim below.
@@ -1933,11 +1981,8 @@ scope-warning override and the parallel-passes hint below.
 {scope_warning_block}\
 ## Inputs (Serena's "company folder" + Settings)
 
-The skill text describes a `[BSH Assistant]/[Company Name]/` folder
-that historically held PitchBook PDFs, partner notes, CB Insights
-exports, etc. **For this run, that folder is not populated.** Treat
-the company folder as empty — proceed without external research
-materials, exactly as the skill says to do when the folder is absent.
+{research_block}\
+{analysis_block}\
 
 Where the skill says `[BSH Assistant]/Settings/Serena_Background.md`,
 read this absolute path:
@@ -2013,6 +2058,8 @@ def run_investment_memo(
     settings_path: Path,
     companies_yaml_path: Path,
     memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
     progress=None,
@@ -2054,6 +2101,8 @@ def run_investment_memo(
         settings_path=settings_path,
         companies_yaml_path=companies_yaml_path,
         memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
         scope_check=scope_check,
         warnings=warnings,
     )
@@ -2067,6 +2116,10 @@ def run_investment_memo(
         str(settings_path.parent),
         str(companies_yaml_path.parent),
     ]
+    if research_dir and research_dir.exists():
+        add_dirs.append(str(research_dir))
+    if analysis_session_path and analysis_session_path.exists():
+        add_dirs.append(str(analysis_session_path))
     cmd = [
         claude_path() or "claude",
         "-p",
@@ -2980,6 +3033,217 @@ def run_structured_prompt(
         f"claude output didn't parse as JSON (name={name}): "
         f"{final_text[:300]}"
     )
+
+
+SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "result_summary": {
+            "type": "string",
+            "description": (
+                "One tight memo-grade paragraph explaining what the selected "
+                "research task found, what remains uncertain, and how it "
+                "changes the investment question."
+            ),
+        },
+        "key_findings": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "3-6 concrete findings, with numbers or source names where available.",
+        },
+        "evidence_gaps": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Specific gaps Serena still needs to close before memo generation.",
+        },
+        "sources_checked": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Files, web sources, filings, or source categories actually checked.",
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+            "description": "Confidence in the result based on source quality and coverage.",
+        },
+    },
+    "required": [
+        "result_summary",
+        "key_findings",
+        "evidence_gaps",
+        "sources_checked",
+        "confidence",
+    ],
+}
+
+
+def run_serena_research_task(
+    *,
+    company: dict,
+    task: dict,
+    risk: dict | None,
+    research_dir: Path,
+    progress=None,
+    timeout_sec: int = 900,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run one Memo Studio research task through Claude Code.
+
+    The caller owns job lifecycle and persistence. This helper only performs
+    the streamed Claude subprocess and returns a parsed task-result payload.
+    Claude may read Serena's research folder and may use web tools; the
+    Document Library remains outside the allow-list.
+    """
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_research_{company_id or 'company'}"
+    )
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    local_files: list[str] = []
+    if research_dir.exists():
+        try:
+            local_files = [
+                p.name
+                for p in sorted(research_dir.iterdir())
+                if p.is_file() and p.name != "index.yaml"
+            ][:80]
+        except Exception:
+            local_files = []
+
+    schema_str = json.dumps(SERENA_RESEARCH_TASK_SCHEMA, indent=2, ensure_ascii=False)
+    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    task_str = json.dumps(task, indent=2, ensure_ascii=False, default=str)
+    risk_str = json.dumps(risk or {}, indent=2, ensure_ascii=False, default=str)
+    files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+
+    prompt = f"""\
+You are running one selected research prompt for Serena's Memo Studio before
+an investment memo is drafted. Be factual, skeptical, and source-aware.
+
+Company:
+```json
+{company_str}
+```
+
+Selected strategic risk:
+```json
+{risk_str}
+```
+
+Research task:
+```json
+{task_str}
+```
+
+Serena research folder:
+`{research_dir}`
+
+Available files in that folder:
+{files_str}
+
+Instructions:
+- Use only the Serena research folder above for local company documents. Do
+  NOT read from `data/uploads/` or the Document Library.
+- If local research files are relevant, use Read/Bash to inspect them.
+- Use WebSearch/WebFetch when public filings, transcripts, market data, or
+  current public evidence are needed.
+- Separate verified evidence from inference. Do not invent source facts.
+- Preserve useful numbers, dates, names, and source titles.
+- If evidence is thin, say so plainly and list what Serena should check next.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output the JSON object ONLY. No prose, no commentary, no markdown fences.
+- The first character of your response is `{{` and the last is `}}`.
+"""
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash,WebSearch,WebFetch",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Running selected research prompt with Claude",
+            task_id=task.get("id"),
+            risk_id=task.get("risk_id"),
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_event,
+        timeout_sec=timeout_sec,
+        timeout_label="serena research task",
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if stream_error:
+        return None, stream_error
+    if not final_text:
+        return None, "claude returned empty result"
+
+    parsed = _parse_json_tolerant(final_text.strip())
+    if parsed is None and "```" in final_text:
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```", final_text, re.DOTALL)
+        if fenced:
+            parsed = _parse_json_tolerant(max(fenced, key=len).strip())
+    if parsed is None:
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        return None, f"claude output didn't parse as JSON: {final_text[:300]}"
+    summary = str(parsed.get("result_summary") or "").strip()
+    if not summary:
+        return None, "claude output missing result_summary"
+    parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return parsed, None
 
 
 # ---- Console: hydrate / ask / summary -----------------------------------

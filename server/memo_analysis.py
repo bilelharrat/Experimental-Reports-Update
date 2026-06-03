@@ -29,7 +29,15 @@ import logging
 import threading
 from pathlib import Path
 
-from . import claude_runner, docx_pdf, job_progress, memo_prep, storage
+from . import (
+    claude_runner,
+    docx_pdf,
+    job_progress,
+    memo_prep,
+    research_store,
+    serena_analysis,
+    storage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +209,12 @@ def _run(report_id: str) -> None:
         lang: memo_prep.DATA_DIR.parent / rel
         for lang, rel in memo_paths_rel.items()
     }
+    analysis_session_path = None
+    analysis_session_id = report.get("analysis_session_id")
+    if analysis_session_id:
+        candidate = serena_analysis.session_dir(company_slug, str(analysis_session_id))
+        if candidate.exists():
+            analysis_session_path = candidate
 
     storage.update_report(
         report_id,
@@ -218,6 +232,8 @@ def _run(report_id: str) -> None:
         settings_path=memo_prep.SETTINGS_FILE,
         companies_yaml_path=memo_prep.COMPANIES_FILE,
         memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+        research_dir=research_store.RESEARCH_ROOT / company_slug,
+        analysis_session_path=analysis_session_path,
         scope_check=report.get("scope_check"),
         warnings=list(report.get("warnings") or []),
         progress=stream,
