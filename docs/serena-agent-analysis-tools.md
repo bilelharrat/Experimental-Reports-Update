@@ -81,7 +81,7 @@ Can they achieve economically viable deployment at scale?
 | Item | Status | Completion Date | Notes |
 |---|---|---|---|
 | Define strategic-risk JSON schema | Done | 2026-06-02 | First schema persists `id`, `title`, `decision_question`, bull/bear answers, evidence, sources, prompt, memo section, and status. |
-| Add risk-generation prompt/tool | Done | 2026-06-02 | Added deterministic `strategic_risk_mapper`; humanoid/robotics companies get the target embodiment/economic/intelligence risks. |
+| Add risk-generation prompt/tool | Done | 2026-06-03 | `strategic_risk_mapper` now runs as a Claude-backed background job from the API, streams progress through the AI Tasks rail, and keeps deterministic output as the direct-call/test/fallback path. |
 | Include bull answer, bear answer, evidence needed, best sources, and memo section | Done | 2026-06-02 | Included in persisted risk objects. |
 | Add tests for schema and missing-field handling | Done | 2026-06-02 | Added `tests/test_serena_analysis.py` coverage for humanoid-specific risks. |
 
@@ -112,7 +112,7 @@ Convert selected analysis into the true memo core:
 | Item | Status | Completion Date | Notes |
 |---|---|---|---|
 | Define `thesis_spine.json` schema | Done | 2026-06-02 | First schema includes highlights, risks, recommendation logic, gates, bull-case requirements, and pass triggers. |
-| Add thesis-spine generation tool | Done | 2026-06-02 | Added deterministic `thesis_spine_builder`. |
+| Add thesis-spine generation tool | Done | 2026-06-03 | `thesis_spine_builder` now runs as a Claude-backed background job from the API, streams progress through the AI Tasks rail, preserves previous good thesis artifacts on Claude failure, and keeps deterministic output as the direct-call/test/fallback path. |
 | Add editable review state for highlights and risks | Done | 2026-06-02 | `MemoAnalysisDashboard.vue` now provides inline editors for highlight, risk, and top-gating-question text and saves through the artifact PATCH endpoint. |
 | Make memo generation require approved thesis spine | Done | 2026-06-02 | `memo_prep.bootstrap_memo_run` now rejects analysis-backed memo generation unless the session is approved for memo use and its thesis spine is approved. |
 
@@ -257,14 +257,15 @@ POST  /api/reports  # accepts optional analysis_session_id for memo runs
 | Item | Status | Completion Date | Notes |
 |---|---|---|---|
 | Add analysis session read endpoint | Done | 2026-06-02 | Added `GET /api/companies/{id}/memo-analysis`. |
-| Add tool run endpoint | Done | 2026-06-02 | Added `POST /api/companies/{id}/memo-analysis/tools/{tool_name}/run`. |
+| Add tool run endpoint | Done | 2026-06-03 | Added `POST /api/companies/{id}/memo-analysis/tools/{tool_name}/run`; deterministic tools return synchronously, while Claude-backed `strategic_risk_mapper` and `thesis_spine_builder` return `202` and run in the background. |
 | Add artifact patch endpoint | Done | 2026-06-02 | Added `PATCH /api/companies/{id}/memo-analysis/artifacts/{artifact}` with focused tests for `thesis_spine`, `chart_specs`, and `narrative_hooks`. |
 | Add research task patch endpoint | Done | 2026-06-03 | Added `PATCH /api/companies/{id}/memo-analysis/research-tasks/{task_id}` for task status/result updates. |
 | Add research task run endpoint | Done | 2026-06-03 | Added `POST /api/companies/{id}/memo-analysis/research-tasks/{task_id}/run` for deterministic first-pass research summaries. |
 | Add approval endpoint | Done | 2026-06-02 | Added `POST /api/companies/{id}/memo-analysis/approve`. |
 | Update memo report creation to accept `analysis_session_id` | Done | 2026-06-02 | `POST /api/reports` and `/api/memos/prep` accept optional analysis session id, expose analysis-session metadata in report responses, and return 400 for unapproved analysis-backed runs. |
 | Expose unapproved Memo Studio work warning | Done | 2026-06-02 | `GET /api/companies/{id}/memo-analysis` now returns `has_unapproved_work` and `regular_memo_warning` when draft analysis artifacts exist without memo approval. |
-| Add active-job rail integration for long-running tools | In Progress | 2026-06-03 | Selected research-task runs now appear in `/api/jobs/active` with log replay and SSE streaming. Synchronous analysis tools such as `strategic_risk_mapper` still need the same treatment once they become Claude-backed. |
+| Add active-job rail integration for long-running tools | Done | 2026-06-03 | Selected research-task runs and Claude-backed `strategic_risk_mapper` and `thesis_spine_builder` runs now appear in `/api/jobs/active` with log replay, SSE streaming, and Memo Studio route metadata. Future Claude-backed tools should reuse the same pattern. |
+| Add stale-run recovery for interrupted background jobs | Done | 2026-06-03 | Session reads and `/api/jobs/active` now sweep Serena research-task and analysis-tool runs, mark stale `running` state as `error`, preserve completed artifacts/results, and append recovery errors to non-terminal progress logs. |
 
 ## Memo Readiness Gate
 
@@ -317,6 +318,9 @@ The dashboard should automatically surface gaps such as:
 | Phase 9: regular memo guardrails around draft analysis | Done | 2026-06-02 | Regular investment-memo generation now warns/blocks when Memo Studio has meaningful unapproved draft work. |
 | Phase 10: selected research prompt runner | Done | 2026-06-03 | Added task run/status persistence and memo packet output for task results. Runs now enqueue Claude-backed background jobs with deterministic fallback. |
 | Phase 11: selected prompt job rail integration | Done | 2026-06-03 | Added progress JSONL logs, `/api/jobs/active` discovery, log replay, SSE streaming, dashboard running-state polling, and regression coverage for Memo Studio research-task jobs. |
+| Phase 12: Claude-backed strategic risk mapper | Done | 2026-06-03 | `strategic_risk_mapper` now uses a Claude-backed analysis-tool job, preserves previous good risk artifacts on Claude failure, writes deterministic fallback risks on first-run failure, and exposes progress through the AI Tasks rail. |
+| Phase 13: Claude-backed thesis spine builder | Done | 2026-06-03 | `thesis_spine_builder` now uses a Claude-backed analysis-tool job, receives Memo Studio context, preserves previous good thesis artifacts on failure, writes deterministic fallback thesis output on first-run failure, refreshes the memo packet, and appears in the AI Tasks rail. |
+| Phase 14: stale run recovery | Done | 2026-06-03 | Added shared recovery for interrupted Serena research-task and analysis-tool jobs using terminal/missing/idle progress-log detection and active-job timeout semantics. |
 
 ## Completion Log
 
@@ -330,3 +334,7 @@ Add entries here as work lands.
 | 2026-06-03 | Risk prioritization controls and task regeneration | In Progress → Done | Added manual risk up/down controls, selected-for-research checkboxes, priority normalization, selected-risk task regeneration, and regression coverage. |
 | 2026-06-03 | Selected research prompt runner | Not Started → Done | Added task patch/run API endpoints, deterministic first-pass result summaries, task queue run controls, memo packet task-result output, and regression coverage that priority order remains unchanged. |
 | 2026-06-03 | Claude-backed selected prompt jobs | In Progress → Done | Replaced inline task execution at the API boundary with background Claude research jobs, AI Tasks rail integration, durable logs, task polling, and deterministic fallback when Claude fails or is unavailable. |
+| 2026-06-03 | Claude-backed strategic risk mapper | In Progress → Done | Added a streamed Claude risk-mapper job, analysis-tool active-job rail integration, schema normalization, previous-artifact preservation on failure, first-run deterministic fallback, UI polling for running tools, and regression coverage. |
+| 2026-06-03 | Completion handoff | Created | Added `docs/serena-agent-completion-handoff.md` with the prioritized remaining work, next slice, implementation pattern, and exit checklist. |
+| 2026-06-03 | Claude-backed thesis spine builder | In Progress → Done | Added a streamed Claude thesis-spine job, Memo Studio context handoff, schema normalization, previous-artifact preservation on failure, first-run deterministic fallback, memo-packet refresh, active-job coverage, and regression tests. |
+| 2026-06-03 | Stale Serena job recovery | Not Started → Done | Added shared recovery for interrupted `running` research tasks and analysis tools, active-job rail sweep integration, preserved prior artifacts/results, recovery progress events, and regression tests. |

@@ -3,9 +3,9 @@
 Last updated: 2026-06-03
 
 This is the current handoff note for continuing Serena's memo-agent work in a
-fresh context. It replaces older notes that listed risk prioritization as the
-next slice or deterministic selected-prompt execution as the next slice; both
-are now implemented.
+fresh context. It replaces older notes that listed risk prioritization,
+deterministic selected-prompt execution, or Claude-backed strategic risk mapping
+as the next slice; all three are now implemented.
 
 ## Operating Rules
 
@@ -14,6 +14,7 @@ are now implemented.
 - Keep `data/uploads/<slug>/` excluded from memo analysis.
 - Serena's memo/background research folder is `data/research/<slug>/`.
 - Track shipped work in `docs/serena-agent-analysis-tools.md`.
+- Use `docs/serena-agent-completion-handoff.md` for the finish-line plan.
 - If the dev server is already running, use it rather than starting a second
   process on the same port.
 
@@ -25,6 +26,7 @@ Serena files are still untracked in git. Do not delete or recreate them.
 New/untracked Serena files include:
 
 - `docs/serena-agent-analysis-tools.md`
+- `docs/serena-agent-completion-handoff.md`
 - `docs/serena-agent-handoff.md`
 - `docs/serena-risk-prioritization-context-transfer.md`
 - `frontend/src/components/MemoAnalysisDashboard.vue`
@@ -35,6 +37,7 @@ Modified tracked files include:
 
 - `frontend/src/api.js`
 - `frontend/src/components/ActiveJobsRail.vue`
+- `frontend/src/components/JobLogModal.vue`
 - `frontend/src/i18n.js`
 - `frontend/src/views/ResearchView.vue`
 - `server/api.py`
@@ -179,9 +182,41 @@ Frontend behavior now:
   polls the session while tasks are active.
 - Detailed progress uses the existing AI Tasks rail and job transcript modal.
 
+### Claude-Backed Strategic Risk Mapper Slice
+
+`strategic_risk_mapper` is now the first Claude-backed analysis tool.
+
+Backend behavior now:
+
+- `POST /memo-analysis/tools/strategic_risk_mapper/run` returns `202`, marks
+  the tool run `running`, and starts a background Claude Code job.
+- Tool jobs write JSONL progress under the analysis session's
+  `logs/tools/` folder.
+- Tool jobs appear in `/api/jobs/active`, replay through `/api/jobs/log`, and
+  expose an SSE stream for the generic job transcript modal.
+- Claude output is normalized back into the existing `strategic_risks` schema
+  with stable `risk-1..risk-N` ids.
+- Successful Claude runs persist `generated_by: claude_code` and the raw result
+  payload.
+- If Claude fails and a previous strategic-risk artifact exists, that previous
+  artifact is preserved and the tool run is marked `error`.
+- If Claude fails on a first run, deterministic fallback risks are persisted
+  with the Claude error retained on the tool run/artifact.
+- Direct `serena_analysis.run_tool(..., "strategic_risk_mapper")` remains
+  deterministic for tests and local fallback behavior.
+
+Frontend behavior now:
+
+- Memo Studio polls while analysis tools or research tasks are in `running`
+  state.
+- Running tool cards show the spinner based on persisted tool status, so
+  reloads keep the UI consistent.
+- The AI Tasks rail and transcript modal label `serena_analysis_tool` jobs as
+  memo-analysis work.
+
 ## Verification Already Run
 
-All of these passed after the selected research prompt background-job slice:
+All of these passed after the Claude-backed strategic risk mapper slice:
 
 ```bash
 PYTHONPATH=. pytest -q tests/test_serena_analysis.py
@@ -194,8 +229,8 @@ git diff --check
 
 Latest observed results:
 
-- `tests/test_serena_analysis.py`: 13 passed, 2 warnings.
-- Full backend suite: 165 passed, 2 deselected, 2 warnings.
+- `tests/test_serena_analysis.py`: 16 passed, 2 warnings.
+- Full backend suite: 168 passed, 2 deselected, 2 warnings.
 - Frontend suite: 7 test files passed, 56 tests passed.
 - Frontend production build completed successfully.
 - `PYTHONPATH=. python -m py_compile server/serena_analysis.py server/api.py server/claude_runner.py`
@@ -215,17 +250,20 @@ Latest observed results:
 ### Highest Priority
 
 1. Replace deterministic analysis tools with Claude-backed implementations.
-   - Start with `strategic_risk_mapper`.
+   - `strategic_risk_mapper` is complete.
+   - Next likely candidates: `thesis_spine_builder`,
+     `private_benchmark_dashboard`, or `chart_spec_builder`.
    - Keep deterministic output as test/fallback behavior.
    - Preserve existing artifact schemas.
    - Persist tool errors without corrupting previous good artifacts.
 
 2. Add active-job rail integration for long-running analysis tools.
-   - Current state: selected research-task runs use background jobs and the AI
-     Tasks rail; `/memo-analysis/tools/{tool}/run` remains synchronous.
-   - Keep deterministic tools synchronous until a Claude-backed tool needs a
-     job.
-   - Reuse existing `/api/jobs/active` conventions.
+   - Current state: selected research-task runs and `strategic_risk_mapper`
+     use background jobs and the AI Tasks rail.
+   - Keep remaining deterministic tools synchronous until each becomes
+     Claude-backed.
+   - Reuse the `serena_analysis_tool` progress/log/SSE conventions added for
+     `strategic_risk_mapper`.
 
 3. Add cancellation or stale-run recovery for Memo Studio research task jobs.
    - Current state: task jobs stream progress and preserve previous good
@@ -263,22 +301,20 @@ Latest observed results:
 
 ## Recommended Next Slice
 
-Implement "Claude-backed research task jobs" as the next slice:
+Continue replacing deterministic analysis tools with Claude-backed jobs. The
+recommended next candidate is `thesis_spine_builder` or
+`private_benchmark_dashboard`:
 
 1. Keep the existing deterministic runner as fallback/test behavior.
-2. Add a job-backed execution path for research tasks, likely starting with one
-   selected task at a time.
-3. Reuse existing `/api/jobs/active` and job log conventions so long-running
-   work appears in the active jobs rail.
-4. Persist task status transitions (`not_started` -> `running` -> `done` or
-   `error`) without deleting the previous good `result_summary`.
-5. Update `memo_packet.md` after task completion.
-6. Add API tests that job enqueue/result persistence preserves priority order
-   and previous good task output on failure.
-
-After that contract exists, start replacing deterministic analysis tools with
-Claude-backed implementations. `strategic_risk_mapper` is still the best first
-analysis-tool candidate.
+2. Reuse `start_analysis_tool_job`, `analysis_tool_progress_path`, and the
+   `serena_analysis_tool` active-job conventions.
+3. Preserve existing artifact schemas and normalize Claude output before
+   persistence.
+4. Preserve previous good artifacts if Claude fails.
+5. Use deterministic fallback only when there is no previous good artifact.
+6. Update `memo_packet.md` after successful or fallback completion.
+7. Add API tests for job enqueue, success persistence, failure preservation,
+   and active-job log discovery.
 
 ## Important Design Intent
 

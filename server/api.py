@@ -1167,10 +1167,17 @@ def get_memo_analysis(company_id: str) -> dict:
 
 
 @router.post("/companies/{company_id}/memo-analysis/tools/{tool_name}/run")
-def run_memo_analysis_tool(company_id: str, tool_name: str) -> dict:
+def run_memo_analysis_tool(
+    company_id: str,
+    tool_name: str,
+    response: Response,
+) -> dict:
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
+        if serena_analysis.tool_uses_background_job(tool_name):
+            response.status_code = 202
+            return serena_analysis.start_analysis_tool_job(company_id, tool_name)
         return serena_analysis.run_tool(company_id, tool_name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1247,6 +1254,77 @@ async def stream_memo_analysis_research_task(
             await asyncio.sleep(0.1)
         if not progress_path.exists():
             yield "event: error\ndata: {\"error\":\"No progress for this task\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in ("done", "error"):
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get(
+    "/companies/{company_id}/memo-analysis/sessions/{session_id}/tools/{tool_name}/stream"
+)
+async def stream_memo_analysis_tool(
+    company_id: str,
+    session_id: str,
+    tool_name: str,
+) -> "StreamingResponse":
+    """SSE stream for one Memo Studio analysis-tool job."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if serena_analysis.get_session(company_id, session_id) is None:
+        raise HTTPException(status_code=404, detail="Memo analysis session not found")
+
+    try:
+        progress_path = serena_analysis.analysis_tool_progress_path(
+            company_id, session_id, tool_name
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this tool\"}\n\n"
             return
 
         pos = 0
@@ -2165,6 +2243,11 @@ def _serena_research_task_path(key: str):
     return serena_analysis.research_task_progress_path(company_id, session_id, task_id)
 
 
+def _serena_analysis_tool_path(key: str):
+    company_id, session_id, tool_name = key.split("/", 2)
+    return serena_analysis.analysis_tool_progress_path(company_id, session_id, tool_name)
+
+
 _JOB_KIND_PATHS = {
     "summary": lambda key: (
         files_store._company_dir(key.split("/", 1)[0])
@@ -2187,6 +2270,7 @@ _JOB_KIND_PATHS = {
     "console_ask": _console_ask_path,
     "console_summary": _console_summary_path,
     "serena_research_task": _serena_research_task_path,
+    "serena_analysis_tool": _serena_analysis_tool_path,
     "public_snapshot": lambda key: (
         storage.DATA_DIR / "_trader" / f"{key}__snapshot.progress.jsonl"
     ),
@@ -2514,6 +2598,52 @@ def _serena_research_task_kind_records():
         }
 
 
+def _serena_analysis_tool_kind_records():
+    """Yield active-jobs rail entries for Memo Studio analysis-tool jobs."""
+    if not serena_analysis.ANALYSIS_ROOT.exists():
+        return
+    suffix = ".progress.jsonl"
+    for jsonl_path in serena_analysis.ANALYSIS_ROOT.glob(
+        "*/*/logs/tools/*.progress.jsonl"
+    ):
+        if not jsonl_path.name.endswith(suffix):
+            continue
+        tool_name = jsonl_path.name[: -len(suffix)]
+        session_dir = jsonl_path.parent.parent.parent
+        company_dir = session_dir.parent
+        session_id = session_dir.name
+        company_id = company_dir.name
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
+        init = state.get("job_init") or {}
+        yield {
+            "kind": state.get("kind") or "serena_analysis_tool",
+            "title": state.get("title") or "Memo Studio analysis tool",
+            "subtitle": state.get("subtitle") or (
+                (storage.get_company(company_id) or {}).get("name") or company_id
+            ),
+            "stream_url": (
+                f"/api/companies/{company_id}/memo-analysis/sessions/{session_id}"
+                f"/tools/{tool_name}/stream"
+            ),
+            "log_url": (
+                f"/api/jobs/log?path=serena_analysis_tool:"
+                f"{company_id}/{session_id}/{tool_name}"
+            ),
+            "primary_route": {
+                "name": "research",
+                "params": {"companyId": company_id},
+                "query": {"tab": "analysis"},
+            },
+            "company_id": company_id,
+            "session_id": session_id,
+            "job_id": f"{company_id}/{session_id}/{tool_name}",
+            "tool_name": init.get("tool_name") or tool_name,
+            **_common_state_fields(state),
+        }
+
+
 def _resolve_job_log_path(combined: str):
     """Resolve a `kind:key` token into its on-disk JSONL path."""
     if ":" not in combined:
@@ -2531,6 +2661,12 @@ def _resolve_job_log_path(combined: str):
 @router.get("/jobs/active")
 def get_active_jobs() -> list[dict]:
     """All in-flight Claude tasks across every kind. Powers ActiveJobsRail."""
+    try:
+        serena_analysis.recover_stale_runs(
+            max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
+        )
+    except Exception:
+        logger.exception("failed to recover stale serena jobs")
     out: list[dict] = []
     for source in (
         _summary_kind_records(),
@@ -2542,6 +2678,7 @@ def get_active_jobs() -> list[dict]:
         _research_summary_kind_records(),
         _console_kind_records(),
         _serena_research_task_kind_records(),
+        _serena_analysis_tool_kind_records(),
         _company_regen_all_kind_records(),
         _public_snapshot_bulk_kind_records(),
         _public_snapshot_kind_records(),

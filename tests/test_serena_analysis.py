@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import copy
+import os
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -29,6 +32,16 @@ def _seed_company(tmp_path, monkeypatch, company: dict) -> None:
         tmp_path / "settings" / "serena_background.md",
     )
     monkeypatch.setattr(memo_prep, "COMPANIES_FILE", tmp_path / "companies.yaml")
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_strategic_risk_mapper",
+        lambda **kwargs: (None, "Claude disabled in test"),
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_thesis_spine_builder",
+        lambda **kwargs: (None, "Claude disabled in test"),
+    )
     memo_prep.SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     memo_prep.SETTINGS_FILE.write_text("Serena background settings\n", encoding="utf-8")
     storage._write_yaml(storage.COMPANIES_FILE, [company])
@@ -65,6 +78,50 @@ def _wait_for_task_status(
     return last_session
 
 
+def _wait_for_tool_status(
+    company_id: str,
+    tool_name: str,
+    status: str,
+    *,
+    timeout: float = 3.0,
+) -> dict:
+    deadline = time.time() + timeout
+    last_session = None
+    while time.time() < deadline:
+        last_session = serena_analysis.get_current_session(company_id)
+        tools = {
+            tool.get("name"): tool
+            for tool in last_session.get("tools", [])
+            if isinstance(tool, dict)
+        }
+        if tools.get(tool_name, {}).get("status") == status:
+            return last_session
+        time.sleep(0.02)
+    assert last_session is not None
+    tools = {
+        tool.get("name"): tool
+        for tool in last_session.get("tools", [])
+        if isinstance(tool, dict)
+    }
+    assert tools.get(tool_name, {}).get("status") == status
+    return last_session
+
+
+def _post_tool(client: TestClient, company_id: str, tool_name: str) -> dict:
+    response = client.post(
+        f"/api/companies/{company_id}/memo-analysis/tools/{tool_name}/run"
+    )
+    if serena_analysis.tool_uses_background_job(tool_name):
+        assert response.status_code == 202, response.text
+        return _wait_for_tool_status(company_id, tool_name, "done")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _iso_seconds_ago(seconds: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+
+
 def test_strategic_risk_mapper_generates_humanoid_specific_risks(
     tmp_path, monkeypatch
 ):
@@ -90,6 +147,293 @@ def test_strategic_risk_mapper_generates_humanoid_specific_risks(
     assert "Can they build a durable intelligence advantage?" in titles
     assert session["tools"][0]["status"] == "done"
     assert session["readiness"]["score"] >= 1
+
+
+def test_memo_analysis_strategic_risk_job_persists_claude_result(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    claude_risks = [
+        {
+            "title": f"Claude risk {i}",
+            "decision_question": f"Can Generalist prove risk {i}?",
+            "why_it_matters": "It can change the investment recommendation.",
+            "bull_case_answer": "Independent evidence supports the risk being manageable.",
+            "bear_case_answer": "The deal depends on unproven assumptions.",
+            "evidence_needed": ["Customer evidence", "Unit economics"],
+            "best_sources": ["Serena research folder", "public sources"],
+            "research_prompt": f"Research Claude risk {i}.",
+            "memo_section": "Investment Risk",
+            "status": "unresearched",
+        }
+        for i in range(1, 6)
+    ]
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_strategic_risk_mapper",
+        lambda **kwargs: (
+            {
+                "risks": claude_risks,
+                "source_basis": {"claude_sources_checked": ["Serena research folder"]},
+            },
+            None,
+        ),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/companies/generalist/memo-analysis/tools/strategic_risk_mapper/run"
+    )
+    assert response.status_code == 202, response.text
+
+    session = _wait_for_tool_status("generalist", "strategic_risk_mapper", "done")
+    artifact = session["artifacts"]["strategic_risks"]
+    assert artifact["generated_by"] == "claude_code"
+    assert artifact["risks"][0]["id"] == "risk-1"
+    assert artifact["risks"][0]["title"] == "Claude risk 1"
+    assert artifact["source_basis"]["claude_sources_checked"] == [
+        "Serena research folder"
+    ]
+    tool = next(t for t in session["tools"] if t["name"] == "strategic_risk_mapper")
+    assert tool["error"] is None
+    assert "with Claude" in tool["summary"]
+
+
+def test_memo_analysis_strategic_risk_job_preserves_previous_artifact_on_error(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    initial = serena_analysis.run_tool("generalist", "strategic_risk_mapper")
+    previous = copy.deepcopy(initial["artifacts"]["strategic_risks"])
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_strategic_risk_mapper",
+        lambda **kwargs: (None, "Claude failed after prior good artifact"),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/companies/generalist/memo-analysis/tools/strategic_risk_mapper/run"
+    )
+    assert response.status_code == 202, response.text
+
+    session = _wait_for_tool_status("generalist", "strategic_risk_mapper", "error")
+    assert session["artifacts"]["strategic_risks"] == previous
+    tool = next(t for t in session["tools"] if t["name"] == "strategic_risk_mapper")
+    assert tool["error"] == "Claude failed after prior good artifact"
+    assert "Claude strategic risk mapper failed" in tool["summary"]
+
+
+def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+            "competitors": ["Tesla", "Boston Dynamics"],
+        },
+    )
+    for tool in (
+        "strategic_risk_mapper",
+        "priority_prompt_harness",
+        "chart_spec_builder",
+        "private_benchmark_dashboard",
+    ):
+        serena_analysis.run_tool("generalist", tool)
+    serena_analysis.run_research_task("generalist", "task-1")
+
+    captured = {}
+
+    def fake_thesis_runner(**kwargs):
+        captured.update(kwargs)
+        return (
+            {
+                "investment_highlights": [
+                    {
+                        "claim": f"Claude highlight {i}",
+                        "detail": "Source-backed upside still needs final validation.",
+                        "state": "upside_state",
+                        "source_trace": [
+                            "strategic_risks",
+                            "research_tasks",
+                            "benchmark_dashboard",
+                        ],
+                        "needs_stronger_evidence": i == 3,
+                    }
+                    for i in range(1, 4)
+                ],
+                "investment_risks": [
+                    {
+                        "claim": f"Claude memo risk {i}",
+                        "detail": "This can change the BSH recommendation.",
+                        "source_trace": ["strategic_risks", "chart_specs"],
+                        "needs_stronger_evidence": True,
+                    }
+                    for i in range(1, 4)
+                ],
+                "recommendation_logic": (
+                    "Proceed only if deployment depth and valuation support "
+                    "survive independent checks."
+                ),
+                "top_gating_questions": [
+                    {
+                        "question": f"Claude gate {i}?",
+                        "why_it_matters": "It controls recommendation quality.",
+                        "evidence_needed": ["Independent customer evidence"],
+                    }
+                    for i in range(1, 4)
+                ],
+                "bull_case_must_be_true": [
+                    "Deployment depth is repeatable.",
+                    "Revenue quality supports valuation.",
+                    "Public comps are economically relevant.",
+                ],
+                "pass_triggers": [
+                    "No independent deployment support.",
+                    "Weak revenue quality.",
+                    "Inappropriate comp set.",
+                ],
+                "source_basis": {"claude_sources_checked": ["memo studio artifacts"]},
+            },
+            None,
+        )
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_thesis_spine_builder",
+        fake_thesis_runner,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/companies/generalist/memo-analysis/tools/thesis_spine_builder/run"
+    )
+    assert response.status_code == 202, response.text
+
+    session = _wait_for_tool_status("generalist", "thesis_spine_builder", "done")
+    artifact = session["artifacts"]["thesis_spine"]
+    assert artifact["generated_by"] == "claude_code"
+    assert artifact["investment_highlights"][0]["id"] == "highlight-1"
+    assert artifact["investment_highlights"][0]["claim"] == "Claude highlight 1"
+    assert artifact["investment_risks"][0]["id"] == "memo-risk-1"
+    assert artifact["top_gating_questions"][0]["id"] == "gate-1"
+    assert artifact["source_basis"]["claude_sources_checked"] == [
+        "memo studio artifacts"
+    ]
+    assert "Claude highlight 1" in (
+        serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
+    ).read_text(encoding="utf-8")
+
+    context = captured["artifacts"]
+    assert context["strategic_risks"]["risks"]
+    assert context["risk_priorities"]["priorities"]
+    assert context["research_tasks"]["tasks"][0]["result_summary"]
+    assert context["chart_specs"]["specs"]
+    assert context["benchmark_dashboard"]["public_comps"]
+    assert captured["research_dir"] == research_store.RESEARCH_ROOT / "generalist"
+    tool = next(t for t in session["tools"] if t["name"] == "thesis_spine_builder")
+    assert tool["error"] is None
+    assert "with Claude" in tool["summary"]
+
+
+def test_memo_analysis_thesis_spine_job_preserves_previous_artifact_on_error(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    initial = serena_analysis.run_tool("generalist", "thesis_spine_builder")
+    previous = copy.deepcopy(initial["artifacts"]["thesis_spine"])
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_thesis_spine_builder",
+        lambda **kwargs: (None, "Claude failed after prior thesis"),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/companies/generalist/memo-analysis/tools/thesis_spine_builder/run"
+    )
+    assert response.status_code == 202, response.text
+
+    session = _wait_for_tool_status("generalist", "thesis_spine_builder", "error")
+    assert session["artifacts"]["thesis_spine"] == previous
+    tool = next(t for t in session["tools"] if t["name"] == "thesis_spine_builder")
+    assert tool["error"] == "Claude failed after prior thesis"
+    assert "Claude thesis spine builder failed" in tool["summary"]
+
+
+def test_memo_analysis_thesis_spine_job_falls_back_on_first_run_error(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_thesis_spine_builder",
+        lambda **kwargs: (None, "Claude unavailable for thesis"),
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/companies/generalist/memo-analysis/tools/thesis_spine_builder/run"
+    )
+    assert response.status_code == 202, response.text
+
+    session = _wait_for_tool_status("generalist", "thesis_spine_builder", "done")
+    artifact = session["artifacts"]["thesis_spine"]
+    assert artifact["generated_by"] == "deterministic_fallback"
+    assert artifact["claude_error"] == "Claude unavailable for thesis"
+    assert artifact["investment_highlights"]
+    assert session["artifacts"]["strategic_risks"]["risks"]
+    tool = next(t for t in session["tools"] if t["name"] == "thesis_spine_builder")
+    assert "Claude thesis spine fallback" in tool["error"]
+    assert "Investment Highlights" in (
+        serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_analysis_session_tracks_readiness_and_approval(tmp_path, monkeypatch):
@@ -180,11 +524,8 @@ def test_memo_analysis_api_runs_tool_and_approves(tmp_path, monkeypatch):
     assert initial.status_code == 200
     assert initial.json()["company_id"] == "generalist"
 
-    run = client.post(
-        "/api/companies/generalist/memo-analysis/tools/strategic_risk_mapper/run"
-    )
-    assert run.status_code == 200
-    assert run.json()["artifacts"]["strategic_risks"]["risks"]
+    run_payload = _post_tool(client, "generalist", "strategic_risk_mapper")
+    assert run_payload["artifacts"]["strategic_risks"]["risks"]
 
     approved = client.post("/api/companies/generalist/memo-analysis/approve")
     assert approved.status_code == 200
@@ -212,11 +553,7 @@ def test_memo_analysis_flags_meaningful_unapproved_work(tmp_path, monkeypatch):
     assert initial_payload["regular_memo_warning"] is None
     assert serena_analysis.has_unapproved_work("generalist") is False
 
-    run = client.post(
-        "/api/companies/generalist/memo-analysis/tools/strategic_risk_mapper/run"
-    )
-    assert run.status_code == 200
-    run_payload = run.json()
+    run_payload = _post_tool(client, "generalist", "strategic_risk_mapper")
     assert run_payload["has_unapproved_work"] is True
     assert run_payload["regular_memo_warning"]["code"] == (
         "memo_studio_unapproved_work"
@@ -256,11 +593,7 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
         "chart_spec_builder",
         "narrative_hooks",
     ):
-        response = client.post(
-            f"/api/companies/generalist/memo-analysis/tools/{tool}/run"
-        )
-        assert response.status_code == 200
-        session = response.json()
+        session = _post_tool(client, "generalist", tool)
 
     assert session is not None
     thesis = session["artifacts"]["thesis_spine"]
@@ -343,11 +676,7 @@ def test_memo_analysis_api_patches_risk_priorities_and_refreshes_tasks(
     client = TestClient(app)
 
     for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
-        response = client.post(
-            f"/api/companies/generalist/memo-analysis/tools/{tool}/run"
-        )
-        assert response.status_code == 200
-        session = response.json()
+        session = _post_tool(client, "generalist", tool)
 
     risks = session["artifacts"]["strategic_risks"]["risks"]
     initial_priorities = session["artifacts"]["risk_priorities"]["priorities"]
@@ -453,11 +782,7 @@ def test_memo_analysis_research_task_results_persist_without_reordering_prioriti
 
     session = None
     for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
-        response = client.post(
-            f"/api/companies/generalist/memo-analysis/tools/{tool}/run"
-        )
-        assert response.status_code == 200
-        session = response.json()
+        session = _post_tool(client, "generalist", tool)
 
     assert session is not None
     priorities_before = session["artifacts"]["risk_priorities"]["priorities"]
@@ -559,10 +884,7 @@ def test_memo_analysis_research_task_job_persists_claude_result(
     client = TestClient(app)
 
     for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
-        response = client.post(
-            f"/api/companies/generalist/memo-analysis/tools/{tool}/run"
-        )
-        assert response.status_code == 200
+        _post_tool(client, "generalist", tool)
 
     run = client.post(
         "/api/companies/generalist/memo-analysis/research-tasks/task-1/run"
@@ -582,6 +904,186 @@ def test_memo_analysis_research_task_job_persists_claude_result(
     assert task["result_payload"]["confidence"] == "medium"
 
 
+def test_memo_analysis_recovers_stale_running_research_task(tmp_path, monkeypatch):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    client = TestClient(app)
+    for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
+        session = _post_tool(client, "generalist", tool)
+
+    raw = serena_analysis._strip_decorations(copy.deepcopy(session))
+    task = raw["artifacts"]["research_tasks"]["tasks"][0]
+    stale_at = _iso_seconds_ago(120)
+    task.update({
+        "status": "running",
+        "started_at": stale_at,
+        "completed_at": None,
+        "last_run_at": stale_at,
+        "error": None,
+        "result_summary": "Previous completed result remains useful.",
+        "result_generated_by": "claude_code",
+        "run_job_id": f"generalist/{raw['id']}/{task['id']}",
+    })
+    serena_analysis._write_session(raw)
+
+    progress_path = serena_analysis.research_task_progress_path(
+        "generalist", raw["id"], task["id"]
+    )
+    progress = job_progress.ProgressLog(progress_path)
+    progress.emit(
+        "job_init",
+        kind="serena_research_task",
+        title=task["title"],
+        subtitle="Generalist",
+        company_id="generalist",
+        session_id=raw["id"],
+        task_id=task["id"],
+    )
+    progress.emit("stage", stage="researching", message="Researching evidence")
+    old_mtime = time.time() - 120
+    os.utime(progress_path, (old_mtime, old_mtime))
+
+    assert serena_analysis.recover_stale_runs(max_idle_seconds=60) == 1
+    recovered = serena_analysis.get_current_session("generalist")
+    recovered_task = recovered["artifacts"]["research_tasks"]["tasks"][0]
+    assert recovered_task["status"] == "error"
+    assert "progress log has been idle" in recovered_task["error"]
+    assert recovered_task["result_summary"] == "Previous completed result remains useful."
+    assert recovered_task["recovered_at"]
+    assert '"type": "error"' in progress_path.read_text(encoding="utf-8")
+
+
+def test_memo_analysis_recovers_running_tool_with_terminal_progress(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    client = TestClient(app)
+    session = _post_tool(client, "generalist", "strategic_risk_mapper")
+    previous_risks = copy.deepcopy(
+        session["artifacts"]["strategic_risks"]["risks"]
+    )
+
+    raw = serena_analysis._strip_decorations(copy.deepcopy(session))
+    raw["tool_runs"]["strategic_risk_mapper"] = {
+        "status": "running",
+        "last_run_at": _iso_seconds_ago(5),
+        "summary": "Running with Claude.",
+        "error": None,
+        "run_job_id": f"generalist/{raw['id']}/strategic_risk_mapper",
+    }
+    serena_analysis._write_session(raw)
+
+    progress_path = serena_analysis.analysis_tool_progress_path(
+        "generalist", raw["id"], "strategic_risk_mapper"
+    )
+    progress = job_progress.ProgressLog(progress_path)
+    progress.emit(
+        "job_init",
+        kind="serena_analysis_tool",
+        title="Strategic Risk Mapper",
+        subtitle="Generalist",
+        company_id="generalist",
+        session_id=raw["id"],
+        tool_name="strategic_risk_mapper",
+    )
+    progress.emit("error", tool_name="strategic_risk_mapper", error="Claude exited")
+
+    recovered = serena_analysis.get_current_session("generalist")
+    tool = next(
+        item for item in recovered["tools"]
+        if item["name"] == "strategic_risk_mapper"
+    )
+    assert tool["status"] == "error"
+    assert "Claude exited" in tool["error"]
+    assert recovered["artifacts"]["strategic_risks"]["risks"] == previous_risks
+    assert len(progress_path.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_memo_analysis_recovery_leaves_active_and_terminal_runs_alone(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    client = TestClient(app)
+    for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
+        session = _post_tool(client, "generalist", tool)
+
+    raw = serena_analysis._strip_decorations(copy.deepcopy(session))
+    tasks = raw["artifacts"]["research_tasks"]["tasks"]
+    active_task = tasks[0]
+    active_task.update({
+        "status": "running",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        "last_run_at": datetime.now(timezone.utc).isoformat(),
+        "error": None,
+        "run_job_id": f"generalist/{raw['id']}/{active_task['id']}",
+    })
+    terminal_task = tasks[1]
+    terminal_task.update({
+        "status": "done",
+        "completed_at": _iso_seconds_ago(120),
+        "last_run_at": _iso_seconds_ago(120),
+        "result_summary": "Already completed.",
+        "error": None,
+    })
+    serena_analysis._write_session(raw)
+
+    progress = job_progress.ProgressLog(
+        serena_analysis.research_task_progress_path(
+            "generalist", raw["id"], active_task["id"]
+        )
+    )
+    progress.emit(
+        "job_init",
+        kind="serena_research_task",
+        title=active_task["title"],
+        subtitle="Generalist",
+        company_id="generalist",
+        session_id=raw["id"],
+        task_id=active_task["id"],
+    )
+    progress.emit("stage", stage="starting", message="Still active")
+
+    assert serena_analysis.recover_stale_runs(max_idle_seconds=60) == 0
+    recovered = serena_analysis.get_current_session("generalist")
+    recovered_tasks = {
+        task["id"]: task
+        for task in recovered["artifacts"]["research_tasks"]["tasks"]
+    }
+    assert recovered_tasks[active_task["id"]]["status"] == "running"
+    assert recovered_tasks[terminal_task["id"]]["status"] == "done"
+    assert recovered_tasks[terminal_task["id"]]["result_summary"] == "Already completed."
+
+
 def test_memo_analysis_research_task_job_appears_in_active_jobs(
     tmp_path, monkeypatch
 ):
@@ -598,11 +1100,7 @@ def test_memo_analysis_research_task_job_appears_in_active_jobs(
     )
     client = TestClient(app)
     for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
-        response = client.post(
-            f"/api/companies/generalist/memo-analysis/tools/{tool}/run"
-        )
-        assert response.status_code == 200
-    session = response.json()
+        session = _post_tool(client, "generalist", tool)
 
     progress = job_progress.ProgressLog(
         serena_analysis.research_task_progress_path(
@@ -638,6 +1136,85 @@ def test_memo_analysis_research_task_job_appears_in_active_jobs(
     log = client.get(job["log_url"])
     assert log.status_code == 200, log.text
     assert [event["type"] for event in log.json()] == ["job_init", "stage"]
+
+
+def test_memo_analysis_tool_job_appears_in_active_jobs(tmp_path, monkeypatch):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    client = TestClient(app)
+    session = serena_analysis.get_current_session("generalist")
+
+    progress = job_progress.ProgressLog(
+        serena_analysis.analysis_tool_progress_path(
+            "generalist", session["id"], "strategic_risk_mapper"
+        )
+    )
+    progress.emit(
+        "job_init",
+        kind="serena_analysis_tool",
+        title="Strategic Risk Mapper",
+        subtitle="Generalist",
+        company_id="generalist",
+        session_id=session["id"],
+        tool_name="strategic_risk_mapper",
+    )
+    progress.emit("stage", stage="starting", message="Starting risk mapper")
+
+    thesis_progress = job_progress.ProgressLog(
+        serena_analysis.analysis_tool_progress_path(
+            "generalist", session["id"], "thesis_spine_builder"
+        )
+    )
+    thesis_progress.emit(
+        "job_init",
+        kind="serena_analysis_tool",
+        title="Thesis Spine Builder",
+        subtitle="Generalist",
+        company_id="generalist",
+        session_id=session["id"],
+        tool_name="thesis_spine_builder",
+    )
+    thesis_progress.emit("stage", stage="starting", message="Starting thesis builder")
+
+    active = client.get("/api/jobs/active")
+    assert active.status_code == 200, active.text
+    jobs = active.json()
+    job = next(j for j in jobs if j.get("tool_name") == "strategic_risk_mapper")
+    assert job["kind"] == "serena_analysis_tool"
+    assert job["title"] == "Strategic Risk Mapper"
+    assert job["job_id"] == f"generalist/{session['id']}/strategic_risk_mapper"
+    assert job["stream_url"].endswith(
+        f"/memo-analysis/sessions/{session['id']}/tools/strategic_risk_mapper/stream"
+    )
+    assert job["log_url"] == (
+        f"/api/jobs/log?path=serena_analysis_tool:"
+        f"generalist/{session['id']}/strategic_risk_mapper"
+    )
+
+    log = client.get(job["log_url"])
+    assert log.status_code == 200, log.text
+    assert [event["type"] for event in log.json()] == ["job_init", "stage"]
+
+    thesis_job = next(j for j in jobs if j.get("tool_name") == "thesis_spine_builder")
+    assert thesis_job["kind"] == "serena_analysis_tool"
+    assert thesis_job["title"] == "Thesis Spine Builder"
+    assert thesis_job["job_id"] == f"generalist/{session['id']}/thesis_spine_builder"
+    assert thesis_job["stream_url"].endswith(
+        f"/memo-analysis/sessions/{session['id']}/tools/thesis_spine_builder/stream"
+    )
+    assert thesis_job["log_url"] == (
+        f"/api/jobs/log?path=serena_analysis_tool:"
+        f"generalist/{session['id']}/thesis_spine_builder"
+    )
 
 
 def test_analysis_backed_report_requires_approved_session(tmp_path, monkeypatch):

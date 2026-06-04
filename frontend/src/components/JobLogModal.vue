@@ -266,6 +266,8 @@ function kindLabel(kind) {
     summary: "jobs.kind.summary",
     external_research: "jobs.kind.external_research",
     research_summary: "jobs.kind.research_summary",
+    serena_research_task: "jobs.kind.serena_research_task",
+    serena_analysis_tool: "jobs.kind.serena_analysis_tool",
     memo: "jobs.kind.memo",
     public_snapshot: "jobs.kind.public_snapshot",
     public_snapshot_bulk: "jobs.kind.public_snapshot_bulk",

@@ -3078,6 +3078,531 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
 }
 
 
+SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "risks": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {"type": "string"},
+                    "decision_question": {"type": "string"},
+                    "why_it_matters": {"type": "string"},
+                    "bull_case_answer": {"type": "string"},
+                    "bear_case_answer": {"type": "string"},
+                    "evidence_needed": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "best_sources": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "research_prompt": {"type": "string"},
+                    "memo_section": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["unresearched", "researched", "needs_review"],
+                    },
+                },
+                "required": [
+                    "title",
+                    "decision_question",
+                    "why_it_matters",
+                    "bull_case_answer",
+                    "bear_case_answer",
+                    "evidence_needed",
+                    "best_sources",
+                    "research_prompt",
+                    "memo_section",
+                    "status",
+                ],
+            },
+        },
+        "source_basis": {
+            "type": "object",
+            "additionalProperties": True,
+            "description": "Short metadata describing source types used.",
+        },
+    },
+    "required": ["risks", "source_basis"],
+}
+
+
+SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "investment_highlights": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "claim": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "state": {
+                        "type": "string",
+                        "description": (
+                            "present_state, upside_state, risk_adjusted, or "
+                            "diligence_needed."
+                        ),
+                    },
+                    "source_trace": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "needs_stronger_evidence": {"type": "boolean"},
+                },
+                "required": [
+                    "claim",
+                    "detail",
+                    "state",
+                    "source_trace",
+                    "needs_stronger_evidence",
+                ],
+            },
+        },
+        "investment_risks": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "claim": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "source_trace": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "needs_stronger_evidence": {"type": "boolean"},
+                },
+                "required": [
+                    "claim",
+                    "detail",
+                    "source_trace",
+                    "needs_stronger_evidence",
+                ],
+            },
+        },
+        "recommendation_logic": {
+            "type": "string",
+            "description": (
+                "A direct recommendation stance or conditional logic for BSH."
+            ),
+        },
+        "top_gating_questions": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "question": {"type": "string"},
+                    "why_it_matters": {"type": "string"},
+                    "evidence_needed": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["question", "why_it_matters", "evidence_needed"],
+            },
+        },
+        "bull_case_must_be_true": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 6,
+            "items": {"type": "string"},
+        },
+        "pass_triggers": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 6,
+            "items": {"type": "string"},
+        },
+        "source_basis": {
+            "type": "object",
+            "additionalProperties": True,
+            "description": "Short metadata describing source types used.",
+        },
+    },
+    "required": [
+        "investment_highlights",
+        "investment_risks",
+        "recommendation_logic",
+        "top_gating_questions",
+        "bull_case_must_be_true",
+        "pass_triggers",
+        "source_basis",
+    ],
+}
+
+
+def run_serena_strategic_risk_mapper(
+    *,
+    company: dict,
+    research_dir: Path,
+    progress=None,
+    timeout_sec: int = 900,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run Serena's strategic risk mapper through Claude Code.
+
+    The caller owns lifecycle and persistence. This helper returns a parsed
+    artifact-shaped payload with 5-8 risks or an error string.
+    """
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_risk_mapper_{company_id or 'company'}"
+    )
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    local_files: list[str] = []
+    if research_dir.exists():
+        try:
+            local_files = [
+                p.name
+                for p in sorted(research_dir.iterdir())
+                if p.is_file() and p.name != "index.yaml"
+            ][:100]
+        except Exception:
+            local_files = []
+
+    schema_str = json.dumps(
+        SERENA_STRATEGIC_RISK_SCHEMA,
+        indent=2,
+        ensure_ascii=False,
+    )
+    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+
+    prompt = f"""\
+You are Serena's Strategic Risk Mapper for a late-stage investment memo.
+Generate the 5-8 decision-grade strategic risks that should control whether
+BSH should invest in {company_name}.
+
+Company:
+```json
+{company_str}
+```
+
+Serena research folder:
+`{research_dir}`
+
+Available files in that folder:
+{files_str}
+
+Instructions:
+- Frame risks as investment decision questions, not generic risk labels.
+- Prefer risks that can change a BSH recommendation: valuation durability,
+  deployment depth, revenue quality, market abstraction, moat durability,
+  budget ownership, public-comp support, and disconfirming evidence.
+- Use the Serena research folder above for local company documents. Do NOT
+  read from `data/uploads/` or the Document Library.
+- If local research files exist, inspect the relevant files with Read/Bash.
+- Use WebSearch/WebFetch when public filings, transcripts, market data, or
+  current public evidence are needed.
+- Separate verified evidence from inference. Do not invent facts.
+- Include concrete evidence Serena should gather and the best source types.
+- Make research_prompt actionable enough that a later background job can run it.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output JSON only. No prose, no markdown fences.
+- Omit `id`; the application assigns stable risk ids.
+"""
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash,WebSearch,WebFetch",
+        "--json-schema", json.dumps(SERENA_STRATEGIC_RISK_SCHEMA),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Mapping strategic risks with Claude",
+            company_id=company_id,
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label="serena strategic risk mapper",
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if stream_error:
+        return None, stream_error
+    if not final_text:
+        return None, "claude returned empty result"
+
+    parsed = _parse_json_tolerant(final_text.strip())
+    if parsed is None and "```" in final_text:
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```", final_text, re.DOTALL)
+        if fenced:
+            parsed = _parse_json_tolerant(max(fenced, key=len).strip())
+    if parsed is None:
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        return None, f"claude output didn't parse as JSON: {final_text[:300]}"
+    risks = parsed.get("risks")
+    if not isinstance(risks, list) or not risks:
+        return None, "claude output missing risks"
+    parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return parsed, None
+
+
+def run_serena_thesis_spine_builder(
+    *,
+    company: dict,
+    artifacts: dict,
+    research_dir: Path,
+    progress=None,
+    timeout_sec: int = 900,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run Serena's thesis spine builder through Claude Code.
+
+    The caller owns lifecycle and persistence. This helper returns a parsed
+    artifact-shaped payload or an error string.
+    """
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_thesis_spine_{company_id or 'company'}"
+    )
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    local_files: list[str] = []
+    if research_dir.exists():
+        try:
+            local_files = [
+                p.name
+                for p in sorted(research_dir.iterdir())
+                if p.is_file() and p.name != "index.yaml"
+            ][:100]
+        except Exception:
+            local_files = []
+
+    analysis_context = {
+        "strategic_risks": artifacts.get("strategic_risks"),
+        "risk_priorities": artifacts.get("risk_priorities"),
+        "research_tasks": artifacts.get("research_tasks"),
+        "chart_specs": artifacts.get("chart_specs"),
+        "benchmark_dashboard": artifacts.get("benchmark_dashboard"),
+    }
+    schema_str = json.dumps(
+        SERENA_THESIS_SPINE_SCHEMA,
+        indent=2,
+        ensure_ascii=False,
+    )
+    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    context_str = json.dumps(
+        analysis_context,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
+    files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+
+    prompt = f"""\
+You are Serena's Thesis Spine Builder for a late-stage BSH investment memo.
+Convert the current Memo Studio analysis into the memo's core underwriting
+spine for {company_name}.
+
+Company:
+```json
+{company_str}
+```
+
+Current Memo Studio analysis:
+```json
+{context_str}
+```
+
+Serena research folder:
+`{research_dir}`
+
+Available files in that folder:
+{files_str}
+
+Instructions:
+- Use the current strategic risks, risk priorities, selected research-task
+  results, chart specs, and benchmark context above.
+- Build 3-5 investment highlights, 3-5 investment risks, direct
+  recommendation logic, the top gating diligence questions, bull-case
+  requirements, and pass triggers.
+- Treat incomplete research-task results, partial chart specs, and nullable
+  benchmark metrics as evidence gaps, not as facts.
+- Source_trace values should name artifact/source categories actually used,
+  such as strategic_risks, research_tasks, chart_specs, benchmark_dashboard,
+  Serena research folder files, public filings, transcripts, or web sources.
+- Use the Serena research folder above for local company documents. Do NOT
+  read from `data/uploads/` or the Document Library.
+- If local research files exist, inspect relevant files with Read/Bash.
+- Use WebSearch/WebFetch when public filings, transcripts, market data, or
+  current public evidence are needed.
+- Separate verified evidence from inference. Do not invent facts.
+- Mark needs_stronger_evidence true whenever a claim is not yet independently
+  supported enough for a final memo.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output JSON only. No prose, no markdown fences.
+- Omit ids; the application assigns stable ids.
+"""
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash,WebSearch,WebFetch",
+        "--json-schema", json.dumps(SERENA_THESIS_SPINE_SCHEMA),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Building thesis spine with Claude",
+            company_id=company_id,
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label="serena thesis spine builder",
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if stream_error:
+        return None, stream_error
+    if not final_text:
+        return None, "claude returned empty result"
+
+    parsed = _parse_json_tolerant(final_text.strip())
+    if parsed is None and "```" in final_text:
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```", final_text, re.DOTALL)
+        if fenced:
+            parsed = _parse_json_tolerant(max(fenced, key=len).strip())
+    if parsed is None:
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        return None, f"claude output didn't parse as JSON: {final_text[:300]}"
+    highlights = parsed.get("investment_highlights")
+    memo_risks = parsed.get("investment_risks")
+    gates = parsed.get("top_gating_questions")
+    if not isinstance(highlights, list) or not highlights:
+        return None, "claude output missing investment_highlights"
+    if not isinstance(memo_risks, list) or not memo_risks:
+        return None, "claude output missing investment_risks"
+    if not isinstance(gates, list) or not gates:
+        return None, "claude output missing top_gating_questions"
+    if not str(parsed.get("recommendation_logic") or "").strip():
+        return None, "claude output missing recommendation_logic"
+    parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return parsed, None
+
+
 def run_serena_research_task(
     *,
     company: dict,

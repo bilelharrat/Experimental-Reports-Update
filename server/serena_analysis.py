@@ -12,9 +12,12 @@ Claude-backed jobs without changing the dashboard shape.
 from __future__ import annotations
 
 import copy
+import json
 import logging
+import os
 import re
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +29,9 @@ from . import claude_runner, job_progress, research_store, storage
 
 ANALYSIS_ROOT = storage.DATA_DIR / "serena_analysis"
 SESSION_VERSION = 1
+ACTIVE_JOB_MAX_IDLE_SECONDS = int(
+    os.environ.get("BSH_ACTIVE_JOB_MAX_IDLE_SECONDS", "1800")
+)
 
 logger = logging.getLogger(__name__)
 _LOCK = threading.RLock()
@@ -74,6 +80,7 @@ TOOL_DEFINITIONS: list[dict[str, str]] = [
 ]
 
 _TOOL_NAMES = {t["name"] for t in TOOL_DEFINITIONS}
+_CLAUDE_BACKED_TOOLS = {"strategic_risk_mapper", "thesis_spine_builder"}
 _TASK_STATUSES = {"not_started", "running", "done", "error", "skipped"}
 _PRESERVED_TASK_FIELDS = {
     "status",
@@ -87,6 +94,7 @@ _PRESERVED_TASK_FIELDS = {
     "error",
     "run_job_id",
     "result_payload",
+    "recovered_at",
 }
 
 
@@ -118,6 +126,259 @@ def research_task_progress_path(company_id: str, session_id: str, task_id: str) 
     if not re.match(r"^[A-Za-z0-9_-]+$", safe_task_id):
         raise ValueError("Invalid research task id")
     return session_dir(company_id, session_id) / "logs" / f"{safe_task_id}.progress.jsonl"
+
+
+def analysis_tool_progress_path(company_id: str, session_id: str, tool_name: str) -> Path:
+    safe_tool_name = str(tool_name or "").strip()
+    if safe_tool_name not in _TOOL_NAMES:
+        raise ValueError(f"Unknown memo-analysis tool: {tool_name}")
+    return (
+        session_dir(company_id, session_id)
+        / "logs"
+        / "tools"
+        / f"{safe_tool_name}.progress.jsonl"
+    )
+
+
+def tool_uses_background_job(tool_name: str) -> bool:
+    return tool_name in _CLAUDE_BACKED_TOOLS
+
+
+def _parse_progress_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _seconds_since(value: Any) -> float | None:
+    dt = _parse_progress_datetime(value)
+    if dt is None:
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds())
+
+
+def _progress_path_idle_seconds(path: Path) -> float | None:
+    try:
+        return max(0.0, time.time() - path.stat().st_mtime)
+    except OSError:
+        return None
+
+
+def _scan_progress_log(path: Path) -> dict:
+    state = {
+        "exists": path.exists(),
+        "terminated": False,
+        "terminal_type": None,
+        "terminal_error": None,
+        "started_at": None,
+        "last_event_at": None,
+    }
+    if not path.exists():
+        return state
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts = entry.get("ts")
+                if state["started_at"] is None and ts:
+                    state["started_at"] = ts
+                if ts:
+                    state["last_event_at"] = ts
+                if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
+                    state["terminated"] = True
+                    state["terminal_type"] = entry.get("type")
+                    state["terminal_error"] = entry.get("error")
+    except Exception:
+        logger.exception("failed to scan serena progress log: %s", path)
+    return state
+
+
+def _reference_run_idle_seconds(*values: Any) -> float | None:
+    for value in values:
+        idle = _seconds_since(value)
+        if idle is not None:
+            return idle
+    return None
+
+
+def _stale_run_reason(
+    progress_path: Path,
+    *,
+    max_idle_seconds: int,
+    started_at: Any = None,
+    last_run_at: Any = None,
+) -> str | None:
+    """Return why a running session job is stale, or None if it may be active."""
+    if not progress_path.exists():
+        run_idle = _reference_run_idle_seconds(last_run_at, started_at)
+        if run_idle is not None and run_idle <= max_idle_seconds:
+            return None
+        return "progress log is missing"
+
+    state = _scan_progress_log(progress_path)
+    if state.get("terminated"):
+        terminal = state.get("terminal_type") or "terminal event"
+        if state.get("terminal_error"):
+            return f"progress log ended with {terminal}: {state['terminal_error']}"
+        return f"progress log already ended with {terminal}"
+
+    path_idle = _progress_path_idle_seconds(progress_path)
+    if path_idle is not None and path_idle > max_idle_seconds:
+        return f"progress log has been idle for {int(path_idle)} seconds"
+
+    event_idle = _seconds_since(state.get("last_event_at"))
+    if event_idle is not None and event_idle > max_idle_seconds:
+        return f"progress log has had no events for {int(event_idle)} seconds"
+
+    return None
+
+
+def _recovered_run_error(reason: str) -> str:
+    return f"Recovered interrupted run: {reason}. Start it again to rerun."
+
+
+def _emit_recovery_error(progress_path: Path | None, message: str, **fields: Any) -> None:
+    if progress_path is None:
+        return
+    try:
+        progress = job_progress.ProgressLog(progress_path, truncate=False)
+        if not progress.is_terminated:
+            progress.emit("error", recovered=True, error=message, **fields)
+    except Exception:
+        logger.exception("failed to emit serena recovery event: %s", progress_path)
+
+
+def _recover_stale_runs_in_session(
+    session: dict,
+    *,
+    max_idle_seconds: int | None = None,
+) -> int:
+    max_idle = (
+        ACTIVE_JOB_MAX_IDLE_SECONDS
+        if max_idle_seconds is None
+        else int(max_idle_seconds)
+    )
+    company_id = str(session.get("company_id") or "")
+    session_id = str(session.get("id") or "")
+    if not company_id or not session_id:
+        return 0
+
+    now = _now()
+    recovered = 0
+    touched_tasks = False
+    artifacts = session.setdefault("artifacts", {})
+    task_artifact = artifacts.get("research_tasks")
+    tasks = task_artifact.get("tasks") if isinstance(task_artifact, dict) else []
+    if isinstance(tasks, list):
+        for task in tasks:
+            if not isinstance(task, dict) or task.get("status") != "running":
+                continue
+            task_id = str(task.get("id") or "")
+            progress_path: Path | None
+            try:
+                progress_path = research_task_progress_path(company_id, session_id, task_id)
+                reason = _stale_run_reason(
+                    progress_path,
+                    max_idle_seconds=max_idle,
+                    started_at=task.get("started_at"),
+                    last_run_at=task.get("last_run_at"),
+                )
+            except ValueError as exc:
+                progress_path = None
+                reason = str(exc)
+            if not reason:
+                continue
+            message = _recovered_run_error(reason)
+            task["status"] = "error"
+            task["completed_at"] = now
+            task["last_run_at"] = now
+            task["error"] = message
+            task["recovered_at"] = now
+            task.setdefault("run_job_id", f"{company_id}/{session_id}/{task_id}")
+            _emit_recovery_error(
+                progress_path,
+                message,
+                kind="serena_research_task",
+                company_id=company_id,
+                session_id=session_id,
+                task_id=task_id,
+            )
+            recovered += 1
+            touched_tasks = True
+
+    tool_runs = session.setdefault("tool_runs", {})
+    if isinstance(tool_runs, dict):
+        for tool_name, run in list(tool_runs.items()):
+            if not isinstance(run, dict) or run.get("status") != "running":
+                continue
+            progress_path = None
+            try:
+                progress_path = analysis_tool_progress_path(
+                    company_id, session_id, str(tool_name)
+                )
+                reason = _stale_run_reason(
+                    progress_path,
+                    max_idle_seconds=max_idle,
+                    last_run_at=run.get("last_run_at"),
+                )
+            except ValueError as exc:
+                reason = str(exc)
+            if not reason:
+                continue
+            message = _recovered_run_error(reason)
+            run["status"] = "error"
+            run["last_run_at"] = now
+            run["summary"] = f"{_tool_label(str(tool_name))} was interrupted before completion."
+            run["error"] = message
+            run["recovered_at"] = now
+            run.setdefault("run_job_id", f"{company_id}/{session_id}/{tool_name}")
+            _emit_recovery_error(
+                progress_path,
+                message,
+                kind="serena_analysis_tool",
+                company_id=company_id,
+                session_id=session_id,
+                tool_name=str(tool_name),
+            )
+            recovered += 1
+
+    if recovered:
+        if touched_tasks:
+            _touch_research_tasks(session)
+        _refresh_memo_packet(session)
+    return recovered
+
+
+def recover_stale_runs(*, max_idle_seconds: int | None = None) -> int:
+    """Sweep all Serena sessions and mark interrupted running jobs as errors."""
+    if not ANALYSIS_ROOT.exists():
+        return 0
+    recovered = 0
+    with _LOCK:
+        for path in sorted(ANALYSIS_ROOT.glob("*/*/session.yaml")):
+            session = _load_session(path)
+            if not isinstance(session, dict):
+                continue
+            count = _recover_stale_runs_in_session(
+                session,
+                max_idle_seconds=max_idle_seconds,
+            )
+            if count:
+                recovered += count
+                _write_session(session)
+    return recovered
 
 
 def _read_yaml(path: Path, default: Any) -> Any:
@@ -225,6 +486,8 @@ def get_current_session(company_id: str, *, create: bool = True) -> dict | None:
             session = sessions[0]
             session.setdefault("artifacts", {})
             session["artifacts"]["input_manifest"] = _input_manifest(company_id)
+            if _recover_stale_runs_in_session(session):
+                _write_session(session)
             return _decorate(session)
         if not create:
             return None
@@ -236,6 +499,8 @@ def get_current_session(company_id: str, *, create: bool = True) -> dict | None:
 def get_session(company_id: str, session_id: str) -> dict | None:
     with _LOCK:
         session = _load_session(session_path(company_id, session_id))
+        if session and _recover_stale_runs_in_session(session):
+            _write_session(session)
         return _decorate(session) if session else None
 
 
@@ -278,6 +543,45 @@ def run_tool(company_id: str, tool_name: str) -> dict:
         _refresh_memo_packet(session)
         _write_session(session)
         return _decorate(session)
+
+
+def start_analysis_tool_job(company_id: str, tool_name: str) -> dict:
+    """Mark a Claude-backed analysis tool running and launch its job."""
+    if not tool_uses_background_job(tool_name):
+        return run_tool(company_id, tool_name)
+    company = storage.get_company(company_id)
+    if company is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    with _LOCK:
+        session = get_current_session(company_id, create=True)
+        if session is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        session = _strip_decorations(session)
+        tool_runs = session.setdefault("tool_runs", {})
+        current_run = tool_runs.get(tool_name) or {}
+        if current_run.get("status") == "running":
+            return _decorate(session)
+        session_id = str(session["id"])
+        now = _now()
+        job_id = f"{company_id}/{session_id}/{tool_name}"
+        tool_runs[tool_name] = {
+            "status": "running",
+            "last_run_at": now,
+            "summary": "Running with Claude.",
+            "error": None,
+            "run_job_id": job_id,
+        }
+        _write_session(session)
+        company_snapshot = copy.deepcopy(company)
+        decorated = _decorate(session)
+
+    threading.Thread(
+        target=_run_analysis_tool_job,
+        args=(company_id, session_id, tool_name, company_snapshot),
+        name=f"serena-analysis-tool-{company_id}-{tool_name}",
+        daemon=True,
+    ).start()
+    return decorated
 
 
 def patch_artifact(company_id: str, artifact_name: str, patch: dict) -> dict:
@@ -404,6 +708,314 @@ def start_research_task_job(company_id: str, task_id: str) -> dict:
         daemon=True,
     ).start()
     return decorated
+
+
+def _tool_label(tool_name: str) -> str:
+    definition = next(
+        (item for item in TOOL_DEFINITIONS if item.get("name") == tool_name),
+        None,
+    )
+    return str((definition or {}).get("label") or tool_name)
+
+
+def _run_analysis_tool_job(
+    company_id: str,
+    session_id: str,
+    tool_name: str,
+    company: dict,
+) -> None:
+    progress = job_progress.ProgressLog(
+        analysis_tool_progress_path(company_id, session_id, tool_name)
+    )
+    company_name = company.get("name") or company_id
+    label = _tool_label(tool_name)
+    progress.emit(
+        "job_init",
+        kind="serena_analysis_tool",
+        title=label,
+        subtitle=company_name,
+        company_id=company_id,
+        session_id=session_id,
+        tool_name=tool_name,
+    )
+    progress.emit(
+        "stage",
+        stage="starting",
+        message=f"Starting {label}",
+        tool_name=tool_name,
+    )
+
+    if tool_name == "thesis_spine_builder":
+        _run_thesis_spine_builder_job(
+            company_id,
+            session_id,
+            company,
+            progress,
+        )
+        return
+
+    if tool_name != "strategic_risk_mapper":
+        error = f"Unsupported background analysis tool: {tool_name}"
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            tool_name,
+            status="error",
+            summary=error,
+            error=error,
+        )
+        progress.emit("error", tool_name=tool_name, error=error)
+        return
+
+    result: dict | None = None
+    error: str | None = None
+    try:
+        result, error = claude_runner.run_serena_strategic_risk_mapper(
+            company=company,
+            research_dir=research_store.RESEARCH_ROOT / company_id,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena analysis tool crashed")
+        error = f"{type(exc).__name__}: {exc}"
+
+    if result and not error:
+        risks = _coerce_strategic_risks(result.get("risks"), company)
+        artifact = {
+            "generated_at": _now(),
+            "risks": risks,
+            "source_basis": {
+                **_source_basis(company),
+                **(
+                    result.get("source_basis")
+                    if isinstance(result.get("source_basis"), dict)
+                    else {}
+                ),
+            },
+            "generated_by": "claude_code",
+            "result_payload": result,
+        }
+        summary = f"Generated {len(risks)} strategic risks with Claude."
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            tool_name,
+            status="done",
+            summary=summary,
+            error=None,
+            artifacts_patch={"strategic_risks": artifact},
+        )
+        progress.emit("done", tool_name=tool_name, summary=summary)
+        return
+
+    message = error or "Claude returned no strategic risk result"
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        previous = (
+            session.get("artifacts", {}).get("strategic_risks")
+            if isinstance(session, dict)
+            else None
+        )
+    previous_risks = (
+        previous.get("risks")
+        if isinstance(previous, dict)
+        else None
+    )
+    if isinstance(previous_risks, list) and previous_risks:
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            tool_name,
+            status="error",
+            summary=f"Claude strategic risk mapper failed: {message}",
+            error=message,
+        )
+        progress.emit("error", tool_name=tool_name, error=message)
+        return
+
+    progress.emit(
+        "stage",
+        stage="fallback",
+        message="Using deterministic fallback risks",
+        tool_name=tool_name,
+    )
+    risks = _strategic_risks(company)
+    fallback_artifact = {
+        "generated_at": _now(),
+        "risks": risks,
+        "source_basis": _source_basis(company),
+        "generated_by": "deterministic_fallback",
+        "claude_error": message,
+    }
+    summary = f"Generated {len(risks)} deterministic fallback strategic risks."
+    _finish_analysis_tool_job(
+        company_id,
+        session_id,
+        tool_name,
+        status="done",
+        summary=summary,
+        error=f"Claude strategic risk fallback: {message}",
+        artifacts_patch={"strategic_risks": fallback_artifact},
+    )
+    progress.emit(
+        "done",
+        tool_name=tool_name,
+        fallback=True,
+        error=message,
+        summary=summary,
+    )
+
+
+def _run_thesis_spine_builder_job(
+    company_id: str,
+    session_id: str,
+    company: dict,
+    progress: job_progress.ProgressLog,
+) -> None:
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        artifacts = copy.deepcopy(
+            session.get("artifacts", {}) if isinstance(session, dict) else {}
+        )
+    had_risks = bool(
+        artifacts.get("strategic_risks", {}).get("risks")
+        if isinstance(artifacts.get("strategic_risks"), dict)
+        else False
+    )
+    risks = _ensure_risks(company, artifacts)
+    ensured_patch: dict[str, Any] = {}
+    if not had_risks and isinstance(artifacts.get("strategic_risks"), dict):
+        ensured_patch["strategic_risks"] = artifacts["strategic_risks"]
+
+    result: dict | None = None
+    error: str | None = None
+    try:
+        result, error = claude_runner.run_serena_thesis_spine_builder(
+            company=company,
+            artifacts=artifacts,
+            research_dir=research_store.RESEARCH_ROOT / company_id,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena thesis spine builder crashed")
+        error = f"{type(exc).__name__}: {exc}"
+
+    if result and not error:
+        thesis = _coerce_thesis_spine(result, company, artifacts)
+        thesis["generated_by"] = "claude_code"
+        thesis["result_payload"] = result
+        if isinstance(result.get("source_basis"), dict):
+            thesis["source_basis"] = {
+                **_source_basis(company),
+                **result["source_basis"],
+            }
+        else:
+            thesis["source_basis"] = _source_basis(company)
+        summary = (
+            f"Drafted {len(thesis.get('investment_highlights') or [])} "
+            "investment highlights and "
+            f"{len(thesis.get('investment_risks') or [])} risks with Claude."
+        )
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "thesis_spine_builder",
+            status="done",
+            summary=summary,
+            error=None,
+            artifacts_patch={**ensured_patch, "thesis_spine": thesis},
+        )
+        progress.emit(
+            "done",
+            tool_name="thesis_spine_builder",
+            summary=summary,
+        )
+        return
+
+    message = error or "Claude returned no thesis spine result"
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        previous = (
+            session.get("artifacts", {}).get("thesis_spine")
+            if isinstance(session, dict)
+            else None
+        )
+    previous_highlights = (
+        previous.get("investment_highlights")
+        if isinstance(previous, dict)
+        else None
+    )
+    if isinstance(previous_highlights, list) and previous_highlights:
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "thesis_spine_builder",
+            status="error",
+            summary=f"Claude thesis spine builder failed: {message}",
+            error=message,
+        )
+        progress.emit("error", tool_name="thesis_spine_builder", error=message)
+        return
+
+    progress.emit(
+        "stage",
+        stage="fallback",
+        message="Using deterministic fallback thesis spine",
+        tool_name="thesis_spine_builder",
+    )
+    fallback = _thesis_spine(company, risks)
+    fallback["generated_by"] = "deterministic_fallback"
+    fallback["claude_error"] = message
+    summary = "Drafted deterministic fallback thesis spine."
+    _finish_analysis_tool_job(
+        company_id,
+        session_id,
+        "thesis_spine_builder",
+        status="done",
+        summary=summary,
+        error=f"Claude thesis spine fallback: {message}",
+        artifacts_patch={**ensured_patch, "thesis_spine": fallback},
+    )
+    progress.emit(
+        "done",
+        tool_name="thesis_spine_builder",
+        fallback=True,
+        error=message,
+        summary=summary,
+    )
+
+
+def _finish_analysis_tool_job(
+    company_id: str,
+    session_id: str,
+    tool_name: str,
+    *,
+    status: str,
+    summary: str,
+    error: str | None,
+    artifacts_patch: dict | None = None,
+) -> None:
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        if session is None:
+            logger.warning(
+                "serena analysis tool finished for missing session company=%s session=%s tool=%s",
+                company_id,
+                session_id,
+                tool_name,
+            )
+            return
+        if artifacts_patch:
+            session.setdefault("artifacts", {}).update(artifacts_patch)
+        session.setdefault("tool_runs", {})[tool_name] = {
+            "status": status,
+            "last_run_at": _now(),
+            "summary": summary,
+            "error": error,
+            "run_job_id": f"{company_id}/{session_id}/{tool_name}",
+        }
+        _refresh_memo_packet(session)
+        _write_session(session)
 
 
 def _run_research_task_job(
@@ -898,6 +1510,254 @@ def _source_basis(company: dict) -> dict:
             if company.get(k)
         ],
         "research_file_count": len(research_store.list_files(str(company.get("id")))),
+    }
+
+
+def _string_list(value: Any, *, fallback: list[str] | None = None) -> list[str]:
+    if isinstance(value, list):
+        out = [
+            str(item).strip()
+            for item in value
+            if str(item or "").strip()
+        ]
+        if out:
+            return out
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return list(fallback or [])
+
+
+def _bool_value(value: Any, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def _coerce_strategic_risks(value: Any, company: dict) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    company_name = company.get("name") or company.get("id") or "the company"
+    risks: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or row.get("decision_question") or "").strip()
+        decision_question = str(row.get("decision_question") or title).strip()
+        if not title or not decision_question:
+            continue
+        title_key = title.lower()
+        if title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
+        evidence = _string_list(
+            row.get("evidence_needed"),
+            fallback=["independent support", "disconfirming evidence"],
+        )
+        sources = _string_list(
+            row.get("best_sources"),
+            fallback=["Serena research folder", "public sources"],
+        )
+        why = str(row.get("why_it_matters") or "").strip() or (
+            "This question can materially change the investment recommendation."
+        )
+        risks.append({
+            "id": f"risk-{len(risks) + 1}",
+            "title": title,
+            "decision_question": decision_question,
+            "why_it_matters": why,
+            "bull_case_answer": str(row.get("bull_case_answer") or "").strip() or (
+                f"{company_name} has evidence that this risk is manageable and can "
+                "become an investment advantage."
+            ),
+            "bear_case_answer": str(row.get("bear_case_answer") or "").strip() or (
+                "If the answer is weak, the investment case depends on a "
+                "future state that is not yet underwritten."
+            ),
+            "evidence_needed": evidence[:6],
+            "best_sources": sources[:8],
+            "research_prompt": str(row.get("research_prompt") or "").strip() or (
+                f"Research whether {decision_question.lower()} Separate company "
+                "claims from independent evidence and identify disconfirming facts."
+            ),
+            "memo_section": str(row.get("memo_section") or "").strip() or "Investment Risk",
+            "status": str(row.get("status") or "").strip() or "unresearched",
+        })
+        if len(risks) >= 8:
+            break
+
+    if len(risks) < 5:
+        for fallback in _strategic_risks(company):
+            title = str(fallback.get("title") or "").strip()
+            if not title or title.lower() in seen_titles:
+                continue
+            item = copy.deepcopy(fallback)
+            item["id"] = f"risk-{len(risks) + 1}"
+            risks.append(item)
+            seen_titles.add(title.lower())
+            if len(risks) >= 5:
+                break
+    return risks[:8]
+
+
+def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
+    risks = _ensure_risks(company, artifacts)
+    fallback = _thesis_spine(company, risks)
+    payload = value if isinstance(value, dict) else {}
+
+    def fill_minimum(
+        items: list[dict[str, Any]],
+        fallback_items: list[dict],
+        *,
+        prefix: str,
+        minimum: int,
+        maximum: int,
+    ) -> list[dict]:
+        seen = {
+            str(item.get("claim") or item.get("question") or "").strip().lower()
+            for item in items
+        }
+        for fallback_item in fallback_items:
+            if len(items) >= minimum:
+                break
+            key = str(
+                fallback_item.get("claim") or fallback_item.get("question") or ""
+            ).strip().lower()
+            if key and key in seen:
+                continue
+            item = copy.deepcopy(fallback_item)
+            item["id"] = f"{prefix}-{len(items) + 1}"
+            items.append(item)
+            if key:
+                seen.add(key)
+        return items[:maximum]
+
+    highlights: list[dict[str, Any]] = []
+    highlight_rows = payload.get("investment_highlights")
+    if isinstance(highlight_rows, list):
+        for row in highlight_rows:
+            if not isinstance(row, dict):
+                continue
+            claim = str(row.get("claim") or row.get("title") or "").strip()
+            detail = str(row.get("detail") or row.get("description") or "").strip()
+            if not claim and not detail:
+                continue
+            highlights.append({
+                "id": f"highlight-{len(highlights) + 1}",
+                "claim": claim or detail[:140],
+                "detail": detail or claim,
+                "state": str(row.get("state") or "diligence_needed").strip(),
+                "source_trace": _string_list(
+                    row.get("source_trace"),
+                    fallback=["claude_code"],
+                )[:8],
+                "needs_stronger_evidence": _bool_value(
+                    row.get("needs_stronger_evidence"),
+                    default=True,
+                ),
+            })
+            if len(highlights) >= 5:
+                break
+    highlights = fill_minimum(
+        highlights,
+        fallback.get("investment_highlights") or [],
+        prefix="highlight",
+        minimum=3,
+        maximum=5,
+    )
+
+    memo_risks: list[dict[str, Any]] = []
+    risk_rows = payload.get("investment_risks")
+    if isinstance(risk_rows, list):
+        for row in risk_rows:
+            if not isinstance(row, dict):
+                continue
+            claim = str(row.get("claim") or row.get("title") or "").strip()
+            detail = str(row.get("detail") or row.get("description") or "").strip()
+            if not claim and not detail:
+                continue
+            memo_risks.append({
+                "id": f"memo-risk-{len(memo_risks) + 1}",
+                "claim": claim or detail[:140],
+                "detail": detail or claim,
+                "source_trace": _string_list(
+                    row.get("source_trace"),
+                    fallback=["claude_code"],
+                )[:8],
+                "needs_stronger_evidence": _bool_value(
+                    row.get("needs_stronger_evidence"),
+                    default=True,
+                ),
+            })
+            if len(memo_risks) >= 5:
+                break
+    memo_risks = fill_minimum(
+        memo_risks,
+        fallback.get("investment_risks") or [],
+        prefix="memo-risk",
+        minimum=3,
+        maximum=5,
+    )
+
+    gates: list[dict[str, Any]] = []
+    gate_rows = payload.get("top_gating_questions")
+    if isinstance(gate_rows, list):
+        for row in gate_rows:
+            if not isinstance(row, dict):
+                continue
+            question = str(
+                row.get("question") or row.get("decision_question") or ""
+            ).strip()
+            why = str(row.get("why_it_matters") or row.get("rationale") or "").strip()
+            if not question:
+                continue
+            gates.append({
+                "id": f"gate-{len(gates) + 1}",
+                "question": question,
+                "why_it_matters": why or (
+                    "This question can change the investment recommendation."
+                ),
+                "evidence_needed": _string_list(
+                    row.get("evidence_needed"),
+                    fallback=["independent support", "disconfirming evidence"],
+                )[:8],
+            })
+            if len(gates) >= 5:
+                break
+    gates = fill_minimum(
+        gates,
+        fallback.get("top_gating_questions") or [],
+        prefix="gate",
+        minimum=3,
+        maximum=5,
+    )
+
+    recommendation = str(payload.get("recommendation_logic") or "").strip()
+    if not recommendation:
+        recommendation = fallback["recommendation_logic"]
+
+    return {
+        "updated_at": _now(),
+        "approved": False,
+        "investment_highlights": highlights,
+        "investment_risks": memo_risks,
+        "recommendation_logic": recommendation,
+        "top_gating_questions": gates[:3],
+        "bull_case_must_be_true": _string_list(
+            payload.get("bull_case_must_be_true"),
+            fallback=fallback.get("bull_case_must_be_true") or [],
+        )[:6],
+        "pass_triggers": _string_list(
+            payload.get("pass_triggers"),
+            fallback=fallback.get("pass_triggers") or [],
+        )[:6],
     }
 
 

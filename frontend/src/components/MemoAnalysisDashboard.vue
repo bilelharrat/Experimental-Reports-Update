@@ -47,6 +47,10 @@ const tasks = computed(() => artifacts.value.research_tasks?.tasks || []);
 const hasRunningTasks = computed(() =>
   tasks.value.some((task) => task?.status === "running"),
 );
+const hasRunningTools = computed(() =>
+  (session.value?.tools || []).some((tool) => tool?.status === "running"),
+);
+const hasRunningWork = computed(() => hasRunningTasks.value || hasRunningTools.value);
 const thesis = computed(() => artifacts.value.thesis_spine || null);
 const chartSpecs = computed(() => artifacts.value.chart_specs?.specs || []);
 const narrativeHooks = computed(() => artifacts.value.narrative_hooks || null);
@@ -165,7 +169,7 @@ function clearTaskPolling() {
 
 async function refreshRunningTasks() {
   if (taskPolling) return;
-  if (!hasRunningTasks.value) {
+  if (!hasRunningWork.value) {
     clearTaskPolling();
     return;
   }
@@ -176,7 +180,7 @@ async function refreshRunningTasks() {
     // Keep the current session visible; the AI Tasks rail still shows logs.
   } finally {
     taskPolling = false;
-    if (!hasRunningTasks.value) clearTaskPolling();
+    if (!hasRunningWork.value) clearTaskPolling();
   }
 }
 
@@ -191,6 +195,7 @@ async function runTool(toolName) {
   error.value = null;
   try {
     session.value = await api.memoAnalysis.runTool(props.companyId, toolName);
+    if (hasRunningWork.value) ensureTaskPolling();
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -204,7 +209,7 @@ async function runResearchTask(taskId) {
   error.value = null;
   try {
     session.value = await api.memoAnalysis.runTask(props.companyId, taskId);
-    if (hasRunningTasks.value) ensureTaskPolling();
+    if (hasRunningWork.value) ensureTaskPolling();
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -316,7 +321,7 @@ watch(() => props.companyId, () => {
   clearTaskPolling();
   load();
 });
-watch(hasRunningTasks, (running) => {
+watch(hasRunningWork, (running) => {
   if (running) ensureTaskPolling();
   else clearTaskPolling();
 });
@@ -469,12 +474,12 @@ watch([risks, riskPriorities], () => {
               <button
                 type="button"
                 @click="runTool(tool.name)"
-                :disabled="Boolean(runningTool)"
+                :disabled="Boolean(runningTool) || tool.status === 'running'"
                 class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring"
                 :title="`Run ${tool.label}`"
               >
                 <Loader2
-                  v-if="runningTool === tool.name"
+                  v-if="runningTool === tool.name || tool.status === 'running'"
                   class="h-4 w-4 animate-spin"
                 />
                 <Play v-else class="h-4 w-4" />
