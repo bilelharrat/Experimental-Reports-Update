@@ -47,6 +47,7 @@ SEED_USERS: list[tuple[str, str]] = [
     ("liupengsen50@gmail.com", "redapple"),
     ("elbereth.wang@gmail.com", "redapple"),
     ("viola.zhao@gmail.com", "redapple"),
+    ("846248966@qq.com", "redapple"),
     ("guest", "guest"),
 ]
 

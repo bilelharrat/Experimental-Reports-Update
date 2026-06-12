@@ -120,7 +120,7 @@ const messages = {
     "upload_research.subtitle":
       "— third-party reports / analyst notes; we'll summarize and translate",
     "upload_research.choose_file": "Click to choose a file",
-    "upload_research.accepted_types": "PDF, DOCX, DOC, TXT",
+    "upload_research.accepted_types": "PDF, PPTX, DOCX, TXT, MD",
     "upload_research.placeholder_title": "Title (defaults to filename)",
     "upload_research.placeholder_source": "Source company (e.g. Goldman Sachs)",
     "upload_research.placeholder_contact_name": "Contact name",
@@ -736,7 +736,7 @@ const messages = {
     "upload_research.title": "上传外部研究",
     "upload_research.subtitle": "— 上传第三方报告或分析师笔记，我们会总结并翻译",
     "upload_research.choose_file": "点击选择文件",
-    "upload_research.accepted_types": "PDF、DOCX、DOC、TXT",
+    "upload_research.accepted_types": "PDF、PPTX、DOCX、TXT、MD",
     "upload_research.placeholder_title": "标题（默认使用文件名）",
     "upload_research.placeholder_source": "来源机构（例如 Goldman Sachs）",
     "upload_research.placeholder_contact_name": "联系人姓名",

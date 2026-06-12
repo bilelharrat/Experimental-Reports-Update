@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -116,6 +117,14 @@ def _post_tool(client: TestClient, company_id: str, tool_name: str) -> dict:
         return _wait_for_tool_status(company_id, tool_name, "done")
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def _events(path):
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _iso_seconds_ago(seconds: int) -> str:
@@ -902,6 +911,98 @@ def test_memo_analysis_research_task_job_persists_claude_result(
         "Claude-backed result: deployment evidence is still thin."
     )
     assert task["result_payload"]["confidence"] == "medium"
+
+
+def test_memo_analysis_research_task_job_is_idempotent_while_running(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
+        serena_analysis.run_tool("generalist", tool)
+
+    starts = []
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            starts.append((args, kwargs))
+
+        def start(self):
+            starts.append("started")
+
+    monkeypatch.setattr(serena_analysis.threading, "Thread", FakeThread)
+
+    first = serena_analysis.start_research_task_job("generalist", "task-1")
+    second = serena_analysis.start_research_task_job("generalist", "task-1")
+
+    assert starts.count("started") == 1
+    for payload in (first, second):
+        task = next(
+            item
+            for item in payload["artifacts"]["research_tasks"]["tasks"]
+            if item["id"] == "task-1"
+        )
+        assert task["status"] == "running"
+
+
+def test_memo_analysis_research_task_cancel_marks_task_and_progress(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
+        serena_analysis.run_tool("generalist", tool)
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(serena_analysis.threading, "Thread", FakeThread)
+
+    started = serena_analysis.start_research_task_job("generalist", "task-1")
+    task = next(
+        item
+        for item in started["artifacts"]["research_tasks"]["tasks"]
+        if item["id"] == "task-1"
+    )
+    assert task["status"] == "running"
+
+    cancelled = serena_analysis.cancel_research_task_job("generalist", "task-1")
+    task = next(
+        item
+        for item in cancelled["artifacts"]["research_tasks"]["tasks"]
+        if item["id"] == "task-1"
+    )
+    assert task["status"] == "cancelled"
+    assert task["cancelled_at"]
+    assert task["error"] == "Research task cancelled"
+
+    session_id = cancelled["id"]
+    progress_path = serena_analysis.research_task_progress_path(
+        "generalist", session_id, "task-1"
+    )
+    assert _events(progress_path)[-1]["type"] == "cancelled"
 
 
 def test_memo_analysis_recovers_stale_running_research_task(tmp_path, monkeypatch):

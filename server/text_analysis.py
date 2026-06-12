@@ -17,6 +17,7 @@ All LLM calls go through ``claude_runner.run_structured_prompt`` — the
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from . import claude_runner
@@ -89,7 +90,13 @@ SYSTEM_PROMPT = (
 )
 
 
-def analyze(text: str, *, hint_title: str | None = None, progress=None) -> dict:
+def analyze(
+    text: str,
+    *,
+    hint_title: str | None = None,
+    progress=None,
+    cancel_event: threading.Event | None = None,
+) -> dict:
     """Run analysis on `text` via Claude CLI.
 
     Returns a dict with ``summary``, ``key_points``, ``language``,
@@ -116,6 +123,7 @@ def analyze(text: str, *, hint_title: str | None = None, progress=None) -> dict:
         name="external_analysis",
         timeout_sec=240,
         progress=progress,
+        cancel_event=cancel_event,
     )
     if err is not None:
         logger.warning("text_analysis failed: %s", err)

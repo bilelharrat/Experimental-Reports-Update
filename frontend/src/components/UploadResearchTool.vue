@@ -27,7 +27,7 @@ const submitting = ref(false);
 const error = ref(null);
 const fileInput = ref(null);
 
-const ACCEPT = ".pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain";
+const ACCEPT = ".pdf,.pptx,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown";
 
 function onPick(e) {
   const f = e.target.files?.[0];

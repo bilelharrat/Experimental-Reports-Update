@@ -495,6 +495,7 @@ def bootstrap_memo_run(
         warnings=warnings,
         scope_check=stage_assessment,
     )
+    prepared_report = storage.get_report(report["id"])
 
     stream.emit(
         "stage",
@@ -526,4 +527,5 @@ def bootstrap_memo_run(
         "manifest_path": str(manifest_path),
         "stream_path": str(stream_path(run_dir)),
         "warnings": warnings,
+        "report": prepared_report,
     }

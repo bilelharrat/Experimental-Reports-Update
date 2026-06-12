@@ -8,6 +8,7 @@ result onto the external_research record so subsequent loads are instant.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 from . import claude_runner, external_store
@@ -31,6 +32,7 @@ def translate_research_pdf(
     *,
     app_language: str | None = None,
     progress=None,
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     """Translate the PDF attached to this external_research item via Claude
     Code, persist the result, and return ``{ok: True, translation: ...}``
@@ -82,7 +84,11 @@ def translate_research_pdf(
         page_count=pages,
         app_language=app_language,
         progress=progress,
+        cancel_event=cancel_event,
     )
+
+    if cancel_event is not None and cancel_event.is_set():
+        return {"ok": False, "error": "user_cancelled"}
 
     if "error" in result:
         return {"ok": False, "error": result["error"]}

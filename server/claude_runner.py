@@ -492,6 +492,10 @@ def _process_event(event: dict, progress, state: dict) -> None:
                         or inp.get("url")
                         or json.dumps(inp)
                     )
+                elif name == "StructuredOutput":
+                    if isinstance(inp, dict):
+                        state["structured_output"] = inp
+                    preview = json.dumps(inp, ensure_ascii=False)
                 else:
                     preview = json.dumps(inp, ensure_ascii=False)
                 emit_kwargs = {
@@ -985,6 +989,7 @@ def _consume_stream_json_process(
     timeout_sec: float,
     timeout_label: str,
     silence_timeout_sec: float = 120.0,
+    cancel_event: threading.Event | None = None,
 ) -> tuple[str | None, str | None]:
     """Consume Claude stream-json without blocking forever on stdout.
 
@@ -1002,6 +1007,9 @@ def _consume_stream_json_process(
 
     while True:
         now = time.monotonic()
+        if cancel_event is not None and cancel_event.is_set():
+            interrupted = "user_cancelled"
+            break
         if now - start > timeout_sec:
             interrupted = f"{timeout_label} timed out after {timeout_sec:g}s"
             break
@@ -1027,6 +1035,7 @@ def _consume_stream_json_process(
         except Exception:  # noqa: BLE001
             logger.exception("%s event handling failed", timeout_label)
         if event.get("type") == "result":
+            state["result_event"] = event
             structured = state.get("structured_output")
             if isinstance(structured, dict):
                 final_text = json.dumps(structured)
@@ -1546,6 +1555,10 @@ def _process_pdf_translation_event(event: dict, progress, state: dict) -> None:
                             stage="structuring",
                             message="Finalizing translation",
                         )
+                elif name == "StructuredOutput":
+                    if isinstance(inp, dict):
+                        state["structured_output"] = inp
+                    preview = json.dumps(inp, ensure_ascii=False)
                 else:
                     preview = json.dumps(inp)[:200]
                 progress.emit(
@@ -1594,6 +1607,7 @@ def run_pdf_translation(
     app_language: str | None = None,
     progress=None,
     timeout_sec: int = 1800,
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     """Translate a PDF document end-to-end via Claude Code.
 
@@ -1666,6 +1680,7 @@ def run_pdf_translation(
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return {"error": f"Failed to launch claude: {exc}"}
@@ -1677,29 +1692,19 @@ def run_pdf_translation(
     stderr_thread.start()
 
     state: dict[str, Any] = {"page_count": page_count}
-    final_text: str | None = None
-    result_event: dict | None = None
-    try:
-        for line in proc.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            try:
-                if progress:
-                    _process_pdf_translation_event(event, progress, state)
-            except Exception:
-                logger.exception("translation progress event handling failed")
-            if event.get("type") == "result":
-                result_event = event
-                final_text = event.get("result")
-        proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        return {"error": f"Claude timed out after {timeout_sec}s"}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_pdf_translation_event,
+        timeout_sec=timeout_sec,
+        timeout_label="PDF translation",
+        silence_timeout_sec=300.0,
+        cancel_event=cancel_event,
+    )
+    if stream_error:
+        return {"error": stream_error}
 
     if proc.returncode and proc.returncode != 0:
         tail = "".join(stderr_log[-20:]).strip()
@@ -1730,6 +1735,7 @@ def run_pdf_translation(
             )
         }
 
+    result_event = state.get("result_event")
     if result_event:
         parsed["claude_cost_usd"] = result_event.get("total_cost_usd")
         parsed["claude_duration_ms"] = result_event.get("duration_ms")
@@ -2478,6 +2484,14 @@ def _process_structured_prompt_event(event: dict, progress) -> None:
         )
 
 
+def _process_structured_prompt_event_with_state(
+    event: dict, progress, state: dict
+) -> None:
+    _process_structured_prompt_event(event, progress)
+    if event.get("type") == "result":
+        state["result_event"] = event
+
+
 QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -2676,6 +2690,7 @@ def run_quick_summary(
     hint_title: str | None = None,
     progress=None,
     timeout_sec: int = 240,
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     """Produce a rich structured summary of a single research document.
 
@@ -2800,6 +2815,7 @@ OUTPUT REQUIREMENTS:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return {"error": f"Failed to launch claude: {exc}"}
@@ -2810,29 +2826,18 @@ OUTPUT REQUIREMENTS:
     stderr_thread.start()
 
     state: dict[str, Any] = {}
-    final_text: str | None = None
-    result_event: dict | None = None
-    try:
-        for line in proc.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            try:
-                if progress:
-                    _process_event(event, progress, state)
-            except Exception:
-                logger.exception("quick-summary progress event failed")
-            if event.get("type") == "result":
-                result_event = event
-                final_text = event.get("result")
-        proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        return {"error": f"Claude timed out after {timeout_sec}s"}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_event,
+        timeout_sec=timeout_sec,
+        timeout_label="quick summary",
+        cancel_event=cancel_event,
+    )
+    if stream_error:
+        return {"error": stream_error}
 
     if proc.returncode and proc.returncode != 0:
         tail = "".join(stderr_log[-20:]).strip()
@@ -2843,6 +2848,7 @@ OUTPUT REQUIREMENTS:
             )
         }
 
+    result_event = state.get("result_event")
     if not final_text and result_event:
         final_text = result_event.get("result")
     if not final_text:
@@ -2877,6 +2883,7 @@ def run_structured_prompt(
     name: str = "structured_output",
     timeout_sec: int = 180,
     progress=None,
+    cancel_event: threading.Event | None = None,
 ) -> tuple[dict | None, str | None]:
     """Run a one-shot `claude -p` call and parse a strict-JSON response.
 
@@ -2939,6 +2946,7 @@ def run_structured_prompt(
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             return None, f"Failed to launch claude: {exc}"
@@ -2948,33 +2956,25 @@ def run_structured_prompt(
         )
         stderr_thread.start()
 
-        final_text = ""
-        result_event: dict | None = None
-        try:
-            for line in proc.stdout or []:  # type: ignore[union-attr]
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                try:
-                    _process_structured_prompt_event(event, progress)
-                except Exception:  # noqa: BLE001
-                    logger.exception("structured-prompt progress handling failed")
-                if event.get("type") == "result":
-                    result_event = event
-                    final_text = (event.get("result") or "").strip()
-            proc.wait(timeout=timeout_sec)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            return None, f"claude timed out after {timeout_sec}s ({name})"
+        state: dict[str, Any] = {}
+        final_text, stream_error = _consume_stream_json_process(
+            proc,
+            stderr_log=stderr_log,
+            progress=progress,
+            state=state,
+            event_handler=_process_structured_prompt_event_with_state,
+            timeout_sec=timeout_sec,
+            timeout_label=name,
+            cancel_event=cancel_event,
+        )
+        if stream_error:
+            return None, stream_error
 
         if proc.returncode != 0:
             return None, _claude_exit_error(
                 proc.returncode, "".join(stderr_log[-20:])
             )
+        result_event = state.get("result_event")
         if not final_text and result_event:
             final_text = (result_event.get("result") or "").strip()
         if not final_text:
@@ -3612,6 +3612,7 @@ def run_serena_research_task(
     progress=None,
     timeout_sec: int = 900,
     silence_timeout_sec: int = 180,
+    cancel_event: threading.Event | None = None,
 ) -> tuple[dict | None, str | None]:
     """Run one Memo Studio research task through Claude Code.
 
@@ -3747,6 +3748,7 @@ OUTPUT REQUIREMENTS:
         timeout_sec=timeout_sec,
         timeout_label="serena research task",
         silence_timeout_sec=silence_timeout_sec,
+        cancel_event=cancel_event,
     )
     if stream_error:
         return None, stream_error

@@ -7,9 +7,11 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from fastapi import (
@@ -66,6 +68,111 @@ ACTIVE_JOB_MAX_IDLE_SECONDS = int(
 SEARCH_JOB_MAX_IDLE_SECONDS = int(
     os.environ.get("BSH_SEARCH_JOB_MAX_IDLE_SECONDS", "180")
 )
+UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+EXTERNAL_RESEARCH_MAX_FILE_BYTES = research_store.MAX_FILE_BYTES
+EXTERNAL_RESEARCH_ALLOWED_EXTENSIONS = {
+    ".pdf": "pdf",
+    ".pptx": "pptx",
+    ".docx": "docx",
+    ".txt": "text",
+    ".md": "text",
+}
+_RESEARCH_JOB_CANCEL_EVENTS: dict[str, threading.Event] = {}
+_RESEARCH_JOB_CANCEL_LOCK = threading.RLock()
+
+
+async def _read_upload_bounded(
+    file: UploadFile,
+    *,
+    max_bytes: int,
+) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File too large: {total} bytes (max {max_bytes})",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _external_research_upload_kind(filename: str) -> str:
+    ext = Path(filename).suffix.lower()
+    kind = EXTERNAL_RESEARCH_ALLOWED_EXTENSIONS.get(ext)
+    if kind:
+        return kind
+    allowed = ", ".join(sorted(EXTERNAL_RESEARCH_ALLOWED_EXTENSIONS))
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported external research file type: {filename}. Supported: {allowed}",
+    )
+
+
+def _research_cancel_key(kind: str, *parts: str) -> str:
+    return f"{kind}:" + "/".join(str(part) for part in parts)
+
+
+def _start_research_cancel_event(key: str) -> threading.Event:
+    event = threading.Event()
+    with _RESEARCH_JOB_CANCEL_LOCK:
+        _RESEARCH_JOB_CANCEL_EVENTS[key] = event
+    return event
+
+
+def _request_research_cancel(key: str) -> bool:
+    with _RESEARCH_JOB_CANCEL_LOCK:
+        event = _RESEARCH_JOB_CANCEL_EVENTS.get(key)
+    if event is None:
+        return False
+    event.set()
+    return True
+
+
+def _clear_research_cancel_event(
+    key: str, event: threading.Event | None
+) -> None:
+    if event is None:
+        return
+    with _RESEARCH_JOB_CANCEL_LOCK:
+        if _RESEARCH_JOB_CANCEL_EVENTS.get(key) is event:
+            _RESEARCH_JOB_CANCEL_EVENTS.pop(key, None)
+
+
+def _progress_cancelled(path: Path) -> bool:
+    return _scan_progress_state(path).get("terminal_type") == "cancelled"
+
+
+def _emit_cancelled_progress(
+    path: Path,
+    *,
+    reason: str,
+    **fields,
+) -> dict:
+    try:
+        return job_progress.cancel_progress_file(path, reason=reason, **fields)
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to mark progress cancelled: %s", path)
+        return _scan_progress_state(path)
+
+
+def _honor_research_cancel(
+    path: Path,
+    event: threading.Event | None,
+    *,
+    reason: str,
+    **fields,
+) -> bool:
+    if not ((event is not None and event.is_set()) or _progress_cancelled(path)):
+        return False
+    if not _progress_cancelled(path):
+        _emit_cancelled_progress(path, reason=reason, **fields)
+    return True
 
 
 # ---- Auth ---------------------------------------------------------------
@@ -601,7 +708,7 @@ async def stream_search_progress(job_id: str):
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -941,7 +1048,7 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        report = storage.get_report(result["report_id"])
+        report = result.get("report") or storage.get_report(result["report_id"])
         if report is None:
             raise HTTPException(status_code=500, detail="Report record vanished after prep")
         return ReportDetail(**_report_detail(report))
@@ -1066,7 +1173,7 @@ def post_memo_prep(payload: MemoPrepRequest) -> ReportDetail:
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    report = storage.get_report(result["report_id"])
+    report = result.get("report") or storage.get_report(result["report_id"])
     if report is None:
         raise HTTPException(status_code=500, detail="Report record vanished after prep")
     return ReportDetail(**_report_detail(report))
@@ -1124,7 +1231,7 @@ async def stream_memo_progress(report_id: str) -> "StreamingResponse":
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -1224,6 +1331,18 @@ def run_memo_analysis_research_task(company_id: str, task_id: str) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post(
+    "/companies/{company_id}/memo-analysis/research-tasks/{task_id}/cancel"
+)
+def cancel_memo_analysis_research_task(company_id: str, task_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.cancel_research_task_job(company_id, task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get(
     "/companies/{company_id}/memo-analysis/sessions/{session_id}/research-tasks/{task_id}/stream"
 )
@@ -1277,7 +1396,7 @@ async def stream_memo_analysis_research_task(
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -1348,7 +1467,7 @@ async def stream_memo_analysis_tool(
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -1505,7 +1624,10 @@ async def post_research_file(
 ) -> dict:
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
-    data = await file.read()
+    data = await _read_upload_bounded(
+        file,
+        max_bytes=research_store.MAX_FILE_BYTES,
+    )
     try:
         return research_store.upload_file(
             company_id,
@@ -1550,7 +1672,12 @@ def delete_research_file(company_id: str, file_id: str) -> None:
         raise HTTPException(status_code=404, detail="File not found")
 
 
-def _run_research_summary_job(company_id: str, file_id: str) -> None:
+def _run_research_summary_job(
+    company_id: str,
+    file_id: str,
+    cancel_key: str | None = None,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Background worker for a research-library quick-summary job. Streams
     progress events to a JSONL file (visible in the AI Tasks rail) and
     persists the final summary onto the file record."""
@@ -1559,6 +1686,19 @@ def _run_research_summary_job(company_id: str, file_id: str) -> None:
     progress_path = research_store.quick_summary_progress_path(
         company_id, file_id
     )
+    cancel_fields = {
+        "kind": "research_summary",
+        "company_id": company_id,
+        "file_id": file_id,
+    }
+    if _honor_research_cancel(
+        progress_path,
+        cancel_event,
+        reason="Research summary cancelled",
+        **cancel_fields,
+    ):
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
+        return
     progress = job_progress.ProgressLog(progress_path)
     try:
         found = research_store.get_file(company_id, file_id)
@@ -1578,6 +1718,13 @@ def _run_research_summary_job(company_id: str, file_id: str) -> None:
         if found is None:
             progress.emit("error", error="File not found")
             return
+        if _honor_research_cancel(
+            progress_path,
+            cancel_event,
+            reason="Research summary cancelled",
+            **cancel_fields,
+        ):
+            return
         record, path = found
         kind = record.get("kind") or "text"
         summary = claude_runner.run_quick_summary(
@@ -1586,7 +1733,15 @@ def _run_research_summary_job(company_id: str, file_id: str) -> None:
             kind=kind,
             hint_title=record.get("label") or record.get("filename"),
             progress=progress,
+            cancel_event=cancel_event,
         )
+        if _honor_research_cancel(
+            progress_path,
+            cancel_event,
+            reason="Research summary cancelled",
+            **cancel_fields,
+        ):
+            return
         if "error" in summary:
             progress.emit("error", error=summary["error"])
             return
@@ -1598,6 +1753,8 @@ def _run_research_summary_job(company_id: str, file_id: str) -> None:
         progress.emit(
             "error", error=f"Job crashed: {type(exc).__name__}: {exc}"
         )
+    finally:
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
 
 
 @router.post(
@@ -1618,12 +1775,39 @@ def post_research_file_summary(company_id: str, file_id: str) -> dict:
     if research_store.get_file(company_id, file_id) is None:
         raise HTTPException(status_code=404, detail="File not found")
 
+    progress_path = research_store.quick_summary_progress_path(
+        company_id, file_id
+    )
+    state = _scan_progress_state(progress_path)
+    if _progress_state_in_flight(state):
+        return {
+            "kind": "research_summary",
+            "company_id": company_id,
+            "file_id": file_id,
+            "status": "already_running",
+            "stream_url": (
+                f"/api/companies/{company_id}/research-files/{file_id}/summary/stream"
+            ),
+            "log_url": (
+                f"/api/jobs/log?path=research_summary:{company_id}/{file_id}"
+            ),
+        }
+    if state.get("exists") and not state.get("terminated"):
+        _supersede_progress_file(
+            progress_path,
+            reason="superseded stale research summary progress",
+        )
+
     # Reset any prior summary so the UI shows the new run cleanly.
     research_store.update_record(company_id, file_id, quick_summary=None)
 
+    cancel_key = _research_cancel_key(
+        "research_summary", company_id, file_id
+    )
+    cancel_event = _start_research_cancel_event(cancel_key)
     threading.Thread(
         target=_run_research_summary_job,
-        args=(company_id, file_id),
+        args=(company_id, file_id, cancel_key, cancel_event),
         name=f"research-summary-{company_id}-{file_id}",
         daemon=True,
     ).start()
@@ -1631,6 +1815,44 @@ def post_research_file_summary(company_id: str, file_id: str) -> dict:
         "kind": "research_summary",
         "company_id": company_id,
         "file_id": file_id,
+        "stream_url": (
+            f"/api/companies/{company_id}/research-files/{file_id}/summary/stream"
+        ),
+        "log_url": (
+            f"/api/jobs/log?path=research_summary:{company_id}/{file_id}"
+        ),
+    }
+
+
+@router.post(
+    "/companies/{company_id}/research-files/{file_id}/summary/cancel",
+)
+def cancel_research_file_summary(company_id: str, file_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if research_store.get_file(company_id, file_id) is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    cancel_key = _research_cancel_key(
+        "research_summary", company_id, file_id
+    )
+    signal_sent = _request_research_cancel(cancel_key)
+    progress_path = research_store.quick_summary_progress_path(
+        company_id, file_id
+    )
+    state = _emit_cancelled_progress(
+        progress_path,
+        reason="Research summary cancelled",
+        kind="research_summary",
+        company_id=company_id,
+        file_id=file_id,
+    )
+    return {
+        "kind": "research_summary",
+        "company_id": company_id,
+        "file_id": file_id,
+        "status": "cancelled",
+        "signal_sent": signal_sent,
+        "terminal_type": state.get("terminal_type"),
         "stream_url": (
             f"/api/companies/{company_id}/research-files/{file_id}/summary/stream"
         ),
@@ -1738,7 +1960,7 @@ def _scan_progress_state(path: "Path") -> dict:
                     state["subtitle"] = entry.get("subtitle")
                     if "total_count" in entry:
                         state["total_count"] = entry["total_count"]
-                elif etype in ("done", "error"):
+                elif etype in job_progress.ProgressLog.TERMINAL_TYPES:
                     state["terminated"] = True
                     state["terminal_type"] = etype
                     if etype == "error":
@@ -1833,49 +2055,27 @@ def _scan_progress_state(path: "Path") -> dict:
 
 
 def _progress_idle_seconds(state: dict) -> float | None:
-    ts = state.get("last_event_at")
-    if not ts:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds())
+    return job_progress.progress_idle_seconds(state)
 
 
 def _progress_path_recent(path: "Path", *, max_idle_seconds: int) -> bool:
-    try:
-        mtime = path.stat().st_mtime
-    except OSError:
-        return False
-    return (time.time() - mtime) <= max_idle_seconds
+    return job_progress.progress_path_recent(
+        path, max_idle_seconds=max_idle_seconds
+    )
 
 
 def _progress_state_in_flight(
     state: dict, *, max_idle_seconds: int = ACTIVE_JOB_MAX_IDLE_SECONDS
 ) -> bool:
-    if not state.get("exists") or state.get("terminated"):
-        return False
-    latest = state.get("latest_action") or {}
-    if (
-        latest.get("action") == "tool_result"
-        and latest.get("tool") == "StructuredOutput"
-        and latest.get("is_error")
-    ):
-        return False
-    idle = _progress_idle_seconds(state)
-    return idle is None or idle <= max_idle_seconds
+    return job_progress.progress_state_in_flight(
+        state, max_idle_seconds=max_idle_seconds
+    )
 
 
 def _scan_active_progress_state(path: "Path") -> dict | None:
-    if not _progress_path_recent(
+    return job_progress.scan_active_progress_state(
         path, max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
-    ):
-        return None
-    state = _scan_progress_state(path)
-    return state if _progress_state_in_flight(state) else None
+    )
 
 
 def _run_summary_job(company_id: str, file_id: str, speed: str = "auto") -> None:
@@ -2346,6 +2546,80 @@ def _research_summary_kind_records():
         }
 
 
+def _stale_research_progress_reason(path: Path) -> str:
+    idle = job_progress.progress_path_idle_seconds(path)
+    if idle is None:
+        idle = job_progress.progress_idle_seconds(_scan_progress_state(path))
+    if idle is None:
+        return "Recovered interrupted run: progress log is stale"
+    return (
+        "Recovered interrupted run: progress log has been idle for "
+        f"{int(idle)} seconds"
+    )
+
+
+def _recover_stale_research_jobs() -> int:
+    recovered = 0
+    if research_store.RESEARCH_ROOT.exists():
+        for jsonl_path in research_store.RESEARCH_ROOT.glob(
+            "*/*__quick_summary.progress.jsonl"
+        ):
+            state = _scan_progress_state(jsonl_path)
+            if state.get("terminated"):
+                continue
+            if _progress_state_in_flight(state) and _progress_path_recent(
+                jsonl_path, max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
+            ):
+                continue
+            company_id = jsonl_path.parent.name
+            file_id = jsonl_path.name.removesuffix(
+                "__quick_summary.progress.jsonl"
+            )
+            job_progress.ProgressLog(jsonl_path, truncate=False).emit(
+                "recovered",
+                recovered=True,
+                error=_stale_research_progress_reason(jsonl_path),
+                kind="research_summary",
+                company_id=company_id,
+                file_id=file_id,
+            )
+            recovered += 1
+
+    analysis_dir = external_store._kind_dir("external_research") / "analysis"
+    if analysis_dir.exists():
+        for jsonl_path in analysis_dir.glob("*__analysis.progress.jsonl"):
+            state = _scan_progress_state(jsonl_path)
+            if state.get("terminated"):
+                continue
+            if _progress_state_in_flight(state) and _progress_path_recent(
+                jsonl_path, max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
+            ):
+                continue
+            item_id = jsonl_path.name.removesuffix("__analysis.progress.jsonl")
+            message = _stale_research_progress_reason(jsonl_path)
+            item = external_store.get_item("external_research", item_id)
+            if item is not None and item.get("status") in {
+                "queued",
+                "extracting",
+                "analyzing",
+            }:
+                external_store.update_item(
+                    "external_research",
+                    item_id,
+                    status="ready",
+                    analysis_error=message,
+                )
+            job_progress.ProgressLog(jsonl_path, truncate=False).emit(
+                "recovered",
+                recovered=True,
+                error=message,
+                kind="external_research",
+                item_id=item_id,
+            )
+            recovered += 1
+    return recovered
+
+
 def _memo_kind_records():
     """Yield active-jobs rail entries for every memo-run JSONL on disk."""
     if not memo_prep.MEMOS_ROOT.exists():
@@ -2667,6 +2941,10 @@ def get_active_jobs() -> list[dict]:
         )
     except Exception:
         logger.exception("failed to recover stale serena jobs")
+    try:
+        _recover_stale_research_jobs()
+    except Exception:
+        logger.exception("failed to recover stale research jobs")
     out: list[dict] = []
     for source in (
         _summary_kind_records(),
@@ -2772,7 +3050,7 @@ async def stream_file_summary_progress(
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -2841,7 +3119,7 @@ async def stream_research_file_summary_progress(
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -3155,10 +3433,27 @@ def retry_news(item_id: str) -> dict:
 
 
 def _run_external_research_analysis(
-    item_id: str, file_path: str, hint_title: str | None
+    item_id: str,
+    file_path: str,
+    hint_title: str | None,
+    cancel_key: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> None:
+    progress_path = _external_research_analysis_progress_path(item_id)
+    cancel_fields = {
+        "kind": "external_research",
+        "item_id": item_id,
+    }
+    if _honor_research_cancel(
+        progress_path,
+        cancel_event,
+        reason="External research analysis cancelled",
+        **cancel_fields,
+    ):
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
+        return
     progress = job_progress.ProgressLog(
-        _external_research_analysis_progress_path(item_id)
+        progress_path
     )
     item = external_store.get_item("external_research", item_id) or {}
     progress.emit(
@@ -3179,6 +3474,19 @@ def _run_external_research_analysis(
         progress.emit("stage", stage="extracting", message="Extracting text")
         external_store.update_item("external_research", item_id, status="extracting")
         text = _extract_text_from_file(file_path)
+        if _honor_research_cancel(
+            progress_path,
+            cancel_event,
+            reason="External research analysis cancelled",
+            **cancel_fields,
+        ):
+            external_store.update_item(
+                "external_research",
+                item_id,
+                status="ready",
+                analysis_error="Analysis cancelled",
+            )
+            return
         if not text:
             message = "Couldn't extract text from this file type."
             external_store.update_item(
@@ -3202,8 +3510,24 @@ def _run_external_research_analysis(
             raw_text_chars=len(text),
         )
         analysis = text_analysis.analyze(
-            text, hint_title=hint_title, progress=progress
+            text,
+            hint_title=hint_title,
+            progress=progress,
+            cancel_event=cancel_event,
         )
+        if _honor_research_cancel(
+            progress_path,
+            cancel_event,
+            reason="External research analysis cancelled",
+            **cancel_fields,
+        ):
+            external_store.update_item(
+                "external_research",
+                item_id,
+                status="ready",
+                analysis_error="Analysis cancelled",
+            )
+            return
         if "error" in analysis:
             external_store.update_item(
                 "external_research",
@@ -3239,10 +3563,12 @@ def _run_external_research_analysis(
             status="failed",
             error=f"{type(exc).__name__}: {exc}",
         )
+    finally:
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
 
 
 def _extract_text_from_file(path_str: str) -> str:
-    """Best-effort text extraction from PDF/DOCX/TXT. Returns "" if we can't."""
+    """Best-effort text extraction from uploaded research files."""
     from pathlib import Path
 
     p = Path(path_str)
@@ -3250,7 +3576,7 @@ def _extract_text_from_file(path_str: str) -> str:
         return ""
     suffix = p.suffix.lower()
     try:
-        if suffix == ".txt":
+        if suffix in (".txt", ".md"):
             return p.read_text(encoding="utf-8", errors="ignore")[:60_000]
         if suffix == ".pdf":
             try:
@@ -3269,6 +3595,17 @@ def _extract_text_from_file(path_str: str) -> str:
                 return ""
             doc = Document(str(p))
             return "\n".join(p_.text for p_ in doc.paragraphs)[:60_000]
+        if suffix == ".pptx":
+            slides = deck_summary.extract_slides(p, "pptx")
+            chunks: list[str] = []
+            for slide in slides:
+                if slide.text:
+                    chunks.append(f"[Slide {slide.slide_no}]\n{slide.text}")
+                if slide.notes:
+                    chunks.append(
+                        f"[Slide {slide.slide_no} notes]\n{slide.notes}"
+                    )
+            return "\n\n".join(chunks)[:60_000]
     except Exception:
         return ""
     return ""
@@ -3285,14 +3622,16 @@ async def post_external_research(
 ) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="File is required")
-    data = await file.read()
+    _external_research_upload_kind(file.filename)
+    data = await _read_upload_bounded(
+        file,
+        max_bytes=EXTERNAL_RESEARCH_MAX_FILE_BYTES,
+    )
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
     item_id = external_store.new_id()
 
     # Stage the file under data/external/external_research/files/<id>__<name>
-    from pathlib import Path
-
     files_dir = external_store._kind_dir("external_research") / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
     safe_name = files_store._sanitize_filename(file.filename)
@@ -3319,9 +3658,17 @@ async def post_external_research(
             "notes": (notes or "").strip() or None,
         },
     )
+    cancel_key = _research_cancel_key("external_research", item_id)
+    cancel_event = _start_research_cancel_event(cancel_key)
     threading.Thread(
         target=_run_external_research_analysis,
-        args=(item_id, str(stored_path), item.get("title")),
+        args=(
+            item_id,
+            str(stored_path),
+            item.get("title"),
+            cancel_key,
+            cancel_event,
+        ),
         daemon=True,
     ).start()
     return item
@@ -3383,7 +3730,7 @@ async def stream_external_research_analysis_progress(item_id: str):
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -3396,6 +3743,37 @@ async def stream_external_research_analysis_progress(item_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/external/research/{item_id}/analysis/cancel")
+def cancel_external_research_analysis(item_id: str) -> dict:
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    cancel_key = _research_cancel_key("external_research", item_id)
+    signal_sent = _request_research_cancel(cancel_key)
+    external_store.update_item(
+        "external_research",
+        item_id,
+        status="ready",
+        analysis_error="Analysis cancelled",
+    )
+    progress_path = _external_research_analysis_progress_path(item_id)
+    state = _emit_cancelled_progress(
+        progress_path,
+        reason="External research analysis cancelled",
+        kind="external_research",
+        item_id=item_id,
+    )
+    return {
+        "kind": "external_research",
+        "item_id": item_id,
+        "status": "cancelled",
+        "signal_sent": signal_sent,
+        "terminal_type": state.get("terminal_type"),
+        "stream_url": f"/api/external/research/{item_id}/analysis/stream",
+        "log_url": f"/api/jobs/log?path=external_research:{item_id}",
+    }
 
 
 @router.get("/external/research/{item_id}/file")
@@ -3448,6 +3826,20 @@ def delete_external_research(item_id: str) -> None:
         except Exception:
             pass
     external_store.delete_item("external_research", item_id)
+    for path in (
+        _external_research_analysis_progress_path(item_id),
+        _research_translate_progress_path(item_id),
+    ):
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            logger.warning("Failed to delete %s", path, exc_info=True)
+    translation_dir = (
+        external_store._kind_dir("external_research")
+        / "translations"
+        / item_id
+    )
+    shutil.rmtree(translation_dir, ignore_errors=True)
 
 
 # ---- High-fidelity PDF translation for external research ----
@@ -3459,8 +3851,27 @@ def _research_translate_progress_path(item_id: str):
     return base / f"{item_id}__translate.progress.jsonl"
 
 
-def _run_research_translate_job(item_id: str, app_language: str | None) -> None:
-    progress = job_progress.ProgressLog(_research_translate_progress_path(item_id))
+def _run_research_translate_job(
+    item_id: str,
+    app_language: str | None,
+    cancel_key: str | None = None,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    progress_path = _research_translate_progress_path(item_id)
+    cancel_fields = {
+        "kind": "pdf_translation",
+        "item_id": item_id,
+        "target_language": app_language,
+    }
+    if _honor_research_cancel(
+        progress_path,
+        cancel_event,
+        reason="PDF translation cancelled",
+        **cancel_fields,
+    ):
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
+        return
+    progress = job_progress.ProgressLog(progress_path)
     item = external_store.get_item("external_research", item_id) or {}
     progress.emit(
         "job_init",
@@ -3473,9 +3884,26 @@ def _run_research_translate_job(item_id: str, app_language: str | None) -> None:
     )
     progress.emit("stage", stage="starting", message="Starting translation")
     try:
+        if _honor_research_cancel(
+            progress_path,
+            cancel_event,
+            reason="PDF translation cancelled",
+            **cancel_fields,
+        ):
+            return
         result = external_translate.translate_research_pdf(
-            item_id, app_language=app_language, progress=progress
+            item_id,
+            app_language=app_language,
+            progress=progress,
+            cancel_event=cancel_event,
         )
+        if _honor_research_cancel(
+            progress_path,
+            cancel_event,
+            reason="PDF translation cancelled",
+            **cancel_fields,
+        ):
+            return
         if result.get("ok"):
             progress.emit(
                 "done",
@@ -3488,6 +3916,8 @@ def _run_research_translate_job(item_id: str, app_language: str | None) -> None:
         progress.emit(
             "error", error=f"Job crashed: {type(exc).__name__}: {exc}"
         )
+    finally:
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
 
 
 @router.post("/external/research/{item_id}/translate")
@@ -3514,17 +3944,24 @@ def post_research_translate(item_id: str, app_language: str | None = None) -> di
 
     progress_path = _research_translate_progress_path(item_id)
     state = _scan_progress_state(progress_path)
-    if state.get("exists") and not state.get("terminated"):
+    if _progress_state_in_flight(state):
         return {
             "cached": False,
             "job_id": item_id,
             "stream_url": f"/api/external/research/{item_id}/translate/stream",
             "status": "already_running",
         }
+    if state.get("exists") and not state.get("terminated"):
+        _supersede_progress_file(
+            progress_path,
+            reason="superseded stale research translation progress",
+        )
 
+    cancel_key = _research_cancel_key("pdf_translation", item_id)
+    cancel_event = _start_research_cancel_event(cancel_key)
     threading.Thread(
         target=_run_research_translate_job,
-        args=(item_id, app_language),
+        args=(item_id, app_language, cancel_key, cancel_event),
         name=f"research_translate:{item_id}",
         daemon=True,
     ).start()
@@ -3533,6 +3970,30 @@ def post_research_translate(item_id: str, app_language: str | None = None) -> di
         "job_id": item_id,
         "stream_url": f"/api/external/research/{item_id}/translate/stream",
         "status": "queued",
+    }
+
+
+@router.post("/external/research/{item_id}/translate/cancel")
+def cancel_research_translate(item_id: str) -> dict:
+    if external_store.get_item("external_research", item_id) is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    cancel_key = _research_cancel_key("pdf_translation", item_id)
+    signal_sent = _request_research_cancel(cancel_key)
+    progress_path = _research_translate_progress_path(item_id)
+    state = _emit_cancelled_progress(
+        progress_path,
+        reason="PDF translation cancelled",
+        kind="pdf_translation",
+        item_id=item_id,
+    )
+    return {
+        "kind": "pdf_translation",
+        "item_id": item_id,
+        "status": "cancelled",
+        "signal_sent": signal_sent,
+        "terminal_type": state.get("terminal_type"),
+        "stream_url": f"/api/external/research/{item_id}/translate/stream",
+        "log_url": f"/api/jobs/log?path=pdf_translation:{item_id}",
     }
 
 
@@ -3591,7 +4052,7 @@ async def stream_research_translate_progress(item_id: str):
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -4286,7 +4747,7 @@ def _console_event_stream(progress_path: "Path"):
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
-                        if entry.get("type") in ("done", "error"):
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
                             terminated = True
                             break
                     except Exception:
@@ -4650,17 +5111,9 @@ def _supersede_progress_file(path: "Path", *, reason: str) -> None:
     if not path.exists():
         return
     try:
-        job_progress.ProgressLog(path, truncate=False).emit(
-            "error",
-            error=reason,
-            terminal=True,
-        )
+        job_progress.supersede_progress_file(path, reason=reason)
     except Exception:  # noqa: BLE001
-        logger.exception("failed to mark stale progress terminated")
-    try:
-        path.unlink(missing_ok=True)
-    except Exception:  # noqa: BLE001
-        logger.exception("failed to unlink stale progress")
+        logger.exception("failed to supersede stale progress")
 
 
 class _ProgressContext:

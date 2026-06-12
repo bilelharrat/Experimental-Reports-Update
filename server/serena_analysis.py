@@ -82,6 +82,7 @@ TOOL_DEFINITIONS: list[dict[str, str]] = [
 _TOOL_NAMES = {t["name"] for t in TOOL_DEFINITIONS}
 _CLAUDE_BACKED_TOOLS = {"strategic_risk_mapper", "thesis_spine_builder"}
 _TASK_STATUSES = {"not_started", "running", "done", "error", "skipped"}
+_TASK_STATUSES.add("cancelled")
 _PRESERVED_TASK_FIELDS = {
     "status",
     "result_summary",
@@ -95,7 +96,10 @@ _PRESERVED_TASK_FIELDS = {
     "run_job_id",
     "result_payload",
     "recovered_at",
+    "cancelled_at",
 }
+_RESEARCH_TASK_CANCEL_EVENTS: dict[str, threading.Event] = {}
+_RESEARCH_TASK_CANCEL_LOCK = threading.RLock()
 
 
 def _now() -> str:
@@ -138,6 +142,50 @@ def analysis_tool_progress_path(company_id: str, session_id: str, tool_name: str
         / "tools"
         / f"{safe_tool_name}.progress.jsonl"
     )
+
+
+def _research_task_cancel_key(
+    company_id: str, session_id: str, task_id: str
+) -> str:
+    return f"{company_id}/{session_id}/{task_id}"
+
+
+def _start_research_task_cancel_event(key: str) -> threading.Event:
+    event = threading.Event()
+    with _RESEARCH_TASK_CANCEL_LOCK:
+        _RESEARCH_TASK_CANCEL_EVENTS[key] = event
+    return event
+
+
+def _request_research_task_cancel(key: str) -> bool:
+    with _RESEARCH_TASK_CANCEL_LOCK:
+        event = _RESEARCH_TASK_CANCEL_EVENTS.get(key)
+    if event is None:
+        return False
+    event.set()
+    return True
+
+
+def _clear_research_task_cancel_event(
+    key: str, event: threading.Event | None
+) -> None:
+    if event is None:
+        return
+    with _RESEARCH_TASK_CANCEL_LOCK:
+        if _RESEARCH_TASK_CANCEL_EVENTS.get(key) is event:
+            _RESEARCH_TASK_CANCEL_EVENTS.pop(key, None)
+
+
+def _progress_cancelled(path: Path) -> bool:
+    return job_progress.scan_progress_state(path).get("terminal_type") == "cancelled"
+
+
+def _emit_cancelled_progress(path: Path, *, reason: str, **fields: Any) -> dict:
+    try:
+        return job_progress.cancel_progress_file(path, reason=reason, **fields)
+    except Exception:
+        logger.exception("failed to emit research-task cancellation: %s", path)
+        return job_progress.scan_progress_state(path)
 
 
 def tool_uses_background_job(tool_name: str) -> bool:
@@ -682,11 +730,17 @@ def start_research_task_job(company_id: str, task_id: str) -> dict:
         task = _find_research_task(artifacts, task_id)
         if task is None:
             raise ValueError(f"Unknown research task: {task_id}")
+        if task.get("status") == "running":
+            return _decorate(session)
         risk = _risks_by_id(artifacts).get(str(task.get("risk_id") or ""))
         now = _now()
         session_id = str(session["id"])
         safe_task_id = str(task.get("id") or task_id)
         job_id = f"{company_id}/{session_id}/{safe_task_id}"
+        cancel_key = _research_task_cancel_key(
+            company_id, session_id, safe_task_id
+        )
+        cancel_event = _start_research_task_cancel_event(cancel_key)
         task["status"] = "running"
         task["started_at"] = now
         task["completed_at"] = None
@@ -703,10 +757,67 @@ def start_research_task_job(company_id: str, task_id: str) -> dict:
 
     threading.Thread(
         target=_run_research_task_job,
-        args=(company_id, session_id, safe_task_id, company_snapshot, task_snapshot, risk_snapshot),
+        args=(
+            company_id,
+            session_id,
+            safe_task_id,
+            company_snapshot,
+            task_snapshot,
+            risk_snapshot,
+            cancel_key,
+            cancel_event,
+        ),
         name=f"serena-research-task-{company_id}-{safe_task_id}",
         daemon=True,
     ).start()
+    return decorated
+
+
+def cancel_research_task_job(company_id: str, task_id: str) -> dict:
+    """Cancel a running Memo Studio research task."""
+    company = storage.get_company(company_id)
+    if company is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    progress_path: Path | None = None
+    cancel_key: str | None = None
+    with _LOCK:
+        session = get_current_session(company_id, create=False)
+        if session is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        session = _strip_decorations(session)
+        artifacts = session.setdefault("artifacts", {})
+        task = _find_research_task(artifacts, task_id)
+        if task is None:
+            raise ValueError(f"Unknown research task: {task_id}")
+        now = _now()
+        session_id = str(session["id"])
+        safe_task_id = str(task.get("id") or task_id)
+        cancel_key = _research_task_cancel_key(
+            company_id, session_id, safe_task_id
+        )
+        progress_path = research_task_progress_path(
+            company_id, session_id, safe_task_id
+        )
+        _request_research_task_cancel(cancel_key)
+        task["status"] = "cancelled"
+        task["completed_at"] = now
+        task["last_run_at"] = now
+        task["cancelled_at"] = now
+        task["error"] = "Research task cancelled"
+        task.setdefault("run_job_id", cancel_key)
+        _touch_research_tasks(session)
+        _refresh_memo_packet(session)
+        _write_session(session)
+        decorated = _decorate(session)
+
+    _emit_cancelled_progress(
+        progress_path,
+        reason="Memo Studio research task cancelled",
+        kind="serena_research_task",
+        company_id=company_id,
+        session_id=session_id,
+        task_id=safe_task_id,
+    )
     return decorated
 
 
@@ -1025,10 +1136,29 @@ def _run_research_task_job(
     company: dict,
     task: dict,
     risk: dict | None,
+    cancel_key: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> None:
-    progress = job_progress.ProgressLog(
-        research_task_progress_path(company_id, session_id, task_id)
-    )
+    progress_path = research_task_progress_path(company_id, session_id, task_id)
+    cancel_fields = {
+        "kind": "serena_research_task",
+        "company_id": company_id,
+        "session_id": session_id,
+        "task_id": task_id,
+    }
+    if (
+        (cancel_event is not None and cancel_event.is_set())
+        or _progress_cancelled(progress_path)
+    ):
+        if not _progress_cancelled(progress_path):
+            _emit_cancelled_progress(
+                progress_path,
+                reason="Memo Studio research task cancelled",
+                **cancel_fields,
+            )
+        _clear_research_task_cancel_event(cancel_key or "", cancel_event)
+        return
+    progress = job_progress.ProgressLog(progress_path)
     company_name = company.get("name") or company_id
     progress.emit(
         "job_init",
@@ -1046,6 +1176,14 @@ def _run_research_task_job(
         message="Starting selected research prompt",
         task_id=task_id,
     )
+    if cancel_event is not None and cancel_event.is_set():
+        _emit_cancelled_progress(
+            progress_path,
+            reason="Memo Studio research task cancelled",
+            **cancel_fields,
+        )
+        _clear_research_task_cancel_event(cancel_key or "", cancel_event)
+        return
 
     result: dict | None = None
     error: str | None = None
@@ -1056,10 +1194,24 @@ def _run_research_task_job(
             risk=risk,
             research_dir=research_store.RESEARCH_ROOT / company_id,
             progress=progress,
+            cancel_event=cancel_event,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("serena research task crashed")
         error = f"{type(exc).__name__}: {exc}"
+
+    if (
+        (cancel_event is not None and cancel_event.is_set())
+        or _progress_cancelled(progress_path)
+    ):
+        if not _progress_cancelled(progress_path):
+            _emit_cancelled_progress(
+                progress_path,
+                reason="Memo Studio research task cancelled",
+                **cancel_fields,
+            )
+        _clear_research_task_cancel_event(cancel_key or "", cancel_event)
+        return
 
     if result and not error:
         summary = str(result.get("result_summary") or "").strip()
@@ -1081,6 +1233,7 @@ def _run_research_task_job(
             },
         )
         progress.emit("done", task_id=task_id, result_summary=summary)
+        _clear_research_task_cancel_event(cancel_key or "", cancel_event)
         return
 
     message = error or "Claude returned no result"
@@ -1099,6 +1252,7 @@ def _run_research_task_job(
             },
         )
         progress.emit("error", task_id=task_id, error=message)
+        _clear_research_task_cancel_event(cancel_key or "", cancel_event)
         return
 
     progress.emit(
@@ -1134,6 +1288,7 @@ def _run_research_task_job(
         error=message,
         result_summary=fallback,
     )
+    _clear_research_task_cancel_event(cancel_key or "", cancel_event)
 
 
 def _finish_research_task_job(
