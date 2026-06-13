@@ -297,6 +297,8 @@ export const api = {
   memoAnalysis: {
     get: (companyId) =>
       request(`/api/companies/${companyId}/memo-analysis`),
+    getCatalog: (companyId) =>
+      request(`/api/companies/${companyId}/memo-analysis/catalog`),
     runTool: (companyId, toolName) =>
       request(
         `/api/companies/${companyId}/memo-analysis/tools/${encodeURIComponent(toolName)}/run`,
@@ -317,6 +319,18 @@ export const api = {
         `/api/companies/${companyId}/memo-analysis/research-tasks/${encodeURIComponent(taskId)}/run`,
         { method: "POST", timeoutMs: 30000 },
       ),
+    runSelectedTasks: (companyId, retryFailed = true) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis/research-tasks/run-selected?retry_failed=${retryFailed ? "true" : "false"}`,
+        { method: "POST", timeoutMs: 30000 },
+      ),
+    cancelTask: (companyId, taskId) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis/research-tasks/${encodeURIComponent(taskId)}/cancel`,
+        { method: "POST" },
+      ),
+    getEvidenceMatrix: (companyId) =>
+      request(`/api/companies/${companyId}/evidence-matrix`),
     approve: (companyId) =>
       request(`/api/companies/${companyId}/memo-analysis/approve`, {
         method: "POST",
@@ -446,6 +460,156 @@ export const api = {
       });
     },
     streamUrl: () => withApiToken("/api/weekly-stocks/refresh/stream"),
+  },
+
+  // ---- Stock Research tracker workspace ----
+  stockResearch: {
+    dashboard: () => request("/api/stock-research", { timeoutMs: 15000 }),
+    listTrackers: ({ includeArchived = false } = {}) =>
+      request(
+        `/api/stock-research/trackers?include_archived=${includeArchived ? "true" : "false"}`,
+      ),
+    createTracker: (payload) =>
+      request("/api/stock-research/trackers", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    updateTracker: (trackerId, patch) =>
+      request(`/api/stock-research/trackers/${encodeURIComponent(trackerId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    disableTracker: (trackerId, { archive = false } = {}) =>
+      request(
+        `/api/stock-research/trackers/${encodeURIComponent(trackerId)}/disable?archive=${archive ? "true" : "false"}`,
+        { method: "POST" },
+      ),
+    importCompanyTrackers: ({ limit = 20 } = {}) =>
+      request(`/api/stock-research/trackers/import-companies?limit=${encodeURIComponent(limit)}`, {
+        method: "POST",
+      }),
+    addLinkSource: (payload) =>
+      request("/api/stock-research/sources/link", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    addNoteSource: (payload) =>
+      request("/api/stock-research/sources/note", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    uploadSource: async ({ file, trackerIds, title, priority, relevance }) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      for (const id of trackerIds || []) fd.append("tracker_ids", id);
+      if (title) fd.append("title", title);
+      if (priority) fd.append("priority", priority);
+      if (relevance) fd.append("relevance", relevance);
+      const res = await apiFetch("/api/stock-research/sources/upload", {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+      }
+      return res.json();
+    },
+    runTracker: (trackerId, { periodId, force = false } = {}) => {
+      const qs = new URLSearchParams();
+      if (periodId) qs.set("period_id", periodId);
+      if (force) qs.set("force", "true");
+      const query = qs.toString();
+      return request(
+        `/api/stock-research/trackers/${encodeURIComponent(trackerId)}/run${query ? `?${query}` : ""}`,
+        { method: "POST", timeoutMs: 15000 },
+      );
+    },
+    runSelectedTrackers: (trackerIds, { retryFailed = true, periodId = null } = {}) =>
+      request("/api/stock-research/trackers/run-selected", {
+        method: "POST",
+        body: JSON.stringify({
+          tracker_ids: trackerIds,
+          retry_failed: retryFailed,
+          period_id: periodId,
+        }),
+        timeoutMs: 15000,
+      }),
+    runDueTrackers: ({ periodId = null } = {}) => {
+      const qs = periodId ? `?period_id=${encodeURIComponent(periodId)}` : "";
+      return request(`/api/stock-research/trackers/run-due${qs}`, {
+        method: "POST",
+        timeoutMs: 15000,
+      });
+    },
+    cancelRun: (trackerId, runId) =>
+      request(
+        `/api/stock-research/trackers/${encodeURIComponent(trackerId)}/runs/${encodeURIComponent(runId)}/cancel`,
+        { method: "POST" },
+      ),
+    retryRun: (trackerId, runId) =>
+      request(
+        `/api/stock-research/trackers/${encodeURIComponent(trackerId)}/runs/${encodeURIComponent(runId)}/retry`,
+        { method: "POST", timeoutMs: 15000 },
+      ),
+    runAggregate: ({ periodId, force = false } = {}) => {
+      const qs = new URLSearchParams();
+      if (periodId) qs.set("period_id", periodId);
+      if (force) qs.set("force", "true");
+      const query = qs.toString();
+      return request(`/api/stock-research/aggregates/run${query ? `?${query}` : ""}`, {
+        method: "POST",
+        timeoutMs: 15000,
+      });
+    },
+    cancelAggregate: (periodId) =>
+      request(`/api/stock-research/aggregates/${encodeURIComponent(periodId)}/cancel`, {
+        method: "POST",
+      }),
+    retryAggregate: (periodId) =>
+      request(`/api/stock-research/aggregates/${encodeURIComponent(periodId)}/retry`, {
+        method: "POST",
+        timeoutMs: 15000,
+      }),
+    runStrategyMap: ({ periodId, force = false } = {}) => {
+      const qs = new URLSearchParams();
+      if (periodId) qs.set("period_id", periodId);
+      if (force) qs.set("force", "true");
+      const query = qs.toString();
+      return request(`/api/stock-research/strategy-maps/run${query ? `?${query}` : ""}`, {
+        method: "POST",
+        timeoutMs: 15000,
+      });
+    },
+    cancelStrategyMap: (periodId) =>
+      request(`/api/stock-research/strategy-maps/${encodeURIComponent(periodId)}/cancel`, {
+        method: "POST",
+      }),
+    retryStrategyMap: (periodId) =>
+      request(`/api/stock-research/strategy-maps/${encodeURIComponent(periodId)}/retry`, {
+        method: "POST",
+        timeoutMs: 15000,
+      }),
+    updateWorkProduct: (artifactId, patch) =>
+      request(`/api/stock-research/work-products/${encodeURIComponent(artifactId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    updateReviewItem: (itemId, patch) =>
+      request(`/api/stock-research/review-queue/${encodeURIComponent(itemId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
+    updateRunReview: (trackerId, runId, patch) =>
+      request(
+        `/api/stock-research/trackers/${encodeURIComponent(trackerId)}/runs/${encodeURIComponent(runId)}/review`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    reviewKnowledgeUpdate: (trackerId, runId, updateId, patch) =>
+      request(
+        `/api/stock-research/trackers/${encodeURIComponent(trackerId)}/runs/${encodeURIComponent(runId)}/knowledge/${encodeURIComponent(updateId)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
   },
 
   listThreads: (companyId) =>

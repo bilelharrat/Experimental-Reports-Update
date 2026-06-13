@@ -39,6 +39,31 @@ ANALYSIS_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string"},
         },
+        "source_traces": {
+            "type": "array",
+            "description": (
+                "Up to five source-backed traces for important claims. Use the "
+                "source locator labels exactly as provided, such as Page 3 or "
+                "Slide 2."
+            ),
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "claim": {"type": ["string", "null"]},
+                    "locator": {"type": "string"},
+                    "excerpt": {
+                        "type": "string",
+                        "description": "Short exact excerpt copied from the source.",
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": ["claim", "locator", "excerpt", "confidence"],
+            },
+        },
         "language": {
             "type": "string",
             "enum": ["en", "zh", "other"],
@@ -81,7 +106,11 @@ SYSTEM_PROMPT = (
     "translation includes a translated title, translated summary, translated "
     "key points, and a full translation of the source content. If the source "
     "is neither English nor Chinese, translate to English. The translation "
-    "should preserve nuance and technical terminology.\n\n"
+    "should preserve nuance and technical terminology.\n"
+    "5. A `source_traces` array with up to five important claims grounded in "
+    "the source. The source text may be labeled as [Page 3], [Slide 2], "
+    "[Slide 2 notes], or [Document]. Use that label as `locator` and quote a "
+    "short exact excerpt; do not paraphrase excerpts.\n\n"
     "When translating or summarizing into Chinese, apply this style guide:\n"
     f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n"
     "Bullets should be terse and concrete (numbers, names, dates) — not "

@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -25,12 +26,17 @@ from typing import Any
 
 import yaml
 
-from . import claude_runner, job_progress, research_store, storage
+from . import claude_runner, job_progress, research_eval, research_store, storage
 
 ANALYSIS_ROOT = storage.DATA_DIR / "serena_analysis"
+TRAINING_ROOT = storage.DATA_DIR / "serena_training"
 SESSION_VERSION = 1
 ACTIVE_JOB_MAX_IDLE_SECONDS = int(
     os.environ.get("BSH_ACTIVE_JOB_MAX_IDLE_SECONDS", "1800")
+)
+RESEARCH_TASK_CONCURRENCY = max(
+    1,
+    int(os.environ.get("BSH_RESEARCH_TASK_CONCURRENCY", "2")),
 )
 
 logger = logging.getLogger(__name__)
@@ -53,14 +59,19 @@ TOOL_DEFINITIONS: list[dict[str, str]] = [
         "description": "Draft the 3-5 highlights, 3-5 risks, recommendation logic, and top gates.",
     },
     {
+        "name": "infographic_source_brief",
+        "label": "Infographic Source Brief",
+        "description": "Distill high-signal claims, metrics, citations, warnings, and visual opportunities.",
+    },
+    {
         "name": "chart_spec_builder",
-        "label": "Chart Spec Builder",
-        "description": "Plan the charts and tables needed before writing.",
+        "label": "Infographic Plan Builder",
+        "description": "Plan image-generation-ready charts and memo infographics.",
     },
     {
         "name": "narrative_hooks",
-        "label": "Opening / Ending Punch Tool",
-        "description": "Draft punchier opening and ending options from the thesis spine.",
+        "label": "Narrative Hook Planner",
+        "description": "Draft source-backed opening, transition, and closing hooks.",
     },
     {
         "name": "private_benchmark_dashboard",
@@ -80,9 +91,18 @@ TOOL_DEFINITIONS: list[dict[str, str]] = [
 ]
 
 _TOOL_NAMES = {t["name"] for t in TOOL_DEFINITIONS}
-_CLAUDE_BACKED_TOOLS = {"strategic_risk_mapper", "thesis_spine_builder"}
+_CLAUDE_BACKED_TOOLS = {
+    "strategic_risk_mapper",
+    "thesis_spine_builder",
+    "infographic_source_brief",
+    "chart_spec_builder",
+    "narrative_hooks",
+    "private_benchmark_dashboard",
+    "memo_grader",
+}
 _TASK_STATUSES = {"not_started", "running", "done", "error", "skipped"}
 _TASK_STATUSES.add("cancelled")
+_READINESS_REVIEW_STATUSES = {"open", "reviewed", "waived"}
 _PRESERVED_TASK_FIELDS = {
     "status",
     "result_summary",
@@ -95,11 +115,24 @@ _PRESERVED_TASK_FIELDS = {
     "error",
     "run_job_id",
     "result_payload",
+    "answer",
+    "supporting_evidence",
+    "contradicting_evidence",
+    "open_questions",
+    "sources_checked",
+    "confidence",
+    "analyst_review_score",
+    "job_metrics",
+    "selected_source_ids",
+    "search_plan",
     "recovered_at",
     "cancelled_at",
 }
 _RESEARCH_TASK_CANCEL_EVENTS: dict[str, threading.Event] = {}
 _RESEARCH_TASK_CANCEL_LOCK = threading.RLock()
+_RESEARCH_TASK_RUN_SEMAPHORE = threading.BoundedSemaphore(
+    RESEARCH_TASK_CONCURRENCY
+)
 
 
 def _now() -> str:
@@ -123,6 +156,37 @@ def session_dir(company_id: str, session_id: str) -> Path:
 
 def session_path(company_id: str, session_id: str) -> Path:
     return session_dir(company_id, session_id) / "session.yaml"
+
+
+def training_dir(company_id: str) -> Path:
+    return TRAINING_ROOT / _safe_id(company_id)
+
+
+def memo_lessons_path(company_id: str) -> Path:
+    return training_dir(company_id) / "serena_memo_lessons.md"
+
+
+def completed_memo_runs(company_id: str) -> list[dict]:
+    safe_company = _safe_id(company_id)
+    rows: list[dict] = []
+    for report in storage.list_reports():
+        if report.get("company_id") != safe_company:
+            continue
+        if report.get("status") != "complete":
+            continue
+        if report.get("kind") != "investment_memo_latestage":
+            continue
+        rows.append({
+            "id": report.get("id"),
+            "run_id": report.get("run_id"),
+            "run_dir": report.get("run_dir"),
+            "created_at": report.get("created_at"),
+            "updated_at": report.get("updated_at"),
+            "stage": report.get("stage"),
+            "analysis_session_id": report.get("analysis_session_id"),
+            "memo_files": report.get("memo_files") or [],
+        })
+    return rows
 
 
 def research_task_progress_path(company_id: str, session_id: str, task_id: str) -> Path:
@@ -559,6 +623,14 @@ def has_unapproved_work(company_id: str) -> bool:
         return _has_unapproved_work(session) if session else False
 
 
+def memo_work_product_catalog(company_id: str) -> dict:
+    """Return a read-only catalog of Memo Studio work products and boundaries."""
+    session = get_current_session(company_id, create=True)
+    if session is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    return _memo_work_product_catalog(session)
+
+
 def run_tool(company_id: str, tool_name: str) -> dict:
     if tool_name not in _TOOL_NAMES:
         raise ValueError(f"Unknown memo-analysis tool: {tool_name}")
@@ -655,6 +727,11 @@ def patch_artifact(company_id: str, artifact_name: str, patch: dict) -> dict:
                 "priorities": _normalize_priorities(risks, priorities),
             }
             _refresh_research_tasks(company, artifacts)
+        elif artifact_name == "readiness_reviews":
+            artifacts["readiness_reviews"] = _merge_readiness_reviews(
+                current,
+                patch,
+            )
         elif isinstance(current, dict) and isinstance(patch, dict):
             artifacts[artifact_name] = {**current, **patch}
         else:
@@ -706,7 +783,13 @@ def run_research_task(company_id: str, task_id: str) -> dict:
         task["completed_at"] = now
         task["last_run_at"] = now
         task["error"] = None
-        task["result_summary"] = _deterministic_research_result(company, task, risk)
+        structured = _fallback_research_task_result(
+            company,
+            task,
+            risk,
+            source_manifest=_selected_sources_for_task(company_id, task),
+        )
+        task.update(_research_task_result_fields(structured))
         task["result_basis"] = _research_result_basis(task, risk)
         task["result_generated_by"] = "deterministic_local"
         task["result_updated_at"] = now
@@ -755,6 +838,12 @@ def start_research_task_job(company_id: str, task_id: str) -> dict:
         company_snapshot = copy.deepcopy(company)
         decorated = _decorate(session)
 
+    research_dir, source_manifest = _research_task_source_context(
+        company_id,
+        session_id,
+        safe_task_id,
+        task_snapshot,
+    )
     threading.Thread(
         target=_run_research_task_job,
         args=(
@@ -764,6 +853,8 @@ def start_research_task_job(company_id: str, task_id: str) -> dict:
             company_snapshot,
             task_snapshot,
             risk_snapshot,
+            research_dir,
+            source_manifest,
             cancel_key,
             cancel_event,
         ),
@@ -771,6 +862,65 @@ def start_research_task_job(company_id: str, task_id: str) -> dict:
         daemon=True,
     ).start()
     return decorated
+
+
+def start_selected_research_task_jobs(
+    company_id: str,
+    *,
+    retry_failed: bool = True,
+) -> dict:
+    """Launch all runnable Memo Studio research tasks for the current session."""
+    company = storage.get_company(company_id)
+    if company is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    with _LOCK:
+        session = get_current_session(company_id, create=True)
+        if session is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        tasks = (
+            session.get("artifacts", {})
+            .get("research_tasks", {})
+            .get("tasks", [])
+        )
+        if not isinstance(tasks, list):
+            tasks = []
+        task_ids: list[str] = []
+        statuses: dict[str, str] = {}
+        for task in tasks:
+            if not isinstance(task, dict) or not task.get("id"):
+                continue
+            task_id = str(task["id"])
+            status = str(task.get("status") or "not_started")
+            if status == "running":
+                statuses[task_id] = "already_running"
+                continue
+            if status == "done":
+                statuses[task_id] = "already_done"
+                continue
+            if status == "skipped":
+                statuses[task_id] = "skipped"
+                continue
+            if status in {"error", "cancelled"} and not retry_failed:
+                statuses[task_id] = f"retry_disabled_{status}"
+                continue
+            task_ids.append(task_id)
+
+    latest = None
+    for task_id in task_ids:
+        latest = start_research_task_job(company_id, task_id)
+        statuses[task_id] = "launched"
+
+    if latest is None:
+        latest = get_current_session(company_id, create=True)
+    payload = copy.deepcopy(latest)
+    payload["batch"] = {
+        "kind": "serena_research_task_batch",
+        "concurrency": RESEARCH_TASK_CONCURRENCY,
+        "retry_failed": retry_failed,
+        "launched_task_ids": task_ids,
+        "statuses": statuses,
+    }
+    return payload
 
 
 def cancel_research_task_job(company_id: str, task_id: str) -> dict:
@@ -865,6 +1015,51 @@ def _run_analysis_tool_job(
         )
         return
 
+    if tool_name == "private_benchmark_dashboard":
+        _run_private_benchmark_dashboard_job(
+            company_id,
+            session_id,
+            company,
+            progress,
+        )
+        return
+
+    if tool_name == "infographic_source_brief":
+        _run_infographic_source_brief_job(
+            company_id,
+            session_id,
+            company,
+            progress,
+        )
+        return
+
+    if tool_name == "chart_spec_builder":
+        _run_chart_spec_builder_job(
+            company_id,
+            session_id,
+            company,
+            progress,
+        )
+        return
+
+    if tool_name == "narrative_hooks":
+        _run_narrative_hooks_job(
+            company_id,
+            session_id,
+            company,
+            progress,
+        )
+        return
+
+    if tool_name == "memo_grader":
+        _run_memo_grader_job(
+            company_id,
+            session_id,
+            company,
+            progress,
+        )
+        return
+
     if tool_name != "strategic_risk_mapper":
         error = f"Unsupported background analysis tool: {tool_name}"
         _finish_analysis_tool_job(
@@ -884,6 +1079,11 @@ def _run_analysis_tool_job(
         result, error = claude_runner.run_serena_strategic_risk_mapper(
             company=company,
             research_dir=research_store.RESEARCH_ROOT / company_id,
+            lessons_path=(
+                memo_lessons_path(company_id)
+                if memo_lessons_path(company_id).exists()
+                else None
+            ),
             progress=progress,
         )
     except Exception as exc:  # noqa: BLE001
@@ -1005,6 +1205,11 @@ def _run_thesis_spine_builder_job(
             company=company,
             artifacts=artifacts,
             research_dir=research_store.RESEARCH_ROOT / company_id,
+            lessons_path=(
+                memo_lessons_path(company_id)
+                if memo_lessons_path(company_id).exists()
+                else None
+            ),
             progress=progress,
         )
     except Exception as exc:  # noqa: BLE001
@@ -1096,6 +1301,644 @@ def _run_thesis_spine_builder_job(
     )
 
 
+def _run_private_benchmark_dashboard_job(
+    company_id: str,
+    session_id: str,
+    company: dict,
+    progress: job_progress.ProgressLog,
+) -> None:
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        artifacts = copy.deepcopy(
+            session.get("artifacts", {}) if isinstance(session, dict) else {}
+        )
+
+    result: dict | None = None
+    error: str | None = None
+    try:
+        result, error = claude_runner.run_serena_private_benchmark_dashboard(
+            company=company,
+            artifacts=artifacts,
+            research_dir=research_store.RESEARCH_ROOT / company_id,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena benchmark dashboard crashed")
+        error = f"{type(exc).__name__}: {exc}"
+
+    if result and not error:
+        dashboard = _coerce_benchmark_dashboard(result, company)
+        dashboard["generated_by"] = "claude_code"
+        dashboard["result_payload"] = result
+        summary = (
+            f"Built benchmark dashboard with "
+            f"{len(dashboard.get('public_comps') or [])} public comps."
+        )
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "private_benchmark_dashboard",
+            status="done",
+            summary=summary,
+            error=None,
+            artifacts_patch={"benchmark_dashboard": dashboard},
+        )
+        progress.emit(
+            "done",
+            tool_name="private_benchmark_dashboard",
+            summary=summary,
+        )
+        return
+
+    message = error or "Claude returned no benchmark dashboard result"
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        previous = (
+            session.get("artifacts", {}).get("benchmark_dashboard")
+            if isinstance(session, dict)
+            else None
+        )
+    previous_comps = (
+        previous.get("public_comps")
+        if isinstance(previous, dict)
+        else None
+    )
+    if isinstance(previous_comps, list) and previous_comps:
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "private_benchmark_dashboard",
+            status="error",
+            summary=f"Claude benchmark dashboard failed: {message}",
+            error=message,
+        )
+        progress.emit(
+            "error",
+            tool_name="private_benchmark_dashboard",
+            error=message,
+        )
+        return
+
+    progress.emit(
+        "stage",
+        stage="fallback",
+        message="Using deterministic fallback benchmark dashboard",
+        tool_name="private_benchmark_dashboard",
+    )
+    fallback = _benchmark_dashboard(company)
+    fallback["generated_by"] = "deterministic_fallback"
+    fallback["claude_error"] = message
+    summary = "Built deterministic fallback benchmark dashboard."
+    _finish_analysis_tool_job(
+        company_id,
+        session_id,
+        "private_benchmark_dashboard",
+        status="done",
+        summary=summary,
+        error=f"Claude benchmark fallback: {message}",
+        artifacts_patch={"benchmark_dashboard": fallback},
+    )
+    progress.emit(
+        "done",
+        tool_name="private_benchmark_dashboard",
+        fallback=True,
+        error=message,
+        summary=summary,
+    )
+
+
+def _run_infographic_source_brief_job(
+    company_id: str,
+    session_id: str,
+    company: dict,
+    progress: job_progress.ProgressLog,
+) -> None:
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        artifacts = copy.deepcopy(
+            session.get("artifacts", {}) if isinstance(session, dict) else {}
+        )
+
+    result: dict | None = None
+    error: str | None = None
+    try:
+        result, error = claude_runner.run_serena_infographic_source_brief(
+            company=company,
+            artifacts=artifacts,
+            research_dir=research_store.RESEARCH_ROOT / company_id,
+            lessons_path=(
+                memo_lessons_path(company_id)
+                if memo_lessons_path(company_id).exists()
+                else None
+            ),
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena infographic source brief crashed")
+        error = f"{type(exc).__name__}: {exc}"
+
+    if result and not error:
+        brief = _coerce_infographic_source_brief(result, company, artifacts)
+        brief["generated_by"] = "claude_code"
+        brief["result_payload"] = result
+        summary = (
+            f"Built infographic source brief with "
+            f"{len(brief.get('compact_claims') or [])} claims and "
+            f"{len(brief.get('numeric_metrics') or [])} metrics."
+        )
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "infographic_source_brief",
+            status="done",
+            summary=summary,
+            error=None,
+            artifacts_patch={"infographic_source_brief": brief},
+        )
+        progress.emit(
+            "done",
+            tool_name="infographic_source_brief",
+            summary=summary,
+        )
+        return
+
+    message = error or "Claude returned no infographic source brief result"
+    previous = artifacts.get("infographic_source_brief")
+    if _infographic_source_brief_has_content(previous):
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "infographic_source_brief",
+            status="error",
+            summary=f"Claude infographic source brief failed: {message}",
+            error=message,
+        )
+        progress.emit(
+            "error",
+            tool_name="infographic_source_brief",
+            error=message,
+        )
+        return
+
+    progress.emit(
+        "stage",
+        stage="fallback",
+        message="Using deterministic fallback infographic source brief",
+        tool_name="infographic_source_brief",
+    )
+    fallback = _infographic_source_brief(company, artifacts)
+    fallback["generated_by"] = "deterministic_fallback"
+    fallback["claude_error"] = message
+    summary = "Built deterministic fallback infographic source brief."
+    _finish_analysis_tool_job(
+        company_id,
+        session_id,
+        "infographic_source_brief",
+        status="done",
+        summary=summary,
+        error=f"Claude infographic source brief fallback: {message}",
+        artifacts_patch={"infographic_source_brief": fallback},
+    )
+    progress.emit(
+        "done",
+        tool_name="infographic_source_brief",
+        fallback=True,
+        error=message,
+        summary=summary,
+    )
+
+
+def _ensure_infographic_source_brief_for_job(
+    company: dict,
+    artifacts: dict,
+) -> tuple[dict, dict]:
+    current = artifacts.get("infographic_source_brief")
+    if _infographic_source_brief_has_content(current):
+        return artifacts, {}
+    ensured = _infographic_source_brief(company, artifacts)
+    ensured["generated_by"] = "deterministic_dependency"
+    artifacts = copy.deepcopy(artifacts)
+    artifacts["infographic_source_brief"] = ensured
+    return artifacts, {"infographic_source_brief": ensured}
+
+
+def _run_chart_spec_builder_job(
+    company_id: str,
+    session_id: str,
+    company: dict,
+    progress: job_progress.ProgressLog,
+) -> None:
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        artifacts = copy.deepcopy(
+            session.get("artifacts", {}) if isinstance(session, dict) else {}
+        )
+    artifacts, ensured_patch = _ensure_infographic_source_brief_for_job(
+        company,
+        artifacts,
+    )
+
+    result: dict | None = None
+    error: str | None = None
+    try:
+        result, error = claude_runner.run_serena_chart_spec_builder(
+            company=company,
+            artifacts=artifacts,
+            research_dir=research_store.RESEARCH_ROOT / company_id,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena chart spec builder crashed")
+        error = f"{type(exc).__name__}: {exc}"
+
+    if result and not error:
+        charts = _coerce_chart_specs(
+            result,
+            company,
+            artifacts,
+            previous=artifacts.get("chart_specs"),
+        )
+        charts["generated_by"] = "claude_code"
+        charts["result_payload"] = result
+        summary = (
+            f"Built {len(charts.get('specs') or [])} infographic plans with Claude."
+        )
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "chart_spec_builder",
+            status="done",
+            summary=summary,
+            error=None,
+            artifacts_patch={**ensured_patch, "chart_specs": charts},
+        )
+        progress.emit("done", tool_name="chart_spec_builder", summary=summary)
+        return
+
+    message = error or "Claude returned no chart spec result"
+    previous = artifacts.get("chart_specs")
+    previous_specs = (
+        previous.get("specs") if isinstance(previous, dict) else None
+    )
+    if isinstance(previous_specs, list) and previous_specs:
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "chart_spec_builder",
+            status="error",
+            summary=f"Claude chart spec builder failed: {message}",
+            error=message,
+            artifacts_patch=ensured_patch,
+        )
+        progress.emit("error", tool_name="chart_spec_builder", error=message)
+        return
+
+    progress.emit(
+        "stage",
+        stage="fallback",
+        message="Using deterministic fallback infographic plans",
+        tool_name="chart_spec_builder",
+    )
+    fallback = _coerce_chart_specs(
+        _chart_specs(company),
+        company,
+        artifacts,
+        previous=previous,
+    )
+    fallback["generated_by"] = "deterministic_fallback"
+    fallback["claude_error"] = message
+    summary = "Built deterministic fallback infographic plans."
+    _finish_analysis_tool_job(
+        company_id,
+        session_id,
+        "chart_spec_builder",
+        status="done",
+        summary=summary,
+        error=f"Claude chart spec fallback: {message}",
+        artifacts_patch={**ensured_patch, "chart_specs": fallback},
+    )
+    progress.emit(
+        "done",
+        tool_name="chart_spec_builder",
+        fallback=True,
+        error=message,
+        summary=summary,
+    )
+
+
+def _run_narrative_hooks_job(
+    company_id: str,
+    session_id: str,
+    company: dict,
+    progress: job_progress.ProgressLog,
+) -> None:
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        artifacts = copy.deepcopy(
+            session.get("artifacts", {}) if isinstance(session, dict) else {}
+        )
+    artifacts, ensured_patch = _ensure_infographic_source_brief_for_job(
+        company,
+        artifacts,
+    )
+
+    result: dict | None = None
+    error: str | None = None
+    try:
+        result, error = claude_runner.run_serena_narrative_hooks(
+            company=company,
+            artifacts=artifacts,
+            research_dir=research_store.RESEARCH_ROOT / company_id,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena narrative hook planner crashed")
+        error = f"{type(exc).__name__}: {exc}"
+
+    if result and not error:
+        hooks = _coerce_narrative_hooks(
+            result,
+            company,
+            artifacts,
+            previous=artifacts.get("narrative_hooks"),
+        )
+        hooks["generated_by"] = "claude_code"
+        hooks["result_payload"] = result
+        summary = (
+            f"Built {len(hooks.get('openings') or [])} openings, "
+            f"{len(hooks.get('transitions') or [])} transitions, and "
+            f"{len(hooks.get('endings') or [])} closings."
+        )
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "narrative_hooks",
+            status="done",
+            summary=summary,
+            error=None,
+            artifacts_patch={**ensured_patch, "narrative_hooks": hooks},
+        )
+        progress.emit("done", tool_name="narrative_hooks", summary=summary)
+        return
+
+    message = error or "Claude returned no narrative hook result"
+    previous = artifacts.get("narrative_hooks")
+    previous_openings = (
+        previous.get("openings") if isinstance(previous, dict) else None
+    )
+    if isinstance(previous_openings, list) and previous_openings:
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "narrative_hooks",
+            status="error",
+            summary=f"Claude narrative hook planner failed: {message}",
+            error=message,
+            artifacts_patch=ensured_patch,
+        )
+        progress.emit("error", tool_name="narrative_hooks", error=message)
+        return
+
+    progress.emit(
+        "stage",
+        stage="fallback",
+        message="Using deterministic fallback narrative hooks",
+        tool_name="narrative_hooks",
+    )
+    fallback = _coerce_narrative_hooks(
+        _narrative_hooks(company, artifacts),
+        company,
+        artifacts,
+        previous=previous,
+    )
+    fallback["generated_by"] = "deterministic_fallback"
+    fallback["claude_error"] = message
+    summary = "Built deterministic fallback narrative hooks."
+    _finish_analysis_tool_job(
+        company_id,
+        session_id,
+        "narrative_hooks",
+        status="done",
+        summary=summary,
+        error=f"Claude narrative hook fallback: {message}",
+        artifacts_patch={**ensured_patch, "narrative_hooks": fallback},
+    )
+    progress.emit(
+        "done",
+        tool_name="narrative_hooks",
+        fallback=True,
+        error=message,
+        summary=summary,
+    )
+
+
+def _coerce_memo_grader(value: Any, *, report: dict) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    report_id = str(payload.get("completed_report_id") or report.get("id") or "")
+    run_id = payload.get("completed_run_id") or report.get("run_id")
+    scores: list[dict] = []
+    for row in payload.get("scores") if isinstance(payload.get("scores"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        area = _clean_text(row.get("area"), limit=120)
+        if not area:
+            continue
+        score = _number_or_none(row.get("score"))
+        scores.append({
+            "area": area,
+            "score": score if score is not None else 0.0,
+            "rationale": _clean_text(row.get("rationale"), limit=700),
+        })
+        if len(scores) >= 12:
+            break
+    if not scores:
+        scores = [
+            {
+                "area": "Evidence quality",
+                "score": 0.0,
+                "rationale": "Could not grade this area from available artifacts.",
+            }
+        ]
+    return {
+        "updated_at": _now(),
+        "status": "graded",
+        "completed_report_id": report_id,
+        "completed_run_id": run_id,
+        "scores": scores,
+        "strongest_sections": _string_list(payload.get("strongest_sections"))[:10],
+        "weakest_sections": _string_list(payload.get("weakest_sections"))[:10],
+        "missing_diligence": _string_list(payload.get("missing_diligence"))[:12],
+        "rewrite_guidance": _string_list(payload.get("rewrite_guidance"))[:12],
+        "lessons_for_future_memo_runs": _string_list(
+            payload.get("lessons_for_future_memo_runs")
+        )[:12],
+        "source_files_reviewed": _string_list(payload.get("source_files_reviewed"))[:20],
+        "confidence": _confidence(payload.get("confidence")),
+    }
+
+
+def _fallback_memo_grader(report: dict, *, error: str | None = None) -> dict:
+    return {
+        "updated_at": _now(),
+        "status": "graded",
+        "completed_report_id": report.get("id"),
+        "completed_run_id": report.get("run_id"),
+        "scores": [
+            {
+                "area": "Evidence quality",
+                "score": 0.0,
+                "rationale": "Claude grading was unavailable; Serena should review the memo manually.",
+            }
+        ],
+        "strongest_sections": [],
+        "weakest_sections": ["Manual grading required."],
+        "missing_diligence": ["Run Claude-backed memo grading when available."],
+        "rewrite_guidance": ["Use the completed memo and memo packet for manual review."],
+        "lessons_for_future_memo_runs": [
+            "Do not reuse this fallback as a quality signal; rerun memo grading with Claude."
+        ],
+        "source_files_reviewed": [],
+        "confidence": "low",
+        "generated_by": "deterministic_fallback",
+        "claude_error": error,
+    }
+
+
+def _write_memo_lessons(company_id: str, grader: dict) -> Path:
+    path = memo_lessons_path(company_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lessons = [
+        str(item).strip()
+        for item in grader.get("lessons_for_future_memo_runs") or []
+        if str(item or "").strip()
+    ]
+    lines = [
+        f"# Serena Memo Lessons — {company_id}",
+        "",
+        f"Last updated: {_now()}",
+        "",
+        f"## Report {grader.get('completed_report_id') or 'unknown'}",
+        "",
+    ]
+    if lessons:
+        for lesson in lessons:
+            lines.append(f"- {lesson}")
+    else:
+        lines.append("- No reusable lessons captured yet.")
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _run_memo_grader_job(
+    company_id: str,
+    session_id: str,
+    company: dict,
+    progress: job_progress.ProgressLog,
+) -> None:
+    with _LOCK:
+        session = _load_session(session_path(company_id, session_id))
+        artifacts = copy.deepcopy(
+            session.get("artifacts", {}) if isinstance(session, dict) else {}
+        )
+    grader_config = artifacts.get("memo_grader") if isinstance(artifacts.get("memo_grader"), dict) else {}
+    selected_report_id = str(grader_config.get("selected_report_id") or "").strip()
+    completed = completed_memo_runs(company_id)
+    if not selected_report_id and completed:
+        selected_report_id = str(completed[0].get("id") or "")
+    report = storage.get_report(selected_report_id) if selected_report_id else None
+    if report is None:
+        artifact = {
+            "updated_at": _now(),
+            "status": "waiting_for_completed_memo",
+            "selected_report_id": selected_report_id or None,
+            "completed_memo_runs": completed,
+            "next_step": "Select a completed memo run before grading.",
+        }
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "memo_grader",
+            status="done",
+            summary="Memo grader is waiting for a completed memo.",
+            error=None,
+            artifacts_patch={"memo_grader": artifact},
+        )
+        progress.emit("done", tool_name="memo_grader", summary=artifact["next_step"])
+        return
+
+    run_dir = None
+    if report.get("run_dir"):
+        run_dir = (storage.DATA_DIR.parent / str(report["run_dir"])).resolve()
+    memo_packet = session_dir(company_id, session_id) / "memo_packet.md"
+    result: dict | None = None
+    error: str | None = None
+    try:
+        result, error = claude_runner.run_serena_memo_grader(
+            company=company,
+            report=report,
+            memo_packet_path=memo_packet,
+            run_dir=run_dir,
+            progress=progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena memo grader crashed")
+        error = f"{type(exc).__name__}: {exc}"
+
+    if result and not error:
+        grader = _coerce_memo_grader(result, report=report)
+        grader["generated_by"] = "claude_code"
+        grader["result_payload"] = result
+        lessons_path = _write_memo_lessons(company_id, grader)
+        grader["lessons_path"] = str(lessons_path)
+        summary = f"Graded completed memo {grader['completed_report_id']}."
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "memo_grader",
+            status="done",
+            summary=summary,
+            error=None,
+            artifacts_patch={"memo_grader": grader},
+        )
+        progress.emit("done", tool_name="memo_grader", summary=summary)
+        return
+
+    message = error or "Claude returned no memo grader result"
+    previous_status = str(grader_config.get("status") or "")
+    if previous_status == "graded" and grader_config.get("completed_report_id"):
+        _finish_analysis_tool_job(
+            company_id,
+            session_id,
+            "memo_grader",
+            status="error",
+            summary=f"Claude memo grader failed: {message}",
+            error=message,
+        )
+        progress.emit("error", tool_name="memo_grader", error=message)
+        return
+
+    fallback = _fallback_memo_grader(report, error=message)
+    lessons_path = _write_memo_lessons(company_id, fallback)
+    fallback["lessons_path"] = str(lessons_path)
+    _finish_analysis_tool_job(
+        company_id,
+        session_id,
+        "memo_grader",
+        status="done",
+        summary="Built deterministic fallback memo grading artifact.",
+        error=f"Claude memo grader fallback: {message}",
+        artifacts_patch={"memo_grader": fallback},
+    )
+    progress.emit(
+        "done",
+        tool_name="memo_grader",
+        fallback=True,
+        error=message,
+        summary="Built deterministic fallback memo grading artifact.",
+    )
+
+
 def _finish_analysis_tool_job(
     company_id: str,
     session_id: str,
@@ -1136,10 +1979,14 @@ def _run_research_task_job(
     company: dict,
     task: dict,
     risk: dict | None,
+    research_dir: Path | None = None,
+    source_manifest: list[dict] | None = None,
     cancel_key: str | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
+    started = time.monotonic()
     progress_path = research_task_progress_path(company_id, session_id, task_id)
+    source_manifest = source_manifest or []
     cancel_fields = {
         "kind": "serena_research_task",
         "company_id": company_id,
@@ -1169,6 +2016,8 @@ def _run_research_task_job(
         session_id=session_id,
         task_id=task_id,
         risk_id=task.get("risk_id"),
+        selected_source_ids=task.get("selected_source_ids") or [],
+        source_count=len(source_manifest),
     )
     progress.emit(
         "stage",
@@ -1187,18 +2036,45 @@ def _run_research_task_job(
 
     result: dict | None = None
     error: str | None = None
-    try:
-        result, error = claude_runner.run_serena_research_task(
-            company=company,
-            task=task,
-            risk=risk,
-            research_dir=research_store.RESEARCH_ROOT / company_id,
-            progress=progress,
-            cancel_event=cancel_event,
+    progress.emit(
+        "stage",
+        stage="queued",
+        message="Waiting for research task slot",
+        task_id=task_id,
+        concurrency=RESEARCH_TASK_CONCURRENCY,
+    )
+    with _RESEARCH_TASK_RUN_SEMAPHORE:
+        if (
+            (cancel_event is not None and cancel_event.is_set())
+            or _progress_cancelled(progress_path)
+        ):
+            if not _progress_cancelled(progress_path):
+                _emit_cancelled_progress(
+                    progress_path,
+                    reason="Memo Studio research task cancelled",
+                    **cancel_fields,
+                )
+            _clear_research_task_cancel_event(cancel_key or "", cancel_event)
+            return
+        progress.emit(
+            "stage",
+            stage="running",
+            message="Running selected research prompt",
+            task_id=task_id,
         )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("serena research task crashed")
-        error = f"{type(exc).__name__}: {exc}"
+        try:
+            result, error = claude_runner.run_serena_research_task(
+                company=company,
+                task=task,
+                risk=risk,
+                research_dir=research_dir or research_store.RESEARCH_ROOT / company_id,
+                source_manifest=source_manifest,
+                progress=progress,
+                cancel_event=cancel_event,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("serena research task crashed")
+            error = f"{type(exc).__name__}: {exc}"
 
     if (
         (cancel_event is not None and cancel_event.is_set())
@@ -1213,8 +2089,19 @@ def _run_research_task_job(
         _clear_research_task_cancel_event(cancel_key or "", cancel_event)
         return
 
-    if result and not error:
-        summary = str(result.get("result_summary") or "").strip()
+    structured_result = (
+        _normalize_research_task_result(
+            result,
+            source_manifest=source_manifest,
+        )
+        if result and not error
+        else None
+    )
+    if structured_result is not None and not error:
+        summary = structured_result["answer"]
+        structured_result.setdefault("job_metrics", {})["duration_ms"] = int(
+            (time.monotonic() - started) * 1000
+        )
         now = _now()
         _finish_research_task_job(
             company_id,
@@ -1225,18 +2112,23 @@ def _run_research_task_job(
                 "completed_at": now,
                 "last_run_at": now,
                 "error": None,
-                "result_summary": summary,
+                **_research_task_result_fields(structured_result),
                 "result_basis": _research_result_basis(task, risk) + ["claude_code"],
                 "result_generated_by": "claude_code",
                 "result_updated_at": now,
-                "result_payload": result,
             },
         )
-        progress.emit("done", task_id=task_id, result_summary=summary)
+        progress.emit(
+            "done",
+            task_id=task_id,
+            result_summary=summary,
+            confidence=structured_result["confidence"],
+            source_count=len(structured_result.get("sources_checked") or []),
+        )
         _clear_research_task_cancel_event(cancel_key or "", cancel_event)
         return
 
-    message = error or "Claude returned no result"
+    message = error or "Claude returned no structured answer"
     previous_summary = str(task.get("result_summary") or "").strip()
     now = _now()
     if previous_summary:
@@ -1261,7 +2153,17 @@ def _run_research_task_job(
         message="Using deterministic fallback result",
         task_id=task_id,
     )
-    fallback = _deterministic_research_result(company, task, risk)
+    fallback = _fallback_research_task_result(
+        company,
+        task,
+        risk,
+        source_manifest=source_manifest,
+    )
+    fallback["fallback"] = True
+    fallback["claude_error"] = message
+    fallback.setdefault("job_metrics", {})["duration_ms"] = int(
+        (time.monotonic() - started) * 1000
+    )
     _finish_research_task_job(
         company_id,
         session_id,
@@ -1271,14 +2173,10 @@ def _run_research_task_job(
             "completed_at": now,
             "last_run_at": now,
             "error": f"Claude research fallback: {message}",
-            "result_summary": fallback,
+            **_research_task_result_fields(fallback),
             "result_basis": _research_result_basis(task, risk),
             "result_generated_by": "deterministic_fallback",
             "result_updated_at": now,
-            "result_payload": {
-                "fallback": True,
-                "claude_error": message,
-            },
         },
     )
     progress.emit(
@@ -1286,7 +2184,8 @@ def _run_research_task_job(
         task_id=task_id,
         fallback=True,
         error=message,
-        result_summary=fallback,
+        result_summary=fallback["answer"],
+        confidence=fallback["confidence"],
     )
     _clear_research_task_cancel_event(cancel_key or "", cancel_event)
 
@@ -1330,6 +2229,22 @@ def approve(company_id: str) -> dict:
         if session is None:
             raise ValueError(f"Unknown company: {company_id}")
         session = _strip_decorations(session)
+        readiness, _ = _readiness(session)
+        blockers = readiness.get("approval_blockers") or []
+        if blockers:
+            labels = [
+                str(item.get("label") or item.get("id") or "readiness blocker")
+                for item in blockers[:5]
+                if isinstance(item, dict)
+            ]
+            suffix = "; ".join(labels)
+            more = len(blockers) - len(labels)
+            if more > 0:
+                suffix = f"{suffix}; plus {more} more" if suffix else f"{more} blockers"
+            raise ValueError(
+                "Memo analysis is not ready for approval"
+                + (f": {suffix}" if suffix else ".")
+            )
         session["status"] = "approved"
         session["approved_at"] = _now()
         session["approved_for_memo"] = True
@@ -1374,12 +2289,42 @@ def _run_tool_impl(company: dict, artifacts: dict, tool_name: str) -> str:
         risks = _ensure_risks(company, artifacts)
         artifacts["thesis_spine"] = _thesis_spine(company, risks)
         return "Drafted investment highlights, risks, recommendation logic, and top gates."
+    if tool_name == "infographic_source_brief":
+        artifacts["infographic_source_brief"] = _infographic_source_brief(
+            company,
+            artifacts,
+        )
+        return "Distilled source brief for infographic and narrative planning."
     if tool_name == "chart_spec_builder":
-        artifacts["chart_specs"] = _chart_specs(company)
-        return "Drafted chart and table plan."
+        if not _infographic_source_brief_has_content(
+            artifacts.get("infographic_source_brief")
+        ):
+            artifacts["infographic_source_brief"] = _infographic_source_brief(
+                company,
+                artifacts,
+            )
+        artifacts["chart_specs"] = _coerce_chart_specs(
+            _chart_specs(company),
+            company,
+            artifacts,
+            previous=artifacts.get("chart_specs"),
+        )
+        return "Drafted image-generation-ready infographic plan."
     if tool_name == "narrative_hooks":
-        artifacts["narrative_hooks"] = _narrative_hooks(company, artifacts)
-        return "Drafted opening and ending options."
+        if not _infographic_source_brief_has_content(
+            artifacts.get("infographic_source_brief")
+        ):
+            artifacts["infographic_source_brief"] = _infographic_source_brief(
+                company,
+                artifacts,
+            )
+        artifacts["narrative_hooks"] = _coerce_narrative_hooks(
+            _narrative_hooks(company, artifacts),
+            company,
+            artifacts,
+            previous=artifacts.get("narrative_hooks"),
+        )
+        return "Drafted source-backed narrative hooks."
     if tool_name == "private_benchmark_dashboard":
         artifacts["benchmark_dashboard"] = _benchmark_dashboard(company)
         return "Drafted private-company benchmark dashboard."
@@ -1569,6 +2514,89 @@ def _find_research_task(artifacts: dict, task_id: str) -> dict | None:
     )
 
 
+def _normalize_source_id_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    rows = value if isinstance(value, list) else [value]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        source_id = str(row or "").strip()
+        if not re.match(r"^[A-Za-z0-9_-]+$", source_id):
+            continue
+        if source_id in seen:
+            continue
+        seen.add(source_id)
+        normalized.append(source_id)
+    return normalized
+
+
+def _manifest_entry_for_research_file(entry: dict, path: Path | None = None) -> dict:
+    return {
+        "file_id": entry.get("id"),
+        "filename": entry.get("filename"),
+        "local_filename": entry.get("stored_name") or entry.get("filename"),
+        "kind": entry.get("kind"),
+        "label": entry.get("label"),
+        "source_type": "company_background",
+        "notes": entry.get("label"),
+        "path": str(path) if path is not None else None,
+    }
+
+
+def _selected_sources_for_task(company_id: str, task: dict) -> list[dict]:
+    selected_ids = _normalize_source_id_list(task.get("selected_source_ids"))
+    if not selected_ids:
+        return [
+            _manifest_entry_for_research_file(entry)
+            for entry in research_store.list_files(company_id)
+        ]
+    out: list[dict] = []
+    for source_id in selected_ids:
+        found = research_store.get_file(company_id, source_id)
+        if found is None:
+            continue
+        entry, path = found
+        out.append(_manifest_entry_for_research_file(entry, path))
+    return out
+
+
+def _research_task_source_context(
+    company_id: str,
+    session_id: str,
+    task_id: str,
+    task: dict,
+) -> tuple[Path, list[dict]]:
+    selected_ids = _normalize_source_id_list(task.get("selected_source_ids"))
+    if not selected_ids:
+        return research_store.RESEARCH_ROOT / company_id, _selected_sources_for_task(
+            company_id,
+            task,
+        )
+
+    source_dir = session_dir(company_id, session_id) / "research_task_sources" / task_id
+    shutil.rmtree(source_dir, ignore_errors=True)
+    source_dir.mkdir(parents=True, exist_ok=True)
+    manifest: list[dict] = []
+    for source_id in selected_ids:
+        found = research_store.get_file(company_id, source_id)
+        if found is None:
+            continue
+        entry, path = found
+        local_name = entry.get("stored_name") or f"{source_id}__{entry.get('filename') or 'source'}"
+        shutil.copy2(path, source_dir / local_name)
+        copied = {
+            **_manifest_entry_for_research_file(entry, source_dir / local_name),
+            "local_filename": local_name,
+        }
+        manifest.append(copied)
+    (source_dir / "selected_sources.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return source_dir, manifest
+
+
 def _apply_research_task_patch(task: dict, patch: dict) -> None:
     if "status" in patch:
         status = str(patch.get("status") or "").strip()
@@ -1578,6 +2606,7 @@ def _apply_research_task_patch(task: dict, patch: dict) -> None:
     if "result_summary" in patch:
         summary = str(patch.get("result_summary") or "").strip()
         task["result_summary"] = summary or None
+        task["answer"] = summary or None
         task["result_updated_at"] = _now() if summary else None
     if "error" in patch:
         error = str(patch.get("error") or "").strip()
@@ -1586,6 +2615,10 @@ def _apply_research_task_patch(task: dict, patch: dict) -> None:
         task["completed_at"] = str(patch.get("completed_at") or "").strip() or None
     if "started_at" in patch:
         task["started_at"] = str(patch.get("started_at") or "").strip() or None
+    if "selected_source_ids" in patch:
+        task["selected_source_ids"] = _normalize_source_id_list(
+            patch.get("selected_source_ids")
+        )
 
 
 def _touch_research_tasks(session: dict) -> None:
@@ -1640,6 +2673,175 @@ def _deterministic_research_result(
         f"open until Serena validates {evidence_text}. Recommended source path: "
         f"{source_type}. Decision question: {decision_question}"
     )
+
+
+def _confidence(value: Any) -> str:
+    lowered = str(value or "").strip().lower()
+    return lowered if lowered in {"low", "medium", "high"} else "medium"
+
+
+def _clean_text(value: Any, *, limit: int | None = None) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit].rstrip() if limit else text
+
+
+def _normalize_evidence_entries(value: Any, *, fallback_confidence: str) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    out: list[dict] = []
+    for row in rows:
+        if isinstance(row, dict):
+            excerpt = _clean_text(
+                row.get("excerpt")
+                or row.get("claim")
+                or row.get("finding")
+                or row.get("text"),
+                limit=700,
+            )
+            if not excerpt:
+                continue
+            out.append({
+                "file_id": row.get("file_id"),
+                "filename": row.get("filename"),
+                "locator": row.get("locator"),
+                "excerpt": excerpt,
+                "confidence": _confidence(row.get("confidence") or fallback_confidence),
+            })
+            continue
+        excerpt = _clean_text(row, limit=700)
+        if excerpt:
+            out.append({
+                "file_id": None,
+                "filename": None,
+                "locator": None,
+                "excerpt": excerpt,
+                "confidence": fallback_confidence,
+            })
+    return out
+
+
+def _normalize_question_list(value: Any) -> list[str]:
+    rows = value if isinstance(value, list) else []
+    return [_clean_text(row, limit=500) for row in rows if _clean_text(row)]
+
+
+def _source_checked_entry(value: Any) -> dict | None:
+    if isinstance(value, dict):
+        filename = value.get("filename") or value.get("local_filename")
+        notes = value.get("notes") or value.get("label")
+        return {
+            "file_id": value.get("file_id") or value.get("id"),
+            "filename": filename,
+            "source_type": value.get("source_type") or value.get("kind"),
+            "notes": notes,
+        }
+    text = _clean_text(value, limit=500)
+    if not text:
+        return None
+    return {
+        "file_id": None,
+        "filename": text,
+        "source_type": "source",
+        "notes": None,
+    }
+
+
+def _normalize_sources_checked(value: Any, fallback_manifest: list[dict]) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    out: list[dict] = []
+    seen: set[tuple[str | None, str | None]] = set()
+    for row in rows or fallback_manifest:
+        entry = _source_checked_entry(row)
+        if entry is None:
+            continue
+        key = (entry.get("file_id"), entry.get("filename"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(entry)
+    return out
+
+
+def _normalize_research_task_result(
+    result: dict,
+    *,
+    source_manifest: list[dict],
+) -> dict | None:
+    answer = _clean_text(
+        result.get("answer") or result.get("result_summary"),
+        limit=4000,
+    )
+    if not answer:
+        return None
+    confidence = _confidence(result.get("confidence"))
+    supporting = _normalize_evidence_entries(
+        result.get("supporting_evidence") or result.get("key_findings"),
+        fallback_confidence=confidence,
+    )
+    contradicting = _normalize_evidence_entries(
+        result.get("contradicting_evidence"),
+        fallback_confidence=confidence,
+    )
+    open_questions = _normalize_question_list(
+        result.get("open_questions") or result.get("evidence_gaps")
+    )
+    sources_checked = _normalize_sources_checked(
+        result.get("sources_checked"),
+        source_manifest,
+    )
+    structured = {
+        "answer": answer,
+        "supporting_evidence": supporting,
+        "contradicting_evidence": contradicting,
+        "open_questions": open_questions,
+        "sources_checked": sources_checked,
+        "confidence": confidence,
+    }
+    if result != structured:
+        structured["raw_payload"] = result
+    return structured
+
+
+def _fallback_research_task_result(
+    company: dict,
+    task: dict,
+    risk: dict | None,
+    *,
+    source_manifest: list[dict],
+) -> dict:
+    answer = _deterministic_research_result(company, task, risk)
+    open_questions: list[str] = []
+    if isinstance(risk, dict) and isinstance(risk.get("evidence_needed"), list):
+        open_questions = [
+            _clean_text(item, limit=500)
+            for item in risk.get("evidence_needed") or []
+            if _clean_text(item)
+        ][:5]
+    if not open_questions:
+        open_questions = ["Independent support and disconfirming evidence still need review."]
+    return {
+        "answer": answer,
+        "supporting_evidence": [],
+        "contradicting_evidence": [],
+        "open_questions": open_questions,
+        "sources_checked": _normalize_sources_checked(None, source_manifest),
+        "confidence": "low",
+    }
+
+
+def _research_task_result_fields(structured: dict) -> dict:
+    observed = research_eval.with_observability_defaults(structured)
+    return {
+        "result_summary": observed.get("answer"),
+        "answer": observed.get("answer"),
+        "supporting_evidence": observed.get("supporting_evidence") or [],
+        "contradicting_evidence": observed.get("contradicting_evidence") or [],
+        "open_questions": observed.get("open_questions") or [],
+        "sources_checked": observed.get("sources_checked") or [],
+        "confidence": _confidence(observed.get("confidence")),
+        "analyst_review_score": observed.get("analyst_review_score"),
+        "job_metrics": observed.get("job_metrics"),
+        "result_payload": observed,
+    }
 
 
 def _company_text(company: dict) -> str:
@@ -2066,6 +3268,30 @@ def _strategic_risks(company: dict) -> list[dict]:
     return risks[:8]
 
 
+def _research_task_search_plan(risk: dict) -> dict:
+    evidence_needed = [
+        str(item)
+        for item in risk.get("evidence_needed") or []
+        if str(item or "").strip()
+    ][:5]
+    best_sources = [
+        str(item)
+        for item in risk.get("best_sources") or []
+        if str(item or "").strip()
+    ][:5]
+    return {
+        "question": risk.get("decision_question") or risk.get("research_prompt"),
+        "evidence_needed": evidence_needed,
+        "preferred_sources": best_sources,
+        "steps": [
+            "Check selected company background documents first.",
+            "Extract supporting and contradicting evidence with source locators.",
+            "Use public web/filing sources only where local evidence is insufficient.",
+            "Return open questions when evidence remains missing or weak.",
+        ],
+    }
+
+
 def _research_tasks(company: dict, risks: list[dict]) -> list[dict]:
     tasks = []
     for i, risk in enumerate(risks, start=1):
@@ -2077,7 +3303,9 @@ def _research_tasks(company: dict, risks: list[dict]) -> list[dict]:
             "status": "not_started",
             "source_type": ", ".join(risk.get("best_sources") or [])[:160],
             "prompt": risk.get("research_prompt"),
+            "search_plan": _research_task_search_plan(risk),
             "result_summary": None,
+            "selected_source_ids": [],
         })
     return tasks
 
@@ -2225,6 +3453,18 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             "tone": "ic_ready",
         },
     ]
+    transitions = [
+        {
+            "id": "transition-1",
+            "text": "That framing makes the diligence standard concrete: every attractive claim needs either source-backed support or an explicit gap.",
+            "tone": "evidence_bridge",
+        },
+        {
+            "id": "transition-2",
+            "text": "The useful version of the bull case is therefore narrower than the category narrative and easier to test.",
+            "tone": "narrowing",
+        },
+    ]
     endings = [
         {
             "id": "ending-1",
@@ -2245,9 +3485,1114 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
     return {
         "updated_at": _now(),
         "openings": openings,
+        "transitions": transitions,
         "endings": endings,
         "selected_opening_id": openings[0]["id"],
+        "selected_transition_id": transitions[0]["id"],
         "selected_ending_id": endings[0]["id"],
+    }
+
+
+_IMAGE_GENERATION_MODES = {
+    "no_text_overlay",
+    "text_in_image",
+    "needs_human_choice",
+}
+_SOURCE_AVAILABILITY_VALUES = {"available", "partial", "missing"}
+
+
+def _slug_part(value: Any, *, fallback: str) -> str:
+    text = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+    return text[:64] or fallback
+
+
+def _stable_item_id(prefix: str, value: Any, index: int) -> str:
+    return f"{prefix}-{_slug_part(value, fallback=str(index))}"
+
+
+def _source_trace_from_evidence(value: Any) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    excerpt = _clean_text(value.get("excerpt"), limit=700)
+    if not excerpt:
+        return None
+    return {
+        "title": _clean_text(
+            value.get("title") or value.get("filename") or value.get("file_id"),
+            limit=160,
+        ) or None,
+        "url": _clean_text(value.get("url"), limit=500) or None,
+        "locator": _clean_text(
+            value.get("locator") or value.get("filename"),
+            limit=160,
+        ) or None,
+        "excerpt": excerpt,
+        "confidence": _confidence(value.get("confidence")),
+    }
+
+
+def _source_traces_from_research_tasks(tasks: list[dict], *, limit: int = 8) -> list[dict]:
+    traces: list[dict] = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        for row in list(task.get("supporting_evidence") or []) + list(
+            task.get("contradicting_evidence") or []
+        ):
+            trace = _source_trace_from_evidence(row)
+            if trace:
+                traces.append(trace)
+            if len(traces) >= limit:
+                return traces
+    return traces
+
+
+def _coerce_source_availability(value: Any) -> str:
+    lowered = str(value or "").strip().lower().replace(" ", "_")
+    if lowered in _SOURCE_AVAILABILITY_VALUES:
+        return lowered
+    if lowered in {"source_needed", "unknown", "unavailable"}:
+        return "missing"
+    return "partial"
+
+
+def _coerce_image_generation_mode(value: Any) -> str:
+    lowered = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "overlay": "no_text_overlay",
+        "no_text": "no_text_overlay",
+        "no_text_with_overlay": "no_text_overlay",
+        "application_overlay": "no_text_overlay",
+        "text": "text_in_image",
+        "text_in_image_generation": "text_in_image",
+        "human_choice": "needs_human_choice",
+        "needs_choice": "needs_human_choice",
+        "reviewer_choice": "needs_human_choice",
+    }
+    lowered = aliases.get(lowered, lowered)
+    return lowered if lowered in _IMAGE_GENERATION_MODES else "no_text_overlay"
+
+
+def _coerce_reviewer_prompts(value: Any, *, prefix: str) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    prompts: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        if isinstance(row, dict):
+            prompt = _clean_text(
+                row.get("prompt") or row.get("question") or row.get("label"),
+                limit=500,
+            )
+            if not prompt:
+                continue
+            options = _string_list(row.get("options"))[:8]
+            resolved_choice = _clean_text(
+                row.get("resolved_choice") or row.get("choice"),
+                limit=300,
+            )
+            required = _bool_value(row.get("required"), default=True)
+            status = _clean_text(row.get("status"), limit=40).lower()
+            if not status:
+                status = "resolved" if resolved_choice else (
+                    "needs_review" if required else "optional"
+                )
+            prompts.append({
+                "id": _clean_text(row.get("id"), limit=80)
+                or _stable_item_id(prefix, prompt, index),
+                "prompt": prompt,
+                "required": required,
+                "options": options,
+                "resolved_choice": resolved_choice or None,
+                "rationale": _clean_text(row.get("rationale"), limit=700),
+                "status": status,
+            })
+            continue
+        prompt = _clean_text(row, limit=500)
+        if prompt:
+            prompts.append({
+                "id": _stable_item_id(prefix, prompt, index),
+                "prompt": prompt,
+                "required": True,
+                "options": [],
+                "resolved_choice": None,
+                "rationale": "",
+                "status": "needs_review",
+            })
+    return prompts[:12]
+
+
+def _has_unresolved_required_prompt(prompts: list[dict]) -> bool:
+    return any(
+        prompt.get("required") and not prompt.get("resolved_choice")
+        for prompt in prompts
+    )
+
+
+def _coerce_infographic_claims(value: Any, fallback: list[dict]) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    claims: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        if isinstance(row, dict):
+            claim = _clean_text(
+                row.get("claim") or row.get("text") or row.get("finding"),
+                limit=600,
+            )
+            if not claim:
+                continue
+            status = _clean_text(
+                row.get("evidence_status") or row.get("status"),
+                limit=40,
+            ).lower() or "needs_review"
+            claims.append({
+                "id": _clean_text(row.get("id"), limit=80)
+                or _stable_item_id("claim", claim, index),
+                "claim": claim,
+                "evidence_status": status,
+                "source_traces": _normalize_source_traces(row.get("source_traces")),
+                "contradictions": _string_list(row.get("contradictions"))[:5],
+                "warnings": _string_list(row.get("warnings"))[:5],
+                "prohibited_for_visuals": _bool_value(
+                    row.get("prohibited_for_visuals"),
+                    default=status in {"missing", "contradicted", "source_needed"},
+                ),
+                "confidence": _confidence(row.get("confidence")),
+            })
+            continue
+        claim = _clean_text(row, limit=600)
+        if claim:
+            claims.append({
+                "id": _stable_item_id("claim", claim, index),
+                "claim": claim,
+                "evidence_status": "needs_review",
+                "source_traces": [],
+                "contradictions": [],
+                "warnings": [],
+                "prohibited_for_visuals": False,
+                "confidence": "low",
+            })
+        if len(claims) >= 16:
+            break
+    return claims[:16] or fallback[:16]
+
+
+def _coerce_numeric_metrics(value: Any, fallback: list[dict]) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    metrics: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        label = _clean_text(row.get("label") or row.get("metric"), limit=160)
+        if not label:
+            continue
+        metrics.append({
+            "id": _clean_text(row.get("id"), limit=80)
+            or _stable_item_id("metric", label, index),
+            "label": label,
+            "value": row.get("value"),
+            "unit": _clean_text(row.get("unit"), limit=80) or None,
+            "period": _clean_text(row.get("period"), limit=100) or None,
+            "calculation": _clean_text(row.get("calculation"), limit=500),
+            "denominator_note": _clean_text(
+                row.get("denominator_note"),
+                limit=500,
+            ),
+            "source_traces": _normalize_source_traces(row.get("source_traces")),
+            "confidence": _confidence(row.get("confidence")),
+        })
+        if len(metrics) >= 20:
+            break
+    return metrics[:20] or fallback[:20]
+
+
+def _coerce_opportunity_rows(
+    value: Any,
+    *,
+    fallback: list[dict],
+    prefix: str,
+) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    opportunities: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        if isinstance(row, dict):
+            title = _clean_text(
+                row.get("title") or row.get("name") or row.get("hook_angle"),
+                limit=160,
+            )
+            if not title:
+                continue
+            opportunities.append({
+                "id": _clean_text(row.get("id"), limit=80)
+                or _stable_item_id(prefix, title, index),
+                "title": title,
+                "rationale": _clean_text(
+                    row.get("rationale") or row.get("why_it_matters"),
+                    limit=700,
+                ),
+                "paired_claim_ids": _string_list(row.get("paired_claim_ids"))[:8],
+                "source_trace_ids": _string_list(row.get("source_trace_ids"))[:8],
+                "confidence": _confidence(row.get("confidence")),
+            })
+            continue
+        title = _clean_text(row, limit=160)
+        if title:
+            opportunities.append({
+                "id": _stable_item_id(prefix, title, index),
+                "title": title,
+                "rationale": "",
+                "paired_claim_ids": [],
+                "source_trace_ids": [],
+                "confidence": "low",
+            })
+    return opportunities[:12] or fallback[:12]
+
+
+def _fallback_infographic_claims(artifacts: dict) -> list[dict]:
+    thesis = (
+        artifacts.get("thesis_spine")
+        if isinstance(artifacts, dict)
+        and isinstance(artifacts.get("thesis_spine"), dict)
+        else {}
+    )
+    tasks = artifacts.get("research_tasks", {}).get("tasks", [])
+    tasks = tasks if isinstance(tasks, list) else []
+    traces = _source_traces_from_research_tasks(tasks)
+    claims: list[dict] = []
+    for index, row in enumerate(thesis.get("investment_highlights") or [], start=1):
+        if not isinstance(row, dict):
+            continue
+        claim = _clean_text(row.get("claim"), limit=600)
+        if not claim:
+            continue
+        claims.append({
+            "id": row.get("id") or _stable_item_id("claim", claim, index),
+            "claim": claim,
+            "evidence_status": (
+                "partial" if row.get("source_trace") or traces else "needs_review"
+            ),
+            "source_traces": traces[:3],
+            "contradictions": [],
+            "warnings": (
+                ["Needs stronger evidence before visual use."]
+                if row.get("needs_stronger_evidence")
+                else []
+            ),
+            "prohibited_for_visuals": bool(row.get("needs_stronger_evidence")),
+            "confidence": "medium" if traces else "low",
+        })
+    for index, row in enumerate(thesis.get("investment_risks") or [], start=1):
+        if not isinstance(row, dict):
+            continue
+        claim = _clean_text(row.get("claim"), limit=600)
+        if claim:
+            claims.append({
+                "id": row.get("id") or _stable_item_id("risk-claim", claim, index),
+                "claim": claim,
+                "evidence_status": "needs_review",
+                "source_traces": traces[:2],
+                "contradictions": [],
+                "warnings": ["Risk framing should not be illustrated as proven fact."],
+                "prohibited_for_visuals": False,
+                "confidence": "low",
+            })
+    return claims
+
+
+def _fallback_numeric_metrics(company: dict, artifacts: dict) -> list[dict]:
+    metrics: list[dict] = []
+    latest_funding = company.get("latest_funding")
+    if isinstance(latest_funding, dict) and latest_funding.get("post_money_usd"):
+        metrics.append({
+            "id": "metric-latest-post-money",
+            "label": "Latest post-money valuation",
+            "value": latest_funding.get("post_money_usd"),
+            "unit": "USD",
+            "period": _clean_text(latest_funding.get("date"), limit=100) or None,
+            "calculation": "",
+            "denominator_note": "",
+            "source_traces": [],
+            "confidence": "low",
+        })
+    benchmark = artifacts.get("benchmark_dashboard")
+    comps = benchmark.get("public_comps") if isinstance(benchmark, dict) else []
+    for comp in comps if isinstance(comps, list) else []:
+        if not isinstance(comp, dict):
+            continue
+        company_name = comp.get("company") or "Comp"
+        for key, label, unit in (
+            ("revenue_growth_pct", "Revenue growth", "%"),
+            ("gross_margin_pct", "Gross margin", "%"),
+            ("ev_revenue", "EV/revenue", "x"),
+            ("fcf_margin_pct", "FCF margin", "%"),
+        ):
+            value = comp.get(key)
+            if value is None:
+                continue
+            metrics.append({
+                "id": _stable_item_id("metric", f"{company_name}-{key}", len(metrics) + 1),
+                "label": f"{company_name} {label}",
+                "value": value,
+                "unit": unit,
+                "period": comp.get("metric_period"),
+                "calculation": "",
+                "denominator_note": "",
+                "source_traces": comp.get("source_traces") or [],
+                "confidence": _confidence(comp.get("confidence")),
+            })
+            if len(metrics) >= 12:
+                return metrics
+    return metrics
+
+
+def _infographic_source_brief(company: dict, artifacts: dict) -> dict:
+    tasks = artifacts.get("research_tasks", {}).get("tasks", [])
+    tasks = tasks if isinstance(tasks, list) else []
+    evidence_summary = _memo_packet_evidence_summary(tasks)
+    charts = _chart_specs(company).get("specs") or []
+    hooks = _narrative_hooks(company, artifacts)
+    visual_opportunities = [
+        {
+            "id": row.get("id"),
+            "title": row.get("title"),
+            "rationale": row.get("takeaway") or "",
+            "paired_claim_ids": [],
+            "source_trace_ids": [],
+            "confidence": "low",
+        }
+        for row in charts[:8]
+    ]
+    narrative_opportunities = [
+        {
+            "id": row.get("id"),
+            "title": row.get("tone") or row.get("id"),
+            "rationale": row.get("text") or "",
+            "paired_claim_ids": [],
+            "source_trace_ids": [],
+            "confidence": "low",
+        }
+        for row in (hooks.get("openings") or [])[:4]
+    ]
+    benchmark = artifacts.get("benchmark_dashboard")
+    benchmark_gaps = (
+        benchmark.get("benchmark_gaps") if isinstance(benchmark, dict) else []
+    )
+    thesis = (
+        artifacts.get("thesis_spine")
+        if isinstance(artifacts, dict)
+        and isinstance(artifacts.get("thesis_spine"), dict)
+        else {}
+    )
+    return {
+        "updated_at": _now(),
+        "summary": (
+            "First-pass source brief for infographic and narrative planning. "
+            "Claims marked missing or needs_review require human review before visual use."
+        ),
+        "compact_claims": _fallback_infographic_claims(artifacts),
+        "numeric_metrics": _fallback_numeric_metrics(company, artifacts),
+        "source_traces": _source_traces_from_research_tasks(tasks, limit=10),
+        "contradictions": [
+            f"{item.get('claim')} [{item.get('status')}]"
+            for item in evidence_summary.get("mixed_or_contradicted") or []
+        ],
+        "missing_evidence": [
+            item.get("claim")
+            for item in evidence_summary.get("missing") or []
+            if item.get("claim")
+        ][:10] + _string_list(benchmark_gaps)[:6],
+        "no_go_claims": _string_list(
+            thesis.get("pass_triggers") if isinstance(thesis, dict) else []
+        )[:8],
+        "visual_opportunities": visual_opportunities,
+        "narrative_opportunities": narrative_opportunities,
+        "reviewer_prompts": [
+            {
+                "id": "prompt-visual-mode-default",
+                "prompt": (
+                    "Choose no-text overlay or text-in-image generation for "
+                    "any infographic whose typography is central to the design."
+                ),
+                "required": False,
+                "options": ["no_text_overlay", "text_in_image"],
+                "resolved_choice": None,
+                "rationale": "",
+                "status": "optional",
+            }
+        ],
+        "confidence": "low",
+    }
+
+
+def _infographic_source_brief_has_content(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return bool(
+        value.get("compact_claims")
+        or value.get("numeric_metrics")
+        or value.get("source_traces")
+        or value.get("visual_opportunities")
+        or value.get("narrative_opportunities")
+    )
+
+
+def _coerce_infographic_source_brief(
+    value: Any,
+    company: dict,
+    artifacts: dict,
+) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    fallback = _infographic_source_brief(company, artifacts)
+    return {
+        "updated_at": _now(),
+        "summary": _clean_text(payload.get("summary"), limit=1200)
+        or fallback["summary"],
+        "compact_claims": _coerce_infographic_claims(
+            payload.get("compact_claims")
+            or payload.get("claims")
+            or payload.get("key_claims"),
+            fallback.get("compact_claims") or [],
+        ),
+        "numeric_metrics": _coerce_numeric_metrics(
+            payload.get("numeric_metrics") or payload.get("metrics"),
+            fallback.get("numeric_metrics") or [],
+        ),
+        "source_traces": _normalize_source_traces(payload.get("source_traces"))
+        or fallback.get("source_traces")
+        or [],
+        "contradictions": _string_list(
+            payload.get("contradictions"),
+            fallback=fallback.get("contradictions") or [],
+        )[:12],
+        "missing_evidence": _string_list(
+            payload.get("missing_evidence"),
+            fallback=fallback.get("missing_evidence") or [],
+        )[:16],
+        "no_go_claims": _string_list(
+            payload.get("no_go_claims") or payload.get("prohibited_claims"),
+            fallback=fallback.get("no_go_claims") or [],
+        )[:12],
+        "visual_opportunities": _coerce_opportunity_rows(
+            payload.get("visual_opportunities"),
+            fallback=fallback.get("visual_opportunities") or [],
+            prefix="visual",
+        ),
+        "narrative_opportunities": _coerce_opportunity_rows(
+            payload.get("narrative_opportunities"),
+            fallback=fallback.get("narrative_opportunities") or [],
+            prefix="narrative",
+        ),
+        "reviewer_prompts": _coerce_reviewer_prompts(
+            payload.get("reviewer_prompts"),
+            prefix="brief-prompt",
+        ) or fallback.get("reviewer_prompts") or [],
+        "confidence": _confidence(payload.get("confidence")),
+    }
+
+
+def _previous_items_by_key(previous: Any, key: str) -> tuple[dict[str, dict], dict[str, dict]]:
+    if not isinstance(previous, dict):
+        return {}, {}
+    rows = previous.get(key)
+    if not isinstance(rows, list):
+        return {}, {}
+    by_id: dict[str, dict] = {}
+    by_title: dict[str, dict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = str(row.get("id") or "").strip()
+        if row_id:
+            by_id[row_id] = row
+        title = _slug_part(row.get("title") or row.get("text"), fallback="")
+        if title:
+            by_title[title] = row
+    return by_id, by_title
+
+
+def _matching_previous_item(
+    previous_by_id: dict[str, dict],
+    previous_by_title: dict[str, dict],
+    row_id: str,
+    title: str,
+) -> dict | None:
+    if row_id in previous_by_id:
+        return previous_by_id[row_id]
+    key = _slug_part(title, fallback="")
+    return previous_by_title.get(key)
+
+
+def _coerce_text_overlay_plan(value: Any, *, title: str) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    labels = _string_list(payload.get("labels"))[:12]
+    callouts = _string_list(payload.get("callouts"))[:8]
+    footnotes = _string_list(payload.get("footnotes"))[:6]
+    return {
+        "headline": _clean_text(payload.get("headline"), limit=120) or title,
+        "labels": labels,
+        "callouts": callouts,
+        "footnotes": footnotes,
+        "safe_copy_length": _clean_text(
+            payload.get("safe_copy_length"),
+            limit=160,
+        )
+        or "Keep overlay copy short enough for application-rendered text.",
+    }
+
+
+def _coerce_required_metrics(value: Any) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    out: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        if isinstance(row, dict):
+            label = _clean_text(row.get("label") or row.get("metric"), limit=160)
+            if not label:
+                continue
+            out.append({
+                "id": _clean_text(row.get("id"), limit=80)
+                or _stable_item_id("metric", label, index),
+                "label": label,
+                "value": row.get("value"),
+                "unit": _clean_text(row.get("unit"), limit=80) or None,
+                "period": _clean_text(row.get("period"), limit=100) or None,
+                "calculation": _clean_text(row.get("calculation"), limit=500),
+                "denominator_note": _clean_text(
+                    row.get("denominator_note"),
+                    limit=500,
+                ),
+                "source_available": _bool_value(
+                    row.get("source_available"),
+                    default=bool(row.get("source_traces")),
+                ),
+                "source_traces": _normalize_source_traces(row.get("source_traces")),
+                "confidence": _confidence(row.get("confidence")),
+            })
+            continue
+        label = _clean_text(row, limit=160)
+        if label:
+            out.append({
+                "id": _stable_item_id("metric", label, index),
+                "label": label,
+                "value": None,
+                "unit": None,
+                "period": None,
+                "calculation": "",
+                "denominator_note": "",
+                "source_available": False,
+                "source_traces": [],
+                "confidence": "low",
+            })
+        if len(out) >= 12:
+            break
+    return out[:12]
+
+
+def _coerce_data_payload(value: Any) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    out: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        label = _clean_text(row.get("label") or row.get("name"), limit=160)
+        if not label:
+            continue
+        out.append({
+            "id": _clean_text(row.get("id"), limit=80)
+            or _stable_item_id("data", label, index),
+            "label": label,
+            "value": row.get("value"),
+            "unit": _clean_text(row.get("unit"), limit=80) or None,
+            "period": _clean_text(row.get("period"), limit=100) or None,
+            "notes": _clean_text(row.get("notes"), limit=500),
+        })
+        if len(out) >= 20:
+            break
+    return out
+
+
+def _coerce_design_prompt(value: Any, *, title: str) -> dict:
+    if isinstance(value, str):
+        return {
+            "composition": _clean_text(value, limit=1200),
+            "visual_metaphor": "",
+            "style_constraints": [],
+            "aspect_ratio": "16:9",
+            "prohibited_claims": [],
+        }
+    payload = value if isinstance(value, dict) else {}
+    return {
+        "composition": _clean_text(payload.get("composition"), limit=1200)
+        or f"Create a crisp memo infographic for {title}.",
+        "visual_metaphor": _clean_text(payload.get("visual_metaphor"), limit=500),
+        "style_constraints": _string_list(payload.get("style_constraints"))[:8],
+        "aspect_ratio": _clean_text(payload.get("aspect_ratio"), limit=40) or "16:9",
+        "prohibited_claims": _string_list(payload.get("prohibited_claims"))[:8],
+    }
+
+
+def _manual_chart_fields(previous: dict | None, mode: str) -> dict:
+    if not isinstance(previous, dict):
+        return {}
+    fields: dict[str, Any] = {}
+    for key in (
+        "include_in_final_memo",
+        "final_memo_inclusion_state",
+        "owner",
+        "memo_section_placement",
+        "diligence_needed",
+        "manual_notes",
+        "reviewer_notes",
+        "reviewer_prompt_responses",
+    ):
+        if key in previous:
+            fields[key] = previous[key]
+    previous_mode = _coerce_image_generation_mode(previous.get("image_generation_mode"))
+    if previous_mode != "needs_human_choice" and mode == "needs_human_choice":
+        fields["image_generation_mode"] = previous_mode
+    return fields
+
+
+def _coerce_chart_specs(
+    value: Any,
+    company: dict,
+    artifacts: dict,
+    *,
+    previous: Any = None,
+) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    fallback = _chart_specs(company)
+    previous_by_id, previous_by_title = _previous_items_by_key(previous, "specs")
+    rows = (
+        payload.get("specs")
+        or payload.get("charts")
+        or payload.get("infographic_plans")
+    )
+    rows = rows if isinstance(rows, list) else []
+    specs: list[dict] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        title = _clean_text(row.get("title"), limit=160)
+        if not title:
+            continue
+        row_id = _clean_text(row.get("id"), limit=80) or _stable_item_id(
+            "chart",
+            title,
+            index,
+        )
+        previous_item = _matching_previous_item(
+            previous_by_id,
+            previous_by_title,
+            row_id,
+            title,
+        )
+        mode = _coerce_image_generation_mode(row.get("image_generation_mode"))
+        reviewer_prompts = _coerce_reviewer_prompts(
+            row.get("reviewer_prompts"),
+            prefix=f"{row_id}-prompt",
+        )
+        status = _clean_text(row.get("status"), limit=60).lower()
+        if not status:
+            status = (
+                "needs_review"
+                if mode == "needs_human_choice"
+                or _has_unresolved_required_prompt(reviewer_prompts)
+                else "draft"
+            )
+        required_metrics = _coerce_required_metrics(
+            row.get("required_metrics") or row.get("required_data")
+        )
+        information_gaps = _string_list(
+            row.get("information_gaps") or row.get("gaps")
+        )
+        data_availability = _coerce_source_availability(
+            row.get("source_availability") or row.get("data_availability")
+        )
+        if data_availability == "missing" and not information_gaps:
+            information_gaps = _string_list(row.get("required_data"))[:8]
+        spec = {
+            "id": row_id,
+            "title": title,
+            "purpose": _clean_text(row.get("purpose"), limit=600)
+            or _clean_text(row.get("takeaway"), limit=600),
+            "takeaway": _clean_text(row.get("takeaway"), limit=700),
+            "recommended_visual_format": _clean_text(
+                row.get("recommended_visual_format") or row.get("visual_format"),
+                limit=120,
+            )
+            or "infographic",
+            "alternate_formats": _string_list(row.get("alternate_formats"))[:6],
+            "image_generation_mode": mode,
+            "text_overlay_plan": _coerce_text_overlay_plan(
+                row.get("text_overlay_plan"),
+                title=title,
+            ),
+            "required_metrics": required_metrics,
+            "source_availability": data_availability,
+            "data_availability": data_availability,
+            "source_traces": _normalize_source_traces(row.get("source_traces")),
+            "information_gaps": information_gaps[:10],
+            "data_payload": _coerce_data_payload(row.get("data_payload")),
+            "design_prompt": _coerce_design_prompt(
+                row.get("design_prompt"),
+                title=title,
+            ),
+            "owner": _clean_text(row.get("owner"), limit=120) or "Serena",
+            "diligence_needed": _string_list(row.get("diligence_needed"))[:8],
+            "memo_section_placement": _clean_text(
+                row.get("memo_section_placement") or row.get("memo_section"),
+                limit=120,
+            )
+            or "Investment Highlights",
+            "include_in_final_memo": _bool_value(
+                row.get("include_in_final_memo"),
+                default=True,
+            ),
+            "final_memo_inclusion_state": _clean_text(
+                row.get("final_memo_inclusion_state"),
+                limit=40,
+            )
+            or ("needs_review" if status == "needs_review" else "include"),
+            "reviewer_prompts": reviewer_prompts,
+            "status": status,
+            "confidence": _confidence(row.get("confidence")),
+        }
+        spec.update(_manual_chart_fields(previous_item, mode))
+        specs.append(spec)
+        if len(specs) >= 10:
+            break
+    if not specs:
+        for row in fallback.get("specs") or []:
+            enriched = dict(row)
+            enriched.setdefault("purpose", row.get("takeaway"))
+            enriched.setdefault("recommended_visual_format", "infographic")
+            enriched.setdefault("image_generation_mode", "no_text_overlay")
+            enriched.setdefault("source_availability", row.get("data_availability"))
+            enriched.setdefault("reviewer_prompts", [])
+            enriched.setdefault("confidence", "low")
+            specs.append(
+                _coerce_chart_specs(
+                    {"specs": [enriched]},
+                    company,
+                    artifacts,
+                    previous=previous,
+                )["specs"][0]
+            )
+    return {
+        "updated_at": _now(),
+        "summary": _clean_text(payload.get("summary"), limit=1200)
+        or "Infographic and chart plan for memo review.",
+        "generated_from_brief_id": _clean_text(
+            payload.get("generated_from_brief_id"),
+            limit=120,
+        )
+        or (
+            "infographic_source_brief"
+            if _infographic_source_brief_has_content(
+                artifacts.get("infographic_source_brief")
+            )
+            else None
+        ),
+        "specs": specs,
+        "reviewer_prompts": _coerce_reviewer_prompts(
+            payload.get("reviewer_prompts"),
+            prefix="chart-prompt",
+        ),
+        "confidence": _confidence(payload.get("confidence")),
+    }
+
+
+def _manual_narrative_fields(previous: dict | None) -> dict:
+    if not isinstance(previous, dict):
+        return {}
+    fields: dict[str, Any] = {}
+    for key in (
+        "manual_notes",
+        "reviewer_notes",
+        "reviewer_prompt_responses",
+    ):
+        if key in previous:
+            fields[key] = previous[key]
+    return fields
+
+
+def _coerce_hook_candidates(
+    rows: Any,
+    *,
+    fallback_rows: list[dict],
+    previous: Any,
+    key: str,
+    prefix: str,
+    purpose: str,
+) -> list[dict]:
+    source_rows = rows if isinstance(rows, list) else fallback_rows
+    previous_by_id, previous_by_title = _previous_items_by_key(previous, key)
+    out: list[dict] = []
+    for index, row in enumerate(source_rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        text = _clean_text(
+            row.get("text") or row.get("hook") or row.get("candidate"),
+            limit=1200,
+        )
+        if not text:
+            continue
+        row_id = _clean_text(row.get("id"), limit=80) or _stable_item_id(
+            prefix,
+            text,
+            index,
+        )
+        previous_item = _matching_previous_item(
+            previous_by_id,
+            previous_by_title,
+            row_id,
+            text,
+        )
+        reviewer_prompts = _coerce_reviewer_prompts(
+            row.get("reviewer_prompts"),
+            prefix=f"{row_id}-prompt",
+        )
+        status = _clean_text(row.get("status"), limit=60).lower()
+        if not status:
+            status = (
+                "needs_review"
+                if _has_unresolved_required_prompt(reviewer_prompts)
+                else "draft"
+            )
+        item = {
+            "id": row_id,
+            "text": text,
+            "purpose": _clean_text(row.get("purpose"), limit=200) or purpose,
+            "tone": _clean_text(row.get("tone"), limit=120) or "direct",
+            "supported_claims": _string_list(
+                row.get("supported_claims") or row.get("claims_supported")
+            )[:8],
+            "evidence_references": _string_list(
+                row.get("evidence_references") or row.get("source_references")
+            )[:10],
+            "source_traces": _normalize_source_traces(row.get("source_traces")),
+            "confidence": _confidence(row.get("confidence")),
+            "overclaiming_risk": _clean_text(
+                row.get("overclaiming_risk"),
+                limit=500,
+            )
+            or "Review for overclaiming before memo use.",
+            "paired_infographic_ids": _string_list(
+                row.get("paired_infographic_ids")
+                or row.get("paired_chart_ids")
+                or row.get("paired_visual_ids")
+            )[:8],
+            "reviewer_prompts": reviewer_prompts,
+            "status": status,
+        }
+        item.update(_manual_narrative_fields(previous_item))
+        out.append(item)
+        if len(out) >= 8:
+            break
+    return out
+
+
+def _selected_candidate_id(
+    previous: Any,
+    payload: dict,
+    key: str,
+    rows: list[dict],
+) -> str | None:
+    requested = _clean_text(payload.get(key), limit=80)
+    row_ids = {str(row.get("id")) for row in rows if row.get("id")}
+    if requested in row_ids:
+        return requested
+    if isinstance(previous, dict):
+        previous_id = _clean_text(previous.get(key), limit=80)
+        if previous_id in row_ids:
+            return previous_id
+    return rows[0].get("id") if rows else None
+
+
+def _coerce_narrative_hooks(
+    value: Any,
+    company: dict,
+    artifacts: dict,
+    *,
+    previous: Any = None,
+) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    fallback = _narrative_hooks(company, artifacts)
+    openings = _coerce_hook_candidates(
+        payload.get("openings"),
+        fallback_rows=fallback.get("openings") or [],
+        previous=previous,
+        key="openings",
+        prefix="opening",
+        purpose="opening",
+    )
+    transitions = _coerce_hook_candidates(
+        payload.get("transitions"),
+        fallback_rows=fallback.get("transitions") or [],
+        previous=previous,
+        key="transitions",
+        prefix="transition",
+        purpose="transition",
+    )
+    endings = _coerce_hook_candidates(
+        payload.get("endings") or payload.get("closings"),
+        fallback_rows=fallback.get("endings") or [],
+        previous=previous,
+        key="endings",
+        prefix="ending",
+        purpose="closing",
+    )
+    reviewer_prompts = _coerce_reviewer_prompts(
+        payload.get("reviewer_prompts"),
+        prefix="narrative-prompt",
+    )
+    status = _clean_text(payload.get("status"), limit=60).lower()
+    if not status:
+        status = (
+            "needs_review"
+            if _has_unresolved_required_prompt(reviewer_prompts)
+            else "draft"
+        )
+    return {
+        "updated_at": _now(),
+        "summary": _clean_text(payload.get("summary"), limit=1200)
+        or "Opening, transition, and closing hooks for memo review.",
+        "generated_from_brief_id": _clean_text(
+            payload.get("generated_from_brief_id"),
+            limit=120,
+        )
+        or (
+            "infographic_source_brief"
+            if _infographic_source_brief_has_content(
+                artifacts.get("infographic_source_brief")
+            )
+            else None
+        ),
+        "openings": openings,
+        "transitions": transitions,
+        "endings": endings,
+        "selected_opening_id": _selected_candidate_id(
+            previous,
+            payload,
+            "selected_opening_id",
+            openings,
+        ),
+        "selected_transition_id": _selected_candidate_id(
+            previous,
+            payload,
+            "selected_transition_id",
+            transitions,
+        ),
+        "selected_ending_id": _selected_candidate_id(
+            previous,
+            payload,
+            "selected_ending_id",
+            endings,
+        ),
+        "reviewer_prompts": reviewer_prompts,
+        "status": status,
+        "confidence": _confidence(payload.get("confidence")),
+    }
+
+
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    if not text:
+        return None
+    text = text.replace("%", "").replace("x", "").replace(",", "")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _normalize_source_traces(value: Any) -> list[dict]:
+    rows = value if isinstance(value, list) else []
+    traces: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        excerpt = _clean_text(row.get("excerpt"), limit=700)
+        if not excerpt:
+            continue
+        traces.append({
+            "title": _clean_text(row.get("title"), limit=160) or None,
+            "url": _clean_text(row.get("url"), limit=500) or None,
+            "locator": _clean_text(row.get("locator"), limit=160) or None,
+            "excerpt": excerpt,
+            "confidence": _confidence(row.get("confidence")),
+        })
+        if len(traces) >= 10:
+            break
+    return traces
+
+
+def _coerce_benchmark_dashboard(value: Any, company: dict) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    fallback = _benchmark_dashboard(company)
+    comps: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    rows = payload.get("public_comps")
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = _clean_text(row.get("company") or row.get("name"), limit=120)
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            comps.append({
+                "id": f"comp-{len(comps) + 1}",
+                "company": name,
+                "ticker": _clean_text(row.get("ticker"), limit=20) or None,
+                "why_relevant": _clean_text(
+                    row.get("why_relevant") or row.get("rationale"),
+                    limit=500,
+                ) or "Relevant public benchmark; verify comparability.",
+                "revenue_growth_pct": _number_or_none(row.get("revenue_growth_pct")),
+                "gross_margin_pct": _number_or_none(row.get("gross_margin_pct")),
+                "ev_revenue": _number_or_none(row.get("ev_revenue")),
+                "ev_ebitda": _number_or_none(row.get("ev_ebitda")),
+                "fcf_margin_pct": _number_or_none(row.get("fcf_margin_pct")),
+                "rule_of_40": _number_or_none(row.get("rule_of_40")),
+                "metric_period": _clean_text(row.get("metric_period"), limit=80) or None,
+                "sell_side_theme": _clean_text(row.get("sell_side_theme"), limit=500) or (
+                    "Theme requires filing, transcript, or sell-side verification."
+                ),
+                "source_traces": _normalize_source_traces(row.get("source_traces")),
+                "confidence": _confidence(row.get("confidence")),
+            })
+            if len(comps) >= 8:
+                break
+    if len(comps) < 3:
+        for row in fallback.get("public_comps") or []:
+            if len(comps) >= 3:
+                break
+            key = str(row.get("company") or "").strip().lower()
+            if not key or key in seen:
+                continue
+            item = copy.deepcopy(row)
+            item["id"] = f"comp-{len(comps) + 1}"
+            comps.append(item)
+            seen.add(key)
+    return {
+        "updated_at": _now(),
+        "summary": _clean_text(payload.get("summary"), limit=1000) or fallback["summary"],
+        "public_comps": comps,
+        "benchmark_gaps": _string_list(
+            payload.get("benchmark_gaps"),
+            fallback=fallback.get("benchmark_gaps") or [],
+        )[:10],
+        "must_prove": _string_list(
+            payload.get("must_prove"),
+            fallback=fallback.get("must_prove") or [],
+        )[:10],
+        "source_traces": _normalize_source_traces(payload.get("source_traces")),
+        "confidence": _confidence(payload.get("confidence")),
     }
 
 
@@ -2274,7 +4619,10 @@ def _benchmark_dashboard(company: dict) -> dict:
             "ev_revenue": None,
             "ev_ebitda": None,
             "fcf_margin_pct": None,
+            "rule_of_40": None,
+            "metric_period": None,
             "sell_side_theme": "To be filled from filings, earnings transcripts, and sell-side notes.",
+            "source_traces": [],
             "confidence": "low",
         })
     return {
@@ -2291,7 +4639,71 @@ def _benchmark_dashboard(company: dict) -> dict:
             "Margins and implementation burden do not require a lower multiple.",
             "Deployment depth supports public-comp treatment.",
         ],
+        "source_traces": [],
+        "confidence": "low",
     }
+
+
+def _memo_packet_evidence_summary(tasks: list[dict]) -> dict:
+    summary = {
+        "mixed_or_contradicted": [],
+        "missing": [],
+        "supported": [],
+    }
+    for task in tasks:
+        if not isinstance(task, dict) or task.get("status") != "done":
+            continue
+        claim = (
+            task.get("answer")
+            or task.get("result_summary")
+            or task.get("title")
+            or task.get("id")
+        )
+        claim = str(claim or "").strip()
+        if not claim:
+            continue
+        supporting = [
+            item for item in task.get("supporting_evidence") or []
+            if isinstance(item, dict) and item.get("excerpt")
+        ]
+        contradicting = [
+            item for item in task.get("contradicting_evidence") or []
+            if isinstance(item, dict) and item.get("excerpt")
+        ]
+        questions = [
+            str(item).strip()
+            for item in task.get("open_questions") or []
+            if str(item or "").strip()
+        ]
+        if supporting and contradicting:
+            status = "mixed"
+        elif contradicting:
+            status = "contradicted"
+        elif supporting:
+            status = "supported"
+        else:
+            status = "missing"
+        if status in {"mixed", "contradicted"}:
+            summary["mixed_or_contradicted"].append({
+                "claim": claim,
+                "status": status,
+                "supporting_count": len(supporting),
+                "contradicting_count": len(contradicting),
+            })
+        if questions or status == "missing":
+            summary["missing"].append({
+                "claim": claim,
+                "questions": questions,
+            })
+        if status == "supported":
+            evidence = supporting[0]
+            summary["supported"].append({
+                "claim": claim,
+                "locator": evidence.get("locator") or evidence.get("filename"),
+                "excerpt": evidence.get("excerpt"),
+                "confidence": evidence.get("confidence") or task.get("confidence"),
+            })
+    return summary
 
 
 def _refresh_memo_packet(session: dict) -> None:
@@ -2299,8 +4711,21 @@ def _refresh_memo_packet(session: dict) -> None:
     thesis = artifacts.get("thesis_spine") if isinstance(artifacts.get("thesis_spine"), dict) else {}
     risks = artifacts.get("strategic_risks") if isinstance(artifacts.get("strategic_risks"), dict) else {}
     research_tasks = artifacts.get("research_tasks") if isinstance(artifacts.get("research_tasks"), dict) else {}
+    source_brief = artifacts.get("infographic_source_brief") if isinstance(artifacts.get("infographic_source_brief"), dict) else {}
     chart_specs = artifacts.get("chart_specs") if isinstance(artifacts.get("chart_specs"), dict) else {}
     hooks = artifacts.get("narrative_hooks") if isinstance(artifacts.get("narrative_hooks"), dict) else {}
+    benchmark = artifacts.get("benchmark_dashboard") if isinstance(artifacts.get("benchmark_dashboard"), dict) else {}
+    readiness_reviews = _normalize_readiness_reviews(artifacts.get("readiness_reviews"))
+    excluded_chart_ids = {
+        str(item.get("id"))
+        for item in chart_specs.get("specs") or []
+        if isinstance(item, dict) and item.get("include_in_final_memo") is False
+    }
+    excluded_chart_titles = {
+        _slug_part(item.get("title"), fallback="")
+        for item in chart_specs.get("specs") or []
+        if isinstance(item, dict) and item.get("include_in_final_memo") is False
+    }
 
     def selected(items: list[dict], selected_id: str | None) -> dict | None:
         return next((item for item in items if item.get("id") == selected_id), None)
@@ -2312,6 +4737,10 @@ def _refresh_memo_packet(session: dict) -> None:
     selected_ending = selected(
         hooks.get("endings") or [],
         hooks.get("selected_ending_id"),
+    )
+    selected_transition = selected(
+        hooks.get("transitions") or [],
+        hooks.get("selected_transition_id"),
     )
 
     lines = [
@@ -2342,18 +4771,245 @@ def _refresh_memo_packet(session: dict) -> None:
             )
             if item.get("result_summary"):
                 lines.append(f"  - Result: {item.get('result_summary')}")
+                if item.get("confidence"):
+                    lines.append(f"  - Confidence: {item.get('confidence')}")
+                supporting = item.get("supporting_evidence") or []
+                if supporting:
+                    lines.append("  - Supporting evidence:")
+                    for evidence in supporting[:3]:
+                        locator = evidence.get("locator") or evidence.get("filename")
+                        prefix = f"{locator}: " if locator else ""
+                        lines.append(f"    - {prefix}{evidence.get('excerpt')}")
+                contradicting = item.get("contradicting_evidence") or []
+                if contradicting:
+                    lines.append("  - Contradicting evidence:")
+                    for evidence in contradicting[:3]:
+                        locator = evidence.get("locator") or evidence.get("filename")
+                        prefix = f"{locator}: " if locator else ""
+                        lines.append(f"    - {prefix}{evidence.get('excerpt')}")
+                open_questions = item.get("open_questions") or []
+                if open_questions:
+                    lines.append("  - Open questions:")
+                    for question in open_questions[:3]:
+                        lines.append(f"    - {question}")
             elif item.get("prompt"):
                 lines.append(f"  - Prompt: {item.get('prompt')}")
-    lines += ["", "## Chart Specs"]
+        evidence_summary = _memo_packet_evidence_summary(research_tasks.get("tasks") or [])
+        if any(evidence_summary.values()):
+            lines += ["", "## Evidence Matrix Summary"]
+            if evidence_summary["mixed_or_contradicted"]:
+                lines.append("- Mixed / contradicted claims:")
+                for item in evidence_summary["mixed_or_contradicted"][:5]:
+                    lines.append(
+                        "  - "
+                        f"**{item['claim']}** [{item['status']}] — "
+                        f"{item['supporting_count']} supporting / "
+                        f"{item['contradicting_count']} contradicting."
+                    )
+            if evidence_summary["missing"]:
+                lines.append("- Missing evidence / open questions:")
+                for item in evidence_summary["missing"][:5]:
+                    questions = item.get("questions") or []
+                    suffix = "; ".join(questions[:3]) if questions else "No source-backed evidence yet."
+                    lines.append(f"  - **{item['claim']}** — {suffix}")
+            if evidence_summary["supported"]:
+                lines.append("- Strongest source-backed support:")
+                for item in evidence_summary["supported"][:5]:
+                    locator = f"{item.get('locator')}: " if item.get("locator") else ""
+                    confidence = f" ({item.get('confidence')})" if item.get("confidence") else ""
+                    lines.append(
+                        f"  - **{item['claim']}** — {locator}{item.get('excerpt')}{confidence}"
+                    )
+    if _infographic_source_brief_has_content(source_brief):
+        lines += ["", "## Infographic Source Brief"]
+        if source_brief.get("summary"):
+            lines.append(f"- Summary: {source_brief.get('summary')}")
+        if source_brief.get("compact_claims"):
+            lines.append("- Compact claims:")
+            for claim in (source_brief.get("compact_claims") or [])[:8]:
+                warning = (
+                    " [do not visualize as fact]"
+                    if claim.get("prohibited_for_visuals")
+                    else ""
+                )
+                lines.append(
+                    "  - "
+                    f"**{claim.get('claim')}** "
+                    f"[{claim.get('evidence_status') or 'needs_review'}; "
+                    f"{claim.get('confidence') or 'medium'}]{warning}"
+                )
+                for trace in (claim.get("source_traces") or [])[:2]:
+                    locator = trace.get("locator") or trace.get("title") or trace.get("url")
+                    prefix = f"{locator}: " if locator else ""
+                    lines.append(f"    - {prefix}{trace.get('excerpt')}")
+        if source_brief.get("numeric_metrics"):
+            lines.append("- Numeric metrics:")
+            for metric in (source_brief.get("numeric_metrics") or [])[:10]:
+                unit = metric.get("unit") or ""
+                period = f" ({metric.get('period')})" if metric.get("period") else ""
+                lines.append(
+                    "  - "
+                    f"{metric.get('label')}: {metric.get('value')}{unit}{period} "
+                    f"[{metric.get('confidence') or 'medium'}]"
+                )
+        if source_brief.get("contradictions"):
+            lines.append("- Contradictions / mixed evidence:")
+            for item in (source_brief.get("contradictions") or [])[:8]:
+                lines.append(f"  - {item}")
+        if source_brief.get("missing_evidence"):
+            lines.append("- Missing evidence:")
+            for item in (source_brief.get("missing_evidence") or [])[:8]:
+                lines.append(f"  - {item}")
+        if source_brief.get("no_go_claims"):
+            lines.append("- No-go / prohibited visual claims:")
+            for item in (source_brief.get("no_go_claims") or [])[:8]:
+                lines.append(f"  - {item}")
+        if source_brief.get("visual_opportunities"):
+            lines.append("- Visual opportunities:")
+            for item in (source_brief.get("visual_opportunities") or [])[:6]:
+                item_id = str(item.get("id") or "")
+                title_key = _slug_part(item.get("title"), fallback="")
+                if item_id in excluded_chart_ids or title_key in excluded_chart_titles:
+                    continue
+                lines.append(
+                    f"  - **{item.get('title')}** — {item.get('rationale')}"
+                )
+        source_traces = source_brief.get("source_traces") or []
+        if source_traces:
+            lines.append("- Source-trace notes:")
+            for trace in source_traces[:8]:
+                locator = trace.get("locator") or trace.get("title") or trace.get("url")
+                prefix = f"{locator}: " if locator else ""
+                lines.append(f"  - {prefix}{trace.get('excerpt')}")
+    if benchmark.get("public_comps"):
+        lines += ["", "## Private Benchmark Dashboard"]
+        if benchmark.get("summary"):
+            lines.append(f"- Summary: {benchmark.get('summary')}")
+        lines += [
+            "",
+            "| Company | Ticker | Growth % | Gross Margin % | EV/Revenue | EV/EBITDA | FCF Margin % | Rule of 40 | Period | Confidence |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        ]
+        for comp in benchmark.get("public_comps") or []:
+            lines.append(
+                "| "
+                f"{comp.get('company') or ''} | "
+                f"{comp.get('ticker') or ''} | "
+                f"{comp.get('revenue_growth_pct') if comp.get('revenue_growth_pct') is not None else ''} | "
+                f"{comp.get('gross_margin_pct') if comp.get('gross_margin_pct') is not None else ''} | "
+                f"{comp.get('ev_revenue') if comp.get('ev_revenue') is not None else ''} | "
+                f"{comp.get('ev_ebitda') if comp.get('ev_ebitda') is not None else ''} | "
+                f"{comp.get('fcf_margin_pct') if comp.get('fcf_margin_pct') is not None else ''} | "
+                f"{comp.get('rule_of_40') if comp.get('rule_of_40') is not None else ''} | "
+                f"{comp.get('metric_period') or ''} | "
+                f"{comp.get('confidence') or ''} |"
+            )
+        if benchmark.get("benchmark_gaps"):
+            lines += ["", "- Benchmark gaps:"]
+            for gap in benchmark.get("benchmark_gaps") or []:
+                lines.append(f"  - {gap}")
+        if benchmark.get("must_prove"):
+            lines += ["", "- Must-prove claims:"]
+            for claim in benchmark.get("must_prove") or []:
+                lines.append(f"  - {claim}")
+        source_traces = list(benchmark.get("source_traces") or [])
+        for comp in benchmark.get("public_comps") or []:
+            source_traces.extend(comp.get("source_traces") or [])
+        if source_traces:
+            lines += ["", "- Source-trace notes:"]
+            for trace in source_traces[:8]:
+                locator = trace.get("locator") or trace.get("title") or trace.get("url")
+                prefix = f"{locator}: " if locator else ""
+                lines.append(f"  - {prefix}{trace.get('excerpt')}")
+    review_items = [
+        item for item in readiness_reviews.get("items") or []
+        if item.get("status") in {"reviewed", "waived"}
+    ]
+    if review_items:
+        lines += ["", "## Readiness Reviews And Waivers"]
+        for item in review_items:
+            lines.append(
+                f"- **{item.get('id')}** [{item.get('status')}] — "
+                f"{item.get('rationale') or 'No rationale recorded.'}"
+            )
+    lines += ["", "## Selected Infographic Plans"]
     for item in chart_specs.get("specs") or []:
         if item.get("include_in_final_memo"):
-            lines.append(f"- {item.get('title')}: {item.get('takeaway')}")
-    if selected_opening or selected_ending:
+            mode = item.get("image_generation_mode") or "no_text_overlay"
+            visual_format = item.get("recommended_visual_format") or "infographic"
+            status = item.get("status") or "draft"
+            lines.append(
+                f"- **{item.get('title')}** [{visual_format}; {mode}; {status}]"
+            )
+            if item.get("purpose") or item.get("takeaway"):
+                lines.append(
+                    f"  - Purpose: {item.get('purpose') or item.get('takeaway')}"
+                )
+            overlay = item.get("text_overlay_plan") or {}
+            if overlay:
+                lines.append(
+                    "  - Overlay copy: "
+                    f"{overlay.get('headline') or item.get('title')}"
+                )
+                for callout in (overlay.get("callouts") or [])[:4]:
+                    lines.append(f"    - Callout: {callout}")
+                for footnote in (overlay.get("footnotes") or [])[:3]:
+                    lines.append(f"    - Footnote: {footnote}")
+            if item.get("required_metrics"):
+                lines.append("  - Required metrics:")
+                for metric in (item.get("required_metrics") or [])[:6]:
+                    available = "available" if metric.get("source_available") else "source_needed"
+                    value = metric.get("value")
+                    value_text = f" = {value}" if value not in (None, "") else ""
+                    unit = metric.get("unit") or ""
+                    lines.append(
+                        f"    - {metric.get('label')}{value_text}{unit} [{available}]"
+                    )
+            if item.get("information_gaps"):
+                lines.append("  - Information gaps:")
+                for gap in (item.get("information_gaps") or [])[:5]:
+                    lines.append(f"    - {gap}")
+            design_prompt = item.get("design_prompt") or {}
+            if design_prompt.get("composition"):
+                lines.append(f"  - Design prompt: {design_prompt.get('composition')}")
+            for claim in (design_prompt.get("prohibited_claims") or [])[:5]:
+                lines.append(f"    - Prohibited claim: {claim}")
+            source_traces = list(item.get("source_traces") or [])
+            for metric in item.get("required_metrics") or []:
+                source_traces.extend(metric.get("source_traces") or [])
+            if source_traces:
+                lines.append("  - Source traces:")
+                for trace in source_traces[:5]:
+                    locator = trace.get("locator") or trace.get("title") or trace.get("url")
+                    prefix = f"{locator}: " if locator else ""
+                    lines.append(f"    - {prefix}{trace.get('excerpt')}")
+            if item.get("reviewer_prompts"):
+                lines.append("  - Reviewer prompts:")
+                for prompt in (item.get("reviewer_prompts") or [])[:4]:
+                    choice = prompt.get("resolved_choice") or "unresolved"
+                    lines.append(f"    - {prompt.get('prompt')} [{choice}]")
+    if selected_opening or selected_transition or selected_ending:
         lines += ["", "## Selected Narrative Hooks"]
         if selected_opening:
             lines.append(f"- Opening: {selected_opening.get('text')}")
+            if selected_opening.get("overclaiming_risk"):
+                lines.append(
+                    f"  - Overclaiming risk: {selected_opening.get('overclaiming_risk')}"
+                )
+        if selected_transition:
+            lines.append(f"- Transition: {selected_transition.get('text')}")
         if selected_ending:
             lines.append(f"- Ending: {selected_ending.get('text')}")
+            if selected_ending.get("overclaiming_risk"):
+                lines.append(
+                    f"  - Overclaiming risk: {selected_ending.get('overclaiming_risk')}"
+                )
+        narrative_prompts = hooks.get("reviewer_prompts") or []
+        if narrative_prompts:
+            lines.append("- Narrative reviewer prompts:")
+            for prompt in narrative_prompts[:5]:
+                choice = prompt.get("resolved_choice") or "unresolved"
+                lines.append(f"  - {prompt.get('prompt')} [{choice}]")
     artifacts["memo_packet"] = "\n".join(lines).strip() + "\n"
 
 
@@ -2364,6 +5020,7 @@ def _strip_decorations(session: dict) -> dict:
             "tools",
             "readiness",
             "additional_areas",
+            "completed_memo_runs",
             "has_unapproved_work",
             "regular_memo_warning",
         }
@@ -2378,6 +5035,400 @@ def _artifact_has_content(value: Any) -> bool:
     return value is not None
 
 
+_MEMO_CATALOG_SOURCE_KEYS = {
+    "source_traces",
+    "source_refs",
+    "supporting_evidence",
+    "contradicting_evidence",
+}
+
+
+def _memo_catalog_source_trace_count(value: Any) -> int:
+    count = 0
+    if isinstance(value, dict):
+        for key in _MEMO_CATALOG_SOURCE_KEYS:
+            raw = value.get(key)
+            if isinstance(raw, list):
+                count += sum(1 for item in raw if isinstance(item, dict))
+        for child in value.values():
+            count += _memo_catalog_source_trace_count(child)
+    elif isinstance(value, list):
+        for item in value:
+            count += _memo_catalog_source_trace_count(item)
+    return count
+
+
+def _memo_catalog_source_refs(value: Any, *, limit: int = 12) -> list[dict]:
+    refs: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add_ref(row: dict) -> None:
+        if len(refs) >= limit:
+            return
+        title = str(
+            row.get("title")
+            or row.get("filename")
+            or row.get("source_title")
+            or row.get("source")
+            or row.get("file_id")
+            or row.get("url")
+            or ""
+        ).strip()
+        locator = str(row.get("locator") or row.get("page") or "").strip()
+        excerpt = str(row.get("excerpt") or row.get("quote") or "").strip()
+        if not title and not locator and not excerpt:
+            return
+        key = (title, locator, excerpt[:120])
+        if key in seen:
+            return
+        seen.add(key)
+        ref = {
+            "title": title or "Source trace",
+            "locator": locator,
+            "excerpt": excerpt,
+            "confidence": row.get("confidence"),
+        }
+        if row.get("file_id"):
+            ref["file_id"] = row.get("file_id")
+        if row.get("url"):
+            ref["url"] = row.get("url")
+        refs.append(ref)
+
+    def walk(node: Any) -> None:
+        if len(refs) >= limit:
+            return
+        if isinstance(node, dict):
+            for key in _MEMO_CATALOG_SOURCE_KEYS:
+                raw = node.get(key)
+                if isinstance(raw, list):
+                    for item in raw:
+                        if isinstance(item, dict):
+                            add_ref(item)
+                        if len(refs) >= limit:
+                            return
+            for child in node.values():
+                walk(child)
+                if len(refs) >= limit:
+                    return
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+                if len(refs) >= limit:
+                    return
+
+    walk(value)
+    return refs
+
+
+def _memo_catalog_updated_at(value: Any, fallback: Any = None) -> Any:
+    if isinstance(value, dict):
+        for key in (
+            "updated_at",
+            "completed_at",
+            "last_run_at",
+            "generated_at",
+            "created_at",
+        ):
+            if value.get(key):
+                return value.get(key)
+    return fallback
+
+
+def _memo_catalog_generated_by(value: Any) -> str | None:
+    if isinstance(value, dict):
+        generated_by = value.get("generated_by") or value.get("result_generated_by")
+        if generated_by:
+            return str(generated_by)
+    return None
+
+
+def _memo_catalog_confidence(value: Any) -> str | None:
+    if isinstance(value, dict) and value.get("confidence"):
+        return str(value.get("confidence"))
+    return None
+
+
+def _memo_catalog_review_state(session: dict, value: Any = None) -> str:
+    if session.get("approved_for_memo"):
+        return "approved"
+    if isinstance(value, dict):
+        state = str(
+            value.get("review_state")
+            or value.get("final_memo_inclusion_state")
+            or ""
+        ).strip()
+        if state:
+            return state
+    return "needs_review" if _artifact_has_content(value) else "missing"
+
+
+def _memo_catalog_status(session: dict, value: Any = None) -> str:
+    if not _artifact_has_content(value):
+        return "missing"
+    if isinstance(value, dict):
+        raw_status = str(value.get("status") or "").strip().lower()
+        if raw_status in {"running"}:
+            return "running"
+        if raw_status in {"error", "failed"}:
+            return "failed"
+        if raw_status in {"complete", "completed", "published"}:
+            return "published"
+    if session.get("approved_for_memo"):
+        return "approved"
+    return "needs_review"
+
+
+def _memo_catalog_row(
+    session: dict,
+    *,
+    artifact_id: str,
+    artifact_type: str,
+    title: str,
+    value: Any = None,
+    location: str | None = None,
+    export_paths: list[str] | None = None,
+    notes: str = "",
+    status: str | None = None,
+    updated_at: Any = None,
+    created_at: Any = None,
+) -> dict:
+    source_refs = _memo_catalog_source_refs(value)
+    return {
+        "artifact_id": artifact_id,
+        "artifact_type": artifact_type,
+        "title": title,
+        "status": status or _memo_catalog_status(session, value),
+        "version": 1,
+        "created_at": created_at or session.get("created_at"),
+        "updated_at": updated_at or _memo_catalog_updated_at(
+            value,
+            session.get("updated_at"),
+        ),
+        "generated_by": _memo_catalog_generated_by(value),
+        "reviewer": None,
+        "source_refs": source_refs,
+        "source_trace_count": _memo_catalog_source_trace_count(value),
+        "confidence": _memo_catalog_confidence(value),
+        "review_state": _memo_catalog_review_state(session, value),
+        "supersedes": None,
+        "superseded_by": None,
+        "pinned": False,
+        "archived": False,
+        "export_paths": export_paths or [],
+        "location": location,
+        "notes": notes,
+    }
+
+
+def _memo_work_product_catalog(session: dict) -> dict:
+    company_id = _safe_id(str(session.get("company_id") or ""))
+    session_id = _safe_id(str(session.get("id") or ""))
+    analysis_prefix = f"data/serena_analysis/{company_id}/{session_id}/"
+    artifacts = session.get("artifacts") if isinstance(session.get("artifacts"), dict) else {}
+    work_products: list[dict] = [
+        _memo_catalog_row(
+            session,
+            artifact_id=f"analysis_session:{session_id}",
+            artifact_type="analysis_session",
+            title=f"Memo Analysis Session {session_id}",
+            value=session,
+            location=analysis_prefix,
+            notes="Current Memo Studio session metadata and readiness state.",
+        )
+    ]
+
+    artifact_specs = [
+        ("strategic_risks", "risk_map", "Strategic Risk Map", "strategic_risks.yaml"),
+        ("risk_priorities", "risk_priorities", "Risk Priority Harness", "risk_priorities.yaml"),
+        ("thesis_spine", "thesis_spine", "Thesis Spine", "thesis_spine.yaml"),
+        (
+            "benchmark_dashboard",
+            "benchmark_dashboard",
+            "Private Benchmark Dashboard",
+            "benchmark_dashboard.yaml",
+        ),
+        (
+            "infographic_source_brief",
+            "infographic_source_brief",
+            "Infographic Source Brief",
+            "infographic_source_brief.yaml",
+        ),
+        ("chart_specs", "chart_specs", "Chart And Infographic Plans", "chart_specs.yaml"),
+        ("narrative_hooks", "narrative_hooks", "Narrative Hooks", "narrative_hooks.yaml"),
+        ("memo_grader", "memo_grader", "Memo Grader Output", "memo_grader.yaml"),
+        (
+            "readiness_reviews",
+            "readiness_reviews",
+            "Readiness Reviews And Waivers",
+            "readiness_reviews.yaml",
+        ),
+    ]
+    for key, artifact_type, title, filename in artifact_specs:
+        work_products.append(
+            _memo_catalog_row(
+                session,
+                artifact_id=key,
+                artifact_type=artifact_type,
+                title=title,
+                value=artifacts.get(key),
+                location=f"{analysis_prefix}{filename}",
+            )
+        )
+
+    tasks_value = artifacts.get("research_tasks")
+    work_products.append(
+        _memo_catalog_row(
+            session,
+            artifact_id="research_tasks",
+            artifact_type="research_task_catalog",
+            title="Research Task Catalog",
+            value=tasks_value,
+            location=f"{analysis_prefix}research_tasks.yaml",
+        )
+    )
+    task_rows = (
+        tasks_value.get("tasks")
+        if isinstance(tasks_value, dict) and isinstance(tasks_value.get("tasks"), list)
+        else []
+    )
+    for task in task_rows:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            continue
+        work_products.append(
+            _memo_catalog_row(
+                session,
+                artifact_id=f"research_task:{task_id}",
+                artifact_type="research_task_result",
+                title=str(task.get("title") or task_id),
+                value=task,
+                location=f"{analysis_prefix}research_tasks.yaml#{task_id}",
+                notes=str(task.get("result_summary") or task.get("answer") or ""),
+            )
+        )
+
+    memo_packet = artifacts.get("memo_packet")
+    work_products.append(
+        _memo_catalog_row(
+            session,
+            artifact_id="memo_packet",
+            artifact_type="memo_packet",
+            title="Memo Packet",
+            value=memo_packet,
+            location=f"{analysis_prefix}memo_packet.md",
+            export_paths=[f"{analysis_prefix}memo_packet.md"] if memo_packet else [],
+        )
+    )
+
+    work_products.append(
+        _memo_catalog_row(
+            session,
+            artifact_id="evidence_matrix:current",
+            artifact_type="evidence_matrix",
+            title="Evidence Matrix",
+            value=tasks_value,
+            location=f"/api/companies/{company_id}/evidence-matrix",
+            notes="Derived from research-file summaries and Memo Studio research-task evidence.",
+        )
+    )
+
+    lessons_path = memo_lessons_path(company_id)
+    lessons_value = ""
+    if lessons_path.exists():
+        try:
+            lessons_value = lessons_path.read_text(encoding="utf-8")
+        except OSError:
+            lessons_value = ""
+    work_products.append(
+        _memo_catalog_row(
+            session,
+            artifact_id="memo_lessons",
+            artifact_type="memo_lessons",
+            title="Memo Lessons File",
+            value=lessons_value,
+            location=f"data/serena_training/{company_id}/serena_memo_lessons.md",
+            export_paths=(
+                [f"data/serena_training/{company_id}/serena_memo_lessons.md"]
+                if lessons_value
+                else []
+            ),
+            notes="Derived learning loop for future Memo Studio runs.",
+        )
+    )
+
+    for report in session.get("completed_memo_runs") or []:
+        if not isinstance(report, dict):
+            continue
+        report_id = str(report.get("id") or report.get("run_id") or "").strip()
+        if not report_id:
+            continue
+        memo_files = [
+            str(row.get("path"))
+            for row in report.get("memo_files") or []
+            if isinstance(row, dict) and row.get("path")
+        ]
+        work_products.append(
+            _memo_catalog_row(
+                session,
+                artifact_id=f"generated_memo:{report_id}",
+                artifact_type="generated_memo",
+                title=f"Generated Memo {report.get('run_id') or report_id}",
+                value=report,
+                location=str(report.get("run_dir") or ""),
+                export_paths=memo_files,
+                status="published",
+                created_at=report.get("created_at") or session.get("created_at"),
+                updated_at=report.get("updated_at") or report.get("created_at"),
+                notes="Completed final memo output linked back to Memo Studio.",
+            )
+        )
+
+    source_boundaries = [
+        {
+            "id": "research_library",
+            "label": "Research Library",
+            "path": f"data/research/{company_id}/",
+            "status": "included",
+            "scope": "source_input",
+            "notes": "Analyst-curated research files are available to Memo Studio.",
+        },
+        {
+            "id": "memo_analysis_session",
+            "label": "Memo Studio Session",
+            "path": analysis_prefix,
+            "status": "included",
+            "scope": "derived_work",
+            "notes": "Memo Studio artifacts, packet, and progress logs live here.",
+        },
+        {
+            "id": "document_library_uploads",
+            "label": "Document Library Uploads",
+            "path": f"data/uploads/{company_id}/",
+            "status": "excluded",
+            "scope": "out_of_scope",
+            "notes": "Legacy document-library uploads are not memo-analysis inputs.",
+        },
+        {
+            "id": "stock_research",
+            "label": "Stock Research Workspace",
+            "path": "data/stock_research/",
+            "status": "excluded",
+            "scope": "separate_workflow",
+            "notes": "Public-equity tracker artifacts are not imported implicitly.",
+        },
+    ]
+
+    return {
+        "company_id": company_id,
+        "session_id": session_id,
+        "generated_at": _now(),
+        "work_products": work_products,
+        "source_boundaries": source_boundaries,
+    }
+
+
 def _has_unapproved_work(session: dict | None) -> bool:
     if not session or session.get("approved_for_memo"):
         return False
@@ -2390,6 +5441,103 @@ def _has_unapproved_work(session: dict | None) -> bool:
     )
 
 
+def _normalize_readiness_review_row(row: Any) -> dict | None:
+    if not isinstance(row, dict):
+        return None
+    item_id = str(row.get("id") or "").strip()
+    if not item_id:
+        return None
+    status = str(row.get("status") or "open").strip().lower()
+    if status not in _READINESS_REVIEW_STATUSES:
+        status = "open"
+    return {
+        "id": item_id,
+        "status": status,
+        "rationale": str(row.get("rationale") or "").strip(),
+        "reviewed_at": row.get("reviewed_at"),
+    }
+
+
+def _normalize_readiness_reviews(value: Any) -> dict:
+    if isinstance(value, dict):
+        raw_items = value.get("items")
+        updated_at = value.get("updated_at")
+    elif isinstance(value, list):
+        raw_items = value
+        updated_at = None
+    else:
+        raw_items = []
+        updated_at = None
+    items_by_id: dict[str, dict] = {}
+    for row in raw_items if isinstance(raw_items, list) else []:
+        normalized = _normalize_readiness_review_row(row)
+        if normalized is None:
+            continue
+        items_by_id[normalized["id"]] = normalized
+    return {
+        "updated_at": updated_at,
+        "items": list(items_by_id.values()),
+    }
+
+
+def _readiness_review_map(session: dict) -> dict[str, dict]:
+    artifacts = session.get("artifacts") or {}
+    reviews = _normalize_readiness_reviews(artifacts.get("readiness_reviews"))
+    return {
+        str(row.get("id")): row
+        for row in reviews.get("items") or []
+        if isinstance(row, dict) and row.get("id")
+    }
+
+
+def _merge_readiness_reviews(current: Any, patch: Any) -> dict:
+    current_rows = {
+        row["id"]: row
+        for row in _normalize_readiness_reviews(current).get("items", [])
+    }
+    incoming = _normalize_readiness_reviews(patch)
+    now = _now()
+    for row in incoming.get("items", []):
+        existing = current_rows.get(row["id"], {})
+        merged = {**existing, **row}
+        if row.get("status") in {"reviewed", "waived"} and not row.get("reviewed_at"):
+            merged["reviewed_at"] = now
+        if row.get("status") == "open" and not row.get("reviewed_at"):
+            merged["reviewed_at"] = now
+        current_rows[row["id"]] = merged
+    return {
+        "updated_at": now,
+        "items": sorted(current_rows.values(), key=lambda item: item.get("id") or ""),
+    }
+
+
+def _apply_readiness_reviews(
+    additional: list[dict],
+    reviews_by_id: dict[str, dict],
+) -> list[dict]:
+    decorated: list[dict] = []
+    for area in additional:
+        item = dict(area)
+        review = reviews_by_id.get(str(item.get("id") or ""))
+        if review:
+            item["status"] = review.get("status") or "open"
+            item["rationale"] = review.get("rationale") or ""
+            item["reviewed_at"] = review.get("reviewed_at")
+        else:
+            item.setdefault("status", "open")
+        decorated.append(item)
+    return decorated
+
+
+def _readiness_area_blocks_approval(area: dict) -> bool:
+    status = str(area.get("status") or "open").strip().lower()
+    if status == "open":
+        return True
+    if status in {"reviewed", "waived"}:
+        return not bool(str(area.get("rationale") or "").strip())
+    return True
+
+
 def _decorate(session: dict) -> dict:
     session = dict(session)
     session.setdefault("tool_runs", {})
@@ -2398,6 +5546,7 @@ def _decorate(session: dict) -> dict:
     readiness, additional = _readiness(session)
     session["readiness"] = readiness
     session["additional_areas"] = additional
+    session["completed_memo_runs"] = completed_memo_runs(str(session.get("company_id") or ""))
     session["has_unapproved_work"] = _has_unapproved_work(session)
     session["regular_memo_warning"] = (
         {
@@ -2434,8 +5583,29 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
     risks = artifacts.get("strategic_risks") if isinstance(artifacts.get("strategic_risks"), dict) else {}
     priorities = artifacts.get("risk_priorities") if isinstance(artifacts.get("risk_priorities"), dict) else {}
     thesis = artifacts.get("thesis_spine") if isinstance(artifacts.get("thesis_spine"), dict) else {}
+    source_brief = artifacts.get("infographic_source_brief") if isinstance(artifacts.get("infographic_source_brief"), dict) else {}
     charts = artifacts.get("chart_specs") if isinstance(artifacts.get("chart_specs"), dict) else {}
+    hooks = artifacts.get("narrative_hooks") if isinstance(artifacts.get("narrative_hooks"), dict) else {}
     benchmark = artifacts.get("benchmark_dashboard") if isinstance(artifacts.get("benchmark_dashboard"), dict) else {}
+    research_tasks = artifacts.get("research_tasks") if isinstance(artifacts.get("research_tasks"), dict) else {}
+    task_rows = research_tasks.get("tasks") if isinstance(research_tasks, dict) else []
+    task_rows = task_rows if isinstance(task_rows, list) else []
+    completed_task_results = [
+        task for task in task_rows
+        if isinstance(task, dict)
+        and task.get("status") == "done"
+        and (task.get("answer") or task.get("result_summary"))
+    ]
+    task_evidence_count = sum(
+        len(task.get("supporting_evidence") or [])
+        + len(task.get("contradicting_evidence") or [])
+        for task in completed_task_results
+    )
+    task_open_question_count = sum(
+        len(task.get("open_questions") or [])
+        for task in completed_task_results
+    )
+    reviews_by_id = _readiness_review_map(session)
 
     gates = [
         ("strategic_risks", "Strategic risks generated", bool(risks.get("risks"))),
@@ -2444,21 +5614,50 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         ("highlights", "3-5 Investment Highlights drafted", 3 <= len(thesis.get("investment_highlights") or []) <= 5),
         ("memo_risks", "3-5 Investment Risks drafted", 3 <= len(thesis.get("investment_risks") or []) <= 5),
         ("gating_questions", "Top 3 gating questions selected", len(thesis.get("top_gating_questions") or []) >= 3),
+        ("infographic_source_brief", "Infographic source brief reviewed", _infographic_source_brief_has_content(source_brief)),
         ("chart_specs", "Chart/table plan reviewed", bool(charts.get("specs"))),
         ("benchmark", "Benchmark dashboard reviewed", bool(benchmark.get("public_comps"))),
         ("approved", "Final memo generation approved", bool(session.get("approved_for_memo"))),
     ]
+    if completed_task_results:
+        gates.extend([
+            (
+                "research_task_results",
+                "Completed research-task results reviewed",
+                all(task.get("status") == "done" for task in completed_task_results),
+            ),
+            (
+                "research_task_evidence",
+                "Research-task evidence captured",
+                task_evidence_count > 0,
+            ),
+        ])
     completed = sum(1 for _, _, ok in gates if ok)
-    readiness = {
-        "score": completed,
-        "total": len(gates),
-        "pct": completed / len(gates) if gates else 0,
-        "ready_for_memo": completed == len(gates),
-        "gates": [
-            {"id": gid, "label": label, "status": "done" if ok else "missing"}
-            for gid, label, ok in gates
-        ],
+    gate_rows = [
+        {"id": gid, "label": label, "status": "done" if ok else "missing"}
+        for gid, label, ok in gates
+    ]
+    required_gate_blockers = [
+        {
+            "id": gid,
+            "kind": "required_gate",
+            "label": label,
+            "severity": (
+                "high"
+                if gid in {"strategic_risks", "thesis_spine", "gating_questions"}
+                else "medium"
+            ),
+            "reason": "Complete this required readiness gate before approval.",
+        }
+        for gid, label, ok in gates
+        if gid != "approved" and not ok
+    ]
+    missing_required_gate_ids = {
+        str(item.get("id"))
+        for item in required_gate_blockers
+        if item.get("id")
     }
+
     additional = [
         {
             "id": gid,
@@ -2467,7 +5666,7 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
             "why_it_matters": "This must be addressed or explicitly waived before final memo generation.",
             "status": "open",
         }
-        for gid, label, ok in gates if not ok
+        for gid, label, ok in gates if gid != "approved" and not ok
     ]
 
     for spec in charts.get("specs") or []:
@@ -2479,4 +5678,77 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
                 "why_it_matters": spec.get("takeaway"),
                 "status": "open",
             })
+        for prompt in spec.get("reviewer_prompts") or []:
+            if prompt.get("required") and not prompt.get("resolved_choice"):
+                additional.append({
+                    "id": f"infographic-choice-{spec.get('id')}-{prompt.get('id')}",
+                    "severity": "medium",
+                    "area": f"Infographic choice needed: {spec.get('title')}",
+                    "why_it_matters": prompt.get("prompt"),
+                    "status": "open",
+                })
+    for prompt in source_brief.get("reviewer_prompts") or []:
+        if prompt.get("required") and not prompt.get("resolved_choice"):
+            additional.append({
+                "id": f"source-brief-choice-{prompt.get('id')}",
+                "severity": "medium",
+                "area": "Source brief reviewer choice needed",
+                "why_it_matters": prompt.get("prompt"),
+                "status": "open",
+            })
+    for prompt in hooks.get("reviewer_prompts") or []:
+        if prompt.get("required") and not prompt.get("resolved_choice"):
+            additional.append({
+                "id": f"narrative-choice-{prompt.get('id')}",
+                "severity": "medium",
+                "area": "Narrative reviewer choice needed",
+                "why_it_matters": prompt.get("prompt"),
+                "status": "open",
+            })
+    for task in completed_task_results:
+        task_id = task.get("id") or "research-task"
+        title = task.get("title") or task_id
+        if not (task.get("supporting_evidence") or task.get("contradicting_evidence")):
+            additional.append({
+                "id": f"research-evidence-gap-{task_id}",
+                "severity": "medium",
+                "area": f"Research evidence incomplete: {title}",
+                "why_it_matters": (
+                    "Completed research-task results need source-backed "
+                    "supporting or contradicting evidence before final memo generation."
+                ),
+                "status": "open",
+            })
+        for index, question in enumerate(task.get("open_questions") or [], start=1):
+            additional.append({
+                "id": f"research-open-question-{task_id}-{index}",
+                "severity": "high",
+                "area": f"Open research question: {title}",
+                "why_it_matters": str(question),
+                "status": "open",
+            })
+    additional = _apply_readiness_reviews(additional, reviews_by_id)
+    additional_blockers = [
+        {
+            "id": area.get("id"),
+            "kind": "additional_area",
+            "label": area.get("area") or area.get("id"),
+            "severity": area.get("severity") or "medium",
+            "reason": area.get("why_it_matters") or "Resolve or waive this area.",
+        }
+        for area in additional
+        if area.get("id") not in missing_required_gate_ids
+        and _readiness_area_blocks_approval(area)
+    ]
+    approval_blockers = [*required_gate_blockers, *additional_blockers]
+    ready_for_approval = not approval_blockers
+    readiness = {
+        "score": completed,
+        "total": len(gates),
+        "pct": completed / len(gates) if gates else 0,
+        "ready_for_approval": ready_for_approval,
+        "approval_blockers": approval_blockers,
+        "ready_for_memo": bool(session.get("approved_for_memo")) and ready_for_approval,
+        "gates": gate_rows,
+    }
     return readiness, additional

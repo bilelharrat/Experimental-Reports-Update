@@ -1883,6 +1883,7 @@ def _build_investment_memo_prompt(
     memo_paths: dict[str, str],
     research_dir: Path | None = None,
     analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
 ) -> str:
@@ -1961,12 +1962,30 @@ folder before drafting the memo:
   `{analysis_session_path}`
 
 Start with `memo_packet.md`, then use the YAML artifacts as needed:
-strategic risks, risk priorities, research tasks, thesis spine, chart
-specs, narrative hooks, and benchmark dashboard. Treat the approved
-thesis spine as the memo's authorship layer: the final memo structure
-still follows the skill, but Investment Highlights, Investment Risks,
-Top 3 Gating Questions, chart choices, and opening/ending framing should
-come from this packet unless the evidence directly contradicts it.
+strategic risks, risk priorities, research tasks, thesis spine,
+infographic source brief, chart/infographic plans, narrative hooks, and
+benchmark dashboard. Treat the approved thesis spine as the memo's
+authorship layer: the final memo structure still follows the skill, but
+Investment Highlights, Investment Risks, Top 3 Gating Questions,
+infographic choices, selected narrative hooks, source-brief warnings, and
+opening/transition/ending framing should come from this packet unless the
+evidence directly contradicts it. Do not convert source-brief no-go claims,
+missing evidence, or unresolved reviewer prompts into factual memo claims.
+
+"""
+
+    lessons_block = ""
+    if lessons_path and lessons_path.exists():
+        lessons_block = f"""\
+## Serena memo lessons
+
+Serena has stored lessons from prior completed memo runs for this company:
+
+  `{lessons_path}`
+
+Read this file before drafting. Use these lessons as memo-quality heuristics,
+not as facts. Current company evidence, current public data, and the approved
+analysis packet override stale or contradictory lessons.
 
 """
 
@@ -1989,6 +2008,7 @@ scope-warning override and the parallel-passes hint below.
 
 {research_block}\
 {analysis_block}\
+{lessons_block}\
 
 Where the skill says `[BSH Assistant]/Settings/Serena_Background.md`,
 read this absolute path:
@@ -2066,6 +2086,7 @@ def run_investment_memo(
     memo_paths: dict[str, str],
     research_dir: Path | None = None,
     analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
     progress=None,
@@ -2109,6 +2130,7 @@ def run_investment_memo(
         memo_paths=memo_paths,
         research_dir=research_dir,
         analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
         scope_check=scope_check,
         warnings=warnings,
     )
@@ -2126,6 +2148,8 @@ def run_investment_memo(
         add_dirs.append(str(research_dir))
     if analysis_session_path and analysis_session_path.exists():
         add_dirs.append(str(analysis_session_path))
+    if lessons_path and lessons_path.exists():
+        add_dirs.append(str(lessons_path.parent))
     cmd = [
         claude_path() or "claude",
         "-p",
@@ -2584,6 +2608,33 @@ QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
                            "describe what the doc covers (e.g. 'financials', "
                            "'team', 'moat', 'regulatory'). English only.",
         },
+        "source_traces": {
+            "type": "array",
+            "description": (
+                "Up to five source-backed traces for important claims. Use "
+                "document locators such as Page 3, Slide 2, Slide 2 notes, "
+                "or Document."
+            ),
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "claim": {"type": ["string", "null"]},
+                    "locator": {"type": "string"},
+                    "excerpt": {
+                        "type": "string",
+                        "description": (
+                            "Short exact excerpt copied from the source."
+                        ),
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": ["claim", "locator", "excerpt", "confidence"],
+            },
+        },
         "language": {
             "type": "string",
             "enum": ["en", "zh", "other"],
@@ -2613,7 +2664,7 @@ QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
         "summary_en", "summary_zh",
         "key_points_en", "key_points_zh",
         "key_figures",
-        "entities", "topics", "language",
+        "entities", "topics", "source_traces", "language",
         "description_en", "description_zh",
     ],
 }
@@ -2773,6 +2824,10 @@ OUTPUT REQUIREMENTS:
   mentioned, capped at 8 each. Use the names as they appear in the doc
   (a single list, not bilingual).
 - topics: 3–6 short topical tags (1–3 words each), English only.
+- source_traces: up to five important source-backed traces. For each trace,
+  state the claim it supports, the locator (for example Page 3, Slide 2,
+  Slide 2 notes, or Document), a short exact excerpt copied from the source,
+  and confidence. Do not paraphrase excerpts.
 - doc_type: a short categorization (e.g. "PitchBook profile",
   "Investor deck", "Partner research note", "News article",
   "Regulatory filing", "Internal memo", "Chart / diagram",
@@ -3039,27 +3094,82 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "result_summary": {
+        "answer": {
             "type": "string",
             "description": (
-                "One tight memo-grade paragraph explaining what the selected "
-                "research task found, what remains uncertain, and how it "
-                "changes the investment question."
+                "Direct memo-grade answer to the research task. Explain what "
+                "was found, what remains uncertain, and how it changes the "
+                "investment question."
             ),
         },
-        "key_findings": {
+        "supporting_evidence": {
             "type": "array",
-            "items": {"type": "string"},
-            "description": "3-6 concrete findings, with numbers or source names where available.",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "file_id": {"type": ["string", "null"]},
+                    "filename": {"type": ["string", "null"]},
+                    "locator": {"type": ["string", "null"]},
+                    "excerpt": {"type": "string"},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "file_id",
+                    "filename",
+                    "locator",
+                    "excerpt",
+                    "confidence",
+                ],
+            },
+            "description": "Evidence that supports the answer.",
         },
-        "evidence_gaps": {
+        "contradicting_evidence": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "file_id": {"type": ["string", "null"]},
+                    "filename": {"type": ["string", "null"]},
+                    "locator": {"type": ["string", "null"]},
+                    "excerpt": {"type": "string"},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "file_id",
+                    "filename",
+                    "locator",
+                    "excerpt",
+                    "confidence",
+                ],
+            },
+            "description": "Evidence that contradicts or weakens the answer.",
+        },
+        "open_questions": {
             "type": "array",
             "items": {"type": "string"},
             "description": "Specific gaps Serena still needs to close before memo generation.",
         },
         "sources_checked": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "file_id": {"type": ["string", "null"]},
+                    "filename": {"type": ["string", "null"]},
+                    "source_type": {"type": ["string", "null"]},
+                    "notes": {"type": ["string", "null"]},
+                },
+                "required": ["file_id", "filename", "source_type", "notes"],
+            },
             "description": "Files, web sources, filings, or source categories actually checked.",
         },
         "confidence": {
@@ -3069,9 +3179,10 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
         },
     },
     "required": [
-        "result_summary",
-        "key_findings",
-        "evidence_gaps",
+        "answer",
+        "supporting_evidence",
+        "contradicting_evidence",
+        "open_questions",
         "sources_checked",
         "confidence",
     ],
@@ -3248,10 +3359,1129 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
 }
 
 
+SERENA_BENCHMARK_DASHBOARD_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "public_comps": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "company": {"type": "string"},
+                    "ticker": {"type": ["string", "null"]},
+                    "why_relevant": {"type": "string"},
+                    "revenue_growth_pct": {"type": ["number", "null"]},
+                    "gross_margin_pct": {"type": ["number", "null"]},
+                    "ev_revenue": {"type": ["number", "null"]},
+                    "ev_ebitda": {"type": ["number", "null"]},
+                    "fcf_margin_pct": {"type": ["number", "null"]},
+                    "rule_of_40": {"type": ["number", "null"]},
+                    "metric_period": {"type": ["string", "null"]},
+                    "sell_side_theme": {"type": "string"},
+                    "source_traces": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "title": {"type": ["string", "null"]},
+                                "url": {"type": ["string", "null"]},
+                                "locator": {"type": ["string", "null"]},
+                                "excerpt": {"type": "string"},
+                                "confidence": {
+                                    "type": "string",
+                                    "enum": ["low", "medium", "high"],
+                                },
+                            },
+                            "required": [
+                                "title",
+                                "url",
+                                "locator",
+                                "excerpt",
+                                "confidence",
+                            ],
+                        },
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "company",
+                    "ticker",
+                    "why_relevant",
+                    "revenue_growth_pct",
+                    "gross_margin_pct",
+                    "ev_revenue",
+                    "ev_ebitda",
+                    "fcf_margin_pct",
+                    "rule_of_40",
+                    "metric_period",
+                    "sell_side_theme",
+                    "source_traces",
+                    "confidence",
+                ],
+            },
+        },
+        "benchmark_gaps": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "must_prove": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "source_traces": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {"type": ["string", "null"]},
+                    "url": {"type": ["string", "null"]},
+                    "locator": {"type": ["string", "null"]},
+                    "excerpt": {"type": "string"},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": ["title", "url", "locator", "excerpt", "confidence"],
+            },
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+        },
+    },
+    "required": [
+        "summary",
+        "public_comps",
+        "benchmark_gaps",
+        "must_prove",
+        "source_traces",
+        "confidence",
+    ],
+}
+
+
+SERENA_SOURCE_TRACE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": ["string", "null"]},
+        "url": {"type": ["string", "null"]},
+        "locator": {"type": ["string", "null"]},
+        "excerpt": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    },
+    "required": ["title", "url", "locator", "excerpt", "confidence"],
+}
+
+
+SERENA_REVIEWER_PROMPT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "id": {"type": "string"},
+        "prompt": {"type": "string"},
+        "required": {"type": "boolean"},
+        "options": {"type": "array", "items": {"type": "string"}},
+        "resolved_choice": {"type": ["string", "null"]},
+        "rationale": {"type": "string"},
+        "status": {"type": "string"},
+    },
+    "required": [
+        "id",
+        "prompt",
+        "required",
+        "options",
+        "resolved_choice",
+        "rationale",
+        "status",
+    ],
+}
+
+
+SERENA_INFOGRAPHIC_SOURCE_BRIEF_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "compact_claims": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "claim": {"type": "string"},
+                    "evidence_status": {"type": "string"},
+                    "source_traces": {
+                        "type": "array",
+                        "items": SERENA_SOURCE_TRACE_SCHEMA,
+                    },
+                    "contradictions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "warnings": {"type": "array", "items": {"type": "string"}},
+                    "prohibited_for_visuals": {"type": "boolean"},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "id",
+                    "claim",
+                    "evidence_status",
+                    "source_traces",
+                    "contradictions",
+                    "warnings",
+                    "prohibited_for_visuals",
+                    "confidence",
+                ],
+            },
+        },
+        "numeric_metrics": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string"},
+                    "value": {"type": ["string", "number", "null"]},
+                    "unit": {"type": ["string", "null"]},
+                    "period": {"type": ["string", "null"]},
+                    "calculation": {"type": "string"},
+                    "denominator_note": {"type": "string"},
+                    "source_traces": {
+                        "type": "array",
+                        "items": SERENA_SOURCE_TRACE_SCHEMA,
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "id",
+                    "label",
+                    "value",
+                    "unit",
+                    "period",
+                    "calculation",
+                    "denominator_note",
+                    "source_traces",
+                    "confidence",
+                ],
+            },
+        },
+        "source_traces": {"type": "array", "items": SERENA_SOURCE_TRACE_SCHEMA},
+        "contradictions": {"type": "array", "items": {"type": "string"}},
+        "missing_evidence": {"type": "array", "items": {"type": "string"}},
+        "no_go_claims": {"type": "array", "items": {"type": "string"}},
+        "visual_opportunities": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "rationale": {"type": "string"},
+                    "paired_claim_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "source_trace_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "id",
+                    "title",
+                    "rationale",
+                    "paired_claim_ids",
+                    "source_trace_ids",
+                    "confidence",
+                ],
+            },
+        },
+        "narrative_opportunities": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "rationale": {"type": "string"},
+                    "paired_claim_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "source_trace_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "id",
+                    "title",
+                    "rationale",
+                    "paired_claim_ids",
+                    "source_trace_ids",
+                    "confidence",
+                ],
+            },
+        },
+        "reviewer_prompts": {
+            "type": "array",
+            "items": SERENA_REVIEWER_PROMPT_SCHEMA,
+        },
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    },
+    "required": [
+        "summary",
+        "compact_claims",
+        "numeric_metrics",
+        "source_traces",
+        "contradictions",
+        "missing_evidence",
+        "no_go_claims",
+        "visual_opportunities",
+        "narrative_opportunities",
+        "reviewer_prompts",
+        "confidence",
+    ],
+}
+
+
+SERENA_CHART_SPEC_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "generated_from_brief_id": {"type": ["string", "null"]},
+        "specs": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 10,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "purpose": {"type": "string"},
+                    "takeaway": {"type": "string"},
+                    "recommended_visual_format": {"type": "string"},
+                    "alternate_formats": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "image_generation_mode": {
+                        "type": "string",
+                        "enum": [
+                            "no_text_overlay",
+                            "text_in_image",
+                            "needs_human_choice",
+                        ],
+                    },
+                    "text_overlay_plan": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "headline": {"type": "string"},
+                            "labels": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "callouts": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "footnotes": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "safe_copy_length": {"type": "string"},
+                        },
+                        "required": [
+                            "headline",
+                            "labels",
+                            "callouts",
+                            "footnotes",
+                            "safe_copy_length",
+                        ],
+                    },
+                    "required_metrics": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "value": {"type": ["string", "number", "null"]},
+                                "unit": {"type": ["string", "null"]},
+                                "period": {"type": ["string", "null"]},
+                                "calculation": {"type": "string"},
+                                "denominator_note": {"type": "string"},
+                                "source_available": {"type": "boolean"},
+                                "source_traces": {
+                                    "type": "array",
+                                    "items": SERENA_SOURCE_TRACE_SCHEMA,
+                                },
+                                "confidence": {
+                                    "type": "string",
+                                    "enum": ["low", "medium", "high"],
+                                },
+                            },
+                            "required": [
+                                "id",
+                                "label",
+                                "value",
+                                "unit",
+                                "period",
+                                "calculation",
+                                "denominator_note",
+                                "source_available",
+                                "source_traces",
+                                "confidence",
+                            ],
+                        },
+                    },
+                    "source_availability": {
+                        "type": "string",
+                        "enum": ["available", "partial", "missing"],
+                    },
+                    "source_traces": {
+                        "type": "array",
+                        "items": SERENA_SOURCE_TRACE_SCHEMA,
+                    },
+                    "information_gaps": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "data_payload": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "id": {"type": "string"},
+                                "label": {"type": "string"},
+                                "value": {"type": ["string", "number", "null"]},
+                                "unit": {"type": ["string", "null"]},
+                                "period": {"type": ["string", "null"]},
+                                "notes": {"type": "string"},
+                            },
+                            "required": [
+                                "id",
+                                "label",
+                                "value",
+                                "unit",
+                                "period",
+                                "notes",
+                            ],
+                        },
+                    },
+                    "design_prompt": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "composition": {"type": "string"},
+                            "visual_metaphor": {"type": "string"},
+                            "style_constraints": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "aspect_ratio": {"type": "string"},
+                            "prohibited_claims": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                        "required": [
+                            "composition",
+                            "visual_metaphor",
+                            "style_constraints",
+                            "aspect_ratio",
+                            "prohibited_claims",
+                        ],
+                    },
+                    "owner": {"type": "string"},
+                    "diligence_needed": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "memo_section_placement": {"type": "string"},
+                    "include_in_final_memo": {"type": "boolean"},
+                    "final_memo_inclusion_state": {"type": "string"},
+                    "reviewer_prompts": {
+                        "type": "array",
+                        "items": SERENA_REVIEWER_PROMPT_SCHEMA,
+                    },
+                    "status": {"type": "string"},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "id",
+                    "title",
+                    "purpose",
+                    "takeaway",
+                    "recommended_visual_format",
+                    "alternate_formats",
+                    "image_generation_mode",
+                    "text_overlay_plan",
+                    "required_metrics",
+                    "source_availability",
+                    "source_traces",
+                    "information_gaps",
+                    "data_payload",
+                    "design_prompt",
+                    "owner",
+                    "diligence_needed",
+                    "memo_section_placement",
+                    "include_in_final_memo",
+                    "final_memo_inclusion_state",
+                    "reviewer_prompts",
+                    "status",
+                    "confidence",
+                ],
+            },
+        },
+        "reviewer_prompts": {
+            "type": "array",
+            "items": SERENA_REVIEWER_PROMPT_SCHEMA,
+        },
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    },
+    "required": [
+        "summary",
+        "generated_from_brief_id",
+        "specs",
+        "reviewer_prompts",
+        "confidence",
+    ],
+}
+
+
+SERENA_NARRATIVE_HOOKS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "generated_from_brief_id": {"type": ["string", "null"]},
+        "openings": {"type": "array", "minItems": 2, "items": {}},
+        "transitions": {"type": "array", "items": {}},
+        "endings": {"type": "array", "minItems": 2, "items": {}},
+        "selected_opening_id": {"type": ["string", "null"]},
+        "selected_transition_id": {"type": ["string", "null"]},
+        "selected_ending_id": {"type": ["string", "null"]},
+        "reviewer_prompts": {
+            "type": "array",
+            "items": SERENA_REVIEWER_PROMPT_SCHEMA,
+        },
+        "status": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    },
+    "required": [
+        "summary",
+        "generated_from_brief_id",
+        "openings",
+        "transitions",
+        "endings",
+        "selected_opening_id",
+        "selected_transition_id",
+        "selected_ending_id",
+        "reviewer_prompts",
+        "status",
+        "confidence",
+    ],
+}
+
+_SERENA_NARRATIVE_CANDIDATE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "id": {"type": "string"},
+        "text": {"type": "string"},
+        "purpose": {"type": "string"},
+        "tone": {"type": "string"},
+        "supported_claims": {"type": "array", "items": {"type": "string"}},
+        "evidence_references": {"type": "array", "items": {"type": "string"}},
+        "source_traces": {"type": "array", "items": SERENA_SOURCE_TRACE_SCHEMA},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+        "overclaiming_risk": {"type": "string"},
+        "paired_infographic_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "reviewer_prompts": {
+            "type": "array",
+            "items": SERENA_REVIEWER_PROMPT_SCHEMA,
+        },
+        "status": {"type": "string"},
+    },
+    "required": [
+        "id",
+        "text",
+        "purpose",
+        "tone",
+        "supported_claims",
+        "evidence_references",
+        "source_traces",
+        "confidence",
+        "overclaiming_risk",
+        "paired_infographic_ids",
+        "reviewer_prompts",
+        "status",
+    ],
+}
+SERENA_NARRATIVE_HOOKS_SCHEMA["properties"]["openings"]["items"] = (
+    _SERENA_NARRATIVE_CANDIDATE_SCHEMA
+)
+SERENA_NARRATIVE_HOOKS_SCHEMA["properties"]["transitions"]["items"] = (
+    _SERENA_NARRATIVE_CANDIDATE_SCHEMA
+)
+SERENA_NARRATIVE_HOOKS_SCHEMA["properties"]["endings"]["items"] = (
+    _SERENA_NARRATIVE_CANDIDATE_SCHEMA
+)
+
+
+SERENA_MEMO_GRADER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "completed_report_id": {"type": "string"},
+        "completed_run_id": {"type": ["string", "null"]},
+        "scores": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "area": {"type": "string"},
+                    "score": {"type": "number"},
+                    "rationale": {"type": "string"},
+                },
+                "required": ["area", "score", "rationale"],
+            },
+        },
+        "strongest_sections": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "weakest_sections": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "missing_diligence": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "rewrite_guidance": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "lessons_for_future_memo_runs": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "source_files_reviewed": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+        },
+    },
+    "required": [
+        "completed_report_id",
+        "completed_run_id",
+        "scores",
+        "strongest_sections",
+        "weakest_sections",
+        "missing_diligence",
+        "rewrite_guidance",
+        "lessons_for_future_memo_runs",
+        "source_files_reviewed",
+        "confidence",
+    ],
+}
+
+
+def _serena_research_file_names(research_dir: Path) -> list[str]:
+    if not research_dir.exists():
+        return []
+    try:
+        return [
+            p.name
+            for p in sorted(research_dir.iterdir())
+            if p.is_file() and p.name != "index.yaml"
+        ][:100]
+    except Exception:
+        return []
+
+
+def _parse_claude_json_object(final_text: str) -> dict | None:
+    parsed = _parse_json_tolerant(final_text.strip())
+    if parsed is None and "```" in final_text:
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```", final_text, re.DOTALL)
+        if fenced:
+            parsed = _parse_json_tolerant(max(fenced, key=len).strip())
+    if parsed is None:
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _run_serena_json_artifact(
+    *,
+    prompt: str,
+    schema: dict[str, Any],
+    work_dir: Path,
+    progress,
+    progress_message: str,
+    company_id: str,
+    timeout_label: str,
+    timeout_sec: int,
+    silence_timeout_sec: int,
+    extra_add_dirs: list[Path] | None = None,
+) -> tuple[dict | None, str | None]:
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash,WebSearch,WebFetch",
+        "--json-schema", json.dumps(schema),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    for directory in extra_add_dirs or []:
+        if directory.exists():
+            cmd.extend(["--add-dir", str(directory)])
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message=progress_message,
+            company_id=company_id,
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label=timeout_label,
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if stream_error:
+        return None, stream_error
+    if not final_text:
+        return None, "claude returned empty result"
+    parsed = _parse_claude_json_object(final_text)
+    if not isinstance(parsed, dict):
+        return None, f"claude output didn't parse as JSON: {final_text[:300]}"
+    parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return parsed, None
+
+
+def run_serena_infographic_source_brief(
+    *,
+    company: dict,
+    artifacts: dict,
+    research_dir: Path,
+    lessons_path: Path | None = None,
+    progress=None,
+    timeout_sec: int = 900,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run Serena's infographic source brief distillation through Claude Code."""
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_infographic_source_{company_id or 'company'}"
+    )
+    local_files = _serena_research_file_names(research_dir)
+    files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+    analysis_context = {
+        "thesis_spine": artifacts.get("thesis_spine"),
+        "strategic_risks": artifacts.get("strategic_risks"),
+        "risk_priorities": artifacts.get("risk_priorities"),
+        "research_tasks": artifacts.get("research_tasks"),
+        "evidence_matrix": artifacts.get("evidence_matrix"),
+        "benchmark_dashboard": artifacts.get("benchmark_dashboard"),
+        "readiness_reviews": artifacts.get("readiness_reviews"),
+        "chart_specs": artifacts.get("chart_specs"),
+        "narrative_hooks": artifacts.get("narrative_hooks"),
+        "memo_grader": artifacts.get("memo_grader"),
+    }
+    schema_str = json.dumps(
+        SERENA_INFOGRAPHIC_SOURCE_BRIEF_SCHEMA,
+        indent=2,
+        ensure_ascii=False,
+    )
+    context_str = json.dumps(
+        analysis_context,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
+    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    lessons_block = ""
+    extra_dirs: list[Path] = []
+    if lessons_path and lessons_path.exists():
+        lessons_block = f"""\
+
+Memo lessons:
+`{lessons_path}`
+
+Use these as quality heuristics only. Current company evidence and current
+Memo Studio artifacts override stale or contradictory lessons.
+"""
+        extra_dirs.append(lessons_path.parent)
+
+    prompt = f"""\
+You are Serena's infographic source-brief distiller for a BSH late-stage
+investment memo about {company_name}.
+
+Company:
+```json
+{company_str}
+```
+
+Current Memo Studio artifacts:
+```json
+{context_str}
+```
+
+Serena research folder:
+`{research_dir}`
+
+Available files in that folder:
+{files_str}
+{lessons_block}
+
+Instructions:
+- Build a compact, durable source brief for later infographic and narrative
+  generation. Do not write final memo prose.
+- Use approved thesis spine, selected risks, research-task evidence, evidence
+  matrix-like contradictions, benchmark metrics, readiness waivers, selected
+  chart/narrative state, memo lessons, and selected research-folder excerpts.
+- Use the Serena research folder above for local company documents. Do NOT read
+  from `data/uploads/` or the Document Library.
+- If local research files exist, inspect only the high-signal files needed for
+  source traces. Use WebSearch/WebFetch only for public current evidence that
+  affects a metric, contradiction, or visual claim.
+- Keep claims compact and mark missing, contradicted, source_needed, or
+  prohibited_for_visuals when the evidence is not good enough for visuals.
+- Numeric metrics must include unit, period, denominator or calculation notes,
+  and source traces when available. Use null when unavailable.
+- Ambiguous tone, aggressiveness, visual mode, or claim-framing choices should
+  appear as reviewer_prompts rather than silently resolved.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output JSON only. No prose, no markdown fences.
+"""
+    parsed, error = _run_serena_json_artifact(
+        prompt=prompt,
+        schema=SERENA_INFOGRAPHIC_SOURCE_BRIEF_SCHEMA,
+        work_dir=work_dir,
+        progress=progress,
+        progress_message="Distilling infographic source brief with Claude",
+        company_id=company_id,
+        timeout_label="serena infographic source brief",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=silence_timeout_sec,
+        extra_add_dirs=extra_dirs,
+    )
+    if error:
+        return None, error
+    if not isinstance(parsed, dict) or not parsed.get("compact_claims"):
+        return None, "claude output missing compact_claims"
+    return parsed, None
+
+
+def run_serena_chart_spec_builder(
+    *,
+    company: dict,
+    artifacts: dict,
+    research_dir: Path,
+    progress=None,
+    timeout_sec: int = 900,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run Serena's image-generation-ready chart planner through Claude Code."""
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_chart_specs_{company_id or 'company'}"
+    )
+    local_files = _serena_research_file_names(research_dir)
+    files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+    analysis_context = {
+        "infographic_source_brief": artifacts.get("infographic_source_brief"),
+        "thesis_spine": artifacts.get("thesis_spine"),
+        "research_tasks": artifacts.get("research_tasks"),
+        "benchmark_dashboard": artifacts.get("benchmark_dashboard"),
+        "chart_specs": artifacts.get("chart_specs"),
+    }
+    schema_str = json.dumps(
+        SERENA_CHART_SPEC_SCHEMA,
+        indent=2,
+        ensure_ascii=False,
+    )
+    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    context_str = json.dumps(
+        analysis_context,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
+    prompt = f"""\
+You are Serena's image-generation-ready infographic planner for a BSH
+late-stage investment memo about {company_name}.
+
+Company:
+```json
+{company_str}
+```
+
+Compact source brief and current chart state:
+```json
+{context_str}
+```
+
+Serena research folder:
+`{research_dir}`
+
+Available files in that folder:
+{files_str}
+
+Instructions:
+- Use infographic_source_brief as the primary factual input. Inspect local
+  research files or web sources only when necessary to preserve or verify a
+  source trace. Do NOT read from `data/uploads/` or the Document Library.
+- Plan high-quality memo infographics, not low-fidelity deterministic charts.
+- Support two production modes: no_text_overlay for image generation without
+  text plus app-rendered typography, and text_in_image when fully generated
+  text is the better fit. Use needs_human_choice plus reviewer_prompts when
+  the choice is ambiguous.
+- For every plan, include title, purpose, visual format, overlay copy,
+  required metrics, data payload, source availability, citations, information
+  gaps, image generation design prompt, prohibited claims, owner, diligence
+  needed, memo section placement, and final memo inclusion state.
+- Do not invent metrics, source traces, periods, denominators, or claims. Use
+  null or information_gaps when evidence is missing.
+- Preserve selected/include intent from existing chart_specs when it remains
+  semantically relevant.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output JSON only. No prose, no markdown fences.
+"""
+    parsed, error = _run_serena_json_artifact(
+        prompt=prompt,
+        schema=SERENA_CHART_SPEC_SCHEMA,
+        work_dir=work_dir,
+        progress=progress,
+        progress_message="Planning memo infographics with Claude",
+        company_id=company_id,
+        timeout_label="serena chart spec builder",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if error:
+        return None, error
+    if not isinstance(parsed, dict) or not parsed.get("specs"):
+        return None, "claude output missing specs"
+    return parsed, None
+
+
+def run_serena_narrative_hooks(
+    *,
+    company: dict,
+    artifacts: dict,
+    research_dir: Path,
+    progress=None,
+    timeout_sec: int = 900,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run Serena's source-backed narrative hook planner through Claude Code."""
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_narrative_hooks_{company_id or 'company'}"
+    )
+    local_files = _serena_research_file_names(research_dir)
+    files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+    analysis_context = {
+        "infographic_source_brief": artifacts.get("infographic_source_brief"),
+        "thesis_spine": artifacts.get("thesis_spine"),
+        "chart_specs": artifacts.get("chart_specs"),
+        "narrative_hooks": artifacts.get("narrative_hooks"),
+    }
+    schema_str = json.dumps(
+        SERENA_NARRATIVE_HOOKS_SCHEMA,
+        indent=2,
+        ensure_ascii=False,
+    )
+    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    context_str = json.dumps(
+        analysis_context,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
+    prompt = f"""\
+You are Serena's source-backed narrative hook planner for a BSH late-stage
+investment memo about {company_name}.
+
+Company:
+```json
+{company_str}
+```
+
+Compact source brief, infographic plans, and current hook state:
+```json
+{context_str}
+```
+
+Serena research folder:
+`{research_dir}`
+
+Available files in that folder:
+{files_str}
+
+Instructions:
+- Use infographic_source_brief as the primary factual input. Do NOT read from
+  `data/uploads/` or the Document Library.
+- Draft opening, transition, and closing hook candidates that sharpen the
+  memo's story without overstating evidence.
+- Each candidate must include supported claims, evidence references, source
+  traces where available, confidence, overclaiming risk, and suggested
+  infographic pairings where useful.
+- Preserve selected opening/transition/ending ids when current choices remain
+  semantically valid.
+- Ambiguous tone, aggressiveness, or claim framing should appear as
+  reviewer_prompts rather than silently chosen. Mark required unresolved
+  prompts as needs_review.
+- Do not invent facts. Unsupported claims should be explicitly framed as
+  questions, missing evidence, or pass triggers.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output JSON only. No prose, no markdown fences.
+"""
+    parsed, error = _run_serena_json_artifact(
+        prompt=prompt,
+        schema=SERENA_NARRATIVE_HOOKS_SCHEMA,
+        work_dir=work_dir,
+        progress=progress,
+        progress_message="Planning narrative hooks with Claude",
+        company_id=company_id,
+        timeout_label="serena narrative hooks",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if error:
+        return None, error
+    if not isinstance(parsed, dict) or not parsed.get("openings"):
+        return None, "claude output missing openings"
+    if not parsed.get("endings"):
+        return None, "claude output missing endings"
+    return parsed, None
+
+
 def run_serena_strategic_risk_mapper(
     *,
     company: dict,
     research_dir: Path,
+    lessons_path: Path | None = None,
     progress=None,
     timeout_sec: int = 900,
     silence_timeout_sec: int = 180,
@@ -3293,6 +4523,16 @@ def run_serena_strategic_risk_mapper(
     )
     company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
     files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+    lessons_block = ""
+    if lessons_path and lessons_path.exists():
+        lessons_block = f"""\
+
+Serena memo lessons:
+`{lessons_path}`
+
+Read these lessons as quality heuristics. Current company evidence and current
+public data override stale or contradictory lessons.
+"""
 
     prompt = f"""\
 You are Serena's Strategic Risk Mapper for a late-stage investment memo.
@@ -3309,6 +4549,7 @@ Serena research folder:
 
 Available files in that folder:
 {files_str}
+{lessons_block}
 
 Instructions:
 - Frame risks as investment decision questions, not generic risk labels.
@@ -3348,6 +4589,8 @@ OUTPUT REQUIREMENTS:
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
+    if lessons_path and lessons_path.exists():
+        cmd.extend(["--add-dir", str(lessons_path.parent)])
 
     if progress:
         progress.emit(
@@ -3414,6 +4657,7 @@ def run_serena_thesis_spine_builder(
     company: dict,
     artifacts: dict,
     research_dir: Path,
+    lessons_path: Path | None = None,
     progress=None,
     timeout_sec: int = 900,
     silence_timeout_sec: int = 180,
@@ -3468,6 +4712,17 @@ def run_serena_thesis_spine_builder(
         default=str,
     )
     files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+    lessons_block = ""
+    if lessons_path and lessons_path.exists():
+        lessons_block = f"""\
+
+Serena memo lessons:
+`{lessons_path}`
+
+Read these lessons as quality heuristics. Current company evidence, current
+public data, and current Memo Studio artifacts override stale or contradictory
+lessons.
+"""
 
     prompt = f"""\
 You are Serena's Thesis Spine Builder for a late-stage BSH investment memo.
@@ -3489,6 +4744,7 @@ Serena research folder:
 
 Available files in that folder:
 {files_str}
+{lessons_block}
 
 Instructions:
 - Use the current strategic risks, risk priorities, selected research-task
@@ -3534,6 +4790,8 @@ OUTPUT REQUIREMENTS:
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
+    if lessons_path and lessons_path.exists():
+        cmd.extend(["--add-dir", str(lessons_path.parent)])
 
     if progress:
         progress.emit(
@@ -3603,12 +4861,270 @@ OUTPUT REQUIREMENTS:
     return parsed, None
 
 
+def run_serena_private_benchmark_dashboard(
+    *,
+    company: dict,
+    artifacts: dict,
+    research_dir: Path,
+    progress=None,
+    timeout_sec: int = 900,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Run Serena's private benchmark dashboard through Claude Code."""
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_benchmark_{company_id or 'company'}"
+    )
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    local_files: list[str] = []
+    if research_dir.exists():
+        try:
+            local_files = [
+                p.name
+                for p in sorted(research_dir.iterdir())
+                if p.is_file() and p.name != "index.yaml"
+            ][:100]
+        except Exception:
+            local_files = []
+
+    analysis_context = {
+        "strategic_risks": artifacts.get("strategic_risks"),
+        "risk_priorities": artifacts.get("risk_priorities"),
+        "research_tasks": artifacts.get("research_tasks"),
+        "thesis_spine": artifacts.get("thesis_spine"),
+    }
+    schema_str = json.dumps(
+        SERENA_BENCHMARK_DASHBOARD_SCHEMA,
+        indent=2,
+        ensure_ascii=False,
+    )
+    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    context_str = json.dumps(
+        analysis_context,
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
+    files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
+
+    prompt = f"""\
+You are Serena's Private Benchmark Dashboard builder for a late-stage BSH
+investment memo. Build a source-backed public comp and metrics view for
+{company_name}.
+
+Company:
+```json
+{company_str}
+```
+
+Current Memo Studio analysis:
+```json
+{context_str}
+```
+
+Serena research folder:
+`{research_dir}`
+
+Available files in that folder:
+{files_str}
+
+Instructions:
+- Identify mature public comps that actually help underwrite the private
+  company, not flattering category labels.
+- Use current public filings, earnings transcripts, investor presentations,
+  and reliable market-data pages where needed for growth, margin, valuation,
+  and sell-side theme context.
+- Use the Serena research folder above for local company context. Do NOT read
+  from `data/uploads/` or the Document Library.
+- If local research files exist, inspect relevant files with Read/Bash.
+- Use WebSearch/WebFetch for public comp metrics and recent public evidence.
+- Set nullable metric fields to null when source-backed values are not found.
+- Source traces should identify titles, URLs or local locators, concise
+  excerpts, and confidence. Do not invent metrics or sources.
+- Benchmark gaps should be the missing data that matters before memo use.
+- Must-prove claims should translate the benchmark work into private-company
+  proof points BSH needs to underwrite.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output JSON only. No prose, no markdown fences.
+- Omit ids; the application assigns stable comp ids.
+"""
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash,WebSearch,WebFetch",
+        "--json-schema", json.dumps(SERENA_BENCHMARK_DASHBOARD_SCHEMA),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Building benchmark dashboard with Claude",
+            company_id=company_id,
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label="serena benchmark dashboard",
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if stream_error:
+        return None, stream_error
+    if not final_text:
+        return None, "claude returned empty result"
+
+    parsed = _parse_json_tolerant(final_text.strip())
+    if parsed is None and "```" in final_text:
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```", final_text, re.DOTALL)
+        if fenced:
+            parsed = _parse_json_tolerant(max(fenced, key=len).strip())
+    if parsed is None:
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        return None, f"claude output didn't parse as JSON: {final_text[:300]}"
+    comps = parsed.get("public_comps")
+    if not isinstance(comps, list) or not comps:
+        return None, "claude output missing public_comps"
+    parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return parsed, None
+
+
+def run_serena_memo_grader(
+    *,
+    company: dict,
+    report: dict,
+    memo_packet_path: Path | None,
+    run_dir: Path | None,
+    progress=None,
+    timeout_sec: int = 600,
+) -> tuple[dict | None, str | None]:
+    """Grade a completed Serena memo run and extract reusable lessons."""
+    company_name = company.get("name") or company.get("id") or "the company"
+    packet_text = ""
+    if memo_packet_path and Path(memo_packet_path).exists():
+        try:
+            packet_text = Path(memo_packet_path).read_text(
+                encoding="utf-8",
+                errors="replace",
+            )[:60000]
+        except Exception:
+            packet_text = ""
+    run_files: list[str] = []
+    if run_dir and Path(run_dir).exists():
+        try:
+            run_files = [
+                str(path.relative_to(run_dir))
+                for path in sorted(Path(run_dir).rglob("*"))
+                if path.is_file()
+            ][:200]
+        except Exception:
+            run_files = []
+
+    system_prompt = (
+        "You are Serena's memo grader. Grade the completed late-stage BSH "
+        "investment memo as a reusable training artifact. Be direct, "
+        "evidence-aware, and focused on improving future memo runs."
+    )
+    user_prompt = f"""\
+Company:
+```json
+{json.dumps(company, indent=2, ensure_ascii=False, default=str)}
+```
+
+Completed report:
+```json
+{json.dumps(report, indent=2, ensure_ascii=False, default=str)}
+```
+
+Run folder:
+`{run_dir or ""}`
+
+Run files:
+{chr(10).join(f"- {name}" for name in run_files) or "- No run files listed."}
+
+Approved memo packet excerpt:
+```markdown
+{packet_text or "(memo_packet.md missing or empty)"}
+```
+
+Grade against:
+- Investment highlights sharpness.
+- Risk sharpness and falsification quality.
+- Evidence quality and source provenance.
+- Chart/table clarity.
+- Opening and ending strength.
+- Missing diligence that would matter at IC.
+- Specific lessons future Serena memo runs should reuse.
+
+Current evidence overrides stale lessons. Do not reward unsupported claims.
+"""
+    return run_structured_prompt(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        schema=SERENA_MEMO_GRADER_SCHEMA,
+        name="serena_memo_grader",
+        timeout_sec=timeout_sec,
+        progress=progress,
+    )
+
+
 def run_serena_research_task(
     *,
     company: dict,
     task: dict,
     risk: dict | None,
     research_dir: Path,
+    source_manifest: list[dict] | None = None,
     progress=None,
     timeout_sec: int = 900,
     silence_timeout_sec: int = 180,
@@ -3650,6 +5166,12 @@ def run_serena_research_task(
     company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
     task_str = json.dumps(task, indent=2, ensure_ascii=False, default=str)
     risk_str = json.dumps(risk or {}, indent=2, ensure_ascii=False, default=str)
+    source_manifest_str = json.dumps(
+        source_manifest or [],
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
     files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
 
     prompt = f"""\
@@ -3677,15 +5199,26 @@ Serena research folder:
 Available files in that folder:
 {files_str}
 
+Selected source manifest:
+```json
+{source_manifest_str}
+```
+
 Instructions:
 - Use only the Serena research folder above for local company documents. Do
   NOT read from `data/uploads/` or the Document Library.
+- If the selected source manifest is non-empty, inspect only those selected
+  source files for local evidence. Use web tools only when the task needs
+  public evidence beyond the selected local files.
 - If local research files are relevant, use Read/Bash to inspect them.
 - Use WebSearch/WebFetch when public filings, transcripts, market data, or
   current public evidence are needed.
 - Separate verified evidence from inference. Do not invent source facts.
 - Preserve useful numbers, dates, names, and source titles.
 - If evidence is thin, say so plainly and list what Serena should check next.
+- Evidence entries must include file_id, filename, locator, exact excerpt, and
+  confidence when a local selected source supports them. Use null file_id /
+  filename only for web or source-category evidence.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -3766,9 +5299,9 @@ OUTPUT REQUIREMENTS:
             parsed = _parse_json_tolerant(m.group(0))
     if not isinstance(parsed, dict):
         return None, f"claude output didn't parse as JSON: {final_text[:300]}"
-    summary = str(parsed.get("result_summary") or "").strip()
+    summary = str(parsed.get("answer") or parsed.get("result_summary") or "").strip()
     if not summary:
-        return None, "claude output missing result_summary"
+        return None, "claude output missing answer"
     parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
     return parsed, None
 

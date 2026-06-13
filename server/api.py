@@ -8,6 +8,8 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -40,6 +42,7 @@ from . import (
     console_session,
     console_store,
     deck_summary,
+    evidence_matrix,
     external_store,
     external_translate,
     files_store,
@@ -52,9 +55,11 @@ from . import (
     link_preview as link_preview_mod,
     memo_prep,
     news_archive,
+    research_eval,
     research_store,
     serena_analysis,
     storage,
+    stock_research,
     text_analysis,
     trader_stats,
     weekly_stocks,
@@ -77,6 +82,9 @@ EXTERNAL_RESEARCH_ALLOWED_EXTENSIONS = {
     ".txt": "text",
     ".md": "text",
 }
+EXTERNAL_RESEARCH_ANALYSIS_TEXT_LIMIT = 60_000
+EXTERNAL_RESEARCH_SOURCE_TRACE_LIMIT = 5
+PDF_OCR_NEEDED_MIN_TEXT_CHARS = 40
 _RESEARCH_JOB_CANCEL_EVENTS: dict[str, threading.Event] = {}
 _RESEARCH_JOB_CANCEL_LOCK = threading.RLock()
 
@@ -860,6 +868,382 @@ async def stream_weekly_stocks_refresh() -> "StreamingResponse":
     )
 
 
+# ---- Stock Research tracker system --------------------------------------
+
+
+@router.get("/stock-research")
+def get_stock_research_dashboard() -> dict:
+    """Return the Stock Research toolbox payload."""
+    try:
+        return stock_research.dashboard_payload()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/trackers")
+def list_stock_research_trackers(include_archived: bool = False) -> list[dict]:
+    return stock_research.list_trackers(include_archived=include_archived)
+
+
+@router.post("/stock-research/trackers", status_code=201)
+def create_stock_research_tracker(payload: dict) -> dict:
+    try:
+        return stock_research.create_tracker(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/trackers/{tracker_id}")
+def get_stock_research_tracker(tracker_id: str) -> dict:
+    tracker = stock_research.get_tracker(tracker_id)
+    if tracker is None:
+        raise HTTPException(status_code=404, detail="Tracker not found")
+    return tracker
+
+
+@router.patch("/stock-research/trackers/{tracker_id}")
+def update_stock_research_tracker(tracker_id: str, patch: dict) -> dict:
+    try:
+        return stock_research.update_tracker(tracker_id, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/trackers/{tracker_id}/disable")
+def disable_stock_research_tracker(
+    tracker_id: str,
+    archive: bool = False,
+) -> dict:
+    try:
+        return stock_research.disable_tracker(tracker_id, archive=archive)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/trackers/import-companies")
+def import_stock_research_company_trackers(limit: int = 20) -> dict:
+    try:
+        return stock_research.import_company_trackers(limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/sources/link", status_code=201)
+def create_stock_research_link_source(payload: dict) -> dict:
+    try:
+        return stock_research.create_link_source(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/sources/note", status_code=201)
+def create_stock_research_note_source(payload: dict) -> dict:
+    try:
+        return stock_research.create_note_source(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/sources/upload", status_code=201)
+async def upload_stock_research_source(
+    file: UploadFile = File(...),
+    tracker_ids: list[str] = Form(...),
+    title: str | None = Form(default=None),
+    priority: str = Form(default="user_provided"),
+    relevance: str = Form(default="this_week_input"),
+) -> dict:
+    try:
+        data = await _read_upload_bounded(
+            file,
+            max_bytes=EXTERNAL_RESEARCH_MAX_FILE_BYTES,
+        )
+        ids: list[str] = []
+        for item in tracker_ids:
+            ids.extend(part.strip() for part in str(item).split(",") if part.strip())
+        return stock_research.create_file_source(
+            tracker_ids=ids,
+            filename=file.filename or "source",
+            content_type=file.content_type,
+            data=data,
+            title=title,
+            priority=priority,
+            relevance=relevance,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/stock-research/trackers/{tracker_id}/sources/{source_id}")
+def remove_stock_research_source_assignment(
+    tracker_id: str,
+    source_id: str,
+) -> dict:
+    try:
+        return stock_research.remove_source_assignment(tracker_id, source_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/trackers/{tracker_id}/run", status_code=202)
+def run_stock_research_tracker(
+    tracker_id: str,
+    period_id: str | None = None,
+    force: bool = False,
+) -> dict:
+    try:
+        return stock_research.start_tracker_run(
+            tracker_id,
+            period_id=period_id,
+            force=force,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/trackers/run-selected", status_code=202)
+def run_selected_stock_research_trackers(payload: dict) -> dict:
+    try:
+        return stock_research.start_selected_tracker_runs(
+            [str(item) for item in (payload.get("tracker_ids") or [])],
+            retry_failed=bool(payload.get("retry_failed", True)),
+            period_id=payload.get("period_id"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/trackers/run-due", status_code=202)
+def run_due_stock_research_trackers(period_id: str | None = None) -> dict:
+    try:
+        return stock_research.start_due_tracker_runs(period_id=period_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/stock-research/trackers/{tracker_id}/runs/{run_id}/cancel"
+)
+def cancel_stock_research_tracker_run(tracker_id: str, run_id: str) -> dict:
+    try:
+        return stock_research.cancel_tracker_run(tracker_id, run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/stock-research/trackers/{tracker_id}/runs/{run_id}/retry",
+    status_code=202,
+)
+def retry_stock_research_tracker_run(tracker_id: str, run_id: str) -> dict:
+    try:
+        return stock_research.retry_tracker_run(tracker_id, run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/stock-research/trackers/{tracker_id}/runs/{run_id}/stream"
+)
+async def stream_stock_research_tracker_run(
+    tracker_id: str,
+    run_id: str,
+) -> "StreamingResponse":
+    from fastapi.responses import StreamingResponse
+
+    progress_path = stock_research.tracker_progress_path(tracker_id, run_id)
+    gen = _console_event_stream(progress_path)
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/stock-research/aggregates/run", status_code=202)
+def run_stock_research_aggregate(
+    period_id: str | None = None,
+    force: bool = False,
+) -> dict:
+    try:
+        return stock_research.start_aggregate_job(period_id=period_id, force=force)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/aggregates/latest")
+def get_latest_stock_research_aggregate() -> dict:
+    aggregate = stock_research.latest_aggregate()
+    if aggregate is None:
+        raise HTTPException(status_code=404, detail="Weekly aggregate not found")
+    return aggregate
+
+
+@router.get("/stock-research/aggregates/{period_id}")
+def get_stock_research_aggregate(period_id: str) -> dict:
+    aggregate = stock_research.load_aggregate(period_id)
+    if aggregate is None:
+        raise HTTPException(status_code=404, detail="Weekly aggregate not found")
+    return aggregate
+
+
+@router.post("/stock-research/aggregates/{period_id}/cancel")
+def cancel_stock_research_aggregate(period_id: str) -> dict:
+    try:
+        return stock_research.cancel_aggregate_job(period_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/aggregates/{period_id}/retry", status_code=202)
+def retry_stock_research_aggregate(period_id: str) -> dict:
+    try:
+        return stock_research.retry_aggregate_job(period_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/aggregates/{period_id}/stream")
+async def stream_stock_research_aggregate(period_id: str) -> "StreamingResponse":
+    from fastapi.responses import StreamingResponse
+
+    gen = _console_event_stream(stock_research.aggregate_progress_path(period_id))
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/stock-research/strategy-maps/run", status_code=202)
+def run_stock_research_strategy_map(
+    period_id: str | None = None,
+    force: bool = False,
+) -> dict:
+    try:
+        return stock_research.start_strategy_map_job(
+            period_id=period_id,
+            force=force,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/strategy-maps/latest")
+def get_latest_stock_research_strategy_map() -> dict:
+    strategy_map = stock_research.latest_strategy_map()
+    if strategy_map is None:
+        raise HTTPException(status_code=404, detail="Strategy map not found")
+    return strategy_map
+
+
+@router.get("/stock-research/strategy-maps/{period_id}")
+def get_stock_research_strategy_map(period_id: str) -> dict:
+    strategy_map = stock_research.load_strategy_map(period_id)
+    if strategy_map is None:
+        raise HTTPException(status_code=404, detail="Strategy map not found")
+    return strategy_map
+
+
+@router.post("/stock-research/strategy-maps/{period_id}/cancel")
+def cancel_stock_research_strategy_map(period_id: str) -> dict:
+    try:
+        return stock_research.cancel_strategy_map_job(period_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/strategy-maps/{period_id}/retry", status_code=202)
+def retry_stock_research_strategy_map(period_id: str) -> dict:
+    try:
+        return stock_research.retry_strategy_map_job(period_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/strategy-maps/{period_id}/stream")
+async def stream_stock_research_strategy_map(period_id: str) -> "StreamingResponse":
+    from fastapi.responses import StreamingResponse
+
+    gen = _console_event_stream(stock_research.strategy_map_progress_path(period_id))
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/stock-research/work-products")
+def list_stock_research_work_products(
+    artifact_type: str | None = None,
+    status: str | None = None,
+    include_archived: bool = False,
+) -> list[dict]:
+    return stock_research.list_work_products(
+        include_archived=include_archived,
+        artifact_type=artifact_type,
+        status=status,
+    )
+
+
+@router.patch("/stock-research/work-products/{artifact_id:path}")
+def update_stock_research_work_product(artifact_id: str, patch: dict) -> dict:
+    try:
+        return stock_research.update_work_product(artifact_id, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/review-queue")
+def list_stock_research_review_queue(status: str | None = None) -> list[dict]:
+    return stock_research.list_review_items(status=status)
+
+
+@router.patch("/stock-research/review-queue/{item_id:path}")
+def update_stock_research_review_item(item_id: str, patch: dict) -> dict:
+    try:
+        return stock_research.update_review_item(item_id, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/stock-research/evaluation")
+def get_stock_research_evaluation() -> dict:
+    return stock_research.list_evaluation()
+
+
+@router.patch("/stock-research/trackers/{tracker_id}/runs/{run_id}/review")
+def update_stock_research_run_review(
+    tracker_id: str,
+    run_id: str,
+    patch: dict,
+) -> dict:
+    try:
+        return stock_research.update_run_review(tracker_id, run_id, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/stock-research/trackers/{tracker_id}/runs/{run_id}/knowledge/{update_id}"
+)
+def review_stock_research_knowledge_update(
+    tracker_id: str,
+    run_id: str,
+    update_id: str,
+    patch: dict,
+) -> dict:
+    try:
+        return stock_research.review_knowledge_update(
+            tracker_id,
+            run_id,
+            update_id,
+            status=str(patch.get("status") or "open"),
+            rationale=patch.get("rationale"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/companies/select", status_code=201)
 def companies_select(payload: SelectMatch) -> dict:
     """Promote an autocomplete suggestion to a tracked company.
@@ -1273,6 +1657,16 @@ def get_memo_analysis(company_id: str) -> dict:
     return session
 
 
+@router.get("/companies/{company_id}/memo-analysis/catalog")
+def get_memo_analysis_catalog(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.memo_work_product_catalog(company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/companies/{company_id}/memo-analysis/tools/{tool_name}/run")
 def run_memo_analysis_tool(
     company_id: str,
@@ -1327,6 +1721,25 @@ def run_memo_analysis_research_task(company_id: str, task_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
         return serena_analysis.start_research_task_job(company_id, task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/companies/{company_id}/memo-analysis/research-tasks/run-selected",
+    status_code=202,
+)
+def run_selected_memo_analysis_research_tasks(
+    company_id: str,
+    retry_failed: bool = True,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.start_selected_research_task_jobs(
+            company_id,
+            retry_failed=retry_failed,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1616,6 +2029,13 @@ def get_research_files(company_id: str) -> list[dict]:
     return research_store.list_files(company_id)
 
 
+@router.get("/companies/{company_id}/evidence-matrix")
+def get_company_evidence_matrix(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return evidence_matrix.build_company_evidence_matrix(company_id)
+
+
 @router.post("/companies/{company_id}/research-files", status_code=201)
 async def post_research_file(
     company_id: str,
@@ -1683,6 +2103,7 @@ def _run_research_summary_job(
     persists the final summary onto the file record."""
     from pathlib import Path
 
+    started = time.monotonic()
     progress_path = research_store.quick_summary_progress_path(
         company_id, file_id
     )
@@ -1727,6 +2148,12 @@ def _run_research_summary_job(
             return
         record, path = found
         kind = record.get("kind") or "text"
+        filename = record.get("filename") or Path(path).name
+        source_chunks = _extract_text_chunks_from_file(str(path))
+        if _pdf_needs_ocr(str(path), source_chunks):
+            ocr_chunks = _ocr_extract_text_chunks_from_file(str(path))
+            if ocr_chunks:
+                source_chunks = ocr_chunks
         summary = claude_runner.run_quick_summary(
             source_path=path,
             work_dir=path.parent,
@@ -1745,10 +2172,36 @@ def _run_research_summary_job(
         if "error" in summary:
             progress.emit("error", error=summary["error"])
             return
+        stored_source_chunks = _source_chunks_for_storage(
+            source_chunks,
+            item_id=file_id,
+            filename=filename,
+        )
+        source_traces = _normalize_source_traces(
+            summary.get("source_traces"),
+            stored_source_chunks,
+            item_id=file_id,
+            filename=filename,
+        )
+        summary = {
+            **summary,
+            "source_chunks": stored_source_chunks,
+            "source_chunk_count": len(stored_source_chunks),
+            "source_traces": source_traces,
+            "source_trace_count": len(source_traces),
+        }
+        summary = research_eval.with_observability_defaults(
+            summary,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
         research_store.update_record(
             company_id, file_id, quick_summary=summary
         )
-        progress.emit("done", summary=summary)
+        progress.emit(
+            "done",
+            summary=summary,
+            source_trace_count=len(source_traces),
+        )
     except Exception as exc:  # noqa: BLE001
         progress.emit(
             "error", error=f"Job crashed: {type(exc).__name__}: {exc}"
@@ -1898,160 +2351,7 @@ def _summary_progress_path(company_id: str, file_id: str) -> "Path":
 
 
 def _scan_progress_state(path: "Path") -> dict:
-    """Scan a progress JSONL and summarize where the job stands.
-
-    Used by the active-jobs listing, idempotent POST handlers, and the
-    generic job-log endpoints. Pulls metadata out of the `job_init` event
-    so the rail can show kind/title/subtitle for any task.
-    """
-    import json as _json
-
-    state: dict = {
-        "exists": path.exists(),
-        "terminated": False,
-        "terminal_type": None,
-        "started_at": None,
-        "last_event_at": None,
-        "latest_stage": None,
-        "latest_stage_key": None,
-        "slide_no": None,
-        "slide_count": None,
-        "page_no": None,
-        "page_count": None,
-        "index": None,
-        "total_count": None,
-        "speed": None,
-        "claude_cost_usd": None,
-        "claude_duration_ms": None,
-        "error": None,
-        # Populated by `job_init` — generic display metadata for the rail.
-        "job_init": None,
-        "kind": None,
-        "title": None,
-        "subtitle": None,
-        # Most recent claude_action — gives the rail something to tail in
-        # real time without making the user open the modal.
-        "latest_action": None,
-        "tool_count": 0,
-        "backoff_until": None,
-        "backoff_remaining_seconds": None,
-        "recoverable": None,
-    }
-    if not path.exists():
-        return state
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = _json.loads(line)
-                except _json.JSONDecodeError:
-                    continue
-                if state["started_at"] is None:
-                    state["started_at"] = entry.get("ts")
-                state["last_event_at"] = entry.get("ts")
-                etype = entry.get("type")
-                if etype == "job_init":
-                    state["job_init"] = entry
-                    state["kind"] = entry.get("kind")
-                    state["title"] = entry.get("title")
-                    state["subtitle"] = entry.get("subtitle")
-                    if "total_count" in entry:
-                        state["total_count"] = entry["total_count"]
-                elif etype in job_progress.ProgressLog.TERMINAL_TYPES:
-                    state["terminated"] = True
-                    state["terminal_type"] = etype
-                    if etype == "error":
-                        state["error"] = entry.get("error")
-                elif etype == "stage":
-                    state["latest_stage_key"] = entry.get("stage")
-                    state["latest_stage"] = (
-                        entry.get("message") or entry.get("stage")
-                    )
-                    if "slide_no" in entry:
-                        state["slide_no"] = entry["slide_no"]
-                    if "slide_count" in entry:
-                        state["slide_count"] = entry["slide_count"]
-                    if "page_no" in entry:
-                        state["page_no"] = entry["page_no"]
-                    if "page_count" in entry:
-                        state["page_count"] = entry["page_count"]
-                    if "index" in entry:
-                        state["index"] = entry["index"]
-                    if "total_count" in entry:
-                        state["total_count"] = entry["total_count"]
-                    if "speed" in entry:
-                        state["speed"] = entry["speed"]
-                    if "backoff_until" in entry:
-                        state["backoff_until"] = entry["backoff_until"]
-                    if "backoff_remaining_seconds" in entry:
-                        state["backoff_remaining_seconds"] = entry[
-                            "backoff_remaining_seconds"
-                        ]
-                    if "recoverable" in entry:
-                        state["recoverable"] = entry["recoverable"]
-                elif etype == "candidates":
-                    state["latest_stage_key"] = "candidates"
-                    state["latest_stage"] = entry.get("message") or "Found candidates"
-                    state["total_count"] = entry.get("total_count")
-                    state["index"] = 0
-                elif etype == "stock_started":
-                    state["latest_stage_key"] = "stock_started"
-                    state["latest_stage"] = (
-                        entry.get("message")
-                        or f"Researching {entry.get('ticker') or 'stock'}"
-                    )
-                    state["index"] = entry.get("index")
-                    state["total_count"] = entry.get("total_count")
-                elif etype == "stock_done":
-                    state["latest_stage_key"] = "stock_done"
-                    state["latest_stage"] = (
-                        entry.get("message")
-                        or f"Completed {entry.get('ticker') or 'stock'}"
-                    )
-                    state["index"] = entry.get("index")
-                    state["total_count"] = entry.get("total_count")
-                elif etype == "stock_error":
-                    state["latest_stage_key"] = "stock_error"
-                    state["latest_stage"] = (
-                        entry.get("message")
-                        or f"Skipped {entry.get('ticker') or 'stock'}"
-                    )
-                    state["index"] = entry.get("index")
-                    state["total_count"] = entry.get("total_count")
-                    state["error"] = entry.get("error") or state.get("error")
-                elif etype == "publish_done":
-                    state["latest_stage_key"] = "publish_done"
-                    state["latest_stage"] = (
-                        entry.get("message") or "Published weekly dashboard"
-                    )
-                elif etype == "claude_action":
-                    action = entry.get("action")
-                    if action == "result":
-                        if entry.get("cost_usd") is not None:
-                            state["claude_cost_usd"] = entry["cost_usd"]
-                        if entry.get("duration_ms") is not None:
-                            state["claude_duration_ms"] = entry["duration_ms"]
-                    # Track the latest user-visible action for the rail.
-                    # We surface tool_use, tool_result, thinking, init, and
-                    # result — everything except internal book-keeping.
-                    if action in ("tool_use", "tool_result", "thinking",
-                                  "init", "result"):
-                        state["latest_action"] = {
-                            "action": action,
-                            "tool": entry.get("tool"),
-                            "preview": entry.get("preview"),
-                            "text": entry.get("text"),
-                            "is_error": entry.get("is_error"),
-                            "ts": entry.get("ts"),
-                        }
-                    if action == "tool_use":
-                        state["tool_count"] += 1
-    except Exception:
-        pass
-    return state
+    return job_progress.scan_progress_state(path)
 
 
 def _progress_idle_seconds(state: dict) -> float | None:
@@ -2448,6 +2748,19 @@ def _serena_analysis_tool_path(key: str):
     return serena_analysis.analysis_tool_progress_path(company_id, session_id, tool_name)
 
 
+def _stock_tracker_progress_path(key: str):
+    tracker_id, run_id = key.split("/", 1)
+    return stock_research.tracker_progress_path(tracker_id, run_id)
+
+
+def _stock_aggregate_progress_path(key: str):
+    return stock_research.aggregate_progress_path(key)
+
+
+def _stock_strategy_progress_path(key: str):
+    return stock_research.strategy_map_progress_path(key)
+
+
 _JOB_KIND_PATHS = {
     "summary": lambda key: (
         files_store._company_dir(key.split("/", 1)[0])
@@ -2477,6 +2790,9 @@ _JOB_KIND_PATHS = {
     "public_snapshot_bulk": lambda key: _trader_refresh_all_progress_path(),
     "company_regen_all": lambda key: _company_regen_all_progress_path(),
     "weekly_stocks": lambda key: weekly_stocks.progress_path(),
+    "stock_tracker": _stock_tracker_progress_path,
+    "stock_aggregate": _stock_aggregate_progress_path,
+    "stock_strategy": _stock_strategy_progress_path,
 }
 
 
@@ -2497,6 +2813,66 @@ def _weekly_stocks_kind_records():
         "primary_route": {"name": "weekly-summary"},
         **_common_state_fields(state),
     }
+
+
+def _stock_tracker_kind_records():
+    """Yield active Stock Research tracker jobs for the active-jobs rail."""
+    for tracker_id, run_id, jsonl_path in stock_research.iter_tracker_progress_paths():
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
+        tracker = stock_research.get_tracker(tracker_id) or {}
+        yield {
+            "kind": state.get("kind") or "stock_tracker",
+            "title": state.get("title") or "Stock tracker run",
+            "subtitle": state.get("subtitle")
+            or tracker.get("display_name")
+            or tracker_id,
+            "stream_url": (
+                f"/api/stock-research/trackers/{tracker_id}/runs/{run_id}/stream"
+            ),
+            "log_url": f"/api/jobs/log?path=stock_tracker:{tracker_id}/{run_id}",
+            "primary_route": {"name": "stock-research", "query": {"tab": "runs"}},
+            "tracker_id": tracker_id,
+            "run_id": run_id,
+            **_common_state_fields(state),
+        }
+
+
+def _stock_aggregate_kind_records():
+    """Yield active Stock Research weekly aggregate jobs."""
+    for period_id, jsonl_path in stock_research.iter_aggregate_progress_paths():
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
+        yield {
+            "kind": state.get("kind") or "stock_aggregate",
+            "title": state.get("title") or "Stock Research weekly aggregate",
+            "subtitle": state.get("subtitle") or period_id,
+            "stream_url": f"/api/stock-research/aggregates/{period_id}/stream",
+            "log_url": f"/api/jobs/log?path=stock_aggregate:{period_id}",
+            "primary_route": {"name": "stock-research", "query": {"tab": "aggregate"}},
+            "period_id": period_id,
+            **_common_state_fields(state),
+        }
+
+
+def _stock_strategy_kind_records():
+    """Yield active Stock Research strategy-map jobs."""
+    for period_id, jsonl_path in stock_research.iter_strategy_progress_paths():
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
+        yield {
+            "kind": state.get("kind") or "stock_strategy",
+            "title": state.get("title") or "Stock Research strategy map",
+            "subtitle": state.get("subtitle") or period_id,
+            "stream_url": f"/api/stock-research/strategy-maps/{period_id}/stream",
+            "log_url": f"/api/jobs/log?path=stock_strategy:{period_id}",
+            "primary_route": {"name": "stock-research", "query": {"tab": "strategy"}},
+            "period_id": period_id,
+            **_common_state_fields(state),
+        }
 
 
 def _research_summary_kind_records():
@@ -2945,6 +3321,12 @@ def get_active_jobs() -> list[dict]:
         _recover_stale_research_jobs()
     except Exception:
         logger.exception("failed to recover stale research jobs")
+    try:
+        stock_research.recover_stale_runs(
+            max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
+        )
+    except Exception:
+        logger.exception("failed to recover stale stock research jobs")
     out: list[dict] = []
     for source in (
         _summary_kind_records(),
@@ -2961,6 +3343,9 @@ def get_active_jobs() -> list[dict]:
         _public_snapshot_bulk_kind_records(),
         _public_snapshot_kind_records(),
         _weekly_stocks_kind_records(),
+        _stock_tracker_kind_records(),
+        _stock_aggregate_kind_records(),
+        _stock_strategy_kind_records(),
     ):
         for rec in source:
             if rec.get("terminated"):
@@ -3175,6 +3560,10 @@ class LinkPreviewIn(BaseModel):
 
 class NewsCreateIn(BaseModel):
     url: str
+
+
+class ExternalResearchPromoteIn(BaseModel):
+    company_id: str
 
 
 @router.post("/external/link-preview")
@@ -3422,6 +3811,7 @@ def retry_news(item_id: str) -> dict:
         status="queued",
         analysis_error=None,
         error=None,
+        ocr_needed=False,
     )
     threading.Thread(
         target=_run_news_analysis, args=(item_id, url), daemon=True
@@ -3439,6 +3829,7 @@ def _run_external_research_analysis(
     cancel_key: str | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
+    started = time.monotonic()
     progress_path = _external_research_analysis_progress_path(item_id)
     cancel_fields = {
         "kind": "external_research",
@@ -3473,7 +3864,32 @@ def _run_external_research_analysis(
     try:
         progress.emit("stage", stage="extracting", message="Extracting text")
         external_store.update_item("external_research", item_id, status="extracting")
-        text = _extract_text_from_file(file_path)
+        source_chunks = _extract_text_chunks_from_file(file_path)
+        if _pdf_needs_ocr(file_path, source_chunks):
+            ocr_chunks = _ocr_extract_text_chunks_from_file(file_path)
+            if ocr_chunks:
+                source_chunks = ocr_chunks
+            else:
+                message = (
+                    "OCR needed: this PDF appears to contain little or no "
+                    "extractable text."
+                )
+                external_store.update_item(
+                    "external_research",
+                    item_id,
+                    status="ocr_needed",
+                    analysis_error=message,
+                    ocr_needed=True,
+                    source_chunk_count=len(source_chunks),
+                )
+                progress.emit(
+                    "error",
+                    error=message,
+                    status="ocr_needed",
+                    ocr_needed=True,
+                )
+                return
+        text = _format_source_chunks_for_analysis(source_chunks)
         if _honor_research_cancel(
             progress_path,
             cancel_event,
@@ -3494,6 +3910,7 @@ def _run_external_research_analysis(
                 item_id,
                 status="ready",
                 analysis_error=message,
+                ocr_needed=False,
             )
             progress.emit("error", error=message)
             return
@@ -3502,12 +3919,15 @@ def _run_external_research_analysis(
             stage="analyzing",
             message="Analyzing extracted text",
             raw_text_chars=len(text),
+            source_chunk_count=len(source_chunks),
         )
         external_store.update_item(
             "external_research",
             item_id,
             status="analyzing",
             raw_text_chars=len(text),
+            source_chunk_count=len(source_chunks),
+            ocr_needed=False,
         )
         analysis = text_analysis.analyze(
             text,
@@ -3538,15 +3958,42 @@ def _run_external_research_analysis(
             progress.emit("error", error=analysis["error"])
             return
         progress.emit("stage", stage="saving", message="Saving analysis")
+        filename = item.get("filename") or Path(file_path).name
+        stored_source_chunks = _source_chunks_for_storage(
+            source_chunks,
+            item_id=item_id,
+            filename=filename,
+        )
+        source_traces = _normalize_external_source_traces(
+            analysis.get("source_traces"),
+            stored_source_chunks,
+            item_id=item_id,
+            filename=filename,
+        )
+        observed_analysis = research_eval.with_observability_defaults(
+            {
+                **analysis,
+                "source_chunks": stored_source_chunks,
+                "source_traces": source_traces,
+            },
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
         external_store.update_item(
             "external_research",
             item_id,
             status="ready",
-            summary=analysis.get("summary"),
-            key_points=analysis.get("key_points") or [],
-            language=analysis.get("language") or "other",
-            translation=analysis.get("translation"),
-            title=(analysis.get("title") or hint_title or "Untitled"),
+            summary=observed_analysis.get("summary"),
+            key_points=observed_analysis.get("key_points") or [],
+            language=observed_analysis.get("language") or "other",
+            translation=observed_analysis.get("translation"),
+            title=(observed_analysis.get("title") or hint_title or "Untitled"),
+            source_chunks=stored_source_chunks,
+            source_chunk_count=len(stored_source_chunks),
+            source_traces=source_traces,
+            source_trace_count=len(source_traces),
+            job_metrics=observed_analysis.get("job_metrics"),
+            analyst_review_score=observed_analysis.get("analyst_review_score"),
+            ocr_needed=False,
         )
         progress.emit(
             "done",
@@ -3554,6 +4001,7 @@ def _run_external_research_analysis(
             title=(analysis.get("title") or hint_title or "Untitled"),
             summary=analysis.get("summary"),
             key_point_count=len(analysis.get("key_points") or []),
+            source_trace_count=len(source_traces),
         )
     except Exception as exc:  # noqa: BLE001
         progress.emit("error", error=f"{type(exc).__name__}: {exc}")
@@ -3567,48 +4015,357 @@ def _run_external_research_analysis(
         _clear_research_cancel_event(cancel_key or "", cancel_event)
 
 
-def _extract_text_from_file(path_str: str) -> str:
-    """Best-effort text extraction from uploaded research files."""
+def _append_source_chunk(
+    chunks: list[dict],
+    *,
+    label: str,
+    locator: str,
+    text: str,
+    remaining: list[int],
+    page_no: int | None = None,
+    slide_no: int | None = None,
+) -> bool:
+    cleaned = (text or "").strip()
+    if not cleaned or remaining[0] <= 0:
+        return remaining[0] > 0
+    if len(cleaned) > remaining[0]:
+        cleaned = cleaned[: remaining[0]].rstrip()
+    entry = {
+        "id": f"chunk-{len(chunks) + 1}",
+        "label": label,
+        "locator": locator,
+        "text": cleaned,
+        "char_count": len(cleaned),
+    }
+    if page_no is not None:
+        entry["page_no"] = page_no
+    if slide_no is not None:
+        entry["slide_no"] = slide_no
+    chunks.append(entry)
+    remaining[0] -= len(cleaned)
+    return remaining[0] > 0
+
+
+def _extract_text_chunks_from_file(path_str: str) -> list[dict]:
+    """Best-effort, bounded source chunks from uploaded research files."""
     from pathlib import Path
 
     p = Path(path_str)
     if not p.exists():
-        return ""
+        return []
     suffix = p.suffix.lower()
+    chunks: list[dict] = []
+    remaining = [EXTERNAL_RESEARCH_ANALYSIS_TEXT_LIMIT]
     try:
         if suffix in (".txt", ".md"):
-            return p.read_text(encoding="utf-8", errors="ignore")[:60_000]
+            _append_source_chunk(
+                chunks,
+                label="Document",
+                locator="document",
+                text=p.read_text(encoding="utf-8", errors="ignore"),
+                remaining=remaining,
+            )
+            return chunks
         if suffix == ".pdf":
             try:
                 from pypdf import PdfReader  # type: ignore
             except ImportError:
-                return ""
+                return []
             reader = PdfReader(str(p))
-            chunks = []
-            for page in reader.pages[:50]:
-                chunks.append(page.extract_text() or "")
-            return "\n".join(chunks)[:60_000]
+            for index, page in enumerate(reader.pages[:50], start=1):
+                try:
+                    page_text = page.extract_text() or ""
+                except Exception:
+                    page_text = ""
+                keep_going = _append_source_chunk(
+                    chunks,
+                    label=f"Page {index}",
+                    locator=f"page {index}",
+                    text=page_text,
+                    remaining=remaining,
+                    page_no=index,
+                )
+                if not keep_going:
+                    break
+            return chunks
         if suffix in (".docx", ".doc"):
             try:
                 from docx import Document  # type: ignore
             except ImportError:
-                return ""
+                return []
             doc = Document(str(p))
-            return "\n".join(p_.text for p_ in doc.paragraphs)[:60_000]
+            _append_source_chunk(
+                chunks,
+                label="Document",
+                locator="document",
+                text="\n".join(p_.text for p_ in doc.paragraphs),
+                remaining=remaining,
+            )
+            return chunks
         if suffix == ".pptx":
             slides = deck_summary.extract_slides(p, "pptx")
-            chunks: list[str] = []
             for slide in slides:
                 if slide.text:
-                    chunks.append(f"[Slide {slide.slide_no}]\n{slide.text}")
-                if slide.notes:
-                    chunks.append(
-                        f"[Slide {slide.slide_no} notes]\n{slide.notes}"
+                    keep_going = _append_source_chunk(
+                        chunks,
+                        label=f"Slide {slide.slide_no}",
+                        locator=f"slide {slide.slide_no}",
+                        text=slide.text,
+                        remaining=remaining,
+                        slide_no=slide.slide_no,
                     )
-            return "\n\n".join(chunks)[:60_000]
+                    if not keep_going:
+                        break
+                if slide.notes:
+                    keep_going = _append_source_chunk(
+                        chunks,
+                        label=f"Slide {slide.slide_no} notes",
+                        locator=f"slide {slide.slide_no} notes",
+                        text=slide.notes,
+                        remaining=remaining,
+                        slide_no=slide.slide_no,
+                    )
+                    if not keep_going:
+                        break
+            return chunks
+        if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+            return _ocr_extract_text_chunks_from_file(path_str)
     except Exception:
-        return ""
-    return ""
+        return []
+    return []
+
+
+def _format_source_chunks_for_analysis(chunks: list[dict]) -> str:
+    parts: list[str] = []
+    for chunk in chunks:
+        text = (chunk.get("text") or "").strip()
+        if not text:
+            continue
+        label = chunk.get("label") or chunk.get("locator") or "Source"
+        parts.append(f"[{label}]\n{text}")
+    return "\n\n".join(parts)[:EXTERNAL_RESEARCH_ANALYSIS_TEXT_LIMIT]
+
+
+def _ocr_extract_text_chunks_from_file(path_str: str) -> list[dict]:
+    """Best-effort OCR hook for image-only PDFs and screenshots."""
+    path = Path(path_str)
+    if not path.exists() or shutil.which("tesseract") is None:
+        return []
+    suffix = path.suffix.lower()
+    chunks: list[dict] = []
+    remaining = [EXTERNAL_RESEARCH_ANALYSIS_TEXT_LIMIT]
+
+    def run_tesseract(image_path: Path) -> str:
+        try:
+            proc = subprocess.run(
+                ["tesseract", str(image_path), "stdout"],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+        except Exception:
+            return ""
+        if proc.returncode != 0:
+            return ""
+        return proc.stdout or ""
+
+    if suffix == ".pdf":
+        if shutil.which("pdftoppm") is None:
+            return []
+        with tempfile.TemporaryDirectory(prefix="bsh-ocr-") as tmp:
+            prefix = Path(tmp) / "page"
+            try:
+                proc = subprocess.run(
+                    [
+                        "pdftoppm",
+                        "-png",
+                        "-r",
+                        "200",
+                        "-f",
+                        "1",
+                        "-l",
+                        "10",
+                        str(path),
+                        str(prefix),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except Exception:
+                return []
+            if proc.returncode != 0:
+                return []
+            images = sorted(Path(tmp).glob("page-*.png"))
+            for index, image_path in enumerate(images, start=1):
+                text = run_tesseract(image_path)
+                keep_going = _append_source_chunk(
+                    chunks,
+                    label=f"Page {index} OCR",
+                    locator=f"page {index} ocr",
+                    text=text,
+                    remaining=remaining,
+                    page_no=index,
+                )
+                if not keep_going:
+                    break
+        return chunks
+
+    if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+        _append_source_chunk(
+            chunks,
+            label="Image OCR",
+            locator="image ocr",
+            text=run_tesseract(path),
+            remaining=remaining,
+        )
+        return chunks
+
+    return []
+
+
+def _pdf_needs_ocr(path_str: str, chunks: list[dict]) -> bool:
+    if Path(path_str).suffix.lower() != ".pdf":
+        return False
+    total_text = sum(len(str(chunk.get("text") or "").strip()) for chunk in chunks)
+    return total_text < PDF_OCR_NEEDED_MIN_TEXT_CHARS
+
+
+def _source_chunks_for_storage(
+    chunks: list[dict],
+    *,
+    item_id: str,
+    filename: str,
+) -> list[dict]:
+    out: list[dict] = []
+    for chunk in chunks:
+        text = (chunk.get("text") or "").strip()
+        if not text:
+            continue
+        stored = {
+            "id": chunk.get("id"),
+            "file_id": item_id,
+            "filename": filename,
+            "label": chunk.get("label"),
+            "locator": chunk.get("locator"),
+            "text": text,
+            "char_count": len(text),
+        }
+        if chunk.get("page_no") is not None:
+            stored["page_no"] = chunk.get("page_no")
+        if chunk.get("slide_no") is not None:
+            stored["slide_no"] = chunk.get("slide_no")
+        out.append(stored)
+    return out
+
+
+def _excerpt(text: str, *, limit: int = 500) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()[:limit].rstrip()
+
+
+def _confidence(value: str | None) -> str:
+    lowered = str(value or "").strip().lower()
+    return lowered if lowered in {"low", "medium", "high"} else "medium"
+
+
+def _find_chunk_for_trace(trace: dict, chunks: list[dict]) -> dict | None:
+    locator = str(trace.get("locator") or "").strip().lower()
+    if locator:
+        for chunk in chunks:
+            if locator == str(chunk.get("locator") or "").strip().lower():
+                return chunk
+            if locator == str(chunk.get("label") or "").strip().lower():
+                return chunk
+    excerpt = _excerpt(str(trace.get("excerpt") or ""), limit=120).lower()
+    if excerpt:
+        for chunk in chunks:
+            if excerpt in _excerpt(str(chunk.get("text") or ""), limit=10_000).lower():
+                return chunk
+    return None
+
+
+def _normalize_source_traces(
+    raw_traces,
+    chunks: list[dict],
+    *,
+    item_id: str,
+    filename: str,
+) -> list[dict]:
+    traces: list[dict] = []
+    if isinstance(raw_traces, list):
+        for raw in raw_traces:
+            if not isinstance(raw, dict):
+                continue
+            excerpt = _excerpt(str(raw.get("excerpt") or ""))
+            if not excerpt:
+                continue
+            chunk = _find_chunk_for_trace(raw, chunks) or {}
+            locator = (
+                raw.get("locator")
+                or chunk.get("locator")
+                or chunk.get("label")
+                or "document"
+            )
+            trace = {
+                "file_id": raw.get("file_id") or item_id,
+                "filename": raw.get("filename") or filename,
+                "locator": str(locator),
+                "excerpt": excerpt,
+                "confidence": _confidence(raw.get("confidence")),
+            }
+            if raw.get("claim"):
+                trace["claim"] = str(raw.get("claim"))
+            if chunk.get("page_no") is not None:
+                trace["page_no"] = chunk.get("page_no")
+            if chunk.get("slide_no") is not None:
+                trace["slide_no"] = chunk.get("slide_no")
+            traces.append(trace)
+            if len(traces) >= EXTERNAL_RESEARCH_SOURCE_TRACE_LIMIT:
+                return traces
+        if traces:
+            return traces
+
+    for chunk in chunks:
+        excerpt = _excerpt(str(chunk.get("text") or ""))
+        if not excerpt:
+            continue
+        trace = {
+            "file_id": item_id,
+            "filename": filename,
+            "locator": str(chunk.get("locator") or chunk.get("label") or "document"),
+            "excerpt": excerpt,
+            "confidence": "medium",
+        }
+        if chunk.get("page_no") is not None:
+            trace["page_no"] = chunk.get("page_no")
+        if chunk.get("slide_no") is not None:
+            trace["slide_no"] = chunk.get("slide_no")
+        traces.append(trace)
+        if len(traces) >= min(EXTERNAL_RESEARCH_SOURCE_TRACE_LIMIT, 3):
+            break
+    return traces
+
+
+def _normalize_external_source_traces(
+    raw_traces,
+    chunks: list[dict],
+    *,
+    item_id: str,
+    filename: str,
+) -> list[dict]:
+    return _normalize_source_traces(
+        raw_traces,
+        chunks,
+        item_id=item_id,
+        filename=filename,
+    )
+
+
+def _extract_text_from_file(path_str: str) -> str:
+    """Compatibility wrapper returning labeled text for uploaded files."""
+    return _format_source_chunks_for_analysis(
+        _extract_text_chunks_from_file(path_str)
+    )
 
 
 @router.post("/external/research", status_code=201)
@@ -3811,6 +4568,76 @@ def get_external_research_file(
         filename=filename,
         media_type=media_type,
     )
+
+
+def _promoted_research_record(company_id: str, item_id: str) -> dict | None:
+    for entry in research_store.list_files(company_id):
+        if entry.get("promoted_from_external_item_id") == item_id:
+            return entry
+    return None
+
+
+@router.post("/external/research/{item_id}/promote", status_code=201)
+def promote_external_research(
+    item_id: str,
+    payload: ExternalResearchPromoteIn,
+) -> dict:
+    company_id = payload.company_id
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    item = external_store.get_item("external_research", item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Research item not found")
+    existing = _promoted_research_record(company_id, item_id)
+    if existing is not None:
+        return {**existing, "status": "already_promoted"}
+    stored = item.get("stored_name")
+    if not stored:
+        raise HTTPException(status_code=400, detail="Item has no file")
+    source_path = external_store._kind_dir("external_research") / "files" / stored
+    if not source_path.exists():
+        raise HTTPException(status_code=400, detail="Source file missing on disk")
+
+    try:
+        record = research_store.upload_file(
+            company_id,
+            filename=item.get("filename") or source_path.name,
+            content_type=item.get("content_type") or "application/octet-stream",
+            data=source_path.read_bytes(),
+            label=item.get("title") or item.get("filename"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    metadata = {
+        "title": item.get("title"),
+        "source_company": item.get("source_company"),
+        "contact_name": item.get("contact_name"),
+        "contact_email": item.get("contact_email"),
+        "notes": item.get("notes"),
+        "summary": item.get("summary"),
+        "key_points": item.get("key_points") or [],
+        "language": item.get("language"),
+        "translation": item.get("translation"),
+        "source_chunks": item.get("source_chunks") or [],
+        "source_traces": item.get("source_traces") or [],
+    }
+    updated = research_store.update_record(
+        company_id,
+        record["id"],
+        promoted_from_external_item_id=item_id,
+        external_research_metadata=metadata,
+        original_external_item_id=item_id,
+        source_company=item.get("source_company"),
+        external_title=item.get("title"),
+        external_summary=item.get("summary"),
+        external_key_points=item.get("key_points") or [],
+        source_chunks=item.get("source_chunks") or [],
+        source_chunk_count=len(item.get("source_chunks") or []),
+        source_traces=item.get("source_traces") or [],
+        source_trace_count=len(item.get("source_traces") or []),
+    )
+    return updated or record
 
 
 @router.delete("/external/research/{item_id}", status_code=204)

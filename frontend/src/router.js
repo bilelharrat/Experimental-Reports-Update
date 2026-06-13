@@ -1,15 +1,17 @@
 import { watch } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
-import HomeView from "./views/HomeView.vue";
-import LoginView from "./views/LoginView.vue";
-import ResearchView from "./views/ResearchView.vue";
-import ExternalNewsView from "./views/ExternalNewsView.vue";
-import ExternalResearchView from "./views/ExternalResearchView.vue";
-import HormuzResearchView from "./views/HormuzResearchView.vue";
-import HormuzLibraryView from "./views/HormuzLibraryView.vue";
-import WeeklySummaryView from "./views/WeeklySummaryView.vue";
-import TraderStatsView from "./views/TraderStatsView.vue";
 import { isAuthenticated, validateSession } from "./auth.js";
+
+const HomeView = () => import("./views/HomeView.vue");
+const LoginView = () => import("./views/LoginView.vue");
+const ResearchView = () => import("./views/ResearchView.vue");
+const ExternalNewsView = () => import("./views/ExternalNewsView.vue");
+const ExternalResearchView = () => import("./views/ExternalResearchView.vue");
+const HormuzResearchView = () => import("./views/HormuzResearchView.vue");
+const HormuzLibraryView = () => import("./views/HormuzLibraryView.vue");
+const WeeklySummaryView = () => import("./views/WeeklySummaryView.vue");
+const TraderStatsView = () => import("./views/TraderStatsView.vue");
+const StockResearchView = () => import("./views/StockResearchView.vue");
 
 function routerHistoryBase() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -52,6 +54,11 @@ export const router = createRouter({
       path: "/trader-stats",
       name: "trader-stats",
       component: TraderStatsView,
+    },
+    {
+      path: "/stock-research",
+      name: "stock-research",
+      component: StockResearchView,
     },
     {
       path: "/research/:companyId",

@@ -50,3 +50,27 @@ def test_investment_memo_prompt_carries_scope_warning_override(tmp_path):
     assert "Scope-warning override from prep" in prompt
     assert "Proceed with the memo anyway" in prompt
     assert "Do **not** stop or decline solely because" in prompt
+
+
+def test_investment_memo_prompt_includes_serena_lessons(tmp_path):
+    lessons_path = tmp_path / "serena_training" / "generalist" / "serena_memo_lessons.md"
+    lessons_path.parent.mkdir(parents=True)
+    lessons_path.write_text("# Lessons\n- Lead with evidence.\n", encoding="utf-8")
+
+    prompt = claude_runner._build_investment_memo_prompt(
+        run_dir=tmp_path,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+        lessons_path=lessons_path,
+    )
+
+    assert str(lessons_path) in prompt
+    assert "Current company evidence" in prompt
+    assert "override stale or contradictory lessons" in prompt

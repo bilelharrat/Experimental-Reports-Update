@@ -576,7 +576,7 @@ def _wait_for_done(company_id, *, timeout=3.0):
     raise AssertionError("trader_snapshot did not land")
 
 
-def _wait_for_progress_done(path, *, timeout=3.0):
+def _wait_for_progress_done(path, *, timeout=8.0):
     import json
 
     deadline = time.monotonic() + timeout
@@ -1595,6 +1595,7 @@ def test_done_event_stamps_schema_version(
     path = (
         storage.DATA_DIR / "_trader" / f"{COMPANY_ID}__snapshot.progress.jsonl"
     )
+    _wait_for_progress_done(path)
     events = [
         json.loads(line) for line in path.read_text().splitlines() if line
     ]

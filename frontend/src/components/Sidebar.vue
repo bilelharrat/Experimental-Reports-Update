@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
+  Activity,
   FileText,
   Loader2,
   Home,
@@ -103,7 +104,14 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
         class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
       >
         <Home class="h-4 w-4" />
-        <span>{{ t("nav.home") }}</span>
+        <span class="truncate">{{ t("nav.home") }}</span>
+      </RouterLink>
+      <RouterLink
+        to="/stock-research"
+        class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
+      >
+        <Activity class="h-4 w-4" />
+        <span class="truncate">Stock Research</span>
       </RouterLink>
       <div
         class="shrink-0 inline-flex rounded-md border border-subtle overflow-hidden text-xs"

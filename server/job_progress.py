@@ -17,11 +17,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+RESEARCH_JOB_STATES = (
+    "queued",
+    "running",
+    "done",
+    "error",
+    "cancelled",
+    "recovered",
+)
+RESEARCH_JOB_TERMINAL_STATES = ("done", "error", "cancelled", "recovered")
+
 
 class ProgressLog:
     """Thread-safe writer for a JSONL progress file."""
 
-    TERMINAL_TYPES = ("done", "error", "cancelled", "recovered")
+    TERMINAL_TYPES = RESEARCH_JOB_TERMINAL_STATES
 
     def __init__(self, path: Path, *, truncate: bool = True):
         self.path = path
@@ -36,6 +46,15 @@ class ProgressLog:
             self.path.write_text("", encoding="utf-8")
 
     def emit(self, type_: str, **fields: Any) -> None:
+        if "status" not in fields:
+            if type_ == "job_init":
+                fields["status"] = "queued"
+            elif type_ == "stage":
+                fields["status"] = (
+                    "queued" if fields.get("stage") == "queued" else "running"
+                )
+            elif type_ in self.TERMINAL_TYPES:
+                fields["status"] = type_
         entry = {
             "type": type_,
             "ts": datetime.now(timezone.utc).isoformat(),

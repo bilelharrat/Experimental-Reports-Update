@@ -129,9 +129,10 @@ Wire Serena's research folder into the memo process while keeping
 | Preserve hard separation from Document Library | Done | 2026-06-02 | Prompt still explicitly forbids `data/uploads/<slug>/`. |
 | Add tests proving `data/uploads/<slug>/` remains excluded | Done | 2026-06-02 | Prompt test asserts the exclusion language remains present. |
 
-### 6. Chart Spec Builder
+### 6. Infographic Source Brief And Chart Spec Builder
 
-Generate chart/table plans before the memo is written.
+Distill a compact source brief, then generate chart/table/infographic plans
+before the memo is written.
 
 Candidate specs:
 
@@ -148,11 +149,14 @@ Candidate specs:
 | Add chart-spec generation tool | Done | 2026-06-02 | Added deterministic `chart_spec_builder`. |
 | Track required data and availability per chart | Done | 2026-06-02 | Tool marks each chart as available, partial, or missing. |
 | Add include/exclude flag for final memo | Done | 2026-06-02 | Added `include_in_final_memo`. |
+| Add `infographic_source_brief` artifact/tool | Done | 2026-06-13 | Claude-backed source brief captures compact claims, metrics, source traces, contradictions, missing evidence, no-go claims, and visual/narrative opportunities with previous-good-artifact preservation. |
+| Upgrade chart specs for image generation | Done | 2026-06-13 | `chart_spec_builder` is now Claude-backed with deterministic first-run fallback, image-generation mode, overlay copy, required metrics, source traces, design prompts, reviewer prompts, and manual include-state preservation. |
 
-### 7. Opening And Ending Punch Tool
+### 7. Narrative Hook Planner
 
-Generate alternative openings and endings from the approved thesis spine. Serena
-selects the version that should drive final memo tone.
+Generate source-backed opening, transition, and ending candidates from the
+approved thesis spine and infographic source brief. Serena selects the version
+that should drive final memo tone.
 
 | Item | Status | Completion Date | Notes |
 |---|---|---|---|
@@ -160,6 +164,7 @@ selects the version that should drive final memo tone.
 | Add opening/ending generation tool | Done | 2026-06-02 | Added deterministic `narrative_hooks` tool. |
 | Add selected-opening and selected-ending state | Done | 2026-06-02 | Persisted selected opening/ending ids. |
 | Feed selected hooks into final memo prompt | Done | 2026-06-02 | `memo_packet.md` now includes the selected opening and ending from `narrative_hooks`, so the memo runner sees the chosen hook text through the approved analysis packet. |
+| Upgrade narrative hooks for source-backed planning | Done | 2026-06-13 | `narrative_hooks` is now Claude-backed with deterministic fallback, transitions, supported claims, evidence references, overclaiming risk, infographic pairings, reviewer prompts, and selected-id preservation. |
 
 ### 8. Memo Grader And Training Loop
 
@@ -180,11 +185,11 @@ Rubric areas:
 
 | Item | Status | Completion Date | Notes |
 |---|---|---|---|
-| Define memo grading rubric schema | In Progress | 2026-06-02 | First rubric scaffold is persisted by `memo_grader`. |
-| Add grader tool for completed memo runs | In Progress | 2026-06-02 | Tool currently records a waiting state when no completed memo is selected. |
-| Store feedback under `data/serena_training/` | Not Started |  |  |
-| Generate distilled `serena_memo_lessons.md` | Not Started |  |  |
-| Inject lessons into future analysis/memo prompts | Not Started |  |  |
+| Define memo grading rubric schema | Done | 2026-06-13 | Added structured grader schema with scores, strengths, gaps, rewrite guidance, lessons, reviewed files, and confidence. |
+| Add grader tool for completed memo runs | Done | 2026-06-13 | Memo Studio now exposes completed memo runs, lets Serena select a run, and runs a Claude-backed grader with previous-artifact preservation. |
+| Store feedback under `data/serena_training/` | Done | 2026-06-13 | Per-company training folders are written under `data/serena_training/<company_slug>/`. |
+| Generate distilled `serena_memo_lessons.md` | Done | 2026-06-13 | Grader output updates `serena_memo_lessons.md` for future runs. |
+| Inject lessons into future analysis/memo prompts | Done | 2026-06-13 | Strategic risk, thesis spine, and final memo prompts read lessons when available, with current evidence overriding stale lessons. |
 
 ### 9. Private Company Benchmark Dashboard
 
@@ -235,8 +240,9 @@ Planned frontend components:
 | Display strategic risk board with prioritization | Done | 2026-06-02 | Risk board now sorts by saved rank and supports compact up/down reprioritization plus selected-for-research checkboxes saved through `risk_priorities`. |
 | Add editable highlights and risks draft | Done | 2026-06-02 | Added inline text editors for highlights, risks, and top gating questions with artifact PATCH persistence. |
 | Add research task queue | Done | 2026-06-03 | Research task queue is displayed after prompt harness runs and now supports per-task deterministic runs with persisted status/result summaries. |
-| Add chart/table plan panel | Done | 2026-06-02 | Chart specs are displayed with data availability and final-memo include/exclude toggles. |
-| Add narrative hooks selector | Done | 2026-06-02 | Opening and ending options now have single-select controls saved to `narrative_hooks`. |
+| Add chart/table plan panel | Done | 2026-06-13 | Chart specs are displayed with data availability, final-memo include/exclude toggles, generation mode, overlay copy, source traces, required metrics, design prompts, reviewer prompts, and inclusion state. |
+| Add narrative hooks selector | Done | 2026-06-13 | Opening, transition, and ending options now have single-select controls plus source-backed metadata saved to `narrative_hooks`. |
+| Add infographic source brief panel | Done | 2026-06-13 | Dashboard shows source-brief claims, metrics, no-go claims, missing evidence, visual opportunities, source traces, and reviewer prompts. |
 | Add private benchmark dashboard panel | Done | 2026-06-02 | Benchmark comps table is displayed. |
 | Add memo readiness gate | Done | 2026-06-02 | Readiness gate and progress bar are displayed. |
 | Add additional-areas-needed panel | Done | 2026-06-02 | Dashboard displays computed gaps. |
@@ -257,14 +263,14 @@ POST  /api/reports  # accepts optional analysis_session_id for memo runs
 | Item | Status | Completion Date | Notes |
 |---|---|---|---|
 | Add analysis session read endpoint | Done | 2026-06-02 | Added `GET /api/companies/{id}/memo-analysis`. |
-| Add tool run endpoint | Done | 2026-06-03 | Added `POST /api/companies/{id}/memo-analysis/tools/{tool_name}/run`; deterministic tools return synchronously, while Claude-backed `strategic_risk_mapper` and `thesis_spine_builder` return `202` and run in the background. |
+| Add tool run endpoint | Done | 2026-06-13 | Added `POST /api/companies/{id}/memo-analysis/tools/{tool_name}/run`; deterministic tools return synchronously, while Claude-backed `strategic_risk_mapper`, `thesis_spine_builder`, `infographic_source_brief`, `chart_spec_builder`, `narrative_hooks`, `private_benchmark_dashboard`, and `memo_grader` return `202` and run in the background. |
 | Add artifact patch endpoint | Done | 2026-06-02 | Added `PATCH /api/companies/{id}/memo-analysis/artifacts/{artifact}` with focused tests for `thesis_spine`, `chart_specs`, and `narrative_hooks`. |
 | Add research task patch endpoint | Done | 2026-06-03 | Added `PATCH /api/companies/{id}/memo-analysis/research-tasks/{task_id}` for task status/result updates. |
 | Add research task run endpoint | Done | 2026-06-03 | Added `POST /api/companies/{id}/memo-analysis/research-tasks/{task_id}/run` for deterministic first-pass research summaries. |
 | Add approval endpoint | Done | 2026-06-02 | Added `POST /api/companies/{id}/memo-analysis/approve`. |
 | Update memo report creation to accept `analysis_session_id` | Done | 2026-06-02 | `POST /api/reports` and `/api/memos/prep` accept optional analysis session id, expose analysis-session metadata in report responses, and return 400 for unapproved analysis-backed runs. |
 | Expose unapproved Memo Studio work warning | Done | 2026-06-02 | `GET /api/companies/{id}/memo-analysis` now returns `has_unapproved_work` and `regular_memo_warning` when draft analysis artifacts exist without memo approval. |
-| Add active-job rail integration for long-running tools | Done | 2026-06-03 | Selected research-task runs and Claude-backed `strategic_risk_mapper` and `thesis_spine_builder` runs now appear in `/api/jobs/active` with log replay, SSE streaming, and Memo Studio route metadata. Future Claude-backed tools should reuse the same pattern. |
+| Add active-job rail integration for long-running tools | Done | 2026-06-13 | Selected research-task runs and Claude-backed analysis tools now appear in `/api/jobs/active` with log replay, SSE streaming, and Memo Studio route metadata. |
 | Add stale-run recovery for interrupted background jobs | Done | 2026-06-03 | Session reads and `/api/jobs/active` now sweep Serena research-task and analysis-tool runs, mark stale `running` state as `error`, preserve completed artifacts/results, and append recovery errors to non-terminal progress logs. |
 
 ## Memo Readiness Gate
@@ -282,8 +288,8 @@ or explicitly waived:
 | Top 3 gating questions selected | Done | Tracked by readiness gate. |
 | Chart/table plan reviewed | Done | Tracked by readiness gate. |
 | Benchmark dashboard reviewed | Done | Tracked by readiness gate. |
-| Additional areas needed reviewed | In Progress | Gaps are displayed; explicit reviewed/waived state is future work. |
-| Final memo generation approved | Done | Approval button sets `approved_for_memo`. |
+| Additional areas needed reviewed | Done | Readiness reviews support reviewed/waived/open state with rationale and packet inclusion. |
+| Final memo generation approved | Done | Approval now rejects open blockers before setting `approved_for_memo`. |
 
 ## Additional Areas Needed
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import types
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -54,6 +56,30 @@ def _seed_company(tmp_path, company_id: str = "generalist") -> None:
     )
 
 
+def test_research_progress_events_include_shared_state_contract(tmp_path):
+    progress_path = tmp_path / "job.progress.jsonl"
+    progress = job_progress.ProgressLog(progress_path)
+
+    progress.emit("job_init", kind="external_research")
+    progress.emit("stage", stage="extracting")
+    progress.emit("done")
+
+    events = _events(progress_path)
+    assert [event["status"] for event in events] == [
+        "queued",
+        "running",
+        "done",
+    ]
+    assert set(job_progress.RESEARCH_JOB_STATES) == {
+        "queued",
+        "running",
+        "done",
+        "error",
+        "cancelled",
+        "recovered",
+    }
+
+
 def test_external_research_analysis_writes_job_progress(
     isolated_job_roots, tmp_path, monkeypatch
 ):
@@ -75,6 +101,7 @@ def test_external_research_analysis_writes_job_progress(
     )
 
     def fake_analyze(text, *, hint_title=None, progress=None, cancel_event=None):
+        assert "[Document]" in text
         assert "Agentic workflow" in text
         assert hint_title == "Agentic Gap"
         assert progress is not None
@@ -84,6 +111,14 @@ def test_external_research_analysis_writes_job_progress(
             "title": "Agentic Gap",
             "summary": "Google closed part of the agentic gap.",
             "key_points": ["Gemini improved.", "Distribution matters."],
+            "source_traces": [
+                {
+                    "claim": "Google closed part of the agentic gap.",
+                    "locator": "Document",
+                    "excerpt": "Agentic workflow analysis with specific facts.",
+                    "confidence": "high",
+                }
+            ],
             "language": "en",
             "translation": {
                 "language": "zh",
@@ -110,11 +145,23 @@ def test_external_research_analysis_writes_job_progress(
     ]
     assert events[0]["kind"] == "external_research"
     assert events[2]["stage"] == "analyzing"
+    assert events[2]["source_chunk_count"] == 1
     assert events[-1]["key_point_count"] == 2
+    assert events[-1]["source_trace_count"] == 1
 
     item = external_store.get_item("external_research", item_id)
     assert item["status"] == "ready"
     assert item["summary"] == "Google closed part of the agentic gap."
+    assert item["source_chunk_count"] == 1
+    assert item["source_chunks"][0]["locator"] == "document"
+    assert item["source_chunks"][0]["filename"] == "source.txt"
+    assert "Agentic workflow analysis" in item["source_chunks"][0]["text"]
+    assert item["source_trace_count"] == 1
+    assert item["source_traces"][0]["claim"] == (
+        "Google closed part of the agentic gap."
+    )
+    assert item["source_traces"][0]["file_id"] == item_id
+    assert item["source_traces"][0]["confidence"] == "high"
 
 
 def test_external_research_analysis_appears_in_active_jobs(isolated_job_roots):
@@ -206,6 +253,484 @@ def test_external_research_extracts_pptx_slide_text(tmp_path, monkeypatch):
     assert "Net revenue retention reached 122%" in text
     assert "[Slide 1 notes]" in text
     assert "customer cohort appendix" in text
+
+
+def test_research_file_quick_summary_persists_source_traces(
+    isolated_job_roots, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(storage, "COMPANIES_FILE", tmp_path / "companies.yaml")
+    _seed_company(tmp_path)
+    entry = research_store.upload_file(
+        "generalist",
+        filename="partner-note.md",
+        content_type="text/markdown",
+        data=(
+            b"# Partner note\n\n"
+            b"ARR reached $120M and gross retention held at 90%."
+        ),
+    )
+
+    def fake_summary(**kwargs):
+        return {
+            "title_en": "Partner note",
+            "title_zh": "Partner note",
+            "doc_type": "Partner research note",
+            "summary_en": "ARR reached $120M.",
+            "summary_zh": "ARR reached $120M.",
+            "key_points_en": ["ARR reached $120M."],
+            "key_points_zh": ["ARR reached $120M."],
+            "key_figures": [],
+            "entities": {
+                "people": [],
+                "organizations": [],
+                "products": [],
+            },
+            "topics": ["financials"],
+            "source_traces": [
+                {
+                    "claim": "ARR reached $120M.",
+                    "locator": "Document",
+                    "excerpt": "ARR reached $120M",
+                    "confidence": "high",
+                }
+            ],
+            "language": "en",
+            "description_en": None,
+            "description_zh": None,
+        }
+
+    monkeypatch.setattr(api.claude_runner, "run_quick_summary", fake_summary)
+
+    api._run_research_summary_job("generalist", entry["id"])
+
+    persisted, _ = research_store.get_file("generalist", entry["id"])
+    summary = persisted["quick_summary"]
+    assert summary["source_chunk_count"] == 1
+    assert summary["source_chunks"][0]["file_id"] == entry["id"]
+    assert summary["source_chunks"][0]["locator"] == "document"
+    assert "ARR reached $120M" in summary["source_chunks"][0]["text"]
+    assert summary["source_trace_count"] == 1
+    assert summary["source_traces"][0]["file_id"] == entry["id"]
+    assert summary["source_traces"][0]["filename"] == "partner-note.md"
+    assert summary["source_traces"][0]["confidence"] == "high"
+
+    events = _events(
+        research_store.quick_summary_progress_path("generalist", entry["id"])
+    )
+    assert events[-1]["type"] == "done"
+    assert events[-1]["source_trace_count"] == 1
+
+
+def test_research_file_pdf_source_chunks_preserve_page_locators(
+    tmp_path, monkeypatch
+):
+    class FakePage:
+        def __init__(self, text):
+            self._text = text
+
+        def extract_text(self):
+            return self._text
+
+    class FakeReader:
+        def __init__(self, _path):
+            self.pages = [
+                FakePage("Page one ARR evidence."),
+                FakePage("Page two retention evidence."),
+            ]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "pypdf",
+        types.SimpleNamespace(PdfReader=FakeReader),
+    )
+    path = tmp_path / "memo.pdf"
+    path.write_bytes(b"%PDF fake")
+
+    chunks = api._source_chunks_for_storage(
+        api._extract_text_chunks_from_file(str(path)),
+        item_id="file123",
+        filename="memo.pdf",
+    )
+
+    assert [chunk["locator"] for chunk in chunks] == ["page 1", "page 2"]
+    assert chunks[0]["page_no"] == 1
+    assert chunks[1]["page_no"] == 2
+
+
+def test_research_file_pptx_source_chunks_preserve_slide_and_notes(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "deck.pptx"
+    path.write_bytes(b"pptx placeholder")
+    monkeypatch.setattr(
+        api.deck_summary,
+        "extract_slides",
+        lambda path, kind: [
+            api.deck_summary.Slide(
+                slide_no=2,
+                text="Slide text says pilots expanded.",
+                notes="Speaker note cites customer calls.",
+            )
+        ],
+    )
+
+    chunks = api._source_chunks_for_storage(
+        api._extract_text_chunks_from_file(str(path)),
+        item_id="deck123",
+        filename="deck.pptx",
+    )
+
+    assert [chunk["locator"] for chunk in chunks] == [
+        "slide 2",
+        "slide 2 notes",
+    ]
+    assert all(chunk["slide_no"] == 2 for chunk in chunks)
+
+
+def test_external_research_source_trace_fallbacks_use_chunks():
+    chunks = [
+        {
+            "id": "chunk-1",
+            "file_id": "deck123",
+            "filename": "deck.pdf",
+            "locator": "page 1",
+            "label": "Page 1",
+            "page_no": 1,
+            "text": "ARR reached $120M with 90% gross retention.",
+        },
+        {
+            "id": "chunk-2",
+            "file_id": "deck123",
+            "filename": "deck.pdf",
+            "locator": "page 2",
+            "label": "Page 2",
+            "page_no": 2,
+            "text": "Net revenue retention improved to 122%.",
+        },
+    ]
+
+    traces = api._normalize_external_source_traces(
+        None,
+        chunks,
+        item_id="deck123",
+        filename="deck.pdf",
+    )
+
+    assert len(traces) == 2
+    assert traces[0]["locator"] == "page 1"
+    assert traces[0]["page_no"] == 1
+    assert traces[0]["confidence"] == "medium"
+    assert "ARR reached" in traces[0]["excerpt"]
+
+
+def test_external_research_promotes_to_company_background_docs(
+    isolated_job_roots, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(storage, "COMPANIES_FILE", tmp_path / "companies.yaml")
+    _seed_company(tmp_path)
+    item_id = "promote123"
+    files_dir = external_store._kind_dir("external_research") / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{item_id}__source.txt"
+    (files_dir / stored_name).write_text("source evidence", encoding="utf-8")
+    external_store.write_item(
+        "external_research",
+        {
+            "id": item_id,
+            "kind": "external_research",
+            "status": "ready",
+            "title": "Customer source",
+            "filename": "source.txt",
+            "stored_name": stored_name,
+            "content_type": "text/plain",
+            "source_company": "CustomerCo",
+            "contact_name": "Analyst",
+            "contact_email": "analyst@example.com",
+            "notes": "Reference call notes",
+            "summary": "Customer evidence summary.",
+            "key_points": ["Deployment depth"],
+            "source_chunks": [{"id": "chunk-1", "text": "source evidence"}],
+            "source_traces": [
+                {
+                    "claim": "Deployment depth",
+                    "locator": "Document",
+                    "excerpt": "source evidence",
+                    "confidence": "high",
+                }
+            ],
+        },
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        f"/api/external/research/{item_id}/promote",
+        json={"company_id": "generalist"},
+    )
+
+    assert response.status_code == 201, response.text
+    promoted = response.json()
+    assert promoted["filename"] == "source.txt"
+    assert promoted["promoted_from_external_item_id"] == item_id
+    assert promoted["external_research_metadata"]["summary"] == (
+        "Customer evidence summary."
+    )
+    assert promoted["source_trace_count"] == 1
+    found = research_store.get_file("generalist", promoted["id"])
+    assert found is not None
+    _, promoted_path = found
+    assert promoted_path.read_text(encoding="utf-8") == "source evidence"
+
+    repeat = client.post(
+        f"/api/external/research/{item_id}/promote",
+        json={"company_id": "generalist"},
+    )
+    assert repeat.status_code == 201, repeat.text
+    assert repeat.json()["status"] == "already_promoted"
+    assert len(research_store.list_files("generalist")) == 1
+
+
+def test_external_research_promote_missing_source_file_errors(
+    isolated_job_roots, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(storage, "COMPANIES_FILE", tmp_path / "companies.yaml")
+    _seed_company(tmp_path)
+    external_store.write_item(
+        "external_research",
+        {
+            "id": "missing-source",
+            "kind": "external_research",
+            "status": "ready",
+            "title": "Missing",
+            "filename": "missing.txt",
+            "stored_name": "missing-source__missing.txt",
+            "content_type": "text/plain",
+        },
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/external/research/missing-source/promote",
+        json={"company_id": "generalist"},
+    )
+
+    assert response.status_code == 400, response.text
+    assert "Source file missing" in response.text
+
+
+def test_promoted_external_research_can_run_summary_without_losing_metadata(
+    isolated_job_roots, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(storage, "COMPANIES_FILE", tmp_path / "companies.yaml")
+    _seed_company(tmp_path)
+    item_id = "promote-summary"
+    files_dir = external_store._kind_dir("external_research") / "files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{item_id}__source.txt"
+    (files_dir / stored_name).write_text("ARR reached $120M.", encoding="utf-8")
+    external_store.write_item(
+        "external_research",
+        {
+            "id": item_id,
+            "kind": "external_research",
+            "status": "ready",
+            "title": "ARR note",
+            "filename": "source.txt",
+            "stored_name": stored_name,
+            "content_type": "text/plain",
+            "summary": "Original external summary.",
+        },
+    )
+    client = TestClient(app)
+    promoted = client.post(
+        f"/api/external/research/{item_id}/promote",
+        json={"company_id": "generalist"},
+    ).json()
+
+    monkeypatch.setattr(
+        api.claude_runner,
+        "run_quick_summary",
+        lambda **kwargs: {
+            "title_en": "ARR note",
+            "title_zh": "ARR note",
+            "doc_type": "Partner note",
+            "summary_en": "ARR reached $120M.",
+            "summary_zh": "ARR reached $120M.",
+            "key_points_en": ["ARR reached $120M."],
+            "key_points_zh": ["ARR reached $120M."],
+            "key_figures": [],
+            "entities": {"people": [], "organizations": [], "products": []},
+            "topics": ["financials"],
+            "source_traces": [],
+            "language": "en",
+            "description_en": None,
+            "description_zh": None,
+        },
+    )
+
+    api._run_research_summary_job("generalist", promoted["id"])
+
+    persisted, _ = research_store.get_file("generalist", promoted["id"])
+    assert persisted["promoted_from_external_item_id"] == item_id
+    assert persisted["external_summary"] == "Original external summary."
+    assert persisted["quick_summary"]["summary_en"] == "ARR reached $120M."
+
+
+def test_external_research_low_text_pdf_marks_ocr_needed(
+    isolated_job_roots, tmp_path, monkeypatch
+):
+    class FakePage:
+        def extract_text(self):
+            return ""
+
+    class FakeReader:
+        def __init__(self, _path):
+            self.pages = [FakePage()]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "pypdf",
+        types.SimpleNamespace(PdfReader=FakeReader),
+    )
+    monkeypatch.setattr(
+        text_analysis,
+        "analyze",
+        lambda *args, **kwargs: pytest.fail("analysis should not run"),
+    )
+    item_id = "ocr-needed"
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF fake")
+    external_store.write_item(
+        "external_research",
+        {
+            "id": item_id,
+            "kind": "external_research",
+            "status": "queued",
+            "title": "Scan",
+            "filename": "scan.pdf",
+        },
+    )
+
+    api._run_external_research_analysis(item_id, str(source), "Scan")
+
+    item = external_store.get_item("external_research", item_id)
+    assert item["status"] == "ocr_needed"
+    assert item["ocr_needed"] is True
+    assert "OCR needed" in item["analysis_error"]
+    events = _events(api._external_research_analysis_progress_path(item_id))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["status"] == "ocr_needed"
+
+    client = TestClient(app)
+    active = client.get("/api/jobs/active")
+    assert active.status_code == 200, active.text
+    assert not any(job.get("item_id") == item_id for job in active.json())
+
+
+def test_external_research_normal_text_pdf_analyzes_normally(
+    isolated_job_roots, tmp_path, monkeypatch
+):
+    class FakePage:
+        def extract_text(self):
+            return "This PDF has enough extractable text for normal analysis."
+
+    class FakeReader:
+        def __init__(self, _path):
+            self.pages = [FakePage()]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "pypdf",
+        types.SimpleNamespace(PdfReader=FakeReader),
+    )
+    monkeypatch.setattr(
+        text_analysis,
+        "analyze",
+        lambda *args, **kwargs: {
+            "title": "Normal PDF",
+            "summary": "Enough text.",
+            "key_points": ["Extractable text"],
+            "source_traces": [],
+            "language": "en",
+        },
+    )
+    item_id = "normal-pdf"
+    source = tmp_path / "normal.pdf"
+    source.write_bytes(b"%PDF fake")
+    external_store.write_item(
+        "external_research",
+        {
+            "id": item_id,
+            "kind": "external_research",
+            "status": "queued",
+            "title": "Normal PDF",
+            "filename": "normal.pdf",
+        },
+    )
+
+    api._run_external_research_analysis(item_id, str(source), "Normal PDF")
+
+    item = external_store.get_item("external_research", item_id)
+    assert item["status"] == "ready"
+    assert item["ocr_needed"] is False
+    assert item["summary"] == "Enough text."
+
+
+def test_ocr_extracts_image_pdf_chunks_with_page_locators(tmp_path, monkeypatch):
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF fake")
+
+    monkeypatch.setattr(
+        api.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"tesseract", "pdftoppm"} else None,
+    )
+
+    def fake_run(cmd, **kwargs):
+        if cmd[0] == "pdftoppm":
+            prefix = api.Path(cmd[-1])
+            (prefix.parent / "page-1.png").write_bytes(b"png")
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+        if cmd[0] == "tesseract":
+            return types.SimpleNamespace(
+                returncode=0,
+                stdout="OCR extracted customer deployment text.",
+                stderr="",
+            )
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(api.subprocess, "run", fake_run)
+
+    chunks = api._ocr_extract_text_chunks_from_file(str(source))
+
+    assert len(chunks) == 1
+    assert chunks[0]["locator"] == "page 1 ocr"
+    assert chunks[0]["page_no"] == 1
+    assert "customer deployment" in chunks[0]["text"]
+
+
+def test_ocr_extracts_image_upload_chunks(tmp_path, monkeypatch):
+    source = tmp_path / "screenshot.png"
+    source.write_bytes(b"png")
+    monkeypatch.setattr(
+        api.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name == "tesseract" else None,
+    )
+    monkeypatch.setattr(
+        api.subprocess,
+        "run",
+        lambda cmd, **kwargs: types.SimpleNamespace(
+            returncode=0,
+            stdout="Screenshot shows ARR at $120M.",
+            stderr="",
+        ),
+    )
+
+    chunks = api._extract_text_chunks_from_file(str(source))
+
+    assert len(chunks) == 1
+    assert chunks[0]["locator"] == "image ocr"
+    assert "ARR at $120M" in chunks[0]["text"]
 
 
 def test_research_file_summary_launch_is_idempotent_for_active_job(

@@ -215,6 +215,9 @@ def _run(report_id: str) -> None:
         candidate = serena_analysis.session_dir(company_slug, str(analysis_session_id))
         if candidate.exists():
             analysis_session_path = candidate
+    lessons_path = serena_analysis.memo_lessons_path(company_slug)
+    if not lessons_path.exists():
+        lessons_path = None
 
     storage.update_report(
         report_id,
@@ -234,6 +237,7 @@ def _run(report_id: str) -> None:
         memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
         research_dir=research_store.RESEARCH_ROOT / company_slug,
         analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
         scope_check=report.get("scope_check"),
         warnings=list(report.get("warnings") or []),
         progress=stream,

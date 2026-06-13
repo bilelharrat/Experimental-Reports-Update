@@ -208,6 +208,25 @@ def _validate_analysis_session_for_memo(
             f"Analysis session {analysis_session_id} for {slug} is not approved "
             "for memo generation."
         )
+    readiness = analysis_session.get("readiness")
+    if not isinstance(readiness, dict):
+        readiness, _ = serena_analysis._readiness(analysis_session)
+    blockers = readiness.get("approval_blockers") or []
+    if blockers or not readiness.get("ready_for_approval"):
+        labels = [
+            str(item.get("label") or item.get("id") or "readiness blocker")
+            for item in blockers[:5]
+            if isinstance(item, dict)
+        ]
+        detail = "; ".join(labels)
+        more = len(blockers) - len(labels)
+        if more > 0:
+            detail = f"{detail}; plus {more} more" if detail else f"{more} blockers"
+        raise AnalysisSessionNotReadyError(
+            f"Analysis session {analysis_session_id} for {slug} still has "
+            "readiness blockers"
+            + (f": {detail}." if detail else ".")
+        )
     artifacts = analysis_session.get("artifacts") or {}
     thesis = artifacts.get("thesis_spine")
     if not isinstance(thesis, dict) or not thesis.get("approved"):
