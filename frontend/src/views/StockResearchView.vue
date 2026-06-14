@@ -3,25 +3,27 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   AlertTriangle,
-  Archive,
-  Check,
   Database,
   FileText,
   Gauge,
   GitBranch,
   Layers,
-  Link,
   ListChecks,
   Loader2,
   Play,
   RefreshCw,
   Search,
-  Square,
   Upload,
-  X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import StockAggregatePanel from "../components/stock/StockAggregatePanel.vue";
+import StockEvaluationPanel from "../components/stock/StockEvaluationPanel.vue";
 import StockResearchHomePanel from "../components/stock/StockResearchHomePanel.vue";
+import StockReviewQueuePanel from "../components/stock/StockReviewQueuePanel.vue";
+import StockRunsPanel from "../components/stock/StockRunsPanel.vue";
+import StockSourceIntakePanel from "../components/stock/StockSourceIntakePanel.vue";
+import StockStrategyMapPanel from "../components/stock/StockStrategyMapPanel.vue";
+import StockTrackerRegistryPanel from "../components/stock/StockTrackerRegistryPanel.vue";
 import StockWorkProductsPanel from "../components/stock/StockWorkProductsPanel.vue";
 
 const tabs = [
@@ -540,36 +542,10 @@ async function saveRunReview(row) {
   );
 }
 
-function fmtDate(value) {
-  if (!value) return "n/a";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function fmtConfidence(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "n/a";
   return `${Math.round(n * 100)}%`;
-}
-
-function canRetryRun(run) {
-  return ["error", "cancelled", "recovered"].includes(run.status);
-}
-
-function firstTrace(item) {
-  return item?.source_traces?.[0] || null;
-}
-
-function sourceState(source) {
-  if (source.extraction_status === "missing") return "missing";
-  if (source.ocr_needed || source.extraction_status === "ocr_needed") return "ocr needed";
-  return source.extraction_status || "metadata";
 }
 
 onMounted(loadDashboard);
@@ -665,713 +641,77 @@ onMounted(loadDashboard);
         @open-tab="setTab"
       />
 
-      <section v-else-if="activeTab === 'trackers'" class="space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold">Tracker Registry</h2>
-            <p class="text-sm text-ink-muted">
-              Single-responsibility trackers with isolated source folders and durable memory.
-            </p>
-          </div>
-          <button
-            type="button"
-            class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-            :disabled="busy"
-            @click="runAction('Imported company trackers', () => api.stockResearch.importCompanyTrackers({ limit: 20 }))"
-          >
-            <Upload class="h-4 w-4" />
-            Import Companies
-          </button>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-          <table class="min-w-full text-left text-sm">
-            <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th class="w-10 px-3 py-2"></th>
-                <th class="px-3 py-2">Tracker</th>
-                <th class="px-3 py-2">Type</th>
-                <th class="px-3 py-2">Status</th>
-                <th class="px-3 py-2">Freshness</th>
-                <th class="px-3 py-2">Latest Thesis</th>
-                <th class="px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="tracker in trackers" :key="tracker.id" class="border-b border-subtle last:border-0">
-                <td class="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    class="h-4 w-4 rounded border-subtle"
-                    :checked="selectedTrackerIds.includes(tracker.id)"
-                    @change="toggleTracker(tracker.id)"
-                  />
-                </td>
-                <td class="px-3 py-2">
-                  <div class="font-medium">{{ tracker.display_name }}</div>
-                  <div class="text-xs text-ink-muted">{{ tracker.id }}</div>
-                </td>
-                <td class="px-3 py-2 capitalize">{{ tracker.type }}</td>
-                <td class="px-3 py-2">
-                  <span class="rounded bg-surface-muted px-2 py-1 text-xs">{{ tracker.status }}</span>
-                </td>
-                <td class="px-3 py-2 text-xs">
-                  <span :class="tracker.is_stale ? 'text-warning-ink' : 'text-success-ink'">
-                    {{ tracker.is_stale ? 'stale' : 'fresh' }}
-                  </span>
-                  <div class="text-ink-muted">{{ fmtDate(tracker.freshness_policy?.next_due_run) }}</div>
-                </td>
-                <td class="max-w-md px-3 py-2 text-ink-secondary">
-                  <div class="line-clamp-2">{{ tracker.latest_thesis || 'No run yet.' }}</div>
-                </td>
-                <td class="px-3 py-2">
-                  <div class="flex items-center gap-2">
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                      :disabled="busy || tracker.status !== 'active'"
-                      title="Run tracker"
-                      @click="runTracker(tracker.id)"
-                    >
-                      <Play class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                      :disabled="busy || tracker.status !== 'active'"
-                      title="Disable tracker"
-                      @click="runAction('Disabled tracker', () => api.stockResearch.disableTracker(tracker.id))"
-                    >
-                      <Archive class="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="trackers.length === 0">
-                <td colspan="7" class="px-3 py-8 text-center text-sm text-ink-muted">
-                  No trackers yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <StockTrackerRegistryPanel
+        v-else-if="activeTab === 'trackers'"
+        :trackers="trackers"
+        :selected-tracker-ids="selectedTrackerIds"
+        :busy="busy"
+        @toggle-tracker="toggleTracker"
+        @run-tracker="runTracker"
+        @disable-tracker="(trackerId) => runAction('Disabled tracker', () => api.stockResearch.disableTracker(trackerId))"
+        @import-company-trackers="runAction('Imported company trackers', () => api.stockResearch.importCompanyTrackers({ limit: 20 }))"
+      />
 
-      <section v-else-if="activeTab === 'sources'" class="space-y-4">
-        <div class="grid gap-4 xl:grid-cols-[22rem_1fr]">
-          <aside class="rounded-lg border border-subtle bg-surface p-4">
-            <h2 class="text-sm font-semibold">Assign Source</h2>
-            <div class="mt-3 space-y-2">
-              <label
-                v-for="tracker in trackers"
-                :key="tracker.id"
-                class="flex items-center gap-2 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-subtle"
-                  :checked="sourceTrackerIds.includes(tracker.id)"
-                  @change="toggleSourceTracker(tracker.id)"
-                />
-                <span class="truncate">{{ tracker.display_name }}</span>
-              </label>
-            </div>
-            <div class="mt-5 space-y-3">
-              <input
-                v-model="fileForm.title"
-                class="w-full rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-                placeholder="File title"
-              />
-              <input
-                type="file"
-                class="w-full rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-                @change="onFilePicked"
-              />
-              <button
-                type="button"
-                class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-                :disabled="busy || !sourceTrackerIds.length || !fileForm.file"
-                @click="submitFileSource"
-              >
-                <Upload class="h-4 w-4" />
-                Upload File
-              </button>
-            </div>
-            <div class="mt-5 space-y-3 border-t border-subtle pt-4">
-              <input
-                v-model="linkForm.title"
-                class="w-full rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-                placeholder="Link title"
-              />
-              <input
-                v-model="linkForm.url"
-                class="w-full rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-                placeholder="https://source.example"
-              />
-              <textarea
-                v-model="linkForm.notes"
-                class="min-h-20 w-full rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-                placeholder="Source notes"
-              ></textarea>
-              <button
-                type="button"
-                class="inline-flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white focus-ring disabled:opacity-50"
-                :disabled="busy || !sourceTrackerIds.length || !linkForm.url"
-                @click="submitLinkSource"
-              >
-                <Link class="h-4 w-4" />
-                Attach Link
-              </button>
-            </div>
-            <div class="mt-5 space-y-3 border-t border-subtle pt-4">
-              <input
-                v-model="noteForm.title"
-                class="w-full rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-                placeholder="Note title"
-              />
-              <textarea
-                v-model="noteForm.body"
-                class="min-h-24 w-full rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-                placeholder="Analyst note"
-              ></textarea>
-              <button
-                type="button"
-                class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-                :disabled="busy || !sourceTrackerIds.length || !noteForm.body"
-                @click="submitNoteSource"
-              >
-                <FileText class="h-4 w-4" />
-                Add Note
-              </button>
-            </div>
-          </aside>
-          <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-            <table class="min-w-full text-left text-sm">
-              <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th class="px-3 py-2">Source</th>
-                  <th class="px-3 py-2">Tracker</th>
-                  <th class="px-3 py-2">Type</th>
-                  <th class="px-3 py-2">State</th>
-                  <th class="px-3 py-2">Relevance</th>
-                  <th class="px-3 py-2">Trace Preview</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="source in sources" :key="`${source.tracker_id}:${source.id}`" class="border-b border-subtle last:border-0">
-                  <td class="px-3 py-2">
-                    <div class="font-medium">{{ source.title || source.filename }}</div>
-                    <div class="text-xs text-ink-muted">{{ fmtDate(source.created_at) }}</div>
-                  </td>
-                  <td class="px-3 py-2">{{ source.tracker_name || source.tracker_id }}</td>
-                  <td class="px-3 py-2">{{ source.source_type }}</td>
-                  <td class="px-3 py-2">
-                    <span
-                      class="rounded px-2 py-1 text-xs"
-                      :class="source.extraction_status === 'missing' ? 'bg-danger-soft text-danger-ink' : 'bg-surface-muted text-ink-secondary'"
-                    >
-                      {{ sourceState(source) }}
-                    </span>
-                  </td>
-                  <td class="px-3 py-2">{{ source.relevance }}</td>
-                  <td class="max-w-lg px-3 py-2 text-ink-secondary">
-                    <div class="line-clamp-2">
-                      {{ source.missing_reason || source.chunks?.[0]?.excerpt || source.url || 'No preview.' }}
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="sources.length === 0">
-                  <td colspan="6" class="px-3 py-8 text-center text-sm text-ink-muted">
-                    No tracker-owned sources yet.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+      <StockSourceIntakePanel
+        v-else-if="activeTab === 'sources'"
+        :trackers="trackers"
+        :sources="sources"
+        :source-tracker-ids="sourceTrackerIds"
+        :file-form="fileForm"
+        :link-form="linkForm"
+        :note-form="noteForm"
+        :busy="busy"
+        @toggle-source-tracker="toggleSourceTracker"
+        @update-file-form="fileForm = $event"
+        @update-link-form="linkForm = $event"
+        @update-note-form="noteForm = $event"
+        @file-picked="onFilePicked"
+        @submit-file-source="submitFileSource"
+        @submit-link-source="submitLinkSource"
+        @submit-note-source="submitNoteSource"
+      />
 
-      <section v-else-if="activeTab === 'runs'" class="space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold">Run Orchestration</h2>
-            <p class="text-sm text-ink-muted">
-              Tracker runs write JSONL progress, structured outputs, source manifests, and reports.
-            </p>
-          </div>
-          <div class="flex gap-2">
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="runAction('Queued aggregate', () => api.stockResearch.runAggregate())"
-            >
-              <Layers class="h-4 w-4" />
-              Run Aggregate
-            </button>
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="runAction('Queued strategy map', () => api.stockResearch.runStrategyMap())"
-            >
-              <GitBranch class="h-4 w-4" />
-              Run Strategy
-            </button>
-          </div>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-          <table class="min-w-full text-left text-sm">
-            <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th class="px-3 py-2">Run</th>
-                <th class="px-3 py-2">Tracker</th>
-                <th class="px-3 py-2">Status</th>
-                <th class="px-3 py-2">Sources</th>
-                <th class="px-3 py-2">Confidence</th>
-                <th class="px-3 py-2">Thesis</th>
-                <th class="px-3 py-2">Knowledge</th>
-                <th class="px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="run in runs" :key="run.run_id" class="border-b border-subtle last:border-0">
-                <td class="px-3 py-2">
-                  <div class="font-mono text-xs">{{ run.run_id }}</div>
-                  <div class="text-xs text-ink-muted">{{ fmtDate(run.created_at) }}</div>
-                </td>
-                <td class="px-3 py-2">{{ run.tracker_name || run.tracker_id }}</td>
-                <td class="px-3 py-2">{{ run.status }}</td>
-                <td class="px-3 py-2">{{ run.source_count || 0 }}</td>
-                <td class="px-3 py-2">{{ fmtConfidence(run.confidence) }}</td>
-                <td class="max-w-lg px-3 py-2 text-ink-secondary">
-                  <div class="line-clamp-2">{{ run.thesis || 'No thesis.' }}</div>
-                  <div v-if="run.source_traces?.length" class="mt-1 line-clamp-1 text-xs text-ink-muted">
-                    {{ run.source_traces[0].source_title }} · {{ run.source_traces[0].locator }}
-                  </div>
-                </td>
-                <td class="max-w-sm px-3 py-2">
-                  <div v-if="run.knowledge_updates?.length" class="space-y-2">
-                    <div
-                      v-for="update in run.knowledge_updates"
-                      :key="update.id"
-                      class="rounded border border-subtle p-2 text-xs"
-                    >
-                      <div class="line-clamp-2 text-ink-secondary">{{ update.text }}</div>
-                      <div class="mt-2 flex items-center gap-2">
-                        <span class="text-ink-muted">{{ update.review_status || 'open' }}</span>
-                        <button
-                          type="button"
-                          class="rounded-md border border-subtle p-1 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                          :disabled="busy || update.review_status === 'resolved'"
-                          title="Accept knowledge update"
-                          @click="reviewKnowledgeUpdate(run, update, 'resolved')"
-                        >
-                          <Check class="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          class="rounded-md border border-subtle p-1 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                          :disabled="busy || update.review_status === 'rejected'"
-                          title="Reject knowledge update"
-                          @click="reviewKnowledgeUpdate(run, update, 'rejected')"
-                        >
-                          <X class="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <span v-else class="text-xs text-ink-muted">None</span>
-                </td>
-                <td class="px-3 py-2">
-                  <div class="flex items-center gap-2">
-                    <button
-                      v-if="run.status === 'queued' || run.status === 'running'"
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring"
-                      title="Cancel run"
-                      @click="cancelRun(run)"
-                    >
-                      <Square class="h-4 w-4" />
-                    </button>
-                    <button
-                      v-if="canRetryRun(run)"
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring"
-                      title="Retry run"
-                      @click="retryRun(run)"
-                    >
-                      <RefreshCw class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring"
-                      title="Show run details"
-                      @click="selectedRunId = run.run_id"
-                    >
-                      <FileText class="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="runs.length === 0">
-                <td colspan="8" class="px-3 py-8 text-center text-sm text-ink-muted">
-                  No tracker runs yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-if="selectedRun" class="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
-          <section class="rounded-lg border border-subtle bg-surface">
-            <div class="border-b border-subtle px-4 py-3">
-              <h3 class="text-sm font-semibold">Latest Report</h3>
-              <div class="mt-1 font-mono text-xs text-ink-muted">{{ selectedRun.run_id }}</div>
-            </div>
-            <div class="max-h-96 overflow-auto p-4 text-sm">
-              <pre class="whitespace-pre-wrap text-xs">{{ selectedRun.report_markdown || selectedRun.thesis || 'No report artifact.' }}</pre>
-            </div>
-          </section>
-          <section class="space-y-4">
-            <div class="rounded-lg border border-subtle bg-surface p-4">
-              <h3 class="text-sm font-semibold">Source Traces</h3>
-              <div v-if="selectedRun.source_traces?.length" class="mt-3 space-y-2">
-                <div
-                  v-for="trace in selectedRun.source_traces"
-                  :key="`${trace.source_id}:${trace.locator}`"
-                  class="rounded border border-subtle bg-surface-muted p-3 text-xs"
-                >
-                  <div class="font-medium text-ink-primary">{{ trace.source_title || trace.source_id }}</div>
-                  <div class="mt-1 text-ink-muted">{{ trace.locator }} · {{ fmtConfidence(trace.confidence) }}</div>
-                  <div class="mt-2 text-ink-secondary">{{ trace.excerpt }}</div>
-                </div>
-              </div>
-              <div v-else class="mt-3 text-sm text-ink-muted">No source traces captured.</div>
-            </div>
-            <div class="rounded-lg border border-subtle bg-surface p-4">
-              <h3 class="text-sm font-semibold">Current vs Previous</h3>
-              <div v-if="selectedRunDiff.length" class="mt-3 space-y-2">
-                <div
-                  v-for="row in selectedRunDiff"
-                  :key="row.field"
-                  class="rounded border border-subtle bg-surface-muted p-3 text-xs"
-                >
-                  <div class="font-medium">{{ row.field }}</div>
-                  <div class="mt-1 text-ink-secondary">Current: {{ row.current }}</div>
-                  <div class="mt-1 text-ink-muted">Previous: {{ row.previous }}</div>
-                </div>
-              </div>
-              <div v-else class="mt-3 text-sm text-ink-muted">
-                No previous run diff available for this tracker.
-              </div>
-            </div>
-          </section>
-        </div>
-      </section>
+      <StockRunsPanel
+        v-else-if="activeTab === 'runs'"
+        :runs="runs"
+        :selected-run="selectedRun"
+        :selected-run-diff="selectedRunDiff"
+        :busy="busy"
+        @run-aggregate="runAction('Queued aggregate', () => api.stockResearch.runAggregate())"
+        @run-strategy-map="runAction('Queued strategy map', () => api.stockResearch.runStrategyMap())"
+        @review-knowledge-update="reviewKnowledgeUpdate"
+        @cancel-run="cancelRun"
+        @retry-run="retryRun"
+        @select-run="selectedRunId = $event"
+      />
 
-      <section v-else-if="activeTab === 'aggregate'" class="space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold">Weekly Aggregate</h2>
-            <p class="text-sm text-ink-muted">
-              Consumes structured tracker outputs and selected source traces only.
-            </p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <select
-              v-model="aggregateModuleFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="all">All Modules</option>
-              <option value="macro">Macro</option>
-              <option value="industry">Industry</option>
-              <option value="company">Company</option>
-              <option value="cross_tracker">Cross Tracker</option>
-              <option value="watchlist">Watchlist</option>
-            </select>
-            <select
-              v-model="aggregateDirectionFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="all">All Directions</option>
-              <option value="positive">Positive</option>
-              <option value="negative">Negative</option>
-              <option value="neutral">Neutral</option>
-              <option value="watch">Watch</option>
-            </select>
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="runAction('Queued aggregate', () => api.stockResearch.runAggregate({ force: true }))"
-            >
-              <Layers class="h-4 w-4" />
-              Run Aggregate
-            </button>
-            <button
-              v-if="aggregate"
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="retryAggregate"
-            >
-              <RefreshCw class="h-4 w-4" />
-              Retry
-            </button>
-            <button
-              v-if="aggregate"
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="cancelAggregate"
-            >
-              <Square class="h-4 w-4" />
-              Cancel
-            </button>
-          </div>
-        </div>
-        <div v-if="aggregate" class="space-y-4">
-          <div class="rounded-lg border border-subtle bg-surface p-4 text-sm">
-            <div class="font-medium">{{ aggregate.period_id }}</div>
-            <div class="mt-1 text-ink-muted">
-              {{ aggregate.included_tracker_run_ids?.length || 0 }} included runs ·
-              {{ aggregate.excluded_tracker_warnings?.length || 0 }} stale warnings
-            </div>
-          </div>
-          <div v-if="aggregateWarnings.length" class="rounded-lg border border-warning/40 bg-warning-soft p-4 text-sm text-warning-ink">
-            <h3 class="text-sm font-semibold">Warnings</h3>
-            <div class="mt-2 grid gap-2 md:grid-cols-2">
-              <div
-                v-for="warning in aggregateWarnings"
-                :key="`${warning.kind}:${warning.tracker_id}:${warning.title}`"
-                class="rounded border border-warning/30 bg-surface/50 px-3 py-2"
-              >
-                <div class="text-xs uppercase">{{ warning.kind }}</div>
-                <div class="mt-1 text-ink-primary">{{ warning.tracker_id || 'tracker' }} · {{ warning.title }}</div>
-              </div>
-            </div>
-          </div>
-          <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-            <table class="min-w-full text-left text-sm">
-              <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th class="px-3 py-2">Module</th>
-                  <th class="px-3 py-2">Tracker</th>
-                  <th class="px-3 py-2">Summary</th>
-                  <th class="px-3 py-2">Sources</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in aggregateModuleRows" :key="row.id" class="border-b border-subtle last:border-0">
-                  <td class="px-3 py-2">{{ row.module }}</td>
-                  <td class="px-3 py-2">{{ row.tracker_id || 'n/a' }}</td>
-                  <td class="max-w-xl px-3 py-2 text-ink-secondary">
-                    <div class="line-clamp-2">{{ row.title }}</div>
-                  </td>
-                  <td class="px-3 py-2">{{ row.source_count }}</td>
-                </tr>
-                <tr v-if="aggregateModuleRows.length === 0">
-                  <td colspan="4" class="px-3 py-8 text-center text-sm text-ink-muted">
-                    No aggregate modules for this filter.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-            <table class="min-w-full text-left text-sm">
-              <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th class="px-3 py-2">Signal</th>
-                  <th class="px-3 py-2">Tracker</th>
-                  <th class="px-3 py-2">Direction</th>
-                  <th class="px-3 py-2">Sources</th>
-                  <th class="px-3 py-2">Trace Preview</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="signal in filteredAggregateSignals" :key="`${signal.source_tracker_id}:${signal.id}`" class="border-b border-subtle last:border-0">
-                  <td class="max-w-xl px-3 py-2">{{ signal.observation }}</td>
-                  <td class="px-3 py-2">{{ signal.source_tracker_id }}</td>
-                  <td class="px-3 py-2">{{ signal.direction }}</td>
-                  <td class="px-3 py-2">{{ signal.source_traces?.length || 0 }}</td>
-                  <td class="max-w-md px-3 py-2 text-ink-secondary">
-                    <div v-if="firstTrace(signal)" class="line-clamp-2">
-                      {{ firstTrace(signal).source_title }} · {{ firstTrace(signal).locator }} ·
-                      {{ firstTrace(signal).excerpt }}
-                    </div>
-                    <span v-else class="text-ink-muted">No trace.</span>
-                  </td>
-                </tr>
-                <tr v-if="filteredAggregateSignals.length === 0">
-                  <td colspan="5" class="px-3 py-8 text-center text-sm text-ink-muted">
-                    No aggregate signals yet.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <pre class="max-h-96 overflow-auto rounded-lg border border-subtle bg-surface p-4 text-xs whitespace-pre-wrap">{{ aggregate.markdown }}</pre>
-          <div v-if="aggregate.html_blocks?.length" class="rounded-lg border border-subtle bg-surface p-4">
-            <h3 class="text-sm font-semibold">HTML-Ready Blocks</h3>
-            <div class="mt-3 space-y-2 text-sm text-ink-secondary">
-              <div
-                v-for="(block, index) in aggregate.html_blocks"
-                :key="index"
-                class="rounded border border-subtle bg-surface-muted p-3"
-              >
-                <div class="text-xs uppercase text-ink-muted">{{ block.kind || 'block' }}</div>
-                <div class="mt-1 whitespace-pre-wrap">{{ block.body || block.markdown || 'No body.' }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-else class="rounded-lg border border-subtle bg-surface p-6 text-sm text-ink-muted">
-          No weekly aggregate yet.
-        </div>
-      </section>
+      <StockAggregatePanel
+        v-else-if="activeTab === 'aggregate'"
+        :aggregate="aggregate"
+        :aggregate-warnings="aggregateWarnings"
+        :aggregate-module-rows="aggregateModuleRows"
+        :filtered-aggregate-signals="filteredAggregateSignals"
+        :aggregate-module-filter="aggregateModuleFilter"
+        :aggregate-direction-filter="aggregateDirectionFilter"
+        :busy="busy"
+        @update:aggregate-module-filter="aggregateModuleFilter = $event"
+        @update:aggregate-direction-filter="aggregateDirectionFilter = $event"
+        @run-aggregate="runAction('Queued aggregate', () => api.stockResearch.runAggregate({ force: true }))"
+        @retry-aggregate="retryAggregate"
+        @cancel-aggregate="cancelAggregate"
+      />
 
-      <section v-else-if="activeTab === 'strategy'" class="space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold">Strategy Map</h2>
-            <p class="text-sm text-ink-muted">
-              Table-first qualitative map. Research guidance only, not automated trading.
-            </p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="runAction('Queued strategy map', () => api.stockResearch.runStrategyMap({ force: true }))"
-            >
-              <GitBranch class="h-4 w-4" />
-              Run Strategy Map
-            </button>
-            <button
-              v-if="strategyMap"
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="retryStrategyMap"
-            >
-              <RefreshCw class="h-4 w-4" />
-              Retry
-            </button>
-            <button
-              v-if="strategyMap"
-              type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-              :disabled="busy"
-              @click="cancelStrategyMap"
-            >
-              <Square class="h-4 w-4" />
-              Cancel
-            </button>
-          </div>
-        </div>
-        <div v-if="strategyMap" class="space-y-4">
-          <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-            <table class="min-w-full text-left text-sm">
-              <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th class="px-3 py-2">Node</th>
-                  <th class="px-3 py-2">Posture</th>
-                  <th class="px-3 py-2">Action</th>
-                  <th class="px-3 py-2">Source Traces</th>
-                  <th class="px-3 py-2">Trace Preview</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="node in strategyNodes" :key="node.id" class="border-b border-subtle last:border-0">
-                  <td class="px-3 py-2 font-medium">{{ node.label }}</td>
-                  <td class="px-3 py-2">{{ node.posture }}</td>
-                  <td class="px-3 py-2">{{ node.qualitative_action }}</td>
-                  <td class="px-3 py-2">{{ node.source_traces?.length || 0 }}</td>
-                  <td class="max-w-md px-3 py-2 text-ink-secondary">
-                    <div v-if="firstTrace(node)" class="line-clamp-2">
-                      {{ firstTrace(node).source_title }} · {{ firstTrace(node).locator }} ·
-                      {{ firstTrace(node).excerpt }}
-                    </div>
-                    <span v-else class="text-ink-muted">No trace.</span>
-                  </td>
-                </tr>
-                <tr v-if="strategyNodes.length === 0">
-                  <td colspan="5" class="px-3 py-8 text-center text-sm text-ink-muted">
-                    No strategy nodes yet.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-            <div class="border-b border-subtle px-4 py-3">
-              <h3 class="text-sm font-semibold">Source Inspector</h3>
-            </div>
-            <table class="min-w-full text-left text-sm">
-              <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th class="px-3 py-2">Kind</th>
-                  <th class="px-3 py-2">Node / Edge</th>
-                  <th class="px-3 py-2">Source</th>
-                  <th class="px-3 py-2">Locator</th>
-                  <th class="px-3 py-2">Excerpt</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in strategySourceRows" :key="row.id" class="border-b border-subtle last:border-0">
-                  <td class="px-3 py-2">{{ row.kind }}</td>
-                  <td class="px-3 py-2 font-medium">{{ row.label }}</td>
-                  <td class="px-3 py-2">{{ row.trace.source_title || row.trace.source_id || 'Source' }}</td>
-                  <td class="px-3 py-2">{{ row.trace.locator || 'n/a' }}</td>
-                  <td class="max-w-xl px-3 py-2 text-ink-secondary">
-                    <div class="line-clamp-2">{{ row.trace.excerpt || 'No excerpt.' }}</div>
-                  </td>
-                </tr>
-                <tr v-if="strategySourceRows.length === 0">
-                  <td colspan="5" class="px-3 py-8 text-center text-sm text-ink-muted">
-                    No strategy source traces yet.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <h3 class="text-sm font-semibold">Diff Versus Prior Map</h3>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <span
-                v-for="item in strategyMap.diff || []"
-                :key="`${item.id}:${item.state}`"
-                class="rounded bg-surface-muted px-2 py-1 text-xs text-ink-secondary"
-              >
-                {{ item.label }} · {{ item.state }}
-              </span>
-              <span v-if="!strategyMap.diff?.length" class="text-sm text-ink-muted">
-                No diff states.
-              </span>
-            </div>
-          </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <h3 class="text-sm font-semibold">Unresolved Contradictions</h3>
-            <div v-if="strategyContradictions.length" class="mt-3 space-y-2">
-              <div
-                v-for="item in strategyContradictions"
-                :key="item.id || item.description"
-                class="rounded border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning-ink"
-              >
-                <div>{{ item.description || item.claim || 'Contradiction' }}</div>
-                <div v-if="item.source_traces?.length" class="mt-1 text-xs">
-                  {{ item.source_traces[0].source_title }} · {{ item.source_traces[0].locator }}
-                </div>
-              </div>
-            </div>
-            <div v-else class="mt-3 text-sm text-ink-muted">No unresolved contradictions.</div>
-          </div>
-        </div>
-        <div v-else class="rounded-lg border border-subtle bg-surface p-6 text-sm text-ink-muted">
-          No strategy map yet.
-        </div>
-      </section>
+      <StockStrategyMapPanel
+        v-else-if="activeTab === 'strategy'"
+        :strategy-map="strategyMap"
+        :strategy-nodes="strategyNodes"
+        :strategy-source-rows="strategySourceRows"
+        :strategy-contradictions="strategyContradictions"
+        :busy="busy"
+        @run-strategy-map="runAction('Queued strategy map', () => api.stockResearch.runStrategyMap({ force: true }))"
+        @retry-strategy-map="retryStrategyMap"
+        @cancel-strategy-map="cancelStrategyMap"
+      />
 
       <StockWorkProductsPanel
         v-else-if="activeTab === 'products'"
@@ -1391,295 +731,35 @@ onMounted(loadDashboard);
         @update-product="updateProduct"
       />
 
-      <section v-else-if="activeTab === 'review'" class="space-y-4">
-        <div class="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold">Review Queue</h2>
-            <p class="text-sm text-ink-muted">
-              Triage missing sources, failed jobs, strategy changes, and proposed lessons.
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <select
-              v-model="reviewFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="open">Open</option>
-              <option value="resolved">Resolved</option>
-              <option value="waived">Waived</option>
-              <option value="rejected">Rejected</option>
-              <option value="all">All</option>
-            </select>
-            <select
-              v-model="reviewTypeFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="all">All Types</option>
-              <option v-for="type in reviewTypes" :key="type" :value="type">{{ type }}</option>
-            </select>
-            <input
-              v-model="reviewRationale"
-              class="w-64 rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-              placeholder="Review rationale"
-            />
-          </div>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-          <table class="min-w-full text-left text-sm">
-            <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th class="px-3 py-2">Item</th>
-                <th class="px-3 py-2">Type</th>
-                <th class="px-3 py-2">Status</th>
-                <th class="px-3 py-2">Artifact</th>
-                <th class="px-3 py-2">Sources</th>
-                <th class="px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in filteredReviewItems" :key="item.id" class="border-b border-subtle last:border-0">
-                <td class="max-w-xl px-3 py-2">
-                  <div class="font-medium">{{ item.title }}</div>
-                  <div class="text-xs text-ink-muted">
-                    {{ item.severity }}
-                    <span v-if="item.error"> · {{ item.error }}</span>
-                    <span v-else-if="item.rationale"> · {{ item.rationale }}</span>
-                  </div>
-                </td>
-                <td class="px-3 py-2">{{ item.item_type }}</td>
-                <td class="px-3 py-2">{{ item.status }}</td>
-                <td class="px-3 py-2">{{ item.artifact_id || item.tracker_id || 'n/a' }}</td>
-                <td class="max-w-sm px-3 py-2 text-xs text-ink-secondary">
-                  <div v-if="item.source_refs?.length" class="line-clamp-2">
-                    {{ item.source_refs[0].source_title || item.source_refs[0].source_id || item.source_refs[0].tracker_id || 'Source' }}
-                    <span v-if="item.source_refs[0].locator"> · {{ item.source_refs[0].locator }}</span>
-                  </div>
-                  <span v-else class="text-ink-muted">n/a</span>
-                </td>
-                <td class="px-3 py-2">
-                  <div class="flex items-center gap-2">
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                      :disabled="item.status !== 'open'"
-                      title="Resolve"
-                      @click="updateReview(item, 'resolved')"
-                    >
-                      <Check class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                      :disabled="item.status !== 'open'"
-                      title="Waive"
-                      @click="updateReview(item, 'waived')"
-                    >
-                      <Archive class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                      :disabled="item.status !== 'open'"
-                      title="Reject"
-                      @click="updateReview(item, 'rejected')"
-                    >
-                      <X class="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="filteredReviewItems.length === 0">
-                <td colspan="6" class="px-3 py-8 text-center text-sm text-ink-muted">
-                  No review items.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <StockReviewQueuePanel
+        v-else-if="activeTab === 'review'"
+        :items="filteredReviewItems"
+        :review-types="reviewTypes"
+        :review-filter="reviewFilter"
+        :review-type-filter="reviewTypeFilter"
+        :review-rationale="reviewRationale"
+        @update:review-filter="reviewFilter = $event"
+        @update:review-type-filter="reviewTypeFilter = $event"
+        @update:review-rationale="reviewRationale = $event"
+        @update-review="updateReview"
+      />
 
-      <section v-else-if="activeTab === 'evaluation'" class="space-y-4">
-        <div class="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold">Evaluation</h2>
-            <p class="text-sm text-ink-muted">
-              Run metrics, tracker trends, and lesson review state.
-            </p>
-          </div>
-          <select
-            v-model="evaluationTrackerFilter"
-            class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-          >
-            <option value="all">All Trackers</option>
-            <option v-for="trackerId in evaluationTrackerIds" :key="trackerId" :value="trackerId">
-              {{ trackerId }}
-            </option>
-          </select>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-          <table class="min-w-full text-left text-sm">
-            <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th class="px-3 py-2">Tracker</th>
-                <th class="px-3 py-2">Runs</th>
-                <th class="px-3 py-2">Avg Coverage</th>
-                <th class="px-3 py-2">Missing Sources</th>
-                <th class="px-3 py-2">Reviewer Avg</th>
-                <th class="px-3 py-2">Latest</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in trackerMetricRows" :key="row.tracker_id" class="border-b border-subtle last:border-0">
-                <td class="px-3 py-2">{{ row.tracker_name }}</td>
-                <td class="px-3 py-2">{{ row.runs }}</td>
-                <td class="px-3 py-2">{{ fmtConfidence(row.avg_coverage) }}</td>
-                <td class="px-3 py-2">{{ row.missing_total }}</td>
-                <td class="px-3 py-2">{{ row.avg_reviewer ?? 'n/a' }}</td>
-                <td class="px-3 py-2">{{ fmtDate(row.latest_at) }}</td>
-              </tr>
-              <tr v-if="trackerMetricRows.length === 0">
-                <td colspan="6" class="px-3 py-8 text-center text-sm text-ink-muted">
-                  No tracker trend rows yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-          <table class="min-w-full text-left text-sm">
-            <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th class="px-3 py-2">Run</th>
-                <th class="px-3 py-2">Tracker</th>
-                <th class="px-3 py-2">Duration</th>
-                <th class="px-3 py-2">Sources</th>
-                <th class="px-3 py-2">Source Quality</th>
-                <th class="px-3 py-2">Coverage</th>
-                <th class="px-3 py-2">Issues</th>
-                <th class="px-3 py-2">Reviewer</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in filteredEvaluationRows" :key="`${row.tracker_id}:${row.run_id}`" class="border-b border-subtle last:border-0">
-                <td class="px-3 py-2 font-mono text-xs">{{ row.run_id }}</td>
-                <td class="px-3 py-2">{{ row.tracker_name }}</td>
-                <td class="px-3 py-2">{{ row.duration_ms || 0 }} ms</td>
-                <td class="px-3 py-2">{{ row.source_count || 0 }}</td>
-                <td class="px-3 py-2">
-                  {{ fmtConfidence(row.source_quality?.average) }}
-                  <div
-                    v-if="row.fallback_used || row.preserved_previous_artifact || row.failure_reason"
-                    class="mt-1 text-[11px] text-ink-muted"
-                  >
-                    <span v-if="row.fallback_used">fallback</span>
-                    <span v-if="row.preserved_previous_artifact">
-                      preserved {{ row.preserved_previous_artifact }}
-                    </span>
-                    <span v-if="row.failure_reason">{{ row.failure_reason }}</span>
-                  </div>
-                </td>
-                <td class="px-3 py-2">{{ fmtConfidence(row.evidence_coverage) }}</td>
-                <td class="px-3 py-2">
-                  {{ row.contradiction_count || 0 }} contradictions ·
-                  {{ row.missing_source_count || 0 }} missing
-                </td>
-                <td class="min-w-72 px-3 py-2">
-                  <div class="text-xs text-ink-muted">
-                    Avg: {{ row.reviewer_score ?? 'n/a' }}
-                  </div>
-                  <div class="mt-2 grid grid-cols-5 gap-1">
-                    <label
-                      v-for="field in runReviewScoreFields"
-                      :key="`${row.tracker_id}:${row.run_id}:${field.id}`"
-                      class="block text-[10px] uppercase tracking-wide text-ink-muted"
-                    >
-                      <span>{{ field.label }}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="5"
-                        step="1"
-                        :value="runReviewDraft(row)[field.id]"
-                        @input="setRunReviewScore(row, field.id, $event.target.value)"
-                        class="mt-1 w-full rounded border border-subtle bg-surface px-1.5 py-1 text-xs text-ink-primary focus-ring"
-                      />
-                    </label>
-                  </div>
-                  <input
-                    :value="runReviewDraft(row).review_notes"
-                    @input="setRunReviewNotes(row, $event.target.value)"
-                    class="mt-2 w-full rounded border border-subtle bg-surface px-2 py-1 text-xs text-ink-primary focus-ring"
-                    placeholder="Review notes"
-                  />
-                  <button
-                    type="button"
-                    class="mt-2 inline-flex items-center gap-1 rounded-md border border-subtle px-2 py-1 text-xs font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
-                    :disabled="busy"
-                    title="Save run review"
-                    @click="saveRunReview(row)"
-                  >
-                    <Check class="h-3.5 w-3.5" />
-                    Save Review
-                  </button>
-                </td>
-              </tr>
-              <tr v-if="filteredEvaluationRows.length === 0">
-                <td colspan="8" class="px-3 py-8 text-center text-sm text-ink-muted">
-                  No evaluation rows yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-          <table class="min-w-full text-left text-sm">
-            <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th class="px-3 py-2">Lesson</th>
-                <th class="px-3 py-2">Tracker</th>
-                <th class="px-3 py-2">Run</th>
-                <th class="px-3 py-2">Review</th>
-                <th class="px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in knowledgeReviewRows" :key="`${row.tracker_id}:${row.run_id}:${row.id}`" class="border-b border-subtle last:border-0">
-                <td class="max-w-xl px-3 py-2">{{ row.text }}</td>
-                <td class="px-3 py-2">{{ row.tracker_name }}</td>
-                <td class="px-3 py-2 font-mono text-xs">{{ row.run_id }}</td>
-                <td class="px-3 py-2">{{ row.review_status || 'open' }}</td>
-                <td class="px-3 py-2">
-                  <div class="flex items-center gap-2">
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                      :disabled="busy || row.review_status === 'resolved'"
-                      title="Accept lesson"
-                      @click="reviewKnowledgeUpdate(row, row, 'resolved')"
-                    >
-                      <Check class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring disabled:opacity-50"
-                      :disabled="busy || row.review_status === 'rejected'"
-                      title="Reject lesson"
-                      @click="reviewKnowledgeUpdate(row, row, 'rejected')"
-                    >
-                      <X class="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="knowledgeReviewRows.length === 0">
-                <td colspan="5" class="px-3 py-8 text-center text-sm text-ink-muted">
-                  No proposed lessons yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <StockEvaluationPanel
+        v-else-if="activeTab === 'evaluation'"
+        :filtered-evaluation-rows="filteredEvaluationRows"
+        :tracker-metric-rows="trackerMetricRows"
+        :knowledge-review-rows="knowledgeReviewRows"
+        :evaluation-tracker-ids="evaluationTrackerIds"
+        :evaluation-tracker-filter="evaluationTrackerFilter"
+        :run-review-score-fields="runReviewScoreFields"
+        :run-review-draft="runReviewDraft"
+        :busy="busy"
+        @update:evaluation-tracker-filter="evaluationTrackerFilter = $event"
+        @set-run-review-score="setRunReviewScore"
+        @set-run-review-notes="setRunReviewNotes"
+        @save-run-review="saveRunReview"
+        @review-knowledge-update="reviewKnowledgeUpdate"
+      />
     </main>
   </div>
 </template>

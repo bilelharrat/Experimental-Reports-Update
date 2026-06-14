@@ -2,20 +2,21 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  BarChart3,
   CheckCircle2,
-  ClipboardCheck,
   FileText,
-  Gauge,
   Loader2,
-  Play,
   Save,
-  ShieldAlert,
-  Sparkles,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import MemoBenchmarkPanel from "./memo/MemoBenchmarkPanel.vue";
+import MemoChartPlansPanel from "./memo/MemoChartPlansPanel.vue";
+import MemoEvidenceMatrixPanel from "./memo/MemoEvidenceMatrixPanel.vue";
+import MemoNarrativeHooksPanel from "./memo/MemoNarrativeHooksPanel.vue";
+import MemoReadinessPanel from "./memo/MemoReadinessPanel.vue";
+import MemoResearchTasksPanel from "./memo/MemoResearchTasksPanel.vue";
+import MemoRiskPriorityPanel from "./memo/MemoRiskPriorityPanel.vue";
+import MemoSourceBriefPanel from "./memo/MemoSourceBriefPanel.vue";
+import MemoToolLauncherPanel from "./memo/MemoToolLauncherPanel.vue";
 import MemoToolboxPanel from "./memo/MemoToolboxPanel.vue";
 
 const props = defineProps({
@@ -886,10 +887,6 @@ function taskSourceIds(task) {
   return Array.isArray(task?.selected_source_ids) ? task.selected_source_ids : [];
 }
 
-function isSourceSelected(task, sourceId) {
-  return taskSourceIds(task).includes(sourceId);
-}
-
 async function toggleTaskSource(task, sourceId, checked) {
   const ids = new Set(taskSourceIds(task));
   if (checked) ids.add(sourceId);
@@ -974,37 +971,16 @@ async function saveReadinessReview(area, status) {
   });
 }
 
+function updateReadinessReviewDraft(areaId, value) {
+  readinessReviewDraft.value = {
+    ...readinessReviewDraft.value,
+    [areaId]: value,
+  };
+}
+
 function generateFromAnalysis() {
   if (!session.value?.id || !canGenerateMemo.value) return;
   emit("generate-memo", session.value.id);
-}
-
-function statusClass(status) {
-  if (status === "done" || status === "supported") return "bg-success-soft text-success-ink";
-  if (status === "error" || status === "contradicted") return "bg-danger/10 text-danger";
-  if (status === "mixed" || status === "partial") return "bg-warning-soft text-warning-ink";
-  if (status === "missing" || status === "not_started") return "bg-surface-muted text-ink-muted";
-  return "bg-warning-soft text-warning-ink";
-}
-
-function statusLabel(status) {
-  return (status || "not_started").replaceAll("_", " ");
-}
-
-function severityClass(severity) {
-  if (severity === "high") return "bg-danger/10 text-danger border-danger/30";
-  return "bg-warning-soft text-warning-ink border-warning/40";
-}
-
-function approvalTitle() {
-  if (readyForApproval.value) return approved.value ? "Analysis approved" : "Approve analysis";
-  const first = readinessBlockers.value[0]?.label || "Resolve readiness blockers";
-  return `Resolve before approval: ${first}`;
-}
-
-function sourceLabel(source) {
-  if (typeof source === "string") return source;
-  return source?.filename || source?.id || "Source";
 }
 
 function evidenceLabel(item) {
@@ -1016,40 +992,10 @@ function listItems(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function sourceCheckedText(task) {
-  return listItems(task?.sources_checked).map(sourceLabel).join(", ");
-}
-
-function coverageCount(row, key) {
-  return row?.source_coverage?.[key] ?? 0;
-}
-
-function topEvidence(row) {
-  return listItems(row?.supporting_evidence)[0] || listItems(row?.contradicting_evidence)[0] || null;
-}
-
-function sourceTraceLabel(trace) {
-  return trace?.locator || trace?.title || trace?.url || "Source trace";
-}
-
-function promptStatus(prompt) {
-  if (prompt?.resolved_choice) return prompt.resolved_choice;
-  return prompt?.status || (prompt?.required ? "needs review" : "optional");
-}
-
-function fmtMetric(value, suffix = "") {
-  if (value === null || value === undefined || value === "") return "—";
-  const num = Number(value);
-  if (!Number.isFinite(num)) return String(value);
-  return `${num.toFixed(1)}${suffix}`;
-}
-
-function toolIcon(name) {
-  if (name.includes("risk")) return ShieldAlert;
-  if (name.includes("chart") || name.includes("benchmark")) return BarChart3;
-  if (name.includes("readiness")) return Gauge;
-  if (name.includes("grader")) return ClipboardCheck;
-  return Sparkles;
+function approvalTitle() {
+  if (readyForApproval.value) return approved.value ? "Analysis approved" : "Approve analysis";
+  const first = readinessBlockers.value[0]?.label || "Resolve readiness blockers";
+  return `Resolve before approval: ${first}`;
 }
 
 function fmtDate(value) {
@@ -1147,59 +1093,16 @@ watch(additionalAreas, (areas) => {
     </div>
 
     <template v-if="session && !loading">
-      <section class="border border-subtle bg-surface rounded-card p-5">
-        <div class="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div class="text-xs uppercase tracking-wide text-ink-muted">
-              Readiness
-            </div>
-            <div class="mt-1 text-2xl font-semibold text-ink-primary">
-              {{ readiness.score }} / {{ readiness.total }}
-            </div>
-          </div>
-          <div class="w-full sm:w-64">
-            <div class="h-2 rounded-full bg-surface-muted overflow-hidden">
-              <div
-                class="h-full bg-accent transition-all"
-                :style="{ width: readinessPct + '%' }"
-              ></div>
-            </div>
-            <div class="mt-1 text-xs text-ink-muted text-right">
-              {{ readinessPct }}%
-            </div>
-          </div>
-        </div>
-        <div class="mt-4 grid md:grid-cols-3 gap-2">
-          <div
-            v-for="gate in readiness.gates"
-            :key="gate.id"
-            class="flex items-center gap-2 rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm"
-          >
-            <CheckCircle2
-              v-if="gate.status === 'done'"
-              class="h-4 w-4 text-success shrink-0"
-            />
-            <AlertTriangle
-              v-else
-              class="h-4 w-4 text-warning-ink shrink-0"
-            />
-            <span class="text-ink-primary">{{ gate.label }}</span>
-          </div>
-        </div>
-        <div
-          v-if="readinessBlockers.length"
-          class="mt-4 rounded-lg border border-warning/40 bg-warning-soft/60 p-3"
-        >
-          <div class="text-xs uppercase tracking-wide text-warning-ink">
-            Approval blockers
-          </div>
-          <ul class="mt-2 space-y-1 text-sm text-warning-ink">
-            <li v-for="blocker in readinessBlockers" :key="`${blocker.kind}-${blocker.id}`">
-              {{ blocker.label }}
-            </li>
-          </ul>
-        </div>
-      </section>
+      <MemoReadinessPanel
+        :readiness="readiness"
+        :readiness-pct="readinessPct"
+        :readiness-blockers="readinessBlockers"
+        :additional-areas="additionalAreas"
+        :readiness-review-draft="readinessReviewDraft"
+        :saving-artifact="savingArtifact"
+        @update-readiness-review-draft="updateReadinessReviewDraft"
+        @save-readiness-review="saveReadinessReview"
+      />
 
       <MemoToolboxPanel
         :summary="memoToolboxSummary"
@@ -1209,248 +1112,28 @@ watch(additionalAreas, (areas) => {
         :source-boundary-rows="memoSourceBoundaryRows"
       />
 
-      <section>
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="font-display text-lg font-semibold text-ink-primary">
-            Tools
-          </h3>
-        </div>
-        <div class="grid lg:grid-cols-2 gap-3">
-          <div
-            v-for="tool in session.tools"
-            :key="tool.name"
-            class="rounded-card border border-subtle bg-surface p-4"
-          >
-            <div class="flex items-start gap-3">
-              <component
-                :is="toolIcon(tool.name)"
-                class="h-5 w-5 text-accent mt-0.5 shrink-0"
-              />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <div class="font-medium text-ink-primary">{{ tool.label }}</div>
-                  <span
-                    :class="[
-                      'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                      statusClass(tool.status),
-                    ]"
-                  >
-                    {{ tool.status.replace('_', ' ') }}
-                  </span>
-                </div>
-                <p class="mt-1 text-sm text-ink-secondary">
-                  {{ tool.description }}
-                </p>
-                <div v-if="tool.summary" class="mt-2 text-xs text-ink-muted">
-                  {{ tool.summary }}
-                </div>
-                <div v-if="tool.name === 'memo_grader'" class="mt-3 space-y-2">
-                  <select
-                    :value="memoGrader?.selected_report_id || memoGrader?.completed_report_id || ''"
-                    @change="selectMemoForGrading($event.target.value)"
-                    :disabled="Boolean(savingArtifact) || completedMemoRuns.length === 0"
-                    class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-xs text-ink-primary focus-ring"
-                  >
-                    <option value="">
-                      {{ completedMemoRuns.length ? "Select completed memo" : "No completed memos" }}
-                    </option>
-                    <option
-                      v-for="run in completedMemoRuns"
-                      :key="run.id"
-                      :value="run.id"
-                    >
-                      {{ run.run_id || run.id }}
-                    </option>
-                  </select>
-                  <div
-                    v-if="memoGrader?.status === 'graded'"
-                    class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-secondary"
-                  >
-                    <div class="font-medium text-ink-primary">
-                      Graded {{ memoGrader.completed_report_id }}
-                    </div>
-                    <div v-if="memoGrader.confidence" class="mt-1 text-ink-muted">
-                      Confidence: {{ memoGrader.confidence }}
-                    </div>
-                    <ul v-if="memoGrader.lessons_for_future_memo_runs?.length" class="mt-2 space-y-1">
-                      <li
-                        v-for="lesson in memoGrader.lessons_for_future_memo_runs.slice(0, 3)"
-                        :key="lesson"
-                      >
-                        {{ lesson }}
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-                <div v-if="tool.last_run_at" class="mt-1 text-[11px] text-ink-subtle">
-                  {{ fmtDate(tool.last_run_at) }}
-                </div>
-              </div>
-              <button
-                type="button"
-                @click="runTool(tool.name)"
-                :disabled="Boolean(runningTool) || tool.status === 'running'"
-                class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring"
-                :title="`Run ${tool.label}`"
-              >
-                <Loader2
-                  v-if="runningTool === tool.name || tool.status === 'running'"
-                  class="h-4 w-4 animate-spin"
-                />
-                <Play v-else class="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section
-        v-if="additionalAreas.length"
-        class="border border-subtle bg-surface rounded-card p-5"
-      >
-        <h3 class="font-display text-lg font-semibold text-ink-primary">
-          Additional Areas Needed
-        </h3>
-        <div class="mt-3 grid md:grid-cols-2 gap-3">
-          <div
-            v-for="area in additionalAreas"
-            :key="area.id"
-            :class="[
-              'rounded-lg border px-3 py-2',
-              severityClass(area.severity),
-            ]"
-          >
-            <div class="text-sm font-medium">{{ area.area }}</div>
-            <div class="mt-1 text-xs opacity-80">{{ area.why_it_matters }}</div>
-            <div class="mt-2 flex items-center gap-2 flex-wrap">
-              <span class="text-[10px] uppercase tracking-wide opacity-75">
-                {{ area.status || "open" }}
-              </span>
-              <span v-if="area.reviewed_at" class="text-[10px] opacity-70">
-                {{ fmtDate(area.reviewed_at) }}
-              </span>
-            </div>
-            <textarea
-              v-model="readinessReviewDraft[area.id]"
-              rows="2"
-              class="mt-2 w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-xs text-ink-primary focus-ring resize-y"
-              placeholder="Rationale"
-            ></textarea>
-            <div class="mt-2 flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                @click="saveReadinessReview(area, 'waived')"
-                :disabled="Boolean(savingArtifact)"
-                class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
-              >
-                <Save class="h-3.5 w-3.5" />
-                <span>Waive</span>
-              </button>
-              <button
-                type="button"
-                @click="saveReadinessReview(area, 'reviewed')"
-                :disabled="Boolean(savingArtifact)"
-                class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
-              >
-                <CheckCircle2 class="h-3.5 w-3.5" />
-                <span>Reviewed</span>
-              </button>
-              <button
-                type="button"
-                @click="saveReadinessReview(area, 'open')"
-                :disabled="Boolean(savingArtifact)"
-                class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
-              >
-                <AlertTriangle class="h-3.5 w-3.5" />
-                <span>Reopen</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
+      <MemoToolLauncherPanel
+        :tools="session.tools"
+        :running-tool="runningTool"
+        :saving-artifact="savingArtifact"
+        :memo-grader="memoGrader"
+        :completed-memo-runs="completedMemoRuns"
+        @run-tool="runTool"
+        @select-memo-for-grading="selectMemoForGrading"
+      />
 
       <section class="grid xl:grid-cols-2 gap-4">
-        <div class="border border-subtle bg-surface rounded-card p-5">
-          <div class="flex items-center justify-between gap-3">
-            <h3 class="font-display text-lg font-semibold text-ink-primary">
-              Strategic Risk Board
-            </h3>
-            <button
-              v-if="riskPriorityDraft.length"
-              type="button"
-              @click="saveRiskPrioritiesDraft"
-              :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
-            >
-              <Loader2
-                v-if="savingArtifact === 'risk_priorities'"
-                class="h-3.5 w-3.5 animate-spin"
-              />
-              <Save v-else class="h-3.5 w-3.5" />
-              <span>Save priorities</span>
-            </button>
-          </div>
-          <div v-if="risks.length === 0" class="mt-3 text-sm text-ink-muted">
-            No risks generated yet.
-          </div>
-          <div v-else class="mt-3 space-y-3">
-            <div
-              v-for="risk in prioritizedRisks"
-              :key="risk.id"
-              class="rounded-lg border border-subtle bg-surface-muted p-3"
-            >
-              <div class="flex items-start gap-3">
-                <div class="flex w-8 shrink-0 flex-col items-center gap-1">
-                  <button
-                    type="button"
-                    @click="moveRiskPriority(risk.id, -1)"
-                    :disabled="!canMoveRisk(risk.id, -1) || Boolean(savingArtifact)"
-                    class="h-7 w-7 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface text-ink-muted hover:text-ink-primary hover:bg-surface-muted disabled:opacity-35 disabled:cursor-not-allowed focus-ring"
-                    title="Move risk up"
-                  >
-                    <ArrowUp class="h-3.5 w-3.5" />
-                  </button>
-                  <div class="text-[11px] font-mono text-ink-muted">
-                    #{{ riskPriorityMap.get(risk.id)?.rank || "—" }}
-                  </div>
-                  <button
-                    type="button"
-                    @click="moveRiskPriority(risk.id, 1)"
-                    :disabled="!canMoveRisk(risk.id, 1) || Boolean(savingArtifact)"
-                    class="h-7 w-7 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface text-ink-muted hover:text-ink-primary hover:bg-surface-muted disabled:opacity-35 disabled:cursor-not-allowed focus-ring"
-                    title="Move risk down"
-                  >
-                    <ArrowDown class="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="font-medium text-ink-primary">{{ risk.title }}</div>
-                    <span class="text-[10px] uppercase tracking-wide text-ink-muted">
-                      {{ risk.status }}
-                    </span>
-                  </div>
-                  <div class="mt-1 text-sm text-ink-secondary">
-                    {{ risk.decision_question }}
-                  </div>
-                  <div class="mt-2 text-xs text-ink-muted">
-                    {{ risk.why_it_matters }}
-                  </div>
-                </div>
-                <label class="shrink-0 inline-flex items-center gap-1.5 text-[11px] text-ink-muted">
-                  <input
-                    type="checkbox"
-                    :checked="Boolean(riskPriorityMap.get(risk.id)?.selected)"
-                    @change="setRiskSelected(risk.id, $event.target.checked)"
-                    :disabled="Boolean(savingArtifact)"
-                    class="h-3.5 w-3.5 rounded border-subtle text-accent focus-ring"
-                  />
-                  <span>Research</span>
-                </label>
-              </div>
-            </div>
-          </div>
-        </div>
+        <MemoRiskPriorityPanel
+          :risks="risks"
+          :prioritized-risks="prioritizedRisks"
+          :risk-priority-map="riskPriorityMap"
+          :risk-priority-draft="riskPriorityDraft"
+          :saving-artifact="savingArtifact"
+          :can-move-risk="canMoveRisk"
+          @save-risk-priorities="saveRiskPrioritiesDraft"
+          @move-risk-priority="moveRiskPriority"
+          @set-risk-selected="setRiskSelected"
+        />
 
         <div class="border border-subtle bg-surface rounded-card p-5">
           <div class="flex items-center justify-between gap-3">
@@ -1583,931 +1266,56 @@ watch(additionalAreas, (areas) => {
         </div>
       </section>
 
-      <section class="border border-subtle bg-surface rounded-card p-5">
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h3 class="font-display text-lg font-semibold text-ink-primary">
-              Evidence Matrix
-            </h3>
-            <div v-if="evidenceMatrix" class="mt-1 text-xs text-ink-muted">
-              {{ evidenceMatrix.claim_count || 0 }} claims
-            </div>
-          </div>
-          <div class="flex items-center gap-1 rounded-lg border border-subtle bg-surface-muted p-1">
-            <button
-              v-for="status in ['all', 'mixed', 'contradicted', 'missing']"
-              :key="status"
-              type="button"
-              @click="evidenceStatusFilter = status"
-              :class="[
-                'px-2 py-1 rounded-md text-xs focus-ring',
-                evidenceStatusFilter === status
-                  ? 'bg-surface text-ink-primary shadow-sm'
-                  : 'text-ink-muted hover:text-ink-primary',
-              ]"
-            >
-              {{ status }}
-            </button>
-          </div>
-        </div>
-        <div v-if="evidenceMatrixError" class="mt-3 text-sm text-danger">
-          {{ evidenceMatrixError }}
-        </div>
-        <div v-else-if="!evidenceMatrix || evidenceRows.length === 0" class="mt-3 text-sm text-ink-muted">
-          No evidence matrix claims yet.
-        </div>
-        <div v-else class="mt-4 overflow-x-auto">
-          <table class="min-w-full text-sm">
-            <thead class="text-xs uppercase tracking-wide text-ink-muted">
-              <tr class="border-b border-subtle">
-                <th class="text-left py-2 pr-3">Claim</th>
-                <th class="text-left py-2 pr-3">Status</th>
-                <th class="text-left py-2 pr-3">Counts</th>
-                <th class="text-left py-2 pr-3">Confidence</th>
-                <th class="text-left py-2 pr-3">Top Source</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="row in evidenceRows"
-                :key="row.claim"
-                class="border-b border-subtle/70 align-top"
-              >
-                <td class="py-2 pr-3 text-ink-primary max-w-sm">
-                  {{ row.claim }}
-                </td>
-                <td class="py-2 pr-3">
-                  <span
-                    :class="[
-                      'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                      statusClass(row.status),
-                    ]"
-                  >
-                    {{ row.status }}
-                  </span>
-                </td>
-                <td class="py-2 pr-3 text-ink-secondary font-mono">
-                  +{{ coverageCount(row, 'supporting_count') }}
-                  / -{{ coverageCount(row, 'contradicting_count') }}
-                  / ?{{ coverageCount(row, 'missing_count') }}
-                </td>
-                <td class="py-2 pr-3 text-ink-secondary">
-                  {{ row.confidence }}
-                </td>
-                <td class="py-2 pr-3 text-ink-secondary max-w-md">
-                  <template v-if="topEvidence(row)">
-                    <div class="text-[11px] text-ink-muted">
-                      {{ evidenceLabel(topEvidence(row)) }}
-                      <a
-                        v-if="topEvidence(row).task_id"
-                        :href="`#memo-task-${topEvidence(row).task_id}`"
-                        class="ml-2 text-accent hover:underline"
-                      >
-                        {{ topEvidence(row).task_title || topEvidence(row).task_id }}
-                      </a>
-                    </div>
-                    <div>{{ topEvidence(row).excerpt }}</div>
-                  </template>
-                  <span v-else>—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <MemoEvidenceMatrixPanel
+        :evidence-matrix="evidenceMatrix"
+        :evidence-matrix-error="evidenceMatrixError"
+        :evidence-rows="evidenceRows"
+        :evidence-status-filter="evidenceStatusFilter"
+        @update:evidence-status-filter="evidenceStatusFilter = $event"
+      />
+
+      <section class="grid xl:grid-cols-2 gap-4">
+        <MemoResearchTasksPanel
+          :tasks="tasks"
+          :source-files="sourceFiles"
+          :batch-status="batchStatus"
+          :running-batch="runningBatch"
+          :has-running-tasks="hasRunningTasks"
+          :running-task="runningTask"
+          :cancelling-task="cancellingTask"
+          :saving-task="savingTask"
+          @run-selected-tasks="runSelectedTasks"
+          @run-research-task="runResearchTask"
+          @cancel-research-task="cancelResearchTask"
+          @toggle-task-source="toggleTaskSource"
+        />
+
+        <MemoSourceBriefPanel
+          :source-brief="sourceBrief"
+        />
+
+        <MemoChartPlansPanel
+          :chart-specs-draft="chartSpecsDraft"
+          :saving-artifact="savingArtifact"
+          @save-chart-specs="saveChartSpecsDraft"
+        />
       </section>
 
       <section class="grid xl:grid-cols-2 gap-4">
-        <div class="border border-subtle bg-surface rounded-card p-5">
-          <div class="flex items-center justify-between gap-3">
-            <h3 class="font-display text-lg font-semibold text-ink-primary">
-              Research Task Queue
-            </h3>
-            <button
-              v-if="tasks.length"
-              type="button"
-              @click="runSelectedTasks"
-              :disabled="runningBatch || hasRunningTasks"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
-            >
-              <Loader2 v-if="runningBatch" class="h-3.5 w-3.5 animate-spin" />
-              <Play v-else class="h-3.5 w-3.5" />
-              <span>Run selected</span>
-            </button>
-          </div>
-          <div
-            v-if="batchStatus"
-            class="mt-3 rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-secondary"
-          >
-            <div>
-              Launched {{ batchStatus.launched_task_ids?.length || 0 }} tasks · concurrency {{ batchStatus.concurrency }}
-            </div>
-            <div class="mt-1 text-ink-muted">
-              <span
-                v-for="(status, taskId) in batchStatus.statuses"
-                :key="taskId"
-                class="mr-2"
-              >
-                {{ taskId }}: {{ status.replaceAll('_', ' ') }}
-              </span>
-            </div>
-          </div>
-          <div v-if="tasks.length === 0" class="mt-3 text-sm text-ink-muted">
-            No research tasks yet.
-          </div>
-          <div v-else class="mt-3 space-y-2">
-            <div
-              v-for="task in tasks"
-              :key="task.id"
-              :id="`memo-task-${task.id}`"
-              class="rounded-lg border border-subtle bg-surface-muted p-3"
-            >
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <div class="text-sm font-medium text-ink-primary">{{ task.title }}</div>
-                    <span class="text-[10px] rounded bg-surface px-1.5 py-0.5 text-ink-muted uppercase">
-                      {{ task.priority }}
-                    </span>
-                    <span
-                      :class="[
-                        'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                        statusClass(task.status),
-                      ]"
-                    >
-                      {{ statusLabel(task.status) }}
-                    </span>
-                  </div>
-                  <div class="mt-1 text-xs text-ink-muted">{{ task.source_type }}</div>
-                  <div class="mt-2 text-xs text-ink-secondary">{{ task.prompt }}</div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    @click="runResearchTask(task.id)"
-                    :disabled="Boolean(runningTask) || task.status === 'running'"
-                    class="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
-                    :title="task.status === 'running' ? 'Task running' : task.status === 'done' ? 'Run task again' : 'Run task'"
-                  >
-                    <Loader2
-                      v-if="runningTask === task.id || task.status === 'running'"
-                      class="h-4 w-4 animate-spin"
-                    />
-                    <Play v-else class="h-4 w-4" />
-                  </button>
-                  <button
-                    v-if="task.status === 'running'"
-                    type="button"
-                    @click="cancelResearchTask(task.id)"
-                    :disabled="cancellingTask === task.id"
-                    class="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-danger/30 bg-danger/10 text-danger hover:bg-danger/15 disabled:opacity-60 focus-ring"
-                    title="Cancel task"
-                  >
-                    <Loader2
-                      v-if="cancellingTask === task.id"
-                      class="h-4 w-4 animate-spin"
-                    />
-                    <AlertTriangle v-else class="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-              <div
-                v-if="sourceFiles.length"
-                class="mt-3 rounded-lg border border-subtle bg-surface px-3 py-2"
-              >
-                <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-                  Sources
-                </div>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <label
-                    v-for="source in sourceFiles"
-                    :key="source.id"
-                    class="inline-flex items-center gap-1.5 rounded border border-subtle bg-surface-muted px-2 py-1 text-xs text-ink-secondary"
-                  >
-                    <input
-                      type="checkbox"
-                      :checked="isSourceSelected(task, source.id)"
-                      :disabled="savingTask === task.id || task.status === 'running'"
-                      @change="toggleTaskSource(task, source.id, $event.target.checked)"
-                      class="h-3.5 w-3.5 rounded border-subtle text-accent focus-ring"
-                    />
-                    <span>{{ sourceLabel(source) }}</span>
-                  </label>
-                </div>
-                <div
-                  v-if="taskSourceIds(task).length === 0"
-                  class="mt-2 text-[11px] text-ink-muted"
-                >
-                  All research-folder sources will be available.
-                </div>
-              </div>
-              <div
-                v-if="task.result_summary || task.answer"
-                class="mt-3 rounded-lg border border-subtle bg-surface px-3 py-2 text-xs text-ink-secondary"
-              >
-                <div class="font-medium text-ink-primary">
-                  {{ task.answer || task.result_summary }}
-                </div>
-                <div
-                  v-if="task.confidence || task.sources_checked?.length"
-                  class="mt-1 text-[11px] text-ink-muted"
-                >
-                  <span v-if="task.confidence">Confidence: {{ task.confidence }}</span>
-                  <span v-if="task.sources_checked?.length">
-                    · Sources checked: {{ sourceCheckedText(task) }}
-                  </span>
-                </div>
-                <div
-                  v-if="listItems(task.supporting_evidence).length"
-                  class="mt-3"
-                >
-                  <div class="text-[11px] uppercase tracking-wide text-success-ink">
-                    Supporting evidence
-                  </div>
-                  <div
-                    v-for="(item, index) in listItems(task.supporting_evidence)"
-                    :key="`support-${task.id}-${index}`"
-                    class="mt-1 rounded border border-subtle bg-surface-muted px-2 py-1"
-                  >
-                    <div class="text-[11px] text-ink-muted">{{ evidenceLabel(item) }}</div>
-                    <div>{{ item.excerpt }}</div>
-                  </div>
-                </div>
-                <div
-                  v-if="listItems(task.contradicting_evidence).length"
-                  class="mt-3"
-                >
-                  <div class="text-[11px] uppercase tracking-wide text-danger">
-                    Contradicting evidence
-                  </div>
-                  <div
-                    v-for="(item, index) in listItems(task.contradicting_evidence)"
-                    :key="`contradict-${task.id}-${index}`"
-                    class="mt-1 rounded border border-subtle bg-surface-muted px-2 py-1"
-                  >
-                    <div class="text-[11px] text-ink-muted">{{ evidenceLabel(item) }}</div>
-                    <div>{{ item.excerpt }}</div>
-                  </div>
-                </div>
-                <div
-                  v-if="listItems(task.open_questions).length"
-                  class="mt-3"
-                >
-                  <div class="text-[11px] uppercase tracking-wide text-warning-ink">
-                    Open questions
-                  </div>
-                  <ul class="mt-1 space-y-1">
-                    <li
-                      v-for="(question, index) in listItems(task.open_questions)"
-                      :key="`question-${task.id}-${index}`"
-                    >
-                      {{ question }}
-                    </li>
-                  </ul>
-                </div>
-                <div
-                  v-if="task.completed_at || task.last_run_at"
-                  class="mt-1 text-[11px] text-ink-subtle"
-                >
-                  {{ fmtDate(task.completed_at || task.last_run_at) }}
-                  <span v-if="task.result_generated_by">
-                    · {{ task.result_generated_by.replaceAll('_', ' ') }}
-                  </span>
-                </div>
-              </div>
-              <div v-if="task.error" class="mt-2 text-xs text-danger">
-                {{ task.error }}
-              </div>
-            </div>
-          </div>
-        </div>
+        <MemoNarrativeHooksPanel
+          :narrative-draft="narrativeDraft"
+          :session-id="session.id"
+          :saving-artifact="savingArtifact"
+          @save-narrative="saveNarrativeDraft"
+        />
 
-        <div class="xl:col-span-2 border border-subtle bg-surface rounded-card p-5">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <h3 class="font-display text-lg font-semibold text-ink-primary">
-                Infographic Source Brief
-              </h3>
-              <div v-if="sourceBrief?.confidence" class="mt-1 text-xs text-ink-muted">
-                Confidence: {{ sourceBrief.confidence }}
-              </div>
-            </div>
-            <span
-              v-if="sourceBrief?.generated_by"
-              class="rounded bg-surface-muted px-2 py-1 text-[10px] uppercase tracking-wide text-ink-muted"
-            >
-              {{ sourceBrief.generated_by.replaceAll('_', ' ') }}
-            </span>
-          </div>
-          <div v-if="!sourceBrief" class="mt-3 text-sm text-ink-muted">
-            No infographic source brief yet.
-          </div>
-          <template v-else>
-            <p v-if="sourceBrief.summary" class="mt-3 text-sm text-ink-secondary">
-              {{ sourceBrief.summary }}
-            </p>
-            <div class="mt-4 grid xl:grid-cols-3 gap-3">
-              <div class="rounded-lg border border-subtle bg-surface-muted p-3">
-                <div class="text-xs uppercase tracking-wide text-ink-muted">
-                  Claims
-                </div>
-                <div
-                  v-for="claim in listItems(sourceBrief.compact_claims).slice(0, 6)"
-                  :key="claim.id || claim.claim"
-                  class="mt-2 rounded border border-subtle bg-surface px-2 py-1.5 text-xs"
-                >
-                  <div class="font-medium text-ink-primary">{{ claim.claim }}</div>
-                  <div class="mt-1 text-[11px] text-ink-muted">
-                    {{ claim.evidence_status || "needs review" }} · {{ claim.confidence || "medium" }}
-                    <span v-if="claim.prohibited_for_visuals"> · no visual fact claim</span>
-                  </div>
-                  <div
-                    v-for="trace in listItems(claim.source_traces).slice(0, 2)"
-                    :key="`${claim.id}-${sourceTraceLabel(trace)}`"
-                    class="mt-1 text-[11px] text-ink-secondary"
-                  >
-                    <span class="text-ink-muted">{{ sourceTraceLabel(trace) }}:</span>
-                    {{ trace.excerpt }}
-                  </div>
-                </div>
-              </div>
-              <div class="rounded-lg border border-subtle bg-surface-muted p-3">
-                <div class="text-xs uppercase tracking-wide text-ink-muted">
-                  Metrics & Warnings
-                </div>
-                <div
-                  v-for="metric in listItems(sourceBrief.numeric_metrics).slice(0, 6)"
-                  :key="metric.id || metric.label"
-                  class="mt-2 text-xs text-ink-secondary"
-                >
-                  <span class="font-medium text-ink-primary">{{ metric.label }}</span>
-                  <span>
-                    · {{ metric.value ?? "missing" }}{{ metric.unit || "" }}
-                  </span>
-                  <span v-if="metric.period"> · {{ metric.period }}</span>
-                </div>
-                <div v-if="listItems(sourceBrief.missing_evidence).length" class="mt-3">
-                  <div class="text-[11px] uppercase tracking-wide text-warning-ink">
-                    Missing evidence
-                  </div>
-                  <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
-                    <li
-                      v-for="item in listItems(sourceBrief.missing_evidence).slice(0, 5)"
-                      :key="item"
-                    >
-                      {{ item }}
-                    </li>
-                  </ul>
-                </div>
-                <div v-if="listItems(sourceBrief.no_go_claims).length" class="mt-3">
-                  <div class="text-[11px] uppercase tracking-wide text-danger">
-                    No-go claims
-                  </div>
-                  <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
-                    <li
-                      v-for="item in listItems(sourceBrief.no_go_claims).slice(0, 5)"
-                      :key="item"
-                    >
-                      {{ item }}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-              <div class="rounded-lg border border-subtle bg-surface-muted p-3">
-                <div class="text-xs uppercase tracking-wide text-ink-muted">
-                  Opportunities & Prompts
-                </div>
-                <div
-                  v-for="item in listItems(sourceBrief.visual_opportunities).slice(0, 4)"
-                  :key="item.id || item.title"
-                  class="mt-2 text-xs text-ink-secondary"
-                >
-                  <div class="font-medium text-ink-primary">{{ item.title }}</div>
-                  <div>{{ item.rationale }}</div>
-                </div>
-                <div
-                  v-for="prompt in listItems(sourceBrief.reviewer_prompts).slice(0, 4)"
-                  :key="prompt.id || prompt.prompt"
-                  class="mt-2 rounded border border-subtle bg-surface px-2 py-1 text-xs text-ink-secondary"
-                >
-                  <div class="font-medium text-ink-primary">{{ prompt.prompt }}</div>
-                  <div class="mt-1 text-[11px] text-ink-muted">
-                    {{ promptStatus(prompt) }}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <div class="border border-subtle bg-surface rounded-card p-5">
-          <div class="flex items-center justify-between gap-3">
-            <h3 class="font-display text-lg font-semibold text-ink-primary">
-              Chart & Table Plan
-            </h3>
-            <button
-              v-if="chartSpecsDraft.length"
-              type="button"
-              @click="saveChartSpecsDraft"
-              :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
-            >
-              <Loader2
-                v-if="savingArtifact === 'chart_specs'"
-                class="h-3.5 w-3.5 animate-spin"
-              />
-              <Save v-else class="h-3.5 w-3.5" />
-              <span>Save charts</span>
-            </button>
-          </div>
-          <div v-if="chartSpecsDraft.length === 0" class="mt-3 text-sm text-ink-muted">
-            No chart specs yet.
-          </div>
-          <div v-else class="mt-3 space-y-2">
-            <div
-              v-for="spec in chartSpecsDraft"
-              :key="spec.id"
-              class="rounded-lg border border-subtle bg-surface-muted p-3"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-sm font-medium text-ink-primary">{{ spec.title }}</div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <label class="inline-flex items-center gap-1.5 text-[11px] text-ink-muted">
-                    <input
-                      v-model="spec.include_in_final_memo"
-                      type="checkbox"
-                      class="h-3.5 w-3.5 rounded border-subtle text-accent focus-ring"
-                    />
-                    <span>Final memo</span>
-                  </label>
-                  <span
-                    :class="[
-                      'text-[10px] rounded px-1.5 py-0.5 uppercase',
-                      (spec.source_availability || spec.data_availability) === 'missing'
-                        ? 'bg-warning-soft text-warning-ink'
-                        : 'bg-success-soft text-success-ink',
-                    ]"
-                  >
-                    {{ spec.source_availability || spec.data_availability }}
-                  </span>
-                </div>
-              </div>
-              <div class="mt-1 text-xs text-ink-secondary">
-                {{ spec.purpose || spec.takeaway }}
-              </div>
-              <div class="mt-2 flex flex-wrap gap-2 text-[11px] text-ink-muted">
-                <span class="rounded border border-subtle bg-surface px-2 py-0.5">
-                  {{ spec.recommended_visual_format || "infographic" }}
-                </span>
-                <span class="rounded border border-subtle bg-surface px-2 py-0.5">
-                  {{ (spec.image_generation_mode || "no_text_overlay").replaceAll('_', ' ') }}
-                </span>
-                <span
-                  v-if="spec.status"
-                  class="rounded border border-subtle bg-surface px-2 py-0.5"
-                >
-                  {{ spec.status.replaceAll('_', ' ') }}
-                </span>
-                <span
-                  v-if="spec.final_memo_inclusion_state"
-                  class="rounded border border-subtle bg-surface px-2 py-0.5"
-                >
-                  {{ spec.final_memo_inclusion_state.replaceAll('_', ' ') }}
-                </span>
-              </div>
-              <div
-                v-if="spec.text_overlay_plan"
-                class="mt-3 rounded border border-subtle bg-surface px-2 py-1.5 text-xs text-ink-secondary"
-              >
-                <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-                  Overlay copy
-                </div>
-                <div class="mt-1 font-medium text-ink-primary">
-                  {{ spec.text_overlay_plan.headline }}
-                </div>
-                <div
-                  v-if="listItems(spec.text_overlay_plan.callouts).length"
-                  class="mt-1"
-                >
-                  <span
-                    v-for="callout in listItems(spec.text_overlay_plan.callouts).slice(0, 4)"
-                    :key="callout"
-                    class="mr-2"
-                  >
-                    {{ callout }}
-                  </span>
-                </div>
-                <div
-                  v-if="spec.text_overlay_plan.safe_copy_length"
-                  class="mt-1 text-[11px] text-ink-muted"
-                >
-                  {{ spec.text_overlay_plan.safe_copy_length }}
-                </div>
-              </div>
-              <div
-                v-if="listItems(spec.required_metrics).length"
-                class="mt-3 text-xs text-ink-secondary"
-              >
-                <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-                  Required metrics
-                </div>
-                <div class="mt-1 grid sm:grid-cols-2 gap-1.5">
-                  <div
-                    v-for="metric in listItems(spec.required_metrics).slice(0, 6)"
-                    :key="metric.id || metric.label"
-                    class="rounded border border-subtle bg-surface px-2 py-1"
-                  >
-                    <div class="font-medium text-ink-primary">{{ metric.label }}</div>
-                    <div class="text-[11px] text-ink-muted">
-                      {{ metric.value ?? "missing" }}{{ metric.unit || "" }}
-                      <span v-if="metric.period"> · {{ metric.period }}</span>
-                      <span> · {{ metric.source_available ? "sourced" : "source needed" }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div
-                v-if="listItems(spec.information_gaps).length"
-                class="mt-3 text-xs text-warning-ink"
-              >
-                <div class="text-[11px] uppercase tracking-wide">
-                  Information gaps
-                </div>
-                <ul class="mt-1 space-y-1">
-                  <li
-                    v-for="gap in listItems(spec.information_gaps).slice(0, 5)"
-                    :key="gap"
-                  >
-                    {{ gap }}
-                  </li>
-                </ul>
-              </div>
-              <div
-                v-if="listItems(spec.reviewer_prompts).length"
-                class="mt-3 text-xs text-ink-secondary"
-              >
-                <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-                  Reviewer prompts
-                </div>
-                <div
-                  v-for="prompt in listItems(spec.reviewer_prompts).slice(0, 4)"
-                  :key="prompt.id || prompt.prompt"
-                  class="mt-1 rounded border border-subtle bg-surface px-2 py-1"
-                >
-                  <div class="font-medium text-ink-primary">{{ prompt.prompt }}</div>
-                  <div class="text-[11px] text-ink-muted">
-                    {{ promptStatus(prompt) }}
-                  </div>
-                </div>
-              </div>
-              <div
-                v-if="listItems(spec.source_traces).length"
-                class="mt-3 text-xs text-ink-secondary"
-              >
-                <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-                  Source traces
-                </div>
-                <div
-                  v-for="trace in listItems(spec.source_traces).slice(0, 3)"
-                  :key="sourceTraceLabel(trace)"
-                  class="mt-1 rounded border border-subtle bg-surface px-2 py-1"
-                >
-                  <div class="text-[11px] text-ink-muted">
-                    {{ sourceTraceLabel(trace) }}
-                    <span v-if="trace.confidence">· {{ trace.confidence }}</span>
-                  </div>
-                  <div>{{ trace.excerpt }}</div>
-                </div>
-              </div>
-              <div
-                v-if="spec.design_prompt?.composition"
-                class="mt-3 text-xs text-ink-secondary"
-              >
-                <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-                  Image prompt
-                </div>
-                <div class="mt-1 rounded border border-subtle bg-surface px-2 py-1">
-                  {{ spec.design_prompt.composition }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="grid xl:grid-cols-2 gap-4">
-        <div class="border border-subtle bg-surface rounded-card p-5">
-          <div class="flex items-center justify-between gap-3">
-            <h3 class="font-display text-lg font-semibold text-ink-primary">
-              Narrative Hooks
-            </h3>
-            <button
-              v-if="narrativeDraft"
-              type="button"
-              @click="saveNarrativeDraft"
-              :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
-            >
-              <Loader2
-                v-if="savingArtifact === 'narrative_hooks'"
-                class="h-3.5 w-3.5 animate-spin"
-              />
-              <Save v-else class="h-3.5 w-3.5" />
-              <span>Save hooks</span>
-            </button>
-          </div>
-          <div v-if="!narrativeDraft" class="mt-3 text-sm text-ink-muted">
-            No openings or endings yet.
-          </div>
-          <template v-else>
-            <div class="mt-3 text-xs uppercase tracking-wide text-ink-muted">
-              Openings
-            </div>
-            <div class="mt-2 space-y-2">
-              <label
-                v-for="opening in narrativeDraft.openings"
-                :key="opening.id"
-                :class="[
-                  'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer',
-                  narrativeDraft.selected_opening_id === opening.id
-                    ? 'border-accent bg-accent-soft/40 text-accent-ink'
-                    : 'border-subtle bg-surface-muted text-ink-primary',
-                ]"
-              >
-                <input
-                  v-model="narrativeDraft.selected_opening_id"
-                  type="radio"
-                  :name="`opening-${session.id}`"
-                  :value="opening.id"
-                  class="mt-0.5 h-4 w-4 border-subtle text-accent focus-ring"
-                />
-                <span class="min-w-0">
-                  <span class="block">{{ opening.text }}</span>
-                  <span class="mt-1 flex flex-wrap gap-2 text-[11px] text-ink-muted">
-                    <span>{{ opening.tone }}</span>
-                    <span v-if="opening.confidence">· {{ opening.confidence }}</span>
-                    <span v-if="opening.status">· {{ opening.status.replaceAll('_', ' ') }}</span>
-                  </span>
-                  <span
-                    v-if="opening.overclaiming_risk"
-                    class="mt-1 block text-[11px] text-warning-ink"
-                  >
-                    {{ opening.overclaiming_risk }}
-                  </span>
-                  <span
-                    v-if="listItems(opening.paired_infographic_ids).length"
-                    class="mt-1 block text-[11px] text-ink-muted"
-                  >
-                    Paired visuals: {{ listItems(opening.paired_infographic_ids).join(", ") }}
-                  </span>
-                </span>
-              </label>
-            </div>
-            <div
-              v-if="listItems(narrativeDraft.transitions).length"
-              class="mt-4 text-xs uppercase tracking-wide text-ink-muted"
-            >
-              Transitions
-            </div>
-            <div
-              v-if="listItems(narrativeDraft.transitions).length"
-              class="mt-2 space-y-2"
-            >
-              <label
-                v-for="transition in narrativeDraft.transitions"
-                :key="transition.id"
-                :class="[
-                  'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer',
-                  narrativeDraft.selected_transition_id === transition.id
-                    ? 'border-accent bg-accent-soft/40 text-accent-ink'
-                    : 'border-subtle bg-surface-muted text-ink-primary',
-                ]"
-              >
-                <input
-                  v-model="narrativeDraft.selected_transition_id"
-                  type="radio"
-                  :name="`transition-${session.id}`"
-                  :value="transition.id"
-                  class="mt-0.5 h-4 w-4 border-subtle text-accent focus-ring"
-                />
-                <span class="min-w-0">
-                  <span class="block">{{ transition.text }}</span>
-                  <span class="mt-1 flex flex-wrap gap-2 text-[11px] text-ink-muted">
-                    <span>{{ transition.tone }}</span>
-                    <span v-if="transition.confidence">· {{ transition.confidence }}</span>
-                    <span v-if="transition.status">· {{ transition.status.replaceAll('_', ' ') }}</span>
-                  </span>
-                  <span
-                    v-if="transition.overclaiming_risk"
-                    class="mt-1 block text-[11px] text-warning-ink"
-                  >
-                    {{ transition.overclaiming_risk }}
-                  </span>
-                </span>
-              </label>
-            </div>
-            <div class="mt-4 text-xs uppercase tracking-wide text-ink-muted">
-              Endings
-            </div>
-            <div class="mt-2 space-y-2">
-              <label
-                v-for="ending in narrativeDraft.endings"
-                :key="ending.id"
-                :class="[
-                  'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer',
-                  narrativeDraft.selected_ending_id === ending.id
-                    ? 'border-accent bg-accent-soft/40 text-accent-ink'
-                    : 'border-subtle bg-surface-muted text-ink-primary',
-                ]"
-              >
-                <input
-                  v-model="narrativeDraft.selected_ending_id"
-                  type="radio"
-                  :name="`ending-${session.id}`"
-                  :value="ending.id"
-                  class="mt-0.5 h-4 w-4 border-subtle text-accent focus-ring"
-                />
-                <span class="min-w-0">
-                  <span class="block">{{ ending.text }}</span>
-                  <span class="mt-1 flex flex-wrap gap-2 text-[11px] text-ink-muted">
-                    <span>{{ ending.tone }}</span>
-                    <span v-if="ending.confidence">· {{ ending.confidence }}</span>
-                    <span v-if="ending.status">· {{ ending.status.replaceAll('_', ' ') }}</span>
-                  </span>
-                  <span
-                    v-if="ending.overclaiming_risk"
-                    class="mt-1 block text-[11px] text-warning-ink"
-                  >
-                    {{ ending.overclaiming_risk }}
-                  </span>
-                </span>
-              </label>
-            </div>
-            <div
-              v-if="listItems(narrativeDraft.reviewer_prompts).length"
-              class="mt-4 rounded-lg border border-subtle bg-surface-muted p-3 text-xs text-ink-secondary"
-            >
-              <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-                Reviewer prompts
-              </div>
-              <div
-                v-for="prompt in listItems(narrativeDraft.reviewer_prompts)"
-                :key="prompt.id || prompt.prompt"
-                class="mt-2 rounded border border-subtle bg-surface px-2 py-1"
-              >
-                <div class="font-medium text-ink-primary">{{ prompt.prompt }}</div>
-                <div class="mt-1 text-[11px] text-ink-muted">
-                  {{ promptStatus(prompt) }}
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <div class="border border-subtle bg-surface rounded-card p-5">
-          <div class="flex items-center justify-between gap-3">
-            <h3 class="font-display text-lg font-semibold text-ink-primary">
-              Benchmark Dashboard
-            </h3>
-            <button
-              v-if="benchmarkDraft"
-              type="button"
-              @click="saveBenchmarkDraft"
-              :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
-            >
-              <Loader2
-                v-if="savingArtifact === 'benchmark_dashboard'"
-                class="h-3.5 w-3.5 animate-spin"
-              />
-              <Save v-else class="h-3.5 w-3.5" />
-              <span>Save benchmark</span>
-            </button>
-          </div>
-          <div v-if="!benchmark" class="mt-3 text-sm text-ink-muted">
-            No benchmark dashboard yet.
-          </div>
-          <template v-else>
-            <textarea
-              v-if="benchmarkDraft"
-              v-model="benchmarkDraft.summary"
-              rows="2"
-              class="mt-2 w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-secondary focus-ring resize-y"
-            ></textarea>
-            <div class="mt-3 overflow-x-auto">
-              <table class="min-w-full text-sm">
-                <thead class="text-xs uppercase tracking-wide text-ink-muted">
-                  <tr class="border-b border-subtle">
-                    <th class="text-left py-2 pr-3">Company</th>
-                    <th class="text-left py-2 pr-3">Ticker</th>
-                    <th class="text-left py-2 pr-3">Growth</th>
-                    <th class="text-left py-2 pr-3">GM</th>
-                    <th class="text-left py-2 pr-3">EV/Rev</th>
-                    <th class="text-left py-2 pr-3">FCF</th>
-                    <th class="text-left py-2 pr-3">Theme</th>
-                    <th class="text-left py-2 pr-3">Confidence</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="comp in benchmarkDraft?.public_comps || []"
-                    :key="comp.id"
-                    class="border-b border-subtle/70"
-                  >
-                    <td class="py-2 pr-3">
-                      <input
-                        v-model="comp.company"
-                        class="w-32 rounded border border-subtle bg-surface px-2 py-1 text-ink-primary focus-ring"
-                      />
-                    </td>
-                    <td class="py-2 pr-3">
-                      <input
-                        v-model="comp.ticker"
-                        class="w-20 rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary font-mono focus-ring"
-                      />
-                    </td>
-                    <td class="py-2 pr-3">
-                      <input
-                        v-model.number="comp.revenue_growth_pct"
-                        type="number"
-                        step="0.1"
-                        class="w-20 rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary focus-ring"
-                      />
-                    </td>
-                    <td class="py-2 pr-3">
-                      <input
-                        v-model.number="comp.gross_margin_pct"
-                        type="number"
-                        step="0.1"
-                        class="w-20 rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary focus-ring"
-                      />
-                    </td>
-                    <td class="py-2 pr-3">
-                      <input
-                        v-model.number="comp.ev_revenue"
-                        type="number"
-                        step="0.1"
-                        class="w-20 rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary focus-ring"
-                      />
-                    </td>
-                    <td class="py-2 pr-3">
-                      <input
-                        v-model.number="comp.fcf_margin_pct"
-                        type="number"
-                        step="0.1"
-                        class="w-20 rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary focus-ring"
-                      />
-                    </td>
-                    <td class="py-2 pr-3">
-                      <input
-                        v-model="comp.sell_side_theme"
-                        class="w-48 rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary focus-ring"
-                      />
-                    </td>
-                    <td class="py-2 pr-3 text-ink-secondary">{{ comp.confidence }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div
-              v-if="benchmarkView?.benchmark_gaps?.length || benchmarkView?.must_prove?.length"
-              class="mt-4 grid md:grid-cols-2 gap-3 text-xs text-ink-secondary"
-            >
-              <div v-if="benchmarkView?.benchmark_gaps?.length">
-                <div class="uppercase tracking-wide text-ink-muted">Benchmark gaps</div>
-                <ul class="mt-1 space-y-1">
-                  <li v-for="gap in benchmarkView?.benchmark_gaps || []" :key="gap">
-                    {{ gap }}
-                  </li>
-                </ul>
-              </div>
-              <div v-if="benchmarkView?.must_prove?.length">
-                <div class="uppercase tracking-wide text-ink-muted">Must prove</div>
-                <ul class="mt-1 space-y-1">
-                  <li v-for="claim in benchmarkView?.must_prove || []" :key="claim">
-                    {{ claim }}
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div
-              v-if="benchmarkView?.source_traces?.length"
-              class="mt-4 text-xs text-ink-secondary"
-            >
-              <div class="uppercase tracking-wide text-ink-muted">Source traces</div>
-              <div
-                v-for="(trace, index) in benchmarkView.source_traces.slice(0, 4)"
-                :key="`${trace.locator || trace.title || trace.url}-${index}`"
-                class="mt-1 rounded border border-subtle bg-surface-muted px-2 py-1"
-              >
-                <div class="text-[11px] text-ink-muted">
-                  {{ trace.locator || trace.title || trace.url || "Source" }}
-                  <span v-if="trace.confidence">· {{ trace.confidence }}</span>
-                </div>
-                <div>{{ trace.excerpt }}</div>
-              </div>
-            </div>
-          </template>
-        </div>
+        <MemoBenchmarkPanel
+          :benchmark="benchmark"
+          :benchmark-draft="benchmarkDraft"
+          :benchmark-view="benchmarkView"
+          :saving-artifact="savingArtifact"
+          @save-benchmark="saveBenchmarkDraft"
+        />
       </section>
     </template>
   </div>
