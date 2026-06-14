@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Database,
   FileText,
+  FlaskConical,
   Gauge,
   GitBranch,
   Layers,
@@ -18,6 +19,7 @@ import {
 import { api } from "../api.js";
 import StockAggregatePanel from "../components/stock/StockAggregatePanel.vue";
 import StockEvaluationPanel from "../components/stock/StockEvaluationPanel.vue";
+import StockHypothesesPanel from "../components/stock/StockHypothesesPanel.vue";
 import StockResearchHomePanel from "../components/stock/StockResearchHomePanel.vue";
 import StockReviewQueuePanel from "../components/stock/StockReviewQueuePanel.vue";
 import StockRunsPanel from "../components/stock/StockRunsPanel.vue";
@@ -36,6 +38,7 @@ const tabs = [
   { id: "products", label: "Work Products", icon: FileText },
   { id: "review", label: "Review Queue", icon: ListChecks },
   { id: "evaluation", label: "Evaluation", icon: Database },
+  { id: "hypotheses", label: "Hypotheses", icon: FlaskConical },
 ];
 
 const runReviewScoreFields = [
@@ -167,6 +170,8 @@ const filteredReviewItems = computed(() => {
   });
 });
 const evaluationRows = computed(() => payload.value?.evaluation?.runs || []);
+const runLedgerRows = computed(() => payload.value?.evaluation?.run_ledger || []);
+const hypotheses = computed(() => payload.value?.hypotheses || {});
 const filteredEvaluationRows = computed(() =>
   evaluationRows.value.filter((row) =>
     evaluationTrackerFilter.value === "all" || row.tracker_id === evaluationTrackerFilter.value,
@@ -301,6 +306,10 @@ const knowledgeReviewRows = computed(() =>
 function setTab(id) {
   activeTab.value = id;
   router.replace({ query: { ...route.query, tab: id } });
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 async function loadDashboard() {
@@ -542,6 +551,34 @@ async function saveRunReview(row) {
   );
 }
 
+async function createLiveHypotheses(vintageDate) {
+  await runAction("Creating live hypotheses", () =>
+    api.stockResearch.createHypotheses({ vintageDate }),
+  );
+}
+
+async function createDebugBackfill(vintageDate) {
+  await runAction("Creating debug backfill", () =>
+    api.stockResearch.createHypotheses({
+      vintageDate,
+      allowDebugBackfill: true,
+    }),
+  );
+}
+
+async function evaluateHypothesisVintage(vintageDate) {
+  if (!vintageDate) return;
+  await runAction("Evaluating hypotheses", () =>
+    api.stockResearch.evaluateHypotheses(vintageDate),
+  );
+}
+
+async function calibrateHypotheses() {
+  await runAction("Calibrating hypotheses", () =>
+    api.stockResearch.calibrateHypotheses(),
+  );
+}
+
 function fmtConfidence(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "n/a";
@@ -674,6 +711,7 @@ onMounted(loadDashboard);
       <StockRunsPanel
         v-else-if="activeTab === 'runs'"
         :runs="runs"
+        :run-ledger="runLedgerRows"
         :selected-run="selectedRun"
         :selected-run-diff="selectedRunDiff"
         :busy="busy"
@@ -759,6 +797,17 @@ onMounted(loadDashboard);
         @set-run-review-notes="setRunReviewNotes"
         @save-run-review="saveRunReview"
         @review-knowledge-update="reviewKnowledgeUpdate"
+      />
+
+      <StockHypothesesPanel
+        v-else-if="activeTab === 'hypotheses'"
+        :hypotheses="hypotheses"
+        :busy="busy"
+        :default-vintage-date="todayIsoDate()"
+        @create-live="createLiveHypotheses"
+        @create-debug-backfill="createDebugBackfill"
+        @evaluate-vintage="evaluateHypothesisVintage"
+        @calibrate="calibrateHypotheses"
       />
     </main>
   </div>

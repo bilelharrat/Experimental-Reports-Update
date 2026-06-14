@@ -1,8 +1,10 @@
 <script setup>
 import { Check, FileText, GitBranch, Layers, RefreshCw, Square, X } from "lucide-vue-next";
+import RunLedgerTable from "../RunLedgerTable.vue";
 
 defineProps({
   runs: { type: Array, default: () => [] },
+  runLedger: { type: Array, default: () => [] },
   selectedRun: { type: Object, default: null },
   selectedRunDiff: { type: Array, default: () => [] },
   busy: { type: Boolean, default: false },
@@ -172,6 +174,12 @@ function canRetryRun(run) {
         </tbody>
       </table>
     </div>
+    <RunLedgerTable
+      :rows="runLedger"
+      title="Normalized Run Ledger"
+      description="Cross-workspace shape for tracker jobs, aggregate jobs, strategy jobs, and future Memo Tools rows."
+      empty-text="No normalized Stock Research run rows yet."
+    />
     <div v-if="selectedRun" class="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
       <section class="rounded-lg border border-subtle bg-surface">
         <div class="border-b border-subtle px-4 py-3">

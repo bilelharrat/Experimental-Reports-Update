@@ -92,6 +92,23 @@ def test_upsert_existing_company_refreshes_type(tmp_storage):
     assert second["company_type"] == "public"
 
 
+def test_update_company_refreshes_type_when_market_fields_change(tmp_storage):
+    company = storage.upsert_company_from_match({
+        "name": "Future Public Co",
+        "status": "private",
+    })
+    assert company["company_type"] == "private"
+
+    updated = storage.update_company(
+        company["id"],
+        ticker="FPC",
+        status="public",
+    )
+
+    assert updated["company_type"] == "public"
+    assert storage.get_company(company["id"])["company_type"] == "public"
+
+
 # ---- backfill -----------------------------------------------------------
 
 

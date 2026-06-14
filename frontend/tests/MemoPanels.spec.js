@@ -3,14 +3,70 @@ import { mount } from "@vue/test-utils";
 import MemoBenchmarkPanel from "../src/components/memo/MemoBenchmarkPanel.vue";
 import MemoChartPlansPanel from "../src/components/memo/MemoChartPlansPanel.vue";
 import MemoEvidenceMatrixPanel from "../src/components/memo/MemoEvidenceMatrixPanel.vue";
+import MemoGeneratedMemoControlsPanel from "../src/components/memo/MemoGeneratedMemoControlsPanel.vue";
 import MemoNarrativeHooksPanel from "../src/components/memo/MemoNarrativeHooksPanel.vue";
 import MemoReadinessPanel from "../src/components/memo/MemoReadinessPanel.vue";
 import MemoResearchTasksPanel from "../src/components/memo/MemoResearchTasksPanel.vue";
 import MemoRiskPriorityPanel from "../src/components/memo/MemoRiskPriorityPanel.vue";
 import MemoSourceBriefPanel from "../src/components/memo/MemoSourceBriefPanel.vue";
 import MemoToolLauncherPanel from "../src/components/memo/MemoToolLauncherPanel.vue";
+import RunLedgerTable from "../src/components/RunLedgerTable.vue";
 
 describe("Memo panel components", () => {
+  it("renders generated memo controls and emits approval actions", async () => {
+    const wrapper = mount(MemoGeneratedMemoControlsPanel, {
+      props: {
+        session: { id: "session-1", status: "draft" },
+        approved: false,
+        approving: false,
+        loading: false,
+        readyForApproval: true,
+        canGenerateMemo: true,
+        approvalTitle: "Approve analysis",
+      },
+    });
+
+    expect(wrapper.text()).toContain("Memo Studio");
+    expect(wrapper.text()).toContain("session-1");
+    await wrapper.findAll("button").find((button) => button.text() === "Approve analysis").trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "Generate memo").trigger("click");
+
+    expect(wrapper.emitted("approve")).toHaveLength(1);
+    expect(wrapper.emitted("generate-memo")).toHaveLength(1);
+  });
+
+  it("renders normalized run ledger rows", () => {
+    const wrapper = mount(RunLedgerTable, {
+      props: {
+        rows: [
+          {
+            ledger_id: "memo_tools:generalist:session-1:research_task:task-1",
+            workspace: "memo_tools",
+            job_kind: "research_task",
+            artifact_id: "research_task:task-1",
+            company_id: "generalist",
+            session_id: "session-1",
+            run_id: "session-1/task-1",
+            status: "done",
+            updated_at: "2026-06-14T12:00:00Z",
+            duration_ms: 1234,
+            source_count: 2,
+            evidence_coverage: 0.5,
+            estimated_cost_usd: 0.012,
+          },
+        ],
+        title: "Memo Run Ledger",
+      },
+    });
+
+    expect(wrapper.text()).toContain("Memo Run Ledger");
+    expect(wrapper.text()).toContain("research task");
+    expect(wrapper.text()).toContain("memo tools");
+    expect(wrapper.text()).toContain("2 sources");
+    expect(wrapper.text()).toContain("coverage 50%");
+    expect(wrapper.text()).toContain("$0.01");
+  });
+
   it("renders readiness blockers and emits readiness review actions", async () => {
     const area = {
       id: "gap-1",

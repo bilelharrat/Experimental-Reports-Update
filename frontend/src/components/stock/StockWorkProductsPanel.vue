@@ -34,6 +34,14 @@ function fmtConfidence(value) {
   if (Number.isFinite(number)) return `${Math.round(number * 100)}%`;
   return String(value);
 }
+
+function fmtBytes(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "0 B";
+  if (number < 1024) return `${number} B`;
+  if (number < 1024 * 1024) return `${Math.round(number / 1024)} KB`;
+  return `${(number / (1024 * 1024)).toFixed(1)} MB`;
+}
 </script>
 
 <template>
@@ -107,8 +115,17 @@ function fmtConfidence(value) {
             <td class="px-3 py-2">{{ product.status }}</td>
             <td class="px-3 py-2">
               <div>v{{ product.version || 1 }}</div>
+              <div v-if="product.version_count" class="text-xs text-ink-muted">
+                {{ product.version_count }} immutable version{{ product.version_count === 1 ? "" : "s" }}
+              </div>
+              <div v-if="product.version_id" class="max-w-52 truncate font-mono text-xs text-ink-muted">
+                {{ product.version_id }}
+              </div>
               <div class="text-xs text-ink-muted">
                 {{ product.reviewer || "unassigned" }}
+              </div>
+              <div v-if="product.latest_review_action" class="text-xs text-ink-muted">
+                latest review: {{ product.latest_review_action.action }}
               </div>
               <div v-if="product.version_history?.length" class="text-xs text-ink-muted">
                 {{ product.version_history.length }} history events
@@ -124,7 +141,17 @@ function fmtConfidence(value) {
               {{ product.source_trace_count || 0 }} traces · {{ fmtConfidence(product.confidence) }}
             </td>
             <td class="px-3 py-2">
-              <div v-if="product.export_paths" class="flex flex-wrap gap-1">
+              <div v-if="product.generated_files?.length" class="flex flex-wrap gap-1">
+                <span
+                  v-for="file in product.generated_files"
+                  :key="`${product.artifact_id}:generated:${file.kind}:${file.path}`"
+                  class="rounded bg-surface-muted px-2 py-1 text-xs text-ink-secondary"
+                  :title="file.sha256 ? `${file.path} · ${file.sha256}` : file.path"
+                >
+                  {{ file.kind }} · {{ fmtBytes(file.bytes) }}
+                </span>
+              </div>
+              <div v-else-if="product.export_paths" class="flex flex-wrap gap-1">
                 <span
                   v-for="(_, name) in product.export_paths"
                   :key="`${product.artifact_id}:${name}`"

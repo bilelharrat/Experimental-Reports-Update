@@ -22,13 +22,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import claude_runner, deck_summary, job_progress, storage
+from . import claude_runner, deck_summary, job_progress, run_ledger, storage
 
 SCHEMA_VERSION = 1
 TRACKER_OUTPUT_SCHEMA_VERSION = 1
 WEEKLY_AGGREGATE_SCHEMA_VERSION = 1
 STRATEGY_MAP_SCHEMA_VERSION = 1
 WORK_PRODUCT_SCHEMA_VERSION = 1
+WORK_PRODUCT_VERSION_SCHEMA_VERSION = 1
 RUN_LEDGER_SCHEMA_VERSION = 1
 
 TRACKER_TYPES = ("macro", "industry", "company")
@@ -192,6 +193,8 @@ WORK_PRODUCT_METADATA_SCHEMA: dict[str, Any] = {
         "title": {"type": "string"},
         "status": {"enum": list(WORK_PRODUCT_STATUSES)},
         "version": {"type": "integer"},
+        "version_id": {"type": "string"},
+        "supersedes_version_id": {"type": ["string", "null"]},
         "created_at": {"type": "string"},
         "updated_at": {"type": "string"},
         "generated_by": {"type": "string"},
@@ -205,6 +208,11 @@ WORK_PRODUCT_METADATA_SCHEMA: dict[str, Any] = {
         "pinned": {"type": "boolean"},
         "archived": {"type": "boolean"},
         "export_paths": {"type": "object"},
+        "generated_files": {"type": "array"},
+        "version_count": {"type": "integer"},
+        "latest_review_action": {"type": ["object", "null"]},
+        "review_log": {"type": "array"},
+        "action_log": {"type": "array"},
         "notes": {"type": "string"},
     },
 }
@@ -216,17 +224,48 @@ SOURCE_CHUNK_TEXT_LIMIT = 2_000
 SOURCE_OCR_MIN_TEXT_CHARS = 200
 
 SOURCE_PRIORITY_SCORES = {
+    "sec_filing": 1.0,
     "official": 1.0,
     "company_disclosure": 1.0,
+    "company_press_release": 0.96,
+    "earnings_call_transcript": 0.95,
     "transcript": 0.95,
+    "investor_presentation": 0.92,
     "primary_data": 0.92,
+    "primary_dataset": 0.92,
+    "regulatory_filing": 0.9,
+    "broker_note": 0.78,
     "sell_side": 0.78,
     "vertical_media": 0.7,
     "reputable_media": 0.66,
     "financial_media": 0.62,
     "user_provided": 0.58,
+    "analyst_note": 0.52,
     "note": 0.45,
+    "weak_media": 0.34,
+    "unsourced_note": 0.25,
     "unknown": 0.35,
+}
+
+PRIMARY_SOURCE_PRIORITIES = {
+    "sec_filing",
+    "official",
+    "company_disclosure",
+    "company_press_release",
+    "earnings_call_transcript",
+    "transcript",
+    "investor_presentation",
+    "primary_data",
+    "primary_dataset",
+    "regulatory_filing",
+}
+
+WEAK_SOURCE_PRIORITIES = {
+    "analyst_note",
+    "note",
+    "weak_media",
+    "unsourced_note",
+    "unknown",
 }
 
 _LOCK = threading.RLock()
@@ -306,6 +345,14 @@ def strategy_maps_root() -> Path:
 
 def catalog_path() -> Path:
     return _root() / "work_products.json"
+
+
+def work_product_versions_path() -> Path:
+    return _root() / "work_product_versions.json"
+
+
+def work_product_version_files_root() -> Path:
+    return _root() / "work_product_version_files"
 
 
 def run_ledger_path() -> Path:
@@ -1949,6 +1996,10 @@ def _source_quality_summary(sources: list[dict]) -> dict:
     }
 
 
+def _source_priority_label(priority: str) -> str:
+    return priority.replace("_", " ") if priority else "unknown"
+
+
 def _source_lookup_for_tracker(tracker_id: str | None) -> dict[str, dict]:
     if not tracker_id:
         return {}
@@ -1959,20 +2010,80 @@ def _source_lookup_for_tracker(tracker_id: str | None) -> dict[str, dict]:
     }
 
 
-def _signal_source_quality(signal: dict) -> float:
+def _signal_source_quality_details(signal: dict) -> dict:
     traces = _as_list(signal.get("source_traces"))
     if not traces:
-        return 0.0
+        return {
+            "source_priority": "missing",
+            "source_quality_score": 0.0,
+            "source_quality_reason": "No source traces; ranking is heavily penalized.",
+            "primary_source_count": 0,
+            "weak_source_count": 1,
+        }
     source_lookup = _source_lookup_for_tracker(signal.get("source_tracker_id") or signal.get("tracker_id"))
-    scores = []
+    scores: list[float] = []
+    priorities: list[str] = []
+    primary_count = 0
+    weak_count = 0
     for trace in traces:
         source = source_lookup.get(_as_str((trace or {}).get("source_id")))
         if source is not None:
-            scores.append(source_quality_score(source))
+            priority = _as_str(source.get("priority"), "unknown")
+            source_type = _as_str(source.get("source_type"))
+            score = source_quality_score(source)
+            scores.append(score)
+            priorities.append(priority)
+            if priority in PRIMARY_SOURCE_PRIORITIES:
+                primary_count += 1
+            if priority in WEAK_SOURCE_PRIORITIES or (
+                source_type == "note" and priority not in PRIMARY_SOURCE_PRIORITIES
+            ):
+                weak_count += 1
             continue
         confidence = _as_float((trace or {}).get("confidence"), None)
-        scores.append(max(0.0, min(1.0, confidence)) if confidence is not None else SOURCE_PRIORITY_SCORES["unknown"])
-    return round(sum(scores) / len(scores), 3)
+        fallback_score = (
+            max(0.0, min(1.0, confidence))
+            if confidence is not None
+            else SOURCE_PRIORITY_SCORES["unknown"]
+        )
+        scores.append(min(fallback_score, SOURCE_PRIORITY_SCORES["unknown"]))
+        priorities.append("unknown")
+        weak_count += 1
+    score = round(sum(scores) / len(scores), 3) if scores else 0.0
+    if primary_count == 0 and weak_count >= len(scores):
+        score = round(max(0.0, score - 0.12), 3)
+    best_priority = (
+        max(priorities, key=lambda priority: SOURCE_PRIORITY_SCORES.get(priority, 0.0))
+        if priorities
+        else "unknown"
+    )
+    if primary_count:
+        reason = (
+            f"{primary_count} primary source"
+            f"{'' if primary_count == 1 else 's'}; best source is "
+            f"{_source_priority_label(best_priority)}."
+        )
+    elif weak_count >= len(scores):
+        reason = (
+            f"Only weak or note-based sources; best source is "
+            f"{_source_priority_label(best_priority)}."
+        )
+    else:
+        reason = f"Mixed secondary sources; best source is {_source_priority_label(best_priority)}."
+    return {
+        "source_priority": best_priority,
+        "source_quality_score": score,
+        "source_quality_reason": reason,
+        "primary_source_count": primary_count,
+        "weak_source_count": weak_count,
+    }
+
+
+def _signal_source_quality(signal: dict) -> float:
+    return _as_float(
+        _signal_source_quality_details(signal).get("source_quality_score"),
+        0.0,
+    ) or 0.0
 
 
 def _signal_rank_score(signal: dict) -> float:
@@ -1983,46 +2094,29 @@ def _signal_rank_score(signal: dict) -> float:
 
 
 def _normalize_run_ledger_entry(item: dict) -> dict:
-    now = _now()
     job_kind = _as_str(item.get("job_kind"), "stock_tracker")
     run_id = _as_str(item.get("run_id") or item.get("job_id"), "")
     period_id = item.get("period_id")
     tracker_id = item.get("tracker_id")
     ledger_id = _as_str(
         item.get("ledger_id"),
-        ":".join(part for part in [job_kind, _as_str(tracker_id), _as_str(period_id), run_id] if part),
+        ":".join(
+            part
+            for part in [job_kind, _as_str(tracker_id), _as_str(period_id), run_id]
+            if part
+        ),
     )
-    if not ledger_id:
-        raise ValueError("Run ledger entry missing id")
-    return {
-        "schema_version": RUN_LEDGER_SCHEMA_VERSION,
-        "ledger_id": ledger_id,
-        "job_kind": job_kind,
-        "artifact_id": item.get("artifact_id"),
-        "tracker_id": tracker_id,
-        "run_id": run_id,
-        "period_id": period_id,
-        "period_start": item.get("period_start"),
-        "period_end": item.get("period_end"),
-        "status": _as_str(item.get("status"), "unknown"),
-        "created_at": item.get("created_at") or now,
-        "updated_at": item.get("updated_at") or now,
-        "duration_ms": item.get("duration_ms"),
-        "token_usage": item.get("token_usage") if isinstance(item.get("token_usage"), dict) else {},
-        "estimated_cost_usd": _as_float(item.get("estimated_cost_usd"), 0.0) or 0.0,
-        "source_count": max(0, _as_int(item.get("source_count"), 0)),
-        "source_priority_mix": item.get("source_priority_mix") if isinstance(item.get("source_priority_mix"), dict) else {},
-        "source_quality": item.get("source_quality") if isinstance(item.get("source_quality"), dict) else {},
-        "evidence_coverage": _as_float(item.get("evidence_coverage"), 0.0) or 0.0,
-        "contradiction_count": max(0, _as_int(item.get("contradiction_count"), 0)),
-        "missing_source_count": max(0, _as_int(item.get("missing_source_count"), 0)),
-        "reviewer_score": _as_float(item.get("reviewer_score"), None),
-        "reviewer_scores": item.get("reviewer_scores") if isinstance(item.get("reviewer_scores"), dict) else {},
-        "failure_reason": _as_str(item.get("failure_reason") or item.get("error")),
-        "fallback_used": bool(item.get("fallback_used")),
-        "preserved_previous_artifact": item.get("preserved_previous_artifact") or item.get("preserved_previous_run_id"),
-        "cancellation_reason": _as_str(item.get("cancellation_reason")),
-    }
+    return run_ledger.normalize_run_ledger_entry(
+        {
+            **item,
+            "workspace": "stock_research",
+            "job_kind": job_kind,
+            "run_id": run_id,
+            "tracker_id": tracker_id,
+            "period_id": period_id,
+            "ledger_id": ledger_id,
+        }
+    )
 
 
 def _upsert_run_ledger_entry(item: dict) -> dict:
@@ -2829,7 +2923,7 @@ def build_weekly_aggregate(period_id: str | None = None) -> dict:
             row.setdefault("timestamp", output.get("generated_at"))
             row.setdefault("confidence", output.get("confidence"))
             row["source_traces"] = row.get("source_traces") or output.get("source_traces") or []
-            row["source_quality_score"] = _signal_source_quality(row)
+            row.update(_signal_source_quality_details(row))
             row["rank_score"] = _signal_rank_score(row)
             signals.append(row)
             claim_key = _slug(row.get("observation", "claim"))
@@ -3636,6 +3730,262 @@ def latest_strategy_map() -> dict | None:
     return maps[0] if maps else None
 
 
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=_json_default)
+
+
+def _generated_file_record(kind: str, path_value: Any, *, created_at: str) -> dict:
+    path = Path(_as_str(path_value))
+    record = {
+        "kind": _as_str(kind, "artifact"),
+        "path": str(path),
+        "sha256": "",
+        "bytes": 0,
+        "created_at": created_at,
+    }
+    try:
+        data = path.read_bytes()
+    except Exception:
+        return record
+    record["sha256"] = hashlib.sha256(data).hexdigest()
+    record["bytes"] = len(data)
+    return record
+
+
+def _generated_files_from_exports(export_paths: dict, *, created_at: str) -> list[dict]:
+    files = []
+    for kind, path_value in sorted((export_paths or {}).items(), key=lambda row: str(row[0])):
+        if path_value:
+            files.append(_generated_file_record(str(kind), path_value, created_at=created_at))
+    return files
+
+
+def _work_product_fingerprint(product: dict) -> str:
+    payload = {
+        "generated_files": [
+            {
+                "kind": item.get("kind"),
+                "path": item.get("path"),
+                "sha256": item.get("sha256"),
+                "bytes": item.get("bytes"),
+            }
+            for item in _as_list(product.get("generated_files"))
+            if isinstance(item, dict)
+        ],
+        "source_refs": product.get("source_refs") or [],
+    }
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _make_work_product_version_id(artifact_id: str, version: int, fingerprint: str) -> str:
+    digest = (fingerprint or hashlib.sha256(artifact_id.encode("utf-8")).hexdigest())[:12]
+    return f"{artifact_id}:v{version}:{digest}"
+
+
+def _work_product_action_event(
+    product: dict,
+    *,
+    action: str,
+    changed_fields: list[str] | None = None,
+) -> dict:
+    return {
+        "event_id": f"wpa-{uuid.uuid4().hex[:10]}",
+        "action": action,
+        "version_id": product.get("version_id"),
+        "version": product.get("version") or 1,
+        "status": product.get("status"),
+        "review_state": product.get("review_state"),
+        "reviewer": product.get("reviewer"),
+        "updated_at": product.get("updated_at") or _now(),
+        "changed_fields": changed_fields or [],
+    }
+
+
+def _work_product_review_event(
+    product: dict,
+    *,
+    previous: dict,
+    changed_fields: list[str],
+) -> dict | None:
+    review_fields = {
+        "status",
+        "review_state",
+        "reviewer",
+        "notes",
+    }
+    if not review_fields.intersection(changed_fields):
+        return None
+    action = "review_updated"
+    if product.get("status") == "approved" or product.get("review_state") == "resolved":
+        action = "approved"
+    elif product.get("status") == "archived":
+        action = "archived"
+    elif product.get("status") == "superseded":
+        action = "superseded"
+    return {
+        "event_id": f"wpr-{uuid.uuid4().hex[:10]}",
+        "action": action,
+        "version_id": product.get("version_id"),
+        "version": product.get("version") or 1,
+        "previous_status": previous.get("status"),
+        "status": product.get("status"),
+        "previous_review_state": previous.get("review_state"),
+        "review_state": product.get("review_state"),
+        "reviewer": product.get("reviewer"),
+        "updated_at": product.get("updated_at") or _now(),
+        "changed_fields": changed_fields,
+    }
+
+
+def _version_records_raw() -> list[dict]:
+    data = _read_json(work_product_versions_path(), {"versions": []})
+    rows = data.get("versions") if isinstance(data, dict) else []
+    return [row for row in _as_list(rows) if isinstance(row, dict)]
+
+
+def _write_version_records(rows: list[dict]) -> None:
+    rows.sort(
+        key=lambda row: (
+            str(row.get("artifact_id", "")),
+            _as_int(row.get("version"), 0),
+            str(row.get("created_at", "")),
+        )
+    )
+    _write_json(
+        work_product_versions_path(),
+        {
+            "schema_version": WORK_PRODUCT_VERSION_SCHEMA_VERSION,
+            "versions": rows,
+        },
+    )
+
+
+def _normalize_work_product_version(item: dict) -> dict:
+    artifact_id = _as_str(item.get("artifact_id"))
+    version = max(1, _as_int(item.get("version"), 1))
+    fingerprint = _as_str(item.get("fingerprint"))
+    version_id = _as_str(item.get("version_id")) or _make_work_product_version_id(
+        artifact_id,
+        version,
+        fingerprint,
+    )
+    return {
+        "schema_version": WORK_PRODUCT_VERSION_SCHEMA_VERSION,
+        "artifact_id": artifact_id,
+        "version_id": version_id,
+        "version": version,
+        "artifact_type": _as_str(item.get("artifact_type"), "artifact"),
+        "title": _as_str(item.get("title"), artifact_id),
+        "created_at": item.get("created_at") or item.get("updated_at") or _now(),
+        "updated_at": item.get("updated_at") or item.get("created_at") or _now(),
+        "generated_by": _as_str(item.get("generated_by"), "stock_research"),
+        "supersedes_version_id": item.get("supersedes_version_id"),
+        "supersedes": item.get("supersedes"),
+        "superseded_by": item.get("superseded_by"),
+        "source_refs": _as_list(item.get("source_refs")),
+        "source_trace_count": max(0, _as_int(item.get("source_trace_count"), 0)),
+        "confidence": _as_float(item.get("confidence"), None),
+        "export_paths": item.get("export_paths") if isinstance(item.get("export_paths"), dict) else {},
+        "generated_files": [
+            row
+            for row in _as_list(item.get("generated_files"))
+            if isinstance(row, dict)
+        ],
+        "fingerprint": fingerprint,
+        "review_log": [
+            row for row in _as_list(item.get("review_log")) if isinstance(row, dict)
+        ],
+        "action_log": [
+            row for row in _as_list(item.get("action_log")) if isinstance(row, dict)
+        ],
+    }
+
+
+def list_work_product_versions(artifact_id: str | None = None) -> list[dict]:
+    rows = [
+        _normalize_work_product_version(row)
+        for row in _version_records_raw()
+        if not artifact_id or row.get("artifact_id") == artifact_id
+    ]
+    rows.sort(key=lambda row: (_as_int(row.get("version"), 0), str(row.get("created_at", ""))))
+    return rows
+
+
+def work_product_version_chain(artifact_id: str) -> list[dict]:
+    rows = list_work_product_versions(artifact_id)
+    if not rows:
+        return []
+    by_id = {row.get("version_id"): row for row in rows if row.get("version_id")}
+    current = rows[-1]
+    chain: list[dict] = []
+    seen: set[str] = set()
+    while current and current.get("version_id") not in seen:
+        chain.append(current)
+        seen.add(current.get("version_id"))
+        current = by_id.get(current.get("supersedes_version_id"))
+    return chain
+
+
+def _latest_work_product_version(artifact_id: str) -> dict | None:
+    rows = list_work_product_versions(artifact_id)
+    return rows[-1] if rows else None
+
+
+def _snapshot_version_generated_files(product: dict, files: list[dict]) -> list[dict]:
+    version_id = _as_str(product.get("version_id"))
+    artifact_id = _as_str(product.get("artifact_id"))
+    if not version_id or not artifact_id:
+        return files
+    target_dir = (
+        work_product_version_files_root()
+        / _slug(artifact_id, fallback="artifact")
+        / _slug(version_id, fallback="version")
+    )
+    snapshots = []
+    for file in files:
+        if not isinstance(file, dict):
+            continue
+        source = Path(_as_str(file.get("path")))
+        kind = _as_str(file.get("kind"), "artifact")
+        if not source.exists():
+            snapshots.append(file)
+            continue
+        suffix = source.suffix or ".artifact"
+        target = target_dir / f"{_slug(kind, fallback='artifact')}{suffix}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        snapshots.append(
+            _generated_file_record(
+                kind,
+                target,
+                created_at=file.get("created_at") or product.get("updated_at") or _now(),
+            )
+        )
+    return snapshots
+
+
+def _work_product_version_record(product: dict, *, action: str) -> dict:
+    fingerprint = product.get("version_fingerprint") or _work_product_fingerprint(product)
+    record = _normalize_work_product_version(
+        {
+            **product,
+            "created_at": product.get("updated_at") or product.get("created_at"),
+            "updated_at": product.get("updated_at") or product.get("created_at"),
+            "fingerprint": fingerprint,
+            "review_log": [],
+            "action_log": [
+                _work_product_action_event(product, action=action, changed_fields=["generated_files", "source_refs"])
+            ],
+        }
+    )
+    record["fingerprint"] = fingerprint
+    record["generated_files"] = _snapshot_version_generated_files(
+        record,
+        record.get("generated_files") or [],
+    )
+    return record
+
+
 def _normalize_work_product(item: dict) -> dict:
     now = _now()
     artifact_id = _as_str(item.get("artifact_id"))
@@ -3646,6 +3996,17 @@ def _normalize_work_product(item: dict) -> dict:
         for row in _as_list(item.get("version_history"))
         if isinstance(row, dict)
     ]
+    review_log = [
+        row for row in _as_list(item.get("review_log")) if isinstance(row, dict)
+    ]
+    action_log = [
+        row for row in _as_list(item.get("action_log")) if isinstance(row, dict)
+    ]
+    generated_files = [
+        row
+        for row in _as_list(item.get("generated_files"))
+        if isinstance(row, dict)
+    ]
     return {
         "schema_version": WORK_PRODUCT_SCHEMA_VERSION,
         "artifact_id": artifact_id,
@@ -3653,6 +4014,8 @@ def _normalize_work_product(item: dict) -> dict:
         "title": _as_str(item.get("title"), artifact_id),
         "status": _normalize_work_product_status(item.get("status")),
         "version": max(1, _as_int(item.get("version"), 1)),
+        "version_id": _as_str(item.get("version_id")),
+        "supersedes_version_id": item.get("supersedes_version_id"),
         "created_at": item.get("created_at") or now,
         "updated_at": item.get("updated_at") or now,
         "generated_by": _as_str(item.get("generated_by"), "stock_research"),
@@ -3666,7 +4029,22 @@ def _normalize_work_product(item: dict) -> dict:
         "pinned": bool(item.get("pinned")),
         "archived": bool(item.get("archived")),
         "export_paths": item.get("export_paths") if isinstance(item.get("export_paths"), dict) else {},
+        "generated_files": generated_files,
+        "version_count": max(1, _as_int(item.get("version_count"), _as_int(item.get("version"), 1))),
         "version_history": history,
+        "review_log": review_log,
+        "action_log": action_log,
+        "latest_review_action": (
+            item.get("latest_review_action")
+            if isinstance(item.get("latest_review_action"), dict)
+            else (review_log[-1] if review_log else None)
+        ),
+        "latest_action": (
+            item.get("latest_action")
+            if isinstance(item.get("latest_action"), dict)
+            else (action_log[-1] if action_log else None)
+        ),
+        "version_fingerprint": _as_str(item.get("version_fingerprint")),
         "notes": _as_str(item.get("notes")),
         **{
             key: value
@@ -3694,6 +4072,8 @@ def _work_product_history_event(
     if previous:
         for key in (
             "version",
+            "version_id",
+            "supersedes_version_id",
             "status",
             "review_state",
             "reviewer",
@@ -3702,6 +4082,7 @@ def _work_product_history_event(
             "supersedes",
             "superseded_by",
             "export_paths",
+            "generated_files",
         ):
             if previous.get(key) != product.get(key):
                 changed_fields.append(key)
@@ -3746,18 +4127,106 @@ def _append_work_product_history(
     return product
 
 
+def _enrich_work_product_with_versions(product: dict, versions: list[dict]) -> dict:
+    rows = [
+        row for row in versions if row.get("artifact_id") == product.get("artifact_id")
+    ]
+    if not rows:
+        return product
+    latest = rows[-1]
+    product["version"] = latest.get("version") or product.get("version") or 1
+    product["version_id"] = latest.get("version_id")
+    product["supersedes_version_id"] = latest.get("supersedes_version_id")
+    product["generated_files"] = latest.get("generated_files") or product.get("generated_files") or []
+    product["version_fingerprint"] = latest.get("fingerprint") or product.get("version_fingerprint") or ""
+    product["version_count"] = len(rows)
+    return product
+
+
 def register_work_product(item: dict) -> dict:
     product = _normalize_work_product(item)
     with _LOCK:
+        product["generated_files"] = _generated_files_from_exports(
+            product.get("export_paths") or {},
+            created_at=product.get("updated_at") or _now(),
+        )
+        product["version_fingerprint"] = _work_product_fingerprint(product)
         catalog = list_work_products(include_archived=True)
+        version_records = list_work_product_versions()
         replaced = False
         for index, existing in enumerate(catalog):
             if existing.get("artifact_id") == product["artifact_id"]:
                 product["pinned"] = bool(existing.get("pinned")) if "pinned" not in item else product["pinned"]
                 product["archived"] = bool(existing.get("archived")) if "archived" not in item else product["archived"]
+                latest_version = _latest_work_product_version(product["artifact_id"])
+                content_changed = (
+                    latest_version is None
+                    or latest_version.get("fingerprint") != product["version_fingerprint"]
+                )
+                if content_changed:
+                    product["version"] = max(
+                        _as_int(existing.get("version"), 1) + 1,
+                        _as_int(product.get("version"), 1),
+                    )
+                    product["supersedes_version_id"] = existing.get("version_id") or (
+                        latest_version or {}
+                    ).get("version_id")
+                    product["version_id"] = _make_work_product_version_id(
+                        product["artifact_id"],
+                        product["version"],
+                        product["version_fingerprint"],
+                    )
+                    product["review_log"] = []
+                    product["action_log"] = [
+                        *[
+                            row
+                            for row in _as_list(existing.get("action_log"))
+                            if isinstance(row, dict)
+                        ],
+                        _work_product_action_event(
+                            product,
+                            action="versioned",
+                            changed_fields=["generated_files", "source_refs"],
+                        ),
+                    ]
+                    product["latest_review_action"] = None
+                    product["version_count"] = max(
+                        _as_int(existing.get("version_count"), 1) + 1,
+                        len(
+                            [
+                                row
+                                for row in version_records
+                                if row.get("artifact_id") == product["artifact_id"]
+                            ]
+                        )
+                        + 1,
+                    )
+                    version_record = _work_product_version_record(product, action="versioned")
+                    product["generated_files"] = version_record.get("generated_files") or product["generated_files"]
+                    version_records.append(version_record)
+                    history_action = "versioned"
+                else:
+                    for key in (
+                        "version",
+                        "version_id",
+                        "supersedes_version_id",
+                        "version_count",
+                        "version_fingerprint",
+                        "status",
+                        "review_state",
+                        "reviewer",
+                        "notes",
+                        "review_log",
+                        "action_log",
+                        "latest_review_action",
+                    ):
+                        product[key] = existing.get(key)
+                    product["generated_files"] = existing.get("generated_files") or product.get("generated_files") or []
+                    product["updated_at"] = existing.get("updated_at") or product["updated_at"]
+                    history_action = "registered"
                 product = _append_work_product_history(
                     product,
-                    action="registered",
+                    action=history_action,
                     previous=existing,
                     patch=item,
                 )
@@ -3765,8 +4234,25 @@ def register_work_product(item: dict) -> dict:
                 replaced = True
                 break
         if not replaced:
+            product["version"] = max(1, _as_int(product.get("version"), 1))
+            product["supersedes_version_id"] = None
+            product["version_id"] = _make_work_product_version_id(
+                product["artifact_id"],
+                product["version"],
+                product["version_fingerprint"],
+            )
+            product["version_count"] = 1
+            product["review_log"] = []
+            product["action_log"] = [
+                _work_product_action_event(product, action="created", changed_fields=sorted(str(key) for key in item.keys()))
+            ]
+            product["latest_review_action"] = None
+            version_record = _work_product_version_record(product, action="created")
+            product["generated_files"] = version_record.get("generated_files") or product["generated_files"]
+            version_records.append(version_record)
             product = _append_work_product_history(product, action="created", patch=item)
             catalog.append(product)
+        _write_version_records(version_records)
         catalog.sort(key=lambda row: (not row.get("pinned"), str(row.get("updated_at", ""))), reverse=False)
         _write_json(catalog_path(), {"work_products": catalog})
     return product
@@ -3779,8 +4265,9 @@ def list_work_products(
     status: str | None = None,
 ) -> list[dict]:
     data = _read_json(catalog_path(), {"work_products": []})
+    versions = list_work_product_versions()
     rows = [
-        _normalize_work_product(item)
+        _enrich_work_product_with_versions(_normalize_work_product(item), versions)
         for item in _as_list(data.get("work_products") if isinstance(data, dict) else [])
         if isinstance(item, dict)
     ]
@@ -3807,12 +4294,61 @@ def update_work_product(artifact_id: str, patch: dict) -> dict:
                         "updated_at": _now(),
                     }
                 )
+                changed_fields = [
+                    key
+                    for key in (
+                        "version",
+                        "version_id",
+                        "supersedes_version_id",
+                        "status",
+                        "review_state",
+                        "reviewer",
+                        "pinned",
+                        "archived",
+                        "supersedes",
+                        "superseded_by",
+                        "export_paths",
+                        "generated_files",
+                        "notes",
+                    )
+                    if row.get(key) != updated.get(key)
+                ]
                 updated = _append_work_product_history(
                     updated,
                     action="updated",
                     previous=row,
                     patch=patch or {},
                 )
+                action_log = [
+                    item
+                    for item in _as_list(row.get("action_log"))
+                    if isinstance(item, dict)
+                ]
+                action_log.append(
+                    _work_product_action_event(
+                        updated,
+                        action="updated",
+                        changed_fields=changed_fields,
+                    )
+                )
+                updated["action_log"] = action_log
+                review_log = [
+                    item
+                    for item in _as_list(row.get("review_log"))
+                    if isinstance(item, dict)
+                ]
+                review_event = _work_product_review_event(
+                    updated,
+                    previous=row,
+                    changed_fields=changed_fields,
+                )
+                if review_event:
+                    review_log.append(review_event)
+                    updated["latest_review_action"] = review_event
+                else:
+                    updated["latest_review_action"] = row.get("latest_review_action")
+                updated["review_log"] = review_log
+                updated["latest_action"] = action_log[-1] if action_log else None
                 rows[index] = updated
                 _write_json(catalog_path(), {"work_products": rows})
                 return updated
@@ -4061,18 +4597,136 @@ def _doctor_issue(
     )
 
 
+def _product_backing_paths(product: dict) -> list[Path]:
+    paths: list[Path] = []
+    tracker_id = product.get("tracker_id")
+    run_id = product.get("run_id")
+    period_id = product.get("period_id")
+    artifact_type = product.get("artifact_type")
+    if tracker_id and run_id:
+        paths.extend(
+            [
+                tracker_run_metadata_path(tracker_id, run_id),
+                tracker_run_output_path(tracker_id, run_id),
+                tracker_run_report_path(tracker_id, run_id),
+            ]
+        )
+    if artifact_type == "weekly_aggregate" and period_id:
+        paths.append(aggregate_json_path(period_id))
+    if artifact_type in {"strategy_map", "stock_strategy"} and period_id:
+        paths.append(strategy_map_json_path(period_id))
+    for path_value in (product.get("export_paths") or {}).values():
+        if path_value:
+            paths.append(Path(path_value))
+    return paths
+
+
+def _report_stale_progress_issue(
+    issues: list[dict],
+    *,
+    job_kind: str,
+    path: Path,
+    max_idle_seconds: int,
+    tracker_id: str | None = None,
+    run_id: str | None = None,
+    period_id: str | None = None,
+) -> None:
+    state = job_progress.scan_progress_state(path)
+    if state.get("terminated"):
+        return
+    if job_progress.progress_state_in_flight(
+        state,
+        max_idle_seconds=max_idle_seconds,
+    ):
+        return
+    artifact_id = (
+        f"tracker_run:{tracker_id}:{run_id}"
+        if job_kind == "stock_tracker" and tracker_id and run_id
+        else f"weekly_aggregate:{period_id}"
+        if job_kind == "stock_aggregate" and period_id
+        else f"strategy_map:{period_id}"
+        if job_kind == "stock_strategy" and period_id
+        else None
+    )
+    _doctor_issue(
+        issues,
+        severity="warning",
+        issue_type="stale_active_job",
+        message=f"{job_kind} progress log is stale and unterminated.",
+        path=path,
+        tracker_id=tracker_id,
+        artifact_id=artifact_id,
+    )
+
+
 def _trace_has_source_ref(trace: dict, valid_source_ids: set[str]) -> bool:
     source_id = _as_str((trace or {}).get("source_id"))
     return not source_id or source_id in valid_source_ids
 
 
-def stock_research_doctor() -> dict:
+def _parse_doctor_time(value: Any) -> datetime | None:
+    text = _as_str(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.combine(
+                datetime.strptime(text, "%Y-%m-%d").date(),
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _iter_manifest_timestamp_rows(manifest: dict) -> list[dict]:
+    rows = []
+    for section in ("sources", "tracker_runs", "aggregate_signals", "work_products"):
+        for item in _as_list((manifest or {}).get(section)):
+            if not isinstance(item, dict):
+                continue
+            rows.append({"section": section, **item})
+    return rows
+
+
+def _contains_debug_training_row(value: Any, debug_ids: set[str]) -> bool:
+    if isinstance(value, dict):
+        if value.get("vintage_kind") == "debug_backfill":
+            return True
+        if value.get("hypothesis_id") in debug_ids:
+            return True
+        return any(_contains_debug_training_row(item, debug_ids) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_debug_training_row(item, debug_ids) for item in value)
+    return False
+
+
+def stock_research_doctor(
+    *,
+    max_idle_seconds: int = ACTIVE_JOB_MAX_IDLE_SECONDS,
+) -> dict:
     """Return a non-mutating health report for Stock Research artifacts."""
     trackers = list_trackers(include_archived=True)
     products = list_work_products(include_archived=True)
+    version_records = list_work_product_versions()
     issues: list[dict] = []
     source_ids_by_tracker: dict[str, set[str]] = {}
     run_refs: set[str] = set()
+    artifact_ids: set[str] = {product["artifact_id"] for product in products}
+    product_ids: set[str] = {product["artifact_id"] for product in products}
+    version_ids: set[str] = {
+        row["version_id"] for row in version_records if row.get("version_id")
+    }
+    version_ids_by_artifact: dict[str, set[str]] = {}
+    for row in version_records:
+        version_ids_by_artifact.setdefault(row.get("artifact_id"), set()).add(
+            row.get("version_id")
+        )
 
     if not _root().exists():
         _doctor_issue(
@@ -4195,6 +4849,64 @@ def stock_research_doctor() -> dict:
 
     for product in products:
         artifact_id = product.get("artifact_id")
+        history = product.get("version_history")
+        if not isinstance(history, list) or not history:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="malformed_version_history",
+                message=f"Work product {artifact_id} has missing or malformed version_history.",
+                artifact_id=artifact_id,
+                tracker_id=product.get("tracker_id"),
+            )
+        elif any(not isinstance(row, dict) or not row.get("action") for row in history):
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="malformed_version_history",
+                message=f"Work product {artifact_id} has malformed version_history rows.",
+                artifact_id=artifact_id,
+                tracker_id=product.get("tracker_id"),
+            )
+        for link_field in ("supersedes", "superseded_by"):
+            target = product.get(link_field)
+            if target and target not in artifact_ids:
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="broken_catalog_version_ref",
+                    message=f"Work product {artifact_id} {link_field} target is missing: {target}.",
+                    artifact_id=artifact_id,
+                    tracker_id=product.get("tracker_id"),
+                )
+        product_versions = version_ids_by_artifact.get(artifact_id, set())
+        if product.get("version_id") and product.get("version_id") not in product_versions:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="missing_work_product_version",
+                message=f"Work product {artifact_id} current version is missing an immutable version record.",
+                artifact_id=artifact_id,
+                tracker_id=product.get("tracker_id"),
+            )
+        elif not product_versions:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="missing_work_product_version",
+                message=f"Work product {artifact_id} has no immutable version records.",
+                artifact_id=artifact_id,
+                tracker_id=product.get("tracker_id"),
+            )
+        if product.get("supersedes_version_id") and product.get("supersedes_version_id") not in version_ids:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="broken_product_version_chain",
+                message=f"Work product {artifact_id} has a missing supersedes_version_id target.",
+                artifact_id=artifact_id,
+                tracker_id=product.get("tracker_id"),
+            )
         for label, path_value in (product.get("export_paths") or {}).items():
             path = Path(path_value)
             if not path.exists():
@@ -4218,6 +4930,227 @@ def stock_research_doctor() -> dict:
                 artifact_id=artifact_id,
                 tracker_id=tracker_id,
             )
+        backing_paths = _product_backing_paths(product)
+        if backing_paths and not any(path.exists() for path in backing_paths):
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="orphaned_work_product",
+                message=f"Work product {artifact_id} has no backing artifact or export on disk.",
+                artifact_id=artifact_id,
+                tracker_id=tracker_id,
+            )
+
+    for version in version_records:
+        artifact_id = version.get("artifact_id")
+        if artifact_id not in artifact_ids:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="orphaned_work_product_version",
+                message=f"Immutable version has no matching catalog work product: {artifact_id}.",
+                artifact_id=artifact_id,
+            )
+        supersedes_version_id = version.get("supersedes_version_id")
+        if supersedes_version_id and supersedes_version_id not in version_ids:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="broken_product_version_chain",
+                message=f"Immutable version {version.get('version_id')} has a missing supersedes_version_id target.",
+                artifact_id=artifact_id,
+            )
+        for generated in version.get("generated_files") or []:
+            path = Path(_as_str((generated or {}).get("path")))
+            if not path.exists():
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="missing_version_generated_file",
+                    message=f"Immutable version generated file is missing: {generated.get('kind')}.",
+                    path=path,
+                    artifact_id=artifact_id,
+                )
+                continue
+            expected_sha = _as_str(generated.get("sha256"))
+            try:
+                actual_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            except Exception:
+                actual_sha = ""
+            if expected_sha and actual_sha and actual_sha != expected_sha:
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="version_generated_file_changed",
+                    message=f"Immutable version generated file hash changed: {generated.get('kind')}.",
+                    path=path,
+                    artifact_id=artifact_id,
+                )
+
+    for tracker_id, run_id, path in iter_tracker_progress_paths():
+        _report_stale_progress_issue(
+            issues,
+            job_kind="stock_tracker",
+            path=path,
+            max_idle_seconds=max_idle_seconds,
+            tracker_id=tracker_id,
+            run_id=run_id,
+        )
+    for period_id, path in iter_aggregate_progress_paths():
+        _report_stale_progress_issue(
+            issues,
+            job_kind="stock_aggregate",
+            path=path,
+            max_idle_seconds=max_idle_seconds,
+            period_id=period_id,
+        )
+    for period_id, path in iter_strategy_progress_paths():
+        _report_stale_progress_issue(
+            issues,
+            job_kind="stock_strategy",
+            path=path,
+            max_idle_seconds=max_idle_seconds,
+            period_id=period_id,
+        )
+
+    for row in list_run_ledger():
+        job_kind = row.get("job_kind")
+        artifact_id = row.get("artifact_id")
+        tracker_id = row.get("tracker_id")
+        run_id = row.get("run_id")
+        period_id = row.get("period_id")
+        if job_kind == "stock_tracker":
+            if tracker_id and run_id and f"{tracker_id}:{run_id}" not in run_refs:
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="orphaned_run_ledger_row",
+                    message=f"Run ledger row references unknown tracker run {tracker_id}/{run_id}.",
+                    tracker_id=tracker_id,
+                    artifact_id=artifact_id,
+                )
+            elif artifact_id and artifact_id not in product_ids:
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="run_ledger_missing_product",
+                    message=f"Run ledger row has no matching work product: {artifact_id}.",
+                    tracker_id=tracker_id,
+                    artifact_id=artifact_id,
+                )
+        elif job_kind == "stock_aggregate":
+            if period_id and not aggregate_json_path(period_id).exists():
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="orphaned_run_ledger_row",
+                    message=f"Run ledger row references missing aggregate {period_id}.",
+                    artifact_id=artifact_id,
+                )
+        elif job_kind == "stock_strategy":
+            if period_id and not strategy_map_json_path(period_id).exists():
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="orphaned_run_ledger_row",
+                    message=f"Run ledger row references missing strategy map {period_id}.",
+                    artifact_id=artifact_id,
+                )
+
+    try:
+        from . import hypothesis_store
+
+        hypotheses = hypothesis_store.list_hypotheses()
+        outcomes = hypothesis_store.list_outcomes()
+        summaries = hypothesis_store.list_training_summaries()
+        outcomes_by_id = {row.get("hypothesis_id"): row for row in outcomes}
+        today = datetime.now(timezone.utc).date()
+        today_text = today.isoformat()
+        if not any(
+            row.get("vintage_kind") == "forward_live"
+            and row.get("vintage_date") == today_text
+            for row in hypotheses
+        ):
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="missing_current_live_hypothesis_vintage",
+                message=f"No forward_live hypothesis vintage exists for {today_text}.",
+                path=hypothesis_store.hypothesis_root(),
+            )
+        for hypothesis in hypotheses:
+            hypothesis_id = hypothesis.get("hypothesis_id")
+            artifact_id = hypothesis.get("artifact_id") or f"hypothesis:{hypothesis_id}"
+            generated_at = _parse_doctor_time(hypothesis.get("generated_at"))
+            window_start = _parse_doctor_time(hypothesis.get("evaluation_window_start"))
+            window_end = _parse_doctor_time(hypothesis.get("evaluation_window_end"))
+            if (
+                hypothesis.get("vintage_kind") == "forward_live"
+                and generated_at is not None
+                and window_start is not None
+                and generated_at >= window_start
+            ):
+                _doctor_issue(
+                    issues,
+                    severity="error",
+                    issue_type="hypothesis_generated_after_window_start",
+                    message="Forward-live hypothesis was generated after its evaluation window started.",
+                    artifact_id=artifact_id,
+                )
+            if (
+                window_end is not None
+                and window_end.date() < today
+                and hypothesis_id not in outcomes_by_id
+            ):
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="hypothesis_outcome_missing_after_window_close",
+                    message="Hypothesis outcome is missing after the evaluation window closed.",
+                    artifact_id=artifact_id,
+                )
+            cutoff = _parse_doctor_time(hypothesis.get("eligible_source_cutoff"))
+            if cutoff is not None:
+                for item in _iter_manifest_timestamp_rows(
+                    hypothesis.get("input_manifest") or {}
+                ):
+                    item_time = _parse_doctor_time(
+                        item.get("created_at")
+                        or item.get("generated_at")
+                        or item.get("updated_at")
+                        or item.get("timestamp")
+                    )
+                    if item_time is not None and item_time > cutoff:
+                        _doctor_issue(
+                            issues,
+                            severity="error",
+                            issue_type="hypothesis_source_cutoff_violation",
+                            message="Hypothesis input manifest includes data after the eligible source cutoff.",
+                            artifact_id=artifact_id,
+                        )
+                        break
+        debug_ids = {
+            row.get("hypothesis_id")
+            for row in hypotheses
+            if row.get("vintage_kind") == "debug_backfill"
+        }
+        for summary in summaries:
+            if _contains_debug_training_row(summary, debug_ids):
+                _doctor_issue(
+                    issues,
+                    severity="error",
+                    issue_type="training_summary_includes_debug_rows",
+                    message="Training summary includes debug_backfill hypothesis rows.",
+                    path=hypothesis_store.training_summaries_root(),
+                )
+                break
+    except Exception as exc:
+        _doctor_issue(
+            issues,
+            severity="error",
+            issue_type="malformed_hypothesis_data",
+            message=f"Hypothesis data could not be validated: {exc}",
+        )
 
     error_count = sum(1 for issue in issues if issue["severity"] == "error")
     warning_count = sum(1 for issue in issues if issue["severity"] == "warning")
@@ -4247,6 +5180,8 @@ def list_all_sources() -> list[dict]:
 
 
 def dashboard_payload() -> dict:
+    from . import hypothesis_store
+
     trackers = list_trackers()
     sources = list_all_sources()
     aggregate = latest_aggregate()
@@ -4254,6 +5189,7 @@ def dashboard_payload() -> dict:
     review_items = list_review_items()
     products = list_work_products()
     evaluation = list_evaluation()
+    hypotheses = hypothesis_store.hypothesis_dashboard_payload()
     doctor = stock_research_doctor()
     counts_by_type = {t: 0 for t in TRACKER_TYPES}
     for tracker in trackers:
@@ -4282,6 +5218,9 @@ def dashboard_payload() -> dict:
             "doctor_error_count": doctor["summary"]["error_count"],
             "doctor_warning_count": doctor["summary"]["warning_count"],
             "run_ledger_count": len(evaluation.get("run_ledger") or []),
+            "hypothesis_count": hypotheses["summary"]["hypothesis_count"],
+            "pending_hypothesis_count": hypotheses["summary"]["pending_count"],
+            "training_eligible_hypothesis_count": hypotheses["summary"]["training_eligible_count"],
         },
         "trackers": trackers,
         "sources": sources,
@@ -4295,6 +5234,7 @@ def dashboard_payload() -> dict:
         "work_products": products,
         "review_items": review_items,
         "evaluation": evaluation,
+        "hypotheses": hypotheses,
         "doctor": doctor,
     }
 

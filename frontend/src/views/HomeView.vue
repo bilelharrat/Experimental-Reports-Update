@@ -104,6 +104,8 @@ async function pickSuggestion(s) {
       sector: s.sector,
       industry: s.industry,
       exchange: s.exchange,
+      status: s.status,
+      company_type: s.company_type,
     });
     id = upserted.id;
   }

@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import StockAggregatePanel from "../src/components/stock/StockAggregatePanel.vue";
 import StockEvaluationPanel from "../src/components/stock/StockEvaluationPanel.vue";
+import StockHypothesesPanel from "../src/components/stock/StockHypothesesPanel.vue";
 import StockReviewQueuePanel from "../src/components/stock/StockReviewQueuePanel.vue";
 import StockRunsPanel from "../src/components/stock/StockRunsPanel.vue";
 import StockSourceIntakePanel from "../src/components/stock/StockSourceIntakePanel.vue";
 import StockStrategyMapPanel from "../src/components/stock/StockStrategyMapPanel.vue";
 import StockTrackerRegistryPanel from "../src/components/stock/StockTrackerRegistryPanel.vue";
+import StockWorkProductsPanel from "../src/components/stock/StockWorkProductsPanel.vue";
 
 const tracker = {
   id: "nvidia",
@@ -116,9 +118,73 @@ describe("Stock Research panel components", () => {
     expect(wrapper.emitted("submit-note-source")).toHaveLength(1);
   });
 
+  it("renders work product version metadata and emits update events", async () => {
+    const product = {
+      artifact_id: "tracker_run:nvidia:run-1",
+      artifact_type: "tracker_report",
+      title: "NVIDIA tracker report",
+      status: "needs_review",
+      version: 2,
+      version_count: 2,
+      version_id: "tracker_run:nvidia:run-1:v2:abc123",
+      reviewer: "Serena",
+      latest_review_action: { action: "approved" },
+      source_trace_count: 1,
+      confidence: 0.75,
+      updated_at: "2026-06-14T12:00:00Z",
+      generated_files: [
+        {
+          kind: "markdown",
+          path: "/tmp/report.md",
+          sha256: "abc123",
+          bytes: 2048,
+        },
+      ],
+      export_paths: {
+        markdown: "/tmp/report.md",
+      },
+    };
+    const wrapper = mount(StockWorkProductsPanel, {
+      props: {
+        products: [product],
+        productTypes: ["tracker_report"],
+        productStatuses: ["needs_review"],
+        productTrackerIds: ["nvidia"],
+        productPeriods: ["2026-06-08_to_2026-06-14"],
+        typeFilter: "all",
+        statusFilter: "all",
+        trackerFilter: "all",
+        periodFilter: "all",
+      },
+    });
+
+    expect(wrapper.text()).toContain("2 immutable versions");
+    expect(wrapper.text()).toContain("tracker_run:nvidia:run-1:v2:abc123");
+    expect(wrapper.text()).toContain("latest review: approved");
+    expect(wrapper.text()).toContain("markdown · 2 KB");
+
+    await wrapper.findAll("select")[0].setValue("tracker_report");
+    await wrapper.findAll("select")[1].setValue("needs_review");
+    await wrapper.findAll("select")[2].setValue("nvidia");
+    await wrapper.findAll("select")[3].setValue("2026-06-08_to_2026-06-14");
+    await wrapper.find("button[title='Pin']").trigger("click");
+    await wrapper.find("button[title='Approve']").trigger("click");
+    await wrapper.find("button[title='Archive']").trigger("click");
+
+    expect(wrapper.emitted("update:type-filter")[0]).toEqual(["tracker_report"]);
+    expect(wrapper.emitted("update:status-filter")[0]).toEqual(["needs_review"]);
+    expect(wrapper.emitted("update:tracker-filter")[0]).toEqual(["nvidia"]);
+    expect(wrapper.emitted("update:period-filter")[0]).toEqual(["2026-06-08_to_2026-06-14"]);
+    expect(wrapper.emitted("update-product")).toEqual([
+      [product, { pinned: true }],
+      [product, { status: "approved", review_state: "resolved" }],
+      [product, { archived: true, status: "archived" }],
+    ]);
+  });
+
   it("renders run rows and emits orchestration events", async () => {
     const empty = mount(StockRunsPanel, {
-      props: { runs: [], selectedRun: null, selectedRunDiff: [], busy: false },
+      props: { runs: [], runLedger: [], selectedRun: null, selectedRunDiff: [], busy: false },
     });
     expect(empty.text()).toContain("No tracker runs yet.");
 
@@ -127,6 +193,22 @@ describe("Stock Research panel components", () => {
     const wrapper = mount(StockRunsPanel, {
       props: {
         runs: [run, failed, running],
+        runLedger: [
+          {
+            ledger_id: "stock_research:stock_tracker:nvidia:run-1",
+            workspace: "stock_research",
+            job_kind: "stock_tracker",
+            artifact_id: "tracker_run:nvidia:run-1",
+            tracker_id: "nvidia",
+            run_id: "run-1",
+            status: "done",
+            updated_at: "2026-06-14T12:00:00Z",
+            duration_ms: 42,
+            source_count: 1,
+            evidence_coverage: 1,
+            estimated_cost_usd: 0,
+          },
+        ],
         selectedRun: run,
         selectedRunDiff: [{ field: "Thesis", current: "Now", previous: "Before" }],
         busy: false,
@@ -134,6 +216,8 @@ describe("Stock Research panel components", () => {
     });
 
     expect(wrapper.text()).toContain("Latest Report");
+    expect(wrapper.text()).toContain("Normalized Run Ledger");
+    expect(wrapper.text()).toContain("stock tracker");
     expect(wrapper.text()).toContain("Current: Now");
     await wrapper.findAll("button").find((button) => button.text() === "Run Aggregate").trigger("click");
     await wrapper.findAll("button").find((button) => button.text() === "Run Strategy").trigger("click");
@@ -175,7 +259,15 @@ describe("Stock Research panel components", () => {
         },
         aggregateWarnings: [{ kind: "missing source", tracker_id: "nvidia", title: "Official transcript missing." }],
         aggregateModuleRows: [{ id: "company:nvidia", module: "company", tracker_id: "nvidia", title: "Company signal.", source_count: 1 }],
-        filteredAggregateSignals: [{ id: "sig-1", source_tracker_id: "nvidia", observation: "Demand signal.", direction: "watch", source_traces: run.source_traces }],
+        filteredAggregateSignals: [{
+          id: "sig-1",
+          source_tracker_id: "nvidia",
+          observation: "Demand signal.",
+          direction: "watch",
+          source_traces: run.source_traces,
+          source_quality_score: 0.94,
+          source_quality_reason: "1 primary source; best source is earnings call transcript.",
+        }],
         aggregateModuleFilter: "all",
         aggregateDirectionFilter: "all",
         busy: false,
@@ -184,6 +276,8 @@ describe("Stock Research panel components", () => {
 
     expect(wrapper.text()).toContain("Company signal.");
     expect(wrapper.text()).toContain("Demand signal.");
+    expect(wrapper.text()).toContain("0.94");
+    expect(wrapper.text()).toContain("earnings call transcript");
     await wrapper.findAll("select")[0].setValue("company");
     await wrapper.findAll("select")[1].setValue("watch");
     await wrapper.findAll("button").find((button) => button.text() === "Run Aggregate").trigger("click");
@@ -339,5 +433,89 @@ describe("Stock Research panel components", () => {
     expect(wrapper.emitted("set-run-review-notes")[0]).toEqual([row, "Good trace coverage."]);
     expect(wrapper.emitted("save-run-review")[0]).toEqual([row]);
     expect(wrapper.emitted("review-knowledge-update")[0]).toEqual([lesson, lesson, "rejected"]);
+  });
+
+  it("renders hypothesis states and emits cycle actions", async () => {
+    const empty = mount(StockHypothesesPanel, {
+      props: {
+        hypotheses: { summary: {}, vintages: [], rows: [], calibration: [] },
+        busy: false,
+        defaultVintageDate: "2026-06-14",
+      },
+    });
+    expect(empty.text()).toContain("No hypothesis vintages yet.");
+
+    const wrapper = mount(StockHypothesesPanel, {
+      props: {
+        busy: false,
+        defaultVintageDate: "2026-06-14",
+        hypotheses: {
+          summary: {
+            vintage_count: 2,
+            hypothesis_count: 2,
+            pending_count: 1,
+            training_eligible_count: 1,
+          },
+          vintages: [
+            {
+              vintage_date: "2026-06-14",
+              vintage_kind: "forward_live",
+              hypothesis_count: 1,
+              pending_count: 0,
+              training_eligible_count: 1,
+            },
+            {
+              vintage_date: "2026-06-07",
+              vintage_kind: "debug_backfill",
+              hypothesis_count: 1,
+              pending_count: 1,
+              training_eligible_count: 0,
+            },
+          ],
+          rows: [
+            {
+              hypothesis_id: "hyp-live",
+              vintage_date: "2026-06-14",
+              vintage_kind: "forward_live",
+              ticker: "NVDA",
+              claim: "Completed live claim.",
+              direction: "bullish",
+              outcome: {
+                directional_result: "hit",
+                relative_return_pct: 8,
+                eligible_for_training: true,
+              },
+            },
+            {
+              hypothesis_id: "hyp-debug",
+              vintage_date: "2026-06-07",
+              vintage_kind: "debug_backfill",
+              ticker: "NVDA",
+              claim: "Pending debug claim.",
+              direction: "watch",
+              outcome: null,
+            },
+          ],
+          calibration: [{ eligible_outcome_count: 1 }],
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("forward_live");
+    expect(wrapper.text()).toContain("debug_backfill");
+    expect(wrapper.text()).toContain("Completed live claim.");
+    expect(wrapper.text()).toContain("hit");
+    expect(wrapper.text()).toContain("eligible");
+    expect(wrapper.text()).toContain("1 eligible outcomes");
+
+    await wrapper.findAll("button").find((button) => button.text() === "Create Live").trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "Debug Backfill").trigger("click");
+    await wrapper.find("button[title='Evaluate vintage']").trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "Calibrate").trigger("click");
+
+    expect(wrapper.emitted("create-live")[0]).toEqual(["2026-06-14"]);
+    expect(wrapper.emitted("create-debug-backfill")[0]).toEqual(["2026-06-07"]);
+    expect(wrapper.emitted("evaluate-vintage")[0]).toEqual(["2026-06-14"]);
+    expect(wrapper.emitted("calibrate")).toHaveLength(1);
   });
 });

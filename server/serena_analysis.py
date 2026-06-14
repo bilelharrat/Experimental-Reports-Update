@@ -12,6 +12,7 @@ Claude-backed jobs without changing the dashboard shape.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import os
@@ -26,11 +27,12 @@ from typing import Any
 
 import yaml
 
-from . import claude_runner, job_progress, research_eval, research_store, storage
+from . import claude_runner, job_progress, research_eval, research_store, run_ledger, storage
 
 ANALYSIS_ROOT = storage.DATA_DIR / "serena_analysis"
 TRAINING_ROOT = storage.DATA_DIR / "serena_training"
 SESSION_VERSION = 1
+MEMO_WORK_PRODUCT_VERSION_SCHEMA_VERSION = 1
 ACTIVE_JOB_MAX_IDLE_SECONDS = int(
     os.environ.get("BSH_ACTIVE_JOB_MAX_IDLE_SECONDS", "1800")
 )
@@ -156,6 +158,14 @@ def session_dir(company_id: str, session_id: str) -> Path:
 
 def session_path(company_id: str, session_id: str) -> Path:
     return session_dir(company_id, session_id) / "session.yaml"
+
+
+def memo_work_product_versions_path(company_id: str, session_id: str) -> Path:
+    return session_dir(company_id, session_id) / "memo_work_product_versions.json"
+
+
+def memo_work_product_version_files_root(company_id: str, session_id: str) -> Path:
+    return session_dir(company_id, session_id) / "memo_work_product_version_files"
 
 
 def training_dir(company_id: str) -> Path:
@@ -501,11 +511,31 @@ def _read_yaml(path: Path, default: Any) -> Any:
     return data if data is not None else default
 
 
+def _read_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return copy.deepcopy(default)
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return copy.deepcopy(default)
+    return data if data is not None else copy.deepcopy(default)
+
+
 def _write_yaml(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    tmp.replace(path)
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+        f.write("\n")
     tmp.replace(path)
 
 
@@ -629,6 +659,16 @@ def memo_work_product_catalog(company_id: str) -> dict:
     if session is None:
         raise ValueError(f"Unknown company: {company_id}")
     return _memo_work_product_catalog(session)
+
+
+def list_run_ledger(company_id: str) -> list[dict]:
+    """Return normalized Memo Studio run rows for the current analysis session."""
+    session = get_current_session(company_id, create=True)
+    if session is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    rows = _memo_run_ledger(session)
+    rows.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
+    return rows
 
 
 def run_tool(company_id: str, tool_name: str) -> dict:
@@ -5027,6 +5067,214 @@ def _strip_decorations(session: dict) -> dict:
     }
 
 
+def _catalog_slug(value: str, *, fallback: str = "artifact") -> str:
+    raw = (value or "").strip().lower()
+    raw = re.sub(r"[^a-z0-9_.-]+", "-", raw)
+    raw = re.sub(r"-{2,}", "-", raw).strip(".-")
+    return (raw or fallback)[:96]
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _memo_generated_file_record(kind: str, path_value: Any, *, created_at: Any) -> dict:
+    path = Path(str(path_value or ""))
+    record = {
+        "kind": str(kind or "artifact"),
+        "path": str(path),
+        "sha256": "",
+        "bytes": 0,
+        "created_at": created_at or _now(),
+    }
+    try:
+        data = path.read_bytes()
+    except Exception:
+        return record
+    record["sha256"] = hashlib.sha256(data).hexdigest()
+    record["bytes"] = len(data)
+    return record
+
+
+def _memo_generated_files(paths: list[Any] | None, *, created_at: Any) -> list[dict]:
+    files = []
+    for index, path in enumerate(paths or [], start=1):
+        if isinstance(path, dict):
+            kind = path.get("kind") or path.get("language") or f"file_{index}"
+            path_value = path.get("path")
+        else:
+            kind = f"file_{index}"
+            path_value = path
+        if path_value:
+            files.append(_memo_generated_file_record(str(kind), path_value, created_at=created_at))
+    return files
+
+
+def _memo_work_product_fingerprint(row: dict) -> str:
+    payload = {
+        "generated_files": [
+            {
+                "kind": file.get("kind"),
+                "path": file.get("path"),
+                "sha256": file.get("sha256"),
+                "bytes": file.get("bytes"),
+            }
+            for file in row.get("generated_files") or []
+            if isinstance(file, dict)
+        ],
+        "source_refs": row.get("source_refs") or [],
+    }
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _memo_version_id(artifact_id: str, version: int, fingerprint: str) -> str:
+    digest = (fingerprint or hashlib.sha256(artifact_id.encode("utf-8")).hexdigest())[:12]
+    return f"{artifact_id}:v{version}:{digest}"
+
+
+def _memo_version_records(company_id: str, session_id: str) -> list[dict]:
+    data = _read_json(
+        memo_work_product_versions_path(company_id, session_id),
+        {"versions": []},
+    )
+    rows = data.get("versions") if isinstance(data, dict) else []
+    out = [row for row in rows if isinstance(row, dict)]
+    out.sort(key=lambda row: (str(row.get("artifact_id", "")), int(row.get("version") or 0)))
+    return out
+
+
+def _write_memo_version_records(company_id: str, session_id: str, rows: list[dict]) -> None:
+    rows.sort(key=lambda row: (str(row.get("artifact_id", "")), int(row.get("version") or 0)))
+    _write_json(
+        memo_work_product_versions_path(company_id, session_id),
+        {
+            "schema_version": MEMO_WORK_PRODUCT_VERSION_SCHEMA_VERSION,
+            "versions": rows,
+        },
+    )
+
+
+def _snapshot_memo_generated_files(
+    company_id: str,
+    session_id: str,
+    row: dict,
+) -> list[dict]:
+    version_id = str(row.get("version_id") or "")
+    artifact_id = str(row.get("artifact_id") or "")
+    if not version_id or not artifact_id:
+        return row.get("generated_files") or []
+    target_dir = (
+        memo_work_product_version_files_root(company_id, session_id)
+        / _catalog_slug(artifact_id)
+        / _catalog_slug(version_id, fallback="version")
+    )
+    snapshots = []
+    for file in row.get("generated_files") or []:
+        if not isinstance(file, dict):
+            continue
+        source = Path(str(file.get("path") or ""))
+        if not source.exists():
+            snapshots.append(file)
+            continue
+        kind = str(file.get("kind") or "artifact")
+        suffix = source.suffix or ".artifact"
+        target = target_dir / f"{_catalog_slug(kind)}{suffix}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        snapshots.append(
+            _memo_generated_file_record(
+                kind,
+                target,
+                created_at=file.get("created_at") or row.get("updated_at") or _now(),
+            )
+        )
+    return snapshots
+
+
+def _memo_versionable_row(row: dict) -> bool:
+    if row.get("status") == "missing":
+        return False
+    return bool(row.get("generated_files"))
+
+
+def _sync_memo_catalog_versions(session: dict, rows: list[dict]) -> None:
+    company_id = _safe_id(str(session.get("company_id") or ""))
+    session_id = _safe_id(str(session.get("id") or ""))
+    records = _memo_version_records(company_id, session_id)
+    records_by_artifact: dict[str, list[dict]] = {}
+    for record in records:
+        records_by_artifact.setdefault(str(record.get("artifact_id") or ""), []).append(record)
+
+    changed = False
+    for row in rows:
+        row.setdefault("version_id", None)
+        row.setdefault("supersedes_version_id", None)
+        row.setdefault("generated_files", [])
+        row.setdefault("version_count", 0)
+        row.setdefault("review_log", [])
+        row.setdefault("action_log", [])
+        row.setdefault("latest_review_action", None)
+        if not _memo_versionable_row(row):
+            continue
+
+        artifact_id = str(row.get("artifact_id") or "")
+        fingerprint = _memo_work_product_fingerprint(row)
+        artifact_records = records_by_artifact.setdefault(artifact_id, [])
+        latest = artifact_records[-1] if artifact_records else None
+        if latest and latest.get("fingerprint") == fingerprint:
+            row["version"] = latest.get("version") or row.get("version") or 1
+            row["version_id"] = latest.get("version_id")
+            row["supersedes_version_id"] = latest.get("supersedes_version_id")
+            row["generated_files"] = latest.get("generated_files") or row.get("generated_files") or []
+            row["version_count"] = len(artifact_records)
+            row["action_log"] = latest.get("action_log") or []
+            continue
+
+        version = int((latest or {}).get("version") or 0) + 1
+        version_id = _memo_version_id(artifact_id, version, fingerprint)
+        row["version"] = version
+        row["version_id"] = version_id
+        row["supersedes_version_id"] = (latest or {}).get("version_id")
+        row["version_count"] = len(artifact_records) + 1
+        action_event = {
+            "event_id": f"memov-{uuid.uuid4().hex[:10]}",
+            "action": "created" if version == 1 else "versioned",
+            "version_id": version_id,
+            "version": version,
+            "updated_at": row.get("updated_at") or _now(),
+            "changed_fields": ["generated_files", "source_refs"],
+        }
+        row["action_log"] = [*row.get("action_log", []), action_event]
+        snapshot_files = _snapshot_memo_generated_files(company_id, session_id, row)
+        row["generated_files"] = snapshot_files
+        record = {
+            "schema_version": MEMO_WORK_PRODUCT_VERSION_SCHEMA_VERSION,
+            "artifact_id": artifact_id,
+            "artifact_type": row.get("artifact_type"),
+            "title": row.get("title"),
+            "version": version,
+            "version_id": version_id,
+            "supersedes_version_id": row.get("supersedes_version_id"),
+            "created_at": row.get("updated_at") or row.get("created_at") or _now(),
+            "updated_at": row.get("updated_at") or _now(),
+            "generated_by": row.get("generated_by"),
+            "source_refs": row.get("source_refs") or [],
+            "source_trace_count": row.get("source_trace_count") or 0,
+            "confidence": row.get("confidence"),
+            "export_paths": row.get("export_paths") or [],
+            "generated_files": snapshot_files,
+            "fingerprint": fingerprint,
+            "review_log": [],
+            "action_log": [action_event],
+        }
+        records.append(record)
+        artifact_records.append(record)
+        changed = True
+
+    if changed:
+        _write_memo_version_records(company_id, session_id, records)
+
+
 def _artifact_has_content(value: Any) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
@@ -5191,19 +5439,23 @@ def _memo_catalog_row(
     status: str | None = None,
     updated_at: Any = None,
     created_at: Any = None,
+    generated_file_paths: list[Any] | None = None,
 ) -> dict:
     source_refs = _memo_catalog_source_refs(value)
+    row_updated_at = updated_at or _memo_catalog_updated_at(
+        value,
+        session.get("updated_at"),
+    )
     return {
         "artifact_id": artifact_id,
         "artifact_type": artifact_type,
         "title": title,
         "status": status or _memo_catalog_status(session, value),
         "version": 1,
+        "version_id": None,
+        "supersedes_version_id": None,
         "created_at": created_at or session.get("created_at"),
-        "updated_at": updated_at or _memo_catalog_updated_at(
-            value,
-            session.get("updated_at"),
-        ),
+        "updated_at": row_updated_at,
         "generated_by": _memo_catalog_generated_by(value),
         "reviewer": None,
         "source_refs": source_refs,
@@ -5215,9 +5467,58 @@ def _memo_catalog_row(
         "pinned": False,
         "archived": False,
         "export_paths": export_paths or [],
+        "generated_files": _memo_generated_files(
+            generated_file_paths,
+            created_at=row_updated_at,
+        ),
+        "version_count": 0,
+        "latest_review_action": None,
+        "review_log": [],
+        "action_log": [],
         "location": location,
         "notes": notes,
     }
+
+
+def _memo_artifact_generated_file_paths(
+    company_id: str,
+    session_id: str,
+    filename: str,
+    value: Any,
+    *,
+    kind: str | None = None,
+) -> list[dict]:
+    if not _artifact_has_content(value):
+        return []
+    path = session_dir(company_id, session_id) / filename
+    if not path.exists():
+        return []
+    file_kind = kind or path.suffix.lstrip(".") or "artifact"
+    return [{"kind": file_kind, "path": path}]
+
+
+def _memo_evidence_matrix_snapshot(
+    company_id: str,
+    session_id: str,
+) -> tuple[dict | None, list[dict]]:
+    """Persist a deterministic evidence-matrix snapshot for catalog versioning."""
+    try:
+        from . import evidence_matrix
+
+        matrix = evidence_matrix.build_company_evidence_matrix(company_id)
+    except Exception:
+        logger.exception("Failed to build evidence matrix snapshot for %s", company_id)
+        return None, []
+    if not isinstance(matrix, dict):
+        return None, []
+    snapshot = copy.deepcopy(matrix)
+    snapshot.pop("generated_at", None)
+    snapshot["snapshot_type"] = "memo_evidence_matrix"
+    path = session_dir(company_id, session_id) / "evidence_matrix.json"
+    current = _read_json(path, None)
+    if _canonical_json(current) != _canonical_json(snapshot):
+        _write_json(path, snapshot)
+    return snapshot, [{"kind": "json", "path": path}]
 
 
 def _memo_work_product_catalog(session: dict) -> dict:
@@ -5264,14 +5565,22 @@ def _memo_work_product_catalog(session: dict) -> dict:
         ),
     ]
     for key, artifact_type, title, filename in artifact_specs:
+        value = artifacts.get(key)
         work_products.append(
             _memo_catalog_row(
                 session,
                 artifact_id=key,
                 artifact_type=artifact_type,
                 title=title,
-                value=artifacts.get(key),
+                value=value,
                 location=f"{analysis_prefix}{filename}",
+                generated_file_paths=_memo_artifact_generated_file_paths(
+                    company_id,
+                    session_id,
+                    filename,
+                    value,
+                    kind="yaml",
+                ),
             )
         )
 
@@ -5284,6 +5593,13 @@ def _memo_work_product_catalog(session: dict) -> dict:
             title="Research Task Catalog",
             value=tasks_value,
             location=f"{analysis_prefix}research_tasks.yaml",
+            generated_file_paths=_memo_artifact_generated_file_paths(
+                company_id,
+                session_id,
+                "research_tasks.yaml",
+                tasks_value,
+                kind="yaml",
+            ),
         )
     )
     task_rows = (
@@ -5310,6 +5626,7 @@ def _memo_work_product_catalog(session: dict) -> dict:
         )
 
     memo_packet = artifacts.get("memo_packet")
+    memo_packet_path = session_dir(company_id, session_id) / "memo_packet.md"
     work_products.append(
         _memo_catalog_row(
             session,
@@ -5319,17 +5636,32 @@ def _memo_work_product_catalog(session: dict) -> dict:
             value=memo_packet,
             location=f"{analysis_prefix}memo_packet.md",
             export_paths=[f"{analysis_prefix}memo_packet.md"] if memo_packet else [],
+            generated_file_paths=(
+                [{"kind": "markdown", "path": memo_packet_path}]
+                if memo_packet
+                else []
+            ),
         )
     )
 
+    evidence_matrix_value, evidence_matrix_files = _memo_evidence_matrix_snapshot(
+        company_id,
+        session_id,
+    )
     work_products.append(
         _memo_catalog_row(
             session,
             artifact_id="evidence_matrix:current",
             artifact_type="evidence_matrix",
             title="Evidence Matrix",
-            value=tasks_value,
-            location=f"/api/companies/{company_id}/evidence-matrix",
+            value=evidence_matrix_value or tasks_value,
+            location=f"{analysis_prefix}evidence_matrix.json",
+            export_paths=(
+                [f"{analysis_prefix}evidence_matrix.json"]
+                if evidence_matrix_files
+                else []
+            ),
+            generated_file_paths=evidence_matrix_files,
             notes="Derived from research-file summaries and Memo Studio research-task evidence.",
         )
     )
@@ -5354,6 +5686,9 @@ def _memo_work_product_catalog(session: dict) -> dict:
                 if lessons_value
                 else []
             ),
+            generated_file_paths=(
+                [{"kind": "markdown", "path": lessons_path}] if lessons_value else []
+            ),
             notes="Derived learning loop for future Memo Studio runs.",
         )
     )
@@ -5369,6 +5704,19 @@ def _memo_work_product_catalog(session: dict) -> dict:
             for row in report.get("memo_files") or []
             if isinstance(row, dict) and row.get("path")
         ]
+        memo_file_paths = []
+        for index, row in enumerate(report.get("memo_files") or [], start=1):
+            if not isinstance(row, dict) or not row.get("path"):
+                continue
+            path = Path(str(row.get("path")))
+            if not path.is_absolute():
+                path = storage.DATA_DIR.parent / path
+            memo_file_paths.append(
+                {
+                    "kind": row.get("language") or f"memo_{index}",
+                    "path": path,
+                }
+            )
         work_products.append(
             _memo_catalog_row(
                 session,
@@ -5381,6 +5729,7 @@ def _memo_work_product_catalog(session: dict) -> dict:
                 status="published",
                 created_at=report.get("created_at") or session.get("created_at"),
                 updated_at=report.get("updated_at") or report.get("created_at"),
+                generated_file_paths=memo_file_paths,
                 notes="Completed final memo output linked back to Memo Studio.",
             )
         )
@@ -5420,6 +5769,8 @@ def _memo_work_product_catalog(session: dict) -> dict:
         },
     ]
 
+    _sync_memo_catalog_versions(session, work_products)
+
     return {
         "company_id": company_id,
         "session_id": session_id,
@@ -5427,6 +5778,181 @@ def _memo_work_product_catalog(session: dict) -> dict:
         "work_products": work_products,
         "source_boundaries": source_boundaries,
     }
+
+
+_MEMO_TOOL_ARTIFACT_IDS = {
+    "strategic_risk_mapper": "strategic_risks",
+    "priority_prompt_harness": "risk_priorities",
+    "thesis_spine_builder": "thesis_spine",
+    "private_benchmark_dashboard": "benchmark_dashboard",
+    "infographic_source_brief": "infographic_source_brief",
+    "chart_spec_builder": "chart_specs",
+    "narrative_hooks": "narrative_hooks",
+    "memo_grader": "memo_grader",
+    "readiness_check": "readiness_reviews",
+}
+
+
+def _memo_job_metrics(value: Any) -> dict:
+    if isinstance(value, dict) and isinstance(value.get("job_metrics"), dict):
+        return value["job_metrics"]
+    return {}
+
+
+def _memo_duration_ms(value: Any) -> int | None:
+    metrics = _memo_job_metrics(value)
+    duration = metrics.get("duration_ms")
+    try:
+        return int(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _memo_tool_fallback_used(run: dict, artifact: Any) -> bool:
+    if isinstance(artifact, dict) and artifact.get("generated_by") == "deterministic_fallback":
+        return True
+    return "fallback" in str(run.get("error") or "").lower()
+
+
+def _memo_tool_preserved_artifact(artifact_id: str, run: dict, artifact: Any) -> str | None:
+    if run.get("status") == "error" and _artifact_has_content(artifact):
+        return artifact_id
+    return None
+
+
+def _memo_task_source_count(task: dict) -> int:
+    sources_checked = task.get("sources_checked")
+    if isinstance(sources_checked, list) and sources_checked:
+        return len(sources_checked)
+    selected_sources = task.get("selected_source_ids")
+    if isinstance(selected_sources, list) and selected_sources:
+        return len(selected_sources)
+    return _memo_catalog_source_trace_count(task)
+
+
+def _memo_task_evidence_coverage(task: dict) -> float:
+    if task.get("status") != "done":
+        return 0.0
+    evidence_count = len(task.get("supporting_evidence") or []) + len(
+        task.get("contradicting_evidence") or []
+    )
+    return 1.0 if evidence_count else 0.0
+
+
+def _memo_run_ledger(session: dict) -> list[dict]:
+    company_id = _safe_id(str(session.get("company_id") or ""))
+    session_id = _safe_id(str(session.get("id") or ""))
+    artifacts = session.get("artifacts") if isinstance(session.get("artifacts"), dict) else {}
+    rows: list[dict] = []
+
+    tool_runs = session.get("tool_runs") if isinstance(session.get("tool_runs"), dict) else {}
+    for tool_name, run in sorted(tool_runs.items()):
+        if not isinstance(run, dict):
+            continue
+        artifact_id = _MEMO_TOOL_ARTIFACT_IDS.get(str(tool_name), str(tool_name))
+        artifact = artifacts.get(artifact_id)
+        updated_at = run.get("last_run_at") or session.get("updated_at")
+        rows.append(
+            run_ledger.normalize_run_ledger_entry(
+                {
+                    "workspace": "memo_tools",
+                    "ledger_id": f"memo_tools:{company_id}:{session_id}:tool:{tool_name}",
+                    "job_kind": str(tool_name),
+                    "artifact_id": artifact_id,
+                    "company_id": company_id,
+                    "session_id": session_id,
+                    "run_id": run.get("run_job_id") or f"{session_id}/{tool_name}",
+                    "status": run.get("status") or "unknown",
+                    "created_at": updated_at,
+                    "updated_at": updated_at,
+                    "failure_reason": run.get("error") or "",
+                    "fallback_used": _memo_tool_fallback_used(run, artifact),
+                    "preserved_previous_artifact": _memo_tool_preserved_artifact(
+                        artifact_id,
+                        run,
+                        artifact,
+                    ),
+                    "source_count": _memo_catalog_source_trace_count(artifact),
+                    "evidence_coverage": 1.0 if _artifact_has_content(artifact) else 0.0,
+                }
+            )
+        )
+
+    research_tasks = artifacts.get("research_tasks")
+    task_rows = (
+        research_tasks.get("tasks")
+        if isinstance(research_tasks, dict) and isinstance(research_tasks.get("tasks"), list)
+        else []
+    )
+    for task in task_rows:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            continue
+        status = str(task.get("status") or "not_started")
+        fallback_used = (
+            task.get("result_generated_by") == "deterministic_fallback"
+            or bool(task.get("fallback"))
+            or "fallback" in str(task.get("error") or "").lower()
+        )
+        preserved = (
+            f"research_task:{task_id}"
+            if status == "error" and bool(task.get("result_summary") or task.get("answer"))
+            else None
+        )
+        rows.append(
+            run_ledger.normalize_run_ledger_entry(
+                {
+                    "workspace": "memo_tools",
+                    "ledger_id": f"memo_tools:{company_id}:{session_id}:research_task:{task_id}",
+                    "job_kind": "research_task",
+                    "artifact_id": f"research_task:{task_id}",
+                    "company_id": company_id,
+                    "session_id": session_id,
+                    "run_id": task.get("run_job_id") or f"{session_id}/{task_id}",
+                    "status": status,
+                    "created_at": task.get("started_at") or task.get("last_run_at") or session.get("created_at"),
+                    "updated_at": task.get("completed_at") or task.get("last_run_at") or session.get("updated_at"),
+                    "duration_ms": _memo_duration_ms(task),
+                    "source_count": _memo_task_source_count(task),
+                    "evidence_coverage": _memo_task_evidence_coverage(task),
+                    "failure_reason": task.get("error") or "",
+                    "fallback_used": fallback_used,
+                    "preserved_previous_artifact": preserved,
+                    "cancellation_reason": (
+                        task.get("error") if status == "cancelled" else ""
+                    ),
+                }
+            )
+        )
+
+    for report in session.get("completed_memo_runs") or []:
+        if not isinstance(report, dict):
+            continue
+        report_id = str(report.get("id") or report.get("run_id") or "").strip()
+        if not report_id:
+            continue
+        rows.append(
+            run_ledger.normalize_run_ledger_entry(
+                {
+                    "workspace": "memo_tools",
+                    "ledger_id": f"memo_tools:{company_id}:{session_id}:generated_memo:{report_id}",
+                    "job_kind": "final_memo_generation",
+                    "artifact_id": f"generated_memo:{report_id}",
+                    "company_id": company_id,
+                    "session_id": session_id,
+                    "run_id": report.get("run_id") or report_id,
+                    "status": report.get("status") or "complete",
+                    "created_at": report.get("created_at") or session.get("created_at"),
+                    "updated_at": report.get("updated_at") or report.get("created_at") or session.get("updated_at"),
+                    "source_count": len(report.get("memo_files") or []),
+                    "evidence_coverage": 1.0,
+                }
+            )
+        )
+
+    return rows
 
 
 def _has_unapproved_work(session: dict | None) -> bool:

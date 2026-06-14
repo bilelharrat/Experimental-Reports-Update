@@ -32,6 +32,9 @@ vi.mock("../src/api.js", () => ({
       cancelStrategyMap: vi.fn(),
       retryStrategyMap: vi.fn(),
       reviewKnowledgeUpdate: vi.fn(),
+      createHypotheses: vi.fn(),
+      evaluateHypotheses: vi.fn(),
+      calibrateHypotheses: vi.fn(),
     },
   },
 }));
@@ -292,6 +295,73 @@ const payload = {
         reviewer_scores: {},
       },
     ],
+    run_ledger: [
+      {
+        ledger_id: "stock_research:stock_tracker:nvidia:run-1",
+        workspace: "stock_research",
+        job_kind: "stock_tracker",
+        artifact_id: "tracker_run:nvidia:run-1",
+        tracker_id: "nvidia",
+        run_id: "run-1",
+        status: "done",
+        updated_at: "2026-06-13T12:00:00Z",
+        duration_ms: 42,
+        source_count: 1,
+        evidence_coverage: 1,
+        estimated_cost_usd: 0,
+      },
+    ],
+  },
+  hypotheses: {
+    summary: {
+      vintage_count: 2,
+      hypothesis_count: 2,
+      pending_count: 1,
+      training_eligible_count: 1,
+    },
+    vintages: [
+      {
+        vintage_date: "2026-06-14",
+        vintage_kind: "forward_live",
+        hypothesis_count: 1,
+        outcome_count: 1,
+        pending_count: 0,
+        training_eligible_count: 1,
+      },
+      {
+        vintage_date: "2026-06-07",
+        vintage_kind: "debug_backfill",
+        hypothesis_count: 1,
+        outcome_count: 0,
+        pending_count: 1,
+        training_eligible_count: 0,
+      },
+    ],
+    rows: [
+      {
+        hypothesis_id: "hyp-live",
+        vintage_date: "2026-06-14",
+        vintage_kind: "forward_live",
+        ticker: "NVDA",
+        claim: "AI demand remains resilient.",
+        direction: "bullish",
+        outcome: {
+          directional_result: "hit",
+          relative_return_pct: 8,
+          eligible_for_training: true,
+        },
+      },
+      {
+        hypothesis_id: "hyp-debug",
+        vintage_date: "2026-06-07",
+        vintage_kind: "debug_backfill",
+        ticker: "NVDA",
+        claim: "Debug claim.",
+        direction: "watch",
+        outcome: null,
+      },
+    ],
+    calibration: [{ eligible_outcome_count: 1 }],
   },
 };
 
@@ -311,6 +381,9 @@ describe("StockResearchView", () => {
     api.stockResearch.retryAggregate.mockResolvedValue({});
     api.stockResearch.retryStrategyMap.mockResolvedValue({});
     api.stockResearch.reviewKnowledgeUpdate.mockResolvedValue({});
+    api.stockResearch.createHypotheses.mockResolvedValue({});
+    api.stockResearch.evaluateHypotheses.mockResolvedValue({});
+    api.stockResearch.calibrateHypotheses.mockResolvedValue({});
   });
 
   it("renders dashboard summary and tracker table", async () => {
@@ -412,6 +485,24 @@ describe("StockResearchView", () => {
     await wrapper.findAll("button").find((button) => button.text() === "Evaluation").trigger("click");
     expect(wrapper.text()).toContain("42 ms");
     expect(wrapper.text()).toContain("Prefer tracker-owned source manifests.");
+
+    await wrapper.findAll("button").find((button) => button.text() === "Hypotheses").trigger("click");
+    expect(wrapper.text()).toContain("AI demand remains resilient.");
+    expect(wrapper.text()).toContain("forward_live");
+    expect(wrapper.text()).toContain("hit");
+    expect(wrapper.text()).toContain("eligible");
+    await wrapper.find("button[title='Evaluate vintage']").trigger("click");
+    await flushPromises();
+    expect(api.stockResearch.evaluateHypotheses).toHaveBeenCalledWith("2026-06-14");
+    await wrapper.findAll("button").find((button) => button.text() === "Debug Backfill").trigger("click");
+    await flushPromises();
+    expect(api.stockResearch.createHypotheses).toHaveBeenCalledWith({
+      vintageDate: "2026-06-07",
+      allowDebugBackfill: true,
+    });
+    await wrapper.findAll("button").find((button) => button.text() === "Calibrate").trigger("click");
+    await flushPromises();
+    expect(api.stockResearch.calibrateHypotheses).toHaveBeenCalled();
   });
 
   it("submits source upload, link, and note assignments", async () => {
@@ -475,6 +566,8 @@ describe("StockResearchView", () => {
 
     await wrapper.findAll("button").find((button) => button.text() === "Runs").trigger("click");
     expect(wrapper.text()).toContain("Latest Report");
+    expect(wrapper.text()).toContain("Normalized Run Ledger");
+    expect(wrapper.text()).toContain("stock tracker");
     expect(wrapper.text()).toContain("Company report body.");
     expect(wrapper.text()).toContain("Current vs Previous");
     expect(wrapper.text()).toContain("running");

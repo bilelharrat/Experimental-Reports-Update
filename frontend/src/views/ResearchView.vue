@@ -54,6 +54,15 @@ const company = ref(null);
 const companyError = ref(null);
 const options = ref({ report_types: [], audiences: [], languages: [] });
 
+const isPublicCompany = computed(() => {
+  const c = company.value;
+  if (!c) return false;
+  return String(c.company_type || "").trim().toLowerCase() === "public";
+});
+const canShowMemoStudio = computed(() =>
+  Boolean(company.value && !isPublicCompany.value),
+);
+
 // Default to the late-stage investment memo — the only fully-wired
 // pipeline. Other types still route through the legacy stub generator.
 const reportType = ref(MEMO_REPORT_TYPE);
@@ -129,16 +138,29 @@ const libraryRefresh = ref(0);
 // route query so a deep-linked URL preserves the tab.
 const activeTab = ref(route.query.tab || "overview");
 function switchTab(name) {
-  activeTab.value = name;
+  const nextTab =
+    name === "analysis" && company.value && !canShowMemoStudio.value
+      ? "overview"
+      : name;
+  activeTab.value = nextTab;
   router.replace({
     name: "research",
     params: { companyId: props.companyId },
-    query: { ...route.query, tab: name === "overview" ? undefined : name },
+    query: { ...route.query, tab: nextTab === "overview" ? undefined : nextTab },
   });
 }
 watch(() => route.query.tab, (v) => {
   activeTab.value = v || "overview";
 });
+function normalizeActiveTabForCompany() {
+  if (activeTab.value === "analysis" && company.value && !canShowMemoStudio.value) {
+    switchTab("overview");
+  }
+}
+watch(
+  [activeTab, canShowMemoStudio, () => company.value?.id],
+  normalizeActiveTabForCompany,
+);
 
 let pollId = null;
 
@@ -235,7 +257,11 @@ async function generate(analysisSessionId = null) {
   const approvedAnalysisId =
     typeof analysisSessionId === "string" ? analysisSessionId : null;
   regularMemoBlocked.value = null;
-  if (!approvedAnalysisId && reportType.value === MEMO_REPORT_TYPE) {
+  if (
+    !approvedAnalysisId &&
+    reportType.value === MEMO_REPORT_TYPE &&
+    canShowMemoStudio.value
+  ) {
     try {
       const analysis = await api.memoAnalysis.get(props.companyId);
       if (analysis?.has_unapproved_work) {
@@ -395,6 +421,7 @@ onUnmounted(stopPolling);
         {{ tr("research.tab_documents") }}
       </button>
       <button
+        v-if="canShowMemoStudio"
         @click="switchTab('analysis')"
         :class="[
           'px-4 py-2 text-sm font-medium focus-ring rounded-t-lg',
@@ -424,7 +451,7 @@ onUnmounted(stopPolling);
     />
 
     <MemoAnalysisDashboard
-      v-if="company && activeTab === 'analysis'"
+      v-if="canShowMemoStudio && activeTab === 'analysis'"
       :company-id="companyId"
       @generate-memo="generate"
     />
@@ -478,7 +505,7 @@ onUnmounted(stopPolling);
         </span>
       </div>
       <div
-        v-if="regularMemoBlocked"
+        v-if="regularMemoBlocked && canShowMemoStudio"
         class="mt-4 rounded-lg border border-warning bg-warning-soft p-4 text-sm text-warning-ink flex items-start justify-between gap-4 flex-wrap"
       >
         <div class="flex items-start gap-2 min-w-0">

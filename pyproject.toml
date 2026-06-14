@@ -21,6 +21,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "ruff>=0.15.17",
 ]
 
 [build-system]
@@ -37,3 +38,25 @@ markers = [
     "e2e: real-Claude end-to-end tests; skipped by default (run with `pytest -m e2e`)",
 ]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+    "data",
+    "frontend",
+    "pres",
+]
+
+[tool.ruff.lint]
+# The repository-wide gate starts with parse/syntax safety. Broader pyflakes
+# cleanup and full formatting are applied to new hypothesis files first because
+# existing modules still contain known unused imports and wide prose fixtures.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.ruff.lint.per-file-ignores]
+# server/api.py keeps StreamingResponse imports local to SSE endpoints.
+"server/api.py" = ["F821"]
+
+[tool.ruff.format]
+quote-style = "preserve"

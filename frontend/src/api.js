@@ -299,6 +299,8 @@ export const api = {
       request(`/api/companies/${companyId}/memo-analysis`),
     getCatalog: (companyId) =>
       request(`/api/companies/${companyId}/memo-analysis/catalog`),
+    runLedger: (companyId) =>
+      request(`/api/companies/${companyId}/memo-analysis/run-ledger`, { timeoutMs: 15000 }),
     runTool: (companyId, toolName) =>
       request(
         `/api/companies/${companyId}/memo-analysis/tools/${encodeURIComponent(toolName)}/run`,
@@ -612,6 +614,32 @@ export const api = {
         `/api/stock-research/trackers/${encodeURIComponent(trackerId)}/runs/${encodeURIComponent(runId)}/knowledge/${encodeURIComponent(updateId)}`,
         { method: "PATCH", body: JSON.stringify(patch) },
       ),
+    listHypotheses: () =>
+      request("/api/stock-research/hypotheses", { timeoutMs: 15000 }),
+    createHypotheses: ({ vintageDate, allowDebugBackfill = false, horizonDays = 7 } = {}) =>
+      request("/api/stock-research/hypotheses/create", {
+        method: "POST",
+        body: JSON.stringify({
+          vintage_date: vintageDate,
+          allow_debug_backfill: allowDebugBackfill,
+          horizon_days: horizonDays,
+        }),
+        timeoutMs: 15000,
+      }),
+    evaluateHypotheses: (vintageDate, payload = {}) =>
+      request(
+        `/api/stock-research/hypotheses/${encodeURIComponent(vintageDate)}/evaluate`,
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+          timeoutMs: 15000,
+        },
+      ),
+    calibrateHypotheses: () =>
+      request("/api/stock-research/hypotheses/calibrate", {
+        method: "POST",
+        timeoutMs: 15000,
+      }),
   },
 
   listThreads: (companyId) =>

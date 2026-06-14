@@ -110,6 +110,8 @@ def _edgar_search(q: str, limit: int) -> list[dict]:
             "ticker": row["ticker"],
             "name": row["name"].title() if row["name"].isupper() else row["name"],
             "exchange": None,
+            "status": "public",
+            "company_type": "public",
         }
         for _, row in scored[:limit]
     ]
@@ -167,6 +169,8 @@ def _load_researched() -> list[dict]:
                         "sector": c.get("sector"),
                         "industry": c.get("industry"),
                         "exchange": c.get("exchange"),
+                        "status": c.get("status"),
+                        "company_type": c.get("company_type"),
                     }
         _RESEARCHED_CACHE = list(seen.values())
         _RESEARCHED_AT = now
@@ -213,6 +217,8 @@ def _researched_search(q: str, limit: int) -> list[dict]:
                 "industry": c.get("industry"),
                 "exchange": c.get("exchange"),
                 "description": c.get("description"),
+                "status": c.get("status"),
+                "company_type": c.get("company_type"),
             }
         )
     return out
@@ -283,6 +289,8 @@ def autocomplete(query: str, limit: int = 8) -> list[dict]:
                 "name": c.get("name"),
                 "sector": c.get("sector"),
                 "description": c.get("description"),
+                "status": c.get("status"),
+                "company_type": c.get("company_type"),
             }
         )
 

@@ -40,6 +40,7 @@ vi.mock("../src/api.js", () => ({
     memoAnalysis: {
       get: vi.fn(),
       getEvidenceMatrix: vi.fn(),
+      runLedger: vi.fn(),
       runTool: vi.fn(),
       cancelTask: vi.fn(),
       runSelectedTasks: vi.fn(),
@@ -113,7 +114,7 @@ function memoSession() {
   };
 }
 
-async function mountRoute(path) {
+async function mountRouteWithRouter(path) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -132,6 +133,11 @@ async function mountRoute(path) {
     global: { plugins: [router] },
   });
   await flushPromises();
+  return { wrapper, router };
+}
+
+async function mountRoute(path) {
+  const { wrapper } = await mountRouteWithRouter(path);
   return wrapper;
 }
 
@@ -153,6 +159,7 @@ describe("route smoke tests", () => {
     api.listThreads.mockResolvedValue([]);
     api.memoAnalysis.get.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
+    api.memoAnalysis.runLedger.mockResolvedValue([]);
   });
 
   it("renders the Stock Research route shell", async () => {
@@ -169,5 +176,44 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).toContain("Generalist");
     expect(wrapper.text()).toContain("Memo Tools Toolbox");
     expect(wrapper.text()).toContain("Work Products");
+  });
+
+  it("hides Memo Studio for companies remembered as public tickers", async () => {
+    api.getCompany.mockResolvedValue({
+      id: "public-ticker",
+      name: "Public Ticker Co",
+      ticker: "PTCO",
+      company_type: "public",
+      status: "public",
+      files: [],
+    });
+
+    const { wrapper, router } = await mountRouteWithRouter("/research/public-ticker?tab=analysis");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Public Ticker Co");
+    expect(wrapper.text()).not.toContain("Memo Studio");
+    expect(wrapper.text()).not.toContain("Memo Tools Toolbox");
+    expect(api.memoAnalysis.get).not.toHaveBeenCalled();
+    expect(router.currentRoute.value.query.tab).toBeUndefined();
+  });
+
+  it("does not classify private companies from ticker text in the route", async () => {
+    api.getCompany.mockResolvedValue({
+      id: "private-with-ticker",
+      name: "Private Ticker Co",
+      ticker: "PTCO",
+      company_type: "private",
+      status: "private",
+      files: [],
+    });
+
+    const wrapper = await mountRoute("/research/private-with-ticker?tab=analysis");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Private Ticker Co");
+    expect(wrapper.text()).toContain("Memo Studio");
+    expect(wrapper.text()).toContain("Memo Tools Toolbox");
+    expect(api.memoAnalysis.get).toHaveBeenCalledWith("private-with-ticker");
   });
 });

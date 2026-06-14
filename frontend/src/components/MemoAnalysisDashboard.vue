@@ -2,15 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   AlertTriangle,
-  CheckCircle2,
-  FileText,
   Loader2,
   Save,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import RunLedgerTable from "./RunLedgerTable.vue";
 import MemoBenchmarkPanel from "./memo/MemoBenchmarkPanel.vue";
 import MemoChartPlansPanel from "./memo/MemoChartPlansPanel.vue";
 import MemoEvidenceMatrixPanel from "./memo/MemoEvidenceMatrixPanel.vue";
+import MemoGeneratedMemoControlsPanel from "./memo/MemoGeneratedMemoControlsPanel.vue";
 import MemoNarrativeHooksPanel from "./memo/MemoNarrativeHooksPanel.vue";
 import MemoReadinessPanel from "./memo/MemoReadinessPanel.vue";
 import MemoResearchTasksPanel from "./memo/MemoResearchTasksPanel.vue";
@@ -39,6 +39,8 @@ const batchStatus = ref(null);
 const evidenceMatrix = ref(null);
 const evidenceMatrixError = ref(null);
 const evidenceStatusFilter = ref("all");
+const memoRunLedger = ref([]);
+const memoRunLedgerError = ref(null);
 const thesisDraft = ref(null);
 const chartSpecsDraft = ref([]);
 const benchmarkDraft = ref(null);
@@ -740,6 +742,7 @@ async function load() {
   try {
     session.value = await api.memoAnalysis.get(props.companyId);
     await loadEvidenceMatrix();
+    await loadRunLedger();
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -754,6 +757,16 @@ async function loadEvidenceMatrix() {
   } catch (e) {
     evidenceMatrix.value = null;
     evidenceMatrixError.value = e.message || String(e);
+  }
+}
+
+async function loadRunLedger() {
+  memoRunLedgerError.value = null;
+  try {
+    memoRunLedger.value = await api.memoAnalysis.runLedger(props.companyId);
+  } catch (e) {
+    memoRunLedger.value = [];
+    memoRunLedgerError.value = e.message || String(e);
   }
 }
 
@@ -774,6 +787,7 @@ async function refreshRunningTasks() {
   try {
     session.value = await api.memoAnalysis.get(props.companyId);
     await loadEvidenceMatrix();
+    await loadRunLedger();
   } catch {
     // Keep the current session visible; the AI Tasks rail still shows logs.
   } finally {
@@ -794,6 +808,7 @@ async function runTool(toolName) {
   try {
     session.value = await api.memoAnalysis.runTool(props.companyId, toolName);
     if (hasRunningWork.value) ensureTaskPolling();
+    await loadRunLedger();
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -810,6 +825,7 @@ async function runResearchTask(taskId) {
     batchStatus.value = null;
     if (hasRunningWork.value) ensureTaskPolling();
     await loadEvidenceMatrix();
+    await loadRunLedger();
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -827,6 +843,7 @@ async function runSelectedTasks() {
     session.value = updated;
     if (hasRunningWork.value) ensureTaskPolling();
     await loadEvidenceMatrix();
+    await loadRunLedger();
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -841,6 +858,7 @@ async function cancelResearchTask(taskId) {
   try {
     session.value = await api.memoAnalysis.cancelTask(props.companyId, taskId);
     await loadEvidenceMatrix();
+    await loadRunLedger();
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -1042,39 +1060,17 @@ watch(additionalAreas, (areas) => {
 
 <template>
   <div class="space-y-6">
-    <div class="flex items-start justify-between gap-4 flex-wrap">
-      <div>
-        <h2 class="font-display text-xl font-semibold text-ink-primary">
-          Memo Studio
-        </h2>
-        <div v-if="session" class="mt-1 text-xs text-ink-muted font-mono">
-          {{ session.id }} · {{ session.status }}
-        </div>
-      </div>
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          @click="approve"
-          :disabled="approving || loading || approved || !readyForApproval"
-          :title="approvalTitle()"
-          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-sm"
-        >
-          <Loader2 v-if="approving" class="h-4 w-4 animate-spin" />
-          <CheckCircle2 v-else class="h-4 w-4" />
-          <span>{{ approved ? "Approved" : "Approve analysis" }}</span>
-        </button>
-        <button
-          type="button"
-          @click="generateFromAnalysis"
-          :disabled="!canGenerateMemo"
-          :title="canGenerateMemo ? 'Generate memo' : 'Resolve blockers, approve analysis, and approve the thesis spine first'"
-          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-ring text-sm"
-        >
-          <FileText class="h-4 w-4" />
-          <span>Generate memo</span>
-        </button>
-      </div>
-    </div>
+    <MemoGeneratedMemoControlsPanel
+      :session="session"
+      :approved="approved"
+      :approving="approving"
+      :loading="loading"
+      :ready-for-approval="readyForApproval"
+      :can-generate-memo="canGenerateMemo"
+      :approval-title="approvalTitle()"
+      @approve="approve"
+      @generate-memo="generateFromAnalysis"
+    />
 
     <div
       v-if="error"
@@ -1111,6 +1107,20 @@ watch(additionalAreas, (areas) => {
         :source-trace-rows="memoSourceTraceRows"
         :source-boundary-rows="memoSourceBoundaryRows"
       />
+
+      <RunLedgerTable
+        :rows="memoRunLedger"
+        title="Memo Run Ledger"
+        description="Normalized rows for analysis tools, research tasks, and final memo generation."
+        empty-text="No Memo Tools run ledger rows yet."
+      />
+
+      <div
+        v-if="memoRunLedgerError"
+        class="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning-ink"
+      >
+        {{ memoRunLedgerError }}
+      </div>
 
       <MemoToolLauncherPanel
         :tools="session.tools"

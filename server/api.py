@@ -51,6 +51,8 @@ from . import (
     hormuz_console,
     hormuz_prep,
     hormuz_store,
+    hypothesis_cycle,
+    hypothesis_store,
     job_progress,
     link_preview as link_preview_mod,
     memo_prep,
@@ -516,6 +518,8 @@ class SelectMatch(BaseModel):
     sector: str | None = None
     industry: str | None = None
     exchange: str | None = None
+    status: str | None = None
+    company_type: str | None = None
 
 
 @router.get("/options")
@@ -1221,6 +1225,67 @@ def get_stock_research_doctor() -> dict:
     return stock_research.stock_research_doctor()
 
 
+@router.get("/stock-research/hypotheses")
+def list_stock_research_hypotheses(
+    vintage_kind: str | None = None,
+) -> dict:
+    payload = hypothesis_store.hypothesis_dashboard_payload()
+    if vintage_kind:
+        rows = [
+            row for row in payload.get("rows") or []
+            if row.get("vintage_kind") == vintage_kind
+        ]
+        payload = {**payload, "rows": rows}
+    return payload
+
+
+@router.get("/stock-research/hypotheses/calibration")
+def list_stock_research_hypothesis_calibration() -> list[dict]:
+    return hypothesis_store.list_training_summaries()
+
+
+@router.get("/stock-research/hypotheses/{vintage_date}")
+def get_stock_research_hypothesis_vintage(vintage_date: str) -> dict:
+    try:
+        return hypothesis_store.get_vintage(vintage_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/hypotheses/create", status_code=201)
+def create_stock_research_hypotheses(payload: dict) -> dict:
+    try:
+        return hypothesis_cycle.create_hypotheses(
+            vintage_date=str(payload.get("vintage_date") or ""),
+            allow_debug_backfill=bool(payload.get("allow_debug_backfill")),
+            horizon_days=int(payload.get("horizon_days") or 7),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/hypotheses/{vintage_date}/evaluate")
+def evaluate_stock_research_hypotheses(vintage_date: str, payload: dict | None = None) -> dict:
+    payload = payload or {}
+    try:
+        adapter = hypothesis_cycle.FixtureMarketDataAdapter(
+            payload.get("prices") if isinstance(payload.get("prices"), dict) else {},
+            source_name=str(payload.get("market_data_source") or "fixture"),
+        )
+        return hypothesis_cycle.evaluate_vintage(
+            vintage_date,
+            adapter=adapter,
+            benchmark_ticker=str(payload.get("benchmark_ticker") or "SPY"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/stock-research/hypotheses/calibrate")
+def calibrate_stock_research_hypotheses() -> dict:
+    return hypothesis_cycle.calibrate()
+
+
 @router.patch("/stock-research/trackers/{tracker_id}/runs/{run_id}/review")
 def update_stock_research_run_review(
     tracker_id: str,
@@ -1673,6 +1738,16 @@ def get_memo_analysis_catalog(company_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
         return serena_analysis.memo_work_product_catalog(company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/memo-analysis/run-ledger")
+def get_memo_analysis_run_ledger(company_id: str) -> list[dict]:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return serena_analysis.list_run_ledger(company_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

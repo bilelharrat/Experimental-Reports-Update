@@ -128,6 +128,56 @@ const stockPayload = {
         reviewer_scores: {},
       },
     ],
+    run_ledger: [
+      {
+        ledger_id: "stock_research:stock_tracker:nvidia:run-1",
+        workspace: "stock_research",
+        job_kind: "stock_tracker",
+        artifact_id: "tracker_run:nvidia:run-1",
+        tracker_id: "nvidia",
+        run_id: "run-1",
+        status: "done",
+        updated_at: "2026-06-14T12:00:00Z",
+        duration_ms: 42,
+        source_count: 1,
+        evidence_coverage: 0.7,
+        estimated_cost_usd: 0,
+      },
+    ],
+  },
+  hypotheses: {
+    summary: {
+      vintage_count: 1,
+      hypothesis_count: 1,
+      pending_count: 0,
+      training_eligible_count: 1,
+    },
+    vintages: [
+      {
+        vintage_date: "2026-06-14",
+        vintage_kind: "forward_live",
+        hypothesis_count: 1,
+        outcome_count: 1,
+        pending_count: 0,
+        training_eligible_count: 1,
+      },
+    ],
+    rows: [
+      {
+        hypothesis_id: "hyp-live",
+        vintage_date: "2026-06-14",
+        vintage_kind: "forward_live",
+        ticker: "NVDA",
+        claim: "AI demand remains resilient.",
+        direction: "bullish",
+        outcome: {
+          directional_result: "hit",
+          relative_return_pct: 8,
+          eligible_for_training: true,
+        },
+      },
+    ],
+    calibration: [{ eligible_outcome_count: 1 }],
   },
 };
 
@@ -189,6 +239,24 @@ const evidenceMatrix = {
   ],
 };
 
+const memoRunLedger = [
+  {
+    ledger_id: "memo_tools:generalist:session-1:research_task:task-1",
+    workspace: "memo_tools",
+    job_kind: "research_task",
+    artifact_id: "research_task:task-1",
+    company_id: "generalist",
+    session_id: "session-1",
+    run_id: "session-1/task-1",
+    status: "done",
+    updated_at: "2026-06-14T12:00:00Z",
+    duration_ms: 1234,
+    source_count: 1,
+    evidence_coverage: 1,
+    estimated_cost_usd: 0,
+  },
+];
+
 async function mockApi(page) {
   const calls = [];
   await page.addInitScript(() => {
@@ -218,11 +286,24 @@ async function mockApi(page) {
     if (path === "/api/companies/generalist") {
       return json({ id: "generalist", name: "Generalist", files: [], report_type: "Investment Memo (Late-Stage)" });
     }
+    if (path === "/api/companies/public-ticker") {
+      return json({
+        id: "public-ticker",
+        name: "Public Ticker Co",
+        ticker: "PTCO",
+        company_type: "public",
+        status: "public",
+        files: [],
+        trader_snapshot: null,
+      });
+    }
     if (path === "/api/options") {
       return json({ report_types: ["Investment Memo (Late-Stage)"], audiences: ["Internal"], languages: ["en"] });
     }
     if (path === "/api/companies/generalist/threads") return json([]);
+    if (path === "/api/companies/public-ticker/threads") return json([]);
     if (path === "/api/companies/generalist/memo-analysis") return json(memoSession);
+    if (path === "/api/companies/generalist/memo-analysis/run-ledger") return json(memoRunLedger);
     if (path === "/api/companies/generalist/evidence-matrix") return json(evidenceMatrix);
     if (path.startsWith("/api/companies/generalist/memo-analysis/")) return json(memoSession);
     return json({});
@@ -243,6 +324,7 @@ test("stock research tabs render and source forms submit against mocked API", as
   await expect(page.getByText("Transcript")).toBeVisible();
   await page.getByRole("button", { name: "Runs" }).click();
   await expect(page.getByText("NVIDIA tracker report")).toBeVisible();
+  await expect(page.getByText("Normalized Run Ledger")).toBeVisible();
   await page.getByRole("button", { name: "Weekly Aggregate" }).click();
   await expect(page.getByText("AI infrastructure demand remains the key signal.")).toBeVisible();
   await page.getByRole("button", { name: "Strategy Map" }).click();
@@ -253,6 +335,9 @@ test("stock research tabs render and source forms submit against mocked API", as
   await expect(page.getByText("No official source attached")).toBeVisible();
   await page.getByRole("button", { name: "Evaluation" }).click();
   await expect(page.getByText("42 ms")).toBeVisible();
+  await page.getByRole("button", { name: "Hypotheses" }).click();
+  await expect(page.getByText("AI demand remains resilient.")).toBeVisible();
+  await expect(page.getByText("forward_live")).toBeVisible();
 
   await page.getByRole("button", { name: "Sources" }).click();
   await page.getByPlaceholder("Link title").fill("Company transcript");
@@ -283,6 +368,7 @@ test("memo tools analysis route renders panels and submits a mocked task action"
 
   await expect(page.getByRole("heading", { name: "Memo Studio" })).toBeVisible();
   await expect(page.getByText("Memo Tools Toolbox")).toBeVisible();
+  await expect(page.getByText("Memo Run Ledger")).toBeVisible();
   await expect(page.getByText("Deployment depth remains unproven.").first()).toBeVisible();
   await expect(page.getByText("Deployment evidence is mixed.")).toBeVisible();
   await expect(page.getByText("Choose visual mode.").first()).toBeVisible();
@@ -293,4 +379,15 @@ test("memo tools analysis route renders panels and submits a mocked task action"
     calls.filter((call) => call.path === "/api/companies/generalist/memo-analysis/research-tasks/run-selected").length,
   ).toBe(1);
   await expect(page).toHaveURL(/\/research\/research\/generalist\?tab=analysis/);
+});
+
+test("public ticker analysis deep link hides memo tools", async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.goto("/research/research/public-ticker?tab=analysis");
+
+  await expect(page.getByText("Public Ticker Co")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Memo Studio" })).toHaveCount(0);
+  await expect(page.getByText("Memo Tools Toolbox")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/research\/research\/public-ticker$/);
+  expect(calls.some((call) => call.path.includes("/memo-analysis"))).toBe(false);
 });

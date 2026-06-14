@@ -89,6 +89,20 @@ def get_company(company_id: str) -> dict | None:
     return None
 
 
+def _valid_company_type(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in {"public", "private"} else None
+
+
+def _remember_company_type(record: dict, *, force: bool = False) -> None:
+    if not force and _valid_company_type(record.get("company_type")):
+        record["company_type"] = _valid_company_type(record.get("company_type"))
+        return
+    record["company_type"] = infer_company_type(record)
+
+
 def update_company(company_id: str, **patch: Any) -> dict | None:
     """Merge `patch` into the existing company record. Returns the updated
     record or None if the company isn't found.
@@ -99,6 +113,14 @@ def update_company(company_id: str, **patch: Any) -> dict | None:
         for i, c in enumerate(companies):
             if c.get("id") == company_id:
                 c.update(patch)
+                if "company_type" in patch:
+                    explicit_type = _valid_company_type(patch.get("company_type"))
+                    if explicit_type:
+                        c["company_type"] = explicit_type
+                    else:
+                        _remember_company_type(c, force=True)
+                elif "ticker" in patch or "status" in patch:
+                    _remember_company_type(c, force=True)
                 companies[i] = c
                 _write_yaml(COMPANIES_FILE, companies)
                 return c
@@ -271,6 +293,7 @@ def upsert_company_from_match(match: dict) -> dict:
         enrichment = {
             "exchange": match.get("exchange"),
             "status": match.get("status"),
+            "company_type": _valid_company_type(match.get("company_type")),
             "industry": match.get("industry"),
             "hq": match.get("hq"),
             "founded_year": match.get("founded_year"),
@@ -299,9 +322,10 @@ def upsert_company_from_match(match: dict) -> dict:
                 existing["description"] = match["description"]
             if not existing.get("sector") and match.get("sector"):
                 existing["sector"] = match["sector"]
-            # Refresh company_type so a record's bucket tracks new ticker /
-            # status info from the latest deep-search hit.
-            existing["company_type"] = infer_company_type(existing)
+            _remember_company_type(
+                existing,
+                force=not _valid_company_type(match.get("company_type")),
+            )
             companies[found_idx] = existing
             _write_yaml(COMPANIES_FILE, companies)
             return {**existing}
@@ -323,7 +347,7 @@ def upsert_company_from_match(match: dict) -> dict:
             "sector": match.get("sector"),
             **enrichment,
         }
-        new_entry["company_type"] = infer_company_type(new_entry)
+        _remember_company_type(new_entry)
         companies.append(new_entry)
         _write_yaml(COMPANIES_FILE, companies)
         return {**new_entry}

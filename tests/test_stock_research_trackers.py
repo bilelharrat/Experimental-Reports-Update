@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from server import stock_research
+from server import stock_research, stock_research_doctor
 from server.main import app
 
 
@@ -137,6 +137,83 @@ def test_tracker_crud_status_defaults_and_work_product_updates(tmp_stock_root):
     assert stock_research.list_work_products(include_archived=True)[0]["artifact_id"] == "manual:one"
 
 
+def test_work_product_versions_are_immutable_and_chain(tmp_stock_root):
+    export_path = tmp_stock_root / "manual-report.md"
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    export_path.write_text("first generated body", encoding="utf-8")
+
+    first = stock_research.register_work_product(
+        {
+            "artifact_id": "manual:versioned",
+            "artifact_type": "markdown_export",
+            "title": "Versioned report",
+            "status": "needs_review",
+            "source_refs": [{"source_id": "src-1", "excerpt": "First source."}],
+            "export_paths": {"markdown": str(export_path)},
+        }
+    )
+    first_versions = stock_research.list_work_product_versions("manual:versioned")
+
+    assert first["version"] == 1
+    assert first["version_id"]
+    assert first["version_count"] == 1
+    assert first["generated_files"][0]["kind"] == "markdown"
+    assert first["generated_files"][0]["sha256"]
+    assert len(first_versions) == 1
+    first_snapshot_path = Path(first_versions[0]["generated_files"][0]["path"])
+    assert first_snapshot_path.exists()
+    assert first_snapshot_path != export_path
+    assert first_snapshot_path.read_text(encoding="utf-8") == "first generated body"
+
+    approved = stock_research.update_work_product(
+        "manual:versioned",
+        {"status": "approved", "review_state": "resolved", "reviewer": "Serena"},
+    )
+
+    assert approved["latest_review_action"]["action"] == "approved"
+    assert stock_research.list_work_product_versions("manual:versioned") == first_versions
+
+    unchanged = stock_research.register_work_product(
+        {
+            "artifact_id": "manual:versioned",
+            "artifact_type": "markdown_export",
+            "title": "Versioned report",
+            "status": "needs_review",
+            "source_refs": [{"source_id": "src-1", "excerpt": "First source."}],
+            "export_paths": {"markdown": str(export_path)},
+        }
+    )
+
+    assert unchanged["version"] == 1
+    assert unchanged["status"] == "approved"
+    assert len(stock_research.list_work_product_versions("manual:versioned")) == 1
+
+    export_path.write_text("second generated body", encoding="utf-8")
+    second = stock_research.register_work_product(
+        {
+            "artifact_id": "manual:versioned",
+            "artifact_type": "markdown_export",
+            "title": "Versioned report",
+            "status": "needs_review",
+            "source_refs": [{"source_id": "src-2", "excerpt": "Second source."}],
+            "export_paths": {"markdown": str(export_path)},
+        }
+    )
+    chain = stock_research.work_product_version_chain("manual:versioned")
+
+    assert second["version"] == 2
+    assert second["version_count"] == 2
+    assert second["status"] == "needs_review"
+    assert second["supersedes_version_id"] == first["version_id"]
+    assert [row["version"] for row in chain] == [2, 1]
+    assert chain[0]["supersedes_version_id"] == chain[1]["version_id"]
+    assert Path(chain[0]["generated_files"][0]["path"]).read_text(encoding="utf-8") == "second generated body"
+    assert Path(chain[1]["generated_files"][0]["path"]).read_text(encoding="utf-8") == "first generated body"
+    assert "version_generated_file_changed" not in {
+        issue["type"] for issue in stock_research.stock_research_doctor()["issues"]
+    }
+
+
 def test_source_assignment_prompt_and_tracker_output_preserve_traces(tmp_stock_root):
     stock_research.seed_tracker_registry()
     assert stock_research.TRACKER_OUTPUT_SCHEMA["properties"]["tracker_type"][
@@ -257,6 +334,96 @@ def test_doctor_reports_missing_source_files_and_run_ledger(tmp_stock_root):
         and entry["source_quality"]["average"] > 0
         for entry in ledger
     )
+
+
+def test_doctor_reports_stale_catalog_and_ledger_issues(tmp_stock_root):
+    stock_research.seed_tracker_registry()
+    period_id = "2026-06-08_to_2026-06-14"
+    stale_run_id = f"{period_id}-stale"
+    stock_research.job_progress.ProgressLog(
+        stock_research.tracker_progress_path("nvidia", stale_run_id)
+    ).emit(
+        "job_init",
+        kind="stock_tracker",
+        tracker_id="nvidia",
+        run_id=stale_run_id,
+    )
+    stock_research.job_progress.ProgressLog(
+        stock_research.aggregate_progress_path(period_id)
+    ).emit("job_init", kind="stock_aggregate", period_id=period_id)
+    stock_research.job_progress.ProgressLog(
+        stock_research.strategy_map_progress_path(period_id)
+    ).emit("job_init", kind="stock_strategy", period_id=period_id)
+
+    stock_research._write_json(
+        stock_research.catalog_path(),
+        {
+            "work_products": [
+                {
+                    "artifact_id": "manual:orphan",
+                    "artifact_type": "tracker_report",
+                    "title": "Orphaned product",
+                    "status": "draft",
+                    "version": 1,
+                    "created_at": "2026-06-14T00:00:00Z",
+                    "updated_at": "2026-06-14T00:00:00Z",
+                    "source_trace_count": 0,
+                    "review_state": "open",
+                    "pinned": False,
+                    "archived": False,
+                    "tracker_id": "nvidia",
+                    "run_id": "missing-run",
+                    "supersedes": "manual:missing",
+                    "export_paths": {"markdown": str(tmp_stock_root / "missing.md")},
+                    "version_history": [],
+                }
+            ]
+        },
+    )
+    stock_research._write_json(
+        stock_research.run_ledger_path(),
+        {
+            "schema_version": stock_research.RUN_LEDGER_SCHEMA_VERSION,
+            "runs": [
+                {
+                    "ledger_id": "stock_tracker:nvidia:ghost",
+                    "job_kind": "stock_tracker",
+                    "artifact_id": "tracker_run:nvidia:ghost",
+                    "tracker_id": "nvidia",
+                    "run_id": "ghost",
+                    "period_id": period_id,
+                    "status": "done",
+                }
+            ],
+        },
+    )
+
+    doctor = stock_research.stock_research_doctor(max_idle_seconds=0)
+    issue_types = {issue["type"] for issue in doctor["issues"]}
+
+    assert "stale_active_job" in issue_types
+    assert "orphaned_work_product" in issue_types
+    assert "malformed_version_history" in issue_types
+    assert "broken_catalog_version_ref" in issue_types
+    assert "orphaned_run_ledger_row" in issue_types
+
+
+def test_stock_research_doctor_cli_json_and_strict(capsys, tmp_stock_root):
+    stock_research.seed_tracker_registry()
+    stock_research.register_work_product(
+        {
+            "artifact_id": "manual:cli-warning",
+            "artifact_type": "tracker_report",
+            "title": "CLI warning product",
+            "tracker_id": "nvidia",
+            "run_id": "missing-run",
+        }
+    )
+
+    assert stock_research_doctor.main(["--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["warning_count"] >= 1
+    assert stock_research_doctor.main(["--strict", "--max-idle-seconds", "0"]) == 1
 
 
 def test_note_source_and_ocr_handoff_metadata(monkeypatch, tmp_stock_root):
@@ -398,7 +565,85 @@ def test_aggregate_ranks_equal_signals_by_source_quality(tmp_stock_root):
     assert aggregate["ranked_signals"][0]["source_quality_score"] > aggregate[
         "ranked_signals"
     ][1]["source_quality_score"]
+    assert aggregate["ranked_signals"][0]["source_priority"] == "official"
+    assert aggregate["ranked_signals"][0]["primary_source_count"] == 1
+    assert aggregate["ranked_signals"][0]["weak_source_count"] == 0
+    assert "primary source" in aggregate["ranked_signals"][0]["source_quality_reason"]
+    assert aggregate["ranked_signals"][1]["weak_source_count"] == 1
+    assert "weak" in aggregate["ranked_signals"][1]["source_quality_reason"]
     assert aggregate["ranked_signals"][0]["rank_score"] > aggregate["ranked_signals"][1]["rank_score"]
+
+
+def test_source_quality_details_cover_primary_media_note_and_missing_sources(
+    tmp_stock_root,
+):
+    stock_research.seed_tracker_registry()
+    sec = stock_research.create_link_source(
+        {
+            "tracker_ids": ["nvidia"],
+            "title": "10-K filing",
+            "url": "https://investor.example/sec",
+            "priority": "sec_filing",
+        }
+    )["source"]
+    transcript = stock_research.create_link_source(
+        {
+            "tracker_ids": ["nvidia"],
+            "title": "Earnings call transcript",
+            "url": "https://investor.example/transcript",
+            "priority": "earnings_call_transcript",
+        }
+    )["source"]
+    media = stock_research.create_link_source(
+        {
+            "tracker_ids": ["nvidia"],
+            "title": "Reputable media",
+            "url": "https://media.example/story",
+            "priority": "reputable_media",
+        }
+    )["source"]
+    note = stock_research.create_note_source(
+        {
+            "tracker_ids": ["nvidia"],
+            "title": "Unsourced desk note",
+            "body": "Unsourced note.",
+            "priority": "unsourced_note",
+        }
+    )["source"]
+
+    def details(*source_ids):
+        return stock_research._signal_source_quality_details(
+            {
+                "source_tracker_id": "nvidia",
+                "source_traces": [
+                    {"source_id": source_id, "confidence": 0.8}
+                    for source_id in source_ids
+                ],
+            }
+        )
+
+    sec_details = details(sec["id"])
+    transcript_details = details(transcript["id"])
+    media_details = details(media["id"])
+    note_details = details(note["id"])
+    mixed_details = details(sec["id"], note["id"])
+    missing_details = stock_research._signal_source_quality_details(
+        {"source_tracker_id": "nvidia", "source_traces": []}
+    )
+
+    assert sec_details["source_priority"] == "sec_filing"
+    assert sec_details["primary_source_count"] == 1
+    assert transcript_details["source_quality_score"] > media_details[
+        "source_quality_score"
+    ]
+    assert media_details["source_quality_score"] > note_details[
+        "source_quality_score"
+    ]
+    assert note_details["weak_source_count"] == 1
+    assert mixed_details["primary_source_count"] == 1
+    assert mixed_details["weak_source_count"] == 1
+    assert missing_details["source_quality_score"] == 0.0
+    assert missing_details["source_quality_reason"].startswith("No source traces")
 
 
 def test_aggregate_warnings_contradictions_and_raw_context_boundary(tmp_stock_root):

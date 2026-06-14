@@ -10,6 +10,7 @@ const m = vi.hoisted(() => ({
   runSelectedTasks: vi.fn(),
   cancelTask: vi.fn(),
   getEvidenceMatrix: vi.fn(),
+  runLedger: vi.fn(),
   approve: vi.fn(),
 }));
 
@@ -111,6 +112,22 @@ describe("MemoAnalysisDashboard", () => {
       },
     })));
     m.cancelTask.mockImplementation(() => Promise.resolve(baseSession()));
+    m.runLedger.mockResolvedValue([
+      {
+        ledger_id: "memo_tools:generalist:session-1:research_task:task-1",
+        workspace: "memo_tools",
+        job_kind: "research_task",
+        artifact_id: "research_task:task-1",
+        company_id: "generalist",
+        session_id: "session-1",
+        run_id: "session-1/task-1",
+        status: "done",
+        updated_at: "2026-06-14T12:00:00Z",
+        source_count: 1,
+        evidence_coverage: 1,
+        estimated_cost_usd: 0,
+      },
+    ]);
   });
 
   afterEach(() => {
@@ -129,6 +146,8 @@ describe("MemoAnalysisDashboard", () => {
     expect(approveButton.attributes("disabled")).toBeDefined();
     expect(generateButton.attributes("disabled")).toBeDefined();
     expect(wrapper.text()).toContain("Approval blockers");
+    expect(wrapper.text()).toContain("Memo Run Ledger");
+    expect(wrapper.text()).toContain("research task");
 
     await wrapper.find("textarea").setValue("Waived for draft.");
     const waiveButton = wrapper.findAll("button")

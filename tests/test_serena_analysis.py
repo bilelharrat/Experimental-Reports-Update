@@ -5,6 +5,7 @@ import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1574,13 +1575,105 @@ def test_memo_analysis_catalog_metadata_preserves_source_boundaries(
         f"data/serena_analysis/generalist/{session_id}/"
     )
     assert work_products["strategic_risks"]["artifact_type"] == "risk_map"
+    strategy_row = work_products["strategic_risks"]
+    assert strategy_row["version"] == 1
+    assert strategy_row["version_count"] == 1
+    assert strategy_row["version_id"].startswith("strategic_risks:v1:")
+    assert len(strategy_row["generated_files"]) == 1
+    first_strategy_snapshot = Path(strategy_row["generated_files"][0]["path"])
+    assert first_strategy_snapshot.exists()
+    assert "Updated strategic risk title" not in first_strategy_snapshot.read_text(
+        encoding="utf-8"
+    )
+    assert work_products["research_tasks"]["version_count"] == 1
     assert work_products["memo_packet"]["export_paths"] == [
         f"data/serena_analysis/generalist/{session_id}/memo_packet.md"
     ]
+    packet_row = work_products["memo_packet"]
+    assert packet_row["version"] == 1
+    assert packet_row["version_count"] == 1
+    assert packet_row["version_id"].startswith("memo_packet:v1:")
+    first_packet_snapshot = Path(packet_row["generated_files"][0]["path"])
+    assert first_packet_snapshot.exists()
+    assert "Customer expansion evidence" in first_packet_snapshot.read_text(
+        encoding="utf-8"
+    )
     task_row = work_products[f"research_task:{task['id']}"]
     assert task_row["source_trace_count"] == 1
     assert task_row["source_refs"][0]["title"] == "customer-note.txt"
-    assert work_products[f"generated_memo:{report['id']}"]["status"] == "published"
+    evidence_row = work_products["evidence_matrix:current"]
+    assert evidence_row["artifact_type"] == "evidence_matrix"
+    assert evidence_row["version"] == 1
+    assert evidence_row["version_count"] == 1
+    assert evidence_row["version_id"].startswith("evidence_matrix:current:v1:")
+    assert evidence_row["export_paths"] == [
+        f"data/serena_analysis/generalist/{session_id}/evidence_matrix.json"
+    ]
+    first_evidence_snapshot = Path(evidence_row["generated_files"][0]["path"])
+    assert first_evidence_snapshot.exists()
+    first_evidence_payload = json.loads(first_evidence_snapshot.read_text(encoding="utf-8"))
+    assert first_evidence_payload["snapshot_type"] == "memo_evidence_matrix"
+    assert "generated_at" not in first_evidence_payload
+    assert first_evidence_payload["claim_count"] >= 1
+    generated_memo = work_products[f"generated_memo:{report['id']}"]
+    assert generated_memo["status"] == "published"
+    assert generated_memo["version"] == 1
+    assert generated_memo["version_count"] == 1
+    assert len(generated_memo["generated_files"]) == 2
+    assert all(Path(file["path"]).exists() for file in generated_memo["generated_files"])
+
+    raw["artifacts"]["memo_packet"] += "\nSecond packet version.\n"
+    raw["artifacts"]["strategic_risks"]["risks"][0]["title"] = (
+        "Updated strategic risk title"
+    )
+    serena_analysis._write_session(raw)
+    second_catalog = client.get("/api/companies/generalist/memo-analysis/catalog").json()
+    second_products = {
+        row["artifact_id"]: row
+        for row in second_catalog["work_products"]
+    }
+    second_packet = second_products["memo_packet"]
+    assert second_packet["version"] == 2
+    assert second_packet["version_count"] == 2
+    assert second_packet["supersedes_version_id"] == packet_row["version_id"]
+    assert "Second packet version." not in first_packet_snapshot.read_text(
+        encoding="utf-8"
+    )
+    assert "Second packet version." in Path(
+        second_packet["generated_files"][0]["path"]
+    ).read_text(encoding="utf-8")
+    second_strategy = second_products["strategic_risks"]
+    assert second_strategy["version"] == 2
+    assert second_strategy["version_count"] == 2
+    assert second_strategy["supersedes_version_id"] == strategy_row["version_id"]
+    assert "Updated strategic risk title" not in first_strategy_snapshot.read_text(
+        encoding="utf-8"
+    )
+    assert "Updated strategic risk title" in Path(
+        second_strategy["generated_files"][0]["path"]
+    ).read_text(encoding="utf-8")
+    second_evidence = second_products["evidence_matrix:current"]
+    assert second_evidence["version"] == 1
+    assert second_evidence["version_id"] == evidence_row["version_id"]
+
+    raw["artifacts"]["research_tasks"]["tasks"][0]["answer"] = (
+        "Five enterprise deployments are now verified."
+    )
+    serena_analysis._write_session(raw)
+    third_catalog = client.get("/api/companies/generalist/memo-analysis/catalog").json()
+    third_evidence = {
+        row["artifact_id"]: row
+        for row in third_catalog["work_products"]
+    }["evidence_matrix:current"]
+    assert third_evidence["version"] == 2
+    assert third_evidence["version_count"] == 2
+    assert third_evidence["supersedes_version_id"] == evidence_row["version_id"]
+    assert "Five enterprise deployments" not in first_evidence_snapshot.read_text(
+        encoding="utf-8"
+    )
+    assert "Five enterprise deployments" in Path(
+        third_evidence["generated_files"][0]["path"]
+    ).read_text(encoding="utf-8")
 
     boundaries = {
         row["path"]: row
@@ -1597,6 +1690,123 @@ def test_memo_analysis_catalog_metadata_preserves_source_boundaries(
         serialized = json.dumps(row)
         assert "data/uploads/generalist" not in serialized
         assert "legacy-upload.pdf" not in serialized
+
+
+def test_memo_analysis_run_ledger_normalizes_jobs_and_tasks(tmp_path, monkeypatch):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    client = TestClient(app)
+    session = _post_tool(client, "generalist", "strategic_risk_mapper")
+    session = _post_tool(client, "generalist", "priority_prompt_harness")
+    raw = serena_analysis._strip_decorations(copy.deepcopy(session))
+    session_id = raw["id"]
+    now = datetime.now(timezone.utc).isoformat()
+
+    raw["artifacts"]["thesis_spine"] = {
+        "generated_by": "claude_code",
+        "investment_highlights": [{"id": "h1", "claim": "Prior good artifact"}],
+    }
+    raw["tool_runs"]["thesis_spine_builder"] = {
+        "status": "error",
+        "last_run_at": now,
+        "summary": "Interrupted.",
+        "error": "Recovered interrupted run: progress log is missing.",
+        "run_job_id": f"generalist/{session_id}/thesis_spine_builder",
+    }
+
+    tasks = raw["artifacts"]["research_tasks"]["tasks"]
+    done_task = tasks[0]
+    done_task.update({
+        "status": "done",
+        "started_at": now,
+        "completed_at": now,
+        "last_run_at": now,
+        "error": "Claude research fallback: unavailable",
+        "run_job_id": f"generalist/{session_id}/{done_task['id']}",
+        "result_summary": "Fallback answer.",
+        "answer": "Fallback answer.",
+        "supporting_evidence": [
+            {"title": "Customer note", "excerpt": "Support", "confidence": "high"}
+        ],
+        "sources_checked": [{"title": "Customer note"}],
+        "result_generated_by": "deterministic_fallback",
+        "job_metrics": {"duration_ms": 1234},
+    })
+    cancelled_task = tasks[1]
+    cancelled_task.update({
+        "status": "cancelled",
+        "completed_at": now,
+        "last_run_at": now,
+        "cancelled_at": now,
+        "error": "Research task cancelled",
+        "run_job_id": f"generalist/{session_id}/{cancelled_task['id']}",
+    })
+    recovered_task = tasks[2]
+    recovered_task.update({
+        "status": "error",
+        "completed_at": now,
+        "last_run_at": now,
+        "error": "Recovered interrupted run: progress log is missing.",
+        "result_summary": "Previous answer preserved.",
+        "run_job_id": f"generalist/{session_id}/{recovered_task['id']}",
+    })
+    serena_analysis._refresh_memo_packet(raw)
+    serena_analysis._write_session(raw)
+    report = _create_completed_memo_report("generalist", tmp_path)
+
+    response = client.get("/api/companies/generalist/memo-analysis/run-ledger")
+
+    assert response.status_code == 200, response.text
+    by_id = {row["ledger_id"]: row for row in response.json()}
+    priority = by_id[f"memo_tools:generalist:{session_id}:tool:priority_prompt_harness"]
+    assert priority["workspace"] == "memo_tools"
+    assert priority["job_kind"] == "priority_prompt_harness"
+    assert priority["status"] == "done"
+    assert priority["fallback_used"] is False
+
+    risk_mapper = by_id[f"memo_tools:generalist:{session_id}:tool:strategic_risk_mapper"]
+    assert risk_mapper["fallback_used"] is True
+    assert "fallback" in risk_mapper["failure_reason"].lower()
+
+    thesis = by_id[f"memo_tools:generalist:{session_id}:tool:thesis_spine_builder"]
+    assert thesis["status"] == "error"
+    assert thesis["preserved_previous_artifact"] == "thesis_spine"
+
+    done_row = by_id[
+        f"memo_tools:generalist:{session_id}:research_task:{done_task['id']}"
+    ]
+    assert done_row["duration_ms"] == 1234
+    assert done_row["source_count"] == 1
+    assert done_row["evidence_coverage"] == 1.0
+    assert done_row["fallback_used"] is True
+
+    cancelled_row = by_id[
+        f"memo_tools:generalist:{session_id}:research_task:{cancelled_task['id']}"
+    ]
+    assert cancelled_row["status"] == "cancelled"
+    assert cancelled_row["cancellation_reason"] == "Research task cancelled"
+
+    recovered_row = by_id[
+        f"memo_tools:generalist:{session_id}:research_task:{recovered_task['id']}"
+    ]
+    assert recovered_row["status"] == "error"
+    assert recovered_row["preserved_previous_artifact"] == (
+        f"research_task:{recovered_task['id']}"
+    )
+
+    generated = by_id[f"memo_tools:generalist:{session_id}:generated_memo:{report['id']}"]
+    assert generated["job_kind"] == "final_memo_generation"
+    assert generated["artifact_id"] == f"generated_memo:{report['id']}"
+    assert generated["source_count"] == 2
 
 
 def test_memo_analysis_flags_meaningful_unapproved_work(tmp_path, monkeypatch):

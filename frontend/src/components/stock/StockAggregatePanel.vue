@@ -22,6 +22,12 @@ const emit = defineEmits([
 function firstTrace(item) {
   return item?.source_traces?.[0] || null;
 }
+
+function qualityLabel(signal) {
+  const score = Number(signal?.source_quality_score);
+  if (Number.isNaN(score)) return "n/a";
+  return score.toFixed(2);
+}
 </script>
 
 <template>
@@ -143,6 +149,7 @@ function firstTrace(item) {
               <th class="px-3 py-2">Signal</th>
               <th class="px-3 py-2">Tracker</th>
               <th class="px-3 py-2">Direction</th>
+              <th class="px-3 py-2">Quality</th>
               <th class="px-3 py-2">Sources</th>
               <th class="px-3 py-2">Trace Preview</th>
             </tr>
@@ -152,6 +159,12 @@ function firstTrace(item) {
               <td class="max-w-xl px-3 py-2">{{ signal.observation }}</td>
               <td class="px-3 py-2">{{ signal.source_tracker_id }}</td>
               <td class="px-3 py-2">{{ signal.direction }}</td>
+              <td class="min-w-48 px-3 py-2">
+                <div class="font-medium">{{ qualityLabel(signal) }}</div>
+                <div class="mt-1 text-xs text-ink-muted">
+                  {{ signal.source_quality_reason || signal.source_priority || "n/a" }}
+                </div>
+              </td>
               <td class="px-3 py-2">{{ signal.source_traces?.length || 0 }}</td>
               <td class="max-w-md px-3 py-2 text-ink-secondary">
                 <div v-if="firstTrace(signal)" class="line-clamp-2">
@@ -162,7 +175,7 @@ function firstTrace(item) {
               </td>
             </tr>
             <tr v-if="filteredAggregateSignals.length === 0">
-              <td colspan="5" class="px-3 py-8 text-center text-sm text-ink-muted">
+              <td colspan="6" class="px-3 py-8 text-center text-sm text-ink-muted">
                 No aggregate signals yet.
               </td>
             </tr>

@@ -30,8 +30,10 @@ Current state:
 
 - Extracted: `StockResearchHomePanel.vue`.
 - Extracted: `StockWorkProductsPanel.vue`.
-- Still in parent view: tracker table, source intake, runs, aggregate, strategy
-  map, review queue, and evaluation.
+- Extracted after baseline: tracker table, source intake, runs, aggregate,
+  strategy map, review queue, and evaluation panels.
+- Remaining: keep an eye on parent-view orchestration size during future UI
+  work; no known tab template remains intentionally embedded in the parent.
 
 Planned components:
 
@@ -68,9 +70,12 @@ stable panels from the deferred Phase 7 list.
 Current state:
 
 - Extracted: `MemoToolboxPanel.vue`.
-- Still in dashboard: readiness header, tool launcher, risk priority controls,
-  research task queue, evidence matrix, source brief, chart plans, narrative
-  hooks, benchmark, memo grader, and generated memo controls.
+- Extracted after baseline: readiness header, tool launcher, risk priority
+  controls, research task queue, evidence matrix, source brief, chart plans,
+  narrative hooks, benchmark, and memo grader panels.
+- Extracted after baseline: generated memo approval and launch controls.
+- Remaining: no known Memo Tools panel template remains intentionally embedded
+  in the dashboard orchestration surface.
 
 Planned components:
 
@@ -84,6 +89,7 @@ Planned components:
 - `frontend/src/components/memo/MemoNarrativeHooksPanel.vue`
 - `frontend/src/components/memo/MemoBenchmarkPanel.vue`
 - `frontend/src/components/memo/MemoGraderPanel.vue`
+- `frontend/src/components/memo/MemoGeneratedMemoControlsPanel.vue`
 
 Implementation notes:
 
@@ -109,7 +115,10 @@ rendering, and mocked form submissions in an actual browser environment.
 Current state:
 
 - `frontend/tests/RouteSmoke.spec.js` uses Vitest + jsdom.
-- There is no Playwright or Vitest browser-mode pass.
+- Implemented after baseline: Playwright smoke coverage in
+  `frontend/tests/browser/stock-memo-smoke.spec.js`.
+- Implemented after baseline: `frontend/package.json` has `test:browser` and
+  `frontend/playwright.config.js` runs Vite through Playwright `webServer`.
 
 Recommended approach:
 
@@ -149,9 +158,14 @@ Current state:
 - Implemented checks include missing root, missing tracker files, schema
   mismatch, missing source files, broken source traces, broken aggregate refs,
   broken strategy refs, missing exports, and broken product run refs.
-- Missing: CLI entry point.
-- Missing or incomplete: stale active job reporting and orphaned work-product
-  checks beyond run refs.
+- Implemented after baseline: CLI entry point
+  `python -m server.stock_research_doctor` with `--json`, `--strict`, and
+  `--max-idle-seconds`.
+- Implemented after baseline: stale active tracker/aggregate/strategy progress
+  reporting, orphaned work-product checks, malformed `version_history`,
+  missing supersedes/superseded-by targets, and orphaned run-ledger row checks.
+- Remaining or incomplete: deeper immutable-version validation is deferred to
+  Slice 5 so this doctor remains compatible with the current mutable catalog.
 
 Planned backend work:
 
@@ -169,7 +183,7 @@ Planned backend work:
 
 Acceptance criteria:
 
-- CLI exits `0` for ok, non-zero for `--strict` with errors.
+- CLI exits `0` for ok, non-zero for `--strict` with warnings or errors.
 - API and CLI share the same doctor implementation.
 - Backend tests create each issue class and assert stable issue `type` values.
 
@@ -183,8 +197,30 @@ Current state:
 - Stock Research work products have `artifact_id`, `version`,
   `version_history`, `supersedes`, `superseded_by`, `export_paths`, reviewer,
   status, and review state.
-- Memo Tools catalog currently emits `version: 1` rows from session artifacts.
-- There is no durable `version_id` model or immutable generated-file ledger.
+- Implemented after baseline: Stock Research now writes immutable
+  `work_product_versions.json` records with `version_id`,
+  `supersedes_version_id`, generated-file snapshots and hashes, source refs,
+  and action-log creation events.
+- Implemented after baseline: Stock Research catalog rows expose
+  `version_count`, current `version_id`, `generated_files`, and
+  `latest_review_action` while preserving existing compatibility fields.
+- Implemented after baseline: Stock Research doctor validates missing immutable
+  version rows, broken version chains, missing generated files, and generated
+  file hash drift.
+- Implemented after baseline: Memo Tools memo-packet and generated-memo
+  catalog rows now sync a session-local `memo_work_product_versions.json`
+  ledger with `version_id`, `supersedes_version_id`, generated-file snapshots,
+  hashes, source refs, and action-log creation events.
+- Implemented after baseline: Memo Tools persisted analysis artifacts now join
+  that immutable ledger when their backing YAML or Markdown files exist,
+  including strategic risks, priorities, thesis spine, benchmarks, source
+  briefs, chart plans, narrative hooks, grader output, readiness reviews,
+  research-task catalogs, and memo lessons.
+- Implemented after baseline: the derived evidence-matrix catalog row now writes
+  a deterministic session-local JSON snapshot and joins the same immutable memo
+  version ledger.
+- Remaining: no known Stock Research or Memo Tools file-backed work-product row
+  is intentionally excluded from immutable versioning.
 
 Target model:
 
@@ -224,8 +260,15 @@ jobs.
 Current state:
 
 - Stock Research has `run-ledger.json` and `/api/stock-research/run-ledger`.
-- Memo Tools has job metadata and progress logs, but no normalized run-ledger
-  API/model equivalent to Stock Research.
+- Implemented after baseline: shared run-ledger normalization now lives in
+  `server/run_ledger.py`, and Stock Research delegates to it while preserving
+  its existing API shape.
+- Implemented after baseline: Memo Tools exposes
+  `/api/companies/{company_id}/memo-analysis/run-ledger`, with normalized rows
+  for analysis-tool runs, research-task runs, and completed final memo outputs.
+- Implemented after baseline: Stock Research and Memo Tools render normalized
+  run rows through the shared `RunLedgerTable.vue` frontend component.
+- Remaining: no known run-ledger UI normalization gap.
 
 Target ledger fields:
 
@@ -286,6 +329,15 @@ Current state:
 - `SOURCE_PRIORITY_SCORES` exists.
 - Aggregate ranking uses signal importance, signal confidence, and
   `source_quality_score`.
+- Implemented after baseline: aggregate ranking now recognizes explicit source
+  categories for SEC filings, company releases, transcripts, investor decks,
+  regulatory filings, primary datasets, broker notes, reputable/weak media,
+  analyst notes, and unsourced notes.
+- Implemented after baseline: ranked signals now include `source_priority`,
+  `source_quality_reason`, `primary_source_count`, and `weak_source_count`;
+  no-trace and weak/note-only signals are penalized.
+- Implemented after baseline: the aggregate UI shows the quality score and
+  compact reason beside each ranked signal.
 
 Planned improvements:
 
@@ -344,4 +396,3 @@ npm --prefix frontend run test:browser
 python -m py_compile server/stock_research.py server/serena_analysis.py server/api.py server/claude_runner.py
 git diff --check
 ```
-
