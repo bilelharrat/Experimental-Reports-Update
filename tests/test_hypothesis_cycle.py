@@ -19,6 +19,27 @@ def client(tmp_stock_root):
     return TestClient(app)
 
 
+def _schema_ref_name(schema: dict) -> str | None:
+    if "$ref" in schema:
+        return str(schema["$ref"]).rsplit("/", 1)[-1]
+    if "items" in schema:
+        return _schema_ref_name(schema["items"])
+    for key in ("allOf", "anyOf", "oneOf"):
+        for item in schema.get(key) or []:
+            name = _schema_ref_name(item)
+            if name:
+                return name
+    return None
+
+
+def _operation_response_schema(operation: dict, status: str = "200") -> dict:
+    return operation["responses"][status]["content"]["application/json"]["schema"]
+
+
+def _operation_request_schema(operation: dict) -> dict:
+    return operation["requestBody"]["content"]["application/json"]["schema"]
+
+
 def _write_aggregate(
     *,
     period_id: str = "2026-06-08_to_2026-06-14",
@@ -70,6 +91,74 @@ def _write_aggregate(
     )
     stock_research._write_weekly_aggregate(aggregate)
     return aggregate
+
+
+def test_stock_research_openapi_exposes_contract_models(client):
+    spec = client.get("/openapi.json").json()
+    schemas = set(spec["components"]["schemas"])
+    assert {
+        "HypothesisCreateRequest",
+        "HypothesisCreateResponse",
+        "HypothesisDashboardPayload",
+        "HypothesisEvaluateRequest",
+        "HypothesisEvaluateResponse",
+        "HypothesisOutcome",
+        "HypothesisSnapshot",
+        "HypothesisTrainingSummary",
+        "HypothesisVintagePayload",
+        "StockResearchDashboardPayload",
+        "StockResearchDoctorPayload",
+        "StockResearchRunLedgerRow",
+        "StockResearchWorkProductRow",
+        "StockResearchWorkProductVersion",
+    }.issubset(schemas)
+
+    paths = spec["paths"]
+    assert (
+        _schema_ref_name(_operation_response_schema(paths["/api/stock-research"]["get"]))
+        == "StockResearchDashboardPayload"
+    )
+    assert (
+        _schema_ref_name(_operation_response_schema(paths["/api/stock-research/doctor"]["get"]))
+        == "StockResearchDoctorPayload"
+    )
+    assert (
+        _schema_ref_name(_operation_response_schema(paths["/api/stock-research/run-ledger"]["get"]))
+        == "StockResearchRunLedgerRow"
+    )
+    assert (
+        _schema_ref_name(
+            _operation_response_schema(paths["/api/stock-research/work-products"]["get"])
+        )
+        == "StockResearchWorkProductRow"
+    )
+
+    list_operation = paths["/api/stock-research/hypotheses"]["get"]
+    create_operation = paths["/api/stock-research/hypotheses/create"]["post"]
+    evaluate_operation = paths["/api/stock-research/hypotheses/{vintage_date}/evaluate"]["post"]
+    calibrate_operation = paths["/api/stock-research/hypotheses/calibrate"]["post"]
+    assert (
+        _schema_ref_name(_operation_response_schema(list_operation)) == "HypothesisDashboardPayload"
+    )
+    assert (
+        _schema_ref_name(_operation_request_schema(create_operation)) == "HypothesisCreateRequest"
+    )
+    assert (
+        _schema_ref_name(_operation_response_schema(create_operation, "201"))
+        == "HypothesisCreateResponse"
+    )
+    assert (
+        _schema_ref_name(_operation_request_schema(evaluate_operation))
+        == "HypothesisEvaluateRequest"
+    )
+    assert (
+        _schema_ref_name(_operation_response_schema(evaluate_operation))
+        == "HypothesisEvaluateResponse"
+    )
+    assert (
+        _schema_ref_name(_operation_response_schema(calibrate_operation))
+        == "HypothesisTrainingSummary"
+    )
 
 
 def test_create_command_respects_forward_and_debug_dates(monkeypatch, tmp_stock_root):

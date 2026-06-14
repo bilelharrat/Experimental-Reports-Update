@@ -14,6 +14,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from fastapi import (
@@ -27,8 +28,8 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import (
     auth_store,
@@ -510,6 +511,178 @@ class ThreadIn(BaseModel):
     answer: str = ""
 
 
+class StockResearchRunLedgerRow(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: int | None = None
+    ledger_id: str | None = None
+    workspace: str | None = None
+    job_kind: str | None = None
+    artifact_id: str | None = None
+    run_id: str | None = None
+    tracker_id: str | None = None
+    company_id: str | None = None
+    session_id: str | None = None
+    period_id: str | None = None
+    status: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    duration_ms: int | None = None
+    token_usage: dict[str, Any] | None = None
+    estimated_cost_usd: float | None = None
+    failure_reason: str | None = None
+    fallback_used: bool | None = None
+    preserved_previous_artifact: bool | None = None
+    cancellation_reason: str | None = None
+    source_count: int | None = None
+    evidence_coverage: dict[str, Any] | None = None
+
+
+class StockResearchDoctorIssue(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    severity: str
+    message: str
+
+
+class StockResearchDoctorPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    status: str
+    generated_at: str
+    summary: dict[str, Any] = Field(default_factory=dict)
+    issues: list[StockResearchDoctorIssue] = Field(default_factory=list)
+
+
+class StockResearchWorkProductVersion(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    version_id: str | None = None
+    artifact_id: str | None = None
+    version: int | None = None
+    supersedes_version_id: str | None = None
+    generated_files: list[dict[str, Any]] = Field(default_factory=list)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
+    review_log: list[dict[str, Any]] = Field(default_factory=list)
+    action_log: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str | None = None
+
+
+class StockResearchWorkProductRow(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: int | None = None
+    artifact_id: str
+    artifact_type: str | None = None
+    title: str | None = None
+    status: str | None = None
+    review_state: str | None = None
+    version: int | None = None
+    version_id: str | None = None
+    version_count: int | None = None
+    supersedes: str | None = None
+    superseded_by: str | None = None
+    generated_files: list[dict[str, Any]] = Field(default_factory=list)
+    version_history: list[dict[str, Any]] = Field(default_factory=list)
+    immutable_versions: list[StockResearchWorkProductVersion] = Field(default_factory=list)
+    latest_review_action: dict[str, Any] | None = None
+
+
+class HypothesisDashboardSummary(BaseModel):
+    vintage_count: int = 0
+    hypothesis_count: int = 0
+    pending_count: int = 0
+    training_eligible_count: int = 0
+
+
+class HypothesisVintageSummary(BaseModel):
+    vintage_date: str
+    vintage_kind: hypothesis_store.VintageKind = "forward_live"
+    hypothesis_count: int = 0
+    outcome_count: int = 0
+    pending_count: int = 0
+    training_eligible_count: int = 0
+    kind_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class HypothesisDashboardRow(hypothesis_store.HypothesisSnapshot):
+    outcome: hypothesis_store.HypothesisOutcome | None = None
+
+
+class HypothesisTrainingSummary(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: int = hypothesis_store.TRAINING_SUMMARY_SCHEMA_VERSION
+    summary_id: str | None = None
+    created_at: str | None = None
+    eligible_outcome_count: int = 0
+    hit_rate_by_confidence_bucket: list[dict[str, Any]] = Field(default_factory=list)
+    hit_rate_by_source_category: list[dict[str, Any]] = Field(default_factory=list)
+    hit_rate_by_tracker_type: list[dict[str, Any]] = Field(default_factory=list)
+    average_relative_return_by_direction: list[dict[str, Any]] = Field(default_factory=list)
+    high_confidence_wrong_examples: list[dict[str, Any]] = Field(default_factory=list)
+    weak_source_false_positives: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class HypothesisVintagePayload(BaseModel):
+    schema_version: int = hypothesis_store.HYPOTHESIS_SCHEMA_VERSION
+    vintage_date: str
+    hypotheses: list[hypothesis_store.HypothesisSnapshot] = Field(default_factory=list)
+    outcomes: list[hypothesis_store.HypothesisOutcome] = Field(default_factory=list)
+    rows: list[HypothesisDashboardRow] = Field(default_factory=list)
+
+
+class HypothesisDashboardPayload(BaseModel):
+    schema_version: int = hypothesis_store.HYPOTHESIS_SCHEMA_VERSION
+    generated_at: str
+    summary: HypothesisDashboardSummary
+    vintages: list[HypothesisVintageSummary] = Field(default_factory=list)
+    rows: list[HypothesisDashboardRow] = Field(default_factory=list)
+    latest: HypothesisVintagePayload | None = None
+    calibration: list[HypothesisTrainingSummary] = Field(default_factory=list)
+
+
+class HypothesisCreateRequest(BaseModel):
+    vintage_date: str
+    allow_debug_backfill: bool = False
+    horizon_days: int = Field(default=7, ge=1)
+
+
+class HypothesisCreateResponse(BaseModel):
+    vintage_date: str
+    vintage_kind: hypothesis_store.VintageKind
+    created_count: int
+    hypotheses: list[hypothesis_store.HypothesisSnapshot] = Field(default_factory=list)
+    input_manifest_sha256: str
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class HypothesisEvaluateRequest(BaseModel):
+    prices: dict[str, dict[str, float]] = Field(default_factory=dict)
+    market_data_source: str = "fixture"
+    benchmark_ticker: str = "SPY"
+
+
+class HypothesisEvaluateResponse(BaseModel):
+    vintage_date: str
+    evaluated_count: int
+    outcomes: list[hypothesis_store.HypothesisOutcome] = Field(default_factory=list)
+
+
+class StockResearchDashboardPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: int | None = None
+    generated_at: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+    trackers: list[dict[str, Any]] = Field(default_factory=list)
+    work_products: list[StockResearchWorkProductRow] = Field(default_factory=list)
+    run_ledger: list[StockResearchRunLedgerRow] = Field(default_factory=list)
+    doctor: StockResearchDoctorPayload | None = None
+    hypotheses: HypothesisDashboardPayload | None = None
+
+
 class SelectMatch(BaseModel):
     """Payload for promoting an autocomplete or search hit to a local company."""
     name: str
@@ -875,7 +1048,7 @@ async def stream_weekly_stocks_refresh() -> "StreamingResponse":
 # ---- Stock Research tracker system --------------------------------------
 
 
-@router.get("/stock-research")
+@router.get("/stock-research", response_model=StockResearchDashboardPayload)
 def get_stock_research_dashboard() -> dict:
     """Return the Stock Research toolbox payload."""
     try:
@@ -1176,7 +1349,10 @@ async def stream_stock_research_strategy_map(period_id: str) -> "StreamingRespon
     )
 
 
-@router.get("/stock-research/work-products")
+@router.get(
+    "/stock-research/work-products",
+    response_model=list[StockResearchWorkProductRow],
+)
 def list_stock_research_work_products(
     artifact_type: str | None = None,
     status: str | None = None,
@@ -1215,19 +1391,19 @@ def get_stock_research_evaluation() -> dict:
     return stock_research.list_evaluation()
 
 
-@router.get("/stock-research/run-ledger")
+@router.get("/stock-research/run-ledger", response_model=list[StockResearchRunLedgerRow])
 def get_stock_research_run_ledger() -> list[dict]:
     return stock_research.list_run_ledger()
 
 
-@router.get("/stock-research/doctor")
+@router.get("/stock-research/doctor", response_model=StockResearchDoctorPayload)
 def get_stock_research_doctor() -> dict:
     return stock_research.stock_research_doctor()
 
 
-@router.get("/stock-research/hypotheses")
+@router.get("/stock-research/hypotheses", response_model=HypothesisDashboardPayload)
 def list_stock_research_hypotheses(
-    vintage_kind: str | None = None,
+    vintage_kind: hypothesis_store.VintageKind | None = None,
 ) -> dict:
     payload = hypothesis_store.hypothesis_dashboard_payload()
     if vintage_kind:
@@ -1239,12 +1415,18 @@ def list_stock_research_hypotheses(
     return payload
 
 
-@router.get("/stock-research/hypotheses/calibration")
+@router.get(
+    "/stock-research/hypotheses/calibration",
+    response_model=list[HypothesisTrainingSummary],
+)
 def list_stock_research_hypothesis_calibration() -> list[dict]:
     return hypothesis_store.list_training_summaries()
 
 
-@router.get("/stock-research/hypotheses/{vintage_date}")
+@router.get(
+    "/stock-research/hypotheses/{vintage_date}",
+    response_model=HypothesisVintagePayload,
+)
 def get_stock_research_hypothesis_vintage(vintage_date: str) -> dict:
     try:
         return hypothesis_store.get_vintage(vintage_date)
@@ -1252,36 +1434,49 @@ def get_stock_research_hypothesis_vintage(vintage_date: str) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/stock-research/hypotheses/create", status_code=201)
-def create_stock_research_hypotheses(payload: dict) -> dict:
+@router.post(
+    "/stock-research/hypotheses/create",
+    status_code=201,
+    response_model=HypothesisCreateResponse,
+)
+def create_stock_research_hypotheses(payload: HypothesisCreateRequest) -> dict:
     try:
         return hypothesis_cycle.create_hypotheses(
-            vintage_date=str(payload.get("vintage_date") or ""),
-            allow_debug_backfill=bool(payload.get("allow_debug_backfill")),
-            horizon_days=int(payload.get("horizon_days") or 7),
+            vintage_date=payload.vintage_date,
+            allow_debug_backfill=payload.allow_debug_backfill,
+            horizon_days=payload.horizon_days,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/stock-research/hypotheses/{vintage_date}/evaluate")
-def evaluate_stock_research_hypotheses(vintage_date: str, payload: dict | None = None) -> dict:
-    payload = payload or {}
+@router.post(
+    "/stock-research/hypotheses/{vintage_date}/evaluate",
+    response_model=HypothesisEvaluateResponse,
+)
+def evaluate_stock_research_hypotheses(
+    vintage_date: str,
+    payload: HypothesisEvaluateRequest | None = None,
+) -> dict:
+    payload = payload or HypothesisEvaluateRequest()
     try:
         adapter = hypothesis_cycle.FixtureMarketDataAdapter(
-            payload.get("prices") if isinstance(payload.get("prices"), dict) else {},
-            source_name=str(payload.get("market_data_source") or "fixture"),
+            payload.prices,
+            source_name=payload.market_data_source or "fixture",
         )
         return hypothesis_cycle.evaluate_vintage(
             vintage_date,
             adapter=adapter,
-            benchmark_ticker=str(payload.get("benchmark_ticker") or "SPY"),
+            benchmark_ticker=payload.benchmark_ticker or "SPY",
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/stock-research/hypotheses/calibrate")
+@router.post(
+    "/stock-research/hypotheses/calibrate",
+    response_model=HypothesisTrainingSummary,
+)
 def calibrate_stock_research_hypotheses() -> dict:
     return hypothesis_cycle.calibrate()
 
