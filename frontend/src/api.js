@@ -465,6 +465,8 @@ export const api = {
   // ---- Stock Research tracker workspace ----
   stockResearch: {
     dashboard: () => request("/api/stock-research", { timeoutMs: 15000 }),
+    doctor: () => request("/api/stock-research/doctor", { timeoutMs: 15000 }),
+    runLedger: () => request("/api/stock-research/run-ledger", { timeoutMs: 15000 }),
     listTrackers: ({ includeArchived = false } = {}) =>
       request(
         `/api/stock-research/trackers?include_archived=${includeArchived ? "true" : "false"}`,

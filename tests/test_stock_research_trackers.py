@@ -27,6 +27,7 @@ def assert_metric_fields(metadata: dict):
         "estimated_cost_usd",
         "source_count",
         "source_priority_mix",
+        "source_quality",
         "evidence_coverage",
         "contradiction_count",
         "missing_source_count",
@@ -106,8 +107,11 @@ def test_tracker_crud_status_defaults_and_work_product_updates(tmp_stock_root):
     )
     assert product["schema_version"] == stock_research.WORK_PRODUCT_SCHEMA_VERSION
     assert product["status"] == "draft"
+    assert product["version_history"][0]["action"] == "created"
     pinned = stock_research.update_work_product("manual:one", {"pinned": True})
     assert pinned["pinned"] is True
+    assert pinned["version_history"][-1]["action"] == "updated"
+    assert "pinned" in pinned["version_history"][-1]["changed_fields"]
     approved = stock_research.update_work_product(
         "manual:one",
         {"status": "approved", "review_state": "resolved", "reviewer": "Serena"},
@@ -115,6 +119,9 @@ def test_tracker_crud_status_defaults_and_work_product_updates(tmp_stock_root):
     assert approved["status"] == "approved"
     assert approved["review_state"] == "resolved"
     assert approved["reviewer"] == "Serena"
+    assert {"status", "review_state", "reviewer"} <= set(
+        approved["version_history"][-1]["changed_fields"]
+    )
     superseded = stock_research.update_work_product(
         "manual:one",
         {"status": "superseded", "superseded_by": "manual:two"},
@@ -221,6 +228,37 @@ def test_file_source_extraction_and_missing_file_review_state(tmp_stock_root):
     )
 
 
+def test_doctor_reports_missing_source_files_and_run_ledger(tmp_stock_root):
+    stock_research.seed_tracker_registry()
+    created = stock_research.create_file_source(
+        tracker_ids=["us-macro"],
+        filename="policy-note.txt",
+        content_type="text/plain",
+        data=b"Official source context.",
+        title="Policy note",
+        priority="official",
+    )
+    run = stock_research.run_tracker_now(
+        "us-macro",
+        period_id="2026-06-08_to_2026-06-14",
+    )
+    stored_name = created["assigned"][0]["stored_name"]
+    (stock_research.tracker_sources_dir("us-macro") / stored_name).unlink()
+
+    doctor = stock_research.stock_research_doctor()
+    ledger = stock_research.list_run_ledger()
+
+    assert doctor["status"] == "issues"
+    assert doctor["summary"]["error_count"] >= 1
+    assert any(issue["type"] == "missing_source_file" for issue in doctor["issues"])
+    assert any(
+        entry["job_kind"] == "stock_tracker"
+        and entry["run_id"] == run["run_id"]
+        and entry["source_quality"]["average"] > 0
+        for entry in ledger
+    )
+
+
 def test_note_source_and_ocr_handoff_metadata(monkeypatch, tmp_stock_root):
     stock_research.seed_tracker_registry()
     note = stock_research.create_note_source(
@@ -313,6 +351,54 @@ def test_aggregate_and_strategy_map_require_tracker_source_refs(tmp_stock_root):
     assert all(node.get("source_tracker_refs") for node in strategy_map["nodes"])
     assert all(node.get("source_traces") for node in strategy_map["nodes"])
     assert "not automated trading" in strategy_map["markdown"]
+
+
+def test_aggregate_ranks_equal_signals_by_source_quality(tmp_stock_root):
+    stock_research.seed_tracker_registry()
+    stock_research.create_note_source(
+        {
+            "tracker_ids": ["us-macro"],
+            "title": "Official macro note",
+            "body": "Official source-backed macro signal.",
+            "priority": "official",
+        }
+    )
+    stock_research.create_note_source(
+        {
+            "tracker_ids": ["nvidia"],
+            "title": "Desk note",
+            "body": "Lower-priority analyst note.",
+            "priority": "note",
+        }
+    )
+    macro = stock_research.run_tracker_now(
+        "us-macro",
+        period_id="2026-06-08_to_2026-06-14",
+    )
+    company = stock_research.run_tracker_now(
+        "nvidia",
+        period_id="2026-06-08_to_2026-06-14",
+    )
+    for tracker_id, run_id in [
+        ("us-macro", macro["run_id"]),
+        ("nvidia", company["run_id"]),
+    ]:
+        output = stock_research.get_tracker_run_output(tracker_id, run_id)
+        output["confidence"] = 0.5
+        output["key_signals"][0]["importance"] = 3
+        output["key_signals"][0]["confidence"] = 0.5
+        stock_research._write_json(
+            stock_research.tracker_run_output_path(tracker_id, run_id),
+            output,
+        )
+
+    aggregate = stock_research.run_aggregate_now("2026-06-08_to_2026-06-14")
+
+    assert aggregate["ranked_signals"][0]["source_tracker_id"] == "us-macro"
+    assert aggregate["ranked_signals"][0]["source_quality_score"] > aggregate[
+        "ranked_signals"
+    ][1]["source_quality_score"]
+    assert aggregate["ranked_signals"][0]["rank_score"] > aggregate["ranked_signals"][1]["rank_score"]
 
 
 def test_aggregate_warnings_contradictions_and_raw_context_boundary(tmp_stock_root):
@@ -779,6 +865,15 @@ def test_stock_research_api_dashboard_and_tracker_create(client):
     response = client.get("/api/stock-research")
     assert response.status_code == 200
     assert response.json()["summary"]["tracker_count"] == 3
+    assert "doctor" in response.json()
+
+    doctor = client.get("/api/stock-research/doctor")
+    assert doctor.status_code == 200
+    assert doctor.json()["summary"]["tracker_count"] == 3
+
+    ledger = client.get("/api/stock-research/run-ledger")
+    assert ledger.status_code == 200
+    assert isinstance(ledger.json(), list)
 
     response = client.post(
         "/api/stock-research/trackers",

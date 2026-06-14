@@ -13,7 +13,6 @@ import {
   Link,
   ListChecks,
   Loader2,
-  Pin,
   Play,
   RefreshCw,
   Search,
@@ -22,6 +21,8 @@ import {
   X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import StockResearchHomePanel from "../components/stock/StockResearchHomePanel.vue";
+import StockWorkProductsPanel from "../components/stock/StockWorkProductsPanel.vue";
 
 const tabs = [
   { id: "home", label: "Home", icon: Gauge },
@@ -557,10 +558,6 @@ function fmtConfidence(value) {
   return `${Math.round(n * 100)}%`;
 }
 
-function trackerTypeCount(type) {
-  return summary.value?.tracker_counts_by_type?.[type] || 0;
-}
-
 function canRetryRun(run) {
   return ["error", "cancelled", "recovered"].includes(run.status);
 }
@@ -657,92 +654,16 @@ onMounted(loadDashboard);
         Loading Stock Research
       </div>
 
-      <section v-else-if="activeTab === 'home'" class="space-y-5">
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Trackers</div>
-            <div class="mt-2 text-2xl font-semibold">{{ summary.tracker_count || 0 }}</div>
-            <div class="mt-1 text-xs text-ink-muted">
-              {{ trackerTypeCount("macro") }} macro ·
-              {{ trackerTypeCount("industry") }} industry ·
-              {{ trackerTypeCount("company") }} company
-            </div>
-          </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Due Or Stale</div>
-            <div class="mt-2 text-2xl font-semibold">
-              {{ summary.due_count || 0 }} / {{ summary.stale_count || 0 }}
-            </div>
-            <div class="mt-1 text-xs text-ink-muted">Due trackers / stale trackers</div>
-          </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Review Queue</div>
-            <div class="mt-2 text-2xl font-semibold">
-              {{ summary.open_review_item_count || 0 }}
-            </div>
-            <div class="mt-1 text-xs text-ink-muted">
-              {{ summary.missing_source_warning_count || 0 }} source warnings
-            </div>
-          </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Work Products</div>
-            <div class="mt-2 text-2xl font-semibold">{{ summary.work_product_count || 0 }}</div>
-            <div class="mt-1 text-xs text-ink-muted">
-              {{ summary.source_count || 0 }} assigned sources
-            </div>
-          </div>
-        </div>
-
-        <div class="grid gap-4 xl:grid-cols-2">
-          <section class="rounded-lg border border-subtle bg-surface">
-            <div class="border-b border-subtle px-4 py-3">
-              <h2 class="text-sm font-semibold">Latest Weekly Aggregate</h2>
-            </div>
-            <div class="p-4 text-sm">
-              <div v-if="aggregate" class="space-y-2">
-                <div class="font-medium">{{ aggregate.period_id }}</div>
-                <div class="text-ink-muted">
-                  {{ aggregateSignals.length }} ranked signals ·
-                  {{ aggregate.excluded_tracker_warnings?.length || 0 }} stale warnings
-                </div>
-                <button
-                  type="button"
-                  class="mt-2 inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-xs font-medium hover:bg-surface-muted focus-ring"
-                  @click="setTab('aggregate')"
-                >
-                  Open aggregate
-                </button>
-              </div>
-              <div v-else class="text-ink-muted">
-                No aggregate yet. Run trackers, then create a weekly aggregate.
-              </div>
-            </div>
-          </section>
-          <section class="rounded-lg border border-subtle bg-surface">
-            <div class="border-b border-subtle px-4 py-3">
-              <h2 class="text-sm font-semibold">Latest Strategy Map</h2>
-            </div>
-            <div class="p-4 text-sm">
-              <div v-if="strategyMap" class="space-y-2">
-                <div class="font-medium">{{ strategyMap.period_id }}</div>
-                <div class="text-ink-muted">
-                  {{ strategyNodes.length }} nodes · {{ strategyEdges.length }} edges
-                </div>
-                <button
-                  type="button"
-                  class="mt-2 inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-xs font-medium hover:bg-surface-muted focus-ring"
-                  @click="setTab('strategy')"
-                >
-                  Open strategy map
-                </button>
-              </div>
-              <div v-else class="text-ink-muted">
-                No strategy map yet. Generate one after the weekly aggregate.
-              </div>
-            </div>
-          </section>
-        </div>
-      </section>
+      <StockResearchHomePanel
+        v-else-if="activeTab === 'home'"
+        :summary="summary"
+        :aggregate="aggregate"
+        :aggregate-signal-count="aggregateSignals.length"
+        :strategy-map="strategyMap"
+        :strategy-node-count="strategyNodes.length"
+        :strategy-edge-count="strategyEdges.length"
+        @open-tab="setTab"
+      />
 
       <section v-else-if="activeTab === 'trackers'" class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -1452,136 +1373,23 @@ onMounted(loadDashboard);
         </div>
       </section>
 
-      <section v-else-if="activeTab === 'products'" class="space-y-4">
-        <div class="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold">Work Products</h2>
-            <p class="text-sm text-ink-muted">
-              Cataloged tracker reports, aggregates, strategy maps, and exports.
-            </p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <select
-              v-model="productTypeFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="all">All Types</option>
-              <option v-for="type in productTypes" :key="type" :value="type">{{ type }}</option>
-            </select>
-            <select
-              v-model="productStatusFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="all">All Statuses</option>
-              <option v-for="status in productStatuses" :key="status" :value="status">{{ status }}</option>
-            </select>
-            <select
-              v-model="productTrackerFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="all">All Trackers</option>
-              <option v-for="trackerId in productTrackerIds" :key="trackerId" :value="trackerId">{{ trackerId }}</option>
-            </select>
-            <select
-              v-model="productPeriodFilter"
-              class="rounded-md border border-subtle bg-surface px-3 py-2 text-sm focus-ring"
-            >
-              <option value="all">All Periods</option>
-              <option v-for="period in productPeriods" :key="period" :value="period">{{ period }}</option>
-            </select>
-          </div>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-          <table class="min-w-full text-left text-sm">
-            <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th class="px-3 py-2">Product</th>
-                <th class="px-3 py-2">Type</th>
-                <th class="px-3 py-2">Status</th>
-                <th class="px-3 py-2">Version</th>
-                <th class="px-3 py-2">Coverage</th>
-                <th class="px-3 py-2">Exports</th>
-                <th class="px-3 py-2">Updated</th>
-                <th class="px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="product in filteredProducts" :key="product.artifact_id" class="border-b border-subtle last:border-0">
-                <td class="px-3 py-2">
-                  <div class="font-medium">{{ product.title }}</div>
-                  <div class="font-mono text-xs text-ink-muted">{{ product.artifact_id }}</div>
-                  <div v-if="product.period_id || product.tracker_id" class="text-xs text-ink-muted">
-                    {{ product.tracker_id || product.period_id }}
-                  </div>
-                </td>
-                <td class="px-3 py-2">{{ product.artifact_type }}</td>
-                <td class="px-3 py-2">{{ product.status }}</td>
-                <td class="px-3 py-2">
-                  <div>v{{ product.version || 1 }}</div>
-                  <div class="text-xs text-ink-muted">
-                    {{ product.reviewer || "unassigned" }}
-                  </div>
-                  <div v-if="product.supersedes" class="text-xs text-ink-muted">
-                    supersedes {{ product.supersedes }}
-                  </div>
-                  <div v-if="product.superseded_by" class="text-xs text-ink-muted">
-                    superseded by {{ product.superseded_by }}
-                  </div>
-                </td>
-                <td class="px-3 py-2">
-                  {{ product.source_trace_count || 0 }} traces · {{ fmtConfidence(product.confidence) }}
-                </td>
-                <td class="px-3 py-2">
-                  <div v-if="product.export_paths" class="flex flex-wrap gap-1">
-                    <span
-                      v-for="(_, name) in product.export_paths"
-                      :key="`${product.artifact_id}:${name}`"
-                      class="rounded bg-surface-muted px-2 py-1 text-xs text-ink-secondary"
-                    >
-                      {{ name }}
-                    </span>
-                  </div>
-                  <span v-else class="text-xs text-ink-muted">none</span>
-                </td>
-                <td class="px-3 py-2">{{ fmtDate(product.updated_at) }}</td>
-                <td class="px-3 py-2">
-                  <div class="flex items-center gap-2">
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring"
-                      title="Pin"
-                      @click="updateProduct(product, { pinned: !product.pinned })"
-                    >
-                      <Pin class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring"
-                      title="Approve"
-                      @click="updateProduct(product, { status: 'approved', review_state: 'resolved' })"
-                    >
-                      <Check class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="rounded-md border border-subtle p-2 hover:bg-surface-muted focus-ring"
-                      title="Archive"
-                      @click="updateProduct(product, { archived: true, status: 'archived' })"
-                    >
-                      <Archive class="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="filteredProducts.length === 0">
-                <td colspan="8" class="px-3 py-8 text-center text-sm text-ink-muted">
-                  No work products yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <StockWorkProductsPanel
+        v-else-if="activeTab === 'products'"
+        :products="filteredProducts"
+        :product-types="productTypes"
+        :product-statuses="productStatuses"
+        :product-tracker-ids="productTrackerIds"
+        :product-periods="productPeriods"
+        :type-filter="productTypeFilter"
+        :status-filter="productStatusFilter"
+        :tracker-filter="productTrackerFilter"
+        :period-filter="productPeriodFilter"
+        @update:type-filter="productTypeFilter = $event"
+        @update:status-filter="productStatusFilter = $event"
+        @update:tracker-filter="productTrackerFilter = $event"
+        @update:period-filter="productPeriodFilter = $event"
+        @update-product="updateProduct"
+      />
 
       <section v-else-if="activeTab === 'review'" class="space-y-4">
         <div class="flex flex-wrap items-end justify-between gap-3">
@@ -1745,6 +1553,7 @@ onMounted(loadDashboard);
                 <th class="px-3 py-2">Tracker</th>
                 <th class="px-3 py-2">Duration</th>
                 <th class="px-3 py-2">Sources</th>
+                <th class="px-3 py-2">Source Quality</th>
                 <th class="px-3 py-2">Coverage</th>
                 <th class="px-3 py-2">Issues</th>
                 <th class="px-3 py-2">Reviewer</th>
@@ -1756,6 +1565,19 @@ onMounted(loadDashboard);
                 <td class="px-3 py-2">{{ row.tracker_name }}</td>
                 <td class="px-3 py-2">{{ row.duration_ms || 0 }} ms</td>
                 <td class="px-3 py-2">{{ row.source_count || 0 }}</td>
+                <td class="px-3 py-2">
+                  {{ fmtConfidence(row.source_quality?.average) }}
+                  <div
+                    v-if="row.fallback_used || row.preserved_previous_artifact || row.failure_reason"
+                    class="mt-1 text-[11px] text-ink-muted"
+                  >
+                    <span v-if="row.fallback_used">fallback</span>
+                    <span v-if="row.preserved_previous_artifact">
+                      preserved {{ row.preserved_previous_artifact }}
+                    </span>
+                    <span v-if="row.failure_reason">{{ row.failure_reason }}</span>
+                  </div>
+                </td>
                 <td class="px-3 py-2">{{ fmtConfidence(row.evidence_coverage) }}</td>
                 <td class="px-3 py-2">
                   {{ row.contradiction_count || 0 }} contradictions ·
@@ -1802,7 +1624,7 @@ onMounted(loadDashboard);
                 </td>
               </tr>
               <tr v-if="filteredEvaluationRows.length === 0">
-                <td colspan="7" class="px-3 py-8 text-center text-sm text-ink-muted">
+                <td colspan="8" class="px-3 py-8 text-center text-sm text-ink-muted">
                   No evaluation rows yet.
                 </td>
               </tr>

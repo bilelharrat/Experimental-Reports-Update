@@ -29,6 +29,7 @@ TRACKER_OUTPUT_SCHEMA_VERSION = 1
 WEEKLY_AGGREGATE_SCHEMA_VERSION = 1
 STRATEGY_MAP_SCHEMA_VERSION = 1
 WORK_PRODUCT_SCHEMA_VERSION = 1
+RUN_LEDGER_SCHEMA_VERSION = 1
 
 TRACKER_TYPES = ("macro", "industry", "company")
 TRACKER_STATUSES = ("active", "disabled", "archived")
@@ -214,6 +215,20 @@ SOURCE_EXTRACTION_TEXT_LIMIT = 20_000
 SOURCE_CHUNK_TEXT_LIMIT = 2_000
 SOURCE_OCR_MIN_TEXT_CHARS = 200
 
+SOURCE_PRIORITY_SCORES = {
+    "official": 1.0,
+    "company_disclosure": 1.0,
+    "transcript": 0.95,
+    "primary_data": 0.92,
+    "sell_side": 0.78,
+    "vertical_media": 0.7,
+    "reputable_media": 0.66,
+    "financial_media": 0.62,
+    "user_provided": 0.58,
+    "note": 0.45,
+    "unknown": 0.35,
+}
+
 _LOCK = threading.RLock()
 _CANCEL_EVENTS: dict[str, threading.Event] = {}
 _CANCEL_LOCK = threading.RLock()
@@ -291,6 +306,10 @@ def strategy_maps_root() -> Path:
 
 def catalog_path() -> Path:
     return _root() / "work_products.json"
+
+
+def run_ledger_path() -> Path:
+    return _root() / "run_ledger.json"
 
 
 def review_queue_path() -> Path:
@@ -1105,6 +1124,7 @@ def list_tracker_sources(tracker_id: str) -> list[dict]:
                 )
         else:
             source["exists"] = True
+        source["source_quality_score"] = source_quality_score(source)
     return sources
 
 
@@ -1871,11 +1891,16 @@ def _run_metadata(
         "estimated_cost_usd": 0.0,
         "source_count": 0,
         "source_priority_mix": {},
+        "source_quality": {},
         "evidence_coverage": 0.0,
         "contradiction_count": 0,
         "missing_source_count": 0,
         "reviewer_score": None,
         "reviewer_scores": {},
+        "failure_reason": "",
+        "fallback_used": False,
+        "preserved_previous_artifact": None,
+        "cancellation_reason": "",
     }
 
 
@@ -1885,6 +1910,213 @@ def _source_priority_mix(sources: list[dict]) -> dict:
         priority = _as_str(source.get("priority"), "unknown")
         mix[priority] = mix.get(priority, 0) + 1
     return mix
+
+
+def source_quality_score(source: dict | None) -> float:
+    if not isinstance(source, dict):
+        return SOURCE_PRIORITY_SCORES["unknown"]
+    priority = _as_str(source.get("priority"), "unknown")
+    source_type = _as_str(source.get("source_type"), "")
+    relevance = _as_str(source.get("relevance"), "")
+    score = SOURCE_PRIORITY_SCORES.get(priority, SOURCE_PRIORITY_SCORES["unknown"])
+    if source_type == "link":
+        score += 0.03
+    elif source_type == "file":
+        score += 0.02
+    elif source_type == "note":
+        score -= 0.08
+    if relevance in {"earnings", "valuation", "management_commentary"}:
+        score += 0.04
+    elif relevance == "this_week_input":
+        score += 0.02
+    if source.get("extraction_status") == "missing" or source.get("exists") is False:
+        score -= 0.35
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def _source_quality_summary(sources: list[dict]) -> dict:
+    if not sources:
+        return {"average": 0.0, "count": 0, "official_or_primary_count": 0}
+    scores = [source_quality_score(source) for source in sources]
+    return {
+        "average": round(sum(scores) / len(scores), 3),
+        "count": len(scores),
+        "official_or_primary_count": sum(
+            1
+            for source in sources
+            if _as_str(source.get("priority")) in {"official", "company_disclosure", "transcript", "primary_data"}
+        ),
+    }
+
+
+def _source_lookup_for_tracker(tracker_id: str | None) -> dict[str, dict]:
+    if not tracker_id:
+        return {}
+    return {
+        _as_str(source.get("id")): source
+        for source in list_tracker_sources(tracker_id)
+        if source.get("id")
+    }
+
+
+def _signal_source_quality(signal: dict) -> float:
+    traces = _as_list(signal.get("source_traces"))
+    if not traces:
+        return 0.0
+    source_lookup = _source_lookup_for_tracker(signal.get("source_tracker_id") or signal.get("tracker_id"))
+    scores = []
+    for trace in traces:
+        source = source_lookup.get(_as_str((trace or {}).get("source_id")))
+        if source is not None:
+            scores.append(source_quality_score(source))
+            continue
+        confidence = _as_float((trace or {}).get("confidence"), None)
+        scores.append(max(0.0, min(1.0, confidence)) if confidence is not None else SOURCE_PRIORITY_SCORES["unknown"])
+    return round(sum(scores) / len(scores), 3)
+
+
+def _signal_rank_score(signal: dict) -> float:
+    importance = max(1, min(5, _as_int(signal.get("importance"), 3)))
+    confidence = _as_float(signal.get("confidence"), 0.0) or 0.0
+    source_quality = _as_float(signal.get("source_quality_score"), 0.0) or 0.0
+    return round((importance * 0.5) + (confidence * 2.0) + (source_quality * 2.0), 4)
+
+
+def _normalize_run_ledger_entry(item: dict) -> dict:
+    now = _now()
+    job_kind = _as_str(item.get("job_kind"), "stock_tracker")
+    run_id = _as_str(item.get("run_id") or item.get("job_id"), "")
+    period_id = item.get("period_id")
+    tracker_id = item.get("tracker_id")
+    ledger_id = _as_str(
+        item.get("ledger_id"),
+        ":".join(part for part in [job_kind, _as_str(tracker_id), _as_str(period_id), run_id] if part),
+    )
+    if not ledger_id:
+        raise ValueError("Run ledger entry missing id")
+    return {
+        "schema_version": RUN_LEDGER_SCHEMA_VERSION,
+        "ledger_id": ledger_id,
+        "job_kind": job_kind,
+        "artifact_id": item.get("artifact_id"),
+        "tracker_id": tracker_id,
+        "run_id": run_id,
+        "period_id": period_id,
+        "period_start": item.get("period_start"),
+        "period_end": item.get("period_end"),
+        "status": _as_str(item.get("status"), "unknown"),
+        "created_at": item.get("created_at") or now,
+        "updated_at": item.get("updated_at") or now,
+        "duration_ms": item.get("duration_ms"),
+        "token_usage": item.get("token_usage") if isinstance(item.get("token_usage"), dict) else {},
+        "estimated_cost_usd": _as_float(item.get("estimated_cost_usd"), 0.0) or 0.0,
+        "source_count": max(0, _as_int(item.get("source_count"), 0)),
+        "source_priority_mix": item.get("source_priority_mix") if isinstance(item.get("source_priority_mix"), dict) else {},
+        "source_quality": item.get("source_quality") if isinstance(item.get("source_quality"), dict) else {},
+        "evidence_coverage": _as_float(item.get("evidence_coverage"), 0.0) or 0.0,
+        "contradiction_count": max(0, _as_int(item.get("contradiction_count"), 0)),
+        "missing_source_count": max(0, _as_int(item.get("missing_source_count"), 0)),
+        "reviewer_score": _as_float(item.get("reviewer_score"), None),
+        "reviewer_scores": item.get("reviewer_scores") if isinstance(item.get("reviewer_scores"), dict) else {},
+        "failure_reason": _as_str(item.get("failure_reason") or item.get("error")),
+        "fallback_used": bool(item.get("fallback_used")),
+        "preserved_previous_artifact": item.get("preserved_previous_artifact") or item.get("preserved_previous_run_id"),
+        "cancellation_reason": _as_str(item.get("cancellation_reason")),
+    }
+
+
+def _upsert_run_ledger_entry(item: dict) -> dict:
+    entry = _normalize_run_ledger_entry(item)
+    with _LOCK:
+        data = _read_json(run_ledger_path(), {"runs": []})
+        rows = [
+            _normalize_run_ledger_entry(row)
+            for row in _as_list(data.get("runs") if isinstance(data, dict) else [])
+            if isinstance(row, dict)
+        ]
+        for index, existing in enumerate(rows):
+            if existing["ledger_id"] == entry["ledger_id"]:
+                rows[index] = {**existing, **entry}
+                break
+        else:
+            rows.append(entry)
+        rows.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
+        _write_json(run_ledger_path(), {"schema_version": RUN_LEDGER_SCHEMA_VERSION, "runs": rows})
+    return entry
+
+
+def _tracker_run_ledger_entry(metadata: dict, tracker: dict | None = None) -> dict:
+    tracker_id = metadata.get("tracker_id") or (tracker or {}).get("id")
+    run_id = metadata.get("run_id")
+    return _normalize_run_ledger_entry(
+        {
+            **metadata,
+            "job_kind": "stock_tracker",
+            "artifact_id": f"tracker_run:{tracker_id}:{run_id}" if tracker_id and run_id else None,
+            "fallback_used": bool(metadata.get("fallback_used") or metadata.get("claude_error")),
+            "preserved_previous_artifact": metadata.get("preserved_previous_run_id"),
+            "failure_reason": metadata.get("error"),
+            "cancellation_reason": metadata.get("cancellation_reason"),
+        }
+    )
+
+
+def _upsert_job_ledger_entry(
+    *,
+    job_kind: str,
+    period_id: str,
+    status: str,
+    artifact_id: str,
+    started_at: float | None = None,
+    error: str | None = None,
+    cancellation_reason: str | None = None,
+    source_count: int = 0,
+) -> dict:
+    existing = {}
+    ledger_id = f"{job_kind}:{period_id}"
+    data = _read_json(run_ledger_path(), {"runs": []})
+    rows = data.get("runs") if isinstance(data, dict) else []
+    for row in _as_list(rows):
+        if isinstance(row, dict) and row.get("ledger_id") == ledger_id:
+            existing = row
+            break
+    now = _now()
+    return _upsert_run_ledger_entry(
+        {
+            **existing,
+            "ledger_id": ledger_id,
+            "job_kind": job_kind,
+            "artifact_id": artifact_id,
+            "run_id": period_id,
+            "period_id": period_id,
+            "status": status,
+            "created_at": existing.get("created_at") or now,
+            "updated_at": now,
+            "duration_ms": int((time.monotonic() - started_at) * 1000) if started_at is not None else existing.get("duration_ms"),
+            "source_count": source_count or existing.get("source_count") or 0,
+            "failure_reason": error or "",
+            "cancellation_reason": cancellation_reason or "",
+        }
+    )
+
+
+def list_run_ledger() -> list[dict]:
+    data = _read_json(run_ledger_path(), {"runs": []})
+    rows_by_id = {
+        row["ledger_id"]: row
+        for row in (
+            _normalize_run_ledger_entry(item)
+            for item in _as_list(data.get("runs") if isinstance(data, dict) else [])
+            if isinstance(item, dict)
+        )
+    }
+    for tracker in list_trackers(include_archived=True):
+        for run in list_tracker_runs(tracker["id"]):
+            entry = _tracker_run_ledger_entry(run, tracker)
+            rows_by_id[entry["ledger_id"]] = {**rows_by_id.get(entry["ledger_id"], {}), **entry}
+    rows = list(rows_by_id.values())
+    rows.sort(key=lambda row: str(row.get("updated_at", "")), reverse=True)
+    return rows
 
 
 def _write_tracker_run_artifacts(
@@ -1914,6 +2146,7 @@ def _write_tracker_run_artifacts(
             "duration_ms": int((time.monotonic() - started_at) * 1000),
             "source_count": len(sources),
             "source_priority_mix": _source_priority_mix(sources),
+            "source_quality": _source_quality_summary(sources),
             "evidence_coverage": 1.0 if output.get("source_traces") else 0.0,
             "contradiction_count": len(output.get("contradictions") or []),
             "missing_source_count": len(output.get("missing_sources") or []),
@@ -1923,6 +2156,18 @@ def _write_tracker_run_artifacts(
     _write_json(tracker_run_source_manifest_path(tracker["id"], run_id), {"sources": sources})
     _write_text(tracker_run_report_path(tracker["id"], run_id), tracker_output_markdown(output, tracker))
     _write_json(tracker_run_metadata_path(tracker["id"], run_id), metadata)
+    _upsert_run_ledger_entry(_tracker_run_ledger_entry(metadata, tracker))
+    return metadata
+
+
+def _write_tracker_run_metadata(tracker_id: str, run_id: str, patch: dict) -> dict:
+    metadata = {
+        **_read_json(tracker_run_metadata_path(tracker_id, run_id), {}),
+        **(patch or {}),
+        "updated_at": patch.get("updated_at") if isinstance(patch, dict) and patch.get("updated_at") else _now(),
+    }
+    _write_json(tracker_run_metadata_path(tracker_id, run_id), metadata)
+    _upsert_run_ledger_entry(_tracker_run_ledger_entry(metadata, get_tracker(tracker_id)))
     return metadata
 
 
@@ -2131,10 +2376,9 @@ def _run_tracker_job(
             raise ValueError(f"Unknown tracker: {tracker_id}")
         progress.emit("stage", stage="sources", message="Reading tracker-owned sources")
         if _is_cancelled(progress_path, event):
-            _write_json(tracker_run_metadata_path(tracker_id, run_id), {
-                **_read_json(tracker_run_metadata_path(tracker_id, run_id), {}),
+            _write_tracker_run_metadata(tracker_id, run_id, {
                 "status": "cancelled",
-                "updated_at": _now(),
+                "cancellation_reason": "Tracker run cancelled",
             })
             _update_tracker_current_run(tracker_id, None)
             _register_job_review_item(
@@ -2175,10 +2419,9 @@ def _run_tracker_job(
                 tracker_id=tracker_id,
                 run_id=run_id,
             )
-            _write_json(tracker_run_metadata_path(tracker_id, run_id), {
-                **_read_json(tracker_run_metadata_path(tracker_id, run_id), {}),
+            _write_tracker_run_metadata(tracker_id, run_id, {
                 "status": "cancelled",
-                "updated_at": _now(),
+                "cancellation_reason": "Tracker run cancelled",
             })
             _update_tracker_current_run(tracker_id, None)
             _register_job_review_item(
@@ -2211,10 +2454,9 @@ def _run_tracker_job(
                 tracker_id=tracker_id,
                 run_id=run_id,
             )
-            _write_json(tracker_run_metadata_path(tracker_id, run_id), {
-                **_read_json(tracker_run_metadata_path(tracker_id, run_id), {}),
+            _write_tracker_run_metadata(tracker_id, run_id, {
                 "status": "cancelled",
-                "updated_at": _now(),
+                "cancellation_reason": "Tracker run cancelled",
             })
             _update_tracker_current_run(tracker_id, None)
             _register_job_review_item(
@@ -2239,6 +2481,9 @@ def _run_tracker_job(
             output["period_id"] = period_id
             output["claude_error"] = f"{type(exc).__name__}: {exc}"
             metadata = _write_tracker_run_artifacts(tracker, run_id, output, started_at=started)
+            metadata["fallback_used"] = True
+            metadata["failure_reason"] = f"{type(exc).__name__}: {exc}"
+            _write_tracker_run_metadata(tracker_id, run_id, metadata)
             _update_tracker_after_success(tracker, run_id, output)
             _register_tracker_run_product(tracker, run_id, output, metadata)
             _register_run_review_items(tracker, run_id, output)
@@ -2251,14 +2496,15 @@ def _run_tracker_job(
                 error=str(exc),
             )
         else:
-            _write_json(
-                tracker_run_metadata_path(tracker_id, run_id),
+            _write_tracker_run_metadata(
+                tracker_id,
+                run_id,
                 {
-                    **_read_json(tracker_run_metadata_path(tracker_id, run_id), {}),
                     "status": "error",
-                    "updated_at": _now(),
                     "error": f"{type(exc).__name__}: {exc}",
+                    "failure_reason": f"{type(exc).__name__}: {exc}",
                     "preserved_previous_run_id": latest,
+                    "preserved_previous_artifact": latest,
                 },
             )
             _update_tracker_current_run(tracker_id, None)
@@ -2310,6 +2556,7 @@ def start_tracker_run(
             status="queued",
         )
         _write_json(tracker_run_metadata_path(tracker_id, run_id), metadata)
+        _upsert_run_ledger_entry(_tracker_run_ledger_entry(metadata, tracker))
         _update_tracker_current_run(
             tracker_id,
             {
@@ -2349,6 +2596,7 @@ def run_tracker_now(tracker_id: str, *, period_id: str | None = None) -> dict:
         status="running",
     )
     _write_json(tracker_run_metadata_path(tracker_id, run_id), metadata)
+    _upsert_run_ledger_entry(_tracker_run_ledger_entry(metadata, get_tracker(tracker_id)))
     _run_tracker_job(
         tracker_id,
         run_id,
@@ -2404,9 +2652,11 @@ def cancel_tracker_run(tracker_id: str, run_id: str) -> dict:
         tracker_id=tracker_id,
         run_id=run_id,
     )
-    metadata = _read_json(tracker_run_metadata_path(tracker_id, run_id), {})
-    metadata.update({"status": "cancelled", "updated_at": _now()})
-    _write_json(tracker_run_metadata_path(tracker_id, run_id), metadata)
+    _write_tracker_run_metadata(
+        tracker_id,
+        run_id,
+        {"status": "cancelled", "cancellation_reason": "cancelled by user"},
+    )
     _update_tracker_current_run(tracker_id, None)
     tracker = get_tracker(tracker_id)
     _register_job_review_item(
@@ -2579,6 +2829,8 @@ def build_weekly_aggregate(period_id: str | None = None) -> dict:
             row.setdefault("timestamp", output.get("generated_at"))
             row.setdefault("confidence", output.get("confidence"))
             row["source_traces"] = row.get("source_traces") or output.get("source_traces") or []
+            row["source_quality_score"] = _signal_source_quality(row)
+            row["rank_score"] = _signal_rank_score(row)
             signals.append(row)
             claim_key = _slug(row.get("observation", "claim"))
             existing = claim_seen.setdefault(
@@ -2606,7 +2858,7 @@ def build_weekly_aggregate(period_id: str | None = None) -> dict:
         for tracker in active_trackers
         if tracker["id"] not in covered_ids
     ]
-    signals.sort(key=lambda s: (_as_int(s.get("importance"), 3), str(s.get("observation"))))
+    signals.sort(key=lambda s: (_as_float(s.get("rank_score"), 0.0) or 0.0, str(s.get("observation"))))
     signals = list(reversed(signals))
     modules["watchlist"] = [
         {
@@ -2778,6 +3030,7 @@ def _run_aggregate_job(period_id: str) -> None:
     event = _start_cancel_event(key)
     path = aggregate_progress_path(period_id)
     progress = job_progress.ProgressLog(path)
+    started = time.monotonic()
     progress.emit(
         "job_init",
         kind="stock_aggregate",
@@ -2801,6 +3054,14 @@ def _run_aggregate_job(period_id: str) -> None:
                 artifact_id=f"weekly_aggregate:{period_id}",
                 period_id=period_id,
             )
+            _upsert_job_ledger_entry(
+                job_kind="stock_aggregate",
+                period_id=period_id,
+                status="cancelled",
+                artifact_id=f"weekly_aggregate:{period_id}",
+                started_at=started,
+                cancellation_reason="Aggregate cancelled",
+            )
             return
         aggregate = build_weekly_aggregate(period_id)
         progress.emit("stage", stage="write", message="Writing aggregate artifacts")
@@ -2818,8 +3079,27 @@ def _run_aggregate_job(period_id: str) -> None:
                 artifact_id=f"weekly_aggregate:{period_id}",
                 period_id=period_id,
             )
+            _upsert_job_ledger_entry(
+                job_kind="stock_aggregate",
+                period_id=period_id,
+                status="cancelled",
+                artifact_id=f"weekly_aggregate:{period_id}",
+                started_at=started,
+                cancellation_reason="Aggregate cancelled",
+            )
             return
         _write_weekly_aggregate(aggregate)
+        _upsert_job_ledger_entry(
+            job_kind="stock_aggregate",
+            period_id=period_id,
+            status="done",
+            artifact_id=f"weekly_aggregate:{period_id}",
+            started_at=started,
+            source_count=sum(
+                len(signal.get("source_traces") or [])
+                for signal in aggregate.get("ranked_signals") or []
+            ),
+        )
         progress.emit("done", period_id=period_id, signal_count=len(aggregate.get("ranked_signals") or []))
     except Exception as exc:  # noqa: BLE001
         _register_job_review_item(
@@ -2828,6 +3108,14 @@ def _run_aggregate_job(period_id: str) -> None:
             title=f"Weekly aggregate failed: {period_id}",
             artifact_id=f"weekly_aggregate:{period_id}",
             period_id=period_id,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        _upsert_job_ledger_entry(
+            job_kind="stock_aggregate",
+            period_id=period_id,
+            status="error",
+            artifact_id=f"weekly_aggregate:{period_id}",
+            started_at=started,
             error=f"{type(exc).__name__}: {exc}",
         )
         progress.emit("error", error=f"Aggregate failed: {type(exc).__name__}: {exc}")
@@ -2845,6 +3133,12 @@ def start_aggregate_job(period_id: str | None = None, *, force: bool = False) ->
             "stream_url": f"/api/stock-research/aggregates/{period_id}/stream",
             "log_url": f"/api/jobs/log?path=stock_aggregate:{period_id}",
         }
+    _upsert_job_ledger_entry(
+        job_kind="stock_aggregate",
+        period_id=period_id,
+        status="queued",
+        artifact_id=f"weekly_aggregate:{period_id}",
+    )
     threading.Thread(
         target=_run_aggregate_job,
         args=(period_id,),
@@ -2879,6 +3173,13 @@ def cancel_aggregate_job(period_id: str) -> dict:
         artifact_id=f"weekly_aggregate:{period_id}",
         period_id=period_id,
     )
+    _upsert_job_ledger_entry(
+        job_kind="stock_aggregate",
+        period_id=period_id,
+        status="cancelled",
+        artifact_id=f"weekly_aggregate:{period_id}",
+        cancellation_reason="cancelled by user",
+    )
     return {"cancelled": True, "state": state, "period_id": period_id}
 
 
@@ -2889,8 +3190,20 @@ def retry_aggregate_job(period_id: str) -> dict:
 
 def run_aggregate_now(period_id: str | None = None) -> dict:
     period_id, _, _ = _default_period_range(period_id)
+    started = time.monotonic()
     aggregate = build_weekly_aggregate(period_id)
     _write_weekly_aggregate(aggregate)
+    _upsert_job_ledger_entry(
+        job_kind="stock_aggregate",
+        period_id=period_id,
+        status="done",
+        artifact_id=f"weekly_aggregate:{period_id}",
+        started_at=started,
+        source_count=sum(
+            len(signal.get("source_traces") or [])
+            for signal in aggregate.get("ranked_signals") or []
+        ),
+    )
     return aggregate
 
 
@@ -3126,6 +3439,7 @@ def _run_strategy_job(period_id: str) -> None:
     event = _start_cancel_event(key)
     path = strategy_map_progress_path(period_id)
     progress = job_progress.ProgressLog(path)
+    started = time.monotonic()
     progress.emit(
         "job_init",
         kind="stock_strategy",
@@ -3149,6 +3463,14 @@ def _run_strategy_job(period_id: str) -> None:
                 artifact_id=f"strategy_map:{period_id}",
                 period_id=period_id,
             )
+            _upsert_job_ledger_entry(
+                job_kind="stock_strategy",
+                period_id=period_id,
+                status="cancelled",
+                artifact_id=f"strategy_map:{period_id}",
+                started_at=started,
+                cancellation_reason="Strategy map cancelled",
+            )
             return
         strategy_map = build_strategy_map(period_id)
         progress.emit("stage", stage="write", message="Writing strategy-map artifacts")
@@ -3166,8 +3488,27 @@ def _run_strategy_job(period_id: str) -> None:
                 artifact_id=f"strategy_map:{period_id}",
                 period_id=period_id,
             )
+            _upsert_job_ledger_entry(
+                job_kind="stock_strategy",
+                period_id=period_id,
+                status="cancelled",
+                artifact_id=f"strategy_map:{period_id}",
+                started_at=started,
+                cancellation_reason="Strategy map cancelled",
+            )
             return
         _write_strategy_map(strategy_map)
+        _upsert_job_ledger_entry(
+            job_kind="stock_strategy",
+            period_id=period_id,
+            status="done",
+            artifact_id=f"strategy_map:{period_id}",
+            started_at=started,
+            source_count=sum(
+                len(node.get("source_traces") or [])
+                for node in strategy_map.get("nodes") or []
+            ),
+        )
         progress.emit("done", period_id=period_id, node_count=len(strategy_map.get("nodes") or []))
     except Exception as exc:  # noqa: BLE001
         _register_job_review_item(
@@ -3176,6 +3517,14 @@ def _run_strategy_job(period_id: str) -> None:
             title=f"Strategy map failed: {period_id}",
             artifact_id=f"strategy_map:{period_id}",
             period_id=period_id,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        _upsert_job_ledger_entry(
+            job_kind="stock_strategy",
+            period_id=period_id,
+            status="error",
+            artifact_id=f"strategy_map:{period_id}",
+            started_at=started,
             error=f"{type(exc).__name__}: {exc}",
         )
         progress.emit("error", error=f"Strategy map failed: {type(exc).__name__}: {exc}")
@@ -3193,6 +3542,12 @@ def start_strategy_map_job(period_id: str | None = None, *, force: bool = False)
             "stream_url": f"/api/stock-research/strategy-maps/{period_id}/stream",
             "log_url": f"/api/jobs/log?path=stock_strategy:{period_id}",
         }
+    _upsert_job_ledger_entry(
+        job_kind="stock_strategy",
+        period_id=period_id,
+        status="queued",
+        artifact_id=f"strategy_map:{period_id}",
+    )
     threading.Thread(
         target=_run_strategy_job,
         args=(period_id,),
@@ -3227,6 +3582,13 @@ def cancel_strategy_map_job(period_id: str) -> dict:
         artifact_id=f"strategy_map:{period_id}",
         period_id=period_id,
     )
+    _upsert_job_ledger_entry(
+        job_kind="stock_strategy",
+        period_id=period_id,
+        status="cancelled",
+        artifact_id=f"strategy_map:{period_id}",
+        cancellation_reason="cancelled by user",
+    )
     return {"cancelled": True, "state": state, "period_id": period_id}
 
 
@@ -3237,8 +3599,20 @@ def retry_strategy_map_job(period_id: str) -> dict:
 
 def run_strategy_map_now(period_id: str | None = None) -> dict:
     period_id, _, _ = _default_period_range(period_id)
+    started = time.monotonic()
     strategy_map = build_strategy_map(period_id)
     _write_strategy_map(strategy_map)
+    _upsert_job_ledger_entry(
+        job_kind="stock_strategy",
+        period_id=period_id,
+        status="done",
+        artifact_id=f"strategy_map:{period_id}",
+        started_at=started,
+        source_count=sum(
+            len(node.get("source_traces") or [])
+            for node in strategy_map.get("nodes") or []
+        ),
+    )
     return strategy_map
 
 
@@ -3267,6 +3641,11 @@ def _normalize_work_product(item: dict) -> dict:
     artifact_id = _as_str(item.get("artifact_id"))
     if not artifact_id:
         raise ValueError("Work product missing artifact_id")
+    history = [
+        row
+        for row in _as_list(item.get("version_history"))
+        if isinstance(row, dict)
+    ]
     return {
         "schema_version": WORK_PRODUCT_SCHEMA_VERSION,
         "artifact_id": artifact_id,
@@ -3287,6 +3666,7 @@ def _normalize_work_product(item: dict) -> dict:
         "pinned": bool(item.get("pinned")),
         "archived": bool(item.get("archived")),
         "export_paths": item.get("export_paths") if isinstance(item.get("export_paths"), dict) else {},
+        "version_history": history,
         "notes": _as_str(item.get("notes")),
         **{
             key: value
@@ -3303,6 +3683,69 @@ def _normalize_work_product(item: dict) -> dict:
     }
 
 
+def _work_product_history_event(
+    product: dict,
+    *,
+    action: str,
+    previous: dict | None = None,
+    patch: dict | None = None,
+) -> dict:
+    changed_fields = []
+    if previous:
+        for key in (
+            "version",
+            "status",
+            "review_state",
+            "reviewer",
+            "pinned",
+            "archived",
+            "supersedes",
+            "superseded_by",
+            "export_paths",
+        ):
+            if previous.get(key) != product.get(key):
+                changed_fields.append(key)
+    elif patch:
+        changed_fields = sorted(str(key) for key in patch.keys())
+    return {
+        "event_id": f"vp-{uuid.uuid4().hex[:10]}",
+        "action": action,
+        "version": product.get("version") or 1,
+        "status": product.get("status"),
+        "review_state": product.get("review_state"),
+        "reviewer": product.get("reviewer"),
+        "updated_at": product.get("updated_at") or _now(),
+        "changed_fields": changed_fields,
+    }
+
+
+def _append_work_product_history(
+    product: dict,
+    *,
+    action: str,
+    previous: dict | None = None,
+    patch: dict | None = None,
+) -> dict:
+    history = [
+        row
+        for row in _as_list((previous or product).get("version_history"))
+        if isinstance(row, dict)
+    ]
+    if action == "registered" and history:
+        product["version_history"] = history
+        return product
+    history.append(
+        _work_product_history_event(
+            product,
+            action=action,
+            previous=previous,
+            patch=patch,
+        )
+    )
+    product["version_history"] = history[-25:]
+    return product
+
+
 def register_work_product(item: dict) -> dict:
     product = _normalize_work_product(item)
     with _LOCK:
@@ -3312,10 +3755,17 @@ def register_work_product(item: dict) -> dict:
             if existing.get("artifact_id") == product["artifact_id"]:
                 product["pinned"] = bool(existing.get("pinned")) if "pinned" not in item else product["pinned"]
                 product["archived"] = bool(existing.get("archived")) if "archived" not in item else product["archived"]
+                product = _append_work_product_history(
+                    product,
+                    action="registered",
+                    previous=existing,
+                    patch=item,
+                )
                 catalog[index] = {**existing, **product, "updated_at": product["updated_at"]}
                 replaced = True
                 break
         if not replaced:
+            product = _append_work_product_history(product, action="created", patch=item)
             catalog.append(product)
         catalog.sort(key=lambda row: (not row.get("pinned"), str(row.get("updated_at", ""))), reverse=False)
         _write_json(catalog_path(), {"work_products": catalog})
@@ -3356,6 +3806,12 @@ def update_work_product(artifact_id: str, patch: dict) -> dict:
                         "artifact_id": artifact_id,
                         "updated_at": _now(),
                     }
+                )
+                updated = _append_work_product_history(
+                    updated,
+                    action="updated",
+                    previous=row,
+                    patch=patch or {},
                 )
                 rows[index] = updated
                 _write_json(catalog_path(), {"work_products": rows})
@@ -3470,6 +3926,7 @@ def update_run_review(tracker_id: str, run_id: str, patch: dict) -> dict:
     metadata["review_notes"] = _as_str(patch.get("review_notes"), metadata.get("review_notes") or "")
     metadata["updated_at"] = _now()
     _write_json(tracker_run_metadata_path(tracker_id, run_id), metadata)
+    _upsert_run_ledger_entry(_tracker_run_ledger_entry(metadata, get_tracker(tracker_id)))
     return metadata
 
 
@@ -3553,17 +4010,22 @@ def list_evaluation() -> dict:
                     "estimated_cost_usd": run.get("estimated_cost_usd"),
                     "source_count": run.get("source_count"),
                     "source_priority_mix": run.get("source_priority_mix") or {},
+                    "source_quality": run.get("source_quality") or {},
                     "evidence_coverage": run.get("evidence_coverage"),
                     "contradiction_count": run.get("contradiction_count"),
                     "missing_source_count": run.get("missing_source_count"),
                     "reviewer_score": run.get("reviewer_score"),
                     "reviewer_scores": run.get("reviewer_scores") or {},
+                    "failure_reason": run.get("failure_reason") or run.get("error") or "",
+                    "fallback_used": bool(run.get("fallback_used")),
+                    "preserved_previous_artifact": run.get("preserved_previous_artifact") or run.get("preserved_previous_run_id"),
+                    "cancellation_reason": run.get("cancellation_reason") or "",
                     "created_at": run.get("created_at"),
                     "updated_at": run.get("updated_at"),
                 }
             )
     rows.sort(key=lambda row: str(row.get("created_at", "")), reverse=True)
-    return {"runs": rows}
+    return {"runs": rows, "run_ledger": list_run_ledger()}
 
 
 def work_product_catalog_summary() -> dict:
@@ -3574,6 +4036,205 @@ def work_product_catalog_summary() -> dict:
         by_type[product["artifact_type"]] = by_type.get(product["artifact_type"], 0) + 1
         by_status[product["status"]] = by_status.get(product["status"], 0) + 1
     return {"total": len(products), "by_type": by_type, "by_status": by_status}
+
+
+def _doctor_issue(
+    issues: list[dict],
+    *,
+    severity: str,
+    issue_type: str,
+    message: str,
+    path: Path | str | None = None,
+    tracker_id: str | None = None,
+    artifact_id: str | None = None,
+) -> None:
+    issues.append(
+        {
+            "id": f"{issue_type}:{len(issues) + 1}",
+            "severity": severity,
+            "type": issue_type,
+            "message": message,
+            "path": str(path) if path is not None else None,
+            "tracker_id": tracker_id,
+            "artifact_id": artifact_id,
+        }
+    )
+
+
+def _trace_has_source_ref(trace: dict, valid_source_ids: set[str]) -> bool:
+    source_id = _as_str((trace or {}).get("source_id"))
+    return not source_id or source_id in valid_source_ids
+
+
+def stock_research_doctor() -> dict:
+    """Return a non-mutating health report for Stock Research artifacts."""
+    trackers = list_trackers(include_archived=True)
+    products = list_work_products(include_archived=True)
+    issues: list[dict] = []
+    source_ids_by_tracker: dict[str, set[str]] = {}
+    run_refs: set[str] = set()
+
+    if not _root().exists():
+        _doctor_issue(
+            issues,
+            severity="error",
+            issue_type="missing_root",
+            message="Stock Research root does not exist.",
+            path=_root(),
+        )
+
+    for tracker in trackers:
+        tracker_id = tracker["id"]
+        for label, path in {
+            "tracker_config": tracker_config_path(tracker_id),
+            "knowledge": tracker_knowledge_path(tracker_id),
+            "notes": tracker_notes_path(tracker_id),
+            "source_manifest": tracker_source_manifest_path(tracker_id),
+        }.items():
+            if not path.exists():
+                _doctor_issue(
+                    issues,
+                    severity="error",
+                    issue_type=f"missing_{label}",
+                    message=f"Missing {label} for tracker {tracker_id}.",
+                    path=path,
+                    tracker_id=tracker_id,
+                )
+        if tracker.get("schema_version") != SCHEMA_VERSION:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="schema_version",
+                message=f"Tracker {tracker_id} has schema_version={tracker.get('schema_version')}.",
+                path=tracker_config_path(tracker_id),
+                tracker_id=tracker_id,
+            )
+        sources = list_tracker_sources(tracker_id)
+        source_ids_by_tracker[tracker_id] = {_as_str(source.get("id")) for source in sources if source.get("id")}
+        for source in sources:
+            if source.get("source_type") == "file" and source.get("exists") is False:
+                _doctor_issue(
+                    issues,
+                    severity="error",
+                    issue_type="missing_source_file",
+                    message=f"Stored source file is missing: {source.get('title') or source.get('filename')}.",
+                    path=tracker_sources_dir(tracker_id) / _as_str(source.get("stored_name")),
+                    tracker_id=tracker_id,
+                    artifact_id=f"source:{tracker_id}:{source.get('id')}",
+                )
+        for run in list_tracker_runs(tracker_id):
+            run_id = run.get("run_id")
+            run_refs.add(f"{tracker_id}:{run_id}")
+            artifact_id = f"tracker_run:{tracker_id}:{run_id}"
+            for label, path in {
+                "run_output": tracker_run_output_path(tracker_id, run_id),
+                "run_metadata": tracker_run_metadata_path(tracker_id, run_id),
+                "source_manifest": tracker_run_source_manifest_path(tracker_id, run_id),
+                "report": tracker_run_report_path(tracker_id, run_id),
+            }.items():
+                if not path.exists():
+                    _doctor_issue(
+                        issues,
+                        severity="error" if label in {"run_metadata", "run_output"} else "warning",
+                        issue_type=f"missing_{label}",
+                        message=f"Missing {label} for tracker run {tracker_id}/{run_id}.",
+                        path=path,
+                        tracker_id=tracker_id,
+                        artifact_id=artifact_id,
+                    )
+            for trace in run.get("source_traces") or []:
+                if not _trace_has_source_ref(trace, source_ids_by_tracker.get(tracker_id, set())):
+                    _doctor_issue(
+                        issues,
+                        severity="warning",
+                        issue_type="broken_source_trace",
+                        message=f"Run {tracker_id}/{run_id} references an unknown source id.",
+                        tracker_id=tracker_id,
+                        artifact_id=artifact_id,
+                    )
+
+    for aggregate in [item for item in [latest_aggregate()] if item]:
+        for signal in aggregate.get("ranked_signals") or []:
+            tracker_id = signal.get("source_tracker_id")
+            run_id = signal.get("tracker_run_id")
+            if tracker_id and run_id and f"{tracker_id}:{run_id}" not in run_refs:
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="broken_aggregate_run_ref",
+                    message=f"Aggregate signal references unknown run {tracker_id}/{run_id}.",
+                    artifact_id=f"weekly_aggregate:{aggregate.get('period_id')}",
+                    tracker_id=tracker_id,
+                )
+            for trace in signal.get("source_traces") or []:
+                if tracker_id and not _trace_has_source_ref(trace, source_ids_by_tracker.get(tracker_id, set())):
+                    _doctor_issue(
+                        issues,
+                        severity="warning",
+                        issue_type="broken_aggregate_source_ref",
+                        message=f"Aggregate signal references an unknown source id for {tracker_id}.",
+                        artifact_id=f"weekly_aggregate:{aggregate.get('period_id')}",
+                        tracker_id=tracker_id,
+                    )
+
+    for strategy_map in [item for item in [latest_strategy_map()] if item]:
+        for item in (strategy_map.get("nodes") or []) + (strategy_map.get("edges") or []):
+            refs = item.get("source_tracker_refs") or []
+            for ref in refs:
+                tracker_id = ref.get("tracker_id")
+                run_id = ref.get("tracker_run_id")
+                if tracker_id and run_id and f"{tracker_id}:{run_id}" not in run_refs:
+                    _doctor_issue(
+                        issues,
+                        severity="warning",
+                        issue_type="broken_strategy_run_ref",
+                        message=f"Strategy map references unknown run {tracker_id}/{run_id}.",
+                        artifact_id=f"strategy_map:{strategy_map.get('period_id')}",
+                        tracker_id=tracker_id,
+                    )
+
+    for product in products:
+        artifact_id = product.get("artifact_id")
+        for label, path_value in (product.get("export_paths") or {}).items():
+            path = Path(path_value)
+            if not path.exists():
+                _doctor_issue(
+                    issues,
+                    severity="warning",
+                    issue_type="missing_export",
+                    message=f"Work product export is missing: {label}.",
+                    path=path,
+                    artifact_id=artifact_id,
+                    tracker_id=product.get("tracker_id"),
+                )
+        tracker_id = product.get("tracker_id")
+        run_id = product.get("run_id")
+        if tracker_id and run_id and f"{tracker_id}:{run_id}" not in run_refs:
+            _doctor_issue(
+                issues,
+                severity="warning",
+                issue_type="broken_product_run_ref",
+                message=f"Work product references unknown run {tracker_id}/{run_id}.",
+                artifact_id=artifact_id,
+                tracker_id=tracker_id,
+            )
+
+    error_count = sum(1 for issue in issues if issue["severity"] == "error")
+    warning_count = sum(1 for issue in issues if issue["severity"] == "warning")
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _now(),
+        "status": "ok" if error_count == 0 else "issues",
+        "summary": {
+            "tracker_count": len(trackers),
+            "source_count": sum(len(ids) for ids in source_ids_by_tracker.values()),
+            "work_product_count": len(products),
+            "run_count": len(run_refs),
+            "error_count": error_count,
+            "warning_count": warning_count,
+        },
+        "issues": issues,
+    }
 
 
 def list_all_sources() -> list[dict]:
@@ -3593,6 +4254,7 @@ def dashboard_payload() -> dict:
     review_items = list_review_items()
     products = list_work_products()
     evaluation = list_evaluation()
+    doctor = stock_research_doctor()
     counts_by_type = {t: 0 for t in TRACKER_TYPES}
     for tracker in trackers:
         counts_by_type[tracker["type"]] = counts_by_type.get(tracker["type"], 0) + 1
@@ -3617,6 +4279,9 @@ def dashboard_payload() -> dict:
             "open_review_item_count": sum(1 for item in review_items if item.get("status") == "open"),
             "work_product_count": len(products),
             "source_count": len(sources),
+            "doctor_error_count": doctor["summary"]["error_count"],
+            "doctor_warning_count": doctor["summary"]["warning_count"],
+            "run_ledger_count": len(evaluation.get("run_ledger") or []),
         },
         "trackers": trackers,
         "sources": sources,
@@ -3630,6 +4295,7 @@ def dashboard_payload() -> dict:
         "work_products": products,
         "review_items": review_items,
         "evaluation": evaluation,
+        "doctor": doctor,
     }
 
 
@@ -3678,9 +4344,14 @@ def recover_stale_runs(*, max_idle_seconds: int = ACTIVE_JOB_MAX_IDLE_SECONDS) -
             tracker_id=tracker_id,
             run_id=run_id,
         )
-        metadata = _read_json(tracker_run_metadata_path(tracker_id, run_id), {})
-        metadata.update({"status": "recovered", "updated_at": _now()})
-        _write_json(tracker_run_metadata_path(tracker_id, run_id), metadata)
+        _write_tracker_run_metadata(
+            tracker_id,
+            run_id,
+            {
+                "status": "recovered",
+                "failure_reason": "Recovered interrupted stock tracker run",
+            },
+        )
         _update_tracker_current_run(tracker_id, None)
         tracker = get_tracker(tracker_id)
         _register_job_review_item(

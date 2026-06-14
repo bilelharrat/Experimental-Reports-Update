@@ -1211,6 +1211,16 @@ def get_stock_research_evaluation() -> dict:
     return stock_research.list_evaluation()
 
 
+@router.get("/stock-research/run-ledger")
+def get_stock_research_run_ledger() -> list[dict]:
+    return stock_research.list_run_ledger()
+
+
+@router.get("/stock-research/doctor")
+def get_stock_research_doctor() -> dict:
+    return stock_research.stock_research_doctor()
+
+
 @router.patch("/stock-research/trackers/{tracker_id}/runs/{run_id}/review")
 def update_stock_research_run_review(
     tracker_id: str,
