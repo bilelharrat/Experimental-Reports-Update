@@ -27,6 +27,7 @@ VOLATILE_SNAPSHOT_KEYS = {
     "available_languages",
     "schema_version",
     "refresh_stats",
+    "section_status",
 }
 
 SECTION_KEYS = (
@@ -203,7 +204,12 @@ def parse_progress_stats(progress_path: Path | str | None) -> dict:
             finished_sections.add(thread)
         elif typ == "thread_failed":
             error = str(entry.get("error") or "failed")
-            failed_sections.append({"thread": thread, "error": error})
+            row = {"thread": thread, "error": error}
+            if entry.get("section_id"):
+                row["section"] = entry.get("section_id")
+            if entry.get("pass_id"):
+                row["pass_id"] = entry.get("pass_id")
+            failed_sections.append(row)
         elif typ == "error":
             error = str(entry.get("error") or "error")
             errors.append(error)
@@ -554,6 +560,47 @@ def build_snapshot_summary(snapshot: dict | None) -> dict:
     }
 
 
+def _status_failed_sections(snapshot: dict | None) -> list[dict]:
+    snap = snapshot if isinstance(snapshot, dict) else {}
+    status_map = snap.get("section_status")
+    if not isinstance(status_map, dict):
+        return []
+    rows: list[dict] = []
+    for section_id, status in status_map.items():
+        if not isinstance(status, dict):
+            continue
+        state = status.get("status")
+        error = status.get("last_error")
+        if state not in {"failed", "stale"} or not error:
+            continue
+        rows.append({
+            "section": section_id,
+            "thread": status.get("label") or section_id,
+            "status": state,
+            "error": error,
+            "last_attempted_at": status.get("last_attempted_at"),
+            "last_successful_at": status.get("last_successful_at"),
+            "retryable": status.get("retryable", True),
+        })
+    return rows
+
+
+def _merge_failed_sections(progress_failed: list[dict], status_failed: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for item in [*(progress_failed or []), *(status_failed or [])]:
+        if not isinstance(item, dict):
+            continue
+        thread = str(item.get("thread") or item.get("section") or "section")
+        error = str(item.get("error") or "")
+        key = (thread, error)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged
+
+
 def _build_record(
     *,
     company_id: str,
@@ -564,6 +611,8 @@ def _build_record(
     duration_ms: int | None = None,
     status: str = "done",
     baseline_seeded: bool = False,
+    retry_scope: str = "snapshot",
+    retried_sections: list[str] | None = None,
 ) -> dict:
     progress_stats = parse_progress_stats(progress_path)
     token_usage = progress_stats["token_usage"]
@@ -575,11 +624,17 @@ def _build_record(
     if baseline_seeded:
         change_summary["baseline"] = True
         change_summary["has_previous"] = False
+    failed_sections = _merge_failed_sections(
+        progress_stats.get("failed_sections") or [],
+        _status_failed_sections(new_snapshot),
+    )
     return {
         "schema_version": 1,
         "recorded_at": _now(),
         "status": status,
         "baseline_seeded": bool(baseline_seeded),
+        "retry_scope": retry_scope,
+        "retried_sections": retried_sections or [],
         "company_id": company_id,
         "ticker": (company.get("ticker") or "").strip().upper(),
         "company_name": company.get("name") or company_id,
@@ -593,7 +648,8 @@ def _build_record(
         "thread_count": len(token_usage.get("by_thread") or []),
         "started_sections": progress_stats.get("started_sections") or [],
         "finished_sections": progress_stats.get("finished_sections") or [],
-        "failed_sections": progress_stats.get("failed_sections") or [],
+        "failed_sections": failed_sections,
+        "section_status": copy.deepcopy(new_snapshot.get("section_status") or {}),
         "errors": progress_stats.get("errors") or [],
         "progress_path": progress_stats.get("progress_path"),
         "change_summary": change_summary,
@@ -628,6 +684,8 @@ def record_trader_refresh(
     progress_path: Path | str | None = None,
     duration_ms: int | None = None,
     status: str = "done",
+    retry_scope: str = "snapshot",
+    retried_sections: list[str] | None = None,
 ) -> dict:
     """Append one durable stats record for a completed trader refresh."""
     record = _build_record(
@@ -638,6 +696,8 @@ def record_trader_refresh(
         progress_path=progress_path,
         duration_ms=duration_ms,
         status=status,
+        retry_scope=retry_scope,
+        retried_sections=retried_sections,
     )
     _append_record(record)
     return record
@@ -730,6 +790,17 @@ def _rollup(items: list[dict], baseline_records_created: int) -> dict:
     total_tokens = sum(_as_int(rec.get("token_usage", {}).get("total_tokens")) for rec in latest_records)
     cost = sum(_as_float(rec.get("cost_usd")) or 0.0 for rec in latest_records)
     failed = sum(len(rec.get("failed_sections") or []) for rec in latest_records)
+    retry_needed = sum(
+        1
+        for rec in latest_records
+        if rec.get("failed_sections")
+        or any(
+            isinstance(row, dict)
+            and row.get("status") in {"failed", "stale"}
+            and row.get("retryable", True)
+            for row in (rec.get("section_status") or {}).values()
+        )
+    )
     latest_recorded_at = max(
         (str(rec.get("recorded_at") or "") for rec in latest_records),
         default=None,
@@ -742,6 +813,7 @@ def _rollup(items: list[dict], baseline_records_created: int) -> dict:
         **token_totals,
         "cost_usd": round(cost, 6),
         "failed_section_count": failed,
+        "retry_needed_count": retry_needed,
         "average_change_pct": (
             round(sum(change_values) / len(change_values), 2)
             if change_values

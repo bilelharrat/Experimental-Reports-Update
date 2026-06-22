@@ -11,6 +11,8 @@ import {
   Newspaper,
   ScrollText,
   ClipboardList,
+  FlaskConical,
+  Table2,
   User,
 } from "lucide-vue-next";
 import { appLanguage, setAppLanguage } from "../state.js";
@@ -82,7 +84,7 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
 
 <template>
   <aside
-    class="w-72 shrink-0 border-r border-subtle bg-surface flex flex-col h-screen sticky top-0"
+    class="w-full shrink-0 border-b border-subtle bg-surface flex max-h-[24rem] flex-col overflow-hidden lg:sticky lg:top-0 lg:h-screen lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r"
   >
     <div class="px-5 py-3 border-b border-subtle">
       <RouterLink
@@ -148,6 +150,37 @@ const reports = computed(() => props.reports.filter((r) => r?.company_id));
     </div>
 
     <div class="flex-1 overflow-y-auto px-2 pb-4">
+      <!-- Research Pages -->
+      <div
+        class="px-3 pt-5 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
+      >
+        <Activity class="h-3 w-3" />
+        Research Pages
+      </div>
+      <div class="space-y-1">
+        <RouterLink
+          to="/research-pages/market-pulse"
+          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
+        >
+          <Activity class="h-4 w-4 text-ink-muted" />
+          <span class="truncate">Market Pulse</span>
+        </RouterLink>
+        <RouterLink
+          to="/research-pages/evidence-matrix"
+          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
+        >
+          <Table2 class="h-4 w-4 text-ink-muted" />
+          <span class="truncate">Evidence Matrix</span>
+        </RouterLink>
+        <RouterLink
+          to="/research-pages/hypothesis-lab"
+          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
+        >
+          <FlaskConical class="h-4 w-4 text-ink-muted" />
+          <span class="truncate">Hypothesis Lab</span>
+        </RouterLink>
+      </div>
+
       <!-- Recent Reports -->
       <div
         class="px-3 pt-5 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"

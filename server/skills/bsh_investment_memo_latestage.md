@@ -20,6 +20,47 @@ This version is a **true superset** of the Phase 1 prototype, scoped to late-sta
 
 ---
 
+## Human Executive Memo Voice Contract
+
+The analytical artifacts are internal working material. The final memo is the decision document.
+
+Write the final English memo like a senior BSH investment partner would brief IC after live diligence:
+- decisive, not exploratory
+- fluent, not template-driven
+- judgment-led, not process-led
+- grounded in evidence, but expressed as conviction under uncertainty
+
+Convert evidence into partner-level conclusions. Do not narrate how the analysis was performed. Do not reproduce confidence scaffolding, methodology notes, task labels, validation language, reviewer prompts, or research workflow language in final body prose.
+
+If the Serena memo packet includes selected operator narrative choices, use them as human-in-the-loop guidance for:
+- the intro stance in the Executive Summary,
+- the risk-section posture and lead risk,
+- the conclusion / Investment View posture.
+
+These choices are source-backed direction, not copy-paste text. Integrate them into natural IC prose and override them only when the evidence directly contradicts the selected posture.
+
+Avoid meta-commentary about the document itself:
+- do not write "the memo frames", "the memo therefore", "the analysis suggests", "this section covers", or similar writer/process language
+- do not explain uncertainty with phrases like "due to lack of data" or "this implies false precision"
+- state uncertainty directly: "Revenue is not disclosed", "contracts are not revenue-recognized", "pipeline is early-stage"
+
+Banned phrase / rewrite guidance:
+
+| Avoid | Prefer |
+|---|---|
+| The investment case is not that... | This is not a conventional SaaS case. |
+| The principal risk is that... | Key risk centers on... |
+| The memo therefore... | Remove, or rewrite as direct judgment. |
+| The analysis suggests... | State the conclusion directly. |
+| Due to lack of data... | Revenue is not disclosed. |
+| implies false precision | would be misleading to forecast precisely |
+| not treated as ARR | not revenue-recognized |
+| commercial momentum is material, but... | The pipeline is large but not contractually binding. |
+
+The final memo should sound like an experienced investor making a call: here is what is happening, what must be true, what can go wrong, and what BSH should do.
+
+---
+
 ## Analytical Standard: Falsification First
 
 This is not a company summary. It is an underwriting memo.
@@ -1201,6 +1242,8 @@ Start this section on page 2.
 
 The Executive Summary is a tight synthesis of Sections II (Company Overview), III (Investment Highlights), and IV (Investment Risk). It opens with what the deal is, then what BSH would be betting on, then what could go wrong, and concludes with a recommendation and the open questions that most need resolution.
 
+Write it like a spoken IC summary, not a report introduction. In compressed prose, answer: what the company is, what transaction is in front of BSH, why now, why the company could win, what must prove true, why the deal could fail, and the investment view. Use the required subsection labels for navigation, but keep the language direct and partner-like.
+
 Required subsection order:
 1. Investment Opportunity
 2. Investment Thesis (summary of III)
@@ -1243,6 +1286,8 @@ Render a **Critical Reality Check (for BSH)** evidence-summary callout box cover
 *Investment Recommendation*  
 A clear recommendation: **Yes / Conditional Yes / Need More Information / Pass**. Follow with 2–4 sentences explaining the logic, and — if Conditional Yes — list the specific conditions that must be met before BSH proceeds.
 
+Treat this as the Investment View: state conviction, dependencies, failure modes, and recommendation. Do not summarize the memo's structure or methodology.
+
 *Open Questions*  
 Render the **Top 3 Gating Questions (for BSH)** as a decision-gate callout box. These should be the three questions most likely to change the investment decision and the ones BSH co-founders should resolve in async review. The `(for BSH)` suffix marks the callout as BSH-internal content.
 
@@ -1251,6 +1296,8 @@ Render the **Top 3 Gating Questions (for BSH)** as a decision-gate callout box. 
 **II. Company Overview**
 
 Section II is descriptive — the facts about the company. Save evaluative judgment about whether these facts argue for or against the deal for Section III.
+
+Explain the operating reality: what the company does, what workflow or physical-world process it changes, who uses it, what it replaces or augments, and how it is deployed in real environments. Avoid taxonomy-heavy descriptions that read like market-map labels.
 
 *Product Overview*  
 What the product does, who uses it, and what problem it solves. Use concrete examples of the user experience or workflow.
@@ -1311,8 +1358,12 @@ Cover 2–3 major tailwinds or market dynamics that create the opportunity. For 
 - Explain why it creates an opening specifically for this company's approach
 - Note any risks if the trend reverses or slows
 
+Keep market context limited to structural forces: demand drivers, timing, budget sources, and why buyer behavior is changing now. Do not write a broad market essay.
+
 *Competitive Analysis*  
 Open with a 2–3 sentence overview of how the competitive landscape is structured.
+
+Frame competition as deal dynamics: who blocks the sale, who owns distribution, where substitution actually happens, and whether the product replaces incumbents or coexists beside them. Avoid vendor-list prose that does not explain buying friction or displacement risk.
 
 For each major competitor, cover:
 - What they do and who they target
@@ -1373,6 +1424,8 @@ Section IV consolidates everything that argues against the deal — the risks th
 
 *Risk Register*  
 Render as a compact risk table with 4–6 rows.
+
+Each risk statement should be a sharp one-sentence risk. Put evidence, mitigants, and monitoring notes in the compact table fields or adjacent notes, not in layered explanatory risk prose.
 
 | # | Risk | Severity | Likelihood | Disconfirming Evidence | Mitigant / Monitoring Approach |
 |---|------|----------|------------|------------------------|-------------------------------|
@@ -1858,6 +1911,18 @@ Do not finalize the memo unless all of the following are true:
 17. `logs/run_manifest.md` and `logs/file_inventory.md` exist and are complete.
 18. Both the English and Simplified Chinese final memo files exist inside a unique run-specific `memo/` directory and share the same timestamp.
 19. No prior run files were overwritten.
+
+### Final Prose QA Requirements
+
+Before DOCX generation, scan the English memo body and remove:
+- banned phrases from the Human Executive Memo Voice Contract
+- meta language about "the memo", "the analysis", "the framework", "this section", or the writing process
+- methodology leakage from claim registers, research tasks, evidence matrices, validation logs, confidence scoring, or reviewer prompts
+- repetitive openings and symmetrical bullet phrasing that make the memo feel generated
+- over-explained risks that should be one-sentence risk statements with evidence in compact notes or tables
+- template-visible structure and unnatural model voice
+
+If a sentence explains how the memo was built, rewrite it as the investment judgment. If a sentence apologizes for missing data, state the uncertainty directly.
 
 ### Visual / Formatting Requirements
 20. The cover page uses the mandatory cover-page layout and does not look like a loose metadata note.

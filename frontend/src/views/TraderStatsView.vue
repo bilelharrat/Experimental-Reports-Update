@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
-  CalendarClock,
   Gauge,
   Loader2,
   RefreshCw,
@@ -34,6 +33,7 @@ const selectedItem = computed(() => {
 });
 const selectedLatest = computed(() => selectedItem.value?.latest_record || null);
 const selectedHistory = computed(() => selectedItem.value?.history || []);
+const selectedFailedSections = computed(() => selectedLatest.value?.failed_sections || []);
 const maxLatestTokens = computed(() =>
   Math.max(1, ...items.value.map((item) => totalTokens(latestRecord(item)))),
 );
@@ -158,6 +158,10 @@ function statusClass(record) {
   return "bg-success-soft text-success-ink";
 }
 
+function failedSectionCount(record) {
+  return (record?.failed_sections || []).length;
+}
+
 function changedSections(record) {
   return record?.change_summary?.changed_sections || [];
 }
@@ -225,7 +229,7 @@ function selectItem(item) {
     </header>
 
     <div
-      class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"
+      class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
       aria-live="polite"
     >
       <div class="rounded-card border border-subtle bg-surface p-4 shadow-card">
@@ -262,15 +266,6 @@ function selectItem(item) {
         </div>
         <div class="mt-2 text-2xl font-semibold text-ink-primary">
           {{ fmtNumber(totals.failed_section_count || 0) }}
-        </div>
-      </div>
-      <div class="rounded-card border border-subtle bg-surface p-4 shadow-card">
-        <div class="flex items-center gap-2 text-xs font-medium uppercase text-ink-muted">
-          <CalendarClock class="h-4 w-4" />
-          {{ t("trader_stats.metric_cost") }}
-        </div>
-        <div class="mt-2 text-2xl font-semibold text-ink-primary">
-          {{ fmtCost(totals.cost_usd) }}
         </div>
       </div>
     </div>
@@ -317,7 +312,6 @@ function selectItem(item) {
                 <th class="px-4 py-3 font-medium">{{ t("trader_stats.col_change") }}</th>
                 <th class="px-4 py-3 font-medium">{{ t("trader_stats.col_sections") }}</th>
                 <th class="px-4 py-3 font-medium">{{ t("trader_stats.col_history") }}</th>
-                <th class="px-4 py-3 font-medium">{{ t("trader_stats.col_status") }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-subtle">
@@ -335,24 +329,31 @@ function selectItem(item) {
                   <div class="mt-0.5 max-w-[180px] truncate text-xs text-ink-muted">
                     {{ item.company_name }}
                   </div>
+                  <span
+                    class="mt-2 inline-flex max-w-full rounded-full px-2 py-0.5 text-[11px] font-medium"
+                    :class="statusClass(latestRecord(item))"
+                  >
+                    {{ statusLabel(latestRecord(item)) }}
+                  </span>
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 text-ink-secondary">
                   {{ fmtDate(latestRecord(item)?.refreshed_at || latestRecord(item)?.recorded_at) }}
                 </td>
                 <td class="min-w-[150px] px-4 py-3">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="font-mono text-ink-primary">
-                      {{ fmtTokens(totalTokens(latestRecord(item))) }}
-                    </span>
-                    <span class="text-xs text-ink-muted">
-                      {{ fmtCost(cost(latestRecord(item))) }}
-                    </span>
-                  </div>
+                  <span class="font-mono text-ink-primary">
+                    {{ fmtTokens(totalTokens(latestRecord(item))) }}
+                  </span>
                   <div class="mt-2 h-1.5 rounded-full bg-surface-muted">
                     <div
                       class="h-1.5 rounded-full bg-accent"
                       :style="{ width: tokenBarWidth(latestRecord(item)) }"
                     />
+                  </div>
+                  <div
+                    v-if="failedSectionCount(latestRecord(item))"
+                    class="mt-2 text-xs font-medium text-warning-ink"
+                  >
+                    {{ failedSectionCount(latestRecord(item)) }} failed
                   </div>
                 </td>
                 <td class="whitespace-nowrap px-4 py-3 font-mono text-ink-primary">
@@ -390,14 +391,6 @@ function selectItem(item) {
                       :style="{ height: bar.height }"
                     />
                   </div>
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    class="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium"
-                    :class="statusClass(latestRecord(item))"
-                  >
-                    {{ statusLabel(latestRecord(item)) }}
-                  </span>
                 </td>
               </tr>
             </tbody>
@@ -456,6 +449,22 @@ function selectItem(item) {
                 </dd>
               </div>
             </dl>
+          </section>
+
+          <section v-if="selectedFailedSections.length" class="px-4 py-4">
+            <h3 class="text-sm font-semibold text-ink-primary">
+              {{ t("trader_stats.detail_failed") }}
+            </h3>
+            <div class="mt-3 space-y-2">
+              <div
+                v-for="section in selectedFailedSections"
+                :key="`${section.thread || 'thread'}-${section.error || ''}`"
+                class="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning-ink"
+              >
+                <div class="font-medium">{{ section.thread || t("trader_stats.detail_failed_unknown") }}</div>
+                <div class="mt-1 text-xs leading-5">{{ section.error || t("trader_stats.detail_failed_no_error") }}</div>
+              </div>
+            </div>
           </section>
 
           <section class="px-4 py-4">

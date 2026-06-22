@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,7 @@ from . import (
     memo_prep,
     news_archive,
     research_eval,
+    research_pages,
     research_store,
     serena_analysis,
     storage,
@@ -535,7 +537,7 @@ class StockResearchRunLedgerRow(BaseModel):
     preserved_previous_artifact: bool | None = None
     cancellation_reason: str | None = None
     source_count: int | None = None
-    evidence_coverage: dict[str, Any] | None = None
+    evidence_coverage: float | dict[str, Any] | None = None
 
 
 class StockResearchDoctorIssue(BaseModel):
@@ -645,6 +647,7 @@ class HypothesisDashboardPayload(BaseModel):
 
 class HypothesisCreateRequest(BaseModel):
     vintage_date: str
+    vintage_kind: hypothesis_store.VintageKind = "forward_live"
     allow_debug_backfill: bool = False
     horizon_days: int = Field(default=7, ge=1)
 
@@ -1057,6 +1060,21 @@ def get_stock_research_dashboard() -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/research-pages/market-pulse")
+def get_research_page_market_pulse() -> dict:
+    return research_pages.market_pulse_page()
+
+
+@router.get("/research-pages/evidence-matrix")
+def get_research_page_evidence_matrix(company_id: str | None = None) -> dict:
+    return research_pages.evidence_matrix_page(company_id=company_id)
+
+
+@router.get("/research-pages/hypothesis-lab")
+def get_research_page_hypothesis_lab() -> dict:
+    return research_pages.hypothesis_lab_page()
+
+
 @router.get("/stock-research/trackers")
 def list_stock_research_trackers(include_archived: bool = False) -> list[dict]:
     return stock_research.list_trackers(include_archived=include_archived)
@@ -1443,6 +1461,7 @@ def create_stock_research_hypotheses(payload: HypothesisCreateRequest) -> dict:
     try:
         return hypothesis_cycle.create_hypotheses(
             vintage_date=payload.vintage_date,
+            vintage_kind=payload.vintage_kind,
             allow_debug_backfill=payload.allow_debug_backfill,
             horizon_days=payload.horizon_days,
         )
@@ -6036,12 +6055,105 @@ def _parse_trader_languages(raw: str | None) -> list[str]:
     return valid or ["en", "zh"]
 
 
+class TraderSectionRefreshRequest(BaseModel):
+    sections: list[str] = Field(default_factory=list)
+    force: bool = False
+    preserve_existing_sections: bool = True
+
+
+class _TraderProgressMirror:
+    """Mirror section-level events from a company refresh into bulk logs."""
+
+    def __init__(self, primary, mirror, *, company: dict):
+        self._primary = primary
+        self._mirror = mirror
+        self._company = company
+
+    def emit(self, type_: str, **fields: Any) -> None:
+        self._primary.emit(type_, **fields)
+        if self._mirror is None:
+            return
+        mapped = {
+            "thread_started": "section_started",
+            "thread_finished": "section_finished",
+            "thread_failed": "section_failed",
+        }.get(type_)
+        if not mapped:
+            return
+        payload = {
+            key: value
+            for key, value in fields.items()
+            if key
+            in {
+                "thread",
+                "title",
+                "section_id",
+                "pass_id",
+                "error",
+                "duration_ms",
+                "cached",
+            }
+        }
+        self._mirror.emit(
+            mapped,
+            company_id=self._company.get("id"),
+            company_name=self._company.get("name") or self._company.get("id"),
+            ticker=(self._company.get("ticker") or "").strip(),
+            **payload,
+        )
+
+    @property
+    def is_terminated(self) -> bool:
+        return self._primary.is_terminated
+
+
+def _generate_trader_snapshot(
+    *,
+    company: dict,
+    progress,
+    previous_snapshot: dict | None,
+    section_ids: list[str] | None = None,
+    force: bool = False,
+    preserve_existing_sections: bool = True,
+    section_workers: int | None = None,
+    global_llm_semaphore=None,
+) -> tuple[dict | None, str | None]:
+    try:
+        return companies_ai_public.generate_snapshot(
+            company=company,
+            progress=progress,
+            previous_snapshot=previous_snapshot,
+            section_ids=section_ids,
+            force=force,
+            preserve_existing_sections=preserve_existing_sections,
+            max_workers=section_workers,
+            global_semaphore=global_llm_semaphore,
+        )
+    except TypeError as exc:
+        # Several fast tests monkeypatch the old two-kwarg signature.
+        # Keep that shape working while production uses the richer
+        # section-aware generator.
+        if "unexpected keyword argument" not in str(exc):
+            raise
+        return companies_ai_public.generate_snapshot(
+            company=company,
+            progress=progress,
+        )
+
+
 def _run_trader_snapshot_job(
     company_id: str,
     *,
     languages_requested: list[str] | None = None,
     include_translations: bool = True,
     translation_mode: str = "all",
+    force: bool = False,
+    section_ids: list[str] | None = None,
+    preserve_existing_sections: bool = True,
+    retry_scope: str = "snapshot",
+    section_workers: int | None = None,
+    global_llm_semaphore=None,
+    mirror_progress=None,
 ) -> None:
     """Background worker for a single trader-snapshot refresh. Writes
     progress events to JSONL and persists the snapshot on success.
@@ -6052,8 +6164,13 @@ def _run_trader_snapshot_job(
     these inputs don't affect generation; they're a placeholder for a
     future single-language mode (Phase 2 of the bilingual rollout).
     """
-    progress = job_progress.ProgressLog(_trader_snapshot_progress_path(company_id))
+    base_progress = job_progress.ProgressLog(_trader_snapshot_progress_path(company_id))
     company = storage.get_company(company_id) or {}
+    progress = (
+        _TraderProgressMirror(base_progress, mirror_progress, company=company)
+        if mirror_progress is not None
+        else base_progress
+    )
     previous_snapshot = copy.deepcopy(
         company.get("trader_snapshot")
         if isinstance(company.get("trader_snapshot"), dict)
@@ -6070,6 +6187,8 @@ def _run_trader_snapshot_job(
         languages_requested=languages_requested or ["en", "zh"],
         include_translations=include_translations,
         translation_mode=translation_mode,
+        retry_scope=retry_scope,
+        retried_sections=section_ids or [],
     )
     progress.emit(
         "stage", stage="starting",
@@ -6078,8 +6197,15 @@ def _run_trader_snapshot_job(
 
     started_at = datetime.now(timezone.utc)
     try:
-        snapshot, err = companies_ai_public.generate_snapshot(
-            company=company, progress=progress,
+        snapshot, err = _generate_trader_snapshot(
+            company=company,
+            progress=progress,
+            previous_snapshot=previous_snapshot,
+            section_ids=section_ids,
+            force=force,
+            preserve_existing_sections=preserve_existing_sections,
+            section_workers=section_workers,
+            global_llm_semaphore=global_llm_semaphore,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("trader snapshot crashed for %s", company_id)
@@ -6112,13 +6238,32 @@ def _run_trader_snapshot_job(
         "stage", stage="bilingual_fill",
         message="Filling missing translations",
     )
+    section_status = snapshot.pop(companies_ai_public.SECTION_STATUS_KEY, None)
     try:
-        trader_bilingual_fill.ensure_bilingual_completeness(snapshot)
+        if section_ids:
+            section_payload = {
+                section_id: snapshot.get(section_id)
+                for section_id in section_ids
+            }
+            trader_bilingual_fill.ensure_bilingual_completeness(section_payload)
+            for section_id in section_ids:
+                snapshot[section_id] = section_payload.get(section_id)
+        else:
+            trader_bilingual_fill.ensure_bilingual_completeness(snapshot)
     except Exception:  # noqa: BLE001
         logger.exception(
             "trader_bilingual_fill: completeness pass crashed; "
             "persisting snapshot as-is",
         )
+    finally:
+        if section_status is not None:
+            snapshot[companies_ai_public.SECTION_STATUS_KEY] = section_status
+
+    companies_ai_public.ensure_section_status(
+        snapshot,
+        previous_snapshot=previous_snapshot,
+        source_run_id=f"{company_id}:{snapshot['refreshed_at']}",
+    )
 
     # The schema + prompt + bilingual fill above guarantee both
     # languages are present on every prose field, so the client can
@@ -6141,6 +6286,8 @@ def _run_trader_snapshot_job(
             new_snapshot=snapshot,
             progress_path=_trader_snapshot_progress_path(company_id),
             duration_ms=duration_ms,
+            retry_scope=retry_scope,
+            retried_sections=section_ids or [],
         )
         progress.emit(
             "stage",
@@ -6164,6 +6311,8 @@ def _run_trader_snapshot_job(
         available_languages=snapshot["available_languages"],
         generated_languages=snapshot["available_languages"],
         schema_version=snapshot["schema_version"],
+        retry_scope=retry_scope,
+        retried_sections=section_ids or [],
     )
 
 
@@ -7603,10 +7752,20 @@ def _run_refresh_all_trader_snapshots_job(
     include_translations: bool = True,
     translation_mode: str = "all",
 ) -> None:
-    """Sequentially refresh every tracked public-company trader snapshot."""
+    """Refresh every tracked public-company trader snapshot with bounds."""
     progress = job_progress.ProgressLog(_trader_refresh_all_progress_path())
     companies = _public_companies_for_trader_refresh()
     total_count = len(companies)
+    company_workers = max(
+        1, int(os.environ.get("BSH_TRADER_BULK_COMPANY_WORKERS", "3"))
+    )
+    section_workers = max(
+        1, int(os.environ.get("BSH_TRADER_SECTION_WORKERS_PER_COMPANY", "3"))
+    )
+    global_llm_workers = max(
+        1, int(os.environ.get("BSH_TRADER_GLOBAL_LLM_WORKERS", "6"))
+    )
+    global_llm_semaphore = threading.Semaphore(global_llm_workers)
     progress.emit(
         "job_init",
         kind="public_snapshot_bulk",
@@ -7614,6 +7773,9 @@ def _run_refresh_all_trader_snapshots_job(
         subtitle=f"{total_count} public companies",
         total_count=total_count,
         force=force,
+        company_workers=company_workers,
+        section_workers_per_company=section_workers,
+        global_llm_workers=global_llm_workers,
         languages_requested=languages_requested or ["en", "zh"],
         include_translations=include_translations,
         translation_mode=translation_mode,
@@ -7635,69 +7797,62 @@ def _run_refresh_all_trader_snapshots_job(
     failed_count = 0
     results: list[dict] = []
 
-    for idx, company in enumerate(companies, start=1):
+    def _refresh_one(idx: int, company: dict) -> dict:
         company_id = (company.get("id") or "").strip()
         company_name = company.get("name") or company_id or "Unknown company"
         ticker = (company.get("ticker") or "").strip()
 
         if not company_id:
-            skipped_count += 1
-            results.append({
+            return {
                 "company_id": None,
                 "company_name": company_name,
                 "ticker": ticker,
                 "status": "skipped_missing_id",
-            })
-            continue
+            }
         if not ticker:
-            skipped_count += 1
             progress.emit(
-                "stage",
-                stage="skipped",
+                "company_done",
                 message=f"Skipped {company_name}: missing ticker",
                 company_id=company_id,
                 company_name=company_name,
                 ticker=ticker,
                 index=idx,
                 total_count=total_count,
+                status="skipped_missing_ticker",
             )
-            results.append({
+            return {
                 "company_id": company_id,
                 "company_name": company_name,
                 "ticker": ticker,
                 "status": "skipped_missing_ticker",
-            })
-            continue
+            }
 
         snapshot_path = _trader_snapshot_progress_path(company_id)
         state = _scan_progress_state(snapshot_path)
         if _progress_state_in_flight(state) and not force:
-            skipped_count += 1
             progress.emit(
-                "stage",
-                stage="already_running",
+                "company_done",
                 message=f"Skipped {company_name}: refresh already running",
                 company_id=company_id,
                 company_name=company_name,
                 ticker=ticker,
                 index=idx,
                 total_count=total_count,
+                status="already_running",
             )
-            results.append({
+            return {
                 "company_id": company_id,
                 "company_name": company_name,
                 "ticker": ticker,
                 "status": "already_running",
-            })
-            continue
+            }
         if _progress_state_in_flight(state) and force:
             _supersede_progress_file(
                 snapshot_path, reason="superseded by bulk force-refresh"
             )
 
         progress.emit(
-            "stage",
-            stage="refreshing_company",
+            "company_started",
             message=f"Refreshing {ticker} ({idx}/{total_count})",
             company_id=company_id,
             company_name=company_name,
@@ -7711,26 +7866,52 @@ def _run_refresh_all_trader_snapshots_job(
                 languages_requested=languages_requested,
                 include_translations=include_translations,
                 translation_mode=translation_mode,
+                force=force,
+                section_workers=section_workers,
+                global_llm_semaphore=global_llm_semaphore,
+                mirror_progress=progress,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("bulk trader refresh crashed for %s", company_id)
-            failed_count += 1
-            results.append({
+            progress.emit(
+                "company_done",
+                message=f"Trader view failed for {ticker}",
+                company_id=company_id,
+                company_name=company_name,
+                ticker=ticker,
+                index=idx,
+                total_count=total_count,
+                status="error",
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            return {
                 "company_id": company_id,
                 "company_name": company_name,
                 "ticker": ticker,
                 "status": "error",
                 "error": f"{type(exc).__name__}: {exc}",
-            })
-            continue
+            }
 
         final_state = _scan_progress_state(snapshot_path)
         if final_state.get("terminal_type") == "done":
-            refreshed_count += 1
             status = "done"
         else:
-            failed_count += 1
             status = "error"
+        if status == "done":
+            fresh_company = storage.get_company(company_id) or {}
+            fresh_snapshot = fresh_company.get("trader_snapshot")
+            section_status = (
+                fresh_snapshot.get(companies_ai_public.SECTION_STATUS_KEY)
+                if isinstance(fresh_snapshot, dict)
+                else None
+            )
+            if isinstance(section_status, dict) and any(
+                isinstance(row, dict)
+                and row.get("status") in {"failed", "stale"}
+                and row.get("last_error")
+                for row in section_status.values()
+            ):
+                status = "partial"
         result = {
             "company_id": company_id,
             "company_name": company_name,
@@ -7739,8 +7920,59 @@ def _run_refresh_all_trader_snapshots_job(
         }
         if final_state.get("error"):
             result["error"] = final_state["error"]
-        results.append(result)
+        progress.emit(
+            "company_done" if status == "done" else "company_partial",
+            message=(
+                f"Completed {ticker}"
+                if status == "done"
+                else f"Trader view ended {status} for {ticker}"
+            ),
+            company_id=company_id,
+            company_name=company_name,
+            ticker=ticker,
+            index=idx,
+            total_count=total_count,
+            status=status,
+            error=result.get("error"),
+        )
+        return result
 
+    queued: list[tuple[int, dict]] = []
+    for idx, company in enumerate(companies, start=1):
+        progress.emit(
+            "company_queued",
+            company_id=company.get("id"),
+            company_name=company.get("name") or company.get("id"),
+            ticker=(company.get("ticker") or "").strip(),
+            index=idx,
+            total_count=total_count,
+        )
+        queued.append((idx, company))
+
+    with ThreadPoolExecutor(max_workers=min(company_workers, len(queued))) as pool:
+        futures = [
+            pool.submit(_refresh_one, idx, company)
+            for idx, company in queued
+        ]
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
+            status = result.get("status")
+            if status in {"done", "partial"}:
+                refreshed_count += 1
+            elif status in {"skipped_missing_id", "skipped_missing_ticker", "already_running"}:
+                skipped_count += 1
+            else:
+                failed_count += 1
+
+    progress.emit(
+        "bulk_done",
+        total_count=total_count,
+        refreshed_count=refreshed_count,
+        skipped_count=skipped_count,
+        failed_count=failed_count,
+        results=results,
+    )
     progress.emit(
         "done",
         total_count=total_count,
@@ -7857,6 +8089,7 @@ def post_trader_refresh(
             "languages_requested": languages_requested,
             "include_translations": include_translations,
             "translation_mode": translation_mode,
+            "force": force,
         },
         name=f"trader-snapshot:{company_id}",
         daemon=True,
@@ -7866,6 +8099,86 @@ def post_trader_refresh(
         "stream_url": stream_url,
         "status": "force_queued" if force else "queued",
         "languages_requested": languages_requested,
+    }
+
+
+@router.post("/companies/{company_id}/trader/refresh-sections")
+def post_trader_refresh_sections(
+    company_id: str,
+    body: TraderSectionRefreshRequest,
+    languages: str | None = None,
+    include_translations: bool = True,
+    translation_mode: str = "all",
+) -> dict:
+    """Retry selected trader snapshot sections without rerunning the whole view."""
+    company = storage.get_company(company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    company_type = company.get("company_type") or storage.infer_company_type(company)
+    if company_type != "public":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "company_type_not_public",
+                "message": (
+                    f"Company {company_id} is bucketed as "
+                    f"{company_type!r}; the trader snapshot only runs "
+                    "for public companies."
+                ),
+            },
+        )
+    sections = companies_ai_public.normalize_section_ids(body.sections)
+    if not sections:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_sections",
+                "message": "Supply at least one valid trader section id.",
+                "valid_sections": list(companies_ai_public.SECTION_KEYS),
+            },
+        )
+
+    languages_requested = _parse_trader_languages(languages)
+    stream_url = f"/api/companies/{company_id}/trader/refresh/stream"
+    path = _trader_snapshot_progress_path(company_id)
+    state = _scan_progress_state(path)
+    in_flight = state.get("exists") and not state.get("terminated")
+    if in_flight and not body.force:
+        return {
+            "job_id": company_id,
+            "stream_url": stream_url,
+            "status": "already_running",
+            "languages_requested": languages_requested,
+            "retry_scope": "sections",
+            "retried_sections": sections,
+        }
+    if in_flight and body.force:
+        _supersede_progress_file(
+            path, reason="superseded by section force-refresh"
+        )
+
+    threading.Thread(
+        target=_run_trader_snapshot_job,
+        args=(company_id,),
+        kwargs={
+            "languages_requested": languages_requested,
+            "include_translations": include_translations,
+            "translation_mode": translation_mode,
+            "force": body.force,
+            "section_ids": sections,
+            "preserve_existing_sections": body.preserve_existing_sections,
+            "retry_scope": "sections",
+        },
+        name=f"trader-snapshot:{company_id}:sections",
+        daemon=True,
+    ).start()
+    return {
+        "job_id": company_id,
+        "stream_url": stream_url,
+        "status": "force_queued" if body.force else "queued",
+        "languages_requested": languages_requested,
+        "retry_scope": "sections",
+        "retried_sections": sections,
     }
 
 

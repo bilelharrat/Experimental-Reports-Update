@@ -90,11 +90,23 @@ function pickLocalizedArray(obj, base) {
 const refreshing = ref(false);
 const refreshError = ref(null);
 const liveStatus = ref("");
+const retryingSections = ref(new Set());
 let activeStream = null;
 
 const snapshot = computed(() => props.company.trader_snapshot || null);
 const refreshedAt = computed(() => snapshot.value?.refreshed_at || null);
 const marketSession = computed(() => snapshot.value?.market_session || null);
+const sectionStatus = computed(() => snapshot.value?.section_status || {});
+const actionableSectionStatuses = computed(() =>
+  Object.entries(sectionStatus.value)
+    .filter(([, status]) =>
+      status &&
+      ["failed", "stale"].includes(status.status) &&
+      status.last_error &&
+      status.retryable !== false,
+    )
+    .map(([sectionId, status]) => ({ sectionId, ...status })),
+);
 
 function staleness(cardKey) {
   return cardStaleness(refreshedAt.value, cardKey, marketSession.value);
@@ -121,15 +133,49 @@ function changeClass(v) {
   return "text-ink-muted";
 }
 
+function sectionTitle(sectionId) {
+  const labels = {
+    price_card: t("trader.card.price"),
+    momentum_card: t("trader.card.momentum"),
+    sentiment_card: t("trader.card.sentiment"),
+    heat_card: t("trader.card.heat.v2"),
+    catalysts: t("trader.card.catalysts"),
+    trader_news: t("trader.card.news"),
+    research_overview: t("trader.card.research_overview"),
+    market_session: "Market session",
+    tech_movers: "Tech movers",
+  };
+  return labels[sectionId] || sectionId.replace(/_/g, " ");
+}
+
 async function onRefresh() {
   refreshing.value = true;
   refreshError.value = null;
   liveStatus.value = "";
+  retryingSections.value = new Set();
   try {
     const job = await api.trader.refresh(props.company.id);
     openStream(job.stream_url);
   } catch (e) {
     refreshing.value = false;
+    refreshError.value = e?.message || t("trader.refresh_failed");
+  }
+}
+
+async function onRetrySection(sectionId) {
+  refreshing.value = true;
+  refreshError.value = null;
+  liveStatus.value = "";
+  retryingSections.value = new Set([sectionId]);
+  try {
+    const job = await api.trader.refreshSections(props.company.id, [sectionId], {
+      force: true,
+      preserveExistingSections: true,
+    });
+    openStream(job.stream_url);
+  } catch (e) {
+    refreshing.value = false;
+    retryingSections.value = new Set();
     refreshError.value = e?.message || t("trader.refresh_failed");
   }
 }
@@ -152,6 +198,7 @@ function openStream(streamUrl) {
     } else if (entry.type === "done") {
       closeStream();
       refreshing.value = false;
+      retryingSections.value = new Set();
       liveStatus.value = "";
       // Pull the updated company record so trader_snapshot is fresh in
       // the parent. We let the parent overwrite its prop reference.
@@ -164,6 +211,7 @@ function openStream(streamUrl) {
     } else if (entry.type === "error") {
       closeStream();
       refreshing.value = false;
+      retryingSections.value = new Set();
       refreshError.value = entry.error || t("trader.refresh_failed");
     }
   };
@@ -519,6 +567,43 @@ function sourceLabel(section) {
 
     <div v-if="liveStatus" class="text-xs text-ink-muted italic">{{ liveStatus }}</div>
     <div v-if="refreshError" class="text-xs text-danger">{{ refreshError }}</div>
+    <div
+      v-if="actionableSectionStatuses.length"
+      class="space-y-2"
+      aria-live="polite"
+    >
+      <div
+        v-for="status in actionableSectionStatuses"
+        :key="status.sectionId"
+        class="flex flex-col gap-2 rounded-card border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-warning-ink sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 font-medium">
+            <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
+            <span>{{ sectionTitle(status.sectionId) }}</span>
+            <span class="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] uppercase">
+              {{ status.status === "stale" ? t("trader.section.stale") : t("trader.section.failed") }}
+            </span>
+          </div>
+          <div class="mt-1 truncate text-[11px]">
+            {{ status.last_error }}
+          </div>
+        </div>
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center justify-center gap-1 rounded border border-warning/40 bg-surface px-2 py-1 text-[11px] font-semibold text-warning-ink hover:bg-surface-muted disabled:opacity-60 focus-ring"
+          :disabled="refreshing"
+          @click="onRetrySection(status.sectionId)"
+        >
+          <Loader2
+            v-if="retryingSections.has(status.sectionId)"
+            class="h-3 w-3 animate-spin"
+          />
+          <RefreshCw v-else class="h-3 w-3" />
+          {{ retryingSections.has(status.sectionId) ? t("trader.section.retrying") : t("trader.section.retry") }}
+        </button>
+      </div>
+    </div>
 
     <!-- Empty state: no snapshot yet. -->
     <div

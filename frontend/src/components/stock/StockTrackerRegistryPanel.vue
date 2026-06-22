@@ -25,6 +25,27 @@ function fmtDate(value) {
     minute: "2-digit",
   });
 }
+
+function listItems(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function itemName(item) {
+  if (typeof item === "string") return item;
+  return item?.name || item?.question || item?.event || item?.template || item?.requirement || item?.text || "";
+}
+
+function designNames(tracker, key, limit = 3) {
+  return listItems(tracker?.[key])
+    .map(itemName)
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function countLabel(count, singular) {
+  const value = Number(count || 0);
+  return `${value} ${singular}${value === 1 ? "" : "s"}`;
+}
 </script>
 
 <template>
@@ -52,7 +73,9 @@ function fmtDate(value) {
           <tr>
             <th class="w-10 px-3 py-2"></th>
             <th class="px-3 py-2">Tracker</th>
-            <th class="px-3 py-2">Type</th>
+            <th class="px-3 py-2">Coverage</th>
+            <th class="px-3 py-2">Design</th>
+            <th class="px-3 py-2">Sources</th>
             <th class="px-3 py-2">Status</th>
             <th class="px-3 py-2">Freshness</th>
             <th class="px-3 py-2">Latest Thesis</th>
@@ -72,8 +95,45 @@ function fmtDate(value) {
             <td class="px-3 py-2">
               <div class="font-medium">{{ tracker.display_name }}</div>
               <div class="text-xs text-ink-muted">{{ tracker.id }}</div>
+              <div v-if="tracker.objective" class="mt-1 max-w-sm text-xs leading-5 text-ink-secondary">
+                {{ tracker.objective }}
+              </div>
             </td>
-            <td class="px-3 py-2 capitalize">{{ tracker.type }}</td>
+            <td class="px-3 py-2 text-xs">
+              <div class="capitalize text-ink-primary">{{ tracker.type }}</div>
+              <div class="mt-1 text-ink-muted">
+                {{ [tracker.sector, tracker.industry].filter(Boolean).join(" / ") || tracker.market || "Coverage" }}
+              </div>
+              <div v-if="tracker.tickers?.length" class="mt-1 text-ink-secondary">
+                {{ tracker.tickers.slice(0, 6).join(", ") }}
+              </div>
+            </td>
+            <td class="max-w-xs px-3 py-2 text-xs">
+              <div v-if="designNames(tracker, 'signal_categories').length" class="space-y-1">
+                <div
+                  v-for="name in designNames(tracker, 'signal_categories')"
+                  :key="name"
+                  class="text-ink-secondary"
+                >
+                  {{ name }}
+                </div>
+              </div>
+              <div v-else class="text-ink-muted">No design yet.</div>
+            </td>
+            <td class="px-3 py-2 text-xs">
+              <div class="font-medium text-ink-primary">
+                {{ countLabel(tracker.source_count, "source") }}
+              </div>
+              <div class="mt-1 text-ink-muted">
+                {{ countLabel(tracker.research_questions?.length, "question") }}
+              </div>
+              <div class="text-ink-muted">
+                {{ countLabel(tracker.metric_watchlist?.length, "metric") }}
+              </div>
+              <div class="text-ink-muted">
+                {{ countLabel(tracker.hypothesis_templates?.length, "hypothesis") }}
+              </div>
+            </td>
             <td class="px-3 py-2">
               <span class="rounded bg-surface-muted px-2 py-1 text-xs">{{ tracker.status }}</span>
             </td>
@@ -110,7 +170,7 @@ function fmtDate(value) {
             </td>
           </tr>
           <tr v-if="trackers.length === 0">
-            <td colspan="7" class="px-3 py-8 text-center text-sm text-ink-muted">
+            <td colspan="9" class="px-3 py-8 text-center text-sm text-ink-muted">
               No trackers yet.
             </td>
           </tr>

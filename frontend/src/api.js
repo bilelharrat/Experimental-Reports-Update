@@ -238,6 +238,7 @@ export const api = {
       `/api/companies/${companyId}/files/${fileId}/summary/stream`,
     ),
   listActiveJobs: () => request("/api/jobs/active", { timeoutMs: 8000 }),
+  jobLog: (logUrl) => request(logUrl, { timeoutMs: 8000 }),
   deleteFileSummary: async (companyId, fileId) => {
     const res = await apiFetch(
       `/api/companies/${companyId}/files/${fileId}/summary`,
@@ -465,6 +466,20 @@ export const api = {
   },
 
   // ---- Stock Research tracker workspace ----
+  researchPages: {
+    marketPulse: () =>
+      request("/api/research-pages/market-pulse", { timeoutMs: 15000 }),
+    evidenceMatrix: ({ companyId } = {}) => {
+      const qs = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
+      return request(`/api/research-pages/evidence-matrix${qs}`, {
+        timeoutMs: 15000,
+      });
+    },
+    hypothesisLab: () =>
+      request("/api/research-pages/hypothesis-lab", { timeoutMs: 15000 }),
+  },
+
+  // ---- Stock Research tracker workspace ----
   stockResearch: {
     dashboard: () => request("/api/stock-research", { timeoutMs: 15000 }),
     doctor: () => request("/api/stock-research/doctor", { timeoutMs: 15000 }),
@@ -616,11 +631,17 @@ export const api = {
       ),
     listHypotheses: () =>
       request("/api/stock-research/hypotheses", { timeoutMs: 15000 }),
-    createHypotheses: ({ vintageDate, allowDebugBackfill = false, horizonDays = 7 } = {}) =>
+    createHypotheses: ({
+      vintageDate,
+      vintageKind = "forward_live",
+      allowDebugBackfill = false,
+      horizonDays = 7,
+    } = {}) =>
       request("/api/stock-research/hypotheses/create", {
         method: "POST",
         body: JSON.stringify({
           vintage_date: vintageDate,
+          vintage_kind: vintageKind,
           allow_debug_backfill: allowDebugBackfill,
           horizon_days: horizonDays,
         }),
@@ -664,6 +685,15 @@ export const api = {
         { method: "POST" },
       );
     },
+    refreshSections: (companyId, sections, opts = {}) =>
+      request(`/api/companies/${companyId}/trader/refresh-sections`, {
+        method: "POST",
+        body: JSON.stringify({
+          sections,
+          force: opts.force !== false,
+          preserve_existing_sections: opts.preserveExistingSections !== false,
+        }),
+      }),
     refreshAll: (opts = {}) => {
       const qs = opts.force ? "?force=true" : "";
       return request(`/api/companies/trader/refresh-all${qs}`, {

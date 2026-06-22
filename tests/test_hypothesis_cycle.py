@@ -171,6 +171,19 @@ def test_create_command_respects_forward_and_debug_dates(monkeypatch, tmp_stock_
     assert live["vintage_kind"] == "forward_live"
     assert live["hypotheses"][0]["evaluation_window_start"] == "2026-06-15"
 
+    debug_today = hypothesis_cycle.create_hypotheses(
+        vintage_date="2026-06-14",
+        vintage_kind="debug_backfill",
+    )
+    assert debug_today["vintage_kind"] == "debug_backfill"
+    assert all(row["vintage_kind"] == "debug_backfill" for row in debug_today["hypotheses"])
+
+    with pytest.raises(ValueError, match="future vintage"):
+        hypothesis_cycle.create_hypotheses(
+            vintage_date="2026-06-15",
+            vintage_kind="debug_backfill",
+        )
+
     with pytest.raises(ValueError, match="past vintage"):
         hypothesis_cycle.create_hypotheses(vintage_date="2026-06-07")
 

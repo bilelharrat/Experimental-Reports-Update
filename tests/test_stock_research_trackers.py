@@ -52,20 +52,28 @@ def client(tmp_stock_root):
 def test_seed_dashboard_and_path_safety(tmp_stock_root):
     payload = stock_research.dashboard_payload()
 
-    assert payload["summary"]["tracker_count"] == 3
+    assert payload["summary"]["tracker_count"] == 8
     assert payload["summary"]["tracker_counts_by_type"] == {
         "macro": 1,
-        "industry": 1,
-        "company": 1,
+        "industry": 5,
+        "company": 2,
     }
     assert {tracker["id"] for tracker in payload["trackers"]} == {
         "us-macro",
         "ai-cloud-infrastructure",
+        "hyperscaler-capex",
+        "data-center-power-grid",
+        "enterprise-ai-software",
+        "defense-autonomy",
         "nvidia",
+        "palantir",
     }
 
     us_macro = stock_research.get_tracker("us-macro")
     assert us_macro["schema_version"] == stock_research.SCHEMA_VERSION
+    assert "rate-path" in us_macro["objective"].lower()
+    assert us_macro["research_questions"]
+    assert us_macro["source_count"] >= 1
     assert (tmp_stock_root / "trackers" / "us-macro" / "knowledge.json").exists()
     assert (tmp_stock_root / "trackers" / "us-macro" / "notes.md").exists()
 
@@ -491,7 +499,7 @@ def test_aggregate_and_strategy_map_require_tracker_source_refs(tmp_stock_root):
         ]
         == stock_research.WEEKLY_AGGREGATE_SCHEMA_VERSION
     )
-    assert len(aggregate["included_tracker_run_ids"]) == 3
+    assert len(aggregate["included_tracker_run_ids"]) == 8
     assert aggregate["ranked_signals"]
     assert all(
         signal.get("source_tracker_id")
@@ -940,11 +948,24 @@ def test_review_queue_and_evaluation_lifecycle(tmp_stock_root):
         period_id="2026-06-08_to_2026-06-14",
     )
 
-    review_items = stock_research.list_review_items()
-    assert any(item["item_type"] == "missing_source" for item in review_items)
-    item = next(item for item in review_items if item["item_type"] == "missing_source")
+    output = stock_research.get_tracker_run_output("nvidia", run["run_id"])
+    assert output["source_traces"]
+    assert not output["missing_sources"]
+
+    stock_research._upsert_review_item(
+        {
+            "id": "manual-fixture-review",
+            "item_type": "knowledge_update",
+            "status": "open",
+            "title": "Manual fixture review",
+            "artifact_id": f"tracker_run:nvidia:{run['run_id']}",
+            "tracker_id": "nvidia",
+            "run_id": run["run_id"],
+            "severity": "low",
+        }
+    )
     updated = stock_research.update_review_item(
-        item["id"],
+        "manual-fixture-review",
         {"status": "waived", "rationale": "Accepted for fixture run."},
     )
     assert updated["status"] == "waived"
@@ -965,7 +986,6 @@ def test_review_queue_and_evaluation_lifecycle(tmp_stock_root):
     evaluation = stock_research.list_evaluation()
     assert evaluation["runs"][0]["reviewer_score"] == 4.0
 
-    output = stock_research.get_tracker_run_output("nvidia", run["run_id"])
     update_id = output["knowledge_updates"][0]["id"]
     accepted = stock_research.review_knowledge_update(
         "nvidia",
@@ -1109,12 +1129,12 @@ def test_retry_cancel_and_failed_job_review_lifecycle(tmp_stock_root):
 def test_stock_research_api_dashboard_and_tracker_create(client):
     response = client.get("/api/stock-research")
     assert response.status_code == 200
-    assert response.json()["summary"]["tracker_count"] == 3
+    assert response.json()["summary"]["tracker_count"] == 8
     assert "doctor" in response.json()
 
     doctor = client.get("/api/stock-research/doctor")
     assert doctor.status_code == 200
-    assert doctor.json()["summary"]["tracker_count"] == 3
+    assert doctor.json()["summary"]["tracker_count"] == 8
 
     ledger = client.get("/api/stock-research/run-ledger")
     assert ledger.status_code == 200

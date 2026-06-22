@@ -52,6 +52,29 @@ def test_investment_memo_prompt_carries_scope_warning_override(tmp_path):
     assert "Do **not** stop or decline solely because" in prompt
 
 
+def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
+    prompt = claude_runner._build_investment_memo_prompt(
+        run_dir=tmp_path,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+    )
+
+    assert "Human Executive Memo Voice Contract" in prompt
+    assert "senior BSH" in prompt
+    assert "investment partner's IC memo" in prompt
+    assert "The memo therefore..." in prompt
+    assert "would be misleading to forecast precisely" in prompt
+    assert "not revenue-recognized" in prompt
+    assert "Final Prose QA Requirements" in prompt
+
+
 def test_investment_memo_prompt_includes_serena_lessons(tmp_path):
     lessons_path = tmp_path / "serena_training" / "generalist" / "serena_memo_lessons.md"
     lessons_path.parent.mkdir(parents=True)

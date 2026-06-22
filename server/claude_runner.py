@@ -1854,6 +1854,46 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "gating_questions.md": "Gating questions",
 }
 
+HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
+## Human Executive Memo Voice Contract
+
+This is a final-writing override. Preserve the full diligence standard from
+the skill, but the finished English memo must read like a senior BSH
+investment partner's IC memo, not like a generated research report.
+
+Final memo prose must:
+- write like a decision document for IC;
+- convert evidence into judgment;
+- avoid process language, methodology narration, task labels, and validation
+  scaffolding in the body;
+- avoid meta-commentary about "the memo", "the analysis", "the framework",
+  "this section", or what the writer is doing;
+- state uncertainty directly instead of explaining why certainty is
+  unavailable;
+- avoid template-visible language, symmetrical model phrasing, and repetitive
+  paragraph openings;
+- keep analytical artifacts private unless a fact or conclusion belongs in
+  the memo.
+
+Banned phrase / rewrite guidance:
+
+| Avoid | Prefer |
+|---|---|
+| The investment case is not that... | This is not a conventional SaaS case. |
+| The memo therefore... | Remove, or rewrite as direct judgment. |
+| The analysis suggests... | State the conclusion directly. |
+| Due to lack of data... | Revenue is not disclosed. |
+| implies false precision | would be misleading to forecast precisely |
+| not treated as ARR | not revenue-recognized |
+| commercial momentum is material, but... | The pipeline is large but not contractually binding. |
+| The principal risk is that... | Key risk centers on... |
+
+Before DOCX generation, run a final prose QA pass. Remove banned phrases,
+meta language, methodology leakage, over-explained risks, template-visible
+structure, and unnatural model voice. The output should sound like an
+experienced investor making a call under uncertainty.
+"""
+
 
 def _load_skill_text() -> str:
     if not _SKILL_PATH.exists():
@@ -1967,10 +2007,12 @@ infographic source brief, chart/infographic plans, narrative hooks, and
 benchmark dashboard. Treat the approved thesis spine as the memo's
 authorship layer: the final memo structure still follows the skill, but
 Investment Highlights, Investment Risks, Top 3 Gating Questions,
-infographic choices, selected narrative hooks, source-brief warnings, and
-opening/transition/ending framing should come from this packet unless the
-evidence directly contradicts it. Do not convert source-brief no-go claims,
-missing evidence, or unresolved reviewer prompts into factual memo claims.
+infographic choices, selected operator narrative choices, source-brief
+warnings, intro stance, risk-section posture, and conclusion posture should
+come from this packet unless the evidence directly contradicts it. Treat
+selected openings, risk framings, and endings as operator HIL guidance, not
+copy-paste text. Do not convert source-brief no-go claims, missing evidence,
+or unresolved reviewer prompts into factual memo claims.
 
 """
 
@@ -2066,6 +2108,8 @@ absolute paths are:
 
 Append the analysis finalization block to `logs/run_manifest.md` when
 you're done.
+
+{HUMAN_EXEC_MEMO_VOICE_CONTRACT}
 
 =================================================================
 SKILL: bsh-investment-memo-latestage-v1 (verbatim — follow this)
@@ -4234,6 +4278,9 @@ Instructions:
 - Use approved thesis spine, selected risks, research-task evidence, evidence
   matrix-like contradictions, benchmark metrics, readiness waivers, selected
   chart/narrative state, memo lessons, and selected research-folder excerpts.
+- Narrative opportunities must explicitly identify the strongest available
+  source-backed material for three final memo moments: the intro stance, the
+  risk-section posture, and the conclusion/recommendation posture.
 - Use the Serena research folder above for local company documents. Do NOT read
   from `data/uploads/` or the Document Library.
 - If local research files exist, inspect only the high-signal files needed for
@@ -4397,8 +4444,15 @@ def run_serena_narrative_hooks(
     analysis_context = {
         "infographic_source_brief": artifacts.get("infographic_source_brief"),
         "thesis_spine": artifacts.get("thesis_spine"),
+        "strategic_risks": artifacts.get("strategic_risks"),
+        "risk_priorities": artifacts.get("risk_priorities"),
+        "research_tasks": artifacts.get("research_tasks"),
+        "evidence_matrix": artifacts.get("evidence_matrix"),
+        "benchmark_dashboard": artifacts.get("benchmark_dashboard"),
         "chart_specs": artifacts.get("chart_specs"),
         "narrative_hooks": artifacts.get("narrative_hooks"),
+        "memo_grader": artifacts.get("memo_grader"),
+        "readiness_reviews": artifacts.get("readiness_reviews"),
     }
     schema_str = json.dumps(
         SERENA_NARRATIVE_HOOKS_SCHEMA,
@@ -4433,18 +4487,30 @@ Available files in that folder:
 {files_str}
 
 Instructions:
-- Use infographic_source_brief as the primary factual input. Do NOT read from
-  `data/uploads/` or the Document Library.
-- Draft opening, transition, and closing hook candidates that sharpen the
-  memo's story without overstating evidence.
+- Use infographic_source_brief, thesis_spine, selected risk priorities,
+  completed research-task evidence, contradictions, benchmark dashboard, chart
+  plans, memo-grader lessons, and readiness waivers as the factual base. Do NOT
+  read from `data/uploads/` or the Document Library.
+- Draft operator-selectable candidates for three final memo moments:
+  1. openings = intro stance: the first 2-4 sentences' judgment and proof burden;
+  2. transitions = risk-section posture: how the risk section should lead and
+     what can change the recommendation;
+  3. endings = conclusion/recommendation posture: conviction, conditions,
+     failure modes, and next diligence.
+- Generate at least three distinct openings, at least two risk-posture
+  transitions, and at least three endings when the evidence allows.
+- Candidate text should be IC-ready guidance or near-final memo language:
+  specific, compressed, evidence-grounded, and free of meta phrases such as
+  "the memo should", "the analysis suggests", or "this section".
 - Each candidate must include supported claims, evidence references, source
   traces where available, confidence, overclaiming risk, and suggested
   infographic pairings where useful.
 - Preserve selected opening/transition/ending ids when current choices remain
   semantically valid.
-- Ambiguous tone, aggressiveness, or claim framing should appear as
-  reviewer_prompts rather than silently chosen. Mark required unresolved
-  prompts as needs_review.
+- Use reviewer_prompts only for genuine operator HIL choices about intro
+  stance, risk posture, or conclusion posture that cannot be safely inferred
+  from the evidence. Make them optional unless approval would be unsafe without
+  the operator's answer.
 - Do not invent facts. Unsupported claims should be explicitly framed as
   questions, missing evidence, or pass triggers.
 
@@ -4552,10 +4618,15 @@ Available files in that folder:
 {lessons_block}
 
 Instructions:
-- Frame risks as investment decision questions, not generic risk labels.
+- Frame risks as investment decision questions, not generic risk labels. The
+  risk title should be sharp enough to become a one-sentence memo risk.
 - Prefer risks that can change a BSH recommendation: valuation durability,
   deployment depth, revenue quality, market abstraction, moat durability,
   budget ownership, public-comp support, and disconfirming evidence.
+- For each risk, include the best bull answer, best bear answer, concrete
+  evidence needed, and the source types that can actually settle the question.
+- Prioritize risks that help an operator choose the final risk-section posture:
+  lead-risk, pass trigger, conditional-yes dependency, or monitoring item.
 - Use the Serena research folder above for local company documents. Do NOT
   read from `data/uploads/` or the Document Library.
 - If local research files exist, inspect the relevant files with Read/Bash.
@@ -4752,6 +4823,19 @@ Instructions:
 - Build 3-5 investment highlights, 3-5 investment risks, direct
   recommendation logic, the top gating diligence questions, bull-case
   requirements, and pass triggers.
+- Write every highlight and risk as final-memo raw material: concise,
+  judgment-led, source-backed, and free of process language. Convert research
+  task answers into conclusions instead of copying task labels or confidence
+  scaffolding.
+- Investment risks should identify what can change BSH's recommendation, not
+  generic operating risks. Each risk detail should carry the specific data,
+  contradiction, or missing proof that makes the risk matter.
+- recommendation_logic should be usable as the conclusion spine: conviction,
+  dependencies, failure modes, and the operator's likely yes / conditional yes /
+  need-more-information / pass posture.
+- Top gating questions should become operator HIL choices where applicable:
+  ask what Serena must decide, which evidence would change the answer, and what
+  the memo conclusion should do if the evidence remains missing.
 - Treat incomplete research-task results, partial chart specs, and nullable
   benchmark metrics as evidence gaps, not as facts.
 - Source_trace values should name artifact/source categories actually used,

@@ -22,7 +22,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import claude_runner, deck_summary, job_progress, run_ledger, storage
+from . import (
+    claude_runner,
+    deck_summary,
+    job_progress,
+    run_ledger,
+    stock_research_tracker_designs,
+    storage,
+)
 
 SCHEMA_VERSION = 1
 TRACKER_OUTPUT_SCHEMA_VERSION = 1
@@ -294,7 +301,7 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
         f.write("\n")
@@ -303,7 +310,7 @@ def _write_json(path: Path, data: Any) -> None:
 
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(text or "", encoding="utf-8")
     tmp.replace(path)
 
@@ -503,6 +510,22 @@ def _string_list(value: Any) -> list[str]:
         if text and text not in out:
             out.append(text)
     return out
+
+
+def _dict_list(value: Any) -> list[dict]:
+    out: list[dict] = []
+    for item in _as_list(value):
+        if isinstance(item, dict):
+            out.append(copy.deepcopy(item))
+            continue
+        text = _as_str(item)
+        if text:
+            out.append({"text": text})
+    return out
+
+
+def _dict_value(value: Any) -> dict:
+    return copy.deepcopy(value) if isinstance(value, dict) else {}
 
 
 def _append_source_chunk(
@@ -881,6 +904,28 @@ def _normalize_tracker(payload: dict, *, existing: dict | None = None) -> dict:
             payload.get("writing_profile", current.get("writing_profile")),
             "professional_restrained_investment_research",
         ),
+        "objective": _as_str(payload.get("objective", current.get("objective"))),
+        "research_questions": _dict_list(
+            payload.get("research_questions", current.get("research_questions"))
+        ),
+        "signal_categories": _dict_list(
+            payload.get("signal_categories", current.get("signal_categories"))
+        ),
+        "metric_watchlist": _dict_list(
+            payload.get("metric_watchlist", current.get("metric_watchlist"))
+        ),
+        "catalyst_rules": _dict_list(
+            payload.get("catalyst_rules", current.get("catalyst_rules"))
+        ),
+        "hypothesis_templates": _dict_list(
+            payload.get("hypothesis_templates", current.get("hypothesis_templates"))
+        ),
+        "source_requirements": _dict_list(
+            payload.get("source_requirements", current.get("source_requirements"))
+        ),
+        "decision_rules": _dict_value(
+            payload.get("decision_rules", current.get("decision_rules"))
+        ),
         "source_policy": _source_policy_for(
             tracker_type,
             payload.get("source_policy", current.get("source_policy")),
@@ -906,47 +951,8 @@ def _normalize_tracker(payload: dict, *, existing: dict | None = None) -> dict:
     return normalized
 
 
-STARTER_TRACKERS = [
-    {
-        "id": "us-macro",
-        "type": "macro",
-        "display_name": "US Macro Tracker",
-        "owner": "Research",
-        "priority": 1,
-        "market": "United States",
-        "country": "US",
-        "sector": "Macro",
-        "cadence": {"frequency": "weekly", "event_driven": True},
-        "output_languages": ["en", "zh"],
-    },
-    {
-        "id": "ai-cloud-infrastructure",
-        "type": "industry",
-        "display_name": "AI Cloud Infrastructure",
-        "owner": "Research",
-        "priority": 1,
-        "market": "Global",
-        "sector": "Technology",
-        "industry": "AI infrastructure",
-        "subsegments": ["accelerators", "cloud capex", "networking"],
-        "cadence": {"frequency": "weekly", "event_driven": True},
-        "output_languages": ["en", "zh"],
-    },
-    {
-        "id": "nvidia",
-        "type": "company",
-        "display_name": "NVIDIA",
-        "owner": "Research",
-        "priority": 1,
-        "market": "United States",
-        "country": "US",
-        "sector": "Technology",
-        "industry": "Semiconductors",
-        "tickers": ["NVDA"],
-        "cadence": {"frequency": "weekly", "event_driven": True},
-        "output_languages": ["en", "zh"],
-    },
-]
+STARTER_TRACKERS = stock_research_tracker_designs.STARTER_TRACKERS
+STARTER_TRACKER_SOURCES = stock_research_tracker_designs.STARTER_TRACKER_SOURCES
 
 
 def _default_knowledge(tracker: dict) -> dict:
@@ -975,18 +981,81 @@ def _ensure_tracker_files(tracker: dict) -> None:
         )
     if not tracker_source_manifest_path(tid).exists():
         _write_json(tracker_source_manifest_path(tid), {"sources": []})
+    _seed_tracker_sources(tid)
+
+
+def _starter_source_record(tracker_id: str, payload: dict) -> dict:
+    now = _now()
+    title = _as_str(payload.get("title"), "Untitled tracker source")
+    url = _as_str(payload.get("url")) or None
+    notes = _as_str(payload.get("notes"), title)
+    seed = url or f"{tracker_id}:{title}:{notes}"
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "id": _source_id(seed),
+        "source_type": "link",
+        "title": title,
+        "url": url,
+        "priority": _as_str(payload.get("priority"), "official"),
+        "relevance": _as_str(payload.get("relevance"), "baseline"),
+        "freshness": _as_str(payload.get("freshness"), "rolling"),
+        "notes": notes,
+        "created_at": now,
+        "updated_at": now,
+        "extraction_status": "metadata_only",
+        "seeded": True,
+        "chunks": [
+            {
+                "locator": url or "seeded source",
+                "excerpt": notes[:1200] or title,
+            }
+        ],
+    }
+
+
+def _seed_tracker_sources(tracker_id: str) -> None:
+    seeds = STARTER_TRACKER_SOURCES.get(tracker_id) or []
+    if not seeds:
+        return
+    manifest = _source_manifest(tracker_id)
+    existing_ids = {_as_str(source.get("id")) for source in manifest["sources"]}
+    existing_urls = {
+        _as_str(source.get("url"))
+        for source in manifest["sources"]
+        if _as_str(source.get("url"))
+    }
+    changed = False
+    for seed in seeds:
+        record = _starter_source_record(tracker_id, seed)
+        if record["id"] in existing_ids or (
+            record.get("url") and record["url"] in existing_urls
+        ):
+            continue
+        manifest["sources"].append(record)
+        existing_ids.add(record["id"])
+        if record.get("url"):
+            existing_urls.add(record["url"])
+        changed = True
+    if changed:
+        _write_source_manifest(tracker_id, manifest)
 
 
 def seed_tracker_registry() -> list[dict]:
-    """Create exactly three starter trackers when the registry is empty."""
+    """Create or refresh the built-in tracker registry."""
     with _LOCK:
         _ensure_roots()
-        existing = list(trackers_root().glob("*/tracker.json"))
-        if existing:
-            return list_trackers(include_archived=True, seed=False)
         for item in STARTER_TRACKERS:
-            tracker = _normalize_tracker(item)
-            _write_json(tracker_config_path(tracker["id"]), tracker)
+            tracker_id = _slug(_as_str(item.get("id")), fallback="tracker")
+            current = _read_json(tracker_config_path(tracker_id), {})
+            existing = current if isinstance(current, dict) and current else None
+            merged = {**(existing or {}), **item}
+            tracker = _normalize_tracker(merged, existing=existing)
+            if existing:
+                comparable = {**tracker, "updated_at": existing.get("updated_at")}
+                if comparable != existing:
+                    _write_json(tracker_config_path(tracker["id"]), tracker)
+            else:
+                _write_json(tracker_config_path(tracker["id"]), tracker)
             _ensure_tracker_files(tracker)
         return list_trackers(include_archived=True, seed=False)
 
@@ -1026,6 +1095,7 @@ def get_tracker(tracker_id: str) -> dict | None:
             return None
         tracker = _normalize_tracker(data, existing=data)
         tracker["sources"] = list_tracker_sources(tracker_id)
+        tracker["source_count"] = len(tracker["sources"])
         tracker["runs"] = list_tracker_runs(tracker_id)
         tracker["knowledge"] = _read_json(tracker_knowledge_path(tracker_id), {})
         tracker["notes"] = tracker_notes_path(tracker_id).read_text(
@@ -1669,12 +1739,57 @@ def coerce_tracker_output(
     return output
 
 
+def _tracker_design_line(item: Any) -> str:
+    if isinstance(item, dict):
+        parts = []
+        for key, value in item.items():
+            if isinstance(value, (dict, list)):
+                rendered = json.dumps(value, ensure_ascii=False)
+            else:
+                rendered = _as_str(value)
+            if rendered:
+                parts.append(f"{key}={rendered}")
+        return "; ".join(parts)
+    return _as_str(item)
+
+
+def _tracker_design_prompt_context(tracker: dict) -> str:
+    lines: list[str] = []
+    objective = _as_str(tracker.get("objective"))
+    if objective:
+        lines.append(f"Objective: {objective}")
+    for key, label in (
+        ("research_questions", "Research questions"),
+        ("signal_categories", "Signal categories"),
+        ("metric_watchlist", "Metric watchlist"),
+        ("catalyst_rules", "Catalyst rules"),
+        ("hypothesis_templates", "Hypothesis templates"),
+        ("source_requirements", "Source requirements"),
+    ):
+        rows = [
+            _tracker_design_line(item)
+            for item in _as_list(tracker.get(key))
+            if _tracker_design_line(item)
+        ]
+        if rows:
+            lines.append(f"{label}:")
+            lines.extend(f"- {row}" for row in rows[:12])
+    decision_rules = tracker.get("decision_rules")
+    if isinstance(decision_rules, dict) and decision_rules:
+        lines.append(
+            "Decision rules: "
+            + json.dumps(decision_rules, ensure_ascii=False, sort_keys=True)
+        )
+    return "\n".join(lines) or "No tracker-specific design has been configured."
+
+
 def build_tracker_prompt(tracker: dict, *, period_start: str, period_end: str) -> str:
     policy = _source_policy_for(tracker["type"], tracker.get("source_policy"))
     priorities = "\n".join(
         f"- {key}: {', '.join(values) if isinstance(values, list) else values}"
         for key, values in policy.items()
     )
+    design = _tracker_design_prompt_context(tracker)
     type_rules = {
         "macro": (
             "Cover major events, macro data versus expectation/prior, monetary "
@@ -1710,10 +1825,14 @@ Single responsibility:
 Source priority:
 {priorities}
 
+Tracker design:
+{design}
+
 Writing and evidence rules:
 - Start with the thesis.
 - Every datapoint must include source metadata or be marked source_needed.
 - Unsupported facts must be null, missing, or source_needed; never invent facts.
+- For tracker-owned link sources, read the URL when source excerpts are only metadata; do not use URLs outside the tracker source manifest.
 - Use concrete values, dates, catalysts, trigger conditions, and source locators.
 - Current evidence overrides older accepted lessons when they conflict.
 - {zh_rule}
@@ -1826,6 +1945,9 @@ Use only the tracker-owned source context below plus accepted lessons. Every
 material claim must cite a source trace with source_id, source_title, locator,
 excerpt, confidence, and checked_at. If the source context is insufficient,
 mark the gap in missing_sources or open_questions instead of inventing facts.
+If a tracker-owned source is a link with a URL and only metadata excerpts,
+inspect that URL when tool access is available. Do not search the open web
+outside the tracker-owned source URLs.
 
 Accepted tracker lessons:
 {_tracker_knowledge_prompt_context(tracker['id'])}
@@ -2312,7 +2434,7 @@ def _update_tracker_after_success(tracker: dict, run_id: str, output: dict) -> N
     tracker["latest_confidence"] = output.get("confidence")
     tracker["current_run"] = None
     tracker["updated_at"] = _now()
-    _write_json(tracker_config_path(tracker["id"]), tracker)
+    _write_json(tracker_config_path(tracker["id"]), _normalize_tracker(tracker, existing=tracker))
 
 
 def _update_tracker_current_run(tracker_id: str, run_info: dict | None) -> None:
@@ -4393,20 +4515,21 @@ def _write_review_items(items: list[dict]) -> None:
 
 
 def _upsert_review_item(item: dict) -> dict:
-    incoming = _normalize_review_item(item)
-    items = [_normalize_review_item(row) for row in _review_items_raw()]
-    for index, existing in enumerate(items):
-        if existing["id"] == incoming["id"]:
-            if existing.get("status") != "open":
-                incoming["status"] = existing["status"]
-                incoming["rationale"] = existing.get("rationale", "")
-            incoming["created_at"] = existing.get("created_at") or incoming["created_at"]
-            items[index] = {**existing, **incoming, "updated_at": _now()}
-            _write_review_items(items)
-            return items[index]
-    items.append(incoming)
-    _write_review_items(items)
-    return incoming
+    with _LOCK:
+        incoming = _normalize_review_item(item)
+        items = [_normalize_review_item(row) for row in _review_items_raw()]
+        for index, existing in enumerate(items):
+            if existing["id"] == incoming["id"]:
+                if existing.get("status") != "open":
+                    incoming["status"] = existing["status"]
+                    incoming["rationale"] = existing.get("rationale", "")
+                incoming["created_at"] = existing.get("created_at") or incoming["created_at"]
+                items[index] = {**existing, **incoming, "updated_at": _now()}
+                _write_review_items(items)
+                return items[index]
+        items.append(incoming)
+        _write_review_items(items)
+        return incoming
 
 
 def list_review_items(*, status: str | None = None) -> list[dict]:

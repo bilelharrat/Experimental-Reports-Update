@@ -498,6 +498,7 @@ describe("StockResearchView", () => {
     await flushPromises();
     expect(api.stockResearch.createHypotheses).toHaveBeenCalledWith({
       vintageDate: "2026-06-07",
+      vintageKind: "debug_backfill",
       allowDebugBackfill: true,
     });
     await wrapper.findAll("button").find((button) => button.text() === "Calibrate").trigger("click");

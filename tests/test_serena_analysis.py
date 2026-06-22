@@ -462,9 +462,12 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
     assert artifact["source_basis"]["claude_sources_checked"] == [
         "memo studio artifacts"
     ]
-    assert "Claude highlight 1" in (
+    packet = (
         serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
     ).read_text(encoding="utf-8")
+    assert "Claude highlight 1" in packet
+    assert "Use this packet as source material, not prose" in packet
+    assert "partner-level conclusions" in packet
 
     context = captured["artifacts"]
     assert context["strategic_risks"]["risks"]
@@ -1189,6 +1192,49 @@ def test_memo_analysis_narrative_job_preserves_selected_ids_and_packet(
     assert "Do not imply ARR is verified" in packet
 
 
+def test_memo_analysis_narrative_fallback_creates_operator_choices(
+    tmp_path,
+    monkeypatch,
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    for tool in (
+        "strategic_risk_mapper",
+        "priority_prompt_harness",
+        "thesis_spine_builder",
+        "narrative_hooks",
+    ):
+        serena_analysis.run_tool("generalist", tool)
+
+    session = serena_analysis.get_current_session("generalist")
+    hooks = session["artifacts"]["narrative_hooks"]
+    assert len(hooks["openings"]) >= 3
+    assert len(hooks["transitions"]) >= 3
+    assert len(hooks["endings"]) >= 3
+    assert hooks["openings"][0]["purpose"] == "intro stance"
+    assert hooks["transitions"][0]["purpose"] == "risk framing"
+    assert hooks["endings"][0]["purpose"] == "conclusion posture"
+    assert "The memo should" not in hooks["openings"][0]["text"]
+    assert hooks["reviewer_prompts"][0]["id"] == "operator-final-posture"
+
+    packet = (
+        serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
+    ).read_text(encoding="utf-8")
+    assert "Selected Operator Narrative Choices" in packet
+    assert "Intro stance:" in packet
+    assert "Risk-section posture:" in packet
+    assert "Conclusion posture:" in packet
+
+
 def test_memo_analysis_completed_memo_runs_are_exposed_for_grader(
     tmp_path,
     monkeypatch,
@@ -1470,6 +1516,8 @@ def test_investment_memo_prompt_can_reference_research_and_analysis_dirs(
     assert str(research_dir) in prompt
     assert str(analysis_dir) in prompt
     assert "memo_packet.md" in prompt
+    assert "selected operator narrative choices" in prompt
+    assert "operator HIL guidance" in prompt
     assert "DO NOT read from `data/uploads/`" in prompt
 
 

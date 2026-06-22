@@ -23,7 +23,7 @@ function promptStatus(prompt) {
   <div class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-center justify-between gap-3">
       <h3 class="font-display text-lg font-semibold text-ink-primary">
-        Narrative Hooks
+        Intro, Risk, Conclusion Choices
       </h3>
       <button
         v-if="narrativeDraft"
@@ -41,11 +41,11 @@ function promptStatus(prompt) {
       </button>
     </div>
     <div v-if="!narrativeDraft" class="mt-3 text-sm text-ink-muted">
-      No openings or endings yet.
+      No intro or conclusion choices yet.
     </div>
     <template v-else>
       <div class="mt-3 text-xs uppercase tracking-wide text-ink-muted">
-        Openings
+        Intro stance
       </div>
       <div class="mt-2 space-y-2">
         <label
@@ -91,7 +91,7 @@ function promptStatus(prompt) {
         v-if="listItems(narrativeDraft.transitions).length"
         class="mt-4 text-xs uppercase tracking-wide text-ink-muted"
       >
-        Transitions
+        Risk-section posture
       </div>
       <div
         v-if="listItems(narrativeDraft.transitions).length"
@@ -131,7 +131,7 @@ function promptStatus(prompt) {
         </label>
       </div>
       <div class="mt-4 text-xs uppercase tracking-wide text-ink-muted">
-        Endings
+        Conclusion posture
       </div>
       <div class="mt-2 space-y-2">
         <label

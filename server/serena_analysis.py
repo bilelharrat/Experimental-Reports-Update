@@ -3355,29 +3355,40 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
     sector = company.get("sector") or company.get("industry") or "its category"
     desc = company.get("description") or f"{name} operates in {sector}."
     top = risks[:3]
+    lead_risk = top[0] if top else None
     highlights = [
         {
             "id": "highlight-1",
-            "claim": f"Present-state wedge in {sector}",
-            "detail": desc,
+            "claim": f"{name} gives BSH a focused way to underwrite {sector}",
+            "detail": (
+                f"{desc} The central investment question is whether the "
+                "operating proof is strong enough for a late-stage BSH entry."
+            ),
             "state": "present_state",
             "source_trace": ["company_record"],
             "needs_stronger_evidence": True,
         },
         {
             "id": "highlight-2",
-            "claim": "Upside depends on proving the highest-priority strategic risk is manageable",
-            "detail": top[0]["decision_question"] if top else "Strategic risk still needs mapping.",
+            "claim": "The bull case depends on proving the lead risk is manageable",
+            "detail": (
+                lead_risk["decision_question"]
+                if lead_risk
+                else "Strategic risk still needs mapping."
+            ),
             "state": "upside_state",
-            "source_trace": ["strategic_risks"],
+            "source_trace": ["strategic_risks", "risk_priorities"],
             "needs_stronger_evidence": True,
         },
         {
             "id": "highlight-3",
-            "claim": "BSH can underwrite the deal if evidence supports deployment depth and revenue quality",
-            "detail": "The current analysis should now focus on independent proof rather than narrative completeness.",
+            "claim": "Final view depends on deployment depth, revenue quality, and valuation support",
+            "detail": (
+                "These are the proof points most likely to determine whether "
+                "the conclusion is a conditional yes or a need-more-information outcome."
+            ),
             "state": "upside_state",
-            "source_trace": ["strategic_risks", "chart_specs"],
+            "source_trace": ["strategic_risks", "risk_priorities", "chart_specs"],
             "needs_stronger_evidence": True,
         },
     ]
@@ -3385,8 +3396,11 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
         {
             "id": f"memo-risk-{i}",
             "claim": r["title"],
-            "detail": r["why_it_matters"],
-            "source_trace": ["strategic_risks"],
+            "detail": (
+                f"{r['why_it_matters']} BSH should treat this as a lead risk "
+                f"unless the evidence answers: {r['decision_question']}"
+            ),
+            "source_trace": ["strategic_risks", "risk_priorities"],
             "needs_stronger_evidence": True,
         }
         for i, r in enumerate(top, start=1)
@@ -3406,8 +3420,10 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
         "investment_highlights": highlights[:5],
         "investment_risks": risks_out[:5],
         "recommendation_logic": (
-            "Need More Information until the top strategic risks have "
-            "independent support and the benchmark dashboard is complete."
+            "Need More Information until the lead risks have independent "
+            "support, the benchmark dashboard supports the valuation posture, "
+            "and the operator selects whether the final view is conditional "
+            "yes, wait for evidence, or pass."
         ),
         "top_gating_questions": gates[:3],
         "bull_case_must_be_true": [
@@ -3473,53 +3489,189 @@ def _chart_specs(company: dict) -> dict:
 
 def _narrative_hooks(company: dict, artifacts: dict) -> dict:
     name = company.get("name") or "the company"
+    sector = company.get("sector") or company.get("industry") or "its category"
+    desc = _clean_text(company.get("description"), limit=260)
     thesis = artifacts.get("thesis_spine") if isinstance(artifacts, dict) else None
     gates = thesis.get("top_gating_questions") if isinstance(thesis, dict) else []
+    highlights = thesis.get("investment_highlights") if isinstance(thesis, dict) else []
+    memo_risks = thesis.get("investment_risks") if isinstance(thesis, dict) else []
+    recommendation_logic = (
+        _clean_text(thesis.get("recommendation_logic"), limit=420)
+        if isinstance(thesis, dict)
+        else ""
+    )
     main_gate = gates[0]["question"] if gates else "whether the current traction is deep enough to underwrite"
+    lead_highlight = (
+        _clean_text(highlights[0].get("claim"), limit=180)
+        if highlights and isinstance(highlights[0], dict)
+        else f"{name}'s operating proof can support a BSH entry"
+    )
+    lead_risk = (
+        _clean_text(memo_risks[0].get("claim"), limit=180)
+        if memo_risks and isinstance(memo_risks[0], dict)
+        else "deployment depth and revenue quality remain unproven"
+    )
+    pass_trigger = ""
+    if isinstance(thesis, dict):
+        pass_trigger = _clean_text(
+            (thesis.get("pass_triggers") or [None])[0],
+            limit=220,
+        )
+    intro_fact = desc or f"{name} operates in {sector}."
+    gate_lc = main_gate[:1].lower() + main_gate[1:] if main_gate else main_gate
     openings = [
         {
-            "id": "opening-1",
-            "text": f"The memo should not start with what {name} claims to be; it should start with {main_gate.lower()}.",
-            "tone": "falsification_first",
+            "id": "intro-operating-proof",
+            "text": (
+                f"{name} is a {sector} investment only if {gate_lc.rstrip('?')}."
+            ),
+            "purpose": "intro stance",
+            "tone": "proof_first",
+            "supported_claims": [lead_highlight, main_gate],
+            "evidence_references": ["thesis_spine", "top_gating_questions"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Use only if the memo can show the proof burden immediately.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
         {
-            "id": "opening-2",
-            "text": f"{name} is interesting only if the strongest version of the bull case survives the deployment and valuation tests.",
-            "tone": "direct",
+            "id": "intro-company-reality",
+            "text": (
+                f"{intro_fact} The investment case turns on whether that "
+                "operating reality is already visible in deployments, revenue "
+                "quality, and valuation support."
+            ),
+            "purpose": "intro stance",
+            "tone": "operator_grounded",
+            "supported_claims": [intro_fact, lead_highlight],
+            "evidence_references": ["company_record", "thesis_spine"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Keep the company description factual if independent evidence is thin.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
         {
-            "id": "opening-3",
-            "text": f"BSH's decision on {name} turns less on category excitement than on proof of depth, economics, and durability.",
+            "id": "intro-bsh-decision",
+            "text": (
+                f"BSH's decision on {name} turns less on category excitement "
+                "than on proof of depth, economics, and durability."
+            ),
+            "purpose": "intro stance",
             "tone": "ic_ready",
+            "supported_claims": [lead_highlight, lead_risk],
+            "evidence_references": ["thesis_spine", "strategic_risks"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Avoid if the operator wants a more constructive first paragraph.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
     ]
     transitions = [
         {
-            "id": "transition-1",
-            "text": "That framing makes the diligence standard concrete: every attractive claim needs either source-backed support or an explicit gap.",
-            "tone": "evidence_bridge",
+            "id": "risk-lead-risk",
+            "text": f"Key risk centers on {lead_risk[:1].lower() + lead_risk[1:]}.",
+            "purpose": "risk framing",
+            "tone": "lead_risk",
+            "supported_claims": [lead_risk],
+            "evidence_references": ["investment_risks", "risk_priorities"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Make sure this is the selected lead risk, not merely the first generated risk.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
         {
-            "id": "transition-2",
-            "text": "The useful version of the bull case is therefore narrower than the category narrative and easier to test.",
-            "tone": "narrowing",
+            "id": "risk-proof-burden",
+            "text": (
+                "The risk that matters most is the evidence gap that can move "
+                "the recommendation."
+            ),
+            "purpose": "risk framing",
+            "tone": "recommendation_moving",
+            "supported_claims": [lead_risk, main_gate],
+            "evidence_references": ["strategic_risks", "top_gating_questions"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Use only if the selected evidence gap is specific in the risk table.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
+        },
+        {
+            "id": "risk-pass-trigger",
+            "text": (
+                f"If {pass_trigger[:1].lower() + pass_trigger[1:] if pass_trigger else 'the lead evidence remains missing'}, "
+                "BSH should not stretch the thesis."
+            ),
+            "purpose": "risk framing",
+            "tone": "pass_trigger",
+            "supported_claims": [pass_trigger or lead_risk],
+            "evidence_references": ["pass_triggers", "investment_risks"],
+            "source_traces": [],
+            "confidence": "medium" if pass_trigger else "low",
+            "overclaiming_risk": "Use only if this pass trigger is still current after operator review.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
     ]
     endings = [
         {
-            "id": "ending-1",
-            "text": "The recommendation should remain conditional until the top three gating questions are answered with independent evidence.",
-            "tone": "conditional",
+            "id": "conclusion-conditional-yes",
+            "text": (
+                "The right posture is Conditional Yes only if the lead "
+                "gating questions can be answered with independent evidence."
+            ),
+            "purpose": "conclusion posture",
+            "tone": "conditional_yes",
+            "supported_claims": [main_gate, recommendation_logic],
+            "evidence_references": ["top_gating_questions", "recommendation_logic"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Do not use if the evidence base supports only Need More Information.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
         {
-            "id": "ending-2",
-            "text": "If the missing evidence arrives, this can become a focused yes; if it does not, the right answer is to pass without stretching the thesis.",
-            "tone": "crisp",
+            "id": "conclusion-need-more-info",
+            "text": (
+                f"Need More Information is the clean answer until BSH can resolve {gate_lc.rstrip('?')}."
+            ),
+            "purpose": "conclusion posture",
+            "tone": "need_more_information",
+            "supported_claims": [main_gate, lead_risk],
+            "evidence_references": ["top_gating_questions", "investment_risks"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Use if unresolved evidence is material enough to hold the decision.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
         {
-            "id": "ending-3",
-            "text": "The next diligence step is not more narrative. It is proof that the investment highlights are already true or realistically attainable.",
-            "tone": "discipline",
+            "id": "conclusion-pass-discipline",
+            "text": (
+                "If the missing proof does not arrive, the disciplined answer "
+                "is pass rather than forcing the BSH thesis around the deal."
+            ),
+            "purpose": "conclusion posture",
+            "tone": "pass_discipline",
+            "supported_claims": [pass_trigger or lead_risk],
+            "evidence_references": ["pass_triggers", "investment_risks"],
+            "source_traces": [],
+            "confidence": "medium",
+            "overclaiming_risk": "Use only when the operator wants a pass-ready conclusion posture.",
+            "paired_infographic_ids": [],
+            "reviewer_prompts": [],
+            "status": "draft",
         },
     ]
     return {
@@ -3530,6 +3682,24 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         "selected_opening_id": openings[0]["id"],
         "selected_transition_id": transitions[0]["id"],
         "selected_ending_id": endings[0]["id"],
+        "reviewer_prompts": [
+            {
+                "id": "operator-final-posture",
+                "prompt": (
+                    "Choose the final recommendation posture once the selected "
+                    "intro and risk framing are reviewed."
+                ),
+                "required": False,
+                "options": [
+                    "Conditional Yes",
+                    "Need More Information",
+                    "Pass unless lead proof arrives",
+                ],
+                "resolved_choice": None,
+                "rationale": "Operator HIL guidance can make the conclusion sharper than a default balanced ending.",
+                "status": "optional",
+            }
+        ],
     }
 
 
@@ -4790,6 +4960,19 @@ def _refresh_memo_packet(session: dict) -> None:
         f"- status: {session.get('status')}",
         f"- approved_for_memo: {bool(session.get('approved_for_memo'))}",
         "",
+        "## Final Memo Handoff Guidance",
+        "",
+        (
+            "Use this packet as source material, not prose. Translate evidence "
+            "matrices, research tasks, risks, and gating questions into "
+            "partner-level conclusions."
+        ),
+        "",
+        (
+            "Do not copy task labels, confidence scaffolding, reviewer prompts, "
+            "methodology notes, or validation language into the final memo body."
+        ),
+        "",
         "## Investment Highlights",
     ]
     for item in thesis.get("investment_highlights") or []:
@@ -5029,17 +5212,30 @@ def _refresh_memo_packet(session: dict) -> None:
                     choice = prompt.get("resolved_choice") or "unresolved"
                     lines.append(f"    - {prompt.get('prompt')} [{choice}]")
     if selected_opening or selected_transition or selected_ending:
-        lines += ["", "## Selected Narrative Hooks"]
+        lines += [
+            "",
+            "## Selected Operator Narrative Choices",
+            "",
+            (
+                "Use these operator-selected choices as final memo guidance "
+                "for intro stance, risk-section posture, and conclusion posture. "
+                "They are source-backed direction, not text that must be copied verbatim."
+            ),
+        ]
         if selected_opening:
-            lines.append(f"- Opening: {selected_opening.get('text')}")
+            lines.append(f"- Intro stance: {selected_opening.get('text')}")
             if selected_opening.get("overclaiming_risk"):
                 lines.append(
                     f"  - Overclaiming risk: {selected_opening.get('overclaiming_risk')}"
                 )
         if selected_transition:
-            lines.append(f"- Transition: {selected_transition.get('text')}")
+            lines.append(f"- Risk-section posture: {selected_transition.get('text')}")
+            if selected_transition.get("overclaiming_risk"):
+                lines.append(
+                    f"  - Overclaiming risk: {selected_transition.get('overclaiming_risk')}"
+                )
         if selected_ending:
-            lines.append(f"- Ending: {selected_ending.get('text')}")
+            lines.append(f"- Conclusion posture: {selected_ending.get('text')}")
             if selected_ending.get("overclaiming_risk"):
                 lines.append(
                     f"  - Overclaiming risk: {selected_ending.get('overclaiming_risk')}"

@@ -78,7 +78,7 @@ const summaryFile = computed(() => activeSummaryTarget.value?.file ?? null);
   <RouterView v-if="!isAuthenticated" />
 
   <!-- Authenticated: full app chrome. -->
-  <div v-else class="min-h-screen flex">
+  <div v-else class="min-h-screen flex flex-col lg:flex-row">
     <Sidebar
       :reports="reports"
       :news="news"

@@ -12,6 +12,9 @@ const HormuzLibraryView = () => import("./views/HormuzLibraryView.vue");
 const WeeklySummaryView = () => import("./views/WeeklySummaryView.vue");
 const TraderStatsView = () => import("./views/TraderStatsView.vue");
 const StockResearchView = () => import("./views/StockResearchView.vue");
+const MarketPulseView = () => import("./views/MarketPulseView.vue");
+const EvidenceMatrixView = () => import("./views/EvidenceMatrixView.vue");
+const HypothesisLabView = () => import("./views/HypothesisLabView.vue");
 
 function routerHistoryBase() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -59,6 +62,21 @@ export const router = createRouter({
       path: "/stock-research",
       name: "stock-research",
       component: StockResearchView,
+    },
+    {
+      path: "/research-pages/market-pulse",
+      name: "research-page-market-pulse",
+      component: MarketPulseView,
+    },
+    {
+      path: "/research-pages/evidence-matrix",
+      name: "research-page-evidence-matrix",
+      component: EvidenceMatrixView,
+    },
+    {
+      path: "/research-pages/hypothesis-lab",
+      name: "research-page-hypothesis-lab",
+      component: HypothesisLabView,
     },
     {
       path: "/research/:companyId",

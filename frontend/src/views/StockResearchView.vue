@@ -553,7 +553,11 @@ async function saveRunReview(row) {
 
 async function createLiveHypotheses(vintageDate) {
   await runAction("Creating live hypotheses", () =>
-    api.stockResearch.createHypotheses({ vintageDate }),
+    api.stockResearch.createHypotheses({
+      vintageDate,
+      vintageKind: "forward_live",
+      allowDebugBackfill: false,
+    }),
   );
 }
 
@@ -561,6 +565,7 @@ async function createDebugBackfill(vintageDate) {
   await runAction("Creating debug backfill", () =>
     api.stockResearch.createHypotheses({
       vintageDate,
+      vintageKind: "debug_backfill",
       allowDebugBackfill: true,
     }),
   );

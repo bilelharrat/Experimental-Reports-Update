@@ -18,6 +18,7 @@ from server import (
     companies_ai_public,
     company_translate,
     storage,
+    trader_stats,
     trader_bilingual_fill,
 )
 from server.main import app
@@ -620,6 +621,160 @@ def test_refresh_public_company_writes_snapshot(
     # the client knows it can render either language without another
     # refresh.
     assert snap["available_languages"] == ["en", "zh"]
+
+
+def test_refresh_sections_preserves_previous_data_on_failure(
+    public_company, monkeypatch, client,
+):
+    existing = {
+        "refreshed_at": "2026-06-16T12:00:00+00:00",
+        "schema_version": 2,
+        "price_card": {"last_price": 100, "currency": "USD"},
+        "catalysts": [
+            {
+                "date": "2026-07-30",
+                "type": "earnings",
+                "title": "Old catalyst",
+                "title_en": "Old catalyst",
+                "title_zh": "旧催化剂",
+                "summary": "Old summary.",
+                "summary_en": "Old summary.",
+                "summary_zh": "旧摘要。",
+                "est_impact": "high",
+            },
+        ],
+        "section_status": {
+            "catalysts": {
+                "section_id": "catalysts",
+                "label": "Upcoming catalysts",
+                "status": "fresh",
+                "last_successful_at": "2026-06-16T12:00:00+00:00",
+                "last_attempted_at": "2026-06-16T12:00:00+00:00",
+                "last_error": None,
+                "retryable": True,
+                "source_run_id": "seed",
+            },
+        },
+    }
+    storage.update_company_snapshot(COMPANY_ID, existing)
+    monkeypatch.setattr(
+        trader_bilingual_fill,
+        "ensure_bilingual_completeness",
+        lambda snapshot: snapshot,
+    )
+    monkeypatch.setattr(companies_ai_public.claude_runner, "is_available", lambda: True)
+
+    def fail_snapshot(**kwargs):
+        assert kwargs["ticker"] == "AMD"
+        return None, "stalled after 120s without output"
+
+    monkeypatch.setattr(
+        companies_ai_public.claude_runner,
+        "run_public_company_snapshot",
+        fail_snapshot,
+    )
+
+    resp = client.post(
+        f"/api/companies/{COMPANY_ID}/trader/refresh-sections",
+        json={
+            "sections": ["catalysts"],
+            "force": True,
+            "preserve_existing_sections": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["retried_sections"] == ["catalysts"]
+
+    done = _wait_for_progress_done(
+        storage.DATA_DIR / "_trader" / f"{COMPANY_ID}__snapshot.progress.jsonl"
+    )
+    assert done["type"] == "done"
+    assert done["retry_scope"] == "sections"
+
+    snap = storage.get_company(COMPANY_ID)["trader_snapshot"]
+    assert snap["catalysts"][0]["title_en"] == "Old catalyst"
+    catalyst_status = snap["section_status"]["catalysts"]
+    assert catalyst_status["status"] == "stale"
+    assert "stalled after 120s" in catalyst_status["last_error"]
+
+    history = trader_stats.read_history(COMPANY_ID, limit=1)
+    assert history[0]["retry_scope"] == "sections"
+    assert history[0]["retried_sections"] == ["catalysts"]
+    assert history[0]["failed_sections"][0]["section"] == "catalysts"
+
+
+def test_refresh_sections_replaces_only_requested_section(
+    public_company, monkeypatch, client,
+):
+    existing = {
+        "refreshed_at": "2026-06-16T12:00:00+00:00",
+        "schema_version": 2,
+        "price_card": {"last_price": 100, "currency": "USD"},
+        "catalysts": [
+            {
+                "date": "2026-07-30",
+                "type": "earnings",
+                "title": "Old catalyst",
+                "title_en": "Old catalyst",
+                "title_zh": "旧催化剂",
+                "summary": "Old summary.",
+                "summary_en": "Old summary.",
+                "summary_zh": "旧摘要。",
+                "est_impact": "medium",
+            },
+        ],
+    }
+    storage.update_company_snapshot(COMPANY_ID, existing)
+    monkeypatch.setattr(
+        trader_bilingual_fill,
+        "ensure_bilingual_completeness",
+        lambda snapshot: snapshot,
+    )
+    monkeypatch.setattr(companies_ai_public.claude_runner, "is_available", lambda: True)
+
+    def generate_catalysts(**kwargs):
+        return (
+            {
+                "catalysts": [
+                    {
+                        "date": "2026-08-01",
+                        "type": "product",
+                        "title": "New launch",
+                        "title_en": "New launch",
+                        "title_zh": "新产品发布",
+                        "summary": "Fresh section retry result.",
+                        "summary_en": "Fresh section retry result.",
+                        "summary_zh": "部分重试的新结果。",
+                        "est_impact": "high",
+                    },
+                ],
+            },
+            None,
+        )
+
+    monkeypatch.setattr(
+        companies_ai_public.claude_runner,
+        "run_public_company_snapshot",
+        generate_catalysts,
+    )
+
+    resp = client.post(
+        f"/api/companies/{COMPANY_ID}/trader/refresh-sections",
+        json={
+            "sections": ["catalysts"],
+            "force": True,
+            "preserve_existing_sections": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    _wait_for_progress_done(
+        storage.DATA_DIR / "_trader" / f"{COMPANY_ID}__snapshot.progress.jsonl"
+    )
+
+    snap = storage.get_company(COMPANY_ID)["trader_snapshot"]
+    assert snap["price_card"]["last_price"] == 100
+    assert snap["catalysts"][0]["title_en"] == "New launch"
+    assert snap["section_status"]["catalysts"]["status"] == "fresh"
 
 
 def test_refresh_all_public_companies_writes_each_public_snapshot(

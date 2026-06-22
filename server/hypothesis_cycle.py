@@ -22,6 +22,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _generated_at_for_current_date() -> str:
+    now = datetime.now(timezone.utc)
+    today = current_date()
+    if now.date() == today:
+        return now.isoformat()
+    return now.replace(year=today.year, month=today.month, day=today.day).isoformat()
+
+
 def _as_float(value: Any, default: float | None = None) -> float | None:
     if isinstance(value, bool) or value is None:
         return default
@@ -109,16 +117,20 @@ def create_hypotheses(
     created_by: str = "stock_research_hypothesis_cycle",
 ) -> dict[str, Any]:
     parsed_vintage = date.fromisoformat(vintage_date)
+    if vintage_kind not in {"forward_live", "debug_backfill"}:
+        raise ValueError("vintage_kind must be forward_live or debug_backfill")
     actual_kind = vintage_kind
     if vintage_kind == "forward_live" and parsed_vintage < current_date():
         if not allow_debug_backfill:
             raise ValueError("forward_live hypotheses cannot be created for a past vintage date")
         actual_kind = "debug_backfill"
     if actual_kind == "debug_backfill":
+        if parsed_vintage > current_date():
+            raise ValueError("debug_backfill hypotheses cannot be created for a future vintage date")
         allow_debug_backfill = True
 
     started = time.monotonic()
-    generated_at = _now()
+    generated_at = _generated_at_for_current_date()
     window_start, window_end = hypothesis_store.evaluation_window(
         vintage_date,
         horizon_days=horizon_days,

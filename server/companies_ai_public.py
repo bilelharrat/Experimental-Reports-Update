@@ -11,11 +11,18 @@ for the pipeline.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import logging
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from . import claude_runner
+from . import claude_runner, storage
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
@@ -65,6 +72,45 @@ def _confidence_props() -> dict[str, Any]:
 # strips snapshots older than this; the worker stamps the current
 # value on every fresh snapshot it writes. See docs/heat-card-v2.md §6.
 TRADER_SNAPSHOT_SCHEMA_VERSION: int = 2
+
+SECTION_STATUS_KEY = "section_status"
+SECTION_ARTIFACT_SCHEMA_VERSION = 1
+
+SECTION_KEYS: tuple[str, ...] = (
+    "market_session",
+    "price_card",
+    "momentum_card",
+    "sentiment_card",
+    "heat_card",
+    "catalysts",
+    "trader_news",
+    "research_overview",
+    "tech_movers",
+)
+
+SECTION_LABELS: dict[str, str] = {
+    "market_session": "Market session",
+    "price_card": "Price & returns",
+    "momentum_card": "Momentum",
+    "sentiment_card": "Analyst sentiment",
+    "heat_card": "Positioning structure",
+    "catalysts": "Upcoming catalysts",
+    "trader_news": "Trader news",
+    "research_overview": "Research overview",
+    "tech_movers": "Tech movers",
+}
+
+SECTION_TTL_SECONDS: dict[str, int] = {
+    "market_session": 15 * 60,
+    "price_card": 15 * 60,
+    "momentum_card": 30 * 60,
+    "tech_movers": 30 * 60,
+    "trader_news": 60 * 60,
+    "catalysts": 12 * 60 * 60,
+    "sentiment_card": 24 * 60 * 60,
+    "heat_card": 4 * 60 * 60,
+    "research_overview": 7 * 24 * 60 * 60,
+}
 
 
 SCHEMA: dict[str, Any] = {
@@ -1194,18 +1240,109 @@ _PRICE_FOCUS = (
     "fetched."
 )
 
-# pass_id, thread label, [top-level schema keys], focus hint
-SNAPSHOT_PASSES: list[tuple[str, str, list[str], str]] = [
-    ("price", "Price & returns", ["price_card"], _PRICE_FOCUS),
-    ("momentum", "Momentum", ["momentum_card"], ""),
-    ("sentiment", "Analyst sentiment", ["sentiment_card"], ""),
-    ("heat", "Positioning structure", ["heat_card"], ""),
-    ("catalysts", "Upcoming catalysts", ["catalysts"], ""),
-    ("news", "Trader news", ["trader_news"], ""),
-    ("overview", "Research overview", ["research_overview"], ""),
-    ("session", "Market session", ["market_session"], ""),
-    ("movers", "Tech movers", ["tech_movers"], ""),
+@dataclass(frozen=True)
+class SnapshotPass:
+    pass_id: str
+    label: str
+    keys: tuple[str, ...]
+    focus: str = ""
+    section_id: str | None = None
+    overview_fields: tuple[str, ...] = ()
+
+    @property
+    def status_section_id(self) -> str:
+        return self.section_id or self.keys[0]
+
+    @property
+    def artifact_section_id(self) -> str:
+        return self.pass_id if self.overview_fields else self.status_section_id
+
+
+_OVERVIEW_BUSINESS_FOCUS = (
+    "FOCUS: produce ONLY `research_overview` with `updated_at` and "
+    "`business_mix`. Cover business model, segment exposure, geography, "
+    "and the revenue/growth signal by segment. Do not produce the other "
+    "research_overview sub-objects."
+)
+
+_OVERVIEW_FINANCIALS_FOCUS = (
+    "FOCUS: produce ONLY `research_overview` with `updated_at`, "
+    "`financial_quality`, `growth_durability`, and `peer_context`. Cover "
+    "revenue/profit trend, margin quality, balance sheet or dilution/debt "
+    "where relevant, and the closest public peer context. Do not produce "
+    "business_mix, scenario_matrix, or diligence_questions."
+)
+
+_OVERVIEW_THESIS_FOCUS = (
+    "FOCUS: produce ONLY `research_overview` with `updated_at` and "
+    "`scenario_matrix`. Build a compact bull/base/bear trader setup: what "
+    "must happen next, implied return, and the key driver for each case. "
+    "Do not produce the other research_overview sub-objects."
+)
+
+_OVERVIEW_QUESTIONS_FOCUS = (
+    "FOCUS: produce ONLY `research_overview` with `updated_at` and "
+    "`diligence_questions`. Emphasize key downside risks, uncertainty, "
+    "evidence gaps, and unresolved diligence questions. Do not produce the "
+    "other research_overview sub-objects."
+)
+
+
+# Passes are smaller than top-level cards when a section has been split.
+# `research_overview` intentionally fans out into focused sub-passes and
+# merges back into the existing snapshot schema, so clients do not need a
+# schema migration for the reliability improvement.
+SNAPSHOT_PASSES: list[SnapshotPass] = [
+    SnapshotPass("price", "Price & returns", ("price_card",), _PRICE_FOCUS),
+    SnapshotPass("momentum", "Momentum", ("momentum_card",)),
+    SnapshotPass("sentiment", "Analyst sentiment", ("sentiment_card",)),
+    SnapshotPass("heat", "Positioning structure", ("heat_card",)),
+    SnapshotPass("catalysts", "Upcoming catalysts", ("catalysts",)),
+    SnapshotPass("news", "Trader news", ("trader_news",)),
+    SnapshotPass(
+        "overview_business",
+        "Research overview: business",
+        ("research_overview",),
+        _OVERVIEW_BUSINESS_FOCUS,
+        section_id="research_overview",
+        overview_fields=("updated_at", "business_mix"),
+    ),
+    SnapshotPass(
+        "overview_financials",
+        "Research overview: financials",
+        ("research_overview",),
+        _OVERVIEW_FINANCIALS_FOCUS,
+        section_id="research_overview",
+        overview_fields=(
+            "updated_at",
+            "financial_quality",
+            "growth_durability",
+            "peer_context",
+        ),
+    ),
+    SnapshotPass(
+        "overview_thesis",
+        "Research overview: thesis",
+        ("research_overview",),
+        _OVERVIEW_THESIS_FOCUS,
+        section_id="research_overview",
+        overview_fields=("updated_at", "scenario_matrix"),
+    ),
+    SnapshotPass(
+        "overview_questions",
+        "Research overview: risks",
+        ("research_overview",),
+        _OVERVIEW_QUESTIONS_FOCUS,
+        section_id="research_overview",
+        overview_fields=("updated_at", "diligence_questions"),
+    ),
+    SnapshotPass("session", "Market session", ("market_session",)),
+    SnapshotPass("movers", "Tech movers", ("tech_movers",)),
 ]
+
+_PASSES_BY_SECTION: dict[str, list[SnapshotPass]] = {}
+for _pass in SNAPSHOT_PASSES:
+    _PASSES_BY_SECTION.setdefault(_pass.status_section_id, []).append(_pass)
 
 # Safe placeholders for a section whose pass failed, so consumers
 # (frontend optional-chaining, bilingual fill, schema-version stamp) keep
@@ -1223,7 +1360,7 @@ _EMPTY_SECTION: dict[str, Any] = {
 }
 
 
-def _sub_schema(keys: list[str]) -> dict:
+def _sub_schema(keys: tuple[str, ...] | list[str]) -> dict:
     """A schema that accepts only the given top-level section keys."""
     return {
         "type": "object",
@@ -1231,6 +1368,321 @@ def _sub_schema(keys: list[str]) -> dict:
         "properties": {k: copy.deepcopy(SCHEMA["properties"][k]) for k in keys},
         "required": list(keys),
     }
+
+
+def _overview_sub_schema(fields: tuple[str, ...]) -> dict:
+    overview = copy.deepcopy(SCHEMA["properties"]["research_overview"])
+    overview["properties"] = {
+        key: overview["properties"][key]
+        for key in fields
+        if key in overview["properties"]
+    }
+    overview["required"] = list(fields)
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"research_overview": overview},
+        "required": ["research_overview"],
+    }
+
+
+def _schema_for_pass(spec: SnapshotPass) -> dict:
+    if spec.overview_fields:
+        return _overview_sub_schema(spec.overview_fields)
+    return _sub_schema(spec.keys)
+
+
+_TOKEN_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _as_int(value: Any) -> int:
+    if isinstance(value, bool) or value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value.replace(",", "").strip()))
+        except ValueError:
+            return 0
+    return 0
+
+
+def _as_float(value: Any) -> float:
+    if isinstance(value, bool) or value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.replace(",", "").strip())
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _blank_usage() -> dict[str, Any]:
+    usage = {field: 0 for field in _TOKEN_FIELDS}
+    usage.update({
+        "total_tokens": 0,
+        "server_tool_use": {},
+    })
+    return usage
+
+
+def _usage_summary(usage: Any) -> dict[str, Any]:
+    totals = _blank_usage()
+    if not isinstance(usage, dict):
+        return totals
+    for field in _TOKEN_FIELDS:
+        totals[field] += _as_int(usage.get(field))
+    server_tools = usage.get("server_tool_use")
+    if isinstance(server_tools, dict):
+        for key, value in server_tools.items():
+            count = _as_int(value)
+            if count:
+                totals["server_tool_use"][key] = (
+                    totals["server_tool_use"].get(key, 0) + count
+                )
+    if not any(totals[field] for field in _TOKEN_FIELDS):
+        for iteration in usage.get("iterations") or []:
+            if not isinstance(iteration, dict):
+                continue
+            for field in _TOKEN_FIELDS:
+                totals[field] += _as_int(iteration.get(field))
+    totals["total_tokens"] = sum(totals[field] for field in _TOKEN_FIELDS)
+    return totals
+
+
+def _add_usage(dst: dict[str, Any], src: dict[str, Any]) -> None:
+    for field in _TOKEN_FIELDS:
+        dst[field] = _as_int(dst.get(field)) + _as_int(src.get(field))
+    dst["total_tokens"] = _as_int(dst.get("total_tokens")) + _as_int(
+        src.get("total_tokens")
+    )
+    server_tool_use = dst.setdefault("server_tool_use", {})
+    for key, count in (src.get("server_tool_use") or {}).items():
+        server_tool_use[key] = _as_int(server_tool_use.get(key)) + _as_int(count)
+
+
+def _safe_id(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "-", (value or "").strip())
+    return cleaned.strip("-") or "unknown"
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _input_hash(company: dict, section_id: str) -> str:
+    payload = {
+        "schema_version": TRADER_SNAPSHOT_SCHEMA_VERSION,
+        "section_id": section_id,
+        "company_id": company.get("id"),
+        "name": company.get("name"),
+        "ticker": company.get("ticker"),
+        "exchange": company.get("exchange"),
+    }
+    return hashlib.sha256(_json_dumps(payload).encode("utf-8")).hexdigest()[:16]
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _section_artifact_dir(company_id: str) -> Path:
+    path = storage.DATA_DIR / "_trader_sections" / _safe_id(company_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def section_artifact_path(company_id: str, section_id: str) -> Path:
+    return _section_artifact_dir(company_id) / f"{_safe_id(section_id)}.json"
+
+
+def _read_section_artifact(company_id: str, section_id: str) -> dict | None:
+    path = section_artifact_path(company_id, section_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("failed to read trader section artifact: %s", path)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_section_artifact(
+    company_id: str,
+    section_id: str,
+    artifact: dict,
+) -> None:
+    path = section_artifact_path(company_id, section_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(artifact, ensure_ascii=False, sort_keys=True, default=str),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+
+
+def _artifact_is_fresh(
+    artifact: dict,
+    *,
+    input_hash: str,
+    ttl_seconds: int,
+) -> bool:
+    if artifact.get("status") != "fresh":
+        return False
+    if artifact.get("input_hash") != input_hash:
+        return False
+    finished = _parse_iso(artifact.get("finished_at"))
+    if finished is None:
+        return False
+    age = (datetime.now(timezone.utc) - finished).total_seconds()
+    return age <= ttl_seconds
+
+
+def _has_section_data(section_id: str, value: Any) -> bool:
+    if value is None:
+        return False
+    if section_id == "tech_movers":
+        return isinstance(value, dict) and bool(value.get("movers"))
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, list):
+        return bool(value)
+    return True
+
+
+def _section_status_template(
+    section_id: str,
+    *,
+    status: str,
+    attempted_at: str | None = None,
+    successful_at: str | None = None,
+    error: str | None = None,
+    retryable: bool = True,
+    source_run_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "section_id": section_id,
+        "label": SECTION_LABELS.get(section_id, section_id),
+        "status": status,
+        "last_successful_at": successful_at,
+        "last_attempted_at": attempted_at,
+        "last_error": error,
+        "retryable": retryable,
+        "source_run_id": source_run_id,
+    }
+
+
+def _previous_section_status(
+    previous_snapshot: dict | None,
+    section_id: str,
+) -> dict[str, Any]:
+    if not isinstance(previous_snapshot, dict):
+        return {}
+    status_map = previous_snapshot.get(SECTION_STATUS_KEY)
+    if not isinstance(status_map, dict):
+        return {}
+    status = status_map.get(section_id)
+    return copy.deepcopy(status) if isinstance(status, dict) else {}
+
+
+def ensure_section_status(
+    snapshot: dict,
+    *,
+    previous_snapshot: dict | None = None,
+    source_run_id: str | None = None,
+) -> dict:
+    """Ensure every saved snapshot has first-class section state.
+
+    Older tests and any fallback generator stubs may still return only the
+    card data. This normalizes that output before persistence.
+    """
+    if not isinstance(snapshot, dict):
+        return snapshot
+    existing = snapshot.get(SECTION_STATUS_KEY)
+    if not isinstance(existing, dict):
+        existing = {}
+    now = snapshot.get("refreshed_at") or _now()
+    normalized: dict[str, dict] = {}
+    for section_id in SECTION_KEYS:
+        current = existing.get(section_id)
+        if isinstance(current, dict) and current.get("status"):
+            row = copy.deepcopy(current)
+            row.setdefault("section_id", section_id)
+            row.setdefault("label", SECTION_LABELS.get(section_id, section_id))
+            row.setdefault("retryable", True)
+            normalized[section_id] = row
+            continue
+        value = snapshot.get(section_id)
+        previous = _previous_section_status(previous_snapshot, section_id)
+        if _has_section_data(section_id, value):
+            successful_at = previous.get("last_successful_at") or now
+            normalized[section_id] = _section_status_template(
+                section_id,
+                status="fresh",
+                attempted_at=now,
+                successful_at=successful_at,
+                retryable=True,
+                source_run_id=source_run_id,
+            )
+        else:
+            normalized[section_id] = _section_status_template(
+                section_id,
+                status="empty",
+                attempted_at=now,
+                successful_at=previous.get("last_successful_at"),
+                error=previous.get("last_error"),
+                retryable=True,
+                source_run_id=source_run_id,
+            )
+    snapshot[SECTION_STATUS_KEY] = normalized
+    return snapshot
+
+
+def normalize_section_ids(sections: list[str] | tuple[str, ...] | None) -> list[str]:
+    aliases = {
+        "price": "price_card",
+        "momentum": "momentum_card",
+        "sentiment": "sentiment_card",
+        "heat": "heat_card",
+        "positioning": "heat_card",
+        "news": "trader_news",
+        "overview": "research_overview",
+        "session": "market_session",
+        "movers": "tech_movers",
+    }
+    out: list[str] = []
+    for raw in sections or []:
+        key = str(raw or "").strip().lower().replace("-", "_")
+        key = aliases.get(key, key)
+        if key in SECTION_KEYS and key not in out:
+            out.append(key)
+    return out
 
 
 class _ThreadProgress:
@@ -1241,9 +1693,17 @@ class _ThreadProgress:
     def __init__(self, base, thread: str):
         self._base = base
         self._thread = thread
+        self.cost_usd = 0.0
+        self.duration_ms = 0
+        self.token_usage = _blank_usage()
 
     def emit(self, type_: str, **fields: Any) -> None:
         fields.setdefault("thread", self._thread)
+        if type_ == "claude_action" and fields.get("action") == "result":
+            usage = _usage_summary(fields.get("usage"))
+            _add_usage(self.token_usage, usage)
+            self.cost_usd += _as_float(fields.get("cost_usd"))
+            self.duration_ms += _as_int(fields.get("duration_ms"))
         self._base.emit(type_, **fields)
 
     @property
@@ -1254,8 +1714,351 @@ class _ThreadProgress:
             return False
 
 
+@dataclass
+class _PassResult:
+    spec: SnapshotPass
+    part: dict | None
+    error: str | None
+    started_at: str
+    finished_at: str
+    duration_ms: int
+    cost_usd: float
+    token_usage: dict[str, Any]
+    input_hash: str
+    from_cache: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return isinstance(self.part, dict) and not self.error
+
+
+def _run_snapshot_pass(
+    *,
+    company: dict,
+    spec: SnapshotPass,
+    progress,
+    global_semaphore=None,
+) -> _PassResult:
+    name = company.get("name") or company.get("id") or "Unknown"
+    ticker = company.get("ticker") or ""
+    exchange = company.get("exchange") or ""
+    started_monotonic = time.monotonic()
+    started_at = _now()
+    input_hash = _input_hash(company, spec.artifact_section_id)
+    sub_progress = (
+        _ThreadProgress(progress, spec.label) if progress is not None else None
+    )
+    if sub_progress is not None:
+        sub_progress.emit(
+            "thread_started",
+            title=spec.label,
+            section_id=spec.status_section_id,
+            pass_id=spec.pass_id,
+        )
+    focus_hint = (
+        spec.focus
+        or (
+            f"FOCUS: produce ONLY the following top-level field(s): "
+            f"{', '.join(spec.keys)}. Output a JSON object containing exactly "
+            f"those key(s) and nothing else, matching the schema."
+        )
+    )
+    try:
+        if global_semaphore is not None:
+            global_semaphore.acquire()
+        try:
+            part, err = claude_runner.run_public_company_snapshot(
+                company_name=name,
+                ticker=ticker,
+                exchange=exchange,
+                schema=_schema_for_pass(spec),
+                system_prompt=SYSTEM_PROMPT,
+                progress=sub_progress,
+                focus_hint=focus_hint,
+            )
+        finally:
+            if global_semaphore is not None:
+                global_semaphore.release()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("snapshot pass %s crashed", spec.pass_id)
+        part, err = None, f"{type(exc).__name__}: {exc}"
+    finished_at = _now()
+    duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+    if sub_progress is not None:
+        sub_progress.emit(
+            "thread_finished" if (part and not err) else "thread_failed",
+            error=err or None,
+            section_id=spec.status_section_id,
+            pass_id=spec.pass_id,
+            duration_ms=duration_ms,
+        )
+    return _PassResult(
+        spec=spec,
+        part=part if isinstance(part, dict) else None,
+        error=err,
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_ms=duration_ms,
+        cost_usd=round(float(getattr(sub_progress, "cost_usd", 0.0)), 6),
+        token_usage=copy.deepcopy(
+            getattr(sub_progress, "token_usage", _blank_usage())
+        ),
+        input_hash=input_hash,
+    )
+
+
+def _cached_pass_result(
+    *,
+    company: dict,
+    spec: SnapshotPass,
+    progress,
+) -> _PassResult | None:
+    company_id = str(company.get("id") or company.get("ticker") or "unknown")
+    input_hash = _input_hash(company, spec.artifact_section_id)
+    artifact = _read_section_artifact(company_id, spec.artifact_section_id)
+    ttl = SECTION_TTL_SECONDS.get(spec.status_section_id, 60 * 60)
+    if not artifact or not _artifact_is_fresh(
+        artifact, input_hash=input_hash, ttl_seconds=ttl,
+    ):
+        return None
+    now = _now()
+    if progress is not None:
+        progress.emit(
+            "thread_started",
+            thread=spec.label,
+            title=spec.label,
+            section_id=spec.status_section_id,
+            pass_id=spec.pass_id,
+            cached=True,
+        )
+        progress.emit(
+            "thread_finished",
+            thread=spec.label,
+            section_id=spec.status_section_id,
+            pass_id=spec.pass_id,
+            cached=True,
+        )
+    return _PassResult(
+        spec=spec,
+        part=copy.deepcopy(artifact.get("data"))
+        if isinstance(artifact.get("data"), dict)
+        else None,
+        error=None,
+        started_at=artifact.get("started_at") or now,
+        finished_at=artifact.get("finished_at") or now,
+        duration_ms=_as_int(artifact.get("duration_ms")),
+        cost_usd=_as_float(artifact.get("cost_usd")),
+        token_usage=artifact.get("token_usage")
+        if isinstance(artifact.get("token_usage"), dict)
+        else _blank_usage(),
+        input_hash=input_hash,
+        from_cache=True,
+    )
+
+
+def _artifact_from_result(company: dict, result: _PassResult) -> dict:
+    company_id = str(company.get("id") or company.get("ticker") or "unknown")
+    return {
+        "company_id": company_id,
+        "section_id": result.spec.artifact_section_id,
+        "logical_section_id": result.spec.status_section_id,
+        "schema_version": SECTION_ARTIFACT_SCHEMA_VERSION,
+        "snapshot_schema_version": TRADER_SNAPSHOT_SCHEMA_VERSION,
+        "input_hash": result.input_hash,
+        "status": "fresh" if result.ok else "failed",
+        "started_at": result.started_at,
+        "finished_at": result.finished_at,
+        "duration_ms": result.duration_ms,
+        "cost_usd": round(float(result.cost_usd or 0.0), 6),
+        "token_usage": result.token_usage,
+        "error": result.error,
+        "data": result.part,
+    }
+
+
+def _persist_pass_artifact(company: dict, result: _PassResult) -> None:
+    if result.from_cache:
+        return
+    company_id = str(company.get("id") or company.get("ticker") or "unknown")
+    try:
+        _write_section_artifact(
+            company_id,
+            result.spec.artifact_section_id,
+            _artifact_from_result(company, result),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "failed to write trader section artifact for %s/%s",
+            company_id,
+            result.spec.artifact_section_id,
+        )
+
+
+def _set_section_data(snapshot: dict, section_id: str, value: Any) -> None:
+    snapshot[section_id] = copy.deepcopy(value)
+
+
+def _merge_overview_parts(results: list[_PassResult]) -> dict | None:
+    merged: dict[str, Any] = {}
+    for result in results:
+        if not result.ok:
+            continue
+        overview = (
+            result.part.get("research_overview")
+            if isinstance(result.part, dict)
+            else None
+        )
+        if not isinstance(overview, dict):
+            continue
+        for key, value in overview.items():
+            if value is not None:
+                merged[key] = value
+    if not merged:
+        return None
+    merged.setdefault("updated_at", _now())
+    for key in (
+        "business_mix",
+        "financial_quality",
+        "growth_durability",
+        "peer_context",
+        "scenario_matrix",
+        "diligence_questions",
+    ):
+        merged.setdefault(key, None)
+    return merged
+
+
+def _merge_results(
+    *,
+    company: dict,
+    results: list[_PassResult],
+    previous_snapshot: dict | None,
+    requested_sections: list[str],
+    preserve_existing_sections: bool,
+    source_run_id: str,
+) -> dict:
+    previous = previous_snapshot if isinstance(previous_snapshot, dict) else {}
+    snapshot = copy.deepcopy(previous) if preserve_existing_sections else {}
+    status_map: dict[str, dict] = {}
+    previous_status = (
+        previous.get(SECTION_STATUS_KEY)
+        if isinstance(previous.get(SECTION_STATUS_KEY), dict)
+        else {}
+    )
+
+    by_section: dict[str, list[_PassResult]] = {}
+    for result in results:
+        by_section.setdefault(result.spec.status_section_id, []).append(result)
+
+    now = _now()
+    for section_id in SECTION_KEYS:
+        prev_status = (
+            copy.deepcopy(previous_status.get(section_id))
+            if isinstance(previous_status, dict)
+            and isinstance(previous_status.get(section_id), dict)
+            else {}
+        )
+        if section_id not in requested_sections:
+            if prev_status:
+                status_map[section_id] = prev_status
+            elif _has_section_data(section_id, snapshot.get(section_id)):
+                status_map[section_id] = _section_status_template(
+                    section_id,
+                    status="fresh",
+                    attempted_at=previous.get("refreshed_at"),
+                    successful_at=previous.get("refreshed_at"),
+                    source_run_id=prev_status.get("source_run_id"),
+                )
+            else:
+                status_map[section_id] = _section_status_template(
+                    section_id,
+                    status="empty",
+                    attempted_at=None,
+                    successful_at=None,
+                    retryable=True,
+                )
+            continue
+
+        section_results = by_section.get(section_id, [])
+        errors = [r.error for r in section_results if r.error]
+        attempted_at = max((r.finished_at for r in section_results), default=now)
+        successful_results = [r for r in section_results if r.ok]
+        value: Any = None
+        if section_id == "research_overview":
+            value = _merge_overview_parts(section_results)
+        else:
+            for result in successful_results:
+                if isinstance(result.part, dict) and section_id in result.part:
+                    value = result.part.get(section_id)
+                    break
+
+        has_new_data = _has_section_data(section_id, value)
+        had_previous_data = _has_section_data(section_id, previous.get(section_id))
+        if has_new_data and not errors:
+            _set_section_data(snapshot, section_id, value)
+            status_map[section_id] = _section_status_template(
+                section_id,
+                status="fresh",
+                attempted_at=attempted_at,
+                successful_at=attempted_at,
+                retryable=True,
+                source_run_id=source_run_id,
+            )
+        elif has_new_data and errors:
+            _set_section_data(snapshot, section_id, value)
+            status_map[section_id] = _section_status_template(
+                section_id,
+                status="stale",
+                attempted_at=attempted_at,
+                successful_at=attempted_at,
+                error=" | ".join(str(e) for e in errors if e)[:500],
+                retryable=True,
+                source_run_id=source_run_id,
+            )
+        elif had_previous_data and preserve_existing_sections:
+            _set_section_data(snapshot, section_id, previous.get(section_id))
+            status_map[section_id] = _section_status_template(
+                section_id,
+                status="stale",
+                attempted_at=attempted_at,
+                successful_at=(
+                    prev_status.get("last_successful_at")
+                    or previous.get("refreshed_at")
+                ),
+                error=" | ".join(str(e) for e in errors if e)[:500]
+                or "section returned no data",
+                retryable=True,
+                source_run_id=source_run_id,
+            )
+        else:
+            _set_section_data(snapshot, section_id, _EMPTY_SECTION[section_id])
+            status_map[section_id] = _section_status_template(
+                section_id,
+                status="failed" if errors else "empty",
+                attempted_at=attempted_at,
+                successful_at=prev_status.get("last_successful_at"),
+                error=" | ".join(str(e) for e in errors if e)[:500]
+                or "section returned no data",
+                retryable=True,
+                source_run_id=source_run_id,
+            )
+
+    snapshot[SECTION_STATUS_KEY] = status_map
+    for section_id in SECTION_KEYS:
+        snapshot.setdefault(section_id, copy.deepcopy(_EMPTY_SECTION[section_id]))
+    return snapshot
+
+
 def generate_snapshot(
-    *, company: dict, progress=None
+    *,
+    company: dict,
+    progress=None,
+    previous_snapshot: dict | None = None,
+    section_ids: list[str] | tuple[str, ...] | None = None,
+    force: bool = False,
+    preserve_existing_sections: bool = True,
+    max_workers: int | None = None,
+    global_semaphore=None,
 ) -> tuple[dict | None, str | None]:
     """Produce a fresh trader snapshot by fanning the sections out
     into concurrent ``claude -p`` runs and merging. Returns
@@ -1280,71 +2083,117 @@ def generate_snapshot(
             "`npm install -g @anthropic-ai/claude-code` and authenticate."
         )
 
+    requested_sections = normalize_section_ids(section_ids)
+    if not requested_sections:
+        requested_sections = list(SECTION_KEYS)
+    pass_specs = [
+        spec
+        for section_id in requested_sections
+        for spec in _PASSES_BY_SECTION.get(section_id, [])
+    ]
+    source_run_id = f"{company.get('id') or ticker}:{_now()}"
+
     if progress is not None:
         progress.emit(
             "stage",
             stage="parallel_dispatch",
             message=(
-                f"Gathering {len(SNAPSHOT_PASSES)} sections in parallel"
+                f"Gathering {len(pass_specs)} section pass(es) in parallel"
             ),
-            passes=[p[1] for p in SNAPSHOT_PASSES],
+            passes=[p.label for p in pass_specs],
+            sections=requested_sections,
         )
 
-    def _run_pass(spec: tuple[str, str, list[str], str]):
-        pass_id, label, keys, focus = spec
-        sub_progress = (
-            _ThreadProgress(progress, label) if progress is not None else None
+    def _run_or_reuse(spec: SnapshotPass) -> _PassResult:
+        if not force:
+            cached = _cached_pass_result(
+                company=company,
+                spec=spec,
+                progress=progress,
+            )
+            if cached is not None:
+                return cached
+        result = _run_snapshot_pass(
+            company=company,
+            spec=spec,
+            progress=progress,
+            global_semaphore=global_semaphore,
         )
-        if sub_progress is not None:
-            sub_progress.emit("thread_started", title=label)
-        focus_hint = (
-            focus
-            or (
-                f"FOCUS: produce ONLY the following top-level field(s): "
-                f"{', '.join(keys)}. Output a JSON object containing exactly "
-                f"those key(s) and nothing else, matching the schema."
-            )
-        )
-        try:
-            part, err = claude_runner.run_public_company_snapshot(
-                company_name=name,
-                ticker=ticker,
-                exchange=exchange,
-                schema=_sub_schema(keys),
-                system_prompt=SYSTEM_PROMPT,
-                progress=sub_progress,
-                focus_hint=focus_hint,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("snapshot pass %s crashed", pass_id)
-            part, err = None, f"{type(exc).__name__}: {exc}"
-        if sub_progress is not None:
-            sub_progress.emit(
-                "thread_finished" if (part and not err) else "thread_failed",
-                error=err or None,
-            )
-        return pass_id, keys, part, err
+        _persist_pass_artifact(company, result)
+        return result
 
-    merged: dict[str, Any] = {}
-    errors: list[str] = []
-    with ThreadPoolExecutor(max_workers=len(SNAPSHOT_PASSES)) as pool:
-        for pass_id, keys, part, err in pool.map(_run_pass, SNAPSHOT_PASSES):
-            for k in keys:
-                if isinstance(part, dict) and k in part and part[k] is not None:
-                    merged[k] = part[k]
-                else:
-                    merged[k] = copy.deepcopy(_EMPTY_SECTION[k])
-                    if err:
-                        errors.append(f"{pass_id}: {err}")
+    worker_count = max(1, min(max_workers or len(pass_specs), len(pass_specs)))
+    results: list[_PassResult] = []
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        for result in pool.map(_run_or_reuse, pass_specs):
+            results.append(result)
+
+    merged = _merge_results(
+        company=company,
+        results=results,
+        previous_snapshot=previous_snapshot,
+        requested_sections=requested_sections,
+        preserve_existing_sections=preserve_existing_sections,
+        source_run_id=source_run_id,
+    )
+    errors = [
+        f"{result.spec.pass_id}: {result.error}"
+        for result in results
+        if result.error
+    ]
+
+    # Persist a top-level artifact for split sections so retry/status
+    # consumers can still inspect `research_overview.json` directly.
+    for section_id in requested_sections:
+        if section_id == "research_overview":
+            status = merged.get(SECTION_STATUS_KEY, {}).get(section_id, {})
+            section_results = [
+                r for r in results if r.spec.status_section_id == section_id
+            ]
+            artifact = {
+                "company_id": str(company.get("id") or ticker or "unknown"),
+                "section_id": section_id,
+                "logical_section_id": section_id,
+                "schema_version": SECTION_ARTIFACT_SCHEMA_VERSION,
+                "snapshot_schema_version": TRADER_SNAPSHOT_SCHEMA_VERSION,
+                "input_hash": _input_hash(company, section_id),
+                "status": status.get("status") if isinstance(status, dict) else None,
+                "started_at": min(
+                    (r.started_at for r in section_results),
+                    default=_now(),
+                ),
+                "finished_at": max(
+                    (r.finished_at for r in section_results),
+                    default=_now(),
+                ),
+                "duration_ms": sum(r.duration_ms for r in section_results),
+                "cost_usd": round(
+                    sum(r.cost_usd for r in section_results),
+                    6,
+                ),
+                "token_usage": _blank_usage(),
+                "error": status.get("last_error") if isinstance(status, dict) else None,
+                "data": {"research_overview": merged.get("research_overview")},
+            }
+            for result in section_results:
+                _add_usage(artifact["token_usage"], result.token_usage)
+            try:
+                _write_section_artifact(
+                    str(company.get("id") or ticker or "unknown"),
+                    section_id,
+                    artifact,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to write merged research overview artifact")
 
     got_any = any(
-        merged.get(k) not in (None, {}, [], _EMPTY_SECTION.get(k))
-        for k in _EMPTY_SECTION
+        _has_section_data(k, merged.get(k))
+        for k in SECTION_KEYS
     )
     if not got_any:
         return None, (
             "All snapshot sections failed. "
-            + " | ".join(errors[:7]) if errors else "no data returned"
+            + (" | ".join(errors[:7]) if errors else "no data returned")
         )
 
     if errors and progress is not None:

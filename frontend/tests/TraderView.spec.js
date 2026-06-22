@@ -11,13 +11,21 @@ const m = vi.hoisted(() => ({
     job_id: "amd", status: "queued",
     stream_url: "/api/companies/amd/trader/refresh/stream",
   })),
+  refreshSections: vi.fn(() => Promise.resolve({
+    job_id: "amd", status: "queued",
+    stream_url: "/api/companies/amd/trader/refresh/stream",
+  })),
   streamUrl: vi.fn(() => "/fake/stream"),
   getCompany: vi.fn(() => Promise.resolve({ id: "amd", trader_snapshot: null })),
 }));
 
 vi.mock("../src/api.js", () => ({
   api: {
-    trader: { refresh: m.refresh, streamUrl: m.streamUrl },
+    trader: {
+      refresh: m.refresh,
+      refreshSections: m.refreshSections,
+      streamUrl: m.streamUrl,
+    },
     getCompany: m.getCompany,
   },
 }));
@@ -110,6 +118,38 @@ describe("TraderView populated state", () => {
     await button.trigger("click");
     await flushPromises();
     expect(m.refresh).toHaveBeenCalledWith("amd");
+  });
+
+  it("renders failed section state and retries only that section", async () => {
+    const wrapper = mountWith({
+      id: "amd",
+      name: "AMD",
+      company_type: "public",
+      trader_snapshot: {
+        ...snapshot,
+        section_status: {
+          catalysts: {
+            status: "failed",
+            last_error: "stalled after 120s without output",
+            retryable: true,
+          },
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("Upcoming catalysts");
+    expect(wrapper.text()).toContain("stalled after 120s without output");
+
+    const button = wrapper.findAll("button")
+      .find((b) => b.text().includes("Retry section"));
+    expect(button).toBeTruthy();
+    await button.trigger("click");
+    await flushPromises();
+    expect(m.refreshSections).toHaveBeenCalledWith(
+      "amd",
+      ["catalysts"],
+      { force: true, preserveExistingSections: true },
+    );
   });
 });
 

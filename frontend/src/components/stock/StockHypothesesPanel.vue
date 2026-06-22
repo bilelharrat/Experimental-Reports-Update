@@ -31,9 +31,13 @@ const calibration = computed(() => props.hypotheses?.calibration || []);
 const selectedVintageDate = computed(
   () => vintages.value[0]?.vintage_date || rows.value[0]?.vintage_date || "",
 );
+const selectedVintageKind = computed(
+  () => vintages.value[0]?.vintage_kind || rows.value[0]?.vintage_kind || "",
+);
 const selectedRows = computed(() =>
   selectedVintageDate.value
     ? rows.value.filter((row) => row.vintage_date === selectedVintageDate.value)
+      .filter((row) => !selectedVintageKind.value || row.vintage_kind === selectedVintageKind.value)
     : rows.value,
 );
 
@@ -116,7 +120,11 @@ function badgeClass(kind) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="vintage in vintages" :key="vintage.vintage_date" class="border-b border-subtle last:border-0">
+          <tr
+            v-for="vintage in vintages"
+            :key="`${vintage.vintage_date}-${vintage.vintage_kind}`"
+            class="border-b border-subtle last:border-0"
+          >
             <td class="px-3 py-2 font-medium">{{ vintage.vintage_date }}</td>
             <td class="px-3 py-2">
               <span class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="badgeClass(vintage.vintage_kind)">

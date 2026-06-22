@@ -697,25 +697,62 @@ def list_training_summaries() -> list[dict[str, Any]]:
     return rows
 
 
-def _vintage_summary(vintage_date: str) -> dict[str, Any]:
+def _vintage_summaries(vintage_date: str) -> list[dict[str, Any]]:
     vintage = get_vintage(vintage_date)
     hypotheses = vintage["hypotheses"]
     outcomes = vintage["outcomes"]
+    outcomes_by_id = {row.get("hypothesis_id"): row for row in outcomes}
+    kinds = sorted(
+        {row.get("vintage_kind") or "forward_live" for row in hypotheses},
+        key=lambda kind: 0 if kind == "forward_live" else 1,
+    )
+    summaries = []
+    for kind in kinds or ["forward_live"]:
+        kind_hypotheses = [
+            row for row in hypotheses if (row.get("vintage_kind") or "forward_live") == kind
+        ]
+        kind_outcomes = [
+            outcomes_by_id[row.get("hypothesis_id")]
+            for row in kind_hypotheses
+            if row.get("hypothesis_id") in outcomes_by_id
+        ]
+        completed_ids = {row.get("hypothesis_id") for row in kind_outcomes}
+        summaries.append(
+            {
+                "vintage_date": vintage_date,
+                "vintage_kind": kind,
+                "hypothesis_count": len(kind_hypotheses),
+                "outcome_count": len(kind_outcomes),
+                "pending_count": len(
+                    [
+                        row
+                        for row in kind_hypotheses
+                        if row["hypothesis_id"] not in completed_ids
+                    ]
+                ),
+                "training_eligible_count": len(
+                    [row for row in kind_outcomes if row.get("eligible_for_training")]
+                ),
+                "kind_counts": {kind: len(kind_hypotheses)} if kind_hypotheses else {},
+            }
+        )
+    return summaries
+
+
+def _vintage_summary(vintage_date: str) -> dict[str, Any]:
+    summaries = _vintage_summaries(vintage_date)
+    if len(summaries) == 1:
+        return summaries[0]
     kind_counts: dict[str, int] = {}
-    for row in hypotheses:
-        kind_counts[row["vintage_kind"]] = kind_counts.get(row["vintage_kind"], 0) + 1
-    completed_ids = {row.get("hypothesis_id") for row in outcomes}
+    for row in summaries:
+        kind_counts[row["vintage_kind"]] = row["hypothesis_count"]
     return {
         "vintage_date": vintage_date,
-        "vintage_kind": (hypotheses[0]["vintage_kind"] if hypotheses else "forward_live"),
-        "hypothesis_count": len(hypotheses),
-        "outcome_count": len(outcomes),
-        "pending_count": len(
-            [row for row in hypotheses if row["hypothesis_id"] not in completed_ids]
-        ),
-        "training_eligible_count": len(
-            [row for row in outcomes if row.get("eligible_for_training")]
-        ),
+        "vintage_kind": summaries[0]["vintage_kind"] if summaries else "forward_live",
+        "hypothesis_count": sum(row["hypothesis_count"] for row in summaries),
+        "outcome_count": sum(row["outcome_count"] for row in summaries),
+        "pending_count": sum(row["pending_count"] for row in summaries),
+        "training_eligible_count": sum(row["training_eligible_count"] for row in summaries),
         "kind_counts": kind_counts,
     }
 
@@ -729,7 +766,11 @@ def hypothesis_dashboard_payload() -> dict[str, Any]:
         key=lambda row: (str(row.get("vintage_date", "")), str(row.get("generated_at", ""))),
         reverse=True,
     )
-    summaries = [_vintage_summary(vintage_date) for vintage_date in vintage_dates]
+    summaries = [
+        summary
+        for vintage_date in vintage_dates
+        for summary in _vintage_summaries(vintage_date)
+    ]
     pending = [row for row in rows if not row.get("outcome")]
     return {
         "schema_version": HYPOTHESIS_SCHEMA_VERSION,
