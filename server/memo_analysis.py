@@ -33,6 +33,7 @@ from . import (
     claude_runner,
     docx_pdf,
     job_progress,
+    memo_quality_lint,
     memo_prep,
     research_store,
     serena_analysis,
@@ -129,6 +130,38 @@ def recover_stale_reports() -> int:
         )
         for thread_label in sorted(stream_state.get("open_threads") or ()):
             stream.emit("thread_finished", thread=thread_label)
+        lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
+        lint_path = run_dir / "logs" / "memo_quality_lint.md"
+        lint_path.write_text(
+            memo_quality_lint.render_markdown_report(lint_result),
+            encoding="utf-8",
+        )
+        if lint_result.has_blocking_findings:
+            lint_payload = lint_result.to_dict()
+            msg = (
+                "Recovered memo failed the DOCX quality gate with "
+                f"{lint_payload['p0_count']} P0 finding"
+                f"{'' if lint_payload['p0_count'] == 1 else 's'}. "
+                f"See {memo_prep._rel(lint_path)}."
+            )
+            storage.update_report(
+                report["id"],
+                status="failed_quality_gate",
+                stage="Memo failed quality gate",
+                progress=98,
+                memo_quality_lint=lint_payload,
+                claude_cost_usd=result.get("cost_usd"),
+                claude_duration_ms=result.get("duration_ms"),
+            )
+            stream.emit(
+                "error",
+                error=msg,
+                phase="quality_gate",
+                recovered=True,
+                lint_report=memo_prep._rel(lint_path),
+                findings=lint_payload["findings"][:10],
+            )
+            continue
         storage.update_report(
             report["id"],
             status="complete",
@@ -284,6 +317,53 @@ def _run(report_id: str) -> None:
         )
         stream.emit("error", error=msg, phase="post_run_check")
         return
+
+    # --- Hard quality gate for the English source-of-truth memo -------
+    storage.update_report(
+        report_id,
+        stage="Running memo quality gate",
+        progress=90,
+    )
+    stream.emit(
+        "stage",
+        stage="quality_gate",
+        message="Running memo quality gate",
+    )
+    lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
+    lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    lint_path.write_text(
+        memo_quality_lint.render_markdown_report(lint_result),
+        encoding="utf-8",
+    )
+    if lint_result.has_blocking_findings:
+        lint_payload = lint_result.to_dict()
+        msg = (
+            "Generated memo failed the DOCX quality gate with "
+            f"{lint_payload['p0_count']} P0 finding"
+            f"{'' if lint_payload['p0_count'] == 1 else 's'}. "
+            f"See {memo_prep._rel(lint_path)}."
+        )
+        storage.update_report(
+            report_id,
+            status="failed_quality_gate",
+            stage="Memo failed quality gate",
+            progress=98,
+            memo_quality_lint=lint_payload,
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+        )
+        stream.emit(
+            "error",
+            error=msg,
+            phase="quality_gate",
+            lint_report=memo_prep._rel(lint_path),
+            findings=lint_payload["findings"][:10],
+        )
+        return
+    storage.update_report(
+        report_id,
+        memo_quality_lint=lint_result.to_dict(),
+    )
 
     # --- Render PDF previews from the .docx files --------------------
     # The .docx is the real deliverable; the PDF is a faithful rendition

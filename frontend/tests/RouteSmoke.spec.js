@@ -174,8 +174,8 @@ describe("route smoke tests", () => {
     const wrapper = await mountRoute("/research/generalist?tab=analysis");
 
     expect(wrapper.text()).toContain("Generalist");
-    expect(wrapper.text()).toContain("Memo Tools Toolbox");
-    expect(wrapper.text()).toContain("Work Products");
+    expect(wrapper.text()).toContain("Core Memo Workflow");
+    expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
   });
 
   it("hides Memo Studio for companies remembered as public tickers", async () => {
@@ -193,7 +193,7 @@ describe("route smoke tests", () => {
 
     expect(wrapper.text()).toContain("Public Ticker Co");
     expect(wrapper.text()).not.toContain("Memo Studio");
-    expect(wrapper.text()).not.toContain("Memo Tools Toolbox");
+    expect(wrapper.text()).not.toContain("Core Memo Workflow");
     expect(api.memoAnalysis.get).not.toHaveBeenCalled();
     expect(router.currentRoute.value.query.tab).toBeUndefined();
   });
@@ -213,7 +213,7 @@ describe("route smoke tests", () => {
 
     expect(wrapper.text()).toContain("Private Ticker Co");
     expect(wrapper.text()).toContain("Memo Studio");
-    expect(wrapper.text()).toContain("Memo Tools Toolbox");
+    expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(api.memoAnalysis.get).toHaveBeenCalledWith("private-with-ticker");
   });
 });

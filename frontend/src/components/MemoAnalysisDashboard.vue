@@ -488,6 +488,83 @@ const memoToolboxSummary = computed(() => {
     nextAction: nextMemoAction(),
   };
 });
+const toolPrompts = computed(() => {
+  const selectedRisks = prioritizedRisks.value.filter((risk) =>
+    Boolean(riskPriorityMap.value.get(risk.id)?.selected),
+  );
+  const taskPrompts = tasks.value.length
+    ? tasks.value.slice(0, 3).map((task) => ({
+        label: task.title || task.id || "Research question",
+        text: firstText(task.answer, task.result_summary, task.prompt),
+      }))
+    : selectedRisks.slice(0, 3).map((risk) => ({
+        label: risk.title || "Selected risk",
+        text: risk.decision_question || risk.why_it_matters,
+      }));
+  const sourcePrompts = [
+    ...listItems(sourceBrief.value?.reviewer_prompts).map((prompt) => ({
+      label: "Reviewer choice",
+      text: prompt.prompt,
+    })),
+    ...listItems(sourceBrief.value?.missing_evidence).map((item) => ({
+      label: "Missing evidence",
+      text: item,
+    })),
+    ...listItems(sourceBrief.value?.no_go_claims).map((item) => ({
+      label: "No-go claim",
+      text: item,
+    })),
+  ];
+  const chartPrompts = chartSpecs.value.flatMap((spec) => [
+    ...listItems(spec.reviewer_prompts).map((prompt) => ({
+      label: spec.title || "Chart choice",
+      text: prompt.prompt,
+    })),
+    ...listItems(spec.information_gaps).map((gap) => ({
+      label: spec.title || "Chart gap",
+      text: gap,
+    })),
+  ]);
+  return {
+    strategic_risk_mapper: risks.value.slice(0, 3).map((risk) => ({
+      label: risk.title || "Decision question",
+      text: risk.decision_question || risk.why_it_matters,
+    })),
+    priority_prompt_harness: taskPrompts,
+    thesis_spine_builder: listItems(thesis.value?.top_gating_questions)
+      .slice(0, 3)
+      .map((gate) => ({
+        label: "Gating question",
+        text: gate.question || gate.why_it_matters,
+      })),
+    infographic_source_brief: sourcePrompts,
+    chart_spec_builder: chartPrompts,
+    narrative_hooks: listItems(narrativeHooks.value?.reviewer_prompts).map((prompt) => ({
+      label: "Narrative choice",
+      text: prompt.prompt,
+    })),
+    private_benchmark_dashboard: [
+      ...listItems(benchmark.value?.benchmark_gaps).map((gap) => ({
+        label: "Benchmark gap",
+        text: gap,
+      })),
+      ...listItems(benchmark.value?.must_prove).map((claim) => ({
+        label: "Must prove",
+        text: claim,
+      })),
+    ],
+    memo_grader: [
+      ...listItems(memoGrader.value?.missing_diligence).map((item) => ({
+        label: "Missing diligence",
+        text: item,
+      })),
+      ...listItems(memoGrader.value?.rewrite_guidance).map((item) => ({
+        label: "Rewrite guidance",
+        text: item,
+      })),
+    ],
+  };
+});
 const evidenceRows = computed(() => {
   const rows = evidenceMatrix.value?.claims;
   const list = Array.isArray(rows) ? rows : [];
@@ -1084,6 +1161,17 @@ watch(additionalAreas, (areas) => {
     </div>
 
     <template v-if="session && !loading">
+      <MemoToolLauncherPanel
+        :tools="session.tools"
+        :running-tool="runningTool"
+        :saving-artifact="savingArtifact"
+        :memo-grader="memoGrader"
+        :completed-memo-runs="completedMemoRuns"
+        :tool-prompts="toolPrompts"
+        @run-tool="runTool"
+        @select-memo-for-grading="selectMemoForGrading"
+      />
+
       <MemoReadinessPanel
         :readiness="readiness"
         :readiness-pct="readinessPct"
@@ -1093,38 +1181,6 @@ watch(additionalAreas, (areas) => {
         :saving-artifact="savingArtifact"
         @update-readiness-review-draft="updateReadinessReviewDraft"
         @save-readiness-review="saveReadinessReview"
-      />
-
-      <MemoToolboxPanel
-        :summary="memoToolboxSummary"
-        :work-products="memoWorkProducts"
-        :review-items="memoReviewItems"
-        :source-trace-rows="memoSourceTraceRows"
-        :source-boundary-rows="memoSourceBoundaryRows"
-      />
-
-      <RunLedgerTable
-        :rows="memoRunLedger"
-        title="Memo Run Ledger"
-        description="Normalized rows for analysis tools, research tasks, and final memo generation."
-        empty-text="No Memo Tools run ledger rows yet."
-      />
-
-      <div
-        v-if="memoRunLedgerError"
-        class="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning-ink"
-      >
-        {{ memoRunLedgerError }}
-      </div>
-
-      <MemoToolLauncherPanel
-        :tools="session.tools"
-        :running-tool="runningTool"
-        :saving-artifact="savingArtifact"
-        :memo-grader="memoGrader"
-        :completed-memo-runs="completedMemoRuns"
-        @run-tool="runTool"
-        @select-memo-for-grading="selectMemoForGrading"
       />
 
       <section class="grid xl:grid-cols-2 gap-4">
@@ -1271,57 +1327,89 @@ watch(additionalAreas, (areas) => {
         </div>
       </section>
 
-      <MemoEvidenceMatrixPanel
-        :evidence-matrix="evidenceMatrix"
-        :evidence-matrix-error="evidenceMatrixError"
-        :evidence-rows="evidenceRows"
-        :evidence-status-filter="evidenceStatusFilter"
-        @update:evidence-status-filter="evidenceStatusFilter = $event"
+      <MemoResearchTasksPanel
+        :tasks="tasks"
+        :source-files="sourceFiles"
+        :batch-status="batchStatus"
+        :running-batch="runningBatch"
+        :has-running-tasks="hasRunningTasks"
+        :running-task="runningTask"
+        :cancelling-task="cancellingTask"
+        :saving-task="savingTask"
+        @run-selected-tasks="runSelectedTasks"
+        @run-research-task="runResearchTask"
+        @cancel-research-task="cancelResearchTask"
+        @toggle-task-source="toggleTaskSource"
       />
 
-      <section class="grid xl:grid-cols-2 gap-4">
-        <MemoResearchTasksPanel
-          :tasks="tasks"
-          :source-files="sourceFiles"
-          :batch-status="batchStatus"
-          :running-batch="runningBatch"
-          :has-running-tasks="hasRunningTasks"
-          :running-task="runningTask"
-          :cancelling-task="cancellingTask"
-          :saving-task="savingTask"
-          @run-selected-tasks="runSelectedTasks"
-          @run-research-task="runResearchTask"
-          @cancel-research-task="cancelResearchTask"
-          @toggle-task-source="toggleTaskSource"
-        />
+      <details class="rounded-card border border-subtle bg-surface p-5">
+        <summary class="cursor-pointer font-display text-lg font-semibold text-ink-primary focus-ring">
+          Evidence, Ledger, And Source Boundaries
+        </summary>
+        <div class="mt-4 space-y-4">
+          <MemoToolboxPanel
+            :summary="memoToolboxSummary"
+            :work-products="memoWorkProducts"
+            :review-items="memoReviewItems"
+            :source-trace-rows="memoSourceTraceRows"
+            :source-boundary-rows="memoSourceBoundaryRows"
+          />
 
-        <MemoSourceBriefPanel
-          :source-brief="sourceBrief"
-        />
+          <RunLedgerTable
+            :rows="memoRunLedger"
+            title="Memo Run Ledger"
+            description="Normalized rows for analysis tools, research tasks, and final memo generation."
+            empty-text="No Memo Tools run ledger rows yet."
+          />
 
-        <MemoChartPlansPanel
-          :chart-specs-draft="chartSpecsDraft"
-          :saving-artifact="savingArtifact"
-          @save-chart-specs="saveChartSpecsDraft"
-        />
-      </section>
+          <div
+            v-if="memoRunLedgerError"
+            class="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning-ink"
+          >
+            {{ memoRunLedgerError }}
+          </div>
 
-      <section class="grid xl:grid-cols-2 gap-4">
-        <MemoNarrativeHooksPanel
-          :narrative-draft="narrativeDraft"
-          :session-id="session.id"
-          :saving-artifact="savingArtifact"
-          @save-narrative="saveNarrativeDraft"
-        />
+          <MemoEvidenceMatrixPanel
+            :evidence-matrix="evidenceMatrix"
+            :evidence-matrix-error="evidenceMatrixError"
+            :evidence-rows="evidenceRows"
+            :evidence-status-filter="evidenceStatusFilter"
+            @update:evidence-status-filter="evidenceStatusFilter = $event"
+          />
+        </div>
+      </details>
 
-        <MemoBenchmarkPanel
-          :benchmark="benchmark"
-          :benchmark-draft="benchmarkDraft"
-          :benchmark-view="benchmarkView"
-          :saving-artifact="savingArtifact"
-          @save-benchmark="saveBenchmarkDraft"
-        />
-      </section>
+      <details class="rounded-card border border-subtle bg-surface p-5">
+        <summary class="cursor-pointer font-display text-lg font-semibold text-ink-primary focus-ring">
+          Visual, Narrative, And Benchmark Tools
+        </summary>
+        <div class="mt-4 grid xl:grid-cols-2 gap-4">
+          <MemoSourceBriefPanel
+            :source-brief="sourceBrief"
+          />
+
+          <MemoChartPlansPanel
+            :chart-specs-draft="chartSpecsDraft"
+            :saving-artifact="savingArtifact"
+            @save-chart-specs="saveChartSpecsDraft"
+          />
+
+          <MemoNarrativeHooksPanel
+            :narrative-draft="narrativeDraft"
+            :session-id="session.id"
+            :saving-artifact="savingArtifact"
+            @save-narrative="saveNarrativeDraft"
+          />
+
+          <MemoBenchmarkPanel
+            :benchmark="benchmark"
+            :benchmark-draft="benchmarkDraft"
+            :benchmark-view="benchmarkView"
+            :saving-artifact="savingArtifact"
+            @save-benchmark="saveBenchmarkDraft"
+          />
+        </div>
+      </details>
     </template>
   </div>
 </template>

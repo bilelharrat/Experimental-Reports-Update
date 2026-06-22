@@ -61,6 +61,10 @@ function pct(j) {
   ) {
     return Math.round((j.index / j.total_count) * 100);
   }
+  if (j.thread_count) {
+    const settled = (j.thread_done_count || 0) + (j.thread_failed_count || 0);
+    return Math.round((settled / j.thread_count) * 100);
+  }
   return null;
 }
 
@@ -77,6 +81,11 @@ function progressText(j) {
     j.index
   ) {
     return `${j.index}/${j.total_count}`;
+  }
+  if (j.thread_count) {
+    const settled = (j.thread_done_count || 0) + (j.thread_failed_count || 0);
+    const failed = j.thread_failed_count ? `, ${j.thread_failed_count} failed` : "";
+    return `${settled}/${j.thread_count} subtasks${failed}`;
   }
   return null;
 }

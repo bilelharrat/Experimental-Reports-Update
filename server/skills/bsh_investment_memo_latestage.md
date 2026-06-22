@@ -136,7 +136,7 @@ The memo must distinguish clearly between:
 - estimates,
 - and unresolved discrepancies.
 
-Cite the folder documents explicitly in Section VI (Sources & References).
+Cite folder documents explicitly in Section VI (Sources, Source Classes, and Fact Reference Index).
 
 ---
 
@@ -871,17 +871,41 @@ Downgrade confidence when:
 - review sites repeat marketing narratives
 - market maps list the company without usage proof
 
-## Claim-to-Source Traceability Rule
-End-of-memo source lists are necessary but not sufficient.
+## Final Memo Source Strategy
+End-of-memo source lists are necessary, but final memo prose and operating tables must not look like a research scratchpad.
 
-Every material paragraph in Sections I (Executive Summary), II (Company Overview), III (Investment Highlights), IV (Investment Risk), and V (Financial Forecast & Valuation) must include at least one inline citation marker or equivalent source trace.
+Do not put inline source markers, bracketed source IDs, file names, artifact names, or raw source-trace tokens in the main memo body or operating tables. This means no body/table strings such as `[S1]`, `[WV]`, `[companies.yaml]`, `[internal]`, `memo_packet`, `source_trace`, or analysis file names. Detailed traceability belongs in:
+- `analysis/claim_register.md` and related analysis artifacts;
+- a dedicated **Sources, Source Classes, and Fact Reference Index** section;
+- clearly separated validation appendices.
 
-Additionally:
-- if a material fact is primarily company-reported, label it as **company-reported** on first mention
-- if a fact is inferred rather than directly reported, label it as an **estimate** or **internal analysis**
-- if a claim is unresolved, say so in the body rather than burying uncertainty only in the appended Validation & Assumptions Log
+In Sections I through V, use reader-facing source-class language instead:
+- if a material fact is primarily company-reported, say **company-reported** or **management discussion** on first mention;
+- if a fact is independently supported, say **public third-party** or **independently supported**;
+- if a fact is inferred rather than directly reported, label it as an **estimate** or **internal model**;
+- if a claim is unresolved, say so in the body and pair it with model treatment or diligence thresholds.
 
-The reader should be able to tell, inside the body of the memo, whether a fact is independently supported, company-originated, estimated, or unresolved.
+The reader should be able to tell whether a claim is company-originated, independently supported, estimated, or unresolved without seeing internal citation tokens. The fact index should map every material claim back to source title, source class, date, confidence, and usage.
+
+## Disclosure Gap -> Model Treatment Rule
+Disclosure gaps are modeling inputs, not stopping points.
+
+When a material metric is missing or only partially disclosed, the memo must state:
+- what is disclosed;
+- what is not disclosed;
+- the source class for the available evidence;
+- the model treatment used in the memo;
+- what new evidence would change the model.
+
+Default private-company commercial conversion framework:
+- binding signed contract: 80-100% conversion credit;
+- signed but cancellable or milestone-based contract: 50-75% conversion credit;
+- MOU: 15-35% conversion credit;
+- LOI: 10-25% conversion credit;
+- pipeline: 5-15% conversion credit;
+- unqualified ecosystem logo: 0% revenue credit unless contract status is disclosed.
+
+When recognized revenue, ARR, ACV, retention, or gross margin is not disclosed, include at least one outside-in sanity bridge using customer count, site count, contract value, term length, employee count, implementation capacity, comparable contract duration, or another defensible proxy. Avoid repeated "not disclosed" statements unless each one is paired with treatment and a diligence threshold.
 
 ---
 
@@ -910,13 +934,14 @@ Numeric probabilities are allowed only when:
 
 Never give a false sense of calibration just because a number looks precise.
 
-## Present-State vs Upside-State Rule
-Separate what is already evidenced today from what is still an upside case.
+## Evidence-State Rule
+Separate what is already evidenced today from what still depends on future execution, but keep the taxonomy private.
 
 In particular:
-- current deployment, current growth quality, and current moat components should be described as present-state facts only when evidenced
-- agentic workflows, broad enterprise rollout, durable pricing expansion, and future platform status should be framed as upside-state possibilities unless current evidence proves they are already happening
+- current deployment, current growth quality, and current moat components should be described as proven only when evidenced
+- agentic workflows, broad enterprise rollout, durable pricing expansion, and future platform status should be framed as future possibilities unless current evidence proves they are already happening
 - do not use future-state optionality to justify current-state labels like "dominant," "default workflow layer," or "platform" without present evidence
+- do not render visible parenthetical labels such as `(present-state)`, `(upside-state)`, or `upside-only` in the final memo
 
 ---
 
@@ -1088,7 +1113,7 @@ Required cover-page elements:
    - BSH ticket size
 
    Do not include a `Prepared by` line on the cover. Internal authorship belongs in the run manifest, not the deliverable.
-7. **Table of Contents** placed below the metadata block, listing the six body-section entries only — I. Executive Summary, II. Company Overview, III. Investment Highlights, IV. Investment Risk, V. Financial Forecast & Valuation, VI. Sources & References — with their page numbers. Do **not** include the Validation & Assumptions Log appendix in the TOC; appendix material is auditing scaffolding rather than navigable narrative content. Use a small Tiffany-rule header labeled `TABLE OF CONTENTS` (English) or `目录` (Chinese), then a compact two-column layout (section name on the left, page number right-aligned with dot leaders or simple right-alignment). Include only top-level (Heading 1) entries to keep the cover page uncluttered. Subsection headings are reserved for the body, not the cover.
+7. **Table of Contents** placed below the metadata block, listing the six body-section entries only — I. Executive Summary, II. Company Overview, III. Investment Highlights, IV. Investment Risk, V. Financial Forecast & Valuation, VI. Sources, Source Classes, and Fact Reference Index — with their page numbers. Do **not** include the Validation & Assumptions Log appendix in the TOC; appendix material is auditing scaffolding rather than navigable narrative content. Use a small Tiffany-rule header labeled `TABLE OF CONTENTS` (English) or `目录` (Chinese), then a compact two-column layout (section name on the left, page number right-aligned with dot leaders or simple right-alignment). Include only top-level (Heading 1) entries to keep the cover page uncluttered. Subsection headings are reserved for the body, not the cover.
 
 Preferred implementation:
 - Use a dedicated cover page with a different first-page header/footer if supported.
@@ -1106,20 +1131,20 @@ The Executive Summary must be visually structured for rapid IC-style review and 
 Required executive-summary components:
 1. **Key Metrics Snapshot** table inside Investment Opportunity, near the top of page 2
 2. **Valuation Timing Warning (for BSH)** callout inside Investment Opportunity whenever contemporaneous vs stale-mark multiples differ materially
-3. **Critical Reality Check (for BSH)** evidence-summary callout inside Investment Risk
+3. A deal-specific investor-facing evidence callout when it adds value, such as **What Is Priced In**, **What Is Not Yet Underwritten**, **Bear-Case Evidence**, or **Evidence Required Before the Next Step-Up**
 4. A clear **Investment Recommendation** verdict (Yes / Conditional Yes / Need More Information / Pass) with explicit conditions when conditional
 5. **Top 3 Gating Questions (for BSH)** decision-gate callout inside Open Questions
 6. Clear separation between:
-   - present-state facts
-   - upside-state thesis
+   - facts evidenced today
+   - future execution dependencies
    - unresolved diligence items
 
-The `(for BSH)` suffix on these three callouts marks them as BSH-internal underwriting content. They contain the framing — valuation timing risk, disconfirming evidence, and the questions that drive the BSH-specific decision — that should not appear in any version of the memo shared outside BSH. The Chinese equivalent of the suffix is `(仅供 BSH)`.
+The `(for BSH)` suffix on internal callouts marks them as BSH-internal underwriting content. They contain valuation timing risk, disconfirming evidence, and decision gates that drive the BSH-specific decision. The Chinese equivalent of the suffix is `(仅供 BSH)`.
 
 Recommended packaging order on the page:
 - Investment Opportunity narrative + Key Metrics Snapshot table + (Valuation Timing Warning (for BSH) callout if relevant)
 - Investment Thesis bullets
-- Investment Risk bullets + Critical Reality Check (for BSH) callout
+- Investment Risk bullets + deal-specific evidence callout if useful
 - Investment Recommendation
 - Open Questions / Top 3 Gating Questions (for BSH) callout
 
@@ -1252,7 +1277,15 @@ Required subsection order:
 5. Open Questions
 
 *Investment Opportunity*  
-Lead with a 2–3 sentence company brief — what the company does, who it serves, and why this transaction is in front of BSH right now. Then describe the deal itself: round size and structure (priced equity, secondary, SPV), BSH check size and any minimum, valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, how BSH got access (GP partner channel, intermediary, direct), expected liquidity timeline, and any co-investment terms (management fee, carry).
+Lead with the opening thesis contract before any table:
+1. sentence 1: what the company is and why it matters;
+2. sentence 2: what BSH is being asked to buy and at what entry terms;
+3. sentence 3: the central underwriting tension, especially when valuation has moved faster than disclosed revenue proof;
+4. sentence 4: the current recommendation posture and the gates that can move it.
+
+The first two body paragraphs must state the company, transaction, valuation / entry terms, central price/proof tension, and recommendation posture. Do not start with a negative throat-clearing phrase such as "The investment case is not..." and do not write meta-language such as "The memo frames..."
+
+Then describe the deal itself: round size and structure (priced equity, secondary, SPV), BSH check size and any minimum, valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, how BSH got access (GP partner channel, intermediary, direct), expected liquidity timeline, and any co-investment terms (management fee, carry).
 
 Include a **Key Metrics Snapshot** table near the top with the most important available metrics, such as:
 - ARR / revenue
@@ -1267,21 +1300,21 @@ Include a **Key Metrics Snapshot** table near the top with the most important av
 If contemporaneous and stale-mark multiples differ materially, include a **Valuation Timing Warning (for BSH)** callout box here.
 
 *Investment Thesis* (3–5 bullets, summary of Section III)  
-The core reasons BSH would invest. Each bullet should be a bold claim followed by 1–2 sentences of supporting logic. For each bullet, make clear whether it is:
-- a **present-state fact** already supported today, or
-- an **upside-state thesis** that depends on future execution
+The core reasons BSH would invest. Each bullet should be a bold, concrete investor claim followed by 1–2 sentences of supporting logic. The first sentence makes the claim; the second sentence states the source class or model treatment and what must prove true. Do not use parenthetical evidence-state labels in the final memo.
 
 These bullets must be derivable from Section III. Do not introduce thesis claims here that are not developed in III.
 
 *Investment Risk* (3–5 bullets, summary of Section IV)  
 The strongest reasons not to invest, framed as the risks most likely to change the recommendation. Each bullet should name the risk and the disconfirming or stress evidence behind it.
 
-Render a **Critical Reality Check (for BSH)** evidence-summary callout box covering:
-- strongest independent supporting facts
-- strongest disconfirming facts
-- what remains unproven
-- what is already true today versus still upside-only
-- what must be true for the bull case to work
+If a callout improves readability, render a deal-specific investor-facing evidence box with one of these headings:
+- **What BSH Is Underwriting**
+- **What Is Priced In**
+- **What Is Not Yet Underwritten**
+- **Bear-Case Evidence**
+- **Evidence Required Before the Next Step-Up**
+
+Do not use scaffold headings such as "Critical Reality Check," "Strongest independent support," "Still unproven," or "Already true versus upside-only." Translate those analytical distinctions into normal investor language.
 
 *Investment Recommendation*  
 A clear recommendation: **Yes / Conditional Yes / Need More Information / Pass**. Follow with 2–4 sentences explaining the logic, and — if Conditional Yes — list the specific conditions that must be met before BSH proceeds.
@@ -1497,17 +1530,32 @@ Note assumptions explicitly. If financials are unavailable, say so and explain w
 
 ---
 
-**VI. Sources & References**
+**Investment Decision / Closing View**
 
-Numbered list of all sources referenced in the memo.
+Before Sources, include a substantive final investment close that mirrors the opening thesis. It must state:
+- recommendation: Yes, Conditional Yes, Need More Information, or Pass;
+- allocation posture: minimum ticket, full allocation, watchlist, or pass;
+- required pre-funding evidence;
+- kill criteria;
+- what changes the next-round / step-up case;
+- next diligence actions in priority order.
+
+Do not let legal disclosures or source lists become the memo's substantive ending.
+
+---
+
+**VI. Sources, Source Classes, and Fact Reference Index**
+
+Use a compact source table or numbered fact index that maps material claims to source class and source detail. This is the only main memo section where detailed source IDs, source titles, and internal source references may appear.
 
 Clearly distinguish, where relevant:
 - company-originated sources
 - internal folder sources (PitchBook, CB Insights, partner notes)
 - independent secondary sources
 - opinion / review sources
+- internal model or estimate
 
-Use compact subheaders or grouped tables if that improves readability.
+Recommended columns: Fact / claim, source class, source title or source ID, date, confidence, memo usage. Keep source IDs out of Sections I through V and all operating tables.
 
 ---
 
@@ -1583,7 +1631,12 @@ Rules:
 | Investment Recommendation | 投资建议 |
 | Open Questions | 待解决问题 |
 | Key Metrics Snapshot | 关键指标速览 |
-| Critical Reality Check (for BSH) | 关键现实核查（仅供 BSH） |
+| What BSH Is Underwriting | BSH 正在承销的核心判断 |
+| What Is Priced In | 估值中已反映的预期 |
+| What Is Not Yet Underwritten | 尚未完成承销的部分 |
+| Bear-Case Evidence | 悲观情景证据 |
+| Evidence Required Before the Next Step-Up | 下一轮估值上调前所需证据 |
+| Investment Decision / Closing View | 投资决策 / 结论观点 |
 | Top 3 Gating Questions (for BSH) | 三大核心决策问题（仅供 BSH） |
 | Valuation Timing Warning (for BSH) | 估值时点警示（仅供 BSH） |
 | (for BSH) | （仅供 BSH） |
@@ -1618,7 +1671,7 @@ Rules:
 | Capital Structure & Dilution Notes | 资本结构与稀释说明 |
 | Scenario Analysis | 情景分析 |
 | Bear Case / Base Case / Bull Case | 悲观情景 / 中性情景 / 乐观情景 |
-| VI. Sources & References | 六、资料与参考来源 |
+| VI. Sources, Source Classes, and Fact Reference Index | 六、资料、来源分类与事实索引 |
 | Appendix: Validation & Assumptions Log | 附录：验证与假设日志 |
 
 ### Standard Glossary (English term → Chinese gloss)
@@ -1841,7 +1894,7 @@ All critical callouts must be visually differentiated from body text.
 ### Evidence Summary Box
 - Left border: Tiffany Blue
 - Background: Pale Tiffany
-- Use for Critical Reality Check (for BSH) and strongest disconfirming facts
+- Use for What BSH Is Underwriting, What Is Not Yet Underwritten, Bear-Case Evidence, and Evidence Required Before the Next Step-Up
 
 ### Decision Gate Box
 - Background: Warm Grey or Pale Tiffany
@@ -1856,7 +1909,7 @@ The Executive Summary must have visible structure and follow the five-subsection
 Required elements:
 - Key Metrics Snapshot table inside Investment Opportunity
 - Valuation Timing Warning (for BSH) callout inside Investment Opportunity when contemporaneous vs stale-mark multiples differ materially
-- Critical Reality Check (for BSH) evidence callout inside Investment Risk
+- deal-specific investor-facing evidence callout when it improves IC readability
 - Top 3 Gating Questions (for BSH) decision callout inside Open Questions
 - Visible separation between Opportunity, Thesis, Risk, Recommendation, and Open Questions
 
@@ -1916,8 +1969,12 @@ Do not finalize the memo unless all of the following are true:
 
 Before DOCX generation, scan the English memo body and remove:
 - banned phrases from the Human Executive Memo Voice Contract
+- bracketed source tokens, source IDs, file names, artifact names, and raw source traces outside the Sources, Source Classes, and Fact Reference Index
 - meta language about "the memo", "the analysis", "the framework", "this section", or the writing process
 - methodology leakage from claim registers, research tasks, evidence matrices, validation logs, confidence scoring, or reviewer prompts
+- scaffold labels such as "Critical Reality Check", "present-state", "upside-state", "upside-only", "Strongest independent support", and "Still unproven"
+- fuzzy phrases such as "soft instrument", "hard IP wall", "moat narrows", "no-rights SAFE", "where nothing else works", and "least-proven part of the story"
+- English em dash bridges in body prose and operating tables
 - repetitive openings and symmetrical bullet phrasing that make the memo feel generated
 - over-explained risks that should be one-sentence risk statements with evidence in compact notes or tables
 - template-visible structure and unnatural model voice
@@ -1931,7 +1988,7 @@ If a sentence explains how the memo was built, rewrite it as the investment judg
 23. The Executive Summary follows the five-subsection order (Investment Opportunity → Investment Thesis → Investment Risk → Investment Recommendation → Open Questions) and includes:
     - a Key Metrics Snapshot table inside Investment Opportunity
     - a Valuation Timing Warning (for BSH) callout inside Investment Opportunity when contemporaneous vs stale-mark multiples differ materially
-    - a Critical Reality Check (for BSH) callout inside Investment Risk
+    - a deal-specific investor-facing evidence callout when it improves IC readability
     - an explicit Investment Recommendation verdict (Yes / Conditional Yes / Need More Information / Pass)
     - a Top 3 Gating Questions (for BSH) callout inside Open Questions
 24. All mandatory table-driven sections are actually rendered as tables (Key Metrics Snapshot, Board of Directors, Revenue, Key Metrics, Competitive Analysis, Moat, Risk Register, Time-Base Integrity, Growth Bridge, Scenario Analysis, Validation & Assumptions Log).

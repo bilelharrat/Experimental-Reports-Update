@@ -118,12 +118,43 @@ def scan_progress_state(path: Path) -> dict:
         "subtitle": None,
         "latest_action": None,
         "tool_count": 0,
+        "thread_count": 0,
+        "thread_done_count": 0,
+        "thread_failed_count": 0,
+        "open_thread_count": 0,
+        "threads": [],
         "backoff_until": None,
         "backoff_remaining_seconds": None,
         "recoverable": None,
     }
     if not path.exists():
         return state
+    threads: dict[str, dict] = {}
+
+    def note_thread(name: Any, status: str, entry: dict) -> None:
+        label = str(name or "").strip()
+        if not label:
+            return
+        row = threads.setdefault(
+            label,
+            {
+                "name": label,
+                "status": "running",
+                "started_at": entry.get("ts"),
+                "finished_at": None,
+                "error": None,
+            },
+        )
+        if row.get("started_at") is None:
+            row["started_at"] = entry.get("ts")
+        if status == "running" and row.get("status") in {"done", "failed"}:
+            return
+        row["status"] = status
+        if status in {"done", "failed"}:
+            row["finished_at"] = entry.get("ts")
+        if status == "failed":
+            row["error"] = entry.get("error")
+
     try:
         with path.open("r", encoding="utf-8") as f:
             for line in f:
@@ -212,7 +243,43 @@ def scan_progress_state(path: Path) -> dict:
                     state["latest_stage"] = (
                         entry.get("message") or "Published weekly dashboard"
                     )
+                elif etype == "thread_started":
+                    note_thread(
+                        entry.get("thread") or entry.get("title"),
+                        "running",
+                        entry,
+                    )
+                    state["latest_stage_key"] = "thread_started"
+                    state["latest_stage"] = (
+                        entry.get("message")
+                        or f"Started {entry.get('title') or entry.get('thread') or 'subtask'}"
+                    )
+                elif etype == "thread_finished":
+                    note_thread(
+                        entry.get("thread") or entry.get("title"),
+                        "done",
+                        entry,
+                    )
+                    state["latest_stage_key"] = "thread_finished"
+                    state["latest_stage"] = (
+                        entry.get("message")
+                        or f"Completed {entry.get('title') or entry.get('thread') or 'subtask'}"
+                    )
+                elif etype == "thread_failed":
+                    note_thread(
+                        entry.get("thread") or entry.get("title"),
+                        "failed",
+                        entry,
+                    )
+                    state["latest_stage_key"] = "thread_failed"
+                    state["latest_stage"] = (
+                        entry.get("message")
+                        or f"Failed {entry.get('title') or entry.get('thread') or 'subtask'}"
+                    )
+                    state["error"] = entry.get("error") or state.get("error")
                 elif etype == "claude_action":
+                    if entry.get("thread"):
+                        note_thread(entry.get("thread"), "running", entry)
                     action = entry.get("action")
                     if action == "result":
                         if entry.get("cost_usd") is not None:
@@ -238,6 +305,18 @@ def scan_progress_state(path: Path) -> dict:
                         state["tool_count"] += 1
     except Exception:
         pass
+    thread_rows = list(threads.values())
+    state["threads"] = thread_rows
+    state["thread_count"] = len(thread_rows)
+    state["thread_done_count"] = sum(
+        1 for row in thread_rows if row.get("status") == "done"
+    )
+    state["thread_failed_count"] = sum(
+        1 for row in thread_rows if row.get("status") == "failed"
+    )
+    state["open_thread_count"] = sum(
+        1 for row in thread_rows if row.get("status") == "running"
+    )
     return state
 
 

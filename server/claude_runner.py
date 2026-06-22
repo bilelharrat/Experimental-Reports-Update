@@ -1857,9 +1857,12 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
 HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
 ## Human Executive Memo Voice Contract
 
-This is a final-writing override. Preserve the full diligence standard from
-the skill, but the finished English memo must read like a senior BSH
-investment partner's IC memo, not like a generated research report.
+This is a final-writing override. It supersedes any older skill instruction
+that asks for inline source markers, bracketed source traces, scaffolded
+taxonomy labels, or prompt-visible headings in final prose. Preserve the full
+diligence standard from the skill, but the finished English memo must read
+like a senior BSH investment partner's IC memo, not like a generated research
+report.
 
 Final memo prose must:
 - write like a decision document for IC;
@@ -1873,7 +1876,56 @@ Final memo prose must:
 - avoid template-visible language, symmetrical model phrasing, and repetitive
   paragraph openings;
 - keep analytical artifacts private unless a fact or conclusion belongs in
-  the memo.
+  the memo;
+- use source-class language in Sections I-V, with detailed source IDs only in
+  a separate Sources, Source Classes, and Fact Reference Index;
+- convert disclosure gaps into model treatment, conversion ranges, Fermi
+  estimates, diligence thresholds, or kill criteria.
+
+Final memo body and operating tables must not contain:
+- bracketed source tokens or file references such as `[S1]`, `[WV]`,
+  `[WV SPV memo]`, `[companies.yaml]`, `[internal]`, or similar;
+- internal artifact names such as `companies.yaml`, `memo_packet`,
+  `source_trace`, `claim_register`, `research_tasks`, `reviewer_prompts`, or
+  analysis file names;
+- scaffold headings or labels such as `Critical Reality Check`,
+  `present-state`, `upside-state`, `upside-only`,
+  `Strongest independent support`, `Strongest disconfirming facts`, or
+  `Still unproven`;
+- cute or fuzzy finance phrasing such as `soft instrument`, `hard IP wall`,
+  `moat narrows`, `no-rights SAFE`, `where nothing else works`, or
+  `least-proven part of the story`;
+- em dash bridging in English body prose or operating tables;
+- meta-language about `the memo`, `the analysis`, `the framework`, or
+  `this section`.
+
+Memo spine requirement:
+- core_bet: what has to be true for BSH to make money;
+- entry_tension: what the valuation or instrument already assumes;
+- current_proof: what is proven today by source class;
+- unproven_but_modelable: what is missing but can be modeled conservatively;
+- kill_criteria: what makes BSH pass or stop funding;
+- action: recommended check size, allocation posture, conditions, and next
+  diligence.
+
+The opening, Investment View, risk section, scenario section, and final
+Investment Decision / Closing View must use the same spine. The first two
+body paragraphs must state company, transaction, valuation / entry terms,
+central underwriting tension, and recommendation posture. The substantive
+ending must state what BSH should do, allocation posture, funding gates, kill
+criteria, and next diligence actions before any sources or disclosures.
+
+Positive examples for early-commercial infrastructure deals:
+- "ZaiNar is a scarce technical asset in network-side positioning, but the A2
+  asks BSH to pay today for commercial proof that is only partly visible."
+- "Company-reported contract and MOU figures support commercial momentum; the
+  model should credit only the binding portion until contract status, term
+  length, and deployment economics are disclosed."
+- "Pipeline is not contracted revenue. Use a 5-15% conversion range for
+  scenario construction until named site-level commitments are available."
+- "An SPV interest depends on the SAFE converting as described; information,
+  consent, transfer, and voting rights come from the SPV and subscription
+  documents, not direct company ownership."
 
 Banned phrase / rewrite guidance:
 
@@ -1887,6 +1939,9 @@ Banned phrase / rewrite guidance:
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
 | The principal risk is that... | Key risk centers on... |
+| soft instrument | SPV interest whose economics depend on SAFE conversion. |
+| hard IP wall | patent estate and technical approach that still need claim-scope review. |
+| moat narrows | upside shifts from product margin to patent leverage and deployment relationships. |
 
 Before DOCX generation, run a final prose QA pass. Remove banned phrases,
 meta language, methodology leakage, over-explained risks, template-visible

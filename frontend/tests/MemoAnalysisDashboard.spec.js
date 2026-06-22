@@ -242,6 +242,7 @@ describe("MemoAnalysisDashboard", () => {
           name: "memo_grader",
           label: "Memo Grader",
           description: "Grade completed memos.",
+          stage: "after_memo",
           status: "not_started",
         },
       ],
@@ -398,6 +399,7 @@ describe("MemoAnalysisDashboard", () => {
           name: "chart_spec_builder",
           label: "Chart Spec Builder",
           description: "Build chart plans.",
+          stage: "optional",
           status: "running",
         },
       ],
@@ -514,6 +516,7 @@ describe("MemoAnalysisDashboard", () => {
     await flushPromises();
 
     const text = wrapper.text();
+    expect(text).toContain("Core Memo Workflow");
     expect(text).toContain("Memo Tools Toolbox");
     expect(text).toContain("Work Products");
     expect(text).toContain("Review Queue");
