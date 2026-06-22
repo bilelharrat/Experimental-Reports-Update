@@ -1,144 +1,310 @@
-# Memo generation latency — root cause & remediation plan
+# Memo generation latency and quality hardening handoff
 
-**Goal:** cut investment-memo runs from ~21 min (zainar baseline) toward ~7–8 min.
+**Purpose:** context transfer for a future session. The original latency plan
+targeted a nonexistent JS `docx` toolchain. Current `main` has moved to a
+tracked Python renderer instead. Treat this document as the current plan of
+record.
 
-**Status:** plan approved (all three tiers; docx **JS** library as the standard
-engine). Not yet implemented.
+**Current status:** the major latency and reliability change is implemented.
+Claude authors memo judgment and `logs/memo_package.json`; Python validates the
+package and renders both DOCX files through `server.memo_docx_renderer`.
 
----
+**Last verified command:**
 
-## Baseline: the zainar run (2026-06-22__093627)
+```bash
+PYTHONPATH=. pytest -q tests/test_memo_docx_renderer.py tests/test_memo_analysis.py tests/test_memo_prep.py tests/test_serena_analysis.py
+```
 
-Source data:
-`data/memos/zainar-inc/2026-06-22__093627__zainar-inc__memo-run/logs/stream.jsonl`
-(150 events) and report `data/reports/56f8b9daeab9.yaml`.
-
-- Wall-clock: **1,258 s (21.0 min)**.
-- Claude subprocess: **1,166 s** (`claude_duration_ms`), cost **$5.89**.
-
-### Phase breakdown (derived from inter-event gaps)
-
-| Step (serial) | window | duration |
-|---|---|---|
-| Setup + tooling discovery + 14 analysis passes | 0 → 440 s | **7.3 min** |
-| EN memo (build_memo.py + memo_content.py) | 440 → 790 s | **5.8 min** |
-| ZH memo (memo_content_zh.py) | 790 → 990 s | **3.3 min** |
-| Build + validate + render + finalize | 990 → 1258 s | **4.5 min** |
-
-No single step is pathological (~5–8 min each). The 21 minutes is the **sum of
-four serial steps that never overlap.**
+At handoff this passed with 74 tests and only existing FastAPI deprecation
+warnings.
 
 ---
 
-## Root cause
+## Current Implementation Context
 
-The memo runs as **one `claude -p` subprocess** with tools
-`Read,Write,Edit,Bash,Grep,Glob` — the **Task/subagent tool is not enabled**
-(`server/claude_runner.py:2208`). A single subprocess has exactly **one token
-decode stream**, so:
+Important files:
 
-1. **Everything is authored token-by-token in that one stream.** The run produced
-   ~116 KB / ~29 K tokens of *final* artifacts — 14 analysis `.md` files **+** a
-   hand-written 15 KB `build_memo.py` renderer **+** a 32 KB `memo_content.py`
-   (EN) **+** a 17 KB `memo_content_zh.py` (ZH) **+** `run_build.py` — before
-   counting thinking blocks and rewrites. At Opus decode rates this alone is
-   ~10+ min; with thinking and discovery thrash it lands at ~19 min of model time.
+- `server/claude_runner.py`
+  - The memo prompt tells Claude to write `logs/memo_package.json`.
+  - Claude is explicitly told not to run `python -m server.memo_docx_renderer`
+    and not to write final `.docx` files.
+  - The prompt requires core section ids, bilingual block/table/source
+    treatment text, and a non-empty source list.
 
-2. **Steps physically cannot overlap.** One process = one decoder. The "12
-   parallel threads" in the UI are just filename labels
-   (`server/claude_runner.py:354`, `:1842`), not real concurrency. Even "parallel
-   tool calls" would not help here, because the bottleneck is the model *writing
-   content*, not the tools *executing*.
+- `server/memo_analysis.py`
+  - Normal runs and stale-run recovery both call `_render_memo_outputs()`.
+  - `_render_memo_outputs()` calls `memo_docx_renderer.render_memos()`.
+  - `_renderer_contract_errors()` verifies:
+    - `logs/memo_package.json`
+    - English and Chinese DOCX outputs
+    - `logs/validation.txt`
+    - `logs/validation_cn.txt`
+    - `logs/file_inventory.md`
+    - `logs/run_manifest.md`
+    - manifest contains `server.memo_docx_renderer`
+    - manifest contains `validation_status: passed`
+  - Generated renderer scripts such as `build_memo.py` are blocked in both the
+    normal path and stale-run recovery.
 
-### Two compounding problems
+- `server/memo_docx_renderer.py`
+  - Owns DOCX generation, validation logs, inventory, and manifest finalization.
+  - `validate_package()` rejects:
+    - unsupported schema version
+    - missing `company.name`
+    - missing required core sections
+    - empty section block lists
+    - unsupported block types
+    - missing Chinese translations for final user-facing text
+    - missing sources
 
-- **The run went off-script.** The skill says *"use the docx JavaScript library…
-  at `.claude/skills/docx/SKILL.md`"* (`server/skills/bsh_investment_memo_latestage.md:1041`).
-  On this machine **none of that exists**: no `~/.claude/skills/docx`, no `docx`
-  npm package (not local, not global), no repo `package.json`. So the agent spent
-  **~3.5 min** probing the filesystem (including a ~127 s runaway
-  `find /Users/rparker -maxdepth 6`) and then **improvised a python-docx
-  pipeline**, hand-authoring a 15 KB renderer from scratch.
-- **EN→ZH is fully serial by design** (`…latestage.md:1043`: "Finish the English
-  memo first… then translate"), and ZH adds ~17 KB of generated content.
+- `server/memo_quality_lint.py`
+  - Runs a hard P0 quality gate on the English source-of-truth DOCX.
+  - It catches source-token leaks, internal artifact names, scaffold labels,
+    banned fuzzy phrases, em dash bridge punctuation, and untreated disclosure
+    gaps.
 
-**The only two real levers:** (A) generate far fewer tokens, and (B) split into
-multiple subprocesses for genuine parallel decode streams.
+- `tests/test_memo_docx_renderer.py`
+  - Covers renderer output, generated-renderer script detection, required
+    sections, Chinese translations, unsupported block types, and sources.
 
----
-
-## Plan
-
-Standard engine: **docx JS library** (per decision). This means Tier 1 must first
-*actually provision* the JS toolchain — it is exactly what was missing.
-
-### Workstream A — Provision the JS docx toolchain (Tier 1, prerequisite)
-
-*Without this, every run repeats the 3.5-min hunt and the Python fallback.*
-
-1. Create **`server/memo_builder/`** in the repo:
-   - `package.json` pinning `docx` (+ CJK-safe font setup), with `node_modules/docx`
-     installed and vendored/committed so it lives at a fixed absolute path.
-   - **`build_memo.mjs`** — a generic, committed JS renderer (palette, TOC, tables,
-     headers/footers, page numbers, CJK fonts) that takes a content JSON and emits
-     a `.docx`. The agent must `import`-and-call this, never re-author it.
-2. In `server/claude_runner.py` (~2037–2122, the operational prompt header):
-   inject the **absolute path** to `build_memo.mjs` and the `docx` install, plus an
-   explicit rule: *"docx tooling is at `<path>`; do NOT search the filesystem
-   (`find`/`npm ls`/`fc-list`) for it."*
-3. Rewrite the skill's Step 3 (`server/skills/bsh_investment_memo_latestage.md`
-   ~1037–1056) to point at the committed builder instead of the nonexistent
-   `.claude/skills/docx/SKILL.md`.
-
-**Saves ~5–7 min** (3.5 min discovery + ~2–3 min not re-authoring the renderer).
-
-### Workstream B — Content as data, rendering out of the model (Tier 2)
-
-4. Define a content schema; the agent writes only compact **`content_en.json`** /
-   **`content_zh.json`** (META, TOC, BLOCKS, APPENDIX) — no Python/JS literals, no
-   `build_memo.py`, no `run_build.py`.
-5. **Move docx render + validate + preview into the deterministic orchestrator**
-   (Python invoking `node build_memo.mjs`). The model stops spending tokens on
-   rendering, validation scripts, and `qlmanage` orchestration; these become fixed
-   pipeline steps. Also removes the ~90 s PDF-preview tail from the model's
-   critical path.
-
-**Saves ~3–5 min** (smaller payloads + zero model time on render/validate scaffolding).
-
-### Workstream C — Parallel decode streams (Tier 3)
-
-6. In `server/memo_analysis.py` / `server/claude_runner.py`, split authoring across
-   **two coordinated subprocesses**:
-   - **P1:** analysis passes + synthesis → `content_en.json`.
-   - **P2:** spawned the moment `content_en.json` exists → translate →
-     `content_zh.json` (expensive ZH generation now overlaps with EN docx render +
-     EN validation instead of waiting for them).
-   - Orchestrator renders both `.docx` via the committed JS builder after each JSON
-     lands.
-7. Merge the two progress streams via `server/run_ledger.py` /
-   `server/job_progress.py` so the UI shows one coherent timeline; update
-   recovery/stale-run handling for two PIDs.
-
-**Saves ~3–5 min** (true overlap of the two largest generation steps — the only
-way to beat the single-stream limit while the Task tool is disabled).
+- `tests/test_memo_analysis.py`
+  - Covers package rendering in normal runs, missing package failure, generated
+    renderer blocking, stale-run recovery rendering, and stale-run generated
+    renderer blocking.
 
 ---
 
-## Sequencing, risk, validation
+## Remaining Tightening Work
 
-- **A → B → C.** A is low-risk and independently shippable (biggest risk-adjusted
-  win). B is medium-risk (schema + orchestrator render path). C is the largest
-  change (multi-process coordination, progress merging, recovery).
-- Validate after each workstream by re-running a memo and diffing the new
-  `stream.jsonl` phase breakdown against the zainar baseline above (the analysis is
-  repeatable from the inter-event gaps).
-- Per `CLAUDE.md`, all work lands directly on `main`.
+These are the next high-value changes. They are intentionally smaller than the
+completed renderer handoff and should be safe to do directly on `main`.
 
-### Projected wall-clock
+### 1. Add A Content Floor To `validate_package()`
 
-| After | Target |
-|---|---|
-| Baseline | ~21 min |
-| Workstream A | ~13–15 min |
-| Workstream A + B | ~9–11 min |
-| Workstream A + B + C | ~7–8 min |
+Problem:
+
+`validate_package()` currently requires each core section to have non-empty
+`blocks`, but a section can still be structurally valid while carrying no useful
+memo content. Examples that may pass today:
+
+- a core section with only `spacer`
+- a core section with only headings
+- a single generic sentence such as "More diligence is needed"
+- an empty-looking table with headers but no real rows
+
+Implementation direction:
+
+- Add a helper in `server/memo_docx_renderer.py`, probably near
+  `_validate_block()`:
+  - `_block_content_score(block) -> dict`
+  - or `_has_real_content(block) -> bool`
+- Count real content as:
+  - paragraph/callout body text with meaningful length
+  - bullet items with meaningful length
+  - table rows with at least one non-empty body row
+  - callout items
+- Do not count:
+  - `spacer`
+  - headings alone
+  - title-only callouts
+  - title-only tables
+
+Suggested acceptance floor:
+
+- Every required core section must contain at least one real content block.
+- `executive_summary` should contain either:
+  - at least two real content blocks, or
+  - one real paragraph plus one table/callout.
+- `investment_highlights` and `investment_risk` should each contain at least
+  two real bullets, or one substantive table/callout plus explanatory prose.
+- `financial_forecast_valuation` should include a real paragraph or table that
+  references model treatment, scenario ranges, valuation, revenue, margins,
+  or diligence thresholds.
+
+Tests to add:
+
+- `test_renderer_rejects_heading_only_required_section`
+- `test_renderer_rejects_spacer_only_required_section`
+- `test_renderer_rejects_table_with_headers_but_no_rows`
+- `test_renderer_accepts_substantive_required_sections`
+
+### 2. Add Chinese/English Parity And Native-Chinese Quality Checks
+
+Problem:
+
+The package validator now requires Chinese text, but it does not prove that:
+
+- the Chinese memo has the same analytical structure as English;
+- the rendered Chinese DOCX has actual CJK text in core sections;
+- the Chinese reads like fluent professional Chinese rather than stiff
+  translationese;
+- important deal terms are consistently localized.
+
+Implementation direction:
+
+- Add a lightweight post-render check in `server/memo_analysis.py`, after
+  `_render_memo_outputs()` and before the English quality gate, or add a helper
+  in a new small module if it grows.
+- Use `python-docx` extraction, similar to `memo_quality_lint.py`.
+- Compare the English and Chinese rendered documents:
+  - section heading count
+  - table count
+  - callout-like table count if easy to detect
+  - source/fact-reference section presence
+  - approximate paragraph count range
+- Check the Chinese document:
+  - contains CJK characters in every required core section;
+  - does not contain large English-only body paragraphs outside names, tickers,
+    dates, units, and source titles;
+  - does not contain prompt-scaffold artifacts translated literally.
+
+Suggested failure model:
+
+- P0: missing Chinese core section, missing CJK in core section, materially
+  different table count, missing source section.
+- P1: suspiciously low CJK ratio, excessive English in body prose, repeated
+  translationese markers.
+
+Tests to add:
+
+- `test_chinese_parity_passes_for_renderer_output`
+- `test_chinese_parity_fails_when_zh_section_missing`
+- `test_chinese_parity_fails_when_zh_has_no_cjk_body`
+- `test_chinese_parity_fails_when_table_counts_diverge`
+
+#### Chinese Memo Guidance For Prompt And Review
+
+The Chinese memo should be a native professional investment memo, not an
+English memo mirrored word-for-word. It must preserve the same claims,
+evidence, caveats, order, tables, and gating questions, while using natural
+Chinese for a Chinese-speaking investment audience.
+
+Principles:
+
+- **Analytical parity first.** The Chinese memo must express the same
+  recommendation, confidence level, risks, valuation posture, and diligence
+  thresholds as English. It may reorder words for Chinese fluency, but not
+  change the substance.
+- **Native professional register.** Use fluent investment Chinese suitable for
+  an IC memo. Prefer concise, direct phrasing over literal translation.
+- **No prompt jargon.** Do not translate internal scaffolding such as
+  "present-state", "upside-state", "Critical Reality Check", "source traces",
+  "memo packet", "reviewer prompt", or "claim register" into visible memo
+  prose.
+- **No mechanical English syntax.** Avoid sentence shapes that sound like
+  English with Chinese words substituted. Use Chinese topic-comment structure
+  and natural connective phrasing where appropriate.
+- **Consistent deal vocabulary.** Use stable terms across the memo.
+
+Recommended vocabulary patterns:
+
+- investment memo: `投资备忘录`
+- investment highlights: `投资亮点`
+- investment risks: `投资风险`
+- executive summary: `执行摘要`
+- gating questions: `关键尽调问题` or `核心尽调问题`
+- diligence threshold: `尽调门槛`
+- source class: `来源类别`
+- model treatment: `模型处理方式`
+- revenue recognition: `收入确认`
+- unit economics: `单位经济模型`
+- gross margin: `毛利率`
+- deployment depth: `部署深度`
+- repeatable production use: `可重复的生产环境使用`
+- customer concentration: `客户集中度`
+- scenario range: `情景区间`
+- valuation support: `估值支撑`
+- downside protection: `下行情景保护`
+- pass trigger / kill criterion: `放弃投资的触发条件`
+
+Avoid or rewrite:
+
+- `硬 IP 墙` unless describing a legal/IP barrier with precise meaning. Prefer
+  `知识产权壁垒尚未形成可验证防线` or the specific mechanism.
+- `上行状态` / `现态` as literal translations of prompt labels. Prefer
+  `乐观情景`, `当前已验证部分`, or a direct sentence.
+- `软工具` / `软性工具` for "soft instrument". Prefer the exact instrument or
+  `约束力有限的协议安排`.
+- `叙事` when the point is evidence. Prefer `投资判断`, `证据链`, `商业验证`,
+  or `承销假设`.
+- Long strings of nominalized nouns. Break into clear investment judgments.
+
+Good Chinese output should sound like:
+
+- `BSH 应将本轮视为有条件推进的机会：现有部署已经证明产品具备落地可能，但收入确认、毛利率路径和客户复购深度仍需在尽调中验证。`
+- `估值承销不应直接采用管理层口径，而应以已确认收入、可重复部署数量和毛利率改善路径建立保守情景区间。`
+
+Bad Chinese output to reject:
+
+- `本部分展示当前状态与上行状态之间的关键现实检查。`
+- `该公司拥有硬 IP 墙和强源追踪，因此应进行上行案例。`
+- `根据 memo_packet 和 chart_specs，投资亮点如下。`
+
+### 3. Add Package Hash And Renderer Version Traceability
+
+Problem:
+
+The run manifest says `server.memo_docx_renderer`, but it does not record the
+exact package hash or renderer version. That makes auditing and stale-run
+diagnosis harder.
+
+Implementation direction:
+
+- Add `RENDERER_VERSION = 1` to `server/memo_docx_renderer.py`.
+- Compute `memo_package_sha256` from the raw JSON file bytes before rendering.
+- Add the hash and renderer version to:
+  - `logs/run_manifest.md`
+  - `logs/file_inventory.md`
+  - the report record via `storage.update_report()`, probably from
+    `server/memo_analysis.py` after successful render.
+- Consider returning the hash from `render_memos()` so callers do not duplicate
+  logic.
+
+Tests to add:
+
+- renderer unit test asserts manifest includes `memo_package_sha256` and
+  `renderer_version`;
+- memo analysis test asserts the report record gets `memo_package_sha256`.
+
+### 4. Clean Up Stale Failure Wording
+
+Problem:
+
+`server/memo_analysis.py` still has a fallback missing-output message that says:
+
+> Skill finished but the expected output files are missing...
+
+With Python-owned rendering, this should say renderer/server, not skill. This is
+mostly diagnostic hygiene, but it matters when a production run fails.
+
+Implementation direction:
+
+- Update the message around the post-render existence check in
+  `server/memo_analysis.py`.
+- The post-render existence check may now be redundant because
+  `_renderer_contract_errors()` already checks outputs. Keep it if useful as a
+  defensive check, but make the text accurate.
+
+Test to add or update:
+
+- If no direct test exists for that fallback, add one only if easy. Otherwise a
+  small wording-only change is acceptable.
+
+---
+
+## Suggested Sequencing
+
+1. Content floor in package validation.
+2. Chinese/English parity checks.
+3. Package hash and renderer version traceability.
+4. Stale wording cleanup.
+
+Run after each slice:
+
+```bash
+PYTHONPATH=. pytest -q tests/test_memo_docx_renderer.py tests/test_memo_analysis.py tests/test_memo_prep.py tests/test_serena_analysis.py
+python -m py_compile server/memo_docx_renderer.py server/memo_analysis.py server/claude_runner.py server/docx_pdf.py
+```
+
+Do not create branches or worktrees for this repo. Per `AGENTS.md`, all work
+happens directly on `main`.

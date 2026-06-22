@@ -2209,6 +2209,25 @@ treatment must be bilingual (`{{"en": "...", "zh": "..."}}`) unless it is a
 proper noun, date, numeric value, source id, or intentionally language-neutral
 source title.
 
+The renderer fails closed on shallow package content. A required core section
+cannot be only headings, spacers, title-only callouts, title-only tables, or
+generic filler such as "More diligence is needed." Use substantive investor
+content in every required section. `executive_summary` needs at least two
+substantive content blocks. `investment_highlights` and `investment_risk` each
+need at least two substantive bullets, or explanatory prose plus a substantive
+table/callout. `financial_forecast_valuation` must explicitly address model
+treatment, scenario ranges, valuation, revenue, margins, or diligence
+thresholds.
+
+The Chinese memo must be native professional investment Chinese with
+analytical parity to English: same recommendation, confidence level, risks,
+valuation posture, evidence, caveats, tables, and gating questions. Do not
+translate prompt scaffolding into visible prose. Avoid terms like `上行状态`,
+`现态`, `关键现实检查`, `源追踪`, `备忘录包`, `审阅者提示`, `声明登记`,
+`硬 IP 墙`, or `软性工具`; rewrite them as precise investment judgments,
+evidence chains, diligence thresholds, scenario ranges, valuation support, or
+specific deal mechanics.
+
 ## Parallel execution of the eight orthogonal passes
 
 The skill's "Non-Linear Analysis Engine" section lists eight orthogonal

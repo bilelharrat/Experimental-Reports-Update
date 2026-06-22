@@ -6,7 +6,7 @@ import json
 from docx import Document
 import pytest
 
-from server import memo_docx_renderer, memo_quality_lint
+from server import memo_chinese_parity, memo_docx_renderer, memo_quality_lint
 
 
 def _package() -> dict:
@@ -277,3 +277,171 @@ def test_renderer_rejects_missing_sources():
 
     with pytest.raises(memo_docx_renderer.MemoRenderError, match="sources"):
         memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_heading_only_required_section():
+    package = copy.deepcopy(_package())
+    package["sections"][1]["blocks"] = [
+        {
+            "type": "heading",
+            "level": 2,
+            "text": {"en": "Overview", "zh": "概览"},
+        }
+    ]
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match="substantive"):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_spacer_only_required_section():
+    package = copy.deepcopy(_package())
+    package["sections"][1]["blocks"] = [{"type": "spacer"}]
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match="substantive"):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_table_with_headers_but_no_rows():
+    package = copy.deepcopy(_package())
+    package["sections"][1]["blocks"] = [
+        {
+            "type": "table",
+            "title": {"en": "Overview Table", "zh": "概览表"},
+            "headers": [
+                {"en": "Metric", "zh": "指标"},
+                {"en": "Treatment", "zh": "处理方式"},
+            ],
+            "rows": [],
+        }
+    ]
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match="substantive"):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_accepts_substantive_required_sections():
+    memo_docx_renderer.validate_package(_package())
+
+
+def test_chinese_parity_passes_for_renderer_output(tmp_path):
+    package_path = tmp_path / "logs" / "memo_package.json"
+    package_path.parent.mkdir(parents=True)
+    package_path.write_text(
+        json.dumps(_package(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    out_en = tmp_path / "memo" / "Generalist, Inc. - Investment Memo.docx"
+    out_zh = tmp_path / "memo" / "Generalist, Inc. - 投资备忘录.docx"
+
+    memo_docx_renderer.render_memos(package_path, out_en=out_en, out_zh=out_zh)
+
+    result = memo_chinese_parity.lint_chinese_memo_pair(out_en, out_zh)
+
+    assert result.has_blocking_findings is False
+
+
+def test_chinese_parity_fails_when_zh_section_missing(tmp_path):
+    out_en = tmp_path / "en.docx"
+    out_zh = tmp_path / "zh.docx"
+    _write_parity_docx(out_en, locale="en")
+    _write_parity_docx(out_zh, locale="zh", omit_section="investment_risk")
+
+    result = memo_chinese_parity.lint_chinese_memo_pair(out_en, out_zh)
+
+    assert result.has_blocking_findings is True
+    assert any(finding.code == "zh_core_section_missing" for finding in result.findings)
+
+
+def test_chinese_parity_fails_when_zh_has_no_cjk_body(tmp_path):
+    out_en = tmp_path / "en.docx"
+    out_zh = tmp_path / "zh.docx"
+    _write_parity_docx(out_en, locale="en")
+    _write_parity_docx(
+        out_zh,
+        locale="zh",
+        english_only_section="executive_summary",
+    )
+
+    result = memo_chinese_parity.lint_chinese_memo_pair(out_en, out_zh)
+
+    assert result.has_blocking_findings is True
+    assert any(
+        finding.code == "zh_core_section_no_cjk_body"
+        for finding in result.findings
+    )
+
+
+def test_chinese_parity_fails_when_table_counts_diverge(tmp_path):
+    out_en = tmp_path / "en.docx"
+    out_zh = tmp_path / "zh.docx"
+    _write_parity_docx(out_en, locale="en")
+    _write_parity_docx(out_zh, locale="zh", extra_table=True)
+
+    result = memo_chinese_parity.lint_chinese_memo_pair(out_en, out_zh)
+
+    assert result.has_blocking_findings is True
+    assert any(finding.code == "table_count_mismatch" for finding in result.findings)
+
+
+def _write_parity_docx(
+    path,
+    *,
+    locale: str,
+    omit_section: str | None = None,
+    english_only_section: str | None = None,
+    extra_table: bool = False,
+):
+    document = Document()
+    titles = {
+        "en": [
+            ("executive_summary", "I. Executive Summary"),
+            ("company_overview", "II. Company Overview"),
+            ("investment_highlights", "III. Investment Highlights"),
+            ("investment_risk", "IV. Investment Risk"),
+            (
+                "financial_forecast_valuation",
+                "V. Financial Forecast & Valuation",
+            ),
+            (
+                "sources",
+                "VI. Sources, Source Classes, and Fact Reference Index",
+            ),
+        ],
+        "zh": [
+            ("executive_summary", "I. 执行摘要"),
+            ("company_overview", "II. 公司概览"),
+            ("investment_highlights", "III. 投资亮点"),
+            ("investment_risk", "IV. 投资风险"),
+            ("financial_forecast_valuation", "V. 财务预测与估值"),
+            ("sources", "VI. 来源、来源类别与事实索引"),
+        ],
+    }
+    bodies = {
+        "en": "The memo preserves structure, tables, risks, valuation, and diligence gates.",
+        "zh": "本备忘录保留相同结构、表格、风险、估值判断和尽调关口。",
+    }
+    for section_id, title in titles[locale]:
+        if section_id == omit_section:
+            continue
+        document.add_paragraph(title)
+        body_locale = "en" if section_id == english_only_section else locale
+        document.add_paragraph(bodies[body_locale])
+        if section_id == "executive_summary":
+            table_locale = "en" if section_id == english_only_section else locale
+            headers = {
+                "en": ("Metric", "Treatment"),
+                "zh": ("指标", "处理方式"),
+            }
+            values = {
+                "en": ("Revenue", "Use scenario ranges for valuation support."),
+                "zh": ("收入", "使用情景区间支持估值判断。"),
+            }
+            table = document.add_table(rows=2, cols=2)
+            table.cell(0, 0).text = headers[table_locale][0]
+            table.cell(0, 1).text = headers[table_locale][1]
+            table.cell(1, 0).text = values[table_locale][0]
+            table.cell(1, 1).text = values[table_locale][1]
+    if extra_table:
+        table = document.add_table(rows=1, cols=1)
+        table.cell(0, 0).text = "额外表格"
+    document.save(path)

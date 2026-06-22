@@ -112,7 +112,7 @@ def _write_bad_memo_docx(path):
     document.save(path)
 
 
-def _memo_package(body_en=None):
+def _memo_package(body_en=None, body_zh=None):
     return {
         "schema_version": 1,
         "company": {
@@ -142,8 +142,11 @@ def _memo_package(body_en=None):
                                 "and valuation support are confirmed."
                             ),
                             "zh": (
-                                "Generalist 构建自动化基础设施。BSH 只有在确认部署深度"
-                                "和估值支撑后才应继续推进。"
+                                body_zh
+                                or (
+                                    "Generalist 构建自动化基础设施。BSH 只有在确认部署深度"
+                                    "和估值支撑后才应继续推进。"
+                                )
                             ),
                         },
                     },
@@ -193,6 +196,10 @@ def _memo_package(body_en=None):
                             {
                                 "en": "Deployment proof creates a concrete diligence path.",
                                 "zh": "部署验证提供了具体的尽调路径。",
+                            },
+                            {
+                                "en": "Repeatable production usage can support expansion underwriting.",
+                                "zh": "可重复的生产环境使用可支持扩张承销。",
                             }
                         ],
                     }
@@ -207,6 +214,10 @@ def _memo_package(body_en=None):
                             {
                                 "en": "Hardware integration may slow gross-margin expansion.",
                                 "zh": "硬件集成可能拖慢毛利率提升。",
+                            },
+                            {
+                                "en": "Enterprise adoption may remain services-heavy.",
+                                "zh": "企业采用可能继续偏服务交付。",
                             }
                         ],
                     }
@@ -240,11 +251,14 @@ def _memo_package(body_en=None):
     }
 
 
-def _write_memo_package(run_dir, *, body_en=None):
+def _write_memo_package(run_dir, *, body_en=None, body_zh=None):
     path = run_dir / "logs" / "memo_package.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(_memo_package(body_en=body_en), ensure_ascii=False),
+        json.dumps(
+            _memo_package(body_en=body_en, body_zh=body_zh),
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     return path
@@ -300,6 +314,75 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
         and e.get("is_error")
         for e in events
     )
+
+
+def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
+    memo_env, monkeypatch
+):
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+
+    def fake_run_investment_memo(**kwargs):
+        package = _memo_package(
+            body_zh=(
+                "Generalist builds automation infrastructure. BSH should proceed "
+                "only after deployment depth and valuation support are confirmed."
+            )
+        )
+        executive_table = package["sections"][0]["blocks"][1]
+        executive_table["title"]["zh"] = "Key Metrics Snapshot"
+        executive_table["headers"][0]["zh"] = "Metric"
+        executive_table["headers"][1]["zh"] = "Treatment"
+        executive_table["rows"][0][0]["zh"] = "Revenue"
+        executive_table["rows"][0][1]["zh"] = (
+            "Not disclosed; model uses customer-count proxy and diligence threshold."
+        )
+        path = run_dir / "logs" / "memo_package.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(package, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=1.25,
+            duration_ms=1234,
+        )
+        return {"ok": True, "cost_usd": 1.25, "duration_ms": 1234}
+
+    monkeypatch.setattr(
+        claude_runner, "run_investment_memo", fake_run_investment_memo
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PDF rendering should not run after Chinese parity failure")
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "failed_quality_gate"
+    assert updated["stage"] == "Memo failed Chinese parity gate"
+    assert updated["memo_chinese_parity"]["p0_count"] >= 1
+    assert (run_dir / "logs" / "memo_chinese_parity.md").exists()
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["phase"] == "chinese_parity_gate"
+    assert events[-1]["findings"]
 
 
 def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(

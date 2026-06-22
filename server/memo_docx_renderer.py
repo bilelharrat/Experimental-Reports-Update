@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,37 @@ SUPPORTED_BLOCK_TYPES = {
     "table",
     "spacer",
 }
+VALUATION_CONTENT_TERMS = (
+    "model treatment",
+    "model",
+    "scenario",
+    "range",
+    "valuation",
+    "revenue",
+    "arr",
+    "margin",
+    "gross margin",
+    "diligence threshold",
+    "diligence",
+    "threshold",
+    "multiple",
+    "forecast",
+    "收入",
+    "估值",
+    "情景",
+    "区间",
+    "毛利率",
+    "利润率",
+    "模型",
+    "尽调",
+)
+GENERIC_CONTENT_PATTERNS = (
+    re.compile(r"^more diligence is needed\.?$", re.IGNORECASE),
+    re.compile(r"^further diligence is needed\.?$", re.IGNORECASE),
+    re.compile(r"^additional diligence is needed\.?$", re.IGNORECASE),
+    re.compile(r"^to be determined\.?$", re.IGNORECASE),
+    re.compile(r"^tbd\.?$", re.IGNORECASE),
+)
 
 
 class MemoRenderError(ValueError):
@@ -186,11 +218,162 @@ def _package_validation_errors(package: Any) -> list[str]:
     for section_id in REQUIRED_SECTION_IDS:
         if section_id not in by_id:
             errors.append(f"missing required section {section_id}")
+        else:
+            _validate_section_content_floor(section_id, by_id[section_id], errors)
 
     if isinstance(sources, list):
         for index, source in enumerate(sources):
             _validate_source(source, f"sources[{index}]", errors)
     return errors
+
+
+def _validate_section_content_floor(
+    section_id: str,
+    section: dict,
+    errors: list[str],
+) -> None:
+    score = _section_content_score(section)
+    if score["real_blocks"] < 1:
+        errors.append(f"section {section_id} must contain substantive memo content")
+        return
+    if section_id == "executive_summary" and score["real_blocks"] < 2:
+        errors.append(
+            "section executive_summary must contain at least two substantive "
+            "content blocks"
+        )
+    if section_id in {"investment_highlights", "investment_risk"}:
+        has_bullets = score["bullet_items"] >= 2
+        has_table_or_callout_with_prose = (
+            score["paragraphs"] >= 1
+            and (score["tables"] + score["callouts"]) >= 1
+        )
+        if not has_bullets and not has_table_or_callout_with_prose:
+            errors.append(
+                f"section {section_id} must contain at least two substantive "
+                "bullets or explanatory prose plus a substantive table/callout"
+            )
+    if (
+        section_id == "financial_forecast_valuation"
+        and score["valuation_refs"] < 1
+    ):
+        errors.append(
+            "section financial_forecast_valuation must reference model treatment, "
+            "scenario ranges, valuation, revenue, margins, or diligence thresholds"
+        )
+
+
+def _section_content_score(section: dict) -> dict[str, int]:
+    score = {
+        "real_blocks": 0,
+        "paragraphs": 0,
+        "bullet_items": 0,
+        "tables": 0,
+        "callouts": 0,
+        "valuation_refs": 0,
+    }
+    for block in section.get("blocks") or []:
+        block_score = _block_content_score(block)
+        for key, value in block_score.items():
+            score[key] += value
+    return score
+
+
+def _block_content_score(block: Any) -> dict[str, int]:
+    score = {
+        "real_blocks": 0,
+        "paragraphs": 0,
+        "bullet_items": 0,
+        "tables": 0,
+        "callouts": 0,
+        "valuation_refs": 0,
+    }
+    if not isinstance(block, dict):
+        return score
+
+    kind = str(block.get("type") or "paragraph")
+    if kind == "paragraph":
+        text = block.get("text") or block.get("body")
+        if _has_meaningful_text(text, min_chars=35, min_words=6):
+            score["real_blocks"] = 1
+            score["paragraphs"] = 1
+            score["valuation_refs"] = int(_has_valuation_reference(text))
+    elif kind == "bullets":
+        item_count = sum(
+            1
+            for item in block.get("items") or []
+            if _has_meaningful_text(item, min_chars=24, min_words=4)
+        )
+        if item_count:
+            score["real_blocks"] = 1
+            score["bullet_items"] = item_count
+    elif kind == "callout":
+        body = block.get("body") or block.get("text")
+        items = block.get("items") or []
+        item_count = sum(
+            1
+            for item in items
+            if _has_meaningful_text(item, min_chars=24, min_words=4)
+        )
+        if _has_meaningful_text(body, min_chars=35, min_words=6) or item_count:
+            score["real_blocks"] = 1
+            score["callouts"] = 1
+    elif kind == "table":
+        if _table_has_real_body_row(block):
+            score["real_blocks"] = 1
+            score["tables"] = 1
+            score["valuation_refs"] = int(_has_valuation_reference(_table_body_text(block)))
+    return score
+
+
+def _table_has_real_body_row(block: dict) -> bool:
+    for row in block.get("rows") or []:
+        cells = row.get("cells") if isinstance(row, dict) else row
+        if not isinstance(cells, (list, tuple)):
+            continue
+        clean_cells = [_content_text(cell) for cell in cells]
+        non_empty_cells = [cell for cell in clean_cells if cell]
+        if any(
+            _has_meaningful_text(cell, min_chars=12, min_words=2)
+            for cell in non_empty_cells
+        ):
+            return True
+        if len(non_empty_cells) >= 2:
+            return True
+    return False
+
+
+def _table_body_text(block: dict) -> str:
+    values: list[str] = []
+    for row in block.get("rows") or []:
+        cells = row.get("cells") if isinstance(row, dict) else row
+        if isinstance(cells, (list, tuple)):
+            values.extend(_content_text(cell) for cell in cells)
+    return " ".join(value for value in values if value)
+
+
+def _has_meaningful_text(
+    value: Any,
+    *,
+    min_chars: int,
+    min_words: int,
+) -> bool:
+    text = _content_text(value)
+    if not text:
+        return False
+    lowered = text.lower().strip(" .")
+    if any(pattern.fullmatch(lowered) for pattern in GENERIC_CONTENT_PATTERNS):
+        return False
+    words = re.findall(r"[\w$%][\w$%'-]*", text, flags=re.UNICODE)
+    return len(text) >= min_chars or len(words) >= min_words
+
+
+def _has_valuation_reference(value: Any) -> bool:
+    text = _content_text(value).lower()
+    return any(term in text for term in VALUATION_CONTENT_TERMS)
+
+
+def _content_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", _loc(value, "en")).strip()
 
 
 def _validate_block(block: Any, location: str, errors: list[str]) -> None:

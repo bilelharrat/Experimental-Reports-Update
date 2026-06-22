@@ -35,6 +35,7 @@ from . import (
     claude_runner,
     docx_pdf,
     job_progress,
+    memo_chinese_parity,
     memo_docx_renderer,
     memo_quality_lint,
     memo_prep,
@@ -205,6 +206,67 @@ def _render_memo_outputs(
     return True
 
 
+def _run_chinese_parity_gate(
+    *,
+    report_id: str,
+    run_dir: Path,
+    memo_paths_abs: dict[str, Path],
+    stream: job_progress.ProgressLog,
+    result: dict,
+    recovered: bool = False,
+) -> bool:
+    storage.update_report(
+        report_id,
+        stage="Running Chinese memo parity gate",
+        progress=88,
+    )
+    stream.emit(
+        "stage",
+        stage="chinese_parity_gate",
+        message="Checking Chinese memo structure and CJK parity",
+        recovered=recovered,
+    )
+    parity_result = memo_chinese_parity.lint_chinese_memo_pair(
+        memo_paths_abs["en"],
+        memo_paths_abs["zh"],
+    )
+    parity_path = run_dir / "logs" / "memo_chinese_parity.md"
+    parity_path.write_text(
+        memo_chinese_parity.render_markdown_report(parity_result),
+        encoding="utf-8",
+    )
+    parity_payload = parity_result.to_dict()
+    if parity_result.has_blocking_findings:
+        msg = (
+            "Generated Chinese memo failed the parity gate with "
+            f"{parity_payload['p0_count']} P0 finding"
+            f"{'' if parity_payload['p0_count'] == 1 else 's'}. "
+            f"See {memo_prep._rel(parity_path)}."
+        )
+        storage.update_report(
+            report_id,
+            status="failed_quality_gate",
+            stage="Memo failed Chinese parity gate",
+            progress=89,
+            memo_chinese_parity=parity_payload,
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+        )
+        payload = {
+            "error": msg,
+            "phase": "chinese_parity_gate",
+            "parity_report": memo_prep._rel(parity_path),
+            "findings": parity_payload["findings"][:10],
+        }
+        if recovered:
+            payload["recovered"] = True
+        stream.emit("error", **payload)
+        return False
+
+    storage.update_report(report_id, memo_chinese_parity=parity_payload)
+    return True
+
+
 def _fail_renderer_contract(
     *,
     report_id: str,
@@ -309,6 +371,15 @@ def recover_stale_reports() -> int:
         ):
             continue
         if not _render_memo_outputs(
+            report_id=report["id"],
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            result=result,
+            recovered=True,
+        ):
+            continue
+        if not _run_chinese_parity_gate(
             report_id=report["id"],
             run_dir=run_dir,
             memo_paths_abs=memo_paths_abs,
@@ -519,6 +590,15 @@ def _run(report_id: str) -> None:
             claude_duration_ms=result.get("duration_ms"),
         )
         stream.emit("error", error=msg, phase="post_run_check")
+        return
+
+    if not _run_chinese_parity_gate(
+        report_id=report_id,
+        run_dir=run_dir,
+        memo_paths_abs=memo_paths_abs,
+        stream=stream,
+        result=result,
+    ):
         return
 
     # --- Hard quality gate for the English source-of-truth memo -------
