@@ -3385,6 +3385,84 @@ def test_analysis_backed_report_accepts_draft_session(tmp_path, monkeypatch):
     assert memo_prep.MEMOS_ROOT.exists()
 
 
+def test_analysis_backed_prep_skips_current_memo_packet_refresh(
+    tmp_path,
+    monkeypatch,
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    session = serena_analysis.run_tool("generalist", "thesis_spine_builder")
+    monkeypatch.setattr(memo_analysis, "start_analysis", lambda report_id: None)
+
+    def fail_refresh(_session):
+        raise AssertionError("current memo packet should not be rebuilt")
+
+    monkeypatch.setattr(serena_analysis, "_refresh_memo_packet", fail_refresh)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/memos/prep",
+        json={
+            "company_id": "generalist",
+            "analysis_session_id": session["id"],
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    report = response.json()
+    assert report["analysis_session_id"] == session["id"]
+    assert report["status"] == "ready_for_analysis"
+
+
+def test_analysis_backed_prep_refreshes_stale_memo_packet(
+    tmp_path,
+    monkeypatch,
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    session = serena_analysis.run_tool("generalist", "thesis_spine_builder")
+    raw = serena_analysis._strip_decorations(copy.deepcopy(session))
+    raw["artifacts"]["thesis_spine"]["investment_highlights"][0]["claim"] = (
+        "Launch-time packet refresh keeps the final memo current"
+    )
+    serena_analysis._write_session(raw)
+    monkeypatch.setattr(memo_analysis, "start_analysis", lambda report_id: None)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/memos/prep",
+        json={
+            "company_id": "generalist",
+            "analysis_session_id": session["id"],
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    packet = (
+        serena_analysis.session_dir("generalist", session["id"])
+        / "memo_packet.md"
+    ).read_text(encoding="utf-8")
+    assert "Launch-time packet refresh keeps the final memo current" in packet
+
+
 def test_analysis_backed_prep_accepts_unapproved_thesis_spine(
     tmp_path, monkeypatch
 ):

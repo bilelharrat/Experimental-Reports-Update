@@ -23,8 +23,9 @@ memo_prep.bootstrap_memo_run(company_id)          # synchronous, seconds
   ▼  (hand off to background daemon thread)
 memo_analysis._run(report_id)                      # long-running
   ├── Spawn one Claude subprocess via claude_runner.run_investment_memo()
-  │   Prompt = Serena's skill text verbatim + a parallel-tool-call hint
-  │   for the 8 orthogonal passes. Tools: Read, Write, Edit, Bash, Grep, Glob.
+  │   Prompt = Serena's skill text + fixed renderer contract + a
+  │   parallel-tool-call hint for the 8 orthogonal passes.
+  │   Tools: Read, Write, Edit, Bash, Grep, Glob.
   │
   │   Claude itself:
   │   - Reads Serena_Background.md  (BSH thesis)
@@ -33,15 +34,15 @@ memo_analysis._run(report_id)                      # long-running
   │     calls — writes analysis/*.md as it goes
   │   - Writes the synthesis artifacts (claim register, scenarios, gating
   │     questions, pre-mortem, reverse IC, validation log)
-  │   - Writes memo/<Company> - Investment Memo - <run_id>.docx          (English)
-  │   - Writes memo/<Company> - 投资备忘录 - <run_id>.docx                (Simplified Chinese)
-  │   - Runs the docx skill's validate.py and writes logs/validation*.txt
-  │   - Appends "Analysis finalization" to logs/run_manifest.md
+  │   - Writes logs/memo_package.json as structured memo data
+  │   - Runs the tracked renderer: python -m server.memo_docx_renderer
+  │   - Renderer writes both memo/*.docx files, logs/validation*.txt,
+  │     logs/file_inventory.md, and the run manifest finalization block
   │
   ├── On Claude exit:
   │     If returncode != 0 → mark report failed_during_analysis
-  │     Else verify the two .docx files exist + the manifest mentions
-  │     "analysis_complete" → mark report complete
+  │     Else block generated render scripts like build_memo.py
+  │     Else verify the two .docx files exist → continue post-run gates
   │
   └── Emit terminal `done` (or `error`) on logs/stream.jsonl
 ```
@@ -145,16 +146,17 @@ any prior run.
 - Report record bookkeeping (`server/storage.py`).
 - Spawning one Claude subprocess and translating its stream-json output
   into our progress events (`server/claude_runner.py`).
-- Post-run verification: does the expected `.docx` exist? Did the
-  manifest get finalized?
+- Stable DOCX rendering from `logs/memo_package.json`
+  (`server/memo_docx_renderer.py`).
+- Post-run verification: did Claude use the fixed renderer, do the expected
+  `.docx` files exist, and does the English memo pass the quality gate?
 
 **Claude (running Serena's skill):**
 
 - All analytical work (the 8 orthogonal passes, synthesis, etc.).
 - Reading inputs.
-- Producing `.docx` files via the docx skill (or its fallback).
-- Running the docx skill's `validate.py`.
-- Finalizing the manifest.
+- Producing `logs/memo_package.json` as structured memo content.
+- Invoking the fixed renderer command supplied in the prompt.
 
 If a memo run misbehaves, the first question is: is the failure on the
 Python side (wrong inputs, missing run folder, scope check wrong) or on

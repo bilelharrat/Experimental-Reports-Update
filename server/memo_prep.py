@@ -366,9 +366,9 @@ def bootstrap_memo_run(
             analysis_session_id,
             analysis_session,
         )
-        raw_session = serena_analysis._strip_decorations(analysis_session)
-        serena_analysis._refresh_memo_packet(raw_session)
-        analysis_session = serena_analysis._write_session(raw_session)
+        analysis_session = serena_analysis.ensure_memo_packet_current(
+            analysis_session
+        )
 
     run_id = _run_id()
     run_dir = _make_run_dir(slug, run_id)

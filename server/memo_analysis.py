@@ -2,8 +2,8 @@
 
 This worker spawns **one Claude subprocess** that executes Serena's
 `bsh-investment-memo-latestage` skill verbatim. The skill itself does
-all the analytical work, renders both ``.docx`` files, and finalizes
-the run manifest. Python's only job here is to:
+the analytical work, writes a structured memo package, invokes the
+tracked DOCX renderer, and finalizes the run manifest. Python's only job here is to:
 
   1. Reload context from the prep stage's report record.
   2. Spawn the Claude subprocess (via ``claude_runner.run_investment_memo``).
@@ -14,8 +14,8 @@ What this worker deliberately does **not** do (see `docs/architecture.md`):
 
   - Does **not** pre-extract files. The skill handles its own input
     reading.
-  - Does **not** render ``.docx``. The skill does that itself via the
-    docx skill (or its fallback).
+  - Does **not** author per-run render code. The skill must call the
+    tracked ``server.memo_docx_renderer`` with a structured package.
   - Does **not** touch ``data/uploads/`` — that's the Document
     Library, a separate feature, not a memo input.
   - Does **not** split the skill into multiple Claude subprocesses.
@@ -33,6 +33,7 @@ from . import (
     claude_runner,
     docx_pdf,
     job_progress,
+    memo_docx_renderer,
     memo_quality_lint,
     memo_prep,
     research_store,
@@ -130,6 +131,29 @@ def recover_stale_reports() -> int:
         )
         for thread_label in sorted(stream_state.get("open_threads") or ()):
             stream.emit("thread_finished", thread=thread_label)
+        forbidden_scripts = memo_docx_renderer.find_generated_renderer_scripts(run_dir)
+        if forbidden_scripts:
+            rel_paths = [memo_prep._rel(path) for path in forbidden_scripts]
+            msg = (
+                "Memo run generated bespoke renderer code instead of using "
+                "server.memo_docx_renderer: "
+                + "; ".join(rel_paths[:8])
+            )
+            storage.update_report(
+                report["id"],
+                status="failed_during_analysis",
+                stage="Generated renderer script blocked",
+                claude_cost_usd=result.get("cost_usd"),
+                claude_duration_ms=result.get("duration_ms"),
+            )
+            stream.emit(
+                "error",
+                error=msg,
+                phase="renderer_contract",
+                recovered=True,
+                generated_renderer_scripts=rel_paths,
+            )
+            continue
         lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
         lint_path = run_dir / "logs" / "memo_quality_lint.md"
         lint_path.write_text(
@@ -289,6 +313,29 @@ def _run(report_id: str) -> None:
             "error",
             error=result.get("error") or "Claude skill run failed",
             phase="analysis",
+        )
+        return
+
+    forbidden_scripts = memo_docx_renderer.find_generated_renderer_scripts(run_dir)
+    if forbidden_scripts:
+        rel_paths = [memo_prep._rel(path) for path in forbidden_scripts]
+        msg = (
+            "Memo run generated bespoke renderer code instead of using "
+            "server.memo_docx_renderer: "
+            + "; ".join(rel_paths[:8])
+        )
+        storage.update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Generated renderer script blocked",
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+        )
+        stream.emit(
+            "error",
+            error=msg,
+            phase="renderer_contract",
+            generated_renderer_scripts=rel_paths,
         )
         return
 

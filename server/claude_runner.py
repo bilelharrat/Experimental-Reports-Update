@@ -21,9 +21,11 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -1990,14 +1992,33 @@ def _build_investment_memo_prompt(
       - lists the actual inputs (Serena_Background.md + the
         companies.yaml record) — note: no Document Library files,
       - carries non-fatal scope warnings from prep into the analysis,
+      - points DOCX output at the tracked parameterized renderer,
       - hints that the eight orthogonal analysis passes have no
         inter-dependencies and should run via parallel tool calls in a
         single response.
 
-    Everything else is the skill, untouched.
+    Everything else is the skill text.
     """
     skill_text = _load_skill_text()
     rel_run_dir = run_dir.name
+    repo_root = Path(__file__).resolve().parents[1]
+    memo_package_path = run_dir / "logs" / "memo_package.json"
+    renderer_command = " ".join([
+        f"PYTHONPATH={shlex.quote(str(repo_root))}",
+        shlex.quote(sys.executable),
+        "-m",
+        "server.memo_docx_renderer",
+        "--package",
+        shlex.quote(str(memo_package_path)),
+        "--out-en",
+        shlex.quote(str(memo_paths["en"])),
+        "--out-zh",
+        shlex.quote(str(memo_paths["zh"])),
+        "--manifest",
+        shlex.quote(str(run_dir / "logs" / "run_manifest.md")),
+        "--inventory",
+        shlex.quote(str(run_dir / "logs" / "file_inventory.md")),
+    ])
     scope_warning_block = ""
     if scope_check and scope_check.get("outcome") == "warn":
         warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
@@ -2136,6 +2157,67 @@ source for the memo. Do not Read, Bash, Glob, or Grep inside that
 directory. If you find yourself wanting to reach into it, stop — the
 skill is designed to run from the Serena library + companies.yaml
 only.
+
+## Fixed DOCX renderer contract
+
+Do **not** write or edit a per-run renderer script. Forbidden files include
+`build_memo.py`, `build_memos.py`, `generate_memo.py`, `render_memo.py`,
+and JS variants of those names. The server will fail the run if any such
+file exists in the run folder.
+
+Instead, write the memo content and structure as data to:
+
+  `{memo_package_path}`
+
+Then run this exact command from the run folder:
+
+```bash
+{renderer_command}
+```
+
+The renderer is fixed product code (`server.memo_docx_renderer`). Your
+job is to author a complete `memo_package.json`, not rendering code. The
+package must be JSON with this shape:
+
+```json
+{{
+  "schema_version": 1,
+  "company": {{
+    "name": "Company, Inc.",
+    "descriptor": {{"en": "Category", "zh": "类别"}},
+    "stage": "Late-stage / pre-IPO",
+    "sector": "AI",
+    "location": "City, Region",
+    "round": "Round / valuation context",
+    "bsh_ticket_size": "If known"
+  }},
+  "run": {{"run_id": "{run_id}", "as_of": "YYYY-MM-DD"}},
+  "sections": [
+    {{
+      "id": "executive_summary",
+      "blocks": [
+        {{"type": "heading", "level": 2, "text": {{"en": "Investment Opportunity", "zh": "投资机会"}}}},
+        {{"type": "paragraph", "text": {{"en": "Body prose.", "zh": "正文。"}}}},
+        {{"type": "bullets", "items": [{{"en": "Bullet.", "zh": "要点。"}}]}},
+        {{"type": "callout", "tone": "warning", "title": {{"en": "Decision Gate", "zh": "决策关口"}}, "items": []}},
+        {{"type": "table", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
+      ]
+    }}
+  ],
+  "sources": [
+    {{"id": "S1", "title": "Source title", "class": "Company material", "treatment": "How used", "as_of": "YYYY-MM-DD"}}
+  ]
+}}
+```
+
+Use the section ids from the skill's structure when possible:
+`executive_summary`, `company_overview`, `investment_highlights`,
+`investment_risk`, `financial_forecast_valuation`, `sources`,
+`validation_log`. Use `paragraph`, `heading`, `bullets`, `callout`, and
+`table` blocks. Tables should carry headers and rows as arrays; callouts
+should carry concise title/body/items. The same package drives both EN and
+ZH output, so every final user-facing string should be either bilingual
+(`{{"en": "...", "zh": "..."}}`) or intentionally language-neutral.
 
 ## Parallel execution of the eight orthogonal passes
 

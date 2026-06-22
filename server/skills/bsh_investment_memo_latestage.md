@@ -1063,13 +1063,32 @@ The transition summary passed into memo writing should include:
 
 Every successful run produces two parallel `.docx` files: one in English and one in Simplified Chinese. They share the same timestamp, the same structure, the same data, and the same analytical conclusions. The Chinese file is a faithful translation of the English file — not an independently-authored memo and not a summary.
 
-Use the `docx` JavaScript library to produce both memos. Follow the docx skill instructions at the installed path for the `docx` skill (typically under `.claude/skills/docx/SKILL.md`).
+Do **not** hand-write per-run Python or JavaScript renderer scripts. The DOCX
+layout system is fixed product code. Build the memo as structured data in
+`logs/memo_package.json`, then run the fixed renderer command supplied by the
+run prompt (`python -m server.memo_docx_renderer ...`). The renderer owns DOCX
+styles, cover layout, headers, footers, tables, callouts, bilingual font
+handling, validation files, file inventory, and manifest finalization.
+
+The memo package is the dynamic surface. It must include:
+- `schema_version: 1`
+- `company` metadata: name, descriptor, stage, sector, location, round, BSH ticket size
+- `run` metadata: run id and as-of date
+- `sections`: ordered section objects using the exact memo structure below
+- section `blocks` of type `heading`, `paragraph`, `bullets`, `callout`, or `table`
+- bilingual strings as `{ "en": "...", "zh": "..." }` wherever text appears
+- `sources`: source title, source class, model treatment, and as-of date
+
+Forbidden run artifacts include `build_memo.py`, `build_memos.py`,
+`generate_memo.py`, `render_memo.py`, and JavaScript variants. If you need
+different layout behavior, express it through the package data and the supported
+block types rather than writing new code.
 
 Recommended generation order:
 1. Finish the English memo first — the English version is the source of truth for analytical content.
 2. Validate that the English memo is complete, the structure matches the spec, all required tables and callouts are present, and the recommendation is clear.
 3. Translate the English memo into Simplified Chinese following the rules in the **Bilingual Output: English + Simplified Chinese (简体中文)** section below.
-4. Render the Chinese memo as a separate `.docx` with CJK-safe fonts.
+4. Run the fixed renderer so it renders the Chinese memo as a separate `.docx` with CJK-safe fonts.
 5. Cross-check that the Chinese memo's tables, callouts, recommendation, and Top 3 Gating Questions (for BSH) match the English memo exactly in content (only language differs).
 
 Save the outputs into the current run folder under:
@@ -1078,7 +1097,9 @@ memo/[Company Name] - Investment Memo - [YYYY-MM-DD]__[HHMMSS].docx
 memo/[Company Name] - 投资备忘录 - [YYYY-MM-DD]__[HHMMSS].docx
 ```
 
-Create the run folder and required subdirectories if they do not exist.
+Create the run folder and required subdirectories if they do not exist. The
+renderer will create validation files and file inventory entries, but the
+analysis artifacts and package data remain your responsibility.
 
 ## Document Packaging Contract (Mandatory)
 
@@ -2033,10 +2054,10 @@ If any of these conditions are not met, say so explicitly in the memo and mark t
 
 
 After generating both the English and Chinese `.docx` files:
-1. Run validation with the `validate.py` script that ships with the `docx` skill (typically at `.claude/skills/docx/scripts/office/validate.py`) on **each** file.
-2. Save validation output into the current run folder under `logs/validation.txt` (English) and `logs/validation_cn.txt` (Chinese).
-3. Update `logs/run_manifest.md` with final artifact paths and validation status for both files.
-4. Update `logs/file_inventory.md` with the final file list, including both `.docx` files and their preview folders.
+1. Confirm `logs/memo_package.json` is the only dynamic rendering input and no generated renderer script exists in the run folder.
+2. Confirm the fixed renderer wrote validation output into `logs/validation.txt` (English) and `logs/validation_cn.txt` (Chinese).
+3. Confirm `logs/run_manifest.md` includes final artifact paths and validation status for both files.
+4. Confirm `logs/file_inventory.md` includes the final file list, including both `.docx` files and their preview folders when available.
 5. If both validations pass, present **both files** to Serena using `present_files` or computer:// links — list the English memo first, then the Chinese memo.
 6. Briefly summarize in the chat reply: recommendation, top 2 reasons to proceed or pass, and the top 3 gating questions. Use English for the chat summary unless Serena requests otherwise.
 7. Do not move, rename, or delete prior runs as part of presentation.

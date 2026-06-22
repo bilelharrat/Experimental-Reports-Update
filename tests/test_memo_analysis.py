@@ -214,6 +214,55 @@ def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     assert events[-1]["findings"]
 
 
+def test_memo_run_blocks_generated_renderer_scripts(memo_env, monkeypatch):
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+
+    def fake_run_investment_memo(**kwargs):
+        (run_dir / "build_memo.py").write_text(
+            "# generated renderer should be blocked\n",
+            encoding="utf-8",
+        )
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=1.25,
+            duration_ms=1234,
+        )
+        return {"ok": True, "cost_usd": 1.25, "duration_ms": 1234}
+
+    monkeypatch.setattr(
+        claude_runner, "run_investment_memo", fake_run_investment_memo
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PDF rendering should not run after renderer violation")
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "failed_during_analysis"
+    assert updated["stage"] == "Generated renderer script blocked"
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["phase"] == "renderer_contract"
+    assert events[-1]["generated_renderer_scripts"]
+
+
 def test_recover_stale_memo_report_emits_missing_done(memo_env):
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -250,6 +299,43 @@ def test_recover_stale_memo_report_emits_missing_done(memo_env):
 
     state = api._scan_progress_state(memo_prep.stream_path(run_dir))
     assert state["terminated"] is True
+
+
+def test_recover_stale_memo_report_blocks_generated_renderer_scripts(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    (run_dir / "build_memo.py").write_text(
+        "# generated renderer should be blocked during recovery\n",
+        encoding="utf-8",
+    )
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+    stream.emit(
+        "claude_action",
+        action="result",
+        subtype="success",
+        cost_usd=9.02,
+        duration_ms=1845017,
+    )
+
+    recovered = memo_analysis.recover_stale_reports()
+
+    assert recovered == 0
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "failed_during_analysis"
+    assert updated["stage"] == "Generated renderer script blocked"
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["phase"] == "renderer_contract"
+    assert events[-1]["recovered"] is True
+    assert events[-1]["generated_renderer_scripts"]
 
 
 def test_active_memo_job_registers_subtask_completion(memo_env):

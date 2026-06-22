@@ -697,6 +697,16 @@ def get_session(company_id: str, session_id: str) -> dict | None:
         return _decorate(session) if session else None
 
 
+def ensure_memo_packet_current(session: dict) -> dict:
+    """Persist a fresh memo packet only when its source artifacts changed."""
+    with _LOCK:
+        raw = _strip_decorations(session)
+        if _memo_packet_is_current(raw):
+            return _decorate(raw)
+        _refresh_memo_packet(raw)
+        return _decorate(_write_session(raw))
+
+
 def has_unapproved_work(company_id: str) -> bool:
     """Return whether a company has draft Memo Studio work not approved yet."""
     with _LOCK:
@@ -4967,6 +4977,43 @@ def _memo_packet_evidence_summary(tasks: list[dict]) -> dict:
     return summary
 
 
+def _memo_packet_source_fingerprint(session: dict) -> str:
+    artifacts = (
+        session.get("artifacts")
+        if isinstance(session.get("artifacts"), dict)
+        else {}
+    )
+    source_artifacts = {
+        key: value
+        for key, value in artifacts.items()
+        if key != "memo_packet"
+    }
+    payload = {
+        "id": session.get("id"),
+        "company_id": session.get("company_id"),
+        "company_name": session.get("company_name"),
+        "status": session.get("status"),
+        "approved_for_memo": bool(session.get("approved_for_memo")),
+        "artifacts": source_artifacts,
+    }
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _memo_packet_is_current(session: dict) -> bool:
+    artifacts = (
+        session.get("artifacts")
+        if isinstance(session.get("artifacts"), dict)
+        else {}
+    )
+    packet = artifacts.get("memo_packet")
+    if not isinstance(packet, str) or not packet.strip():
+        return False
+    return (
+        session.get("memo_packet_source_fingerprint")
+        == _memo_packet_source_fingerprint(session)
+    )
+
+
 def _refresh_memo_packet(session: dict) -> None:
     artifacts = session.setdefault("artifacts", {})
     thesis = artifacts.get("thesis_spine") if isinstance(artifacts.get("thesis_spine"), dict) else {}
@@ -5375,6 +5422,7 @@ def _refresh_memo_packet(session: dict) -> None:
                 choice = prompt.get("resolved_choice") or "unresolved"
                 lines.append(f"  - {prompt.get('prompt')} [{choice}]")
     artifacts["memo_packet"] = "\n".join(lines).strip() + "\n"
+    session["memo_packet_source_fingerprint"] = _memo_packet_source_fingerprint(session)
 
 
 def _strip_decorations(session: dict) -> dict:

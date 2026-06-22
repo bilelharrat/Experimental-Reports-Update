@@ -24,12 +24,14 @@ code paths, no run folders, no inputs. They do not invoke each other.
 3. **`memo_prep.py` does not stage any files into the run folder.** It
    creates the versioned run folder and a manifest, nothing else.
 
-4. **Python does not pre-extract or post-render anything for the memo.**
-   Serena's skill is self-contained: it reads its inputs the way the
-   skill prescribes (`markitdown` for PDFs, `pandoc` for `.docx`, Read
-   for images), runs analytical passes, writes the analysis artifacts,
-   writes the `.docx` files, validates. Python's only job is to spawn
-   the Claude subprocess and tell the user when it finishes.
+4. **Python owns DOCX rendering, but not memo judgment.** Serena's skill
+   reads its inputs the way the skill prescribes (`markitdown` for PDFs,
+   `pandoc` for `.docx`, Read for images), runs analytical passes, writes
+   analysis artifacts, and emits `logs/memo_package.json` as structured
+   memo content. The tracked renderer (`server.memo_docx_renderer`) turns
+   that package into both `.docx` files, validation logs, file inventory,
+   and manifest finalization. Per-run renderer scripts such as
+   `build_memo.py` are forbidden.
 
 ## Where Serena's "company folder" lives in this codebase
 
