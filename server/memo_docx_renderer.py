@@ -101,6 +101,17 @@ SUPPORTED_BLOCK_TYPES = {
     "table",
     "spacer",
 }
+# Top-level section titles ("I."–"X." or "一、"–"十、") are emitted automatically
+# by ``_add_section`` from ``SECTION_TITLES``. A heading *block* that carries the
+# same numbered prefix is a redundant restatement of the section title; rendering
+# it produces a doubled section heading (and trips the Chinese-parity
+# heading-count gate, since EN/ZH restatements are not always recognized
+# symmetrically). Legitimate sub-headings are unnumbered, so this prefix is a
+# safe signal to drop the block.
+_NUMBERED_SECTION_HEADING_RE = re.compile(
+    r"^\s*(?:(?:i|ii|iii|iv|v|vi|vii|viii|ix|x)\.|[一二三四五六七八九十]+[、.．])",
+    re.IGNORECASE,
+)
 VALUATION_CONTENT_TERMS = (
     "model treatment",
     "model",
@@ -640,12 +651,26 @@ def _add_section(document: Document, section: dict, locale: str) -> None:
             _add_block(document, block, locale)
 
 
+def _is_numbered_section_heading(text: str) -> bool:
+    """True when a heading block restates a top-level numbered section title.
+
+    Numbered section titles are rendered automatically by :func:`_add_section`,
+    so a heading block carrying such a prefix is a duplicate and must be
+    dropped. See :data:`_NUMBERED_SECTION_HEADING_RE`.
+    """
+    return bool(text and _NUMBERED_SECTION_HEADING_RE.match(text))
+
+
 def _add_block(document: Document, block: dict, locale: str) -> None:
     kind = str(block.get("type") or "paragraph")
     if kind == "heading":
+        text = _loc(block.get("text") or block.get("title"), locale)
+        if _is_numbered_section_heading(text):
+            # Redundant restatement of the auto-rendered section title — skip.
+            return
         _add_heading(
             document,
-            _loc(block.get("text") or block.get("title"), locale),
+            text,
             level=int(block.get("level") or 2),
             locale=locale,
         )

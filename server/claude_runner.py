@@ -2207,7 +2207,18 @@ should carry concise title/body/items. The same package drives both EN and ZH
 output, so every final user-facing string in blocks, table cells, and source
 treatment must be bilingual (`{{"en": "...", "zh": "..."}}`) unless it is a
 proper noun, date, numeric value, source id, or intentionally language-neutral
-source title.
+source title. This applies to descriptive prose inside table cells too: deal
+mechanics such as SAFE / discount / cap / conversion terms must be written in
+natural Chinese in the `.zh` value (keep the bare term "SAFE", tickers, dates,
+and numbers, but translate the surrounding sentence). Never leave a cell's `.zh`
+identical to its English when the cell contains prose.
+
+Do not author a `heading` block that restates a numbered top-level section
+title. The renderer emits the `I.`–`VI.` section titles automatically from the
+section id, so a heading block beginning with a roman numeral (`VI. Sources …`)
+or a Chinese numeral (`六、…`) renders a duplicate heading and fails the
+Chinese-parity heading-count gate. Sub-headings inside a section must be plain,
+unnumbered labels (e.g. "Source Index" / "来源索引", not "VI. Sources …").
 
 The renderer fails closed on shallow package content. A required core section
 cannot be only headings, spacers, title-only callouts, title-only tables, or

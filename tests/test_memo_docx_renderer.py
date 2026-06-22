@@ -323,6 +323,71 @@ def test_renderer_accepts_substantive_required_sections():
     memo_docx_renderer.validate_package(_package())
 
 
+def test_is_numbered_section_heading():
+    assert memo_docx_renderer._is_numbered_section_heading(
+        "VI. Sources, Source Classes, and Fact Reference Index"
+    )
+    assert memo_docx_renderer._is_numbered_section_heading("六、资料、来源分类与事实索引")
+    assert memo_docx_renderer._is_numbered_section_heading("I. Executive Summary")
+    # Legitimate sub-headings are unnumbered and must be preserved.
+    assert not memo_docx_renderer._is_numbered_section_heading("Investment Opportunity")
+    assert not memo_docx_renderer._is_numbered_section_heading("风险清单")
+    assert not memo_docx_renderer._is_numbered_section_heading("")
+
+
+def test_renderer_drops_numbered_section_heading_restatement(tmp_path):
+    # Reproduces the zainar parity failure: the sources section carried a
+    # heading block restating its own numbered title. The renderer already
+    # emits the section title, so the restatement produced a doubled heading —
+    # counted asymmetrically across EN/ZH (en=7, zh=6) and tripping the gate.
+    package = copy.deepcopy(_package())
+    package["sections"].append(
+        {
+            "id": "sources",
+            "blocks": [
+                {
+                    "type": "heading",
+                    "level": 2,
+                    "text": {
+                        "en": "VI. Sources, Source Classes, and Fact Reference Index",
+                        "zh": "六、资料、来源分类与事实索引",
+                    },
+                },
+                {
+                    "type": "paragraph",
+                    "text": {
+                        "en": "Source index follows.",
+                        "zh": "以下为来源索引。",
+                    },
+                },
+            ],
+        }
+    )
+    package_path = tmp_path / "logs" / "memo_package.json"
+    package_path.parent.mkdir(parents=True)
+    package_path.write_text(json.dumps(package, ensure_ascii=False), encoding="utf-8")
+    out_en = tmp_path / "memo" / "Generalist, Inc. - Investment Memo.docx"
+    out_zh = tmp_path / "memo" / "Generalist, Inc. - 投资备忘录.docx"
+
+    memo_docx_renderer.render_memos(package_path, out_en=out_en, out_zh=out_zh)
+
+    # Count *section headings* (paragraphs), not TOC table entries. Before the
+    # fix the restated heading rendered as a second "sources" section heading in
+    # English (en=2) while Chinese counted one (zh=1) — an asymmetry that failed
+    # the gate. Both must now resolve to exactly one.
+    en_shape = memo_chinese_parity._extract_docx_shape(out_en, "en")
+    zh_shape = memo_chinese_parity._extract_docx_shape(out_zh, "zh")
+    assert en_shape.section_ids.count("sources") == 1, en_shape.section_ids
+    assert zh_shape.section_ids.count("sources") == 1, zh_shape.section_ids
+    assert en_shape.section_count == zh_shape.section_count
+
+    result = memo_chinese_parity.lint_chinese_memo_pair(out_en, out_zh)
+    assert result.has_blocking_findings is False
+    assert not any(
+        finding.code == "section_heading_count_mismatch" for finding in result.findings
+    )
+
+
 def test_chinese_parity_passes_for_renderer_output(tmp_path):
     package_path = tmp_path / "logs" / "memo_package.json"
     package_path.parent.mkdir(parents=True)

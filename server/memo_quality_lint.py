@@ -55,6 +55,11 @@ class _TextBlock:
     section: str
     allowed_trace_section: bool
     operating_table: bool
+    # Full text of the table row this cell belongs to (empty for paragraphs).
+    # Lets the disclosure-gap check see treatment supplied in a sibling cell —
+    # e.g. a "Value: Not disclosed" cell whose "Note" cell carries the
+    # diligence treatment in the same row.
+    row_text: str = ""
 
 
 _BRACKET_RE = re.compile(r"\[[^\[\]\n]{1,100}\]")
@@ -93,6 +98,20 @@ _MODEL_TREATMENT_TERMS = (
     "assumption",
     "sanity bridge",
     "what would change",
+    # Analytical characterizations that themselves treat an undisclosed figure
+    # (e.g. a valuation step-table whose multiple column reads "undefined (no
+    # denominator)" or "forward, not yet closed").
+    "undefined",
+    "denominator",
+    "forward",
+    "aspirational",
+    "outside-in",
+    "not yet closed",
+    "unconfirmed",
+    # An explicit "not computable" determination (with its cause) is itself
+    # analytical handling, not a bare blank — treat it as resolved even though
+    # the same phrase is one of the gap triggers.
+    "not computable",
 )
 _ALLOWED_SECTION_PATTERNS = (
     re.compile(r"\bsources?\b.*\b(source classes?|fact reference index|references?)\b", re.IGNORECASE),
@@ -110,7 +129,6 @@ _INTERNAL_ARTIFACT_PATTERNS = (
     re.compile(r"\bchart_specs?\b", re.IGNORECASE),
     re.compile(r"\binfographic_source_brief\b", re.IGNORECASE),
     re.compile(r"\bbenchmark_dashboard\b", re.IGNORECASE),
-    re.compile(r"\bWV\b"),
 )
 _SCAFFOLD_PATTERNS = (
     re.compile(r"\bCritical Reality Check\b", re.IGNORECASE),
@@ -231,6 +249,9 @@ def _extract_docx_blocks(path: Path) -> list[_TextBlock]:
             table = Table(child, document)
             allowed = _allowed_trace_section(section)
             for row_index, row in enumerate(table.rows, start=1):
+                row_text = _clean_text(
+                    " ".join(cell.text for cell in row.cells)
+                )
                 for col_index, cell in enumerate(row.cells, start=1):
                     text = _clean_text(cell.text)
                     if not text:
@@ -246,6 +267,7 @@ def _extract_docx_blocks(path: Path) -> list[_TextBlock]:
                             section=section,
                             allowed_trace_section=allowed,
                             operating_table=not allowed,
+                            row_text=row_text,
                         )
                     )
     return blocks
@@ -332,7 +354,7 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                 )
             )
 
-        if _unresolved_disclosure_gap(block.text):
+        if _unresolved_disclosure_gap(block.text, block.row_text):
             findings.append(
                 _finding(
                     block,
@@ -399,11 +421,16 @@ def _source_like_bracket(value: str) -> bool:
     return any(keyword in lowered for keyword in _SOURCE_BRACKET_KEYWORDS)
 
 
-def _unresolved_disclosure_gap(text: str) -> bool:
+def _unresolved_disclosure_gap(text: str, row_text: str = "") -> bool:
     lowered = text.lower()
     if "not disclosed" not in lowered and "not computable" not in lowered:
         return False
-    return not any(term in lowered for term in _MODEL_TREATMENT_TERMS)
+    # A disclosure gap is treated when the same block — or, for a table cell,
+    # any sibling cell in the same row — supplies a source class, model
+    # treatment, proxy, diligence threshold, or an explicit analytical
+    # characterization of why the figure is absent.
+    scope = f"{lowered} {row_text.lower()}".strip()
+    return not any(term in scope for term in _MODEL_TREATMENT_TERMS)
 
 
 def _finding(

@@ -83,3 +83,66 @@ def test_linter_allows_source_ids_in_fact_index_and_source_class_in_tables(tmp_p
     result = memo_quality_lint.lint_memo_docx(path)
 
     assert result.p0_findings == []
+
+
+def test_linter_does_not_flag_wv_deal_party_as_artifact(tmp_path):
+    # "WV" is Wisdom Ventures, a real deal counterparty (WV-ZaiNar SPV) — not an
+    # internal file artifact. It must not trip internal_artifact_leak.
+    path = tmp_path / "wv-memo.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "BSH co-invests through the WV-ZaiNar SPV on a SAFE, bearing "
+            "20% non-WV carry.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(f.code == "internal_artifact_leak" for f in result.findings)
+
+
+def test_linter_treats_disclosure_gap_via_sibling_note_cell(tmp_path):
+    # A "Not disclosed" value paired with treatment / characterization in the
+    # row's Note column is adequately treated and must not be flagged.
+    path = tmp_path / "row-treated.docx"
+    _save_docx(
+        path,
+        paragraphs=["II. Company Overview"],
+        tables=[
+            [
+                ["Metric", "Value", "Note"],
+                ["Gross margin / burn / NRR", "Not disclosed", "Gating diligence items"],
+                ["Revenue at date", "Not disclosed", "Undefined (no denominator)"],
+            ],
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(
+        f.code == "disclosure_gap_without_treatment" for f in result.findings
+    )
+
+
+def test_linter_still_flags_untreated_disclosure_gap(tmp_path):
+    # A bare "Not disclosed" cell with no treatment anywhere in its row must
+    # still be flagged — the row-aware fix must not neuter the gate.
+    path = tmp_path / "row-untreated.docx"
+    _save_docx(
+        path,
+        paragraphs=["II. Company Overview"],
+        tables=[
+            [
+                ["Metric", "Value"],
+                ["Active users", "Not disclosed"],
+            ],
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert any(
+        f.code == "disclosure_gap_without_treatment" for f in result.findings
+    )
