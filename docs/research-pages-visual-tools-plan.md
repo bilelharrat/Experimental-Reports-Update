@@ -687,7 +687,7 @@ Existing APIs to reuse:
 
 ### Research Question
 
-What is the right comparison set and underwriting frame?
+What is the right comparison set and investment frame?
 
 ### Route And API
 
@@ -1237,4 +1237,3 @@ The full research-pages effort is complete when:
 - Browser smoke tests cover all critical page routes.
 - The data foundation roadmap is backed by concrete missing fields surfaced in
   the pages.
-

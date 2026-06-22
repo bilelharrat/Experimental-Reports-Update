@@ -87,6 +87,8 @@ const grouped = computed(() => {
         finishedAt: null,
         cost: null,
         duration: null,
+        pendingToolUses: 0,
+        sawToolActivity: false,
         title: name === "main" ? t("jobs.modal.run_level_events") : name,
       });
       ordered.push(groups.get(name));
@@ -105,11 +107,33 @@ const grouped = computed(() => {
       g.finishedAt = e.ts;
       if (e.cost_usd != null) g.cost = e.cost_usd;
       if (e.duration_ms != null) g.duration = e.duration_ms;
-    } else if (e.type === "thread_failed" || e.is_error || e.type === "error") {
+    } else if (e.type === "thread_failed" || e.type === "error") {
       // Only mark a thread failed if the error belongs to it.
-      if (e.thread || e.is_error) {
+      if (e.thread || e.type === "error") {
         g.status = "failed";
         if (e.type === "thread_failed") g.finishedAt = e.ts;
+      }
+    } else if (e.type === "claude_action" && e.thread) {
+      if (e.action === "tool_use") {
+        g.sawToolActivity = true;
+        g.pendingToolUses += 1;
+        g.status = "running";
+        g.finishedAt = null;
+      } else if (e.action === "tool_result") {
+        g.sawToolActivity = true;
+        g.pendingToolUses = Math.max(0, g.pendingToolUses - 1);
+        if (e.is_error) {
+          g.status = "failed";
+          g.finishedAt = e.ts;
+        } else if (g.pendingToolUses === 0 && g.sawToolActivity) {
+          // Memo pass rows often have enough signal to settle before the
+          // whole Claude subprocess emits its final result.
+          g.status = "done";
+          g.finishedAt = e.ts;
+        }
+      } else if (e.is_error) {
+        g.status = "failed";
+        g.finishedAt = e.ts;
       }
     }
   }

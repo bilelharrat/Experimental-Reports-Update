@@ -1,22 +1,22 @@
 ---
 name: bsh-investment-memo-latestage-v1
-description: "Generate Berkeley Summit House (BSH) investment memos (.docx) for LATE-STAGE and PRE-IPO companies only, using the V3 formatting-enhanced, non-linear, falsification-first framework with versioned, non-destructive run storage and professional document packaging. Produces two parallel .docx files per run — one in English and one in Simplified Chinese (简体中文) — with identical structure, identical analytical content, and CJK-safe typography in the Chinese version. This skill is scoped to late-stage / pre-IPO underwriting and should not be used for early-stage, seed, or pre-revenue deals. Trigger whenever Serena asks to evaluate a late-stage or pre-IPO deal, write up a growth-stage or pre-IPO company, create an investment memo for a late-stage round, underwrite a pre-IPO opportunity, or analyze a Pitchbook / CB Insights summary for a growth, late-stage, or pre-IPO company."
+description: "Generate Berkeley Summit House (BSH) investment memos (.docx) for growth, late-stage, and pre-IPO companies, using the V3 formatting-enhanced, non-linear, falsification-first framework with versioned, non-destructive run storage and professional document packaging. Produces two parallel .docx files per run — one in English and one in Simplified Chinese (简体中文) — with identical structure, identical analytical content, and CJK-safe typography in the Chinese version. The final deliverable is an exec-ready sell-side investment memo for BSH partners, not a buyer-side diligence memo. Trigger whenever Serena asks to evaluate an allocation opportunity, write up a growth-stage or pre-IPO company, create an investment memo for a financing round, or analyze a Pitchbook / CB Insights summary for a growth, late-stage, or pre-IPO company."
 ---
 
-# BSH Investment Memo Generator (Late-Stage / Pre-IPO Only, Non-Linear, Versioned, Non-Destructive, Formatting-Enhanced)
+# BSH Investment Memo Generator (Growth / Late-Stage / Pre-IPO, Non-Linear, Versioned, Non-Destructive, Formatting-Enhanced)
 
 ## Purpose
 
-Generate a professional investment memo for Berkeley Summit House (BSH) that allows the three co-founders to evaluate a **late-stage or pre-IPO deal** asynchronously. The memo synthesizes all available inputs — Pitchbook / CB Insights summaries, partner notes, public filings, pricing benchmarks, procurement data, company materials, and independent research — into a clear, structured Word document with a recommendation and explicit ask.
+Generate a professional investment memo for Berkeley Summit House (BSH) that allows the three co-founders to evaluate a **growth-stage, late-stage, or pre-IPO deal** asynchronously. The memo synthesizes all available inputs — Pitchbook / CB Insights summaries, partner notes, public filings, pricing benchmarks, procurement data, company materials, and independent research — into a clear, structured Word document with a recommendation and explicit ask.
 
-**Scope:** This skill is for late-stage and pre-IPO companies only. Do not use it for angel, seed, or pre-revenue deals. If the deal is early-stage, decline to run this skill and recommend an early-stage memo workflow instead.
+**Scope:** This skill is for priced or otherwise institutionally sponsored growth financings, late-stage rounds, secondary opportunities, and pre-IPO companies. Do not use it for angel, seed, or pre-product deals. For Series A/A2 and early-growth opportunities, run the memo with stage-calibrated expectations rather than imposing pre-IPO disclosure norms.
 
-This version is a **true superset** of the Phase 1 prototype, scoped to late-stage / pre-IPO:
+This version is a **true superset** of the Phase 1 prototype, scoped to growth, late-stage, and pre-IPO:
 - It preserves the full execution spine and memo-generation workflow.
 - It upgrades the analysis layer to a non-linear, falsification-first system.
 - It adds run-folder versioning and strict non-destructive storage rules.
 - It enforces a formatting-enhanced document packaging contract (cover page, callouts, tables, page numbers, style system).
-- It assumes the depth of analysis appropriate for growth-stage, late-stage, and pre-IPO underwriting and produces a stable, comparable memo structure.
+- It assumes the depth of analysis appropriate for growth-stage, late-stage, and pre-IPO investment decisions and produces a stable, comparable memo structure.
 
 ---
 
@@ -63,7 +63,7 @@ The final memo should sound like an experienced investor making a call: here is 
 
 ## Analytical Standard: Falsification First
 
-This is not a company summary. It is an underwriting memo.
+This is not a company summary. It is an exec-ready investment memo.
 
 The goal is to determine:
 1. what is true,
@@ -267,9 +267,9 @@ If a file or run folder with the target name already exists, generate a new time
 
 ## Step 1: Gather Inputs
 
-**First, complete the company folder check above** — that is always Step 0. Then ask Serena which of the following she has (or check what files are present in context). For late-stage / pre-IPO deals, expect Pitchbook or CB Insights material as a primary input; if it is missing, request it before proceeding rather than substituting it with company-originated material:
+**First, complete the company folder check above** — that is always Step 0. Then ask Serena which of the following she has (or check what files are present in context). For late-stage / pre-IPO deals, expect Pitchbook or CB Insights material as a primary input wherever obtainable; for Series A/A2 and early-growth deals, use the sponsor memo, round materials, partner notes, company deck, and independent public research as the core package without treating missing pre-IPO-style materials as a flaw by itself:
 
-- **Pitchbook / CB Insights summary** — primary input for late-stage / pre-IPO underwriting; required wherever obtainable
+- **Pitchbook / CB Insights summary** — primary input for growth / pre-IPO investment decisions; required wherever obtainable
 - **Public peer filings or analyst notes** — for benchmarking growth, multiples, and operating profile
 - **Procurement / pricing benchmarks / partner notes** — strongly preferred for revenue quality and deployment depth
 - **Pitch deck or data room excerpt** — PDF or PPTX file (treat as company-originated)
@@ -277,7 +277,7 @@ If a file or run folder with the target name already exists, generate a new time
 - **One-pager or intermediary intro** — text or file
 - **Company website** — URL to fetch (treat as company-originated)
 
-Work with whatever is available, but treat missing late-stage diligence inputs as a confidence reducer rather than a neutral omission. A partial memo is better than no memo — clearly mark any sections as "Information not available" when inputs are missing rather than fabricating data.
+Work with whatever is available, but calibrate missing information to stage and round context. A partial memo is better than no memo — clearly mark any sections as "Information not available" when inputs are missing rather than fabricating data.
 
 Write all derived input artifacts into the current run folder under `inputs/`.
 
@@ -307,9 +307,9 @@ All intermediate analytical artifacts from this step must be written into the cu
 
 ### Stage Sensitivity
 
-This skill is scoped to late-stage and pre-IPO deals. Apply full pressure testing across revenue quality, deployment depth, pricing power, gross margin and operating margin where available, GTM efficiency, competitive compression, capital structure, and valuation timing.
+This skill is scoped to growth-stage, late-stage, and pre-IPO deals. Apply full pressure testing across revenue quality, deployment depth, pricing power, gross margin and operating margin where available, GTM efficiency, competitive compression, capital structure, and valuation timing.
 
-If a deal turns out to be early-stage (angel, seed, or pre-revenue) once inputs are reviewed, stop and tell Serena that this skill is not the right fit, rather than degrading the analytical standard to match thin data. Missing late-stage diligence inputs do not relax the bar — they reduce confidence and become gating diligence questions.
+If a deal turns out to be early-stage or early-growth once inputs are reviewed, calibrate expectations to that stage rather than forcing late-stage diligence norms onto thin data. Missing later-stage diligence inputs should be framed as confirmation work, not automatic disqualifiers.
 
 ### Source hierarchy
 
@@ -399,7 +399,7 @@ Build a dated table showing at minimum:
 - implied contemporaneous multiple
 - latest ARR / revenue and date
 - implied stale-mark shorthand multiple
-- why the distinction matters for underwriting
+- why the distinction matters for the investment decision
 
 Write results to:
 ```text
@@ -455,9 +455,9 @@ analysis/disconfirming_evidence.md
 
 ---
 
-## Required Late-Stage Passes (Run on Every Deal)
+## Required Stage-Calibrated Passes (Run on Every Deal)
 
-For late-stage / pre-IPO deals, these passes are required, not optional. They may use proxies when direct evidence is unavailable, but they may not be skipped silently. If any pass cannot be completed, document the gap and reflect it in the gating diligence questions and confidence rating.
+These passes are required, not optional, but their depth and evidentiary expectations must scale to the stage and source package. They may use proxies when direct evidence is unavailable, but they may not be skipped silently. If any pass cannot be completed, document the gap and reflect it in the decision questions and confidence rating.
 
 ### 4. Procurement / Spend Pass
 Assess:
@@ -624,7 +624,7 @@ At minimum, consider:
 - whether a small number of large accounts explain most expansion
 - whether the average hides meaningful churn or budget-cut risk in smaller accounts
 
-If only averages are available, explicitly state at least two plausible distribution shapes and explain how each would change the underwriting conclusion.
+If only averages are available, explicitly state at least two plausible distribution shapes and explain how each would change the investment conclusion.
 
 Write results to:
 ```text
@@ -998,29 +998,29 @@ Write scenario conclusions to:
 analysis/scenario_swim_lanes.md
 ```
 
-## Missingness Penalty Rule
+## Missingness Calibration Rule
 Absence of critical data is not neutral.
 
-Missing information about NRR, gross margin, burn, EBITDA / operating margin, customer concentration, pricing durability, or capital structure must reduce confidence in the recommendation unless a credible proxy is provided.
+Missing information about NRR, gross margin, burn, EBITDA / operating margin, customer concentration, pricing durability, or capital structure must be calibrated to stage and round context. For Series A/A2 and early-growth deep-tech financings, lack of disclosed ARR, margin, a public lead name, or detailed side-letter terms is common and should not automatically become a high-severity risk or a tiny allocation recommendation. For later-stage and pre-IPO rounds, the same missingness carries more weight.
 
 When critical metrics are missing:
 - explicitly state what is missing
 - explain why it matters
-- reduce confidence accordingly
-- move the missing item into the top gating diligence list if it could materially change the decision
+- calibrate confidence to stage, sponsor access, syndicate quality, scarcity, and available proxies
+- move the missing item into the top decision-question list only if it could materially change the decision
 
-## Top 3 Decision Gates
-Collapse all open diligence into the three highest-value gating questions that would most change the decision.
+## Top 3 Decision Questions
+Collapse all open diligence into the three highest-value decision questions that would most change the recommendation.
 
 These are the questions that should appear in the Open Questions subsection of the Executive Summary (Section I) and should directly drive whether the recommendation is:
-- Yes
-- Conditional Yes
-- Need More Information
+- Proceed
+- Proceed if confirmed
+- Hold pending confirmation
 - Pass
 
 Additional questions may be included after the top three, but they are secondary.
 
-Write the gating list to:
+Write the internal decision-question list to:
 ```text
 analysis/gating_questions.md
 ```
@@ -1055,7 +1055,7 @@ The transition summary passed into memo writing should include:
 - growth bridge summary
 - average vs distribution risk summary
 - base / bull / bear swim lanes
-- top 3 gating diligence questions
+- top 3 decision questions
 
 ---
 
@@ -1072,7 +1072,7 @@ inventory, and manifest finalization.
 
 The memo package is the dynamic surface. It must include:
 - `schema_version: 1`
-- `company` metadata: name, descriptor, stage, sector, location, round, BSH ticket size
+- `company` metadata: name, descriptor, stage, sector, location, round, BSH target allocation / position size
 - `run` metadata: run id and as-of date
 - `sections`: ordered section objects using the exact memo structure below
 - section `blocks` of type `heading`, `paragraph`, `bullets`, `callout`, or `table`
@@ -1089,7 +1089,7 @@ Recommended generation order:
 2. Validate that the English memo is complete, the structure matches the spec, all required tables and callouts are present, and the recommendation is clear.
 3. Translate the English memo into Simplified Chinese following the rules in the **Bilingual Output: English + Simplified Chinese (简体中文)** section below.
 4. Write the bilingual structured package to `logs/memo_package.json`.
-5. Cross-check that the Chinese memo's tables, callouts, recommendation, and Top 3 Gating Questions (for BSH) match the English memo exactly in content (only language differs).
+5. Cross-check that the Chinese memo's tables, callouts, recommendation, and Top 3 Decision Questions (for BSH) match the English memo exactly in content (only language differs).
 
 Save the outputs into the current run folder under:
 ```text
@@ -1132,7 +1132,7 @@ Required cover-page elements:
    - Sector
    - Location
    - Round (for late-stage transactions where round size and post-money are public or in-talks)
-   - BSH ticket size
+   - BSH target allocation / position size
 
    Do not include a `Prepared by` line on the cover. Internal authorship belongs in the run manifest, not the deliverable.
 7. **Table of Contents** placed below the metadata block, listing the six body-section entries only — I. Executive Summary, II. Company Overview, III. Investment Highlights, IV. Investment Risk, V. Financial Forecast & Valuation, VI. Sources, Source Classes, and Fact Reference Index — with their page numbers. Do **not** include the Validation & Assumptions Log appendix in the TOC; appendix material is auditing scaffolding rather than navigable narrative content. Use a small Tiffany-rule header labeled `TABLE OF CONTENTS` (English) or `目录` (Chinese), then a compact two-column layout (section name on the left, page number right-aligned with dot leaders or simple right-alignment). Include only top-level (Heading 1) entries to keep the cover page uncluttered. Subsection headings are reserved for the body, not the cover.
@@ -1153,22 +1153,22 @@ The Executive Summary must be visually structured for rapid IC-style review and 
 Required executive-summary components:
 1. **Key Metrics Snapshot** table inside Investment Opportunity, near the top of page 2
 2. **Valuation Timing Warning (for BSH)** callout inside Investment Opportunity whenever contemporaneous vs stale-mark multiples differ materially
-3. A deal-specific investor-facing evidence callout when it adds value, such as **What Is Priced In**, **What Is Not Yet Underwritten**, **Bear-Case Evidence**, or **Evidence Required Before the Next Step-Up**
-4. A clear **Investment Recommendation** verdict (Yes / Conditional Yes / Need More Information / Pass) with explicit conditions when conditional
-5. **Top 3 Gating Questions (for BSH)** decision-gate callout inside Open Questions
+3. A deal-specific investor-facing evidence callout when it adds value, such as **What Is Priced In**, **What Still Needs Confirmation**, **Bear-Case Evidence**, or **Evidence Required Before the Next Step-Up**
+4. A clear **Investment Recommendation** verdict (Proceed / Proceed if confirmed / Hold pending confirmation / Pass) with explicit confirmation items when conditional
+5. **Top 3 Decision Questions (for BSH)** callout inside Open Questions
 6. Clear separation between:
    - facts evidenced today
    - future execution dependencies
    - unresolved diligence items
 
-The `(for BSH)` suffix on internal callouts marks them as BSH-internal underwriting content. They contain valuation timing risk, disconfirming evidence, and decision gates that drive the BSH-specific decision. The Chinese equivalent of the suffix is `(仅供 BSH)`.
+The `(for BSH)` suffix on internal callouts marks them as BSH-internal decision content. They contain valuation timing risk, disconfirming evidence, and confirmation questions that drive the BSH-specific decision. The Chinese equivalent of the suffix is `(仅供 BSH)`.
 
 Recommended packaging order on the page:
 - Investment Opportunity narrative + Key Metrics Snapshot table + (Valuation Timing Warning (for BSH) callout if relevant)
 - Investment Thesis bullets
 - Investment Risk bullets + deal-specific evidence callout if useful
 - Investment Recommendation
-- Open Questions / Top 3 Gating Questions (for BSH) callout
+- Open Questions / Top 3 Decision Questions (for BSH) callout
 
 ## Mandatory Structured Components
 
@@ -1214,7 +1214,7 @@ Style:
 
 ### 2. Decision Gate Box
 Use for:
-- top 3 gating diligence questions
+- top 3 decision questions
 - recommendation conditions
 - must-prove-before-investing items
 
@@ -1256,7 +1256,7 @@ Use keep-with-next, keep-lines-together, and sensible paragraph spacing where po
 
 ### Memo Structure
 
-Use this exact structure, in order. Because every deal in scope is late-stage or pre-IPO, expect thorough coverage of financials, capital structure, competitive landscape, board composition, and valuation timing. The required additions below are part of the exact structure and must be included.
+Use this exact structure, in order. Because deals in scope range from Series A/A2 growth opportunities to pre-IPO rounds, scale financial, capital-structure, competitive, governance, and valuation coverage to the actual stage and available source package. The required additions below are part of the exact structure and must be included.
 
 ---
 
@@ -1270,7 +1270,7 @@ Required text content:
 - Sector: [AI / Consumer / etc.]
 - Location: [City, Country]
 - Round: [round size / post-money / instrument]
-- BSH ticket size: [check size, conditional or firm]
+- BSH target allocation / position size: [allocation range, conditional or firm]
 
 Do not include `Prepared by` on the cover. Author attribution belongs in the run manifest.
 
@@ -1302,12 +1302,12 @@ Required subsection order:
 Lead with the opening thesis contract before any table:
 1. sentence 1: what the company is and why it matters;
 2. sentence 2: what BSH is being asked to buy and at what entry terms;
-3. sentence 3: the central underwriting tension, especially when valuation has moved faster than disclosed revenue proof;
-4. sentence 4: the current recommendation posture and the gates that can move it.
+3. sentence 3: the central price/proof tension, especially when valuation has moved faster than disclosed commercial proof;
+4. sentence 4: the current recommendation posture and the confirmation items that can move it.
 
 The first two body paragraphs must state the company, transaction, valuation / entry terms, central price/proof tension, and recommendation posture. Do not start with a negative throat-clearing phrase such as "The investment case is not..." and do not write meta-language such as "The memo frames..."
 
-Then describe the deal itself: round size and structure (priced equity, secondary, SPV), BSH check size and any minimum, valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, how BSH got access (GP partner channel, intermediary, direct), expected liquidity timeline, and any co-investment terms (management fee, carry).
+Then describe the deal itself: round size and structure (priced equity, secondary, SPV), BSH target allocation or position size, valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, how BSH got access (GP partner channel, intermediary, direct), expected liquidity timeline, and any co-investment terms (management fee, carry).
 
 Include a **Key Metrics Snapshot** table near the top with the most important available metrics, such as:
 - ARR / revenue
@@ -1330,21 +1330,21 @@ These bullets must be derivable from Section III. Do not introduce thesis claims
 The strongest reasons not to invest, framed as the risks most likely to change the recommendation. Each bullet should name the risk and the disconfirming or stress evidence behind it.
 
 If a callout improves readability, render a deal-specific investor-facing evidence box with one of these headings:
-- **What BSH Is Underwriting**
+- **What BSH Is Buying**
 - **What Is Priced In**
-- **What Is Not Yet Underwritten**
+- **What Still Needs Confirmation**
 - **Bear-Case Evidence**
 - **Evidence Required Before the Next Step-Up**
 
 Do not use scaffold headings such as "Critical Reality Check," "Strongest independent support," "Still unproven," or "Already true versus upside-only." Translate those analytical distinctions into normal investor language.
 
 *Investment Recommendation*  
-A clear recommendation: **Yes / Conditional Yes / Need More Information / Pass**. Follow with 2–4 sentences explaining the logic, and — if Conditional Yes — list the specific conditions that must be met before BSH proceeds.
+A clear recommendation: **Proceed / Proceed if confirmed / Hold pending confirmation / Pass**. Follow with 2–4 sentences explaining the logic, and — if conditional — list the specific confirmation items that must be met before BSH funds.
 
 Treat this as the Investment View: state conviction, dependencies, failure modes, and recommendation. Do not summarize the memo's structure or methodology.
 
 *Open Questions*  
-Render the **Top 3 Gating Questions (for BSH)** as a decision-gate callout box. These should be the three questions most likely to change the investment decision and the ones BSH co-founders should resolve in async review. The `(for BSH)` suffix marks the callout as BSH-internal content.
+Render the **Top 3 Decision Questions (for BSH)** as a concise callout box. These should be the three questions most likely to change the investment decision and the ones BSH co-founders should resolve in async review. The `(for BSH)` suffix marks the callout as BSH-internal content.
 
 ---
 
@@ -1487,7 +1487,7 @@ Each risk statement should be a sharp one-sentence risk. Put evidence, mitigants
 | 1 | [risk] | High / Med / Low | High / Med / Low | [evidence] | [mitigant] |
 
 *Key Disconfirming Evidence*  
-Beyond the risk table, surface the strongest factual evidence that cuts against the thesis. This is not a risk list — it is the body of evidence a bear-case underwriter would lead with. Use an evidence-summary callout box if the disconfirming evidence is especially central to the case.
+Beyond the risk table, surface the strongest factual evidence that cuts against the thesis. This is not a risk list — it is the body of evidence a skeptical investor would lead with. Use an evidence-summary callout box if the disconfirming evidence is especially central to the case.
 
 *Pre-Mortem Summary*  
 A short paragraph distilling the run-folder Pre-Mortem: assume it is 24 months later and this investment looks materially worse than expected — what most likely went wrong?
@@ -1555,10 +1555,10 @@ Note assumptions explicitly. If financials are unavailable, say so and explain w
 **Investment Decision / Closing View**
 
 Before Sources, include a substantive final investment close that mirrors the opening thesis. It must state:
-- recommendation: Yes, Conditional Yes, Need More Information, or Pass;
-- allocation posture: minimum ticket, full allocation, watchlist, or pass;
-- required pre-funding evidence;
-- kill criteria;
+- recommendation: Proceed, Proceed if confirmed, Hold pending confirmation, or Pass;
+- allocation posture: target allocation, full available allocation, waitlist / revisit, or pass;
+- required confirmation evidence before funding;
+- stop / revisit conditions;
 - what changes the next-round / step-up case;
 - next diligence actions in priority order.
 
@@ -1612,7 +1612,7 @@ Translate into Simplified Chinese:
 - All body prose, callout text, and bullet points
 - All table column headers and any descriptive cell text
 - Status labels (e.g., "Supported / Partially supported / Unproven / Disconfirmed")
-- The recommendation verdict (e.g., "Yes / Conditional Yes / Need More Information / Pass")
+- The recommendation verdict (e.g., "Proceed / Proceed if confirmed / Hold pending confirmation / Pass")
 - Footer / running header text
 
 Preserve in original Latin form (do **not** translate):
@@ -1653,13 +1653,13 @@ Rules:
 | Investment Recommendation | 投资建议 |
 | Open Questions | 待解决问题 |
 | Key Metrics Snapshot | 关键指标速览 |
-| What BSH Is Underwriting | BSH 正在承销的核心判断 |
+| What BSH Is Buying | BSH 本次配置的核心资产 |
 | What Is Priced In | 估值中已反映的预期 |
-| What Is Not Yet Underwritten | 尚未完成承销的部分 |
+| What Still Needs Confirmation | 仍需确认的事项 |
 | Bear-Case Evidence | 悲观情景证据 |
 | Evidence Required Before the Next Step-Up | 下一轮估值上调前所需证据 |
 | Investment Decision / Closing View | 投资决策 / 结论观点 |
-| Top 3 Gating Questions (for BSH) | 三大核心决策问题（仅供 BSH） |
+| Top 3 Decision Questions (for BSH) | 三大核心决策问题（仅供 BSH） |
 | Valuation Timing Warning (for BSH) | 估值时点警示（仅供 BSH） |
 | (for BSH) | （仅供 BSH） |
 | II. Company Overview | 二、项目简介 |
@@ -1730,14 +1730,14 @@ Use exactly these strings:
 
 | English | Chinese |
 |---|---|
-| Yes | 推荐投资 |
-| Conditional Yes | 有条件推荐 |
-| Need More Information | 需要更多信息 |
+| Proceed | 建议参与 |
+| Proceed if confirmed | 确认后建议参与 |
+| Hold pending confirmation | 待确认后再决定 |
 | Pass | 不推荐 |
 
 ### Translation Quality Rules
 
-- The Chinese memo is a **faithful translation**, not a paraphrase or summary. Every claim, every number, every disconfirming fact, and every gating question in the English memo must appear in the Chinese memo.
+- The Chinese memo is a **faithful translation**, not a paraphrase or summary. Every claim, every number, every disconfirming fact, and every decision question in the English memo must appear in the Chinese memo.
 - Do not soften critical warnings, valuation timing caveats, or disconfirming evidence in translation. Tone-shift in either direction is a defect.
 - Do not introduce new analysis in the Chinese memo that is not in the English memo.
 - Use formal written Chinese (书面语), not colloquial register. The audience is institutional investors.
@@ -1916,11 +1916,11 @@ All critical callouts must be visually differentiated from body text.
 ### Evidence Summary Box
 - Left border: Tiffany Blue
 - Background: Pale Tiffany
-- Use for What BSH Is Underwriting, What Is Not Yet Underwritten, Bear-Case Evidence, and Evidence Required Before the Next Step-Up
+- Use for What BSH Is Buying, What Still Needs Confirmation, Bear-Case Evidence, and Evidence Required Before the Next Step-Up
 
-### Decision Gate Box
+### Decision Question Box
 - Background: Warm Grey or Pale Tiffany
-- Use for Top 3 Gating Questions (for BSH) and recommendation conditions
+- Use for Top 3 Decision Questions (for BSH) and recommendation confirmation items
 
 Do not render these as plain paragraphs with only bold text.
 
@@ -1932,7 +1932,7 @@ Required elements:
 - Key Metrics Snapshot table inside Investment Opportunity
 - Valuation Timing Warning (for BSH) callout inside Investment Opportunity when contemporaneous vs stale-mark multiples differ materially
 - deal-specific investor-facing evidence callout when it improves IC readability
-- Top 3 Gating Questions (for BSH) decision callout inside Open Questions
+- Top 3 Decision Questions (for BSH) callout inside Open Questions
 - Visible separation between Opportunity, Thesis, Risk, Recommendation, and Open Questions
 
 The Executive Summary should be highly skimmable in under two minutes.
@@ -2011,8 +2011,8 @@ If a sentence explains how the memo was built, rewrite it as the investment judg
     - a Key Metrics Snapshot table inside Investment Opportunity
     - a Valuation Timing Warning (for BSH) callout inside Investment Opportunity when contemporaneous vs stale-mark multiples differ materially
     - a deal-specific investor-facing evidence callout when it improves IC readability
-    - an explicit Investment Recommendation verdict (Yes / Conditional Yes / Need More Information / Pass)
-    - a Top 3 Gating Questions (for BSH) callout inside Open Questions
+    - an explicit Investment Recommendation verdict (Proceed / Proceed if confirmed / Hold pending confirmation / Pass)
+    - a Top 3 Decision Questions (for BSH) callout inside Open Questions
 24. All mandatory table-driven sections are actually rendered as tables (Key Metrics Snapshot, Board of Directors, Revenue, Key Metrics, Competitive Analysis, Moat, Risk Register, Time-Base Integrity, Growth Bridge, Scenario Analysis, Validation & Assumptions Log).
 25. The memo contains at least **8** tables.
 26. The memo contains at least **3** callout boxes.
@@ -2025,7 +2025,7 @@ If a sentence explains how the memo was built, rewrite it as the investment judg
 31. A Simplified Chinese `.docx` exists alongside the English `.docx` in the same `memo/` directory and shares the same timestamp.
 32. The Chinese memo uses the exact section header translations specified in the **Bilingual Output** section.
 33. The Chinese memo uses CJK-safe fonts (Microsoft YaHei or Noto Sans CJK SC) for all CJK text; Latin / numeric runs inside Chinese paragraphs render in Arial.
-34. The Chinese memo's tables, callouts, recommendation verdict, and Top 3 Gating Questions (for BSH) (三大核心决策问题（仅供 BSH）) match the English memo's content exactly — only the language differs.
+34. The Chinese memo's tables, callouts, recommendation verdict, and Top 3 Decision Questions (for BSH) (三大核心决策问题（仅供 BSH）) match the English memo's content exactly — only the language differs.
 35. The Chinese memo preserves company name, executive names, ticker symbols, currency amounts, percentages, and dates in their original Latin form (per the translation scope rules).
 36. The Chinese memo uses Chinese-style punctuation (，。；：「」《》) inside Chinese-language sentences and leaves a half-width space on either side of any Latin acronym embedded in a Chinese sentence.
 37. The Chinese memo's footer renders page numbers as `第 X 页` and the running header reads `[Company Name] | BSH 机密投资备忘录`.
@@ -2058,7 +2058,7 @@ After writing `logs/memo_package.json`:
 1. Confirm `logs/memo_package.json` is the only dynamic rendering input and no generated renderer script exists in the run folder.
 2. Do not run the fixed renderer yourself. The server will render, validate,
    update `logs/run_manifest.md`, and update `logs/file_inventory.md`.
-3. Briefly summarize in the chat reply: recommendation, top 2 reasons to proceed or pass, and the top 3 gating questions. Use English for the chat summary unless Serena requests otherwise.
+3. Briefly summarize in the chat reply: recommendation, top 2 reasons to proceed or pass, and the top 3 decision questions. Use English for the chat summary unless Serena requests otherwise.
 4. Do not move, rename, or delete prior runs as part of presentation.
 
 ---
@@ -2068,7 +2068,7 @@ After writing `logs/memo_package.json`:
 | BSH Criterion | Details |
 |---------------|---------|
 | Sector | AI — consumer-facing and business-facing AI startups |
-| Stage | Late-stage / Pre-IPO (direct); mid-stage via GP partners. This skill is scoped to late-stage and pre-IPO only. |
+| Stage | Growth / late-stage / pre-IPO (direct); mid-stage via GP partners. Calibrate expectations to the actual round. |
 | Founder background | Immigrant or underrepresented background |
 | Founder ethnicity | Asian ethnicity preferred |
 | Relationship | Long-term partnership mindset |
@@ -2087,8 +2087,8 @@ After writing `logs/memo_package.json`:
 **Serena says:** "Can you write up [Company] — there's a secondary opportunity at a late-stage mark."  
 → Check for `BSH Assistant/[Company]/` folder → read all documents in it → create a new run folder → flag the contemporaneous-vs-stale-mark multiple distinction in the executive summary callout → run pressure tests including post-acquisition reality and core franchise resilience → produce English `.docx` memo → produce Simplified Chinese `.docx` memo → validate both → present both files
 
-**Serena says:** "Here's an early-stage seed deal — write the memo."  
-→ Decline politely. This skill is scoped to late-stage / pre-IPO only and the analytical bar should not be lowered. Recommend a different memo workflow rather than running this one with thin data.
+**Serena says:** "Here's an early-growth deal — write the memo."
+→ Run the memo with stage-calibrated expectations. Do not force pre-IPO diligence norms onto a Series A/A2 or early-growth financing.
 
 ---
 
@@ -2096,11 +2096,11 @@ After writing `logs/memo_package.json`:
 
 Prefer a memo that is precise, critical, and partially unresolved over a memo that is smooth, confident, and weakly validated.
 
-This system is only successful if it preserves execution reliability, memo consistency, non-destructive storage, and underwriting rigor all at once.
+This system is only successful if it preserves execution reliability, memo consistency, non-destructive storage, and investment rigor all at once.
 
 It should prefer:
 - dated, traceable, source-aware arithmetic over slogan-like valuation framing
 - growth bridges over blended growth narratives
 - distribution-aware deployment analysis over average-only math
-- top 3 gating questions over long undifferentiated diligence lists
+- top 3 decision questions over long undifferentiated diligence lists
 - confidence calibrated to missingness, not confidence despite missingness

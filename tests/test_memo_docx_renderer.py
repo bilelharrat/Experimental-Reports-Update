@@ -22,7 +22,7 @@ def _package() -> dict:
             "sector": "AI Robotics",
             "location": "San Francisco, CA",
             "round": "Series D context",
-            "bsh_ticket_size": "$5-10M",
+            "bsh_allocation": "$5-10M",
         },
         "run": {
             "run_id": "2026-06-22__120000",
@@ -75,7 +75,7 @@ def _package() -> dict:
                             [
                                 {"en": "Customer depth", "zh": "客户深度"},
                                 {
-                                    "en": "Require repeatable production usage before underwriting a step-up.",
+                                    "en": "Require repeatable production usage before supporting a step-up.",
                                     "zh": "承销估值上调前，需要验证可重复的生产环境使用。",
                                 },
                             ],
@@ -219,6 +219,8 @@ def test_parameterized_renderer_writes_bilingual_docx_and_logs(tmp_path):
     assert out_zh.exists()
     assert "Generalist, Inc." in _all_text(out_en)
     assert "I. EXECUTIVE SUMMARY" in _all_text(out_en)
+    assert "BSH target allocation" in _all_text(out_en)
+    assert "BSH ticket size" not in _all_text(out_en)
     assert "关键指标快照" in _all_text(out_zh)
     assert "server.memo_docx_renderer" in (
         tmp_path / "logs" / "run_manifest.md"

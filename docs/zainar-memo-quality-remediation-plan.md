@@ -100,7 +100,7 @@ What to preserve:
   them into one revenue story.
 - It adds `Investment Risks and Model Treatment`, `Return Framework and Exit
   Scenarios`, and `Evidence Required for a Step-Up Case`. These are much closer
-  to how an early-commercial, high-valuation private deal should be underwritten.
+  to how an early-commercial, high-valuation private deal should be evaluated.
 
 What still needs improvement:
 
@@ -231,8 +231,8 @@ Fix plan:
 - Replace with one of these investor-facing components, selected by deal
   context:
   - `Valuation Timing Warning`
-  - `What BSH Is Underwriting`
-  - `What Is Not Yet Underwritten`
+  - `What BSH Is Buying`
+  - `What Still Needs Confirmation`
   - `Evidence Required Before the Next Step-Up`
   - `Bear-Case Evidence`
 - Convert taxonomy into sentence-level investment implications:
@@ -445,7 +445,7 @@ Fix plan:
   - Investment Opportunity
   - Why This Could Matter
   - What Is Priced In
-  - What Is Not Yet Underwritten
+  - What Still Needs Confirmation
   - Investment View
   - Evidence Required Before Funding or Step-Up
 - Allow callouts only when they add investor value. Do not require three
@@ -510,7 +510,7 @@ Better comparator examples:
 
 Fix plan:
 
-- Add an early-commercial underwriting mode inside the late-stage memo skill.
+- Add an early-commercial investment mode inside the memo skill.
 - When recognized revenue is unavailable, require:
   - disclosed commercial signals,
   - model treatment,
@@ -656,7 +656,7 @@ Fix plan:
 - Add a required `opening thesis` contract before any memo body is written:
   - sentence 1: what the company is and why it matters;
   - sentence 2: what BSH is being asked to buy and at what entry terms;
-  - sentence 3: the central underwriting tension;
+  - sentence 3: the central price/proof tension;
   - sentence 4: the current recommendation posture and the gates that can move
     it.
 - The opening must include the price/proof frame when valuation has moved
@@ -666,15 +666,15 @@ Fix plan:
 - Provide a positive exemplar in the skill:
   - "ZaiNar is a scarce technical asset in network-side positioning, but the
     A2 asks BSH to pay today for commercial proof that is only partly visible.
-    The right posture is a small conditional allocation, not a full-conviction
-    growth-stage underwriting, unless the company can show that the reported
+    The right posture is a staged allocation, not a full-conviction
+    growth-stage investment case, unless the company can show that the reported
     contract/MOU base is binding, repeatable, and not concentrated in one or
     two accounts."
 
 Acceptance:
 
 - The first two body paragraphs state company, transaction, valuation, central
-  underwriting tension, and recommendation posture.
+  price/proof tension, and recommendation posture.
 - The introduction contains no source tokens, no "the memo" meta-language, and
   no negative throat-clearing.
 
@@ -684,7 +684,7 @@ Severity: P0
 
 Examples from generated memo:
 
-- "Recommendation: Conditional Yes - a small ticket at or near the $500K SPV
+- "Recommendation: Proceed if confirmed - an initial allocation at or near the $500K SPV
   minimum..." is directionally useful, but it is buried before the detailed
   analysis and not reinforced at the end.
 - "If any of the first two fail, this is a Pass at this mark..." is a good
@@ -704,10 +704,10 @@ Fix plan:
 - Add a mandatory final `Investment Decision` or `Closing View` before Sources
   and Disclosures.
 - The final close must state:
-  - recommendation: Yes, Conditional Yes, Need More Information, or Pass;
-  - allocation posture: minimum ticket, full allocation, watchlist, or pass;
+  - recommendation: Proceed, Proceed if confirmed, Hold pending confirmation, or Pass;
+  - allocation posture: initial allocation, full allocation, watchlist, or pass;
   - required pre-funding evidence;
-  - kill criteria;
+  - stop/revisit conditions;
   - what changes the next-round/step-up case;
   - next diligence actions in priority order.
 - Require the conclusion to mirror the opening frame. If the opening says
@@ -744,13 +744,13 @@ Fix plan:
   - `entry_tension`: what the price already assumes;
   - `current_proof`: what is proven today;
   - `unproven_but_modelable`: what is missing but can be modeled;
-  - `kill_criteria`: what makes BSH pass;
-  - `action`: recommended check size and conditions.
+  - `stop_or_revisit`: what makes BSH pass or revisit later;
+  - `action`: recommended allocation range and confirmation items.
 - Require introduction, Investment View, risk section, scenario section, and
   final close to use this same spine.
 - Add a linter or prompt test that the final memo includes a recommendation
   and at least two explicit gating conditions when the recommendation is
-  Conditional Yes.
+  Proceed if confirmed.
 
 Acceptance:
 
@@ -814,7 +814,7 @@ Tasks:
 - Add accepted callout types:
   - `Valuation Timing Warning`
   - `What Is Priced In`
-  - `What Is Not Yet Underwritten`
+  - `What Still Needs Confirmation`
   - `Bear-Case Evidence`
   - `Evidence Required Before the Next Step-Up`
 - Update memo packet handoff so tool labels do not become final headings.
@@ -832,10 +832,10 @@ Files:
 Tasks:
 
 - Add an opening-thesis contract: company, transaction, valuation, central
-  underwriting tension, recommendation posture.
+  price/proof tension, recommendation posture.
 - Add a final `Investment Decision` / `Closing View` section before Sources.
-- Require Conditional Yes conclusions to include allocation posture, gates,
-  kill criteria, and next diligence actions.
+- Require Proceed-if-confirmed conclusions to include allocation posture,
+  gates, stop/revisit conditions, and next diligence actions.
 - Add a memo-spine handoff field or prompt block so the opening and conclusion
   use the same core frame.
 - Add tests asserting the prompt includes the opening/conclusion contract and
@@ -902,7 +902,7 @@ Tasks:
   - no em dash bridges,
   - introduction states company, deal, valuation, price/proof tension, and
     recommendation posture,
-  - final close states allocation posture, gates, kill criteria, and next
+  - final close states allocation posture, gates, stop/revisit conditions, and next
     diligence actions,
   - disclosure gaps converted into model treatment,
   - SAFE/SPV mechanics stated plainly,

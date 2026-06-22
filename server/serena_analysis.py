@@ -3037,7 +3037,7 @@ def _coerce_strategic_risks(value: Any, company: dict) -> list[dict]:
             ),
             "bear_case_answer": str(row.get("bear_case_answer") or "").strip() or (
                 "If the answer is weak, the investment case depends on a "
-                "future state that is not yet underwritten."
+                "future state that is not yet visible in source-backed proof."
             ),
             "evidence_needed": evidence[:6],
             "best_sources": sources[:8],
@@ -3238,7 +3238,7 @@ def _strategic_risks(company: dict) -> list[dict]:
             ),
             "bear_case_answer": (
                 "If the answer is weak, the investment case depends on a "
-                "future state that is not yet underwritten."
+                "future state that is not yet visible in source-backed proof."
             ),
             "evidence_needed": evidence,
             "best_sources": sources,
@@ -3331,7 +3331,7 @@ def _strategic_risks(company: dict) -> list[dict]:
     add(
         "Can the company defend pricing and budget ownership?",
         "Does the product own a resilient budget line, or will it face consolidation and finance pushback?",
-        "Budget-owner ambiguity and weak procurement evidence often break late-stage software underwriting.",
+        "Budget-owner ambiguity and weak procurement evidence often break late-stage software investment cases.",
         [
             "budget owner",
             "contract size by segment",
@@ -3420,7 +3420,7 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
     highlights = [
         {
             "id": "highlight-1",
-            "claim": f"{name} gives BSH a focused way to underwrite {sector}",
+            "claim": f"{name} gives BSH a focused way to invest in {sector}",
             "detail": (
                 f"{desc} The central investment question is whether the "
                 "operating proof is strong enough for a late-stage BSH entry."
@@ -3446,7 +3446,7 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "claim": "Final view depends on deployment depth, revenue quality, and valuation support",
             "detail": (
                 "These are the proof points most likely to determine whether "
-                "the conclusion is a conditional yes or a need-more-information outcome."
+                "the conclusion is proceed, proceed if confirmed, hold, or pass."
             ),
             "state": "upside_state",
             "source_trace": ["strategic_risks", "risk_priorities", "chart_specs"],
@@ -3481,10 +3481,10 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
         "investment_highlights": highlights[:5],
         "investment_risks": risks_out[:5],
         "recommendation_logic": (
-            "Need More Information until the lead risks have independent "
+            "Hold pending confirmation until the lead risks have independent "
             "support, the benchmark dashboard supports the valuation posture, "
-            "and the operator selects whether the final view is conditional "
-            "yes, wait for evidence, or pass."
+            "and the operator selects whether the final view is proceed, "
+            "proceed if confirmed, hold pending confirmation, or pass."
         ),
         "top_gating_questions": gates[:3],
         "bull_case_must_be_true": [
@@ -3561,7 +3561,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         if isinstance(thesis, dict)
         else ""
     )
-    main_gate = gates[0]["question"] if gates else "whether the current traction is deep enough to underwrite"
+    main_gate = gates[0]["question"] if gates else "whether the current traction is deep enough to support BSH entry"
     lead_highlight = (
         _clean_text(highlights[0].get("claim"), limit=180)
         if highlights and isinstance(highlights[0], dict)
@@ -3685,29 +3685,29 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
     ]
     endings = [
         {
-            "id": "conclusion-conditional-yes",
+            "id": "conclusion-proceed-if-confirmed",
             "text": (
-                "The right posture is Conditional Yes only if the lead "
+                "The right posture is proceed if confirmed only if the lead "
                 "gating questions can be answered with independent evidence."
             ),
             "purpose": "conclusion posture",
-            "tone": "conditional_yes",
+            "tone": "proceed_if_confirmed",
             "supported_claims": [main_gate, recommendation_logic],
             "evidence_references": ["top_gating_questions", "recommendation_logic"],
             "source_traces": [],
             "confidence": "medium",
-            "overclaiming_risk": "Do not use if the evidence base supports only Need More Information.",
+            "overclaiming_risk": "Do not use if the evidence base supports only holding for confirmation.",
             "paired_infographic_ids": [],
             "reviewer_prompts": [],
             "status": "draft",
         },
         {
-            "id": "conclusion-need-more-info",
+            "id": "conclusion-hold-pending-confirmation",
             "text": (
-                f"Need More Information is the clean answer until BSH can resolve {gate_lc.rstrip('?')}."
+                f"Hold pending confirmation is the clean answer until BSH can resolve {gate_lc.rstrip('?')}."
             ),
             "purpose": "conclusion posture",
-            "tone": "need_more_information",
+            "tone": "hold_pending_confirmation",
             "supported_claims": [main_gate, lead_risk],
             "evidence_references": ["top_gating_questions", "investment_risks"],
             "source_traces": [],
@@ -3752,8 +3752,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
                 ),
                 "required": False,
                 "options": [
-                    "Conditional Yes",
-                    "Need More Information",
+                    "Proceed if confirmed",
+                    "Hold pending confirmation",
                     "Pass unless lead proof arrives",
                 ],
                 "resolved_choice": None,

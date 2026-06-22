@@ -29,6 +29,8 @@ def test_linter_catches_source_scaffold_fuzzy_em_dash_and_disclosure_gaps(tmp_pa
             "A soft instrument into an unclosed round.",
             "Revenue not disclosed. ARR not disclosed.",
             "Series A2, ~$3.0B pre-money — closing imminent.",
+            "What Is Not Yet Underwritten",
+            "Conditional Yes at the minimum ticket.",
         ],
         tables=[
             [
@@ -50,6 +52,7 @@ def test_linter_catches_source_scaffold_fuzzy_em_dash_and_disclosure_gaps(tmp_pa
         "banned_fuzzy_phrase",
         "em_dash_bridge",
         "disclosure_gap_without_treatment",
+        "sell_side_voice_violation",
     }.issubset(codes)
 
 
@@ -113,7 +116,7 @@ def test_linter_treats_disclosure_gap_via_sibling_note_cell(tmp_path):
         tables=[
             [
                 ["Metric", "Value", "Note"],
-                ["Gross margin / burn / NRR", "Not disclosed", "Gating diligence items"],
+                ["Gross margin / burn / NRR", "Not disclosed", "Confirmation items"],
                 ["Revenue at date", "Not disclosed", "Undefined (no denominator)"],
             ],
         ],
@@ -146,3 +149,40 @@ def test_linter_still_flags_untreated_disclosure_gap(tmp_path):
     assert any(
         f.code == "disclosure_gap_without_treatment" for f in result.findings
     )
+
+
+def test_linter_blocks_buyer_side_language_in_final_body(tmp_path):
+    path = tmp_path / "buyer-side-language.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "Recommendation: Conditional Yes at the minimum ticket.",
+            "Top 3 Gating Questions (for BSH)",
+            "What Is Not Yet Underwritten",
+            "Require data room access, a named institutional lead, MFN, "
+            "down-round protection, information rights, and voting rights.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert result.has_blocking_findings is True
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+
+
+def test_linter_allows_gating_questions_as_investment_memo_language(tmp_path):
+    path = tmp_path / "gating-questions.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "Top 3 Gating Questions",
+            "Does binding deployment evidence support the current allocation?",
+            "Can carrier conversion produce upside without assuming all MOUs become revenue?",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(f.code == "sell_side_voice_violation" for f in result.findings)

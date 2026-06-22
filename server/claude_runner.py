@@ -1851,7 +1851,7 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "replacement_vs_coexistence.md": "Replacement vs coexistence",
     "scenario_swim_lanes.md": "Scenario swim lanes",
     "validation_log.md": "Validation log",
-    "gating_questions.md": "Gating questions",
+    "gating_questions.md": "Decision questions",
 }
 
 HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
@@ -1860,12 +1860,12 @@ HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
 This is a final-writing override. It supersedes any older skill instruction
 that asks for inline source markers, bracketed source traces, scaffolded
 taxonomy labels, or prompt-visible headings in final prose. Preserve the full
-diligence standard from the skill, but the finished English memo must read
-like a senior BSH investment partner's IC memo, not like a generated research
-report.
+diligence standard from the skill, but the finished English memo is an
+exec-ready sell-side investment memo for BSH partners, not a generated
+research report and not a buyer-side diligence memo.
 
 Final memo prose must:
-- write like a decision document for IC;
+- write like a senior investor making an allocation case under uncertainty;
 - convert evidence into judgment;
 - avoid process language, methodology narration, task labels, and validation
   scaffolding in the body;
@@ -1879,8 +1879,29 @@ Final memo prose must:
   the memo;
 - use source-class language in Sections I-V, with detailed source IDs only in
   a separate Sources, Source Classes, and Fact Reference Index;
-- convert disclosure gaps into model treatment, conversion ranges, Fermi
-  estimates, diligence thresholds, or kill criteria.
+- convert disclosure gaps into confirmation items, scenario ranges, Fermi
+  estimates, or closing diligence.
+
+Sell-side investment memo posture:
+- Do not write as if BSH is negotiating control terms in a private-equity
+  process. BSH is assessing whether to take available allocation in a scarce
+  financing.
+- Do not default to "small/minimum" allocation because revenue, ARR, gross
+  margin, lead investor, or detailed SAFE side terms are undisclosed. For
+  early-growth or Series A/A2 deep-tech rounds, those gaps are normal unless
+  the supplied source package says otherwise. Calibrate expectations to the
+  stage, round, sponsor channel, scarcity of allocation, and strength of the
+  syndicate.
+- If the round is oversubscribed, has top-tier participation, or the available
+  economics are attractive versus what others are receiving, reflect that as
+  positive evidence for allocation size and urgency. Do not recommend the
+  minimum allocation unless the facts show BSH's conviction is genuinely low.
+- Treat SPV/SAFE economics as deal mechanics to explain plainly, not as a
+  thesis-breaking risk by default. Use "confirm economics before funding" only
+  when the actual documents are ambiguous.
+- Decision questions should be few and deal-relevant. They should not be a
+  generic late-stage checklist. Avoid questions that would also disqualify
+  normal early-growth financings that top firms routinely complete.
 
 Final memo body and operating tables must not contain:
 - bracketed source tokens or file references such as `[S1]`, `[WV]`,
@@ -1895,6 +1916,10 @@ Final memo body and operating tables must not contain:
 - cute or fuzzy finance phrasing such as `soft instrument`, `hard IP wall`,
   `moat narrows`, `no-rights SAFE`, `where nothing else works`, or
   `least-proven part of the story`;
+- buyer-side, bank/debt, or control-investor process language. Use
+  investment-case, allocation, confirmation, decision, and stop/revisit
+  vocabulary instead of process labels, small-check reflexes, or
+  control-rights checklist phrasing;
 - em dash bridging in English body prose or operating tables;
 - meta-language about `the memo`, `the analysis`, `the framework`, or
   `this section`.
@@ -1904,28 +1929,33 @@ Memo spine requirement:
 - entry_tension: what the valuation or instrument already assumes;
 - current_proof: what is proven today by source class;
 - unproven_but_modelable: what is missing but can be modeled conservatively;
-- kill_criteria: what makes BSH pass or stop funding;
-- action: recommended check size, allocation posture, conditions, and next
-  diligence.
+- stop_or_revisit: what would make BSH decline or revisit later;
+- action: recommended allocation range, conviction posture, confirmation
+  items, and next diligence.
 
 The opening, Investment View, risk section, scenario section, and final
 Investment Decision / Closing View must use the same spine. The first two
 body paragraphs must state company, transaction, valuation / entry terms,
-central underwriting tension, and recommendation posture. The substantive
-ending must state what BSH should do, allocation posture, funding gates, kill
-criteria, and next diligence actions before any sources or disclosures.
+central price/proof tension, and recommendation posture. The substantive
+ending must state what BSH should do, target allocation posture, confirmation
+items, stop/revisit conditions, and next diligence actions before any sources
+or disclosures.
 
 Positive examples for early-commercial infrastructure deals:
-- "ZaiNar is a scarce technical asset in network-side positioning, but the A2
-  asks BSH to pay today for commercial proof that is only partly visible."
+- "ZaiNar is a scarce technical asset in network-side positioning; the A2
+  prices real IP, technical depth, and early commercial pull before the full
+  revenue curve is visible."
 - "Company-reported contract and MOU figures support commercial momentum; the
-  model should credit only the binding portion until contract status, term
-  length, and deployment economics are disclosed."
+  base case should credit the binding portion and leave upside for MOU and
+  carrier conversion."
 - "Pipeline is not contracted revenue. Use a 5-15% conversion range for
   scenario construction until named site-level commitments are available."
-- "An SPV interest depends on the SAFE converting as described; information,
-  consent, transfer, and voting rights come from the SPV and subscription
-  documents, not direct company ownership."
+- "An SPV interest depends on the SAFE converting as described; explain the
+  economics and document-confirmation points without turning them into a
+  control-rights checklist."
+- "If the round is meaningfully oversubscribed and BSH has differentiated
+  access, the allocation recommendation should reflect scarcity and upside,
+  not mechanically default to a minimum check."
 
 Banned phrase / rewrite guidance:
 
@@ -1935,6 +1965,12 @@ Banned phrase / rewrite guidance:
 | The memo therefore... | Remove, or rewrite as direct judgment. |
 | The analysis suggests... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
+| Proving the case | investment case, base case, conviction, support |
+| Sizing the position | allocation, position size, commitment |
+| Sharp open questions | Top 3 Decision Questions or Top 3 Gating Questions |
+| Missing proof | What Still Needs Confirmation |
+| Recommendation labels | Proceed / Proceed if confirmed / Hold pending confirmation / Pass |
+| Decision discipline | stop/revisit conditions |
 | implies false precision | would be misleading to forecast precisely |
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
@@ -2065,7 +2101,7 @@ strategic risks, risk priorities, research tasks, thesis spine,
 infographic source brief, chart/infographic plans, narrative hooks, and
 benchmark dashboard. Treat the thesis spine as draft authorship guidance:
 the final memo structure still follows the skill, but
-Investment Highlights, Investment Risks, Top 3 Gating Questions,
+Investment Highlights, Investment Risks, Top 3 Decision Questions,
 infographic choices, selected operator narrative choices, source-brief
 warnings, intro stance, risk-section posture, and conclusion posture should
 come from this packet when they are supported by evidence. Treat selected
@@ -2170,7 +2206,7 @@ shape:
     "sector": "AI",
     "location": "City, Region",
     "round": "Round / valuation context",
-    "bsh_ticket_size": "If known"
+    "bsh_allocation": "Target allocation / position size if known"
   }},
   "run": {{"run_id": "{run_id}", "as_of": "YYYY-MM-DD"}},
   "sections": [
@@ -2232,7 +2268,7 @@ thresholds.
 
 The Chinese memo must be native professional investment Chinese with
 analytical parity to English: same recommendation, confidence level, risks,
-valuation posture, evidence, caveats, tables, and gating questions. Do not
+valuation posture, evidence, caveats, tables, and decision questions. Do not
 translate prompt scaffolding into visible prose. Avoid terms like `上行状态`,
 `现态`, `关键现实检查`, `源追踪`, `备忘录包`, `审阅者提示`, `声明登记`,
 `硬 IP 墙`, or `软性工具`; rewrite them as precise investment judgments,
@@ -2253,7 +2289,7 @@ step. Sequential per-pass execution is wasteful — fan them out
 concurrently.
 
 The synthesis step (Claim Register reconciliation, Scenario Swim
-Lanes, Top 3 Gating Questions, Pre-Mortem, Reverse IC), the memo
+Lanes, Top 3 Decision Questions, Pre-Mortem, Reverse IC), the memo
 drafting step, the translation step, and the package-writing step
 remain sequential. Server-side `.docx` rendering happens after Claude exits.
 
@@ -4960,8 +4996,8 @@ lessons.
 """
 
     prompt = f"""\
-You are Serena's Thesis Spine Builder for a late-stage BSH investment memo.
-Convert the current Memo Studio analysis into the memo's core underwriting
+You are Serena's Thesis Spine Builder for a BSH investment memo.
+Convert the current Memo Studio analysis into the memo's core investment
 spine for {company_name}.
 
 Company:
@@ -4985,7 +5021,7 @@ Instructions:
 - Use the current strategic risks, risk priorities, selected research-task
   results, chart specs, and benchmark context above.
 - Build 3-5 investment highlights, 3-5 investment risks, direct
-  recommendation logic, the top gating diligence questions, bull-case
+  recommendation logic, the top decision questions, bull-case
   requirements, and pass triggers.
 - Write every highlight and risk as final-memo raw material: concise,
   judgment-led, source-backed, and free of process language. Convert research
@@ -4995,9 +5031,9 @@ Instructions:
   generic operating risks. Each risk detail should carry the specific data,
   contradiction, or missing proof that makes the risk matter.
 - recommendation_logic should be usable as the conclusion spine: conviction,
-  dependencies, failure modes, and the operator's likely yes / conditional yes /
-  need-more-information / pass posture.
-- Top gating questions should become operator HIL choices where applicable:
+  dependencies, failure modes, and the operator's likely proceed / proceed-if-
+  confirmed / hold-pending-confirmation / pass posture.
+- Top decision questions should become operator HIL choices where applicable:
   ask what Serena must decide, which evidence would change the answer, and what
   the memo conclusion should do if the evidence remains missing.
 - Treat incomplete research-task results, partial chart specs, and nullable
@@ -5186,7 +5222,7 @@ Available files in that folder:
 {files_str}
 
 Instructions:
-- Identify mature public comps that actually help underwrite the private
+- Identify mature public comps that actually inform the private
   company, not flattering category labels.
 - Use current public filings, earnings transcripts, investor presentations,
   and reliable market-data pages where needed for growth, margin, valuation,
@@ -5200,7 +5236,7 @@ Instructions:
   excerpts, and confidence. Do not invent metrics or sources.
 - Benchmark gaps should be the missing data that matters before memo use.
 - Must-prove claims should translate the benchmark work into private-company
-  proof points BSH needs to underwrite.
+  proof points BSH needs before making the investment decision.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:

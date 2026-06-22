@@ -193,8 +193,8 @@ Rubric areas:
 
 ### 9. Private Company Benchmark Dashboard
 
-Create a private-company underwriting dashboard using mature public comps and
-sell-side/public metric benchmarks.
+Create a private-company investment-analysis dashboard using mature public
+comps and sell-side/public metric benchmarks.
 
 Dashboard should include:
 

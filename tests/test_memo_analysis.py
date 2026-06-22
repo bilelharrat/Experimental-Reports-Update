@@ -125,7 +125,7 @@ def _memo_package(body_en=None, body_zh=None):
             "sector": "AI Robotics",
             "location": "San Francisco, CA",
             "round": "Series D context",
-            "bsh_ticket_size": "$5-10M",
+            "bsh_allocation": "$5-10M",
         },
         "run": {"run_id": "2026-05-22__191917", "as_of": "2026-05-22"},
         "sections": [
@@ -198,8 +198,8 @@ def _memo_package(body_en=None, body_zh=None):
                                 "zh": "部署验证提供了具体的尽调路径。",
                             },
                             {
-                                "en": "Repeatable production usage can support expansion underwriting.",
-                                "zh": "可重复的生产环境使用可支持扩张承销。",
+                                "en": "Repeatable production usage can support the expansion case.",
+                                "zh": "可重复的生产环境使用可支持扩张判断。",
                             }
                         ],
                     }

@@ -87,6 +87,8 @@ _MODEL_TREATMENT_TERMS = (
     "fermi",
     "diligence",
     "threshold",
+    "confirm",
+    "confirmation",
     "credit",
     "binding",
     "mou",
@@ -148,6 +150,21 @@ _FUZZY_PATTERNS = (
     re.compile(r"\bno-rights SAFE\b", re.IGNORECASE),
     re.compile(r"\bwhere nothing else works\b", re.IGNORECASE),
     re.compile(r"\bleast-proven part of the story\b", re.IGNORECASE),
+)
+_SELL_SIDE_BANNED_PATTERNS = (
+    re.compile(r"\bunderwrit(?:e|es|ing|ten|er|ers)\b", re.IGNORECASE),
+    re.compile(r"\btickets?\b", re.IGNORECASE),
+    re.compile(r"\bkill criteria\b", re.IGNORECASE),
+    re.compile(r"\bNeed More Information\b", re.IGNORECASE),
+    re.compile(r"\bConditional Yes\b", re.IGNORECASE),
+    re.compile(r"\bnamed institutional lead\b", re.IGNORECASE),
+    re.compile(r"\bnamed lead\b", re.IGNORECASE),
+    re.compile(r"\bdown-?round protection\b", re.IGNORECASE),
+    re.compile(r"\bMFN\b"),
+    re.compile(r"\binformation rights\b", re.IGNORECASE),
+    re.compile(r"\bvoting rights\b", re.IGNORECASE),
+    re.compile(r"\brequire data room\b", re.IGNORECASE),
+    re.compile(r"\bkeep (?:the )?(?:position|allocation|check|ticket) small\b", re.IGNORECASE),
 )
 _META_LANGUAGE_PATTERNS = (
     re.compile(r"\bthe memo\b", re.IGNORECASE),
@@ -339,6 +356,23 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                         "Replace clever shorthand with concrete deal mechanics.",
                     )
                 )
+
+        for pattern in _SELL_SIDE_BANNED_PATTERNS:
+            match = pattern.search(block.text)
+            if match:
+                findings.append(
+                    _finding(
+                        block,
+                        "P0",
+                        "sell_side_voice_violation",
+                        match.group(0),
+                        (
+                            "Rewrite buyer-side diligence or IC jargon as "
+                            "exec-ready sell-side investment memo language."
+                        ),
+                    )
+                )
+                break
 
         if "—" in block.text:
             findings.append(

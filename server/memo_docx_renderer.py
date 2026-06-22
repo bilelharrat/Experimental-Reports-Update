@@ -620,7 +620,10 @@ def _add_cover(document: Document, package: dict, locale: str) -> None:
         (_label("Sector", "行业", locale), _loc(company.get("sector"), locale)),
         (_label("Location", "地点", locale), _loc(company.get("location"), locale)),
         (_label("Round", "轮次", locale), _loc(company.get("round"), locale)),
-        (_label("BSH ticket size", "BSH 投资规模", locale), _loc(company.get("bsh_ticket_size"), locale)),
+        (
+            _label("BSH target allocation", "BSH 目标配置", locale),
+            _loc(company.get("bsh_allocation") or company.get("bsh_ticket_size"), locale),
+        ),
     ]
     _add_key_value_table(document, [(k, v) for k, v in rows if str(v or "").strip()], locale)
 

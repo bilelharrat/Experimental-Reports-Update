@@ -108,7 +108,7 @@ Goal: handle real research artifacts more reliably.
 
 ## P1 - Research Task Effectiveness
 
-Goal: make Memo Studio tasks answer the underwriting question directly.
+Goal: make Memo Studio tasks answer the investment decision question directly.
 
 - [x] Generate task-specific search plans before running Claude.
 - [x] Return structured task results with `answer`, `supporting_evidence`,

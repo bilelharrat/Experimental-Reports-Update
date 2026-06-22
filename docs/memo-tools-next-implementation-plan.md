@@ -580,7 +580,7 @@ previous-good-artifact preservation.
 - Stock Research and Memo Tools are sibling toolboxes:
   - Stock Research is for public-equity tracking, weekly research, and
     strategy-map work.
-  - Memo Tools is for early-stage company underwriting, memo preparation,
+  - Memo Tools is for early-stage company investment analysis, memo preparation,
     memo generation, and memo learning loops.
   - Shared UI and backend patterns are encouraged for job lifecycle, source
     traces, artifact catalogs, review queues, exports, and evaluation metadata.
@@ -590,7 +590,7 @@ previous-good-artifact preservation.
 
 ### Non-Goals
 
-- Do not replace Memo Studio underwriting flows with the stock tracker system.
+- Do not replace Memo Studio investment-analysis flows with the stock tracker system.
 - Do not let this system consume `data/uploads/<slug>/` implicitly.
 - Do not make the strategy agent a fully automated trading or position-sizing
   engine.
@@ -906,7 +906,7 @@ The codebase should end up with two comprehensive dashboard/toolboxes:
   - Public-equity tracker agents, source intake, weekly aggregation, strategy
     maps, and public-equity work products.
 - Memo Tools Toolbox:
-  - Early-stage company underwriting, source-backed analysis sessions, memo
+  - Early-stage company investment analysis, source-backed analysis sessions, memo
     preparation, final memo generation, memo grading, lessons, and memo work
     products.
 
