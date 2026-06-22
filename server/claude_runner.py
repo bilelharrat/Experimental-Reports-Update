@@ -21,11 +21,9 @@ import json
 import logging
 import os
 import re
-import shlex
 import shutil
 import signal
 import subprocess
-import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -1992,7 +1990,7 @@ def _build_investment_memo_prompt(
       - lists the actual inputs (Serena_Background.md + the
         companies.yaml record) — note: no Document Library files,
       - carries non-fatal scope warnings from prep into the analysis,
-      - points DOCX output at the tracked parameterized renderer,
+      - points final memo content at the tracked parameterized renderer,
       - hints that the eight orthogonal analysis passes have no
         inter-dependencies and should run via parallel tool calls in a
         single response.
@@ -2001,24 +1999,7 @@ def _build_investment_memo_prompt(
     """
     skill_text = _load_skill_text()
     rel_run_dir = run_dir.name
-    repo_root = Path(__file__).resolve().parents[1]
     memo_package_path = run_dir / "logs" / "memo_package.json"
-    renderer_command = " ".join([
-        f"PYTHONPATH={shlex.quote(str(repo_root))}",
-        shlex.quote(sys.executable),
-        "-m",
-        "server.memo_docx_renderer",
-        "--package",
-        shlex.quote(str(memo_package_path)),
-        "--out-en",
-        shlex.quote(str(memo_paths["en"])),
-        "--out-zh",
-        shlex.quote(str(memo_paths["zh"])),
-        "--manifest",
-        shlex.quote(str(run_dir / "logs" / "run_manifest.md")),
-        "--inventory",
-        shlex.quote(str(run_dir / "logs" / "file_inventory.md")),
-    ])
     scope_warning_block = ""
     if scope_check and scope_check.get("outcome") == "warn":
         warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
@@ -2114,7 +2095,8 @@ analysis packet override stale or contradictory lessons.
 You are running the **bsh-investment-memo-latestage-v1** skill (Serena's
 script) for one real run. The skill text is included verbatim below.
 **Follow it exactly.** The only deviations from the text are the non-fatal
-scope-warning override and the parallel-passes hint below.
+scope-warning override, the server-owned DOCX rendering handoff, and the
+parallel-passes hint below.
 
 ## Run-specific operational context
 
@@ -2169,15 +2151,14 @@ Instead, write the memo content and structure as data to:
 
   `{memo_package_path}`
 
-Then run this exact command from the run folder:
-
-```bash
-{renderer_command}
-```
-
 The renderer is fixed product code (`server.memo_docx_renderer`). Your
-job is to author a complete `memo_package.json`, not rendering code. The
-package must be JSON with this shape:
+job is to author a complete `memo_package.json`, not rendering code and
+not final `.docx` files. After this Claude subprocess exits, the Python
+worker will invoke `server.memo_docx_renderer` directly, render both
+DOCX files, write validation logs, write the file inventory, and append
+the manifest finalization block. Do not run `python -m
+server.memo_docx_renderer` yourself. The package must be JSON with this
+shape:
 
 ```json
 {{
@@ -2239,15 +2220,17 @@ remain sequential.
 
 ## Output contract — exactly per the skill text
 
-Produce all artifacts the skill specifies, at the paths the skill
-specifies — including the two `.docx` files in `memo/`. The expected
-absolute paths are:
+Produce all analytical artifacts the skill specifies, plus
+`logs/memo_package.json`. Do not write or edit final `.docx` files; the
+server will render them from the package after Claude exits. The expected
+server-rendered absolute paths are:
 
   - `{memo_paths['en']}`
   - `{memo_paths['zh']}`
 
-Append the analysis finalization block to `logs/run_manifest.md` when
-you're done.
+Do not append the analysis finalization block to `logs/run_manifest.md`;
+the server renderer appends it after successful package validation and
+DOCX rendering.
 
 {HUMAN_EXEC_MEMO_VOICE_CONTRACT}
 
@@ -2282,9 +2265,10 @@ def run_investment_memo(
       - ``settings_path``  (Serena_Background.md)
       - ``companies_yaml_path`` (the registry; entry matching ``company_slug``)
 
-    The skill writes its own analysis artifacts and ``.docx`` files into
-    ``run_dir``. Python does not pre-extract anything, does not produce
-    any output for the skill, and does not stage Document Library files.
+    The skill writes its own analysis artifacts and ``logs/memo_package.json``
+    into ``run_dir``. Python does not pre-extract anything and does not stage
+    Document Library files; ``server.memo_analysis`` renders DOCX files after
+    Claude exits.
 
     Returns ``{ok, cost_usd, duration_ms, error?}``.
     """

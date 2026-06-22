@@ -2,20 +2,22 @@
 
 This worker spawns **one Claude subprocess** that executes Serena's
 `bsh-investment-memo-latestage` skill verbatim. The skill itself does
-the analytical work, writes a structured memo package, invokes the
-tracked DOCX renderer, and finalizes the run manifest. Python's only job here is to:
+the analytical work and writes a structured memo package. Python then
+invokes the tracked DOCX renderer and finalizes the run manifest. This
+worker's job is to:
 
   1. Reload context from the prep stage's report record.
   2. Spawn the Claude subprocess (via ``claude_runner.run_investment_memo``).
-  3. Verify the expected output files exist when Claude finishes.
-  4. Update the report record + emit the terminal ``done`` / ``error``.
+  3. Render the DOCX files from Claude's structured ``memo_package.json``.
+  4. Verify the expected output files and renderer logs exist.
+  5. Update the report record + emit the terminal ``done`` / ``error``.
 
 What this worker deliberately does **not** do (see `docs/architecture.md`):
 
   - Does **not** pre-extract files. The skill handles its own input
     reading.
-  - Does **not** author per-run render code. The skill must call the
-    tracked ``server.memo_docx_renderer`` with a structured package.
+  - Does **not** author per-run render code. The skill writes a structured
+    package and the worker calls the tracked ``server.memo_docx_renderer``.
   - Does **not** touch ``data/uploads/`` — that's the Document
     Library, a separate feature, not a memo input.
   - Does **not** split the skill into multiple Claude subprocesses.
@@ -53,6 +55,175 @@ def _memo_paths_abs(report: dict) -> dict[str, Path]:
         if lang and rel:
             paths[str(lang)] = memo_prep.DATA_DIR.parent / rel
     return paths
+
+
+def _memo_package_path(run_dir: Path) -> Path:
+    return run_dir / "logs" / "memo_package.json"
+
+
+def _block_generated_renderer_scripts(
+    *,
+    report_id: str,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+    result: dict,
+    recovered: bool = False,
+) -> bool:
+    forbidden_scripts = memo_docx_renderer.find_generated_renderer_scripts(run_dir)
+    if not forbidden_scripts:
+        return False
+    rel_paths = [memo_prep._rel(path) for path in forbidden_scripts]
+    msg = (
+        "Memo run generated bespoke renderer code instead of using "
+        "server.memo_docx_renderer: "
+        + "; ".join(rel_paths[:8])
+    )
+    storage.update_report(
+        report_id,
+        status="failed_during_analysis",
+        stage="Generated renderer script blocked",
+        claude_cost_usd=result.get("cost_usd"),
+        claude_duration_ms=result.get("duration_ms"),
+    )
+    payload = {
+        "error": msg,
+        "phase": "renderer_contract",
+        "generated_renderer_scripts": rel_paths,
+    }
+    if recovered:
+        payload["recovered"] = True
+    stream.emit("error", **payload)
+    return True
+
+
+def _renderer_contract_errors(
+    *,
+    run_dir: Path,
+    memo_paths_abs: dict[str, Path],
+) -> list[str]:
+    errors: list[str] = []
+    package_path = _memo_package_path(run_dir)
+    expected = {
+        "memo_package": package_path,
+        "english_memo": memo_paths_abs.get("en"),
+        "chinese_memo": memo_paths_abs.get("zh"),
+        "validation_en": run_dir / "logs" / "validation.txt",
+        "validation_zh": run_dir / "logs" / "validation_cn.txt",
+        "file_inventory": run_dir / "logs" / "file_inventory.md",
+        "run_manifest": run_dir / "logs" / "run_manifest.md",
+    }
+    for label, path in expected.items():
+        if path is None or not path.exists():
+            errors.append(f"{label} missing")
+    manifest = expected["run_manifest"]
+    if manifest and manifest.exists():
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+        if "server.memo_docx_renderer" not in text:
+            errors.append("run_manifest missing server.memo_docx_renderer")
+        if "validation_status: passed" not in text:
+            errors.append("run_manifest missing validation_status: passed")
+    inventory = expected["file_inventory"]
+    if inventory and inventory.exists():
+        text = inventory.read_text(encoding="utf-8", errors="replace")
+        if "memo_en:" not in text or "memo_zh:" not in text:
+            errors.append("file_inventory missing rendered memo entries")
+    return errors
+
+
+def _render_memo_outputs(
+    *,
+    report_id: str,
+    run_dir: Path,
+    memo_paths_abs: dict[str, Path],
+    stream: job_progress.ProgressLog,
+    result: dict,
+    recovered: bool = False,
+) -> bool:
+    package_path = _memo_package_path(run_dir)
+    if not package_path.exists():
+        _fail_renderer_contract(
+            report_id=report_id,
+            stream=stream,
+            result=result,
+            message=f"Claude finished without writing {memo_prep._rel(package_path)}.",
+            recovered=recovered,
+        )
+        return False
+    if not memo_paths_abs.get("en") or not memo_paths_abs.get("zh"):
+        _fail_renderer_contract(
+            report_id=report_id,
+            stream=stream,
+            result=result,
+            message="Report record is missing expected English or Chinese memo paths.",
+            recovered=recovered,
+        )
+        return False
+    storage.update_report(
+        report_id,
+        stage="Rendering memo DOCX",
+        progress=85,
+    )
+    stream.emit(
+        "stage",
+        stage="rendering_docx",
+        message="Rendering memo DOCX from structured package",
+        memo_package=memo_prep._rel(package_path),
+        recovered=recovered,
+    )
+    try:
+        memo_docx_renderer.render_memos(
+            package_path,
+            out_en=memo_paths_abs["en"],
+            out_zh=memo_paths_abs["zh"],
+            manifest_path=run_dir / "logs" / "run_manifest.md",
+            inventory_path=run_dir / "logs" / "file_inventory.md",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("memo package render failed for report %s", report_id)
+        _fail_renderer_contract(
+            report_id=report_id,
+            stream=stream,
+            result=result,
+            message=(
+                "Memo package render failed: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+            recovered=recovered,
+        )
+        return False
+
+    errors = _renderer_contract_errors(run_dir=run_dir, memo_paths_abs=memo_paths_abs)
+    if errors:
+        _fail_renderer_contract(
+            report_id=report_id,
+            stream=stream,
+            result=result,
+            message="Renderer contract failed: " + "; ".join(errors),
+            recovered=recovered,
+        )
+        return False
+    return True
+
+
+def _fail_renderer_contract(
+    *,
+    report_id: str,
+    stream: job_progress.ProgressLog,
+    result: dict,
+    message: str,
+    recovered: bool = False,
+) -> None:
+    storage.update_report(
+        report_id,
+        status="failed_during_analysis",
+        stage="Renderer contract failed",
+        claude_cost_usd=result.get("cost_usd"),
+        claude_duration_ms=result.get("duration_ms"),
+    )
+    payload = {"error": message, "phase": "renderer_contract"}
+    if recovered:
+        payload["recovered"] = True
+    stream.emit("error", **payload)
 
 
 def _scan_memo_stream(run_dir: Path) -> dict:
@@ -100,10 +271,10 @@ def _scan_memo_stream(run_dir: Path) -> dict:
 def recover_stale_reports() -> int:
     """Mark memo runs complete when Claude succeeded but finalization was lost.
 
-    The memo skill can finish and write both DOCX files while the Python
-    worker is later interrupted or stuck in optional PDF-preview rendering.
+    The memo skill can finish and write its structured memo package while the
+    Python worker is later interrupted before rendering or finalization.
     This startup sweep is deliberately conservative: it only repairs runs
-    with a successful Claude result and both expected memo files on disk.
+    with a successful Claude result and a renderer-valid package.
     """
     recovered = 0
     for report in storage.list_reports():
@@ -121,9 +292,7 @@ def recover_stale_reports() -> int:
         if not result:
             continue
         memo_paths_abs = _memo_paths_abs(report)
-        if not memo_paths_abs or not all(
-            p.exists() for p in memo_paths_abs.values()
-        ):
+        if not memo_paths_abs:
             continue
 
         stream = job_progress.ProgressLog(
@@ -131,28 +300,22 @@ def recover_stale_reports() -> int:
         )
         for thread_label in sorted(stream_state.get("open_threads") or ()):
             stream.emit("thread_finished", thread=thread_label)
-        forbidden_scripts = memo_docx_renderer.find_generated_renderer_scripts(run_dir)
-        if forbidden_scripts:
-            rel_paths = [memo_prep._rel(path) for path in forbidden_scripts]
-            msg = (
-                "Memo run generated bespoke renderer code instead of using "
-                "server.memo_docx_renderer: "
-                + "; ".join(rel_paths[:8])
-            )
-            storage.update_report(
-                report["id"],
-                status="failed_during_analysis",
-                stage="Generated renderer script blocked",
-                claude_cost_usd=result.get("cost_usd"),
-                claude_duration_ms=result.get("duration_ms"),
-            )
-            stream.emit(
-                "error",
-                error=msg,
-                phase="renderer_contract",
-                recovered=True,
-                generated_renderer_scripts=rel_paths,
-            )
+        if _block_generated_renderer_scripts(
+            report_id=report["id"],
+            run_dir=run_dir,
+            stream=stream,
+            result=result,
+            recovered=True,
+        ):
+            continue
+        if not _render_memo_outputs(
+            report_id=report["id"],
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            result=result,
+            recovered=True,
+        ):
             continue
         lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
         lint_path = run_dir / "logs" / "memo_quality_lint.md"
@@ -316,30 +479,23 @@ def _run(report_id: str) -> None:
         )
         return
 
-    forbidden_scripts = memo_docx_renderer.find_generated_renderer_scripts(run_dir)
-    if forbidden_scripts:
-        rel_paths = [memo_prep._rel(path) for path in forbidden_scripts]
-        msg = (
-            "Memo run generated bespoke renderer code instead of using "
-            "server.memo_docx_renderer: "
-            + "; ".join(rel_paths[:8])
-        )
-        storage.update_report(
-            report_id,
-            status="failed_during_analysis",
-            stage="Generated renderer script blocked",
-            claude_cost_usd=result.get("cost_usd"),
-            claude_duration_ms=result.get("duration_ms"),
-        )
-        stream.emit(
-            "error",
-            error=msg,
-            phase="renderer_contract",
-            generated_renderer_scripts=rel_paths,
-        )
+    if _block_generated_renderer_scripts(
+        report_id=report_id,
+        run_dir=run_dir,
+        stream=stream,
+        result=result,
+    ):
+        return
+    if not _render_memo_outputs(
+        report_id=report_id,
+        run_dir=run_dir,
+        memo_paths_abs=memo_paths_abs,
+        stream=stream,
+        result=result,
+    ):
         return
 
-    # --- Post-run: verify the skill produced the expected outputs -----
+    # --- Post-run: verify the renderer produced the expected outputs ---
     en_exists = memo_paths_abs.get("en") and memo_paths_abs["en"].exists()
     zh_exists = memo_paths_abs.get("zh") and memo_paths_abs["zh"].exists()
     missing = []

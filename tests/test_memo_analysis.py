@@ -112,6 +112,144 @@ def _write_bad_memo_docx(path):
     document.save(path)
 
 
+def _memo_package(body_en=None):
+    return {
+        "schema_version": 1,
+        "company": {
+            "name": "Generalist, Inc.",
+            "descriptor": {
+                "en": "Industrial automation systems",
+                "zh": "工业自动化系统",
+            },
+            "stage": "Late-stage / pre-IPO",
+            "sector": "AI Robotics",
+            "location": "San Francisco, CA",
+            "round": "Series D context",
+            "bsh_ticket_size": "$5-10M",
+        },
+        "run": {"run_id": "2026-05-22__191917", "as_of": "2026-05-22"},
+        "sections": [
+            {
+                "id": "executive_summary",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {
+                            "en": body_en
+                            or (
+                                "Generalist builds automation infrastructure. "
+                                "BSH should proceed only after deployment depth "
+                                "and valuation support are confirmed."
+                            ),
+                            "zh": (
+                                "Generalist 构建自动化基础设施。BSH 只有在确认部署深度"
+                                "和估值支撑后才应继续推进。"
+                            ),
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "title": {
+                            "en": "Key Metrics Snapshot",
+                            "zh": "关键指标快照",
+                        },
+                        "headers": [
+                            {"en": "Metric", "zh": "指标"},
+                            {"en": "Treatment", "zh": "处理方式"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Revenue", "zh": "收入"},
+                                {
+                                    "en": (
+                                        "Not disclosed; model uses customer-count "
+                                        "proxy and diligence threshold."
+                                    ),
+                                    "zh": "未披露；模型使用客户数量代理和尽调门槛。",
+                                },
+                            ]
+                        ],
+                    },
+                ],
+            },
+            {
+                "id": "company_overview",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {
+                            "en": "The company sells automation systems for repeatable industrial workflows.",
+                            "zh": "该公司销售面向可重复工业流程的自动化系统。",
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "investment_highlights",
+                "blocks": [
+                    {
+                        "type": "bullets",
+                        "items": [
+                            {
+                                "en": "Deployment proof creates a concrete diligence path.",
+                                "zh": "部署验证提供了具体的尽调路径。",
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "id": "investment_risk",
+                "blocks": [
+                    {
+                        "type": "bullets",
+                        "items": [
+                            {
+                                "en": "Hardware integration may slow gross-margin expansion.",
+                                "zh": "硬件集成可能拖慢毛利率提升。",
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "id": "financial_forecast_valuation",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {
+                            "en": "The valuation case should use conservative scenario ranges.",
+                            "zh": "估值判断应使用保守情景区间。",
+                        },
+                    }
+                ],
+            },
+        ],
+        "sources": [
+            {
+                "id": "S1",
+                "title": "Company investor materials",
+                "class": {"en": "Company material", "zh": "公司材料"},
+                "treatment": {
+                    "en": "Used for product, customer, and funding context.",
+                    "zh": "用于产品、客户和融资背景。",
+                },
+                "as_of": "2026-05-22",
+            }
+        ],
+    }
+
+
+def _write_memo_package(run_dir, *, body_en=None):
+    path = run_dir / "logs" / "memo_package.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_memo_package(body_en=body_en), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_memo_run_completes_when_optional_pdf_render_fails(
     memo_env, monkeypatch
 ):
@@ -127,6 +265,7 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
     )
 
     def fake_run_investment_memo(**kwargs):
+        _write_memo_package(run_dir)
         kwargs["progress"].emit(
             "claude_action",
             action="result",
@@ -167,8 +306,6 @@ def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     memo_env, monkeypatch
 ):
     report, run_dir = _make_memo_report(memo_env)
-    en_path = memo_analysis._memo_paths_abs(report)["en"]
-    _write_bad_memo_docx(en_path)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit(
         "job_init",
@@ -180,6 +317,13 @@ def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     )
 
     def fake_run_investment_memo(**kwargs):
+        _write_memo_package(
+            run_dir,
+            body_en=(
+                "ZaiNar has no battery cost [WV SPV memo] and a hard IP wall "
+                "(present-state)."
+            ),
+        )
         kwargs["progress"].emit(
             "claude_action",
             action="result",
@@ -212,6 +356,51 @@ def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     assert events[-1]["type"] == "error"
     assert events[-1]["phase"] == "quality_gate"
     assert events[-1]["findings"]
+
+
+def test_memo_run_fails_when_memo_package_missing(memo_env, monkeypatch):
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+
+    def fake_run_investment_memo(**kwargs):
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=1.25,
+            duration_ms=1234,
+        )
+        return {"ok": True, "cost_usd": 1.25, "duration_ms": 1234}
+
+    monkeypatch.setattr(
+        claude_runner, "run_investment_memo", fake_run_investment_memo
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PDF rendering should not run after package failure")
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "failed_during_analysis"
+    assert updated["stage"] == "Renderer contract failed"
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["phase"] == "renderer_contract"
+    assert "memo_package.json" in events[-1]["error"]
 
 
 def test_memo_run_blocks_generated_renderer_scripts(memo_env, monkeypatch):
@@ -265,6 +454,7 @@ def test_memo_run_blocks_generated_renderer_scripts(memo_env, monkeypatch):
 
 def test_recover_stale_memo_report_emits_missing_done(memo_env):
     report, run_dir = _make_memo_report(memo_env)
+    _write_memo_package(run_dir)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit(
         "job_init",

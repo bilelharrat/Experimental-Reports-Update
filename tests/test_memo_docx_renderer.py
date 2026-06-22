@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import copy
 import json
 
 from docx import Document
+import pytest
 
 from server import memo_docx_renderer, memo_quality_lint
 
@@ -100,6 +102,43 @@ def _package() -> dict:
                 ],
             },
             {
+                "id": "company_overview",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {
+                            "en": (
+                                "Generalist sells automation systems for "
+                                "industrial workflows where repeatability and "
+                                "integration depth drive adoption."
+                            ),
+                            "zh": (
+                                "Generalist 销售面向工业流程的自动化系统，"
+                                "可重复性和集成深度决定采用速度。"
+                            ),
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "investment_highlights",
+                "blocks": [
+                    {
+                        "type": "bullets",
+                        "items": [
+                            {
+                                "en": "Customer proof creates a diligence path for BSH.",
+                                "zh": "客户验证为 BSH 提供了尽调路径。",
+                            },
+                            {
+                                "en": "The category can support expansion if deployments repeat.",
+                                "zh": "如果部署可重复，该品类具备扩张空间。",
+                            },
+                        ],
+                    }
+                ],
+            },
+            {
                 "id": "investment_risk",
                 "blocks": [
                     {
@@ -117,13 +156,33 @@ def _package() -> dict:
                     }
                 ],
             },
+            {
+                "id": "financial_forecast_valuation",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {
+                            "en": (
+                                "The valuation case should use scenario ranges "
+                                "until audited revenue and margin data are available."
+                            ),
+                            "zh": (
+                                "在审计收入和利润率数据可得前，估值判断应使用情景区间。"
+                            ),
+                        },
+                    }
+                ],
+            },
         ],
         "sources": [
             {
                 "id": "S1",
                 "title": "Company investor materials",
-                "class": "Company material",
-                "treatment": "Used for product, customer, and funding context.",
+                "class": {"en": "Company material", "zh": "公司材料"},
+                "treatment": {
+                    "en": "Used for product, customer, and funding context.",
+                    "zh": "用于产品、客户和融资背景。",
+                },
                 "as_of": "2026-06-22",
             }
         ],
@@ -179,3 +238,42 @@ def test_generated_renderer_script_detector_flags_old_pattern(tmp_path):
     matches = memo_docx_renderer.find_generated_renderer_scripts(tmp_path)
 
     assert {path.name for path in matches} == {"build_memo.py", "build_memos.js"}
+
+
+def test_renderer_rejects_missing_required_section():
+    package = copy.deepcopy(_package())
+    package["sections"] = [
+        section
+        for section in package["sections"]
+        if section["id"] != "investment_highlights"
+    ]
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match="investment_highlights"):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_missing_chinese_translation():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"][0]["text"].pop("zh")
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match=r"\.zh is required"):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_unsupported_block_type():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append({
+        "type": "chart",
+        "title": {"en": "Unsupported", "zh": "不支持"},
+    })
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match="unsupported"):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_missing_sources():
+    package = copy.deepcopy(_package())
+    package["sources"] = []
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match="sources"):
+        memo_docx_renderer.validate_package(package)

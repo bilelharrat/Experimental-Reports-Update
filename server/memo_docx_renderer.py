@@ -85,6 +85,21 @@ TOC_SECTION_IDS = (
     "financial_forecast_valuation",
     "sources",
 )
+REQUIRED_SECTION_IDS = (
+    "executive_summary",
+    "company_overview",
+    "investment_highlights",
+    "investment_risk",
+    "financial_forecast_valuation",
+)
+SUPPORTED_BLOCK_TYPES = {
+    "heading",
+    "paragraph",
+    "bullets",
+    "callout",
+    "table",
+    "spacer",
+}
 
 
 class MemoRenderError(ValueError):
@@ -108,18 +123,189 @@ def load_package(path: Path | str) -> dict:
         package = json.loads(package_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise MemoRenderError(f"Invalid memo package JSON: {exc}") from exc
+    validate_package(package)
+    return package
+
+
+def validate_package(package: Any) -> None:
+    """Fail closed when Claude's memo package is structurally incomplete."""
+    errors = _package_validation_errors(package)
+    if errors:
+        raise MemoRenderError("Invalid memo package: " + "; ".join(errors))
+
+
+def _package_validation_errors(package: Any) -> list[str]:
+    errors: list[str] = []
     if not isinstance(package, dict):
-        raise MemoRenderError("Memo package must be a JSON object")
-    version = int(package.get("schema_version") or SCHEMA_VERSION)
+        return ["memo package must be a JSON object"]
+    try:
+        version = int(package.get("schema_version") or SCHEMA_VERSION)
+    except (TypeError, ValueError):
+        errors.append(
+            f"unsupported schema_version {package.get('schema_version')!r}; expected {SCHEMA_VERSION}"
+        )
+        version = SCHEMA_VERSION
     if version != SCHEMA_VERSION:
-        raise MemoRenderError(
-            f"Unsupported memo package schema_version {version}; expected {SCHEMA_VERSION}"
+        errors.append(
+            f"unsupported schema_version {version}; expected {SCHEMA_VERSION}"
         )
     if not isinstance(package.get("company"), dict):
-        raise MemoRenderError("Memo package requires a company object")
-    if not isinstance(package.get("sections"), list):
-        raise MemoRenderError("Memo package requires a sections list")
-    return package
+        errors.append("company must be an object")
+    elif not str(package["company"].get("name") or "").strip():
+        errors.append("company.name is required")
+    sections = package.get("sections")
+    if not isinstance(sections, list):
+        errors.append("sections must be a list")
+        sections = []
+    sources = package.get("sources")
+    if not isinstance(sources, list) or not sources:
+        errors.append("sources must be a non-empty list")
+
+    by_id: dict[str, dict] = {}
+    for index, section in enumerate(sections):
+        location = f"sections[{index}]"
+        if not isinstance(section, dict):
+            errors.append(f"{location} must be an object")
+            continue
+        section_id = str(section.get("id") or "").strip()
+        if section_id:
+            by_id[section_id] = section
+        blocks = section.get("blocks")
+        if not isinstance(blocks, list) or not blocks:
+            errors.append(f"{location} blocks must be a non-empty list")
+            blocks = []
+        _validate_localized_value(
+            section.get("title"),
+            f"{location}.title",
+            errors,
+            required=False,
+        )
+        for block_index, block in enumerate(blocks):
+            _validate_block(block, f"{location}.blocks[{block_index}]", errors)
+
+    for section_id in REQUIRED_SECTION_IDS:
+        if section_id not in by_id:
+            errors.append(f"missing required section {section_id}")
+
+    if isinstance(sources, list):
+        for index, source in enumerate(sources):
+            _validate_source(source, f"sources[{index}]", errors)
+    return errors
+
+
+def _validate_block(block: Any, location: str, errors: list[str]) -> None:
+    if not isinstance(block, dict):
+        errors.append(f"{location} must be an object")
+        return
+    kind = str(block.get("type") or "paragraph")
+    if kind not in SUPPORTED_BLOCK_TYPES:
+        errors.append(f"{location}.type {kind!r} is unsupported")
+        return
+    if kind == "heading":
+        _validate_localized_value(
+            block.get("text") or block.get("title"),
+            f"{location}.text",
+            errors,
+        )
+    elif kind == "paragraph":
+        _validate_localized_value(
+            block.get("text") or block.get("body"),
+            f"{location}.text",
+            errors,
+        )
+    elif kind == "bullets":
+        items = block.get("items")
+        if not isinstance(items, list) or not items:
+            errors.append(f"{location}.items must be a non-empty list")
+            return
+        for index, item in enumerate(items):
+            _validate_localized_value(item, f"{location}.items[{index}]", errors)
+    elif kind == "callout":
+        _validate_localized_value(
+            block.get("title") or block.get("label"),
+            f"{location}.title",
+            errors,
+        )
+        _validate_localized_value(
+            block.get("body") or block.get("text"),
+            f"{location}.body",
+            errors,
+            required=False,
+        )
+        items = block.get("items") or []
+        if not isinstance(items, list):
+            errors.append(f"{location}.items must be a list")
+            return
+        for index, item in enumerate(items):
+            _validate_localized_value(item, f"{location}.items[{index}]", errors)
+    elif kind == "table":
+        _validate_localized_value(
+            block.get("title"),
+            f"{location}.title",
+            errors,
+            required=False,
+        )
+        headers = block.get("headers") or []
+        rows = block.get("rows") or []
+        if not headers and not rows:
+            errors.append(f"{location} table must include headers or rows")
+        for index, header in enumerate(headers):
+            _validate_localized_value(header, f"{location}.headers[{index}]", errors)
+        for row_index, row in enumerate(rows):
+            cells = row.get("cells") if isinstance(row, dict) else row
+            if not isinstance(cells, (list, tuple)) or not cells:
+                errors.append(f"{location}.rows[{row_index}] must contain cells")
+                continue
+            for cell_index, cell in enumerate(cells):
+                _validate_localized_value(
+                    cell,
+                    f"{location}.rows[{row_index}].cells[{cell_index}]",
+                    errors,
+                )
+
+
+def _validate_source(source: Any, location: str, errors: list[str]) -> None:
+    if not isinstance(source, dict):
+        errors.append(f"{location} must be an object")
+        return
+    for key in ("id", "title", "class", "treatment", "as_of"):
+        if not str(source.get(key) or "").strip():
+            errors.append(f"{location}.{key} is required")
+    _validate_localized_value(
+        source.get("class"),
+        f"{location}.class",
+        errors,
+        allow_plain=True,
+    )
+    _validate_localized_value(
+        source.get("treatment"),
+        f"{location}.treatment",
+        errors,
+        allow_plain=False,
+    )
+
+
+def _validate_localized_value(
+    value: Any,
+    location: str,
+    errors: list[str],
+    *,
+    required: bool = True,
+    allow_plain: bool = False,
+) -> None:
+    if value is None or value == "":
+        if required:
+            errors.append(f"{location} is required")
+        return
+    if isinstance(value, dict):
+        if not str(value.get("en") or "").strip():
+            errors.append(f"{location}.en is required")
+        if not str(value.get("zh") or "").strip():
+            errors.append(f"{location}.zh is required")
+        return
+    if allow_plain or isinstance(value, (int, float)):
+        return
+    errors.append(f"{location} must be bilingual with en and zh")
 
 
 def render_memos(
@@ -134,6 +320,7 @@ def render_memos(
 ) -> dict:
     """Render English and Chinese DOCX files from one structured package."""
     payload = load_package(package) if isinstance(package, (str, Path)) else package
+    validate_package(payload)
     outputs = {
         "en": Path(out_en),
         "zh": Path(out_zh),
