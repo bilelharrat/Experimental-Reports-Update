@@ -203,36 +203,15 @@ def _validate_analysis_session_for_memo(
     analysis_session_id: str,
     analysis_session: dict,
 ) -> None:
-    if not analysis_session.get("approved_for_memo"):
+    """Accept any existing Memo Studio session as optional memo context.
+
+    Approval and readiness gates still matter for signaling quality in the UI,
+    but they no longer block memo generation. A draft packet is source material,
+    not an approval stamp.
+    """
+    if analysis_session.get("company_id") != slug:
         raise AnalysisSessionNotReadyError(
-            f"Analysis session {analysis_session_id} for {slug} is not approved "
-            "for memo generation."
-        )
-    readiness = analysis_session.get("readiness")
-    if not isinstance(readiness, dict):
-        readiness, _ = serena_analysis._readiness(analysis_session)
-    blockers = readiness.get("approval_blockers") or []
-    if blockers or not readiness.get("ready_for_approval"):
-        labels = [
-            str(item.get("label") or item.get("id") or "readiness blocker")
-            for item in blockers[:5]
-            if isinstance(item, dict)
-        ]
-        detail = "; ".join(labels)
-        more = len(blockers) - len(labels)
-        if more > 0:
-            detail = f"{detail}; plus {more} more" if detail else f"{more} blockers"
-        raise AnalysisSessionNotReadyError(
-            f"Analysis session {analysis_session_id} for {slug} still has "
-            "readiness blockers"
-            + (f": {detail}." if detail else ".")
-        )
-    artifacts = analysis_session.get("artifacts") or {}
-    thesis = artifacts.get("thesis_spine")
-    if not isinstance(thesis, dict) or not thesis.get("approved"):
-        raise AnalysisSessionNotReadyError(
-            f"Analysis session {analysis_session_id} for {slug} does not have "
-            "an approved thesis spine."
+            f"Analysis session {analysis_session_id} does not belong to {slug}."
         )
 
 
@@ -387,6 +366,9 @@ def bootstrap_memo_run(
             analysis_session_id,
             analysis_session,
         )
+        raw_session = serena_analysis._strip_decorations(analysis_session)
+        serena_analysis._refresh_memo_packet(raw_session)
+        analysis_session = serena_analysis._write_session(raw_session)
 
     run_id = _run_id()
     run_dir = _make_run_dir(slug, run_id)

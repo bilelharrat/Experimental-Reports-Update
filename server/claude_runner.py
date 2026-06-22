@@ -1994,25 +1994,28 @@ materials, exactly as the skill says to do when the folder is absent.
     analysis_block = ""
     if analysis_session_path and analysis_session_path.exists():
         analysis_block = f"""\
-## Serena-approved analysis packet
+## Serena memo analysis packet
 
-Serena has prepared a pre-memo analysis session for this run. Read this
-folder before drafting the memo:
+Serena has prepared a pre-memo analysis session for this run. It may still
+contain draft, unapproved, or incomplete Memo Studio work. Read this folder
+before drafting the memo:
 
   `{analysis_session_path}`
 
-Start with `memo_packet.md`, then use the YAML artifacts as needed:
+Start with `memo_packet.md`, then use the YAML artifacts as source material
+as needed:
 strategic risks, risk priorities, research tasks, thesis spine,
 infographic source brief, chart/infographic plans, narrative hooks, and
-benchmark dashboard. Treat the approved thesis spine as the memo's
-authorship layer: the final memo structure still follows the skill, but
+benchmark dashboard. Treat the thesis spine as draft authorship guidance:
+the final memo structure still follows the skill, but
 Investment Highlights, Investment Risks, Top 3 Gating Questions,
 infographic choices, selected operator narrative choices, source-brief
 warnings, intro stance, risk-section posture, and conclusion posture should
-come from this packet unless the evidence directly contradicts it. Treat
-selected openings, risk framings, and endings as operator HIL guidance, not
-copy-paste text. Do not convert source-brief no-go claims, missing evidence,
-or unresolved reviewer prompts into factual memo claims.
+come from this packet when they are supported by evidence. Treat selected
+openings, risk framings, and endings as operator HIL guidance, not copy-paste
+text. Do not convert draft status, source-brief no-go claims, missing
+evidence, unresolved readiness blockers, or reviewer prompts into factual
+memo claims.
 
 """
 
@@ -4275,9 +4278,10 @@ Available files in that folder:
 Instructions:
 - Build a compact, durable source brief for later infographic and narrative
   generation. Do not write final memo prose.
-- Use approved thesis spine, selected risks, research-task evidence, evidence
-  matrix-like contradictions, benchmark metrics, readiness waivers, selected
-  chart/narrative state, memo lessons, and selected research-folder excerpts.
+- Use the current thesis spine, selected risks, research-task evidence,
+  evidence matrix-like contradictions, benchmark metrics, readiness waivers,
+  selected chart/narrative state, memo lessons, and selected research-folder
+  excerpts.
 - Narrative opportunities must explicitly identify the strongest available
   source-backed material for three final memo moments: the intro stance, the
   risk-section posture, and the conclusion/recommendation posture.

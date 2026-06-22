@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from server import (
     claude_runner,
     job_progress,
+    memo_analysis,
     memo_prep,
     research_store,
     serena_analysis,
@@ -3371,7 +3372,7 @@ def test_memo_analysis_tool_job_appears_in_active_jobs(tmp_path, monkeypatch):
         )
 
 
-def test_analysis_backed_report_requires_approved_session(tmp_path, monkeypatch):
+def test_analysis_backed_report_accepts_draft_session(tmp_path, monkeypatch):
     _seed_company(
         tmp_path,
         monkeypatch,
@@ -3384,6 +3385,7 @@ def test_analysis_backed_report_requires_approved_session(tmp_path, monkeypatch)
         },
     )
     session = serena_analysis.run_tool("generalist", "thesis_spine_builder")
+    monkeypatch.setattr(memo_analysis, "start_analysis", lambda report_id: None)
     client = TestClient(app)
 
     response = client.post(
@@ -3397,13 +3399,16 @@ def test_analysis_backed_report_requires_approved_session(tmp_path, monkeypatch)
         },
     )
 
-    assert response.status_code == 400
-    assert "not approved for memo generation" in response.json()["detail"]
-    assert storage.list_reports() == []
-    assert not memo_prep.MEMOS_ROOT.exists()
+    assert response.status_code == 201
+    report = response.json()
+    assert report["analysis_session_id"] == session["id"]
+    assert report["analysis_session_approved"] is False
+    assert report["status"] == "ready_for_analysis"
+    assert len(storage.list_reports()) == 1
+    assert memo_prep.MEMOS_ROOT.exists()
 
 
-def test_analysis_backed_prep_requires_approved_thesis_spine(
+def test_analysis_backed_prep_accepts_unapproved_thesis_spine(
     tmp_path, monkeypatch
 ):
     _seed_company(
@@ -3427,6 +3432,7 @@ def test_analysis_backed_prep_requires_approved_thesis_spine(
     raw = serena_analysis._strip_decorations(copy.deepcopy(approved_without_thesis))
     raw["artifacts"]["thesis_spine"]["approved"] = False
     serena_analysis._write_session(raw)
+    monkeypatch.setattr(memo_analysis, "start_analysis", lambda report_id: None)
 
     response = client.post(
         "/api/memos/prep",
@@ -3436,10 +3442,11 @@ def test_analysis_backed_prep_requires_approved_thesis_spine(
         },
     )
 
-    assert response.status_code == 400
-    assert "approved thesis spine" in response.json()["detail"]
-    assert storage.list_reports() == []
-    assert not memo_prep.MEMOS_ROOT.exists()
+    assert response.status_code == 201
+    report = response.json()
+    assert report["analysis_session_id"] == approved_without_thesis["id"]
+    assert report["analysis_session_approved"] is True
+    assert report["status"] == "ready_for_analysis"
 
 
 def test_analysis_backed_prep_accepts_approved_thesis_spine(
@@ -3463,6 +3470,7 @@ def test_analysis_backed_prep_accepts_approved_thesis_spine(
         rationale="Known chart gap accepted for prep test.",
     )
     approved = serena_analysis.approve("generalist")
+    monkeypatch.setattr(memo_analysis, "start_analysis", lambda report_id: None)
 
     response = client.post(
         "/api/memos/prep",
@@ -3479,7 +3487,7 @@ def test_analysis_backed_prep_accepts_approved_thesis_spine(
     assert report["status"] == "ready_for_analysis"
 
 
-def test_analysis_backed_prep_rejects_approved_session_with_reopened_blockers(
+def test_analysis_backed_prep_accepts_approved_session_with_reopened_blockers(
     tmp_path,
     monkeypatch,
 ):
@@ -3521,6 +3529,7 @@ def test_analysis_backed_prep_rejects_approved_session_with_reopened_blockers(
     )
     assert reopened["approved_for_memo"] is True
     assert reopened["readiness"]["ready_for_memo"] is False
+    monkeypatch.setattr(memo_analysis, "start_analysis", lambda report_id: None)
 
     response = client.post(
         "/api/memos/prep",
@@ -3530,6 +3539,8 @@ def test_analysis_backed_prep_rejects_approved_session_with_reopened_blockers(
         },
     )
 
-    assert response.status_code == 400
-    assert "still has readiness blockers" in response.json()["detail"]
-    assert storage.list_reports() == []
+    assert response.status_code == 201
+    report = response.json()
+    assert report["analysis_session_id"] == approved["id"]
+    assert report["analysis_session_approved"] is True
+    assert report["status"] == "ready_for_analysis"

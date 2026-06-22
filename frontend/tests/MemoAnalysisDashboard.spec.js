@@ -134,7 +134,7 @@ describe("MemoAnalysisDashboard", () => {
     wrapper?.unmount();
   });
 
-  it("disables approval and generation while blockers remain, then saves a waiver", async () => {
+  it("allows generation while approval blockers remain, then saves a waiver", async () => {
     wrapper = mountDashboard();
     await flushPromises();
 
@@ -144,10 +144,13 @@ describe("MemoAnalysisDashboard", () => {
       .find((button) => button.text().includes("Generate memo"));
 
     expect(approveButton.attributes("disabled")).toBeDefined();
-    expect(generateButton.attributes("disabled")).toBeDefined();
+    expect(generateButton.attributes("disabled")).toBeUndefined();
     expect(wrapper.text()).toContain("Approval blockers");
     expect(wrapper.text()).toContain("Memo Run Ledger");
     expect(wrapper.text()).toContain("research task");
+
+    await generateButton.trigger("click");
+    expect(wrapper.emitted("generate-memo")[0]).toEqual(["session-1"]);
 
     await wrapper.find("textarea").setValue("Waived for draft.");
     const waiveButton = wrapper.findAll("button")

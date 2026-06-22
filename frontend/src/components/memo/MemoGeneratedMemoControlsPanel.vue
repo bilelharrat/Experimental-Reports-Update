@@ -39,7 +39,7 @@ const emit = defineEmits(["approve", "generate-memo"]);
       <button
         type="button"
         :disabled="!canGenerateMemo"
-        :title="canGenerateMemo ? 'Generate memo' : 'Resolve blockers, approve analysis, and approve the thesis spine first'"
+        :title="canGenerateMemo ? 'Generate memo with current Memo Studio context' : 'Memo Studio session is loading'"
         class="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
         @click="emit('generate-memo')"
       >

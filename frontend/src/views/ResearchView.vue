@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  AlertTriangle,
   ArrowLeft,
   Download,
   Eye,
@@ -67,7 +66,6 @@ const canShowMemoStudio = computed(() =>
 // pipeline. Other types still route through the legacy stub generator.
 const reportType = ref(MEMO_REPORT_TYPE);
 const audience = ref("Internal");
-const regularMemoBlocked = ref(null);
 
 const activeReport = ref(null);
 // The Generate button is "generating" only when a report is actively
@@ -254,28 +252,8 @@ function stopPolling() {
 }
 
 async function generate(analysisSessionId = null) {
-  const approvedAnalysisId =
+  const memoAnalysisSessionId =
     typeof analysisSessionId === "string" ? analysisSessionId : null;
-  regularMemoBlocked.value = null;
-  if (
-    !approvedAnalysisId &&
-    reportType.value === MEMO_REPORT_TYPE &&
-    canShowMemoStudio.value
-  ) {
-    try {
-      const analysis = await api.memoAnalysis.get(props.companyId);
-      if (analysis?.has_unapproved_work) {
-        regularMemoBlocked.value = {
-          sessionId:
-            analysis.regular_memo_warning?.analysis_session_id || analysis.id,
-        };
-        return;
-      }
-    } catch {
-      // Non-fatal: if this read fails, the report creation call below will
-      // surface the actionable backend error for the user.
-    }
-  }
   try {
     const r = await api.generateReport({
       company_id: props.companyId,
@@ -284,7 +262,7 @@ async function generate(analysisSessionId = null) {
       // Language is fixed at the server: investment-memo runs always
       // produce both EN + ZH; legacy report types default to en.
       language: "en",
-      analysis_session_id: approvedAnalysisId,
+      analysis_session_id: memoAnalysisSessionId,
     });
     activeReport.value = r;
     // Hop the URL to the new report so a refresh lands on the fresh
@@ -337,7 +315,6 @@ watch(
   () => props.companyId,
   async () => {
     activeReport.value = null;
-    regularMemoBlocked.value = null;
     stopPolling();
     await Promise.all([loadCompany(), loadThreads()]);
     await loadFromQuery();
@@ -345,9 +322,6 @@ watch(
 );
 
 watch(() => route.query.report, loadFromQuery);
-watch(reportType, () => {
-  regularMemoBlocked.value = null;
-});
 
 onMounted(async () => {
   await Promise.all([loadOptions(), loadCompany(), loadThreads()]);
@@ -503,36 +477,6 @@ onUnmounted(stopPolling);
         <span v-if="generating" class="text-xs text-ink-muted">
           {{ tr("research.generating_hint") }}
         </span>
-      </div>
-      <div
-        v-if="regularMemoBlocked && canShowMemoStudio"
-        class="mt-4 rounded-lg border border-warning bg-warning-soft p-4 text-sm text-warning-ink flex items-start justify-between gap-4 flex-wrap"
-      >
-        <div class="flex items-start gap-2 min-w-0">
-          <AlertTriangle class="h-4 w-4 mt-0.5 shrink-0" />
-          <div>
-            <div class="font-semibold">
-              {{ tr("research.memo_studio_unapproved_block_title") }}
-            </div>
-            <p class="mt-1">
-              {{ tr("research.memo_studio_unapproved_block_body") }}
-            </p>
-            <div
-              v-if="regularMemoBlocked.sessionId"
-              class="mt-1 text-[11px] font-mono opacity-80"
-            >
-              {{ regularMemoBlocked.sessionId }}
-            </div>
-          </div>
-        </div>
-        <button
-          type="button"
-          @click="switchTab('analysis')"
-          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-warning/50 bg-surface text-ink-primary hover:bg-surface-muted focus-ring"
-        >
-          <FileText class="h-4 w-4" />
-          <span>{{ tr("research.open_memo_studio") }}</span>
-        </button>
       </div>
     </section>
 

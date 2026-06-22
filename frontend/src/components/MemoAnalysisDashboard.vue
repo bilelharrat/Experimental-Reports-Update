@@ -79,12 +79,7 @@ const readyForApproval = computed(() => Boolean(readiness.value.ready_for_approv
 const additionalAreas = computed(() => session.value?.additional_areas || []);
 const approved = computed(() => Boolean(session.value?.approved_for_memo));
 const thesisApproved = computed(() => Boolean(thesis.value?.approved));
-const canGenerateMemo = computed(() =>
-  approved.value &&
-  thesisApproved.value &&
-  Boolean(readiness.value.ready_for_memo) &&
-  readinessBlockers.value.length === 0,
-);
+const canGenerateMemo = computed(() => Boolean(session.value?.id));
 const readinessPct = computed(() => Math.round((readiness.value.pct || 0) * 100));
 const memoWorkProducts = computed(() => {
   const rows = [];
@@ -661,12 +656,12 @@ function reviewItemRow(row) {
 }
 
 function nextMemoAction() {
+  if (canGenerateMemo.value && completedMemoRuns.value.length === 0) return "Generate memo";
   if (readinessBlockers.value.length) {
     return readinessBlockers.value[0]?.label || "Resolve readiness blockers";
   }
   if (!thesisApproved.value) return "Approve thesis spine";
   if (!approved.value) return "Approve analysis";
-  if (canGenerateMemo.value && completedMemoRuns.value.length === 0) return "Generate memo";
   if (memoReviewItems.value.length) return memoReviewItems.value[0]?.title || "Review open item";
   return "Ready for memo generation";
 }
