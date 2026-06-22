@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from docx import Document
 import pytest
 
 from server import (
@@ -53,8 +54,8 @@ def _make_memo_report(data_root):
     memo_dir.mkdir(parents=True)
     en_path = memo_dir / f"Generalist, Inc. - Investment Memo - {run_id}.docx"
     zh_path = memo_dir / f"Generalist, Inc. - 投资备忘录 - {run_id}.docx"
-    en_path.write_text("english docx placeholder", encoding="utf-8")
-    zh_path.write_text("chinese docx placeholder", encoding="utf-8")
+    _write_clean_memo_docx(en_path)
+    _write_clean_memo_docx(zh_path)
 
     report = storage.create_report_record(
         company_id="generalist-inc",
@@ -74,6 +75,41 @@ def _make_memo_report(data_root):
         ],
     )
     return report, run_dir
+
+
+def _write_clean_memo_docx(path):
+    document = Document()
+    document.add_paragraph("I. Executive Summary")
+    document.add_paragraph(
+        "Generalist builds automation infrastructure. BSH should proceed only "
+        "after deployment depth and valuation support are confirmed."
+    )
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Metric"
+    table.cell(0, 1).text = "Treatment"
+    table.cell(1, 0).text = "Revenue"
+    table.cell(1, 1).text = (
+        "Not disclosed; model uses customer-count proxy and diligence threshold."
+    )
+    document.add_paragraph("VI. Sources, Source Classes, and Fact Reference Index")
+    document.add_paragraph("[S1] Company materials, company-reported.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document.save(path)
+
+
+def _write_bad_memo_docx(path):
+    document = Document()
+    document.add_paragraph("I. Executive Summary")
+    document.add_paragraph(
+        "ZaiNar has no battery cost [WV SPV memo] and a hard IP wall "
+        "(present-state)."
+    )
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Metric"
+    table.cell(0, 1).text = "Value"
+    table.cell(1, 0).text = "Last priced valuation"
+    table.cell(1, 1).text = "~$1.0B post-money [companies.yaml]"
+    document.save(path)
 
 
 def test_memo_run_completes_when_optional_pdf_render_fails(
@@ -127,6 +163,57 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
     )
 
 
+def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
+    memo_env, monkeypatch
+):
+    report, run_dir = _make_memo_report(memo_env)
+    en_path = memo_analysis._memo_paths_abs(report)["en"]
+    _write_bad_memo_docx(en_path)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+
+    def fake_run_investment_memo(**kwargs):
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=1.25,
+            duration_ms=1234,
+        )
+        return {"ok": True, "cost_usd": 1.25, "duration_ms": 1234}
+
+    monkeypatch.setattr(
+        claude_runner, "run_investment_memo", fake_run_investment_memo
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PDF rendering should not run after quality failure")
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "failed_quality_gate"
+    assert updated["stage"] == "Memo failed quality gate"
+    assert updated["memo_quality_lint"]["p0_count"] >= 1
+    assert (run_dir / "logs" / "memo_quality_lint.md").exists()
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["phase"] == "quality_gate"
+    assert events[-1]["findings"]
+
+
 def test_recover_stale_memo_report_emits_missing_done(memo_env):
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
@@ -163,3 +250,49 @@ def test_recover_stale_memo_report_emits_missing_done(memo_env):
 
     state = api._scan_progress_state(memo_prep.stream_path(run_dir))
     assert state["terminated"] is True
+
+
+def test_active_memo_job_registers_subtask_completion(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+    stream.emit("thread_started", thread="Pressure tests")
+    stream.emit(
+        "claude_action",
+        action="tool_use",
+        tool="Write",
+        thread="Pressure tests",
+        preview="analysis/pressure_tests.md",
+    )
+    stream.emit("thread_finished", thread="Pressure tests")
+    stream.emit("thread_started", thread="Validation log")
+
+    state = api._scan_progress_state(memo_prep.stream_path(run_dir))
+
+    assert state["terminated"] is False
+    assert state["thread_count"] == 2
+    assert state["thread_done_count"] == 1
+    assert state["thread_failed_count"] == 0
+    assert state["open_thread_count"] == 1
+    assert {
+        (thread["name"], thread["status"])
+        for thread in state["threads"]
+    } == {
+        ("Pressure tests", "done"),
+        ("Validation log", "running"),
+    }
+
+    memo_job = next(
+        job for job in api._memo_kind_records()
+        if job.get("report_id") == report["id"]
+    )
+    assert memo_job["thread_count"] == 2
+    assert memo_job["thread_done_count"] == 1
+    assert memo_job["open_thread_count"] == 1

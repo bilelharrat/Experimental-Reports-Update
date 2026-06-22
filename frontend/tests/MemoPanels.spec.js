@@ -106,6 +106,7 @@ describe("Memo panel components", () => {
             name: "memo_grader",
             label: "Memo Grader",
             description: "Grade completed memos.",
+            stage: "after_memo",
             status: "done",
           },
         ],

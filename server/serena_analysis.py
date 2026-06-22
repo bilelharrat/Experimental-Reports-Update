@@ -44,51 +44,102 @@ RESEARCH_TASK_CONCURRENCY = max(
 logger = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 
-TOOL_DEFINITIONS: list[dict[str, str]] = [
+TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "strategic_risk_mapper",
         "label": "Strategic Risk Mapper",
-        "description": "Generate sharp decision-grade strategic risks.",
+        "description": "Generate the decision questions that should shape the memo.",
+        "stage": "core",
+        "critical": True,
+        "run_label": "Map risks",
+        "ready_label": "Risk map ready for prioritization",
+        "input_label": "Pick the questions that deserve diligence.",
+        "produces": "strategic_risks",
     },
     {
         "name": "priority_prompt_harness",
-        "label": "Priority + Prompt Harness",
-        "description": "Rank risks and turn them into targeted research prompts.",
+        "label": "Risk Prioritizer",
+        "description": "Rank the risks and convert selected ones into diligence questions.",
+        "stage": "core",
+        "critical": True,
+        "run_label": "Build diligence queue",
+        "ready_label": "Diligence queue ready for source selection",
+        "input_label": "Select sources and run only the questions that matter.",
+        "depends_on": ["strategic_risk_mapper"],
+        "produces": "research_tasks",
     },
     {
         "name": "thesis_spine_builder",
-        "label": "Thesis Spine Builder",
-        "description": "Draft the 3-5 highlights, 3-5 risks, recommendation logic, and top gates.",
+        "label": "Thesis Spine",
+        "description": "Draft memo-grade highlights, risks, recommendation logic, and gates.",
+        "stage": "core",
+        "critical": True,
+        "run_label": "Draft thesis",
+        "ready_label": "Thesis ready for review",
+        "input_label": "Edit the claims and gating questions before approval.",
+        "depends_on": ["strategic_risk_mapper", "priority_prompt_harness"],
+        "produces": "thesis_spine",
     },
     {
         "name": "infographic_source_brief",
-        "label": "Infographic Source Brief",
-        "description": "Distill high-signal claims, metrics, citations, warnings, and visual opportunities.",
+        "label": "Visual Source Brief",
+        "description": "Optional: find claims and metrics safe enough for visuals.",
+        "stage": "optional",
+        "run_label": "Prepare visual sources",
+        "ready_label": "Visual source brief ready for choices",
+        "input_label": "Resolve any claim, metric, or visual-use questions.",
+        "produces": "infographic_source_brief",
     },
     {
         "name": "chart_spec_builder",
-        "label": "Infographic Plan Builder",
-        "description": "Plan image-generation-ready charts and memo infographics.",
+        "label": "Chart Plan Builder",
+        "description": "Optional: plan charts or infographics for the memo.",
+        "stage": "optional",
+        "run_label": "Plan visuals",
+        "ready_label": "Chart plans ready for inclusion choices",
+        "input_label": "Choose which visuals belong in the memo.",
+        "depends_on": ["infographic_source_brief"],
+        "produces": "chart_specs",
     },
     {
         "name": "narrative_hooks",
         "label": "Narrative Hook Planner",
-        "description": "Draft source-backed opening, transition, and closing hooks.",
+        "description": "Optional: propose source-backed opening and closing angles.",
+        "stage": "optional",
+        "run_label": "Draft hooks",
+        "ready_label": "Narrative hooks ready for selection",
+        "input_label": "Choose the memo tone and selected hooks.",
+        "depends_on": ["infographic_source_brief"],
+        "produces": "narrative_hooks",
     },
     {
         "name": "private_benchmark_dashboard",
-        "label": "Private Benchmark Dashboard",
-        "description": "Identify mature public comps and underwriting benchmarks.",
+        "label": "Benchmark Context",
+        "description": "Optional: pressure-test the company against public comps.",
+        "stage": "optional",
+        "run_label": "Build comps",
+        "ready_label": "Benchmark context ready for review",
+        "input_label": "Decide which comps are relevant enough to cite.",
+        "produces": "benchmark_dashboard",
     },
     {
         "name": "memo_grader",
         "label": "Memo Grader",
-        "description": "Grade completed memos and record lessons for the next run.",
+        "description": "After memo: grade a completed memo and save lessons.",
+        "stage": "after_memo",
+        "run_label": "Grade memo",
+        "ready_label": "Memo grade ready for review",
+        "input_label": "Select a completed memo run before grading.",
+        "produces": "memo_grader",
     },
     {
         "name": "readiness_check",
         "label": "Memo Readiness Gate",
-        "description": "Check whether analysis is strong enough for final memo generation.",
+        "description": "System readiness refresh.",
+        "stage": "hidden",
+        "visibility": "hidden",
+        "run_label": "Refresh readiness",
+        "produces": "readiness",
     },
 ]
 
@@ -4963,15 +5014,92 @@ def _refresh_memo_packet(session: dict) -> None:
         "## Final Memo Handoff Guidance",
         "",
         (
-            "Use this packet as source material, not prose. Translate evidence "
-            "matrices, research tasks, risks, and gating questions into "
+            "Use this packet as evidence, not copy. The final memo must translate "
+            "evidence matrices, research tasks, risks, and gating questions into "
             "partner-level conclusions."
         ),
         "",
         (
-            "Do not copy task labels, confidence scaffolding, reviewer prompts, "
-            "methodology notes, or validation language into the final memo body."
+            "Never copy source labels, reviewer prompts, artifact names, "
+            "bracketed source tokens, design prompts, methodology notes, "
+            "confidence scaffolding, no-go labels, or validation language into "
+            "final body prose or operating tables."
         ),
+        "",
+        (
+            "Convert source traces into source-class and model-treatment language "
+            "in Sections I-V. Use detailed source traces only for the fact "
+            "reference index or a clearly separated validation appendix."
+        ),
+        "",
+        "## Memo Spine For Final Draft",
+    ]
+    highlights = [
+        item for item in thesis.get("investment_highlights") or []
+        if isinstance(item, dict)
+    ]
+    gates = [
+        item for item in thesis.get("top_gating_questions") or []
+        if isinstance(item, dict)
+    ]
+    core_bet = "Final draft must state the core investment bet in the opening."
+    if highlights:
+        first = highlights[0]
+        detail = first.get("detail")
+        core_bet = str(first.get("claim") or core_bet)
+        if detail:
+            core_bet = f"{core_bet}: {detail}"
+    current_proof = [
+        str(item.get("claim") or "").strip()
+        for item in highlights[:3]
+        if str(item.get("claim") or "").strip()
+    ]
+    unproven = [
+        str(item.get("question") or "").strip()
+        for item in gates[:3]
+        if str(item.get("question") or "").strip()
+    ]
+    pass_triggers = [
+        str(item).strip()
+        for item in thesis.get("pass_triggers") or []
+        if str(item or "").strip()
+    ][:3]
+    recommendation_logic = str(
+        thesis.get("recommendation_logic")
+        or "State the recommended action, allocation posture, conditions, and next diligence."
+    ).strip()
+    lines += [
+        "",
+        f"- **core_bet:** {core_bet}",
+        (
+            "- **entry_tension:** State what the valuation, instrument, or "
+            "entry terms already assume, especially where proof is incomplete."
+        ),
+        (
+            "- **current_proof:** "
+            + (
+                "; ".join(current_proof)
+                if current_proof
+                else "Summarize only source-classed evidence proven today."
+            )
+        ),
+        (
+            "- **unproven_but_modelable:** "
+            + (
+                "; ".join(unproven)
+                if unproven
+                else "List missing proof that can be modeled with conservative ranges."
+            )
+        ),
+        (
+            "- **kill_criteria:** "
+            + (
+                "; ".join(pass_triggers)
+                if pass_triggers
+                else "Name the evidence that would make BSH pass."
+            )
+        ),
+        f"- **action:** {recommendation_logic}",
         "",
         "## Investment Highlights",
     ]
@@ -6305,10 +6433,6 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
     risks = artifacts.get("strategic_risks") if isinstance(artifacts.get("strategic_risks"), dict) else {}
     priorities = artifacts.get("risk_priorities") if isinstance(artifacts.get("risk_priorities"), dict) else {}
     thesis = artifacts.get("thesis_spine") if isinstance(artifacts.get("thesis_spine"), dict) else {}
-    source_brief = artifacts.get("infographic_source_brief") if isinstance(artifacts.get("infographic_source_brief"), dict) else {}
-    charts = artifacts.get("chart_specs") if isinstance(artifacts.get("chart_specs"), dict) else {}
-    hooks = artifacts.get("narrative_hooks") if isinstance(artifacts.get("narrative_hooks"), dict) else {}
-    benchmark = artifacts.get("benchmark_dashboard") if isinstance(artifacts.get("benchmark_dashboard"), dict) else {}
     research_tasks = artifacts.get("research_tasks") if isinstance(artifacts.get("research_tasks"), dict) else {}
     task_rows = research_tasks.get("tasks") if isinstance(research_tasks, dict) else []
     task_rows = task_rows if isinstance(task_rows, list) else []
@@ -6336,9 +6460,6 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         ("highlights", "3-5 Investment Highlights drafted", 3 <= len(thesis.get("investment_highlights") or []) <= 5),
         ("memo_risks", "3-5 Investment Risks drafted", 3 <= len(thesis.get("investment_risks") or []) <= 5),
         ("gating_questions", "Top 3 gating questions selected", len(thesis.get("top_gating_questions") or []) >= 3),
-        ("infographic_source_brief", "Infographic source brief reviewed", _infographic_source_brief_has_content(source_brief)),
-        ("chart_specs", "Chart/table plan reviewed", bool(charts.get("specs"))),
-        ("benchmark", "Benchmark dashboard reviewed", bool(benchmark.get("public_comps"))),
         ("approved", "Final memo generation approved", bool(session.get("approved_for_memo"))),
     ]
     if completed_task_results:
@@ -6391,42 +6512,6 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         for gid, label, ok in gates if gid != "approved" and not ok
     ]
 
-    for spec in charts.get("specs") or []:
-        if spec.get("data_availability") == "missing":
-            additional.append({
-                "id": f"chart-gap-{spec.get('id')}",
-                "severity": "medium",
-                "area": f"Chart data incomplete: {spec.get('title')}",
-                "why_it_matters": spec.get("takeaway"),
-                "status": "open",
-            })
-        for prompt in spec.get("reviewer_prompts") or []:
-            if prompt.get("required") and not prompt.get("resolved_choice"):
-                additional.append({
-                    "id": f"infographic-choice-{spec.get('id')}-{prompt.get('id')}",
-                    "severity": "medium",
-                    "area": f"Infographic choice needed: {spec.get('title')}",
-                    "why_it_matters": prompt.get("prompt"),
-                    "status": "open",
-                })
-    for prompt in source_brief.get("reviewer_prompts") or []:
-        if prompt.get("required") and not prompt.get("resolved_choice"):
-            additional.append({
-                "id": f"source-brief-choice-{prompt.get('id')}",
-                "severity": "medium",
-                "area": "Source brief reviewer choice needed",
-                "why_it_matters": prompt.get("prompt"),
-                "status": "open",
-            })
-    for prompt in hooks.get("reviewer_prompts") or []:
-        if prompt.get("required") and not prompt.get("resolved_choice"):
-            additional.append({
-                "id": f"narrative-choice-{prompt.get('id')}",
-                "severity": "medium",
-                "area": "Narrative reviewer choice needed",
-                "why_it_matters": prompt.get("prompt"),
-                "status": "open",
-            })
     for task in completed_task_results:
         task_id = task.get("id") or "research-task"
         title = task.get("title") or task_id

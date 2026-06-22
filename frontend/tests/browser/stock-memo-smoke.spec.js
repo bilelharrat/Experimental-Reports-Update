@@ -189,19 +189,22 @@ const memoSession = {
   has_unapproved_work: true,
   completed_memo_runs: [{ id: "report-1", run_id: "memo-run-1" }],
   tools: [
-    { name: "chart_spec_builder", label: "Chart Spec Builder", description: "Build chart plans.", status: "not_started" },
-    { name: "memo_grader", label: "Memo Grader", description: "Grade completed memos.", status: "done" },
+    { name: "strategic_risk_mapper", label: "Strategic Risk Mapper", description: "Generate decision questions.", stage: "core", critical: true, status: "done", input_label: "Pick the questions that deserve diligence.", run_label: "Map risks" },
+    { name: "priority_prompt_harness", label: "Risk Prioritizer", description: "Build diligence questions.", stage: "core", critical: true, status: "done", input_label: "Select sources and run only the questions that matter.", run_label: "Build diligence queue" },
+    { name: "thesis_spine_builder", label: "Thesis Spine", description: "Draft memo-grade claims.", stage: "core", critical: true, status: "done", input_label: "Edit claims and gates.", run_label: "Draft thesis" },
+    { name: "chart_spec_builder", label: "Chart Plan Builder", description: "Build chart plans.", stage: "optional", status: "not_started", run_label: "Plan visuals" },
+    { name: "memo_grader", label: "Memo Grader", description: "Grade completed memos.", stage: "after_memo", status: "done", run_label: "Grade memo" },
   ],
   readiness: {
-    score: 7,
-    total: 9,
-    pct: 7 / 9,
-    ready_for_approval: false,
+    score: 6,
+    total: 7,
+    pct: 6 / 7,
+    ready_for_approval: true,
     ready_for_memo: false,
-    approval_blockers: [{ id: "chart-gap", kind: "additional_area", label: "Chart data incomplete" }],
+    approval_blockers: [],
     gates: [{ id: "thesis", label: "Thesis spine drafted", status: "done" }],
   },
-  additional_areas: [{ id: "chart-gap", severity: "medium", area: "Chart data incomplete", why_it_matters: "Customer evidence is missing.", status: "open" }],
+  additional_areas: [],
   artifacts: {
     input_manifest: { research_files: [{ id: "source-1", filename: "pitchbook.pdf" }] },
     strategic_risks: { risks: [{ id: "risk-1", title: "Customer proof", status: "open", decision_question: "Is production adoption verified?", why_it_matters: "It gates the memo." }] },
@@ -367,12 +370,21 @@ test("memo tools analysis route renders panels and submits a mocked task action"
   await page.goto("/research/research/generalist?tab=analysis");
 
   await expect(page.getByRole("heading", { name: "Memo Studio" })).toBeVisible();
-  await expect(page.getByText("Memo Tools Toolbox")).toBeVisible();
-  await expect(page.getByText("Memo Run Ledger")).toBeVisible();
+  await expect(page.getByText("Core Memo Workflow")).toBeVisible();
   await expect(page.getByText("Deployment depth remains unproven.").first()).toBeVisible();
+
+  await page.getByText("Evidence, Ledger, And Source Boundaries").click();
+  await expect(page.getByText("Memo Run Ledger")).toBeVisible();
   await expect(page.getByText("Deployment evidence is mixed.")).toBeVisible();
-  await expect(page.getByText("Choose visual mode.").first()).toBeVisible();
+
+  await page.getByText("Optional Memo Tools").click();
+  await expect(page.getByText("Chart Plan Builder")).toBeVisible();
+
+  await page.getByText("After Memo").click();
   await expect(page.getByText("Require source traces.").first()).toBeVisible();
+
+  await page.getByText("Visual, Narrative, And Benchmark Tools").click();
+  await expect(page.getByText("Choose visual mode.").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Run selected" }).click();
   await expect.poll(() =>
@@ -387,7 +399,7 @@ test("public ticker analysis deep link hides memo tools", async ({ page }) => {
 
   await expect(page.getByText("Public Ticker Co")).toBeVisible();
   await expect(page.getByRole("button", { name: "Memo Studio" })).toHaveCount(0);
-  await expect(page.getByText("Memo Tools Toolbox")).toHaveCount(0);
+  await expect(page.getByText("Core Memo Workflow")).toHaveCount(0);
   await expect(page).toHaveURL(/\/research\/research\/public-ticker$/);
   expect(calls.some((call) => call.path.includes("/memo-analysis"))).toBe(false);
 });

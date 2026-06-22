@@ -153,8 +153,6 @@ def _run_approval_required_tools(client: TestClient, company_id: str) -> dict:
         "strategic_risk_mapper",
         "priority_prompt_harness",
         "thesis_spine_builder",
-        "chart_spec_builder",
-        "private_benchmark_dashboard",
     ):
         current = serena_analysis.get_current_session(company_id)
         tool_statuses = {
@@ -467,7 +465,8 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
         serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
     ).read_text(encoding="utf-8")
     assert "Claude highlight 1" in packet
-    assert "Use this packet as source material, not prose" in packet
+    assert "Use this packet as evidence, not copy" in packet
+    assert "Memo Spine For Final Draft" in packet
     assert "partner-level conclusions" in packet
 
     context = captured["artifacts"]
@@ -863,7 +862,8 @@ def test_memo_analysis_infographic_source_brief_job_persists_claude_result_and_p
 
     assert brief["generated_by"] == "claude_code"
     assert brief["compact_claims"][0]["source_traces"][0]["confidence"] == "high"
-    assert any(
+    assert brief["reviewer_prompts"][0]["status"] == "needs_review"
+    assert not any(
         area["id"].startswith("source-brief-choice-")
         for area in session["additional_areas"]
     )
@@ -1077,7 +1077,7 @@ def test_memo_analysis_chart_spec_job_preserves_manual_state_and_prompts(
     assert spec["include_in_final_memo"] is False
     assert spec["manual_notes"] == "Serena excluded this visual."
     assert spec["reviewer_prompts"][0]["status"] == "needs_review"
-    assert any(
+    assert not any(
         area["id"].startswith(f"infographic-choice-{spec['id']}")
         for area in session["additional_areas"]
     )
@@ -1392,25 +1392,14 @@ def test_analysis_session_tracks_readiness_and_approval(tmp_path, monkeypatch):
         "strategic_risk_mapper",
         "priority_prompt_harness",
         "thesis_spine_builder",
-        "chart_spec_builder",
-        "private_benchmark_dashboard",
         "readiness_check",
     ):
         session = serena_analysis.run_tool("anduril", tool)
 
     assert session["readiness"]["score"] == session["readiness"]["total"] - 1
-    assert session["readiness"]["ready_for_approval"] is False
-    assert any(
-        blocker["id"].startswith("chart-gap-")
-        for blocker in session["readiness"]["approval_blockers"]
-    )
-    assert session["approved_for_memo"] is False
-
-    session = _waive_additional_areas(
-        "anduril",
-        rationale="Adoption ladder is a known diligence gap for this draft.",
-    )
     assert session["readiness"]["ready_for_approval"] is True
+    assert session["readiness"]["approval_blockers"] == []
+    assert session["approved_for_memo"] is False
 
     approved = serena_analysis.approve("anduril")
 
@@ -1421,9 +1410,12 @@ def test_analysis_session_tracks_readiness_and_approval(tmp_path, monkeypatch):
     )
     assert memo_packet.exists()
     packet_text = memo_packet.read_text(encoding="utf-8")
+    assert "Use this packet as evidence, not copy" in packet_text
+    assert "Never copy source labels" in packet_text
+    assert "source-class and model-treatment language" in packet_text
+    assert "Memo Spine For Final Draft" in packet_text
+    assert "**kill_criteria:**" in packet_text
     assert "Investment Highlights" in packet_text
-    assert "Readiness Reviews And Waivers" in packet_text
-    assert "Adoption ladder is a known diligence gap" in packet_text
 
 
 def test_analysis_approval_fails_when_required_gates_are_missing(
@@ -1450,7 +1442,7 @@ def test_analysis_approval_fails_when_required_gates_are_missing(
     assert session["readiness"]["ready_for_approval"] is False
 
 
-def test_analysis_approval_succeeds_after_additional_area_waiver(
+def test_analysis_approval_succeeds_without_optional_visual_work(
     tmp_path,
     monkeypatch,
 ):
@@ -1470,19 +1462,11 @@ def test_analysis_approval_succeeds_after_additional_area_waiver(
     client = TestClient(app)
     session = _run_approval_required_tools(client, "generalist")
 
-    assert session["readiness"]["ready_for_approval"] is False
-    assert any(
+    assert session["readiness"]["ready_for_approval"] is True
+    assert not any(
         blocker["kind"] == "additional_area"
         for blocker in session["readiness"]["approval_blockers"]
     )
-
-    waived = _waive_additional_areas(
-        "generalist",
-        rationale="Missing adoption ladder data is acceptable for this memo.",
-    )
-    assert waived["readiness"]["ready_for_approval"] is True
-    assert waived["additional_areas"][0]["status"] == "waived"
-    assert waived["additional_areas"][0]["rationale"]
 
     approved = serena_analysis.approve("generalist")
     assert approved["approved_for_memo"] is True
@@ -1548,10 +1532,7 @@ def test_memo_analysis_api_runs_tool_and_approves(tmp_path, monkeypatch):
     assert "Thesis spine drafted" in blocked.json()["detail"]
 
     _run_approval_required_tools(client, "generalist")
-    session = _waive_additional_areas(
-        "generalist",
-        rationale="Chart data gap accepted for first memo draft.",
-    )
+    session = serena_analysis.get_current_session("generalist")
     assert session["readiness"]["ready_for_approval"] is True
 
     approved = client.post("/api/companies/generalist/memo-analysis/approve")
@@ -1894,10 +1875,6 @@ def test_memo_analysis_flags_meaningful_unapproved_work(tmp_path, monkeypatch):
     assert serena_analysis.has_unapproved_work("generalist") is True
 
     _run_approval_required_tools(client, "generalist")
-    _waive_additional_areas(
-        "generalist",
-        rationale="Known chart gap accepted for unapproved-work test.",
-    )
     approved = client.post("/api/companies/generalist/memo-analysis/approve")
     assert approved.status_code == 200
     approved_payload = approved.json()
@@ -3424,10 +3401,6 @@ def test_analysis_backed_prep_accepts_unapproved_thesis_spine(
     )
     client = TestClient(app)
     approved_without_thesis = _run_approval_required_tools(client, "generalist")
-    _waive_additional_areas(
-        "generalist",
-        rationale="Known chart gap accepted for stale-session test.",
-    )
     approved_without_thesis = serena_analysis.approve("generalist")
     raw = serena_analysis._strip_decorations(copy.deepcopy(approved_without_thesis))
     raw["artifacts"]["thesis_spine"]["approved"] = False
@@ -3465,10 +3438,6 @@ def test_analysis_backed_prep_accepts_approved_thesis_spine(
     )
     client = TestClient(app)
     session = _run_approval_required_tools(client, "generalist")
-    _waive_additional_areas(
-        "generalist",
-        rationale="Known chart gap accepted for prep test.",
-    )
     approved = serena_analysis.approve("generalist")
     monkeypatch.setattr(memo_analysis, "start_analysis", lambda report_id: None)
 
@@ -3504,28 +3473,15 @@ def test_analysis_backed_prep_accepts_approved_session_with_reopened_blockers(
     )
     client = TestClient(app)
     session = _run_approval_required_tools(client, "generalist")
-    chart_gap = next(
-        area
-        for area in session["additional_areas"]
-        if area["id"].startswith("chart-gap-")
-    )
-    _waive_additional_areas(
-        "generalist",
-        rationale="Known chart gap accepted for first draft.",
-    )
     approved = serena_analysis.approve("generalist")
-    reopened = serena_analysis.patch_artifact(
-        "generalist",
-        "readiness_reviews",
-        {
-            "items": [
-                {
-                    "id": chart_gap["id"],
-                    "status": "open",
-                    "rationale": "",
-                }
-            ]
-        },
+    raw = serena_analysis._strip_decorations(copy.deepcopy(approved))
+    raw["artifacts"]["thesis_spine"]["top_gating_questions"] = []
+    serena_analysis._refresh_memo_packet(raw)
+    serena_analysis._write_session(raw)
+    reopened = serena_analysis.get_current_session("generalist")
+    assert any(
+        blocker["id"] == "gating_questions"
+        for blocker in reopened["readiness"]["approval_blockers"]
     )
     assert reopened["approved_for_memo"] is True
     assert reopened["readiness"]["ready_for_memo"] is False

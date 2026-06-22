@@ -75,6 +75,35 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "Final Prose QA Requirements" in prompt
 
 
+def test_investment_memo_prompt_bans_source_tokens_and_scaffold_labels(tmp_path):
+    prompt = claude_runner._build_investment_memo_prompt(
+        run_dir=tmp_path,
+        company_name="ZaiNar, Inc.",
+        company_slug="zainar-inc",
+        run_id="2026-06-22__093627",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+    )
+
+    assert "supersedes any older skill instruction" in prompt
+    assert "inline source markers" in prompt
+    assert "Sources, Source Classes, and Fact Reference Index" in prompt
+    assert "Memo spine requirement" in prompt
+    assert "Critical Reality Check" in prompt
+    assert "present-state" in prompt
+    assert "upside-state" in prompt
+    assert "soft instrument" in prompt
+    assert "hard IP wall" in prompt
+    assert "em dash bridging" in prompt
+    assert "must include at least one inline citation marker" not in prompt
+    assert "Render a **Critical Reality Check" not in prompt
+    assert "Critical Reality Check (for BSH)** evidence-summary callout" not in prompt
+
+
 def test_investment_memo_prompt_includes_serena_lessons(tmp_path):
     lessons_path = tmp_path / "serena_training" / "generalist" / "serena_memo_lessons.md"
     lessons_path.parent.mkdir(parents=True)
