@@ -28,10 +28,10 @@ code paths, no run folders, no inputs. They do not invoke each other.
    reads its inputs the way the skill prescribes (`markitdown` for PDFs,
    `pandoc` for `.docx`, Read for images), runs analytical passes, writes
    analysis artifacts, and emits `logs/memo_package.json` as structured
-   memo content. The tracked renderer (`server.memo_docx_renderer`) turns
-   that package into both `.docx` files, validation logs, file inventory,
-   and manifest finalization. Per-run renderer scripts such as
-   `build_memo.py` are forbidden.
+   memo content. After Claude exits, Python validates that package and calls
+   the tracked renderer (`server.memo_docx_renderer`) to create both `.docx`
+   files, validation logs, file inventory, and manifest finalization.
+   Per-run renderer scripts such as `build_memo.py` are forbidden.
 
 ## Where Serena's "company folder" lives in this codebase
 

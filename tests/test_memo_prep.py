@@ -91,7 +91,8 @@ def test_investment_memo_prompt_uses_fixed_docx_renderer(tmp_path):
 
     assert "Fixed DOCX renderer contract" in prompt
     assert "logs/memo_package.json" in prompt
-    assert "-m server.memo_docx_renderer" in prompt
+    assert "worker will invoke `server.memo_docx_renderer` directly" in prompt
+    assert "Do not run `python -m" in prompt
     assert "Do **not** write or edit a per-run renderer script" in prompt
     assert "build_memo.py" in prompt
     assert "job is to author a complete `memo_package.json`" in prompt

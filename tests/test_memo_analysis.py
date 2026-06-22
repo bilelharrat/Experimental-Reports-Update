@@ -482,8 +482,11 @@ def test_recover_stale_memo_report_emits_missing_done(memo_env):
     assert updated["claude_cost_usd"] == 9.02
 
     events = _events(memo_prep.stream_path(run_dir))
-    assert events[-2]["type"] == "thread_finished"
-    assert events[-2]["thread"] == "Validation log"
+    assert any(
+        event.get("type") == "thread_finished"
+        and event.get("thread") == "Validation log"
+        for event in events
+    )
     assert events[-1]["type"] == "done"
     assert events[-1]["recovered"] is True
 

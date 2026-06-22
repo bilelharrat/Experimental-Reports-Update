@@ -1,8 +1,8 @@
 """Convert a ``.docx`` to PDF via Microsoft Word (macOS osascript).
 
 This mirrors the PowerPoint→PDF helper in ``files_store.py``: the memo
-skill renders professional ``.docx`` files with the docx skill, and we
-need faithful PDF renditions for the in-app preview popup. Word renders
+worker renders professional ``.docx`` files with the fixed renderer, and
+we need faithful PDF renditions for the in-app preview popup. Word renders
 both the English and the Simplified-Chinese (CJK) memo correctly, and
 osascript automation of Office is already the sanctioned pattern in this
 codebase, so we reuse it here rather than introducing LibreOffice/pandoc.

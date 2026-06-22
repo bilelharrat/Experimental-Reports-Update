@@ -2186,19 +2186,28 @@ shape:
     }}
   ],
   "sources": [
-    {{"id": "S1", "title": "Source title", "class": "Company material", "treatment": "How used", "as_of": "YYYY-MM-DD"}}
+    {{
+      "id": "S1",
+      "title": "Source title",
+      "class": {{"en": "Company material", "zh": "公司材料"}},
+      "treatment": {{"en": "How used", "zh": "使用方式"}},
+      "as_of": "YYYY-MM-DD"
+    }}
   ]
 }}
 ```
 
-Use the section ids from the skill's structure when possible:
-`executive_summary`, `company_overview`, `investment_highlights`,
-`investment_risk`, `financial_forecast_valuation`, `sources`,
-`validation_log`. Use `paragraph`, `heading`, `bullets`, `callout`, and
-`table` blocks. Tables should carry headers and rows as arrays; callouts
-should carry concise title/body/items. The same package drives both EN and
-ZH output, so every final user-facing string should be either bilingual
-(`{{"en": "...", "zh": "..."}}`) or intentionally language-neutral.
+The abbreviated shape above illustrates block syntax. The final package must
+include all required core section ids: `executive_summary`,
+`company_overview`, `investment_highlights`, `investment_risk`, and
+`financial_forecast_valuation`, each with non-empty blocks. Include a
+non-empty `sources` list. Use `paragraph`, `heading`, `bullets`, `callout`,
+and `table` blocks. Tables should carry headers and rows as arrays; callouts
+should carry concise title/body/items. The same package drives both EN and ZH
+output, so every final user-facing string in blocks, table cells, and source
+treatment must be bilingual (`{{"en": "...", "zh": "..."}}`) unless it is a
+proper noun, date, numeric value, source id, or intentionally language-neutral
+source title.
 
 ## Parallel execution of the eight orthogonal passes
 
@@ -2215,8 +2224,8 @@ concurrently.
 
 The synthesis step (Claim Register reconciliation, Scenario Swim
 Lanes, Top 3 Gating Questions, Pre-Mortem, Reverse IC), the memo
-drafting step, the translation step, and the `.docx` rendering step
-remain sequential.
+drafting step, the translation step, and the package-writing step
+remain sequential. Server-side `.docx` rendering happens after Claude exits.
 
 ## Output contract — exactly per the skill text
 

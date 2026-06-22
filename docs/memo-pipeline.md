@@ -35,14 +35,14 @@ memo_analysis._run(report_id)                      # long-running
   │   - Writes the synthesis artifacts (claim register, scenarios, gating
   │     questions, pre-mortem, reverse IC, validation log)
   │   - Writes logs/memo_package.json as structured memo data
-  │   - Runs the tracked renderer: python -m server.memo_docx_renderer
-  │   - Renderer writes both memo/*.docx files, logs/validation*.txt,
-  │     logs/file_inventory.md, and the run manifest finalization block
   │
   ├── On Claude exit:
   │     If returncode != 0 → mark report failed_during_analysis
   │     Else block generated render scripts like build_memo.py
-  │     Else verify the two .docx files exist → continue post-run gates
+  │     Else validate logs/memo_package.json
+  │     Else Python runs server.memo_docx_renderer
+  │     Else verify the two .docx files, validation logs, file inventory,
+  │     and manifest renderer marker exist → continue post-run gates
   │
   └── Emit terminal `done` (or `error`) on logs/stream.jsonl
 ```
@@ -148,15 +148,16 @@ any prior run.
   into our progress events (`server/claude_runner.py`).
 - Stable DOCX rendering from `logs/memo_package.json`
   (`server/memo_docx_renderer.py`).
-- Post-run verification: did Claude use the fixed renderer, do the expected
-  `.docx` files exist, and does the English memo pass the quality gate?
+- Post-run verification: did Claude avoid generated renderer scripts, did
+  the package pass schema validation, do the expected `.docx` files and
+  renderer logs exist, and does the English memo pass the quality gate?
 
 **Claude (running Serena's skill):**
 
 - All analytical work (the 8 orthogonal passes, synthesis, etc.).
 - Reading inputs.
 - Producing `logs/memo_package.json` as structured memo content.
-- Invoking the fixed renderer command supplied in the prompt.
+- Not invoking renderers or writing final `.docx` files.
 
 If a memo run misbehaves, the first question is: is the failure on the
 Python side (wrong inputs, missing run folder, scope check wrong) or on
