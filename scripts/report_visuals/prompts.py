@@ -51,7 +51,7 @@ _BANK = [
      "a single precision balance form suspended in a dark void, one "
      "polished cyan-lit fulcrum in sharp focus, the rest dissolving to "
      "bokeh — poised equilibrium, cold and exact"),
-    (("investment read", "thesis", "underwrite"),
+    (("investment read", "thesis"),
      "two opposing translucent luminous masses held in taut balance, "
      "one cyan and resolved, one violet and unresolved, a tense gap "
      "of dark space between them"),

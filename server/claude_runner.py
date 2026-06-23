@@ -1916,10 +1916,16 @@ Final memo body and operating tables must not contain:
 - cute or fuzzy finance phrasing such as `soft instrument`, `hard IP wall`,
   `moat narrows`, `no-rights SAFE`, `where nothing else works`, or
   `least-proven part of the story`;
-- buyer-side, bank/debt, or control-investor process language. Use
+- internal IC, buyer-side diligence, or deal-legal checklist shorthand. This is
+  a public-facing, exec-ready sell-side investment memo for BSH partners, so
+  write every deal mechanic, governance point, and recommendation as plain
+  narrative prose describing what it means economically for BSH. Say that a
+  valuation rests on or is supported by specific evidence; that a structure
+  offers limited governance, reporting, or oversight; that the allocation is
+  calibrated to conviction rather than defaulted to a minimum; and frame the
+  decision as a clear recommendation with stop-or-revisit conditions. Use
   investment-case, allocation, confirmation, decision, and stop/revisit
-  vocabulary instead of process labels, small-check reflexes, or
-  control-rights checklist phrasing;
+  vocabulary; never legal-rights or diligence-checklist labels;
 - em dash bridging in English body prose or operating tables;
 - meta-language about `the memo`, `the analysis`, `the framework`, or
   `this section`.

@@ -57,6 +57,18 @@ Banned phrase / rewrite guidance:
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
 
+**Sell-side register (enforced automatically).** This is a public-facing,
+exec-ready sell-side investment memo for BSH partners — not an internal IC or
+buyer-side diligence checklist. Write every deal mechanic, governance point, and
+recommendation as plain narrative prose describing what it means economically
+for BSH. Say that a valuation rests on or is supported by specific evidence;
+that a structure offers limited governance, reporting, or oversight; that the
+allocation is calibrated to conviction rather than defaulted to a minimum; and
+frame the decision as a clear recommendation with stop-or-revisit conditions.
+Describe SPV, SAFE, and round economics as plain deal mechanics — what the
+structure means for BSH economically — never as a legal-rights or
+diligence-checklist of terms.
+
 The final memo should sound like an experienced investor making a call: here is what is happening, what must be true, what can go wrong, and what BSH should do.
 
 ---
@@ -272,7 +284,7 @@ If a file or run folder with the target name already exists, generate a new time
 - **Pitchbook / CB Insights summary** — primary input for growth / pre-IPO investment decisions; required wherever obtainable
 - **Public peer filings or analyst notes** — for benchmarking growth, multiples, and operating profile
 - **Procurement / pricing benchmarks / partner notes** — strongly preferred for revenue quality and deployment depth
-- **Pitch deck or data room excerpt** — PDF or PPTX file (treat as company-originated)
+- **Pitch deck or investor-materials excerpt** — PDF or PPTX file (treat as company-originated)
 - **Founder / executive bios** — text, URL, or uploaded file
 - **One-pager or intermediary intro** — text or file
 - **Company website** — URL to fetch (treat as company-originated)
@@ -532,7 +544,7 @@ Separate:
 - the current core franchise that appears durable today
 - the upside modules that are still speculative
 
-Underwrite the company first on the strength of the current core. Treat future workflow or agent adoption as upside only unless independently evidenced.
+Build the investment case on the strength of the current core first. Treat future workflow or agent adoption as upside only unless independently evidenced.
 
 Write results to:
 ```text
