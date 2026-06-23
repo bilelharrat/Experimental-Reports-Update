@@ -34,6 +34,7 @@ vi.mock("../src/api.js", () => ({
     getCompany: vi.fn(),
     options: vi.fn(),
     listThreads: vi.fn(),
+    listCompanyReports: vi.fn(),
     getReport: vi.fn(),
     generateReport: vi.fn(),
     resumeReport: vi.fn(),
@@ -159,6 +160,7 @@ describe("route smoke tests", () => {
       languages: ["en"],
     });
     api.listThreads.mockResolvedValue([]);
+    api.listCompanyReports.mockResolvedValue([]);
     api.memoAnalysis.get.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
     api.memoAnalysis.runLedger.mockResolvedValue([]);
@@ -242,6 +244,58 @@ describe("route smoke tests", () => {
     await resumeButton.trigger("click");
     await flushPromises();
     expect(api.resumeReport).toHaveBeenCalledWith("report-1");
+    wrapper.unmount();
+  });
+
+  it("surfaces the latest resumable memo when no report is selected", async () => {
+    api.listCompanyReports.mockResolvedValue([
+      {
+        id: "report-1",
+        company_id: "generalist",
+        company_name: "Generalist",
+        report_type: "Investment Memo (Late-Stage)",
+        audience: "Internal",
+        language: "en",
+        kind: "investment_memo_latestage",
+        status: "failed_during_analysis",
+        progress: 15,
+        stage: "Memo resume failed",
+        resume_available: true,
+        created_at: "2026-06-23T09:04:06Z",
+        updated_at: "2026-06-23T10:16:28Z",
+      },
+    ]);
+    api.getReport.mockResolvedValue({
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "failed_during_analysis",
+      progress: 15,
+      stage: "Memo resume failed",
+      failure_phase: "resume",
+      failure_detail: "claude exited 143",
+      run_dir: "data/memos/generalist/run",
+      resume_available: true,
+      analysis_artifacts: [
+        {
+          label: "Claim register",
+          filename: "claim_register.md",
+          download_url:
+            "/api/reports/report-1/download?artifact=analysis&file=claim_register.md",
+        },
+      ],
+    });
+
+    const wrapper = await mountRoute("/research/generalist");
+
+    expect(api.listCompanyReports).toHaveBeenCalledWith("generalist");
+    expect(api.getReport).toHaveBeenCalledWith("report-1");
+    expect(wrapper.text()).toContain("Resume memo run");
+    expect(wrapper.text()).toContain("Redo from scratch");
     wrapper.unmount();
   });
 

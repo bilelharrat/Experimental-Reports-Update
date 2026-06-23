@@ -616,6 +616,88 @@ def test_failed_memo_report_can_resume_from_analysis_artifacts(
     assert events[-1]["recovered"] is True
 
 
+def test_resume_regenerates_existing_invalid_memo_package(
+    memo_env, monkeypatch
+):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nCompleted before renderer failure.\n",
+        encoding="utf-8",
+    )
+    invalid_package = _memo_package()
+    invalid_package["sections"][0]["blocks"].append(
+        {
+            "type": "table",
+            "title": {"en": "Invalid summary", "zh": "无效摘要"},
+            "headers": [
+                {"en": "Metric", "zh": "指标"},
+                {"en": "Value", "zh": "数值"},
+            ],
+            "rows": [
+                [
+                    {"en": "Total", "zh": "合计"},
+                    {"en": "", "zh": ""},
+                ]
+            ],
+        }
+    )
+    package_path = run_dir / "logs" / "memo_package.json"
+    package_path.parent.mkdir(parents=True, exist_ok=True)
+    package_path.write_text(
+        json.dumps(invalid_package, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Renderer contract failed",
+        failure_phase="renderer_contract",
+        failure_detail="Invalid memo package",
+    )
+
+    def fake_resume_package(**kwargs):
+        assert not package_path.exists()
+        assert list((run_dir / "logs").glob("memo_package.invalid.*.json"))
+        _write_memo_package(run_dir)
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=0.5,
+            duration_ms=500,
+        )
+        return {"ok": True, "cost_usd": 0.5, "duration_ms": 500, "resumed": True}
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_resume_memo_package",
+        fake_resume_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        lambda **kwargs: (
+            _write_internal_memo_markdown(kwargs["internal_markdown_path"])
+            or {"ok": True, "cost_usd": 0.25, "duration_ms": 250}
+        ),
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda docx_path, pdf_path: (pdf_path.write_bytes(b"%PDF-1.4\n") or True, None),
+    )
+
+    memo_analysis._resume(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(event.get("stage") == "resume_package_invalid" for event in events)
+    assert events[-1]["type"] == "done"
+
+
 def test_resume_memo_endpoint_queues_failed_report(memo_env, monkeypatch):
     report, run_dir = _make_memo_report(memo_env)
     analysis_dir = run_dir / "analysis"

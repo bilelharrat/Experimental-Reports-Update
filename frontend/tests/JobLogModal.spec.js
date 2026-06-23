@@ -221,6 +221,46 @@ describe("JobLogModal", () => {
     expect(wrapper.text()).toContain("Claim A: source-backed.");
   });
 
+  it("shows only friendly reset time for provider usage windows", async () => {
+    wrapper = mountModal([
+      {
+        type: "job_init",
+        ts: "2026-06-22T00:00:00.000Z",
+        kind: "memo",
+        title: "Investment memo — ZaiNar, Inc.",
+      },
+      {
+        type: "claude_action",
+        ts: "2026-06-22T00:00:01.000Z",
+        action: "rate_limit",
+        thread: "Phase 4 - Memo package and bilingual final memo",
+        rate_limit_status: "allowed",
+        rate_limit_type: "five_hour",
+        overage_status: "rejected",
+        overage_disabled_reason: "org_level_disabled",
+        is_using_overage: false,
+        resets_at: 1782211800,
+      },
+    ]);
+
+    await flushPromises();
+    const toggle = wrapper
+      .findAll("button")
+      .find((button) =>
+        button.text().includes("Phase 4 - Memo package and bilingual final memo"),
+      );
+    expect(toggle).toBeTruthy();
+    await toggle.trigger("click");
+
+    const text = wrapper.text();
+    expect(text).toContain("Usage window resets");
+    expect(text).toContain("2026");
+    expect(text).not.toContain("five_hour");
+    expect(text).not.toContain("rejected");
+    expect(text).not.toContain("org_level_disabled");
+    expect(text).not.toContain("1782211800");
+  });
+
   it("shows planned memo phases as expandable not-started rows", async () => {
     wrapper = mountModal([
       {

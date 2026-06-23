@@ -482,6 +482,7 @@ class ReportSummary(BaseModel):
     internal_memo_files: list[dict] = Field(default_factory=list)
     analysis_session_id: str | None = None
     analysis_session_approved: bool = False
+    resume_available: bool = False
 
 
 class ReportDetail(ReportSummary):
@@ -5746,6 +5747,11 @@ def _report_summary(r: dict) -> dict:
         "internal_memo_files": list(r.get("internal_memo_files") or []),
         "analysis_session_id": r.get("analysis_session_id"),
         "analysis_session_approved": bool(r.get("analysis_session_approved")),
+        "resume_available": (
+            _report_resume_available(r)
+            if r.get("kind") == "investment_memo_latestage"
+            else False
+        ),
     }
 
 

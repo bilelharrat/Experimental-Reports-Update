@@ -79,6 +79,23 @@ def _memo_package_path(run_dir: Path) -> Path:
     return run_dir / "logs" / "memo_package.json"
 
 
+def _memo_package_render_validation_error(package_path: Path) -> str | None:
+    if not package_path.exists():
+        return None
+    try:
+        memo_docx_renderer.load_package(package_path)
+    except Exception as exc:  # noqa: BLE001
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+def _archive_invalid_memo_package(package_path: Path) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_path = package_path.with_name(f"memo_package.invalid.{stamp}.json")
+    package_path.replace(archive_path)
+    return archive_path
+
+
 def _block_generated_renderer_scripts(
     *,
     report_id: str,
@@ -1173,6 +1190,43 @@ def _resume(report_id: str) -> None:
         failure_phase=None,
         failure_detail=None,
     )
+
+    if package_path.exists():
+        package_error = _memo_package_render_validation_error(package_path)
+        if package_error:
+            if not analysis_artifacts:
+                message = (
+                    "Existing memo_package.json failed renderer validation and "
+                    "no analysis artifacts are available to regenerate it: "
+                    f"{package_error}"
+                )
+                storage.update_report(
+                    report_id,
+                    status="failed_during_analysis",
+                    stage="Memo resume failed",
+                    error=message,
+                    failure_phase="resume",
+                    failure_detail=message,
+                )
+                stream.emit("error", error=message, phase="resume")
+                return
+            archive_path = _archive_invalid_memo_package(package_path)
+            stream.emit(
+                "stage",
+                stage="resume_package_invalid",
+                message=(
+                    "Existing memo package failed renderer validation; "
+                    "regenerating from analysis artifacts"
+                ),
+                memo_package=memo_prep._rel(archive_path),
+                validation_error=package_error,
+                recovered=True,
+            )
+            storage.update_report(
+                report_id,
+                stage="Regenerating invalid memo package from existing artifacts",
+                progress=65,
+            )
 
     if package_path.exists():
         stream.emit(

@@ -68,6 +68,7 @@ const reportType = ref(MEMO_REPORT_TYPE);
 const audience = ref("Internal");
 
 const activeReport = ref(null);
+const companyReports = ref([]);
 const resuming = ref(false);
 const startingFresh = ref(false);
 // The Generate button is "generating" only when a report is actively
@@ -112,6 +113,21 @@ const canResumeMemo = computed(() =>
       activeReport.value?.resume_available,
   ),
 );
+const latestResumableMemoReport = computed(() => {
+  const reports = Array.isArray(companyReports.value) ? companyReports.value : [];
+  return [...reports]
+    .filter(
+      (report) =>
+        report?.kind === "investment_memo_latestage" &&
+        report?.resume_available &&
+        String(report?.status || "").startsWith("failed"),
+    )
+    .sort((a, b) =>
+      String(b.updated_at || b.created_at || "").localeCompare(
+        String(a.updated_at || a.created_at || ""),
+      ),
+    )[0] || null;
+});
 const reportFailureTitle = computed(() => {
   const r = activeReport.value;
   if (!r) return "";
@@ -309,6 +325,7 @@ async function pollReport() {
       status.startsWith("failed")
     ) {
       stopPolling();
+      await loadCompanyReports();
       if (status === "complete" || status === "complete_with_warnings") {
         emit("reports-changed");
         libraryRefresh.value += 1;
@@ -356,6 +373,7 @@ async function generate(analysisSessionId = null, options = {}) {
       analysis_session_id: memoAnalysisSessionId,
     });
     activeReport.value = r;
+    await loadCompanyReports();
     // Hop the URL to the new report so a refresh lands on the fresh
     // run, not whatever the user was viewing before (e.g. a stale
     // failed_* orphan).
@@ -380,6 +398,7 @@ async function resumeReport() {
   try {
     const r = await api.resumeReport(reportId);
     activeReport.value = r;
+    await loadCompanyReports();
     emit("reports-changed");
     startPolling();
   } catch (e) {
@@ -415,8 +434,26 @@ async function loadFromQuery() {
       activeReport.value = null;
     }
   } else {
-    activeReport.value = null;
     stopPolling();
+    await loadCompanyReports();
+    const resumable = latestResumableMemoReport.value;
+    if (!resumable?.id) {
+      activeReport.value = null;
+      return;
+    }
+    try {
+      activeReport.value = await api.getReport(resumable.id);
+    } catch (e) {
+      activeReport.value = null;
+    }
+  }
+}
+
+async function loadCompanyReports() {
+  try {
+    companyReports.value = await api.listCompanyReports(props.companyId);
+  } catch (e) {
+    companyReports.value = [];
   }
 }
 

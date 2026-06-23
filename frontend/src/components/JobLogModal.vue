@@ -361,8 +361,10 @@ function actionLabel(entry) {
     return `${entry.tool} → ${status}`;
   }
   if (entry.action === "rate_limit") {
-    const status = entry.rate_limit_status || "?";
-    return t("jobs.modal.rate_limit", { status });
+    const resetTime = fmtFriendlyDateTime(entry.resets_at);
+    return resetTime
+      ? t("jobs.modal.rate_limit_reset", { time: resetTime })
+      : t("jobs.modal.rate_limit");
   }
   if (entry.action === "result") {
     if (entry.is_error) {
@@ -406,18 +408,6 @@ function eventDetailLines(entry) {
   }
   if (entry.api_error_status) {
     lines.push(`provider_status: ${entry.api_error_status}`);
-  }
-  if (entry.rate_limit_type) {
-    lines.push(`rate_limit_type: ${entry.rate_limit_type}`);
-  }
-  if (entry.overage_status) {
-    lines.push(`overage_status: ${entry.overage_status}`);
-  }
-  if (entry.overage_disabled_reason) {
-    lines.push(`overage_disabled_reason: ${entry.overage_disabled_reason}`);
-  }
-  if (entry.resets_at) {
-    lines.push(`resets_at: ${entry.resets_at}`);
   }
   if (entry.error && entry.action !== "result") {
     lines.push(`error: ${entry.error}`);
@@ -464,6 +454,26 @@ function fmtStartedTimestamp(value) {
     pad2(d.getMonth() + 1),
     pad2(d.getDate()),
   ].join("-") + ` ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function fmtFriendlyDateTime(value) {
+  if (!value) return "";
+  let dateValue = value;
+  if (typeof value === "number" || /^\d+(\.\d+)?$/.test(String(value))) {
+    const numeric = Number(value);
+    dateValue = numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+  }
+  const d = new Date(dateValue);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(d);
 }
 
 function outputStartedText(entry) {

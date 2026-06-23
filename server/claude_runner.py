@@ -466,6 +466,61 @@ def _memo_phase_for_text(text: str) -> str | None:
     return None
 
 
+def _memo_package_progress_for_text(text: str) -> tuple[str, str] | None:
+    lowered = text.lower()
+    mentions_memo_package = "memo_package" in lowered or "memo package" in lowered
+    if (
+        mentions_memo_package
+        and (
+            "writing" in lowered
+            or "write" in lowered
+            or "author" in lowered
+            or "creating" in lowered
+            or "create" in lowered
+            or "drafting" in lowered
+            or "draft" in lowered
+        )
+    ):
+        return (
+            "memo_package_writing",
+            "Writing memo package from existing analysis artifacts",
+        )
+    if (
+        mentions_memo_package
+        and (
+            "validating" in lowered
+            or "validation" in lowered
+            or "quality check" in lowered
+            or "quality checks" in lowered
+            or "json now parses" in lowered
+        )
+    ):
+        return (
+            "memo_package_validating",
+            "Validating memo package before rendering",
+        )
+    return None
+
+
+def _emit_memo_package_progress_stage(
+    progress,
+    state: dict,
+    *,
+    stage: str,
+    message: str,
+    thread: str | None,
+    **fields,
+) -> None:
+    emitted = state.setdefault("memo_package_progress_stages", set())
+    if stage in emitted:
+        return
+    emitted.add(stage)
+    payload = {"stage": stage, "message": message, **fields}
+    if thread:
+        payload["thread"] = thread
+    progress.emit("stage", **payload)
+
+
 _MEMO_OUTPUT_CONTENT_LIMIT = 16_000
 
 
@@ -652,11 +707,6 @@ def _process_event(event: dict, progress, state: dict) -> None:
         phase_thread = _current_phase_thread(progress, state)
         fields = {
             "action": "rate_limit",
-            "rate_limit_status": info.get("status"),
-            "rate_limit_type": info.get("rateLimitType"),
-            "overage_status": info.get("overageStatus"),
-            "overage_disabled_reason": info.get("overageDisabledReason"),
-            "is_using_overage": info.get("isUsingOverage"),
             "resets_at": info.get("resetsAt"),
         }
         if phase_thread:
@@ -677,6 +727,19 @@ def _process_event(event: dict, progress, state: dict) -> None:
                         if phase_label:
                             _transition_memo_phase(progress, state, phase_label)
                     phase_thread = _current_phase_thread(progress, state)
+                    package_progress = _memo_package_progress_for_text(text)
+                    if package_progress and (
+                        state.get("resume_packaging")
+                        or phase_thread == _MEMO_PHASE4_THREAD
+                    ):
+                        stage, message = package_progress
+                        _emit_memo_package_progress_stage(
+                            progress,
+                            state,
+                            stage=stage,
+                            message=message,
+                            thread=phase_thread,
+                        )
                     fields = {"action": "thinking", "text": text[:600]}
                     if phase_thread:
                         fields["thread"] = phase_thread
@@ -745,6 +808,17 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     if state.get("memo_phase_tracking")
                     else None
                 )
+                if output_piece and str(output_piece.get("path") or "").replace(
+                    "\\", "/"
+                ).endswith("logs/memo_package.json"):
+                    _emit_memo_package_progress_stage(
+                        progress,
+                        state,
+                        stage="memo_package_write_started",
+                        message="Writing structured memo package",
+                        thread=phase_label or thread_label,
+                        content_chars=output_piece.get("content_chars"),
+                    )
                 preview = ""
                 if name == "Read":
                     preview = inp.get("file_path") or ""

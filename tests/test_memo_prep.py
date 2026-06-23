@@ -339,12 +339,12 @@ def test_memo_progress_records_rate_limit_event():
     assert event["type"] == "claude_action"
     assert event["thread"] == claude_runner._MEMO_PHASE2_THREAD
     assert event["action"] == "rate_limit"
-    assert event["rate_limit_status"] == "allowed"
-    assert event["rate_limit_type"] == "five_hour"
-    assert event["overage_status"] == "rejected"
-    assert event["overage_disabled_reason"] == "org_level_disabled"
-    assert event["is_using_overage"] is False
     assert event["resets_at"] == 1782211800
+    assert "rate_limit_status" not in event
+    assert "rate_limit_type" not in event
+    assert "overage_status" not in event
+    assert "overage_disabled_reason" not in event
+    assert "is_using_overage" not in event
 
 
 def test_investment_memo_runner_emits_planned_phase_rows(
@@ -891,6 +891,83 @@ def test_resume_progress_keeps_analysis_reads_in_phase_four():
         if event.get("type") == "claude_action"
     }
     assert action_threads == {claude_runner._MEMO_PHASE4_THREAD}
+
+
+def test_resume_progress_emits_memo_package_writing_stage():
+    progress = _CaptureProgress()
+    state = {
+        "thread_map": claude_runner._MEMO_ANALYSIS_PASSES,
+        "phase_thread": claude_runner._MEMO_PHASE4_THREAD,
+        "memo_phase_tracking": True,
+        "resume_packaging": True,
+    }
+
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "I have all analysis artifacts and source materials. "
+                            "Writing the memo package now."
+                        ),
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+
+    stages = [event for event in progress.events if event.get("type") == "stage"]
+    assert stages[-1]["stage"] == "memo_package_writing"
+    assert stages[-1]["thread"] == claude_runner._MEMO_PHASE4_THREAD
+    assert stages[-1]["message"] == (
+        "Writing memo package from existing analysis artifacts"
+    )
+
+
+def test_resume_progress_emits_structured_package_write_stage(tmp_path):
+    progress = _CaptureProgress()
+    state = {
+        "thread_map": claude_runner._MEMO_ANALYSIS_PASSES,
+        "phase_thread": claude_runner._MEMO_PHASE4_THREAD,
+        "memo_phase_tracking": True,
+        "resume_packaging": True,
+    }
+    package_path = tmp_path / "run" / "logs" / "memo_package.json"
+
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_package",
+                        "name": "Write",
+                        "input": {
+                            "file_path": str(package_path),
+                            "content": '{"schema_version": 1, "sections": []}',
+                        },
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+
+    stage = next(
+        event
+        for event in progress.events
+        if event.get("stage") == "memo_package_write_started"
+    )
+    assert stage["thread"] == claude_runner._MEMO_PHASE4_THREAD
+    assert stage["message"] == "Writing structured memo package"
+    assert stage["content_chars"] == len('{"schema_version": 1, "sections": []}')
 
 
 def test_resume_memo_package_runner_keeps_standard_memo_tooling(tmp_path, monkeypatch):
