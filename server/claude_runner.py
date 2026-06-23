@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
@@ -426,6 +428,197 @@ def _threads_for_tool_use(name: str, inp: dict, state: dict) -> list[str]:
     return found
 
 
+def _tool_use_haystack(inp: dict) -> str:
+    haystack_parts: list[str] = []
+    for key in ("file_path", "command", "description", "path", "pattern"):
+        value = inp.get(key)
+        if isinstance(value, str):
+            haystack_parts.append(value)
+    try:
+        haystack_parts.append(json.dumps(inp, ensure_ascii=False)[:20000])
+    except Exception:
+        pass
+    return "\n".join(haystack_parts).replace("\\", "/")
+
+
+def _memo_phase_for_tool_use(inp: dict) -> str | None:
+    haystack = _tool_use_haystack(inp)
+    if "logs/memo_package.json" in haystack or haystack.endswith("memo_package.json"):
+        return _MEMO_PHASE4_THREAD
+    if any(leaf in haystack for leaf in _MEMO_SYNTHESIS_FILES):
+        return _MEMO_PHASE3_THREAD
+    if any(leaf in haystack for leaf in _MEMO_PARALLEL_ANALYSIS_FILES):
+        return _MEMO_PHASE2_THREAD
+    return None
+
+
+def _memo_phase_for_text(text: str) -> str | None:
+    lowered = text.lower()
+    if (
+        "all inputs loaded" in lowered
+        or "orthogonal analytical" in lowered
+        or "parallel analysis" in lowered
+        or "parallel passes" in lowered
+    ):
+        return _MEMO_PHASE2_THREAD
+    if "synthesis complete" in lowered or "draft the full bilingual memo" in lowered:
+        return _MEMO_PHASE4_THREAD
+    return None
+
+
+_MEMO_OUTPUT_CONTENT_LIMIT = 16_000
+
+
+def _trim_output_content(content: str) -> tuple[str, bool]:
+    if len(content) <= _MEMO_OUTPUT_CONTENT_LIMIT:
+        return content, False
+    return content[:_MEMO_OUTPUT_CONTENT_LIMIT].rstrip(), True
+
+
+def _memo_output_piece(
+    *,
+    tool_name: str,
+    inp: dict,
+    phase_label: str | None,
+    thread_labels: list[str],
+) -> dict[str, Any] | None:
+    if tool_name == "Write":
+        path = str(inp.get("file_path") or "")
+        content = inp.get("content")
+        operation = "write"
+    elif tool_name == "Edit":
+        path = str(inp.get("file_path") or "")
+        content = inp.get("new_string")
+        operation = "edit"
+    else:
+        return None
+    if not path or not isinstance(content, str) or not content.strip():
+        return None
+
+    normalized_path = path.replace("\\", "/")
+    leaf = normalized_path.rsplit("/", 1)[-1]
+    known_artifact = (
+        leaf in _MEMO_PARALLEL_ANALYSIS_FILES
+        or leaf in _MEMO_SYNTHESIS_FILES
+        or normalized_path.endswith("logs/memo_package.json")
+    )
+    if not known_artifact:
+        return None
+
+    visible_content, truncated = _trim_output_content(content)
+    return {
+        "path": path,
+        "filename": leaf,
+        "operation": operation,
+        "phase": phase_label,
+        "artifact": thread_labels[0] if thread_labels else phase_label,
+        "content": visible_content,
+        "content_chars": len(content),
+        "truncated": truncated,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _emit_memo_output_piece(
+    progress,
+    *,
+    piece: dict[str, Any] | None,
+    thread_labels: list[str],
+    phase_label: str | None,
+) -> None:
+    if not piece:
+        return
+    labels = thread_labels or ([phase_label] if phase_label else [])
+    if not labels:
+        return
+    for label in labels:
+        progress.emit("output_piece", **piece, thread=label)
+
+
+def _emit_progress_thread_started(progress, state: dict, label: str) -> None:
+    threads_started = state.setdefault("threads_started", set())
+    if label in threads_started:
+        return
+    threads_started.add(label)
+    progress.emit("thread_started", thread=label, title=label)
+
+
+def _emit_progress_thread_finished(
+    progress,
+    state: dict,
+    label: str,
+    *,
+    failed: bool = False,
+    error: str | None = None,
+) -> None:
+    threads_finished = state.setdefault("threads_finished", set())
+    if label in threads_finished:
+        return
+    threads_finished.add(label)
+    fields: dict[str, Any] = {"thread": label}
+    if error:
+        fields["error"] = error
+    progress.emit("thread_failed" if failed else "thread_finished", **fields)
+
+
+def _active_phase_thread(progress, state: dict) -> str | None:
+    label = state.get("phase_thread")
+    if not label or state.get("phase_thread_closed"):
+        return None
+    _emit_progress_thread_started(progress, state, str(label))
+    state["phase_thread_open"] = True
+    return str(label)
+
+
+def _current_phase_thread(progress, state: dict) -> str | None:
+    active = state.get("active_phase_thread")
+    if active:
+        return str(active)
+    return _active_phase_thread(progress, state)
+
+
+def _close_phase_thread(progress, state: dict, *, failed: bool = False) -> None:
+    label = state.get("phase_thread")
+    if not label or state.get("phase_thread_closed"):
+        return
+    if state.get("phase_thread_open") or label in (state.get("threads_started") or ()):
+        _emit_progress_thread_finished(progress, state, str(label), failed=failed)
+    state["phase_thread_closed"] = True
+    state["phase_thread_open"] = False
+
+
+def _transition_memo_phase(progress, state: dict, next_label: str) -> None:
+    current = state.get("active_phase_thread") or (
+        state.get("phase_thread") if not state.get("phase_thread_closed") else None
+    )
+    current_order = _MEMO_PHASE_ORDER.get(str(current), 0)
+    next_order = _MEMO_PHASE_ORDER.get(next_label, 0)
+    if current == next_label:
+        _emit_progress_thread_started(progress, state, next_label)
+        state["active_phase_thread"] = next_label
+        return
+    if current and current_order and next_order and next_order > current_order:
+        _emit_progress_thread_finished(progress, state, str(current))
+        if current == state.get("phase_thread"):
+            state["phase_thread_closed"] = True
+            state["phase_thread_open"] = False
+    if next_order > current_order + 1:
+        for skipped_order in range(current_order + 1, next_order):
+            skipped_label = _MEMO_PHASE_BY_ORDER.get(skipped_order)
+            if not skipped_label:
+                continue
+            _emit_progress_thread_started(progress, state, skipped_label)
+            _emit_progress_thread_finished(progress, state, skipped_label)
+    if next_order >= current_order:
+        _emit_progress_thread_started(progress, state, next_label)
+        state["active_phase_thread"] = next_label
+
+
+def emit_memo_phase_planned(progress) -> None:
+    for item in _MEMO_PHASE_PLAN:
+        progress.emit("thread_planned", **item)
+
+
 def _process_event(event: dict, progress, state: dict) -> None:
     """Translate a stream-json event into our ProgressLog vocabulary.
 
@@ -439,14 +632,36 @@ def _process_event(event: dict, progress, state: dict) -> None:
     """
     etype = event.get("type")
     if etype == "system" and event.get("subtype") == "init":
+        phase_thread = _active_phase_thread(progress, state)
+        fields = {
+            "action": "init",
+            "session": event.get("session_id"),
+            "model": event.get("model"),
+            "cwd": event.get("cwd"),
+            "tools": event.get("tools") or [],
+        }
+        if phase_thread:
+            fields["thread"] = phase_thread
         progress.emit(
             "claude_action",
-            action="init",
-            session=event.get("session_id"),
-            model=event.get("model"),
-            cwd=event.get("cwd"),
-            tools=event.get("tools") or [],
+            **fields,
         )
+        return
+    if etype == "rate_limit_event":
+        info = event.get("rate_limit_info") or {}
+        phase_thread = _current_phase_thread(progress, state)
+        fields = {
+            "action": "rate_limit",
+            "rate_limit_status": info.get("status"),
+            "rate_limit_type": info.get("rateLimitType"),
+            "overage_status": info.get("overageStatus"),
+            "overage_disabled_reason": info.get("overageDisabledReason"),
+            "is_using_overage": info.get("isUsingOverage"),
+            "resets_at": info.get("resetsAt"),
+        }
+        if phase_thread:
+            fields["thread"] = phase_thread
+        progress.emit("claude_action", **fields)
         return
     if etype == "assistant":
         msg = event.get("message") or {}
@@ -455,20 +670,57 @@ def _process_event(event: dict, progress, state: dict) -> None:
             if btype == "text":
                 text = (block.get("text") or "").strip()
                 if text:
+                    if state.get("resume_packaging"):
+                        _transition_memo_phase(progress, state, _MEMO_PHASE4_THREAD)
+                    elif state.get("memo_phase_tracking"):
+                        phase_label = _memo_phase_for_text(text)
+                        if phase_label:
+                            _transition_memo_phase(progress, state, phase_label)
+                    phase_thread = _current_phase_thread(progress, state)
+                    fields = {"action": "thinking", "text": text[:600]}
+                    if phase_thread:
+                        fields["thread"] = phase_thread
                     progress.emit(
-                        "claude_action", action="thinking", text=text[:600]
+                        "claude_action", **fields
                     )
             elif btype == "tool_use":
                 name = block.get("name") or "?"
                 inp = block.get("input") or {}
                 tool_id = block.get("id")
-                thread_labels = _threads_for_tool_use(name, inp, state)
-                thread_label = thread_labels[0] if thread_labels else None
+                if state.get("resume_packaging"):
+                    thread_labels = []
+                    phase_label = _MEMO_PHASE4_THREAD
+                else:
+                    thread_labels = _threads_for_tool_use(name, inp, state)
+                    phase_label = (
+                        _memo_phase_for_tool_use(inp)
+                        if state.get("memo_phase_tracking")
+                        else None
+                    )
+                if phase_label:
+                    _transition_memo_phase(progress, state, phase_label)
+                elif thread_labels:
+                    _close_phase_thread(progress, state)
+                if thread_labels or phase_label:
+                    effective_thread_labels = []
+                    if phase_label:
+                        effective_thread_labels.append(phase_label)
+                    effective_thread_labels.extend(
+                        label for label in thread_labels
+                        if label not in effective_thread_labels
+                    )
+                else:
+                    phase_thread = _current_phase_thread(progress, state)
+                    effective_thread_labels = [phase_thread] if phase_thread else []
+                thread_label = (
+                    effective_thread_labels[0] if effective_thread_labels else None
+                )
                 state["last_tool"] = {
                     "id": tool_id,
                     "name": name,
                     "thread": thread_label,
-                    "threads": thread_labels,
+                    "threads": effective_thread_labels,
+                    "artifact_threads": thread_labels,
                 }
                 # Track all in-flight tools by id so the user-message
                 # handler can re-attach thread labels even when many
@@ -478,17 +730,21 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     in_flight[tool_id] = {
                         "name": name,
                         "thread": thread_label,
-                        "threads": thread_labels,
+                        "threads": effective_thread_labels,
+                        "artifact_threads": thread_labels,
                     }
-                for started_label in thread_labels:
-                    threads_started = state.setdefault("threads_started", set())
-                    if started_label not in threads_started:
-                        threads_started.add(started_label)
-                        progress.emit(
-                            "thread_started",
-                            thread=started_label,
-                            title=started_label,
-                        )
+                for started_label in effective_thread_labels:
+                    _emit_progress_thread_started(progress, state, started_label)
+                output_piece = (
+                    _memo_output_piece(
+                        tool_name=name,
+                        inp=inp,
+                        phase_label=phase_label,
+                        thread_labels=thread_labels,
+                    )
+                    if state.get("memo_phase_tracking")
+                    else None
+                )
                 preview = ""
                 if name == "Read":
                     preview = inp.get("file_path") or ""
@@ -564,11 +820,17 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     "tool": name,
                     "preview": preview[:500],
                 }
-                if thread_labels:
-                    for label in thread_labels:
+                if effective_thread_labels:
+                    for label in effective_thread_labels:
                         progress.emit("claude_action", **emit_kwargs, thread=label)
                 else:
                     progress.emit("claude_action", **emit_kwargs)
+                _emit_memo_output_piece(
+                    progress,
+                    piece=output_piece,
+                    thread_labels=thread_labels,
+                    phase_label=phase_label,
+                )
         return
     if etype == "user":
         msg = event.get("message") or {}
@@ -603,6 +865,11 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     "is_error": bool(block.get("is_error")),
                     "preview": (content_str or "")[:200],
                 }
+                if not tr_kwargs["is_error"]:
+                    successful_artifacts = state.setdefault(
+                        "successful_artifact_threads", set()
+                    )
+                    successful_artifacts.update(meta.get("artifact_threads") or [])
                 if thread_labels:
                     for label in thread_labels:
                         progress.emit("claude_action", **tr_kwargs, thread=label)
@@ -611,21 +878,27 @@ def _process_event(event: dict, progress, state: dict) -> None:
         return
     if etype == "result":
         is_error = bool(event.get("is_error"))
-        progress.emit(
-            "claude_action",
-            action="result",
-            subtype=event.get("subtype"),
-            is_error=is_error,
-            error=(
+        phase_thread = _current_phase_thread(progress, state)
+        fields = {
+            "action": "result",
+            "subtype": event.get("subtype"),
+            "is_error": is_error,
+            "error": (
                 event.get("error")
                 or event.get("result")
                 if is_error
                 else None
             ),
-            api_error_status=event.get("api_error_status"),
-            cost_usd=event.get("total_cost_usd"),
-            duration_ms=event.get("duration_ms"),
-            usage=event.get("usage"),
+            "api_error_status": event.get("api_error_status"),
+            "cost_usd": event.get("total_cost_usd"),
+            "duration_ms": event.get("duration_ms"),
+            "usage": event.get("usage"),
+        }
+        if phase_thread:
+            fields["thread"] = phase_thread
+        progress.emit(
+            "claude_action",
+            **fields,
         )
         return
 
@@ -1920,6 +2193,7 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "pressure_tests.md": "Arithmetic / pressure tests",
     "time_base_checks.md": "Time-base integrity",
     "growth_bridge.md": "Growth bridge",
+    "competitive_notes.md": "Competitive compression",
     "disconfirming_evidence.md": "Alternative explanations",
     "adoption_ladder.md": "Adoption ladder",
     "core_franchise_resilience.md": "Core franchise resilience",
@@ -1927,8 +2201,87 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "distribution_notes.md": "Distribution / GTM",
     "replacement_vs_coexistence.md": "Replacement vs coexistence",
     "scenario_swim_lanes.md": "Scenario swim lanes",
+    "pre_mortem.md": "Pre-mortem",
+    "reverse_ic.md": "Reverse IC",
     "validation_log.md": "Validation log",
     "gating_questions.md": "Decision questions",
+}
+
+_MEMO_PHASE1_THREAD = "Phase 1 - Intake and setup"
+_MEMO_PHASE2_THREAD = "Phase 2 - Parallel analysis passes"
+_MEMO_PHASE3_THREAD = "Phase 3 - Synthesis and decision questions"
+_MEMO_PHASE4_THREAD = "Phase 4 - Memo package drafting"
+MEMO_PHASE5_THREAD = "Phase 5 - Rendering and QA"
+MEMO_PHASE6_THREAD = "Phase 6 - Internal diligence and previews"
+
+_MEMO_PHASE_PLAN: tuple[dict[str, Any], ...] = (
+    {
+        "thread": _MEMO_PHASE1_THREAD,
+        "title": _MEMO_PHASE1_THREAD,
+        "phase_index": 1,
+        "estimate_ms": 150_000,
+        "description": "Setup usually takes about 2m 30s while sources and run context load.",
+    },
+    {
+        "thread": _MEMO_PHASE2_THREAD,
+        "title": _MEMO_PHASE2_THREAD,
+        "phase_index": 2,
+        "description": "Fan out independent analysis passes and pressure tests.",
+    },
+    {
+        "thread": _MEMO_PHASE3_THREAD,
+        "title": _MEMO_PHASE3_THREAD,
+        "phase_index": 3,
+        "description": "Reconcile claims, scenarios, validation log, and decision questions.",
+    },
+    {
+        "thread": _MEMO_PHASE4_THREAD,
+        "title": _MEMO_PHASE4_THREAD,
+        "phase_index": 4,
+        "description": "Author the bilingual structured memo package for the fixed renderer.",
+    },
+    {
+        "thread": MEMO_PHASE5_THREAD,
+        "title": MEMO_PHASE5_THREAD,
+        "phase_index": 5,
+        "description": "Render DOCX output, run Chinese parity, and run memo quality checks.",
+    },
+    {
+        "thread": MEMO_PHASE6_THREAD,
+        "title": MEMO_PHASE6_THREAD,
+        "phase_index": 6,
+        "description": "Generate the internal diligence memo and final previews.",
+    },
+)
+
+_MEMO_PHASE_ORDER = {
+    str(item["thread"]): int(item["phase_index"])
+    for item in _MEMO_PHASE_PLAN
+}
+_MEMO_PHASE_BY_ORDER = {
+    int(item["phase_index"]): str(item["thread"])
+    for item in _MEMO_PHASE_PLAN
+}
+
+_MEMO_PARALLEL_ANALYSIS_FILES = {
+    "pressure_tests.md",
+    "time_base_checks.md",
+    "growth_bridge.md",
+    "competitive_notes.md",
+    "disconfirming_evidence.md",
+    "adoption_ladder.md",
+    "core_franchise_resilience.md",
+    "distribution_notes.md",
+    "replacement_vs_coexistence.md",
+}
+
+_MEMO_SYNTHESIS_FILES = {
+    "claim_register.md",
+    "scenario_swim_lanes.md",
+    "pre_mortem.md",
+    "reverse_ic.md",
+    "validation_log.md",
+    "gating_questions.md",
 }
 
 HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
@@ -2089,6 +2442,33 @@ def _load_hormuz_skill_text() -> str:
     return _HORMUZ_SKILL_PATH.read_text(encoding="utf-8")
 
 
+def _extract_company_registry_entry_yaml(
+    companies_yaml_path: Path,
+    company_slug: str,
+) -> str | None:
+    """Return the selected companies.yaml entry as YAML for prompt embedding."""
+    try:
+        data = yaml.safe_load(companies_yaml_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("failed to read companies.yaml for %s", company_slug)
+        return None
+    if isinstance(data, dict) and isinstance(data.get("companies"), list):
+        records = data.get("companies") or []
+    elif isinstance(data, list):
+        records = data
+    else:
+        return None
+    for item in records:
+        if isinstance(item, dict) and str(item.get("id") or "") == company_slug:
+            return yaml.safe_dump(
+                item,
+                sort_keys=False,
+                allow_unicode=True,
+                width=100,
+            ).strip()
+    return None
+
+
 def _build_investment_memo_prompt(
     *,
     run_dir: Path,
@@ -2103,6 +2483,7 @@ def _build_investment_memo_prompt(
     lessons_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
+    company_registry_entry_yaml: str | None = None,
 ) -> str:
     """Build the prompt for one Claude subprocess running Serena's skill.
 
@@ -2213,12 +2594,28 @@ analysis packet override stale or contradictory lessons.
 
 """
 
+    registry_entry_block = ""
+    if company_registry_entry_yaml:
+        registry_entry_block = f"""\
+## Resolved company registry entry
+
+The server has already resolved the exact `data/companies.yaml` entry for
+`{company_slug}`. Use this embedded YAML as the registry source for Phase 1.
+Do not read or grep the full companies.yaml file during Phase 1 unless you need
+to audit a contradiction against another source.
+
+```yaml
+{company_registry_entry_yaml}
+```
+
+"""
+
     return f"""\
 You are running the **bsh-investment-memo-latestage-v1** skill (Serena's
 script) for one real run. The skill text is included verbatim below.
 **Follow it exactly.** The only deviations from the text are the non-fatal
 scope-warning override, the server-owned DOCX rendering handoff, and the
-parallel-passes hint below.
+phase-1 / parallel-passes execution discipline below.
 
 ## Run-specific operational context
 
@@ -2252,6 +2649,12 @@ competitors, recent_news, notable_contracts, notable_acquisitions,
 plus a `translation` block with the Chinese equivalents of those
 fields. You may not need every field; pull what's relevant for each
 section per the skill's structure.
+
+{registry_entry_block}\
+The company registry is a top-level YAML list keyed by `id`, not by
+`slug`. To find this company, search for the exact line
+`- id: {company_slug}` or read the known entry directly. Do not waste a
+pass searching for `slug:`.
 
 ## DO NOT read from `data/uploads/`
 
@@ -2360,6 +2763,26 @@ translate prompt scaffolding into visible prose. Avoid terms like `上行状态`
 evidence chains, diligence thresholds, scenario ranges, valuation support, or
 specific deal mechanics.
 
+## Phase 1 - intake and setup
+
+The first phase is only for source intake, run-folder orientation, and launch
+prep. Keep it short and visible. Do not create a separate task plan or call any
+task-management tools. Do not use ToolSearch, TaskCreate, TaskUpdate, TaskList,
+TaskOutput, TaskStop, TodoWrite, or Task tools. Use only direct Read, Write,
+Edit, Bash, Grep, and Glob calls.
+
+In the first assistant turn after initialization, issue independent intake
+calls together: verify the run folder, inspect the research folder, read
+Serena_Background.md, read the research index if present, and use the embedded
+registry entry above if present. Only locate the exact `- id: {company_slug}`
+companies.yaml entry if the embedded entry is absent or contradictory. After
+the research directory listing returns, read all relevant raw source files
+together in the next assistant turn. Do not walk those files one at a time
+unless a specific tool result forces it.
+
+Once the minimum source package is loaded, immediately leave Phase 1 and launch
+the orthogonal analysis passes below.
+
 ## Parallel execution of the eight orthogonal passes
 
 The skill's "Non-Linear Analysis Engine" section lists eight orthogonal
@@ -2461,6 +2884,10 @@ def run_investment_memo(
         lessons_path=lessons_path,
         scope_check=scope_check,
         warnings=warnings,
+        company_registry_entry_yaml=_extract_company_registry_entry_yaml(
+            companies_yaml_path,
+            company_slug,
+        ),
     )
 
     # The skill needs Read access to two paths outside the run folder:
@@ -2487,6 +2914,8 @@ def run_investment_memo(
         "--permission-mode", "bypassPermissions",
         "--dangerously-skip-permissions",
         "--allowedTools", "Read,Write,Edit,Bash,Grep,Glob",
+        "--disallowedTools",
+        "ToolSearch,Task,TaskCreate,TaskUpdate,TaskList,TaskOutput,TaskStop,TodoWrite",
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
@@ -2500,6 +2929,7 @@ def run_investment_memo(
             message="Running investment-memo skill (analysis + translation)",
             run_dir=str(run_dir),
         )
+        emit_memo_phase_planned(progress)
 
     stderr_log: list[str] = []
     try:
@@ -2524,7 +2954,11 @@ def run_investment_memo(
     # target the skill's analysis files with `thread=<pass label>`. That
     # lets the AI-Task modal group the 8 parallel passes into their own
     # collapsible sections.
-    state: dict[str, Any] = {"thread_map": _MEMO_ANALYSIS_PASSES}
+    state: dict[str, Any] = {
+        "thread_map": _MEMO_ANALYSIS_PASSES,
+        "phase_thread": _MEMO_PHASE1_THREAD,
+        "memo_phase_tracking": True,
+    }
     result_event: dict | None = None
     try:
         for line in proc.stdout or []:  # type: ignore[union-attr]
@@ -2566,9 +3000,32 @@ def run_investment_memo(
         finish_ok = bool(result_event) and not (
             result_event.get("subtype") == "error" or result_event.get("is_error")
         )
+        final_error = None
+        if result_event and not finish_ok:
+            final_error = (
+                result_event.get("error")
+                or result_event.get("result")
+                or "Claude skill run failed"
+            )
+        if state.get("phase_thread") and not state.get("phase_thread_closed"):
+            _close_phase_thread(progress, state, failed=not finish_ok)
+        finished_threads = state.get("threads_finished") or set()
+        successful_artifacts = state.get("successful_artifact_threads") or set()
         for thread_label in state.get("threads_started") or ():
+            if thread_label in finished_threads:
+                continue
+            if not finish_ok and thread_label in successful_artifacts:
+                progress.emit("thread_finished", thread=thread_label)
+                continue
+            if not finish_ok:
+                progress.emit(
+                    "thread_failed",
+                    thread=thread_label,
+                    error=final_error,
+                )
+                continue
             progress.emit(
-                "thread_finished" if finish_ok else "thread_failed",
+                "thread_finished",
                 thread=thread_label,
             )
 
@@ -2599,6 +3056,406 @@ def run_investment_memo(
         }
 
     out: dict = {"ok": True}
+    if result_event:
+        out["cost_usd"] = result_event.get("total_cost_usd")
+        out["duration_ms"] = result_event.get("duration_ms")
+        out["subtype"] = result_event.get("subtype")
+    return out
+
+
+def _build_resume_memo_package_prompt(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    company_registry_entry_yaml: str | None = None,
+) -> str:
+    """Build the narrow resume prompt that only authors memo_package.json."""
+    package_path = run_dir / "logs" / "memo_package.json"
+    analysis_dir = run_dir / "analysis"
+    analysis_files = sorted(
+        p.name for p in analysis_dir.glob("*.md")
+    ) if analysis_dir.exists() else []
+    analysis_list = "\n".join(f"- `analysis/{name}`" for name in analysis_files)
+    if not analysis_list:
+        analysis_list = "- (no analysis artifacts found; stop and report this)"
+    research_files: list[Path] = []
+    if research_dir and research_dir.exists():
+        research_files = sorted(
+            p for p in research_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in {".md", ".txt", ".yaml", ".yml", ".json"}
+        )
+    analysis_session_files: list[Path] = []
+    if analysis_session_path and analysis_session_path.exists():
+        analysis_session_files = sorted(
+            p for p in analysis_session_path.rglob("*")
+            if p.is_file() and p.suffix.lower() in {".md", ".txt", ".yaml", ".yml", ".json"}
+        )
+    allowed_read_paths: list[Path] = [
+        run_dir / "logs" / "run_manifest.md",
+        settings_path,
+        *[analysis_dir / name for name in analysis_files],
+        *research_files,
+        *analysis_session_files,
+    ]
+    if lessons_path and lessons_path.exists():
+        allowed_read_paths.append(lessons_path)
+    allowed_read_list = "\n".join(f"- `{path}`" for path in allowed_read_paths)
+    research_line = (
+        f"- Company research folder: `{research_dir}`"
+        if research_dir and research_dir.exists()
+        else "- Company research folder: not populated"
+    )
+    analysis_session_line = (
+        f"- Serena memo analysis session: `{analysis_session_path}`"
+        if analysis_session_path and analysis_session_path.exists()
+        else "- Serena memo analysis session: not provided"
+    )
+    lessons_line = (
+        f"- Prior memo lessons: `{lessons_path}`"
+        if lessons_path and lessons_path.exists()
+        else "- Prior memo lessons: not provided"
+    )
+    warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
+    scope_block = ""
+    if scope_check:
+        scope_block = f"""\
+## Scope context
+
+- classification: `{scope_check.get('classification')}`
+- outcome: `{scope_check.get('outcome')}`
+- reason: {scope_check.get('reason') or '(no reason recorded)'}
+{warning_lines if warning_lines else "- No additional warnings recorded."}
+
+"""
+    registry_block = ""
+    if company_registry_entry_yaml:
+        registry_block = f"""\
+## Resolved company registry entry
+
+Use this embedded YAML as the registry source for `{company_slug}`:
+
+```yaml
+{company_registry_entry_yaml}
+```
+
+"""
+
+    return f"""\
+You are resuming a previously interrupted BSH late-stage investment memo run.
+The analytical work already landed in the run folder. Your job in this resume
+pass is narrow: read the existing artifacts and write the missing structured
+memo package. Do not rerun the analysis passes and do not overwrite files in
+`analysis/`.
+
+This resume pass is not allowed to rediscover the project.
+Use the existing run artifacts first. Avoid Bash, Grep, Glob, or Edit unless
+you need a narrow local validation step, such as checking file existence or
+valid JSON. Do not inspect `server/`, other memo runs, generated
+previews, renderer code, or example packages. The JSON schema below is
+authoritative; do not look for another schema or example.
+
+## Run context
+
+- Run folder / CWD: `{run_dir}`
+- Company: {company_name} (`{company_slug}`)
+- Run ID: {run_id}
+- Output package to write: `{package_path}`
+- Expected English DOCX rendered later by server: `{memo_paths.get('en')}`
+- Expected Chinese DOCX rendered later by server: `{memo_paths.get('zh')}`
+- Settings: `{settings_path}`
+- Companies registry: `{companies_yaml_path}`
+{research_line}
+{analysis_session_line}
+{lessons_line}
+
+{scope_block}{registry_block}\
+## Existing analysis artifacts to use
+
+Read the files below before writing the package:
+
+{analysis_list}
+
+You may read only these exact supporting files:
+
+{allowed_read_list}
+
+If a claim is not supported by these analysis artifacts, the company registry,
+settings, the memo analysis session, prior lessons, or the populated research
+folder, do not present it as fact. Convert uncertainty into source class,
+model treatment, scenario range, diligence threshold, or stop/revisit condition.
+
+## Fixed renderer contract
+
+Write only `{package_path}`. Do not write DOCX files. Do not write or edit a
+per-run renderer script such as `build_memo.py`, `build_memos.py`,
+`generate_memo.py`, or `render_memo.py`. The server will call
+`server.memo_docx_renderer` after you exit.
+
+The package must be JSON with this shape:
+
+```json
+{{
+  "schema_version": 1,
+  "company": {{
+    "name": "Company, Inc.",
+    "descriptor": {{"en": "Category", "zh": "类别"}},
+    "stage": "Late-stage / pre-IPO",
+    "sector": "AI",
+    "location": "City, Region",
+    "round": "Round / valuation context"
+  }},
+  "run": {{"run_id": "{run_id}", "as_of": "YYYY-MM-DD"}},
+  "sections": [
+    {{
+      "id": "executive_summary",
+      "blocks": [
+        {{"type": "heading", "level": 2, "text": {{"en": "Investment Opportunity", "zh": "投资机会"}}}},
+        {{"type": "paragraph", "text": {{"en": "Body prose.", "zh": "正文。"}}}},
+        {{"type": "bullets", "items": [{{"en": "Bullet.", "zh": "要点。"}}]}},
+        {{"type": "callout", "tone": "warning", "title": {{"en": "Decision Gate", "zh": "决策关口"}}, "items": []}},
+        {{"type": "table", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
+      ]
+    }}
+  ],
+  "sources": [
+    {{
+      "id": "S1",
+      "title": "Source title",
+      "class": {{"en": "Company material", "zh": "公司材料"}},
+      "treatment": {{"en": "How used", "zh": "使用方式"}},
+      "as_of": "YYYY-MM-DD"
+    }}
+  ]
+}}
+```
+
+The final package must include at least these core section ids with non-empty,
+substantive blocks: `executive_summary`, `company_overview`,
+`investment_highlights`, `investment_risk`, and
+`financial_forecast_valuation`. Include a non-empty `sources` list.
+Use `paragraph`, `heading`, `bullets`, `callout`, and `table` blocks where
+useful. All final user-facing strings in blocks, tables, callouts, bullets,
+and source treatment must be bilingual (`{{"en": "...", "zh": "..."}}`)
+unless they are proper nouns, dates, numeric values, source ids, or intentionally
+language-neutral source titles.
+
+Do not author a heading block that restates a numbered top-level section title;
+the renderer emits the roman-numbered section titles automatically. Subheadings
+inside sections must be plain labels.
+
+The renderer fails closed on shallow content. Required core sections cannot be
+only headings, title-only callouts, title-only tables, or generic filler.
+`executive_summary` needs at least two substantive content blocks.
+`investment_highlights` and `investment_risk` each need at least two
+substantive bullets or equivalent explanatory prose/table/callout.
+`financial_forecast_valuation` must explicitly address model treatment,
+scenario ranges, valuation, revenue, margins, or diligence thresholds.
+
+The Chinese memo must be native professional investment Chinese with analytical
+parity to English. Do not translate prompt scaffolding into visible prose.
+
+{HUMAN_EXEC_MEMO_VOICE_CONTRACT}
+"""
+
+
+def run_resume_memo_package(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 1800,
+) -> dict:
+    """Resume a failed memo run by writing only logs/memo_package.json."""
+    if not is_available():
+        return {
+            "ok": False,
+            "error": (
+                "Claude Code (`claude`) not found on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and run "
+                "`claude` once to authenticate."
+            ),
+        }
+    if not run_dir.exists():
+        return {"ok": False, "error": f"Run folder missing: {run_dir}"}
+    if not settings_path.exists():
+        return {"ok": False, "error": f"Settings file missing: {settings_path}"}
+    if not companies_yaml_path.exists():
+        return {"ok": False, "error": f"companies.yaml missing: {companies_yaml_path}"}
+
+    prompt = _build_resume_memo_package_prompt(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=settings_path,
+        companies_yaml_path=companies_yaml_path,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+        company_registry_entry_yaml=_extract_company_registry_entry_yaml(
+            companies_yaml_path,
+            company_slug,
+        ),
+    )
+    add_dirs = [
+        str(run_dir),
+        str(settings_path.parent),
+        str(companies_yaml_path.parent),
+    ]
+    if research_dir and research_dir.exists():
+        add_dirs.append(str(research_dir))
+    if analysis_session_path and analysis_session_path.exists():
+        add_dirs.append(str(analysis_session_path))
+    if lessons_path and lessons_path.exists():
+        add_dirs.append(str(lessons_path.parent))
+
+    cmd = [
+        claude_path() or "claude",
+        "-p",
+        prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Write,Edit,Bash,Grep,Glob",
+        "--disallowedTools",
+        "ToolSearch,Task,TaskCreate,TaskUpdate,TaskList,TaskOutput,TaskStop,TodoWrite",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    for d in add_dirs:
+        cmd += ["--add-dir", d]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="resume_package_starting",
+            message="Resuming memo from existing analysis artifacts",
+            memo_package=str(run_dir / "logs" / "memo_package.json"),
+        )
+        emit_memo_phase_planned(progress)
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": f"Failed to launch claude: {exc}"}
+
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    result_event: dict | None = None
+    state: dict[str, Any] = {
+        "thread_map": {},
+        "phase_thread": _MEMO_PHASE4_THREAD,
+        "memo_phase_tracking": True,
+        "resume_packaging": True,
+    }
+    try:
+        for line in proc.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                if progress:
+                    _process_event(event, progress, state)
+            except Exception:
+                logger.exception("resume progress event handling failed")
+            if event.get("type") == "result":
+                result_event = event
+                break
+        if result_event is not None:
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "resume memo subprocess kept running after result; "
+                    "terminating process group"
+                )
+                _terminate_process_group(proc, grace_s=2.0)
+        else:
+            proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        _terminate_process_group(proc, grace_s=2.0)
+        return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
+
+    if progress:
+        finish_ok = bool(result_event) and not (
+            result_event.get("subtype") == "error" or result_event.get("is_error")
+        )
+        if state.get("phase_thread") and not state.get("phase_thread_closed"):
+            _close_phase_thread(progress, state, failed=not finish_ok)
+
+    if result_event and (
+        result_event.get("subtype") == "error" or result_event.get("is_error")
+    ):
+        return {
+            "ok": False,
+            "error": (
+                result_event.get("error")
+                or result_event.get("result")
+                or "Resume memo package run failed"
+            ),
+            "cost_usd": result_event.get("total_cost_usd"),
+            "duration_ms": result_event.get("duration_ms"),
+            "subtype": result_event.get("subtype"),
+            "api_error_status": result_event.get("api_error_status"),
+        }
+    if result_event is None and proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "ok": False,
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            ),
+        }
+
+    package_path = run_dir / "logs" / "memo_package.json"
+    if not package_path.exists():
+        return {
+            "ok": False,
+            "error": f"Resume run did not write {package_path}",
+        }
+
+    out: dict = {"ok": True, "resumed": True}
     if result_event:
         out["cost_usd"] = result_event.get("total_cost_usd")
         out["duration_ms"] = result_event.get("duration_ms")

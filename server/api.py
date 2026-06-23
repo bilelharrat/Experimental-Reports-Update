@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from fastapi import (
     APIRouter,
@@ -57,6 +57,7 @@ from . import (
     hypothesis_store,
     job_progress,
     link_preview as link_preview_mod,
+    memo_analysis,
     memo_prep,
     news_archive,
     research_eval,
@@ -495,6 +496,8 @@ class ReportDetail(ReportSummary):
     log_url: str | None = None
     download_urls: dict | None = None
     preview_urls: dict | None = None
+    analysis_artifacts: list[dict] = Field(default_factory=list)
+    resume_available: bool = False
 
 
 class GenerateRequest(BaseModel):
@@ -1774,11 +1777,97 @@ def _report_artifact_entry(
     )
 
 
+def _memo_run_dir(report: dict) -> Path | None:
+    run_dir = report.get("run_dir")
+    if not run_dir:
+        return None
+    return (memo_prep.DATA_DIR.parent / str(run_dir)).resolve()
+
+
+def _analysis_artifact_label(filename: str) -> str:
+    label = claude_runner._MEMO_ANALYSIS_PASSES.get(filename)
+    if label:
+        return label
+    return Path(filename).stem.replace("_", " ").replace("-", " ").title()
+
+
+def _report_analysis_artifacts(report: dict) -> list[dict]:
+    run_dir = _memo_run_dir(report)
+    if not run_dir:
+        return []
+    analysis_dir = run_dir / "analysis"
+    if not analysis_dir.is_dir():
+        return []
+
+    known_order = {
+        filename: idx
+        for idx, filename in enumerate(claude_runner._MEMO_ANALYSIS_PASSES)
+    }
+    files = sorted(
+        (p for p in analysis_dir.iterdir() if p.is_file() and p.suffix == ".md"),
+        key=lambda p: (known_order.get(p.name, len(known_order)), p.name),
+    )
+    rid = report.get("id")
+    artifacts: list[dict] = []
+    for path in files:
+        entry = {
+            "label": _analysis_artifact_label(path.name),
+            "filename": path.name,
+            "path": memo_prep._rel(path),
+        }
+        if rid:
+            entry["download_url"] = (
+                f"/api/reports/{rid}/download?artifact=analysis"
+                f"&file={quote(path.name)}"
+            )
+        artifacts.append(entry)
+    return artifacts
+
+
+def _report_resume_available(report: dict) -> bool:
+    if report.get("kind") != "investment_memo_latestage":
+        return False
+    status = str(report.get("status") or "")
+    if not status.startswith("failed") or status in {
+        "failed_scope_check",
+        "failed_quality_gate",
+    }:
+        return False
+    run_dir = _memo_run_dir(report)
+    if not run_dir or not run_dir.exists():
+        return False
+    if (run_dir / "logs" / "memo_package.json").exists():
+        return True
+    return bool(_report_analysis_artifacts(report))
+
+
+def _report_analysis_artifact_path(report: dict, filename: str | None) -> Path:
+    if not filename:
+        raise HTTPException(status_code=400, detail="file is required for analysis artifacts")
+    name_path = Path(filename)
+    if name_path.name != filename or name_path.suffix.lower() != ".md":
+        raise HTTPException(status_code=400, detail="file must be an analysis markdown filename")
+
+    run_dir = _memo_run_dir(report)
+    if not run_dir:
+        raise HTTPException(status_code=404, detail="Report has no run folder")
+    analysis_dir = (run_dir / "analysis").resolve()
+    file_path = (analysis_dir / filename).resolve()
+    try:
+        file_path.relative_to(analysis_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid analysis artifact path") from exc
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Analysis artifact not found")
+    return file_path
+
+
 @router.get("/reports/{report_id}/download")
 def download_memo(
     report_id: str,
     language: str = "en",
     artifact: str = "memo",
+    analysis_file: str | None = Query(default=None, alias="file"),
 ) -> FileResponse:
     """Download a memo .docx in the requested language.
 
@@ -1786,8 +1875,11 @@ def download_memo(
     the rendered file isn't on disk (e.g., still running, or the run
     folder was deleted).
     """
-    if artifact not in ("memo", "internal"):
-        raise HTTPException(status_code=400, detail="artifact must be 'memo' or 'internal'")
+    if artifact not in ("memo", "internal", "analysis"):
+        raise HTTPException(
+            status_code=400,
+            detail="artifact must be 'memo', 'internal', or 'analysis'",
+        )
     if artifact == "memo" and language not in ("en", "zh"):
         raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
     report = storage.get_report(report_id)
@@ -1796,6 +1888,13 @@ def download_memo(
     if report.get("kind") != "investment_memo_latestage":
         raise HTTPException(
             status_code=404, detail="Report is not an investment memo"
+        )
+    if artifact == "analysis":
+        file_path = _report_analysis_artifact_path(report, analysis_file)
+        return FileResponse(
+            path=str(file_path),
+            filename=file_path.name,
+            media_type="text/markdown; charset=utf-8",
         )
     target = _report_artifact_entry(report, artifact=artifact, language=language)
     if not target or not target.get("path"):
@@ -1874,6 +1973,53 @@ def preview_memo(
         media_type="application/pdf",
         content_disposition_type="inline",
     )
+
+
+@router.post("/reports/{report_id}/resume", status_code=202)
+def resume_memo_report(report_id: str) -> ReportDetail:
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.get("kind") != "investment_memo_latestage":
+        raise HTTPException(
+            status_code=400,
+            detail="Only investment memo reports can be resumed",
+        )
+    status = str(report.get("status") or "")
+    if status == "failed_scope_check":
+        raise HTTPException(
+            status_code=400,
+            detail="Scope-check failures cannot be resumed",
+        )
+    if not status.startswith("failed"):
+        raise HTTPException(
+            status_code=409,
+            detail="Only failed memo reports can be resumed",
+        )
+    if not _report_resume_available(report):
+        raise HTTPException(
+            status_code=400,
+            detail="No reusable memo package or analysis artifacts are available",
+        )
+    progress_path = _memo_stream_path_for_report(report_id)
+    state = _scan_progress_state(progress_path)
+    if state.get("exists") and not state.get("terminated"):
+        raise HTTPException(
+            status_code=409,
+            detail="Memo report already has an active worker",
+        )
+
+    updated = storage.update_report(
+        report_id,
+        status="analyzing",
+        stage="Resume queued",
+        progress=max(int(report.get("progress") or 0), 60),
+        error=None,
+        failure_phase=None,
+        failure_detail=None,
+    ) or report
+    memo_analysis.start_resume(report_id)
+    return ReportDetail(**_report_detail(updated))
 
 
 @router.post("/memos/prep", status_code=201)
@@ -5625,6 +5771,8 @@ def _report_detail(r: dict) -> dict:
 
         base["stream_url"] = f"/api/memos/{rid}/stream"
         base["log_url"] = f"/api/jobs/log?path=memo:{rid}"
+        base["analysis_artifacts"] = _report_analysis_artifacts(r)
+        base["resume_available"] = _report_resume_available(r)
         memo_files = r.get("memo_files") or []
         have_docx = {
             f.get("language")

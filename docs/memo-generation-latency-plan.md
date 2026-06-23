@@ -8,6 +8,13 @@ record.
 **Current status:** the major latency and reliability change is implemented.
 Claude authors memo judgment and `logs/memo_package.json`; Python validates the
 package and renders both DOCX files through `server.memo_docx_renderer`.
+Progress hardening is also in place: the runner now exposes initial source
+intake as `Phase 1 - Intake and setup`, pre-populates the later memo phases as
+`not_started` rows in the same expandable task window, embeds the resolved
+company registry entry so Claude does not have to hunt through `companies.yaml`,
+blocks Task/ToolSearch scaffolding tools for memo runs, and maps optional
+synthesis artifacts into the same per-flow progress UI. Phase 1 carries a
+150-second estimate so the UI can show that setup usually takes about 2m 30s.
 
 **Last verified command:**
 
@@ -16,7 +23,8 @@ PYTHONPATH=. pytest -q tests/test_memo_docx_renderer.py tests/test_memo_analysis
 ```
 
 At handoff this passed with 74 tests and only existing FastAPI deprecation
-warnings.
+warnings. After the Phase 1 progress/intake hardening, the same command passed
+with 94 tests and the same existing FastAPI deprecation warnings.
 
 ---
 

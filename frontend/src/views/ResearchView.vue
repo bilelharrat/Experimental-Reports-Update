@@ -68,11 +68,14 @@ const reportType = ref(MEMO_REPORT_TYPE);
 const audience = ref("Internal");
 
 const activeReport = ref(null);
+const resuming = ref(false);
+const startingFresh = ref(false);
 // The Generate button is "generating" only when a report is actively
 // in-flight. Terminal failure states (failed_scope_check,
 // failed_during_analysis, failed_orphaned) leave the button clickable
 // so the user can kick off a fresh run.
 const generating = computed(() => {
+  if (startingFresh.value) return true;
   const r = activeReport.value;
   if (!r) return false;
   const status = String(r.status || "");
@@ -101,6 +104,13 @@ const reportFailureDetail = computed(() => {
 });
 const reportIsFailed = computed(() =>
   String(activeReport.value?.status || "").startsWith("failed"),
+);
+const canResumeMemo = computed(() =>
+  Boolean(
+    isMemo.value &&
+      reportIsFailed.value &&
+      activeReport.value?.resume_available,
+  ),
 );
 const reportFailureTitle = computed(() => {
   const r = activeReport.value;
@@ -132,6 +142,10 @@ const reportHeadline = computed(() => {
   if (reportIsFailed.value) return r.stage || reportFailureTitle.value;
   return r.stage || r.status || "";
 });
+const analysisArtifacts = computed(() => {
+  const artifacts = activeReport.value?.analysis_artifacts;
+  return Array.isArray(artifacts) ? artifacts : [];
+});
 const memoArtifactsVisible = computed(() => {
   const r = activeReport.value;
   if (!isMemo.value || !r) return false;
@@ -140,6 +154,7 @@ const memoArtifactsVisible = computed(() => {
   return Boolean(
     Object.keys(downloadUrls).length ||
       Object.keys(previewUrls).length ||
+      analysisArtifacts.value.length ||
       r.content_en ||
       r.content_zh,
   );
@@ -321,9 +336,15 @@ function stopPolling() {
   pollId = null;
 }
 
-async function generate(analysisSessionId = null) {
+async function generate(analysisSessionId = null, options = {}) {
   const memoAnalysisSessionId =
     typeof analysisSessionId === "string" ? analysisSessionId : null;
+  const forceFresh = Boolean(options?.forceFresh);
+  if (canResumeMemo.value && !forceFresh) {
+    await resumeReport();
+    return;
+  }
+  startingFresh.value = true;
   try {
     const r = await api.generateReport({
       company_id: props.companyId,
@@ -347,6 +368,24 @@ async function generate(analysisSessionId = null) {
     startPolling();
   } catch (e) {
     companyError.value = e.message;
+  } finally {
+    startingFresh.value = false;
+  }
+}
+
+async function resumeReport() {
+  const reportId = activeReport.value?.id;
+  if (!reportId || !canResumeMemo.value) return;
+  resuming.value = true;
+  try {
+    const r = await api.resumeReport(reportId);
+    activeReport.value = r;
+    emit("reports-changed");
+    startPolling();
+  } catch (e) {
+    companyError.value = e.message;
+  } finally {
+    resuming.value = false;
   }
 }
 
@@ -538,14 +577,41 @@ onUnmounted(stopPolling);
       <div class="mt-5 flex items-center gap-3">
         <button
           @click="generate"
-          :disabled="generating"
+          :disabled="generating || resuming"
           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
         >
+          <Loader2 v-if="generating || resuming" class="h-4 w-4 animate-spin" />
+          <Sparkles v-else class="h-4 w-4" />
+          <span>
+            {{
+              canResumeMemo
+                ? resuming
+                  ? tr("research.resuming_memo")
+                  : tr("research.resume_memo")
+                : generating
+                  ? tr("research.generating")
+                  : tr("research.generate_button")
+            }}
+          </span>
+        </button>
+        <button
+          v-if="canResumeMemo"
+          type="button"
+          @click="generate(null, { forceFresh: true })"
+          :disabled="generating || resuming"
+          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+        >
           <Sparkles class="h-4 w-4" />
-          <span>{{ generating ? tr("research.generating") : tr("research.generate_button") }}</span>
+          <span>{{ tr("research.redo_memo") }}</span>
         </button>
         <span v-if="generating" class="text-xs text-ink-muted">
           {{ tr("research.generating_hint") }}
+        </span>
+        <span
+          v-else-if="canResumeMemo"
+          class="text-xs text-ink-muted"
+        >
+          {{ tr("research.resume_or_start_fresh_hint") }}
         </span>
       </div>
     </section>
@@ -624,9 +690,9 @@ onUnmounted(stopPolling);
         </li>
       </ul>
 
-      <!-- Memo-specific affordances: language toggle, download buttons,
-           bilingual preview. Shown for complete runs and for failed runs
-           when a rendered artifact exists for QA. -->
+      <!-- Memo-specific affordances: downloads, partial analysis artifacts,
+           and bilingual preview. Shown for complete runs and for failed
+           runs when any generated output exists for QA. -->
       <div
         v-if="memoArtifactsVisible"
         class="mt-6 space-y-4"
@@ -636,6 +702,30 @@ onUnmounted(stopPolling);
           class="rounded-lg border border-warning/40 bg-warning-soft/40 px-3 py-2 text-xs text-warning-ink"
         >
           {{ tr("research.failed_artifacts_available") }}
+        </div>
+        <div
+          v-if="analysisArtifacts.length"
+          class="border-t border-subtle pt-4"
+        >
+          <div class="flex items-center gap-2 text-sm font-semibold text-ink-primary">
+            <FileText class="h-4 w-4 text-accent" />
+            <span>{{ tr("research.partial_analysis_artifacts") }}</span>
+          </div>
+          <p class="mt-1 text-xs text-ink-muted">
+            {{ tr("research.partial_analysis_artifacts_body") }}
+          </p>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <a
+              v-for="artifact in analysisArtifacts"
+              :key="artifact.filename || artifact.label"
+              :href="withApiToken(artifact.download_url || '#')"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            >
+              <FileText class="h-4 w-4" />
+              <span>{{ artifact.label || artifact.filename }}</span>
+              <Download class="h-3.5 w-3.5 text-ink-muted" />
+            </a>
+          </div>
         </div>
         <!-- Download + preview row: both .docx files (always available
              once complete) plus a PDF preview when one was rendered. -->
@@ -803,8 +893,23 @@ onUnmounted(stopPolling);
           {{ tr("research.run_folder_preserved_prefix") }}
           <span class="font-mono">{{ activeReport.run_dir }}</span>
         </p>
+        <button
+          v-if="canResumeMemo"
+          type="button"
+          @click="resumeReport"
+          :disabled="resuming || generating"
+          class="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+        >
+          <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
+          <Sparkles v-else class="h-4 w-4" />
+          <span>{{ resuming ? tr("research.resuming_memo") : tr("research.resume_memo") }}</span>
+        </button>
         <p class="mt-2 text-xs text-ink-muted">
-          {{ tr("research.start_fresh_hint") }}
+          {{
+            canResumeMemo
+              ? tr("research.resume_or_start_fresh_hint")
+              : tr("research.start_fresh_hint")
+          }}
         </p>
       </div>
 

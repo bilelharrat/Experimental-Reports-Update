@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from docx import Document
+from fastapi import HTTPException
 import pytest
 
 from server import (
@@ -472,6 +473,178 @@ def test_report_detail_advertises_internal_memo_urls(memo_env):
     assert detail["preview_urls"]["internal"].endswith("artifact=internal")
 
 
+def test_report_detail_advertises_partial_analysis_artifacts(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nGenerated before auth failure.\n",
+        encoding="utf-8",
+    )
+    (analysis_dir / "custom_notes.md").write_text(
+        "# Custom notes\n",
+        encoding="utf-8",
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Claude skill run failed",
+        error="Failed to authenticate. API Error: 403 Request not allowed",
+        failure_phase="analysis",
+        failure_detail="Failed to authenticate. API Error: 403 Request not allowed",
+        artifacts_available=False,
+        memo_files=[],
+        internal_memo_files=[],
+    )
+
+    detail = api._report_detail(storage.get_report(report["id"]))
+
+    assert "download_urls" not in detail
+    assert [a["filename"] for a in detail["analysis_artifacts"]] == [
+        "pressure_tests.md",
+        "custom_notes.md",
+    ]
+    assert detail["analysis_artifacts"][0]["label"] == "Arithmetic / pressure tests"
+    assert detail["analysis_artifacts"][0]["download_url"].endswith(
+        "artifact=analysis&file=pressure_tests.md"
+    )
+    assert detail["analysis_artifacts"][1]["label"] == "Custom Notes"
+    assert api.ReportDetail(**detail).analysis_artifacts == detail["analysis_artifacts"]
+
+    response = api.download_memo(
+        report["id"],
+        artifact="analysis",
+        analysis_file="pressure_tests.md",
+    )
+    assert response.path.endswith("pressure_tests.md")
+    with pytest.raises(HTTPException):
+        api.download_memo(
+            report["id"],
+            artifact="analysis",
+            analysis_file="../pressure_tests.md",
+        )
+
+
+def test_failed_memo_report_can_resume_from_analysis_artifacts(
+    memo_env, monkeypatch
+):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nCompleted before provider failure.\n",
+        encoding="utf-8",
+    )
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+    stream.emit("error", error="Failed to authenticate. API Error: 403 Request not allowed")
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Claude skill run failed",
+        error="Failed to authenticate. API Error: 403 Request not allowed",
+        failure_phase="analysis",
+        failure_detail="Failed to authenticate. API Error: 403 Request not allowed",
+        artifacts_available=False,
+    )
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_investment_memo",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("resume must not rerun the full memo analysis")
+        ),
+    )
+
+    def fake_resume_package(**kwargs):
+        _write_memo_package(run_dir)
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=0.5,
+            duration_ms=500,
+        )
+        return {"ok": True, "cost_usd": 0.5, "duration_ms": 500, "resumed": True}
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_resume_memo_package",
+        fake_resume_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        lambda **kwargs: (
+            _write_internal_memo_markdown(kwargs["internal_markdown_path"])
+            or {"ok": True, "cost_usd": 0.25, "duration_ms": 250}
+        ),
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda docx_path, pdf_path: (pdf_path.write_bytes(b"%PDF-1.4\n") or True, None),
+    )
+
+    assert api._report_detail(storage.get_report(report["id"]))["resume_available"] is True
+
+    memo_analysis._resume(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert updated["stage"] == "Memo ready"
+    assert updated["artifacts_available"] is True
+    assert updated["failure_phase"] is None
+    assert (run_dir / "logs" / "memo_package.json").exists()
+    assert list((run_dir / "logs").glob("stream.before_resume.*.jsonl"))
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[0]["type"] == "job_init"
+    assert events[0]["resumed"] is True
+    assert not any(
+        event.get("error") == "Failed to authenticate. API Error: 403 Request not allowed"
+        for event in events
+    )
+    assert events[-1]["type"] == "done"
+    assert events[-1]["recovered"] is True
+
+
+def test_resume_memo_endpoint_queues_failed_report(memo_env, monkeypatch):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n",
+        encoding="utf-8",
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Claude skill run failed",
+        failure_phase="analysis",
+        failure_detail="Failed to authenticate. API Error: 403 Request not allowed",
+    )
+    called = []
+    monkeypatch.setattr(
+        memo_analysis,
+        "start_resume",
+        lambda report_id: called.append(report_id),
+    )
+
+    response = api.resume_memo_report(report["id"])
+
+    assert called == [report["id"]]
+    assert response.status == "analyzing"
+    assert response.stage == "Resume queued"
+
+
 def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     memo_env, monkeypatch
 ):
@@ -797,3 +970,72 @@ def test_active_memo_job_registers_subtask_completion(memo_env):
     assert memo_job["thread_count"] == 2
     assert memo_job["thread_done_count"] == 1
     assert memo_job["open_thread_count"] == 1
+
+
+def test_active_memo_job_includes_not_started_phase_rows(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    stream_path = memo_prep.stream_path(run_dir)
+    stream_path.parent.mkdir(parents=True, exist_ok=True)
+    base_ts = datetime.now(timezone.utc) - timedelta(seconds=10)
+
+    def ts(offset_s: int) -> str:
+        return (base_ts + timedelta(seconds=offset_s)).isoformat()
+
+    stream_path.write_text(
+        "\n".join(
+            json.dumps(event)
+            for event in [
+                {
+                    "type": "job_init",
+                    "ts": ts(0),
+                    "kind": "memo",
+                    "title": "Investment memo — Generalist, Inc.",
+                    "report_id": report["id"],
+                    "company_id": "generalist-inc",
+                    "run_id": report["run_id"],
+                },
+                {
+                    "type": "thread_planned",
+                    "ts": ts(1),
+                    "thread": "Phase 1 - Intake and setup",
+                    "title": "Phase 1 - Intake and setup",
+                    "phase_index": 1,
+                    "estimate_ms": 150000,
+                    "description": "Setup usually takes about 2m 30s.",
+                },
+                {
+                    "type": "thread_planned",
+                    "ts": ts(2),
+                    "thread": "Phase 2 - Parallel analysis passes",
+                    "title": "Phase 2 - Parallel analysis passes",
+                    "phase_index": 2,
+                },
+                {
+                    "type": "thread_started",
+                    "ts": ts(3),
+                    "thread": "Phase 1 - Intake and setup",
+                },
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    state = api._scan_progress_state(stream_path)
+
+    assert state["thread_count"] == 2
+    assert state["open_thread_count"] == 1
+    phase1 = next(
+        thread for thread in state["threads"]
+        if thread["name"] == "Phase 1 - Intake and setup"
+    )
+    phase2 = next(
+        thread for thread in state["threads"]
+        if thread["name"] == "Phase 2 - Parallel analysis passes"
+    )
+    assert phase1["status"] == "running"
+    assert phase1["estimate_ms"] == 150000
+    assert phase1["event_count"] == 1
+    assert phase2["status"] == "not_started"
+    assert phase2["event_count"] == 0
+    assert phase2["started_at"] is None

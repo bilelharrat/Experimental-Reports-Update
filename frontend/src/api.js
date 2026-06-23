@@ -198,6 +198,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  resumeReport: (reportId) =>
+    request(`/api/reports/${encodeURIComponent(reportId)}/resume`, {
+      method: "POST",
+    }),
   listCompanyReports: (companyId) =>
     request(`/api/companies/${companyId}/reports`),
   listFiles: (companyId) => request(`/api/companies/${companyId}/files`),

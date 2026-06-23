@@ -38,21 +38,21 @@ describe("ActiveJobsRail", () => {
         open_thread_count: 1,
         threads: [
           {
-            name: "Pressure tests",
+            name: "Phase 1 - Intake and setup",
             status: "done",
             event_count: 3,
             elapsed_ms: 4000,
+            estimate_ms: 150000,
             latest_action: {
               action: "tool_use",
-              tool: "Write",
-              preview: "analysis/pressure_tests.md",
+              tool: "Read",
+              preview: "data/settings/serena_background.md",
             },
           },
           {
-            name: "Validation log",
-            status: "running",
-            event_count: 1,
-            elapsed_ms: 65000,
+            name: "Phase 2 - Parallel analysis passes",
+            status: "not_started",
+            event_count: 0,
           },
         ],
       },
@@ -75,11 +75,12 @@ describe("ActiveJobsRail", () => {
     expect(toggle).toBeTruthy();
     await toggle.trigger("click");
 
-    expect(wrapper.text()).toContain("Pressure tests");
+    expect(wrapper.text()).toContain("Phase 1 - Intake and setup");
     expect(wrapper.text()).toContain("3 events");
     expect(wrapper.text()).toContain("4s");
-    expect(wrapper.text()).toContain("Validation log");
-    expect(wrapper.text()).toContain("1 event");
-    expect(wrapper.text()).toContain("1m 5s");
+    expect(wrapper.text()).toContain("expected ~2m 30s");
+    expect(wrapper.text()).toContain("actual 4s");
+    expect(wrapper.text()).toContain("Phase 2 - Parallel analysis passes");
+    expect(wrapper.text()).toContain("not started");
   });
 });

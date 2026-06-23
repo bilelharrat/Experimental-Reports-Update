@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Circle,
   Download,
   FileText,
   Globe,
@@ -81,12 +82,17 @@ const grouped = computed(() => {
     if (!groups.has(name)) {
       groups.set(name, {
         name,
+        orderIndex: ordered.length,
         events: [],
         status: "running", // running | done | failed
+        plannedAt: null,
         startedAt: null,
         finishedAt: null,
         cost: null,
         duration: null,
+        description: null,
+        estimateMs: null,
+        phaseIndex: null,
         pendingToolUses: 0,
         sawToolActivity: false,
         title: name === "main" ? t("jobs.modal.run_level_events") : name,
@@ -99,9 +105,21 @@ const grouped = computed(() => {
   for (const e of events.value) {
     const name = e.thread || "main";
     const g = ensure(name);
-    if (!g.startedAt) g.startedAt = e.ts;
+    if (e.type === "thread_planned") {
+      g.status = "not_started";
+      g.plannedAt = e.ts;
+      g.description = e.description || g.description;
+      g.estimateMs = e.estimate_ms ?? g.estimateMs;
+      g.phaseIndex = e.phase_index ?? g.phaseIndex;
+      g.title = e.title || e.thread || g.title;
+    } else if (!g.startedAt) {
+      g.startedAt = e.ts;
+    }
     g.events.push(e);
-    if (e.type === "thread_started") g.status = "running";
+    if (e.type === "thread_started") {
+      g.status = "running";
+      g.startedAt = e.ts;
+    }
     else if (e.type === "thread_finished") {
       g.status = "done";
       g.finishedAt = e.ts;
@@ -125,7 +143,11 @@ const grouped = computed(() => {
         if (e.is_error) {
           g.status = "failed";
           g.finishedAt = e.ts;
-        } else if (g.pendingToolUses === 0 && g.sawToolActivity) {
+        } else if (
+          g.pendingToolUses === 0 &&
+          g.sawToolActivity &&
+          !isPhaseGroup(g)
+        ) {
           // Memo pass rows often have enough signal to settle before the
           // whole Claude subprocess emits its final result.
           g.status = "done";
@@ -137,13 +159,33 @@ const grouped = computed(() => {
       }
     }
   }
-  return ordered;
+  return [...ordered].sort((a, b) => {
+    if (a.name === "main") return -1;
+    if (b.name === "main") return 1;
+    const ai = phaseSortIndex(a);
+    const bi = phaseSortIndex(b);
+    if (ai !== bi) return ai - bi;
+    return a.orderIndex - b.orderIndex;
+  });
 });
+
+function isPhaseGroup(g) {
+  return g?.phaseIndex != null || /^Phase \d+\s+-/.test(String(g?.name || ""));
+}
+
+function phaseSortIndex(g) {
+  if (!isPhaseGroup(g)) return Number.POSITIVE_INFINITY;
+  const explicit = Number(g?.phaseIndex);
+  if (Number.isFinite(explicit)) return explicit;
+  const match = String(g?.name || "").match(/^Phase\s+(\d+)/);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
 
 // Per-sub-step wall-clock elapsed: (finish ts, or `now` while the step
 // is still running, or the step's last event ts once the overall job
 // ended) − the step's first event ts. Same clock as totalElapsedMs.
 function groupElapsedMs(g) {
+  if (g.status === "not_started") return null;
   const start = _eventMs({ ts: g.startedAt });
   if (start == null) return null;
   let end;
@@ -268,6 +310,7 @@ watch(
 
 function actionIcon(entry) {
   if (entry.type === "stage") return Sparkles;
+  if (entry.type === "thread_planned") return Circle;
   if (entry.tool === "WebSearch") return Globe;
   if (entry.tool === "WebFetch") return Download;
   if (entry.action === "thinking") return Brain;
@@ -317,6 +360,10 @@ function actionLabel(entry) {
       : t("jobs.action.tool_ok");
     return `${entry.tool} → ${status}`;
   }
+  if (entry.action === "rate_limit") {
+    const status = entry.rate_limit_status || "?";
+    return t("jobs.modal.rate_limit", { status });
+  }
   if (entry.action === "result") {
     if (entry.is_error) {
       const status = entry.api_error_status ? ` ${entry.api_error_status}` : "";
@@ -335,6 +382,10 @@ function actionLabel(entry) {
     return t("jobs.modal.started", {
       title: entry.title || entry.thread || t("jobs.modal.pass"),
     });
+  if (entry.type === "thread_planned")
+    return t("jobs.modal.planned", {
+      title: entry.title || entry.thread || t("jobs.modal.pass"),
+    });
   if (entry.type === "thread_finished") return t("jobs.modal.pass_complete");
   if (entry.type === "thread_failed") return t("jobs.modal.pass_failed");
   if (entry.type === "done") return t("jobs.modal.job_complete");
@@ -345,8 +396,28 @@ function actionLabel(entry) {
 
 function eventDetailLines(entry) {
   const lines = [];
+  if (entry.description) {
+    lines.push(entry.description);
+  }
+  if (entry.estimate_ms) {
+    lines.push(
+      `${t("jobs.modal.estimate")}: ${fmtElapsed(Number(entry.estimate_ms))}`,
+    );
+  }
   if (entry.api_error_status) {
     lines.push(`provider_status: ${entry.api_error_status}`);
+  }
+  if (entry.rate_limit_type) {
+    lines.push(`rate_limit_type: ${entry.rate_limit_type}`);
+  }
+  if (entry.overage_status) {
+    lines.push(`overage_status: ${entry.overage_status}`);
+  }
+  if (entry.overage_disabled_reason) {
+    lines.push(`overage_disabled_reason: ${entry.overage_disabled_reason}`);
+  }
+  if (entry.resets_at) {
+    lines.push(`resets_at: ${entry.resets_at}`);
   }
   if (entry.error && entry.action !== "result") {
     lines.push(`error: ${entry.error}`);
@@ -370,6 +441,47 @@ function eventDetailLines(entry) {
     );
   }
   return lines;
+}
+
+function visibleEvents(entries) {
+  return entries.filter((entry) => entry.type !== "output_piece");
+}
+
+function outputPieces(entries) {
+  return entries.filter((entry) => entry.type === "output_piece");
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function fmtStartedTimestamp(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return [
+    d.getFullYear(),
+    pad2(d.getMonth() + 1),
+    pad2(d.getDate()),
+  ].join("-") + ` ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function outputStartedText(entry) {
+  const timestamp = fmtStartedTimestamp(entry.started_at || entry.ts);
+  return timestamp
+    ? t("jobs.modal.output_started", { timestamp })
+    : t("jobs.modal.output_started_unknown");
+}
+
+function outputFileText(entry) {
+  return entry.filename || entry.path || entry.artifact || t("jobs.modal.output_piece");
+}
+
+function outputTruncatedText(entry) {
+  const count = Number(entry.content_chars);
+  return t("jobs.modal.output_truncated", {
+    count: Number.isFinite(count) ? count.toLocaleString() : "?",
+  });
 }
 
 function _eventMs(e) {
@@ -425,6 +537,37 @@ function eventCountText(count) {
   return count === 1
     ? t("jobs.modal.event_count_one")
     : t("jobs.modal.event_count", { count });
+}
+
+function activityEventCount(g) {
+  return g.events.filter(
+    (event) => event.type !== "thread_planned" && event.type !== "output_piece",
+  ).length;
+}
+
+function groupStatusText(g) {
+  if (g.status === "not_started") return t("jobs.modal.not_started");
+  if (g.status === "done") return t("jobs.modal.complete");
+  if (g.status === "failed") return t("jobs.modal.pass_failed");
+  return null;
+}
+
+function estimateText(g) {
+  const ms = Number(g?.estimateMs);
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  return t("jobs.modal.expected_duration", {
+    duration: `~${fmtElapsed(ms)}`,
+  });
+}
+
+function groupElapsedText(g) {
+  const ms = groupElapsedMs(g);
+  if (ms == null) return "";
+  const key =
+    g.status === "done"
+      ? "jobs.modal.actual_duration"
+      : "jobs.modal.elapsed_duration";
+  return t(key, { duration: fmtElapsed(ms) });
 }
 
 function liveTailText(count) {
@@ -514,12 +657,15 @@ function liveTailText(count) {
                       ? CheckCircle2
                       : g.status === 'failed'
                       ? AlertCircle
+                      : g.status === 'not_started'
+                      ? Circle
                       : Loader2
                   "
                   class="h-3.5 w-3.5 shrink-0"
                   :class="{
                     'text-success-ink': g.status === 'done',
                     'text-danger': g.status === 'failed',
+                    'text-ink-muted': g.status === 'not_started',
                     'text-accent animate-spin':
                       g.status === 'running' && !terminated,
                     'text-ink-muted': g.status === 'running' && terminated,
@@ -528,15 +674,28 @@ function liveTailText(count) {
                 <div class="font-semibold text-ink-primary text-[12px] truncate flex-1">
                   {{ g.title }}
                 </div>
+                <span
+                  v-if="groupStatusText(g)"
+                  class="text-[10px] text-ink-muted font-normal"
+                >
+                  {{ groupStatusText(g) }}
+                </span>
                 <span class="text-[10px] text-ink-muted font-normal">
-                  {{ eventCountText(g.events.length) }}
+                  {{ eventCountText(activityEventCount(g)) }}
+                </span>
+                <span
+                  v-if="estimateText(g)"
+                  class="text-[10px] text-ink-muted font-normal tabular-nums"
+                  :title="t('jobs.modal.estimate_title')"
+                >
+                  {{ estimateText(g) }}
                 </span>
                 <span
                   v-if="groupElapsedMs(g) != null"
                   class="text-[10px] text-ink-muted font-normal tabular-nums"
                   :title="t('jobs.modal.elapsed_title')"
                 >
-                  {{ fmtElapsed(groupElapsedMs(g)) }}
+                  {{ groupElapsedText(g) }}
                 </span>
                 <span
                   v-if="g.cost != null"
@@ -555,7 +714,7 @@ function liveTailText(count) {
                 class="px-2 py-1 space-y-1 border-t border-subtle bg-canvas"
               >
                 <div
-                  v-for="(entry, i) in g.events"
+                  v-for="(entry, i) in visibleEvents(g.events)"
                   :key="i"
                   class="flex items-start gap-2 px-2 py-1 rounded"
                   :class="{
@@ -591,6 +750,42 @@ function liveTailText(count) {
                     </div>
                   </div>
                 </div>
+                <div
+                  v-if="outputPieces(g.events).length"
+                  class="mt-2 pt-2 border-t border-subtle"
+                >
+                  <div
+                    class="px-2 text-[10px] uppercase tracking-wide text-ink-muted"
+                  >
+                    {{ t("jobs.modal.output_section") }}
+                  </div>
+                  <article
+                    v-for="(entry, i) in outputPieces(g.events)"
+                    :key="`output-${i}`"
+                    class="mt-1 rounded border border-subtle bg-surface px-2 py-2"
+                  >
+                    <div
+                      class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-ink-muted"
+                    >
+                      <span>{{ outputStartedText(entry) }}</span>
+                      <span v-if="entry.phase">
+                        {{ t("jobs.modal.output_phase", { phase: entry.phase }) }}
+                      </span>
+                      <span :title="entry.path || outputFileText(entry)">
+                        {{ outputFileText(entry) }}
+                      </span>
+                    </div>
+                    <pre
+                      class="mt-1 max-h-96 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-snug text-ink-secondary font-mono"
+                    >{{ entry.content }}</pre>
+                    <div
+                      v-if="entry.truncated"
+                      class="mt-1 text-[10px] text-ink-muted"
+                    >
+                      {{ outputTruncatedText(entry) }}
+                    </div>
+                  </article>
+                </div>
                 <!-- End-of-section collapse — live updates auto-scroll to
                      the bottom, so the header is often out of reach.
                      Stays pinned to the bottom of the viewport while the
@@ -610,7 +805,7 @@ function liveTailText(count) {
           <!-- Single-task job: flat event list (existing behavior). -->
           <template v-else>
             <div
-              v-for="(entry, i) in events"
+              v-for="(entry, i) in visibleEvents(events)"
               :key="i"
               class="flex items-start gap-2 px-2 py-1 rounded"
               :class="{
@@ -645,6 +840,42 @@ function liveTailText(count) {
                   </div>
                 </div>
               </div>
+            </div>
+            <div
+              v-if="outputPieces(events).length"
+              class="mt-2 pt-2 border-t border-subtle"
+            >
+              <div
+                class="px-2 text-[10px] uppercase tracking-wide text-ink-muted"
+              >
+                {{ t("jobs.modal.output_section") }}
+              </div>
+              <article
+                v-for="(entry, i) in outputPieces(events)"
+                :key="`output-${i}`"
+                class="mt-1 rounded border border-subtle bg-surface px-2 py-2"
+              >
+                <div
+                  class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-ink-muted"
+                >
+                  <span>{{ outputStartedText(entry) }}</span>
+                  <span v-if="entry.phase">
+                    {{ t("jobs.modal.output_phase", { phase: entry.phase }) }}
+                  </span>
+                  <span :title="entry.path || outputFileText(entry)">
+                    {{ outputFileText(entry) }}
+                  </span>
+                </div>
+                <pre
+                  class="mt-1 max-h-96 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-snug text-ink-secondary font-mono"
+                >{{ entry.content }}</pre>
+                <div
+                  v-if="entry.truncated"
+                  class="mt-1 text-[10px] text-ink-muted"
+                >
+                  {{ outputTruncatedText(entry) }}
+                </div>
+              </article>
             </div>
           </template>
         </div>

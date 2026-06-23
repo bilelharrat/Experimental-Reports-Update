@@ -36,6 +36,7 @@ vi.mock("../src/api.js", () => ({
     listThreads: vi.fn(),
     getReport: vi.fn(),
     generateReport: vi.fn(),
+    resumeReport: vi.fn(),
     addThread: vi.fn(),
     memoAnalysis: {
       get: vi.fn(),
@@ -184,6 +185,115 @@ describe("route smoke tests", () => {
 
     expect(wrapper.text()).toContain("Generalist");
     expect(wrapper.text()).toContain("Core Memo Workflow");
+  });
+
+  it("shows partial memo analysis artifacts for failed reports", async () => {
+    api.getReport.mockResolvedValue({
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "failed_during_analysis",
+      progress: 15,
+      stage: "Claude skill run failed",
+      failure_phase: "analysis",
+      failure_detail: "Failed to authenticate. API Error: 403 Request not allowed",
+      run_dir: "data/memos/generalist/run",
+      resume_available: true,
+      analysis_artifacts: [
+        {
+          label: "Arithmetic / pressure tests",
+          filename: "pressure_tests.md",
+          download_url:
+            "/api/reports/report-1/download?artifact=analysis&file=pressure_tests.md",
+        },
+      ],
+    });
+
+    const wrapper = await mountRoute("/research/generalist?report=report-1");
+
+    expect(wrapper.text()).toContain("Partial analysis artifacts");
+    expect(wrapper.text()).toContain("Arithmetic / pressure tests");
+    expect(wrapper.findAll("a").map((a) => a.attributes("href"))).toContain(
+      "/api/reports/report-1/download?artifact=analysis&file=pressure_tests.md",
+    );
+    expect(wrapper.text()).toContain("Redo from scratch");
+    api.resumeReport.mockResolvedValue({
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "analyzing",
+      progress: 65,
+      stage: "Resume queued",
+      resume_available: false,
+    });
+
+    const resumeButton = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Resume memo run"));
+    expect(resumeButton).toBeTruthy();
+    await resumeButton.trigger("click");
+    await flushPromises();
+    expect(api.resumeReport).toHaveBeenCalledWith("report-1");
+    wrapper.unmount();
+  });
+
+  it("lets resumable failed reports be redone from scratch", async () => {
+    api.getReport.mockResolvedValue({
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "failed_during_analysis",
+      progress: 15,
+      stage: "Claude skill run failed",
+      failure_phase: "analysis",
+      failure_detail: "Failed to authenticate. API Error: 403 Request not allowed",
+      run_dir: "data/memos/generalist/run",
+      resume_available: true,
+      analysis_artifacts: [],
+    });
+    api.generateReport.mockResolvedValue({
+      id: "report-2",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "analyzing",
+      progress: 15,
+      stage: "Running BSH investment memo skill",
+    });
+
+    const wrapper = await mountRoute("/research/generalist?report=report-1");
+    const redoButton = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Redo from scratch"));
+
+    expect(redoButton).toBeTruthy();
+    await redoButton.trigger("click");
+    await flushPromises();
+
+    expect(api.resumeReport).not.toHaveBeenCalled();
+    expect(api.generateReport).toHaveBeenCalledWith({
+      company_id: "generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      analysis_session_id: null,
+    });
+    wrapper.unmount();
   });
 
   it("hides Memo Studio for companies remembered as public tickers", async () => {

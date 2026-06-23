@@ -153,4 +153,140 @@ describe("JobLogModal", () => {
     expect(wrapper.text()).toContain("memo_package: missing");
     expect(wrapper.text()).toContain("data/memos/zainar/logs/memo_package.json");
   });
+
+  it("shows generated output pieces with started time and phase", async () => {
+    wrapper = mountModal([
+      {
+        type: "job_init",
+        ts: "2026-06-22T00:00:00.000Z",
+        kind: "memo",
+        title: "Investment memo — ZaiNar, Inc.",
+      },
+      {
+        type: "thread_started",
+        ts: "2026-06-22T00:00:01.000Z",
+        thread: "Claim register",
+        title: "Claim register",
+      },
+      {
+        type: "claude_action",
+        ts: "2026-06-22T00:00:02.000Z",
+        action: "tool_use",
+        tool: "Write",
+        thread: "Claim register",
+        preview: "analysis/claim_register.md  (42 chars)",
+      },
+      {
+        type: "output_piece",
+        ts: "2026-06-22T00:00:02.500Z",
+        started_at: "2026-06-22T00:00:02.000Z",
+        thread: "Claim register",
+        phase: "Phase 3 - Synthesis and decision questions",
+        filename: "claim_register.md",
+        path: "analysis/claim_register.md",
+        content: "# Claim Register\n\n- Claim A: source-backed.",
+        content_chars: 42,
+        truncated: false,
+      },
+      {
+        type: "claude_action",
+        ts: "2026-06-22T00:00:03.000Z",
+        action: "tool_result",
+        tool: "Write",
+        thread: "Claim register",
+        is_error: false,
+        preview: "File created successfully.",
+      },
+      {
+        type: "thread_finished",
+        ts: "2026-06-22T00:00:04.000Z",
+        thread: "Claim register",
+      },
+    ]);
+
+    await flushPromises();
+
+    const toggle = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Claim register"));
+    expect(toggle).toBeTruthy();
+    await toggle.trigger("click");
+
+    expect(wrapper.text()).toContain("Output");
+    expect(wrapper.text()).toContain("Started 2026-06-22");
+    expect(wrapper.text()).toContain(
+      "Phase: Phase 3 - Synthesis and decision questions",
+    );
+    expect(wrapper.text()).toContain("claim_register.md");
+    expect(wrapper.text()).toContain("Claim A: source-backed.");
+  });
+
+  it("shows planned memo phases as expandable not-started rows", async () => {
+    wrapper = mountModal([
+      {
+        type: "job_init",
+        ts: "2026-06-22T00:00:00.000Z",
+        kind: "memo",
+        title: "Investment memo — ZaiNar, Inc.",
+      },
+      {
+        type: "thread_planned",
+        ts: "2026-06-22T00:00:01.000Z",
+        thread: "Phase 1 - Intake and setup",
+        title: "Phase 1 - Intake and setup",
+        phase_index: 1,
+        estimate_ms: 150000,
+        description: "Setup usually takes about 2m 30s.",
+      },
+      {
+        type: "thread_planned",
+        ts: "2026-06-22T00:00:02.000Z",
+        thread: "Phase 3 - Synthesis and decision questions",
+        title: "Phase 3 - Synthesis and decision questions",
+        phase_index: 3,
+      },
+      {
+        type: "thread_planned",
+        ts: "2026-06-22T00:00:02.500Z",
+        thread: "Phase 2 - Parallel analysis passes",
+        title: "Phase 2 - Parallel analysis passes",
+        phase_index: 2,
+      },
+      {
+        type: "thread_started",
+        ts: "2026-06-22T00:00:03.000Z",
+        thread: "Phase 1 - Intake and setup",
+        title: "Phase 1 - Intake and setup",
+      },
+      {
+        type: "claude_action",
+        ts: "2026-06-22T00:00:04.000Z",
+        action: "tool_use",
+        tool: "Read",
+        thread: "Phase 1 - Intake and setup",
+        preview: "data/settings/serena_background.md",
+      },
+      {
+        type: "claude_action",
+        ts: "2026-06-22T00:00:05.000Z",
+        action: "tool_result",
+        tool: "Read",
+        thread: "Phase 1 - Intake and setup",
+        is_error: false,
+        preview: "ok",
+      },
+    ]);
+
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Phase 1 - Intake and setup");
+    expect(wrapper.text()).toContain("expected ~2m 30s");
+    expect(wrapper.text()).toContain("Phase 2 - Parallel analysis passes");
+    expect(wrapper.text()).toContain("Phase 3 - Synthesis and decision questions");
+    expect(wrapper.text()).toContain("not started");
+    expect(wrapper.text()).not.toContain("Complete");
+    expect(wrapper.text().indexOf("Phase 2 - Parallel analysis passes")).toBeLessThan(
+      wrapper.text().indexOf("Phase 3 - Synthesis and decision questions"),
+    );
+  });
 });

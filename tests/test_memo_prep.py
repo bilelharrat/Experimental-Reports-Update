@@ -119,6 +119,304 @@ def test_memo_progress_detects_analysis_pass_written_by_bash():
     )
 
 
+def test_memo_progress_groups_initial_intake_as_phase_one():
+    progress = _CaptureProgress()
+    state = {
+        "thread_map": claude_runner._MEMO_ANALYSIS_PASSES,
+        "phase_thread": claude_runner._MEMO_PHASE1_THREAD,
+        "memo_phase_tracking": True,
+    }
+
+    claude_runner._process_event(
+        {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "session-1",
+            "model": "claude-opus-4-7",
+            "cwd": "/tmp/run",
+            "tools": ["Read", "Write"],
+        },
+        progress,
+        state,
+    )
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "Read",
+                        "input": {"file_path": "/tmp/Serena_Background.md"},
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_2",
+                        "name": "Write",
+                        "input": {
+                            "file_path": "analysis/pressure_tests.md",
+                            "content": "pressure test",
+                        },
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+
+    assert progress.events[0]["type"] == "thread_started"
+    assert progress.events[0]["thread"] == claude_runner._MEMO_PHASE1_THREAD
+    assert any(
+        event.get("type") == "claude_action"
+        and event.get("thread") == claude_runner._MEMO_PHASE1_THREAD
+        and event.get("action") == "tool_use"
+        and event.get("tool") == "Read"
+        for event in progress.events
+    )
+    assert any(
+        event.get("type") == "thread_finished"
+        and event.get("thread") == claude_runner._MEMO_PHASE1_THREAD
+        for event in progress.events
+    )
+    assert any(
+        event.get("type") == "thread_started"
+        and event.get("thread") == claude_runner._MEMO_PHASE2_THREAD
+        for event in progress.events
+    )
+    assert any(
+        event.get("type") == "thread_started"
+        and event.get("thread") == "Arithmetic / pressure tests"
+        for event in progress.events
+    )
+
+
+def test_memo_phase_transitions_do_not_skip_phase_two():
+    progress = _CaptureProgress()
+    state = {
+        "thread_map": claude_runner._MEMO_ANALYSIS_PASSES,
+        "phase_thread": claude_runner._MEMO_PHASE1_THREAD,
+        "memo_phase_tracking": True,
+    }
+
+    claude_runner._process_event(
+        {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "session-1",
+            "model": "claude-opus-4-7",
+            "cwd": "/tmp/run",
+            "tools": ["Read", "Write"],
+        },
+        progress,
+        state,
+    )
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "Write",
+                        "input": {
+                            "file_path": "analysis/gating_questions.md",
+                            "content": "questions",
+                        },
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+
+    phase_events = [
+        (event.get("type"), event.get("thread"))
+        for event in progress.events
+        if str(event.get("thread") or "").startswith("Phase ")
+    ]
+
+    assert (
+        "thread_started",
+        claude_runner._MEMO_PHASE2_THREAD,
+    ) in phase_events
+    assert (
+        "thread_finished",
+        claude_runner._MEMO_PHASE2_THREAD,
+    ) in phase_events
+    assert phase_events.index(
+        ("thread_finished", claude_runner._MEMO_PHASE2_THREAD)
+    ) < phase_events.index(
+        ("thread_started", claude_runner._MEMO_PHASE3_THREAD)
+    )
+
+
+def test_memo_progress_emits_output_piece_with_phase_and_started_at():
+    progress = _CaptureProgress()
+    state = {
+        "thread_map": claude_runner._MEMO_ANALYSIS_PASSES,
+        "phase_thread": claude_runner._MEMO_PHASE1_THREAD,
+        "memo_phase_tracking": True,
+    }
+
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_claim",
+                        "name": "Write",
+                        "input": {
+                            "file_path": "analysis/claim_register.md",
+                            "content": "# Claim Register\n\n- Claim A: source-backed.",
+                        },
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+
+    output_events = [
+        event for event in progress.events
+        if event.get("type") == "output_piece"
+    ]
+
+    assert len(output_events) == 1
+    output = output_events[0]
+    assert output["thread"] == "Claim register"
+    assert output["phase"] == claude_runner._MEMO_PHASE3_THREAD
+    assert output["filename"] == "claim_register.md"
+    assert output["operation"] == "write"
+    assert output["started_at"]
+    assert "# Claim Register" in output["content"]
+    assert output["content_chars"] == len("# Claim Register\n\n- Claim A: source-backed.")
+    assert output["truncated"] is False
+
+
+def test_memo_progress_records_rate_limit_event():
+    progress = _CaptureProgress()
+    state = {
+        "thread_map": claude_runner._MEMO_ANALYSIS_PASSES,
+        "phase_thread": claude_runner._MEMO_PHASE2_THREAD,
+        "memo_phase_tracking": True,
+    }
+
+    claude_runner._process_event(
+        {
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed",
+                "rateLimitType": "five_hour",
+                "overageStatus": "rejected",
+                "overageDisabledReason": "org_level_disabled",
+                "isUsingOverage": False,
+                "resetsAt": 1782211800,
+            },
+        },
+        progress,
+        state,
+    )
+
+    event = progress.events[-1]
+    assert event["type"] == "claude_action"
+    assert event["thread"] == claude_runner._MEMO_PHASE2_THREAD
+    assert event["action"] == "rate_limit"
+    assert event["rate_limit_status"] == "allowed"
+    assert event["rate_limit_type"] == "five_hour"
+    assert event["overage_status"] == "rejected"
+    assert event["overage_disabled_reason"] == "org_level_disabled"
+    assert event["is_using_overage"] is False
+    assert event["resets_at"] == 1782211800
+
+
+def test_investment_memo_runner_emits_planned_phase_rows(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    settings_path = tmp_path / "serena_background.md"
+    companies_path = tmp_path / "companies.yaml"
+    settings_path.write_text("background", encoding="utf-8")
+    companies_path.write_text(
+        "- id: zainar-inc\n  name: ZaiNar, Inc.\n",
+        encoding="utf-8",
+    )
+
+    result_event = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "duration_ms": 1000,
+        "total_cost_usd": 0,
+    }
+
+    class FakeProc:
+        stdout = iter([json.dumps(result_event)])
+        stderr = iter(())
+        returncode = 0
+        pid = 12345
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def poll(self):
+            return self.returncode
+
+    progress = _CaptureProgress()
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
+    monkeypatch.setattr(
+        claude_runner.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeProc(),
+    )
+
+    result = claude_runner.run_investment_memo(
+        run_dir=run_dir,
+        company_name="ZaiNar, Inc.",
+        company_slug="zainar-inc",
+        run_id="2026-06-23__082720",
+        settings_path=settings_path,
+        companies_yaml_path=companies_path,
+        memo_paths={
+            "en": str(run_dir / "memo" / "memo-en.docx"),
+            "zh": str(run_dir / "memo" / "memo-zh.docx"),
+        },
+        progress=progress,
+    )
+
+    assert result["ok"] is True
+    planned = [
+        event for event in progress.events
+        if event.get("type") == "thread_planned"
+    ]
+    assert [event["thread"] for event in planned[:2]] == [
+        claude_runner._MEMO_PHASE1_THREAD,
+        claude_runner._MEMO_PHASE2_THREAD,
+    ]
+    assert planned[0]["estimate_ms"] == 150_000
+    assert "2m 30s" in planned[0]["description"]
+
+
 def test_investment_memo_runner_treats_stream_is_error_as_failure(
     tmp_path, monkeypatch
 ):
@@ -153,10 +451,17 @@ def test_investment_memo_runner_treats_stream_is_error_as_failure(
 
     monkeypatch.setattr(claude_runner, "is_available", lambda: True)
     monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
+
+    captured = {}
+
+    def fake_popen(args, **kwargs):
+        captured["cmd"] = args
+        return FakeProc()
+
     monkeypatch.setattr(
         claude_runner.subprocess,
         "Popen",
-        lambda *args, **kwargs: FakeProc(),
+        fake_popen,
     )
 
     result = claude_runner.run_investment_memo(
@@ -175,6 +480,190 @@ def test_investment_memo_runner_treats_stream_is_error_as_failure(
     assert result["ok"] is False
     assert result["api_error_status"] == 401
     assert "Invalid authentication credentials" in result["error"]
+    assert "--disallowedTools" in captured["cmd"]
+    denied = captured["cmd"][captured["cmd"].index("--disallowedTools") + 1]
+    assert "TaskCreate" in denied
+    assert "ToolSearch" in denied
+    assert "TodoWrite" in denied
+
+
+def test_investment_memo_provider_error_preserves_completed_artifact_threads(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    settings_path = tmp_path / "serena_background.md"
+    companies_path = tmp_path / "companies.yaml"
+    settings_path.write_text("background", encoding="utf-8")
+    companies_path.write_text("companies: []", encoding="utf-8")
+
+    events = [
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_pressure",
+                        "name": "Write",
+                        "input": {
+                            "file_path": str(run_dir / "analysis" / "pressure_tests.md"),
+                            "content": "# Pressure tests\n\nCompleted artifact.",
+                        },
+                    }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_pressure",
+                        "is_error": False,
+                        "content": "File created successfully.",
+                    }
+                ]
+            },
+        },
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "api_error_status": 403,
+            "duration_ms": 698250,
+            "total_cost_usd": 2.75,
+            "result": "Failed to authenticate. API Error: 403 Request not allowed",
+        },
+    ]
+
+    class FakeProc:
+        stdout = iter(json.dumps(event) for event in events)
+        stderr = iter(())
+        returncode = 1
+        pid = 12345
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def poll(self):
+            return self.returncode
+
+    progress = _CaptureProgress()
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
+    monkeypatch.setattr(
+        claude_runner.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeProc(),
+    )
+
+    result = claude_runner.run_investment_memo(
+        run_dir=run_dir,
+        company_name="ZaiNar, Inc.",
+        company_slug="zainar-inc",
+        run_id="2026-06-23__090406",
+        settings_path=settings_path,
+        companies_yaml_path=companies_path,
+        memo_paths={
+            "en": str(run_dir / "memo" / "memo-en.docx"),
+            "zh": str(run_dir / "memo" / "memo-zh.docx"),
+        },
+        progress=progress,
+    )
+
+    assert result["ok"] is False
+    assert result["api_error_status"] == 403
+    assert any(
+        event.get("type") == "thread_finished"
+        and event.get("thread") == "Arithmetic / pressure tests"
+        for event in progress.events
+    )
+    assert not any(
+        event.get("type") == "thread_failed"
+        and event.get("thread") == "Arithmetic / pressure tests"
+        for event in progress.events
+    )
+    assert any(
+        event.get("type") == "thread_failed"
+        and event.get("thread") == claude_runner._MEMO_PHASE2_THREAD
+        and "403 Request not allowed" in event.get("error", "")
+        for event in progress.events
+    )
+
+
+def test_investment_memo_prompt_includes_phase_one_intake_discipline(tmp_path):
+    prompt = claude_runner._build_investment_memo_prompt(
+        run_dir=tmp_path,
+        company_name="ZaiNar, Inc.",
+        company_slug="zainar-inc",
+        run_id="2026-06-23__082720",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+    )
+
+    assert "Phase 1 - intake and setup" in prompt
+    assert "Do not use ToolSearch, TaskCreate" in prompt
+    assert "first assistant turn after initialization" in prompt
+    assert "`- id: zainar-inc`" in prompt
+    assert "Do not waste a\npass searching for `slug:`." in prompt
+    assert "read all relevant raw source files together" in " ".join(prompt.split())
+
+
+def test_investment_memo_prompt_can_embed_resolved_registry_entry(tmp_path):
+    prompt = claude_runner._build_investment_memo_prompt(
+        run_dir=tmp_path,
+        company_name="ZaiNar, Inc.",
+        company_slug="zainar-inc",
+        run_id="2026-06-23__082720",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+        company_registry_entry_yaml=(
+            "id: zainar-inc\n"
+            "name: ZaiNar, Inc.\n"
+            "latest_funding:\n"
+            "  round: Series A2\n"
+        ),
+    )
+
+    assert "Resolved company registry entry" in prompt
+    assert "Use this embedded YAML as the registry source for Phase 1" in prompt
+    assert "id: zainar-inc" in prompt
+    assert "round: Series A2" in prompt
+    assert "Only locate the exact `- id: zainar-inc`" in prompt
+
+
+def test_extract_company_registry_entry_yaml_supports_top_level_list(tmp_path):
+    companies_path = tmp_path / "companies.yaml"
+    companies_path.write_text(
+        "- id: other\n"
+        "  name: Other\n"
+        "- id: zainar-inc\n"
+        "  name: ZaiNar, Inc.\n"
+        "  latest_funding:\n"
+        "    round: Series A2\n",
+        encoding="utf-8",
+    )
+
+    entry = claude_runner._extract_company_registry_entry_yaml(
+        companies_path,
+        "zainar-inc",
+    )
+
+    assert entry is not None
+    assert "id: zainar-inc" in entry
+    assert "round: Series A2" in entry
+    assert "id: other" not in entry
 
 
 def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
@@ -301,3 +790,174 @@ def test_internal_diligence_prompt_is_separate_internal_artifact(tmp_path):
     assert "Suggested allocation" in prompt
     assert "Do not edit `logs/memo_package.json`" in prompt
     assert "Write only the Markdown file" in prompt
+
+
+def test_resume_memo_package_prompt_is_package_only(tmp_path):
+    run_dir = tmp_path / "run"
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(parents=True)
+    settings_path = tmp_path / "serena_background.md"
+    settings_path.write_text("background", encoding="utf-8")
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nExisting analysis.",
+        encoding="utf-8",
+    )
+
+    prompt = claude_runner._build_resume_memo_package_prompt(
+        run_dir=run_dir,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=settings_path,
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(run_dir / "memo" / "memo-en.docx"),
+            "zh": str(run_dir / "memo" / "memo-zh.docx"),
+        },
+    )
+
+    assert "resuming a previously interrupted" in prompt
+    assert "write the missing structured" in prompt
+    assert "memo package" in prompt
+    assert "Do not rerun the analysis passes" in prompt
+    assert "`analysis/pressure_tests.md`" in prompt
+    assert "Use the existing run artifacts first" in prompt
+    assert "narrow local validation step" in prompt
+    assert "Do not inspect `server/`" in prompt
+    assert "You may read only these exact supporting files" in prompt
+    assert str(settings_path) in prompt
+    assert "Write only" in prompt
+    assert "logs/memo_package.json" in prompt
+    assert "Do not write DOCX files" in prompt
+
+
+def test_resume_progress_keeps_analysis_reads_in_phase_four():
+    progress = _CaptureProgress()
+    state = {
+        "thread_map": claude_runner._MEMO_ANALYSIS_PASSES,
+        "phase_thread": claude_runner._MEMO_PHASE4_THREAD,
+        "memo_phase_tracking": True,
+        "resume_packaging": True,
+    }
+
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_read",
+                        "name": "Read",
+                        "input": {
+                            "file_path": "/tmp/run/analysis/pressure_tests.md",
+                        },
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+    claude_runner._process_event(
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_read",
+                        "is_error": False,
+                        "content": "# Pressure tests\n\nExisting analysis.",
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+
+    started_threads = {
+        event.get("thread")
+        for event in progress.events
+        if event.get("type") == "thread_started"
+    }
+    assert claude_runner._MEMO_PHASE4_THREAD in started_threads
+    assert claude_runner._MEMO_PHASE2_THREAD not in started_threads
+    assert "Arithmetic / pressure tests" not in started_threads
+    action_threads = {
+        event.get("thread")
+        for event in progress.events
+        if event.get("type") == "claude_action"
+    }
+    assert action_threads == {claude_runner._MEMO_PHASE4_THREAD}
+
+
+def test_resume_memo_package_runner_keeps_standard_memo_tooling(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run"
+    (run_dir / "logs").mkdir(parents=True)
+    (run_dir / "analysis").mkdir()
+    (run_dir / "analysis" / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nExisting analysis.",
+        encoding="utf-8",
+    )
+    (run_dir / "logs" / "memo_package.json").write_text(
+        '{"schema_version": 1, "sections": [], "sources": []}',
+        encoding="utf-8",
+    )
+    settings_path = tmp_path / "serena_background.md"
+    companies_path = tmp_path / "companies.yaml"
+    settings_path.write_text("background", encoding="utf-8")
+    companies_path.write_text("companies: []", encoding="utf-8")
+
+    result_event = {
+        "type": "result",
+        "subtype": "success",
+        "total_cost_usd": 0.01,
+        "duration_ms": 42,
+    }
+
+    class FakeProc:
+        stdout = iter([json.dumps(result_event)])
+        stderr = iter(())
+        returncode = 0
+        pid = 12345
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
+
+    captured = {}
+
+    def fake_popen(args, **kwargs):
+        captured["cmd"] = args
+        return FakeProc()
+
+    monkeypatch.setattr(claude_runner.subprocess, "Popen", fake_popen)
+
+    result = claude_runner.run_resume_memo_package(
+        run_dir=run_dir,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=settings_path,
+        companies_yaml_path=companies_path,
+        memo_paths={
+            "en": str(run_dir / "memo" / "memo-en.docx"),
+            "zh": str(run_dir / "memo" / "memo-zh.docx"),
+        },
+    )
+
+    assert result["ok"] is True
+    assert "--allowedTools" in captured["cmd"]
+    allowed = captured["cmd"][captured["cmd"].index("--allowedTools") + 1]
+    assert allowed == "Read,Write,Edit,Bash,Grep,Glob"
+    denied = captured["cmd"][captured["cmd"].index("--disallowedTools") + 1]
+    assert "ToolSearch" in denied
+    assert "TaskCreate" in denied
+    assert "TodoWrite" in denied

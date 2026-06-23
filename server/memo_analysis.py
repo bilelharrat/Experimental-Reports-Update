@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import (
@@ -112,6 +113,11 @@ def _block_generated_renderer_scripts(
     }
     if recovered:
         payload["recovered"] = True
+    stream.emit(
+        "thread_failed",
+        thread=claude_runner.MEMO_PHASE5_THREAD,
+        error=msg,
+    )
     stream.emit("error", **payload)
     return True
 
@@ -450,6 +456,11 @@ def _run_chinese_parity_gate(
         }
         if recovered:
             payload["recovered"] = True
+        stream.emit(
+            "thread_failed",
+            thread=claude_runner.MEMO_PHASE5_THREAD,
+            error=msg,
+        )
         stream.emit("error", **payload)
         return False
 
@@ -570,6 +581,11 @@ def _fail_internal_memo(
         claude_cost_usd=result.get("cost_usd"),
         claude_duration_ms=result.get("duration_ms"),
     )
+    stream.emit(
+        "thread_failed",
+        thread=claude_runner.MEMO_PHASE6_THREAD,
+        error=message,
+    )
     stream.emit("error", error=message, phase="internal_diligence_memo")
 
 
@@ -622,6 +638,11 @@ def _fail_renderer_contract(
         payload["memo_package"] = contract.get("memo_package")
     if recovered:
         payload["recovered"] = True
+    stream.emit(
+        "thread_failed",
+        thread=claude_runner.MEMO_PHASE5_THREAD,
+        error=message,
+    )
     stream.emit("error", **payload)
 
 
@@ -800,6 +821,18 @@ def start_analysis(report_id: str) -> threading.Thread:
     return t
 
 
+def start_resume(report_id: str) -> threading.Thread:
+    """Resume a failed memo worker in a daemon thread."""
+    t = threading.Thread(
+        target=_resume_safe,
+        args=(report_id,),
+        name=f"memo-resume-{report_id}",
+        daemon=True,
+    )
+    t.start()
+    return t
+
+
 def _run_safe(report_id: str) -> None:
     try:
         _run(report_id)
@@ -820,11 +853,412 @@ def _run_safe(report_id: str) -> None:
             stream.emit("error", error="Analysis worker crashed; see server log.")
 
 
+def _resume_safe(report_id: str) -> None:
+    try:
+        _resume(report_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("memo resume crashed")
+        report = storage.get_report(report_id)
+        if report:
+            storage.update_report(
+                report_id,
+                status="failed_during_analysis",
+                stage="Resume crashed",
+                failure_phase="resume",
+                failure_detail="Resume worker crashed; see server log.",
+            )
+        run_dir = _resolve_run_dir(report or {})
+        if run_dir and run_dir.exists():
+            stream = job_progress.ProgressLog(
+                memo_prep.stream_path(run_dir), truncate=False
+            )
+            stream.emit("error", error="Resume worker crashed; see server log.")
+
+
 def _resolve_run_dir(report: dict) -> Path | None:
     run_dir_rel = report.get("run_dir")
     if not run_dir_rel:
         return None
     return memo_prep.DATA_DIR.parent / run_dir_rel
+
+
+def _analysis_artifact_paths(run_dir: Path) -> list[Path]:
+    analysis_dir = run_dir / "analysis"
+    if not analysis_dir.is_dir():
+        return []
+    return sorted(
+        p for p in analysis_dir.iterdir()
+        if p.is_file() and p.suffix == ".md"
+    )
+
+
+def _archive_stream_for_resume(run_dir: Path) -> None:
+    stream_path = memo_prep.stream_path(run_dir)
+    if not stream_path.exists():
+        return
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_path = stream_path.with_name(f"stream.before_resume.{stamp}.jsonl")
+    try:
+        stream_path.replace(archive_path)
+    except OSError:
+        logger.exception("failed to archive memo stream before resume: %s", stream_path)
+
+
+def _finalize_memo_from_package(
+    *,
+    report_id: str,
+    report: dict,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+    result: dict,
+    recovered: bool = False,
+) -> bool:
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    company_slug = str(report.get("company_id"))
+    run_id = str(report.get("run_id") or "")
+    memo_paths_abs = _memo_paths_abs(report)
+    memo_paths_rel = {
+        f["language"]: f["path"]
+        for f in report.get("memo_files") or []
+        if f.get("language") and f.get("path")
+    }
+    internal_paths_abs = _internal_memo_paths_abs(report)
+    analysis_session_path = None
+    analysis_session_id = report.get("analysis_session_id")
+    if analysis_session_id:
+        candidate = serena_analysis.session_dir(company_slug, str(analysis_session_id))
+        if candidate.exists():
+            analysis_session_path = candidate
+    lessons_path = serena_analysis.memo_lessons_path(company_slug)
+    if not lessons_path.exists():
+        lessons_path = None
+
+    stream.emit(
+        "thread_started",
+        thread=claude_runner.MEMO_PHASE5_THREAD,
+        title=claude_runner.MEMO_PHASE5_THREAD,
+    )
+    if _block_generated_renderer_scripts(
+        report_id=report_id,
+        run_dir=run_dir,
+        stream=stream,
+        result=result,
+        recovered=recovered,
+    ):
+        return False
+    if not _render_memo_outputs(
+        report_id=report_id,
+        run_dir=run_dir,
+        memo_paths_abs=memo_paths_abs,
+        stream=stream,
+        result=result,
+        recovered=recovered,
+    ):
+        return False
+
+    en_exists = memo_paths_abs.get("en") and memo_paths_abs["en"].exists()
+    zh_exists = memo_paths_abs.get("zh") and memo_paths_abs["zh"].exists()
+    missing = []
+    if not en_exists:
+        missing.append(f"English .docx: {memo_paths_rel.get('en')}")
+    if not zh_exists:
+        missing.append(f"Chinese .docx: {memo_paths_rel.get('zh')}")
+
+    if missing:
+        msg = (
+            "Skill finished but the expected output files are missing: "
+            + "; ".join(missing)
+            + ". Check the tool-call trace in the run folder's stream.jsonl."
+        )
+        storage.update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Skill completed but outputs missing",
+            error=msg,
+            failure_phase="post_run_check",
+            failure_detail=msg,
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+        )
+        stream.emit(
+            "thread_failed",
+            thread=claude_runner.MEMO_PHASE5_THREAD,
+            error=msg,
+        )
+        payload = {"error": msg, "phase": "post_run_check"}
+        if recovered:
+            payload["recovered"] = True
+        stream.emit("error", **payload)
+        return False
+
+    _render_memo_pdf_previews(
+        report_id=report_id,
+        memo_paths_abs=memo_paths_abs,
+        stream=stream,
+        progress=86,
+        recovered=recovered,
+    )
+
+    if not _run_chinese_parity_gate(
+        report_id=report_id,
+        run_dir=run_dir,
+        memo_paths_abs=memo_paths_abs,
+        stream=stream,
+        result=result,
+        recovered=recovered,
+    ):
+        return False
+
+    storage.update_report(
+        report_id,
+        stage="Running memo quality gate",
+        progress=90,
+    )
+    stream.emit(
+        "stage",
+        stage="quality_gate",
+        message="Running memo quality gate",
+        recovered=recovered,
+    )
+    lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
+    lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    lint_path.write_text(
+        memo_quality_lint.render_markdown_report(lint_result),
+        encoding="utf-8",
+    )
+    if lint_result.has_blocking_findings:
+        lint_payload = lint_result.to_dict()
+        msg = (
+            "Generated memo failed the DOCX quality gate with "
+            f"{lint_payload['p0_count']} P0 finding"
+            f"{'' if lint_payload['p0_count'] == 1 else 's'}. "
+            f"See {memo_prep._rel(lint_path)}."
+        )
+        storage.update_report(
+            report_id,
+            status="failed_quality_gate",
+            stage="Memo failed quality gate",
+            progress=98,
+            error=msg,
+            failure_phase="quality_gate",
+            failure_detail=msg,
+            artifacts_available=True,
+            memo_quality_lint=lint_payload,
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+        )
+        stream.emit(
+            "thread_failed",
+            thread=claude_runner.MEMO_PHASE5_THREAD,
+            error=msg,
+        )
+        payload = {
+            "error": msg,
+            "phase": "quality_gate",
+            "lint_report": memo_prep._rel(lint_path),
+            "findings": lint_payload["findings"][:10],
+        }
+        if recovered:
+            payload["recovered"] = True
+        stream.emit("error", **payload)
+        return False
+    storage.update_report(report_id, memo_quality_lint=lint_result.to_dict())
+    stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE5_THREAD)
+
+    stream.emit(
+        "thread_started",
+        thread=claude_runner.MEMO_PHASE6_THREAD,
+        title=claude_runner.MEMO_PHASE6_THREAD,
+    )
+    internal_result = _run_internal_diligence_memo(
+        report_id=report_id,
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        memo_paths_abs=memo_paths_abs,
+        internal_paths_abs=internal_paths_abs,
+        stream=stream,
+        result=result,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=report.get("scope_check"),
+        warnings=list(report.get("warnings") or []),
+    )
+    if internal_result is None:
+        return False
+    combined_result = _combined_result(result, internal_result)
+
+    storage.update_report(
+        report_id,
+        stage="Rendering PDF previews",
+        progress=96,
+    )
+    stream.emit(
+        "stage",
+        stage="rendering_pdf",
+        message="Rendering PDF previews",
+        recovered=recovered,
+    )
+    _render_internal_pdf_previews(report_id=report_id, stream=stream)
+    stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE6_THREAD)
+
+    storage.update_report(
+        report_id,
+        status="complete",
+        stage="Memo ready",
+        progress=100,
+        error=None,
+        failure_phase=None,
+        failure_detail=None,
+        artifacts_available=True,
+        claude_cost_usd=combined_result.get("cost_usd"),
+        claude_duration_ms=combined_result.get("duration_ms"),
+    )
+    done_payload = {
+        "report_id": report_id,
+        "memo_paths": {k: str(v) for k, v in memo_paths_abs.items()},
+        "internal_memo_paths": {k: str(v) for k, v in internal_paths_abs.items()},
+        "cost_usd": combined_result.get("cost_usd"),
+        "duration_ms": combined_result.get("duration_ms"),
+    }
+    if recovered:
+        done_payload["recovered"] = True
+    stream.emit("done", **done_payload)
+    return True
+
+
+def _resume(report_id: str) -> None:
+    report = storage.get_report(report_id)
+    if report is None:
+        raise RuntimeError(f"Unknown report: {report_id}")
+    if report.get("kind") != "investment_memo_latestage":
+        raise RuntimeError(f"Report {report_id} is not an investment memo")
+    if report.get("status") == "failed_scope_check":
+        raise RuntimeError("Scope-check failures cannot be resumed")
+    run_dir = _resolve_run_dir(report)
+    if run_dir is None or not run_dir.exists():
+        raise RuntimeError(f"Run folder missing for report {report_id}")
+
+    package_path = _memo_package_path(run_dir)
+    analysis_artifacts = _analysis_artifact_paths(run_dir)
+    if not package_path.exists() and not analysis_artifacts:
+        raise RuntimeError(
+            "Cannot resume: no memo_package.json or analysis artifacts exist"
+        )
+
+    _archive_stream_for_resume(run_dir)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=True)
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    company_slug = str(report.get("company_id"))
+    run_id = str(report.get("run_id") or "")
+    memo_paths_abs = _memo_paths_abs(report)
+
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title=f"Resume investment memo — {company_name}",
+        subtitle="Resume from existing run artifacts",
+        report_id=report_id,
+        company_id=company_slug,
+        run_id=run_id,
+        resumed=True,
+    )
+    storage.update_report(
+        report_id,
+        status="analyzing",
+        stage="Resuming memo from existing artifacts",
+        progress=65 if not package_path.exists() else 82,
+        error=None,
+        failure_phase=None,
+        failure_detail=None,
+    )
+
+    if package_path.exists():
+        stream.emit(
+            "stage",
+            stage="resume_package_reuse",
+            message="Using existing memo package and resuming rendering",
+            memo_package=memo_prep._rel(package_path),
+            recovered=True,
+        )
+        result = {
+            "ok": True,
+            "resumed": True,
+            "cost_usd": report.get("claude_cost_usd"),
+            "duration_ms": report.get("claude_duration_ms"),
+        }
+    else:
+        analysis_session_path = None
+        analysis_session_id = report.get("analysis_session_id")
+        if analysis_session_id:
+            candidate = serena_analysis.session_dir(
+                company_slug,
+                str(analysis_session_id),
+            )
+            if candidate.exists():
+                analysis_session_path = candidate
+        lessons_path = serena_analysis.memo_lessons_path(company_slug)
+        if not lessons_path.exists():
+            lessons_path = None
+        result = claude_runner.run_resume_memo_package(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            settings_path=memo_prep.SETTINGS_FILE,
+            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+            research_dir=research_store.RESEARCH_ROOT / company_slug,
+            analysis_session_path=analysis_session_path,
+            lessons_path=lessons_path,
+            scope_check=report.get("scope_check"),
+            warnings=list(report.get("warnings") or []),
+            progress=stream,
+            timeout_sec=1800,
+        )
+
+    if not result.get("ok"):
+        message = result.get("error") or "Resume memo package run failed"
+        if package_path.exists():
+            stream.emit(
+                "stage",
+                stage="resume_salvaging_memo_package",
+                message="Resume returned an error after writing memo package; rendering for QA",
+                memo_package=memo_prep._rel(package_path),
+                recovered=True,
+            )
+            if _finalize_memo_from_package(
+                report_id=report_id,
+                report=storage.get_report(report_id) or report,
+                run_dir=run_dir,
+                stream=stream,
+                result=result,
+                recovered=True,
+            ):
+                return
+        storage.update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Memo resume failed",
+            error=message,
+            failure_phase="resume",
+            failure_detail=message,
+            artifacts_available=False,
+            claude_cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+        )
+        stream.emit("error", error=message, phase="resume")
+        return
+
+    _finalize_memo_from_package(
+        report_id=report_id,
+        report=storage.get_report(report_id) or report,
+        run_dir=run_dir,
+        stream=stream,
+        result=result,
+        recovered=True,
+    )
 
 
 def _run(report_id: str) -> None:
@@ -937,167 +1371,11 @@ def _run(report_id: str) -> None:
         )
         return
 
-    if _block_generated_renderer_scripts(
+    _finalize_memo_from_package(
         report_id=report_id,
+        report=report,
         run_dir=run_dir,
         stream=stream,
         result=result,
-    ):
-        return
-    if not _render_memo_outputs(
-        report_id=report_id,
-        run_dir=run_dir,
-        memo_paths_abs=memo_paths_abs,
-        stream=stream,
-        result=result,
-    ):
-        return
-
-    # --- Post-run: verify the renderer produced the expected outputs ---
-    en_exists = memo_paths_abs.get("en") and memo_paths_abs["en"].exists()
-    zh_exists = memo_paths_abs.get("zh") and memo_paths_abs["zh"].exists()
-    missing = []
-    if not en_exists:
-        missing.append(f"English .docx: {memo_paths_rel.get('en')}")
-    if not zh_exists:
-        missing.append(f"Chinese .docx: {memo_paths_rel.get('zh')}")
-
-    if missing:
-        msg = (
-            "Skill finished but the expected output files are missing: "
-            + "; ".join(missing)
-            + ". The skill is responsible for producing these — check the "
-            "tool-call trace in the run folder's stream.jsonl."
-        )
-        storage.update_report(
-            report_id,
-            status="failed_during_analysis",
-            stage="Skill completed but outputs missing",
-            error=msg,
-            failure_phase="post_run_check",
-            failure_detail=msg,
-            claude_cost_usd=result.get("cost_usd"),
-            claude_duration_ms=result.get("duration_ms"),
-        )
-        stream.emit("error", error=msg, phase="post_run_check")
-        return
-
-    _render_memo_pdf_previews(
-        report_id=report_id,
-        memo_paths_abs=memo_paths_abs,
-        stream=stream,
-        progress=86,
     )
-
-    if not _run_chinese_parity_gate(
-        report_id=report_id,
-        run_dir=run_dir,
-        memo_paths_abs=memo_paths_abs,
-        stream=stream,
-        result=result,
-    ):
-        return
-
-    # --- Hard quality gate for the English source-of-truth memo -------
-    storage.update_report(
-        report_id,
-        stage="Running memo quality gate",
-        progress=90,
-    )
-    stream.emit(
-        "stage",
-        stage="quality_gate",
-        message="Running memo quality gate",
-    )
-    lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
-    lint_path = run_dir / "logs" / "memo_quality_lint.md"
-    lint_path.write_text(
-        memo_quality_lint.render_markdown_report(lint_result),
-        encoding="utf-8",
-    )
-    if lint_result.has_blocking_findings:
-        lint_payload = lint_result.to_dict()
-        msg = (
-            "Generated memo failed the DOCX quality gate with "
-            f"{lint_payload['p0_count']} P0 finding"
-            f"{'' if lint_payload['p0_count'] == 1 else 's'}. "
-            f"See {memo_prep._rel(lint_path)}."
-        )
-        storage.update_report(
-            report_id,
-            status="failed_quality_gate",
-            stage="Memo failed quality gate",
-            progress=98,
-            error=msg,
-            failure_phase="quality_gate",
-            failure_detail=msg,
-            artifacts_available=True,
-            memo_quality_lint=lint_payload,
-            claude_cost_usd=result.get("cost_usd"),
-            claude_duration_ms=result.get("duration_ms"),
-        )
-        stream.emit(
-            "error",
-            error=msg,
-            phase="quality_gate",
-            lint_report=memo_prep._rel(lint_path),
-            findings=lint_payload["findings"][:10],
-        )
-        return
-    storage.update_report(
-        report_id,
-        memo_quality_lint=lint_result.to_dict(),
-    )
-
-    internal_result = _run_internal_diligence_memo(
-        report_id=report_id,
-        run_dir=run_dir,
-        company_name=company_name,
-        company_slug=company_slug,
-        run_id=run_id,
-        memo_paths_abs=memo_paths_abs,
-        internal_paths_abs=internal_paths_abs,
-        stream=stream,
-        result=result,
-        analysis_session_path=analysis_session_path,
-        lessons_path=lessons_path,
-        scope_check=report.get("scope_check"),
-        warnings=list(report.get("warnings") or []),
-    )
-    if internal_result is None:
-        return
-    combined_result = _combined_result(result, internal_result)
-
-    # --- Render PDF previews from the .docx files --------------------
-    # The .docx is the real deliverable; the PDF is a faithful rendition
-    # used only for the in-app preview popup. A conversion failure must
-    # NOT fail the run — we just won't offer a preview for that language.
-    storage.update_report(
-        report_id,
-        stage="Rendering PDF previews",
-        progress=96,
-    )
-    stream.emit("stage", stage="rendering_pdf", message="Rendering PDF previews")
-
-    _render_internal_pdf_previews(report_id=report_id, stream=stream)
-
-    # The skill is supposed to update the manifest itself with an
-    # "Analysis finalization" block. We do not append our own. If the
-    # skill forgot, the run folder still reflects what landed on disk.
-
-    storage.update_report(
-        report_id,
-        status="complete",
-        stage="Memo ready",
-        progress=100,
-        claude_cost_usd=combined_result.get("cost_usd"),
-        claude_duration_ms=combined_result.get("duration_ms"),
-    )
-    stream.emit(
-        "done",
-        report_id=report_id,
-        memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-        internal_memo_paths={k: str(v) for k, v in internal_paths_abs.items()},
-        cost_usd=combined_result.get("cost_usd"),
-        duration_ms=combined_result.get("duration_ms"),
-    )
+    return

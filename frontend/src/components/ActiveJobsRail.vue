@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Circle,
   Download,
   FileText,
   Globe,
@@ -190,6 +191,22 @@ function hasThreads(j) {
   return Array.isArray(j?.threads) && j.threads.length > 0;
 }
 
+function sortedThreads(j) {
+  return [...(j?.threads || [])].sort((a, b) => {
+    const ai = threadPhaseSortIndex(a);
+    const bi = threadPhaseSortIndex(b);
+    if (ai !== bi) return ai - bi;
+    return 0;
+  });
+}
+
+function threadPhaseSortIndex(thread) {
+  const explicit = Number(thread?.phase_index);
+  if (Number.isFinite(explicit)) return explicit;
+  const match = String(thread?.name || "").match(/^Phase\s+(\d+)/);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
 function threadsExpanded(j) {
   return expandedJobThreads.value.has(jobKey(j));
 }
@@ -209,6 +226,7 @@ function toolCallText(count) {
 }
 
 function threadIcon(thread) {
+  if (thread.status === "not_started") return Circle;
   if (thread.status === "done") return CheckCircle2;
   if (thread.status === "failed") return AlertCircle;
   return Loader2;
@@ -226,7 +244,28 @@ function fmtThreadElapsed(thread) {
   return `${h}h ${m % 60}m`;
 }
 
+function fmtThreadEstimate(thread) {
+  const ms = Number(thread?.estimate_ms);
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const totalS = Math.floor(ms / 1000);
+  const m = Math.floor(totalS / 60);
+  const s = totalS % 60;
+  const duration = m <= 0 ? `~${totalS}s` : s ? `~${m}m ${s}s` : `~${m}m`;
+  return t("jobs.modal.expected_duration", { duration });
+}
+
+function threadElapsedText(thread) {
+  const elapsed = fmtThreadElapsed(thread);
+  if (!elapsed) return "";
+  const key =
+    thread?.status === "done"
+      ? "jobs.modal.actual_duration"
+      : "jobs.modal.elapsed_duration";
+  return t(key, { duration: elapsed });
+}
+
 function threadEventText(thread) {
+  if (thread?.status === "not_started") return t("jobs.modal.not_started");
   const count = Number(thread?.event_count || 0);
   if (!count) return "";
   return count === 1
@@ -376,7 +415,7 @@ const visible = computed(() => jobs.value.length > 0);
               :aria-label="t('jobs.parallel_flows')"
             >
               <li
-                v-for="thread in j.threads"
+                v-for="thread in sortedThreads(j)"
                 :key="thread.name"
                 class="rounded border border-subtle bg-surface px-2 py-1.5"
               >
@@ -388,6 +427,7 @@ const visible = computed(() => jobs.value.length > 0);
                       'text-success-ink': thread.status === 'done',
                       'text-danger': thread.status === 'failed',
                       'text-accent animate-spin': thread.status === 'running',
+                      'text-ink-muted': thread.status === 'not_started',
                     }"
                   />
                   <span class="truncate text-[11px] font-medium text-ink-primary">
@@ -401,7 +441,10 @@ const visible = computed(() => jobs.value.length > 0);
                     threadEventText(thread)
                   }}</span>
                   <span v-if="fmtThreadElapsed(thread)" class="tabular-nums">
-                    {{ fmtThreadElapsed(thread) }}
+                    {{ threadElapsedText(thread) }}
+                  </span>
+                  <span v-if="fmtThreadEstimate(thread)" class="tabular-nums">
+                    {{ fmtThreadEstimate(thread) }}
                   </span>
                   <span
                     v-if="thread.latest_action && actionLine(thread.latest_action)"

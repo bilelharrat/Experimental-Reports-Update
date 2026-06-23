@@ -135,25 +135,39 @@ def scan_progress_state(path: Path) -> dict:
         label = str(name or "").strip()
         if not label:
             return
+        is_planned = entry.get("type") == "thread_planned" or status == "not_started"
         row = threads.setdefault(
             label,
             {
                 "name": label,
-                "status": "running",
-                "started_at": entry.get("ts"),
+                "status": "not_started" if is_planned else "running",
+                "planned_at": entry.get("ts") if is_planned else None,
+                "started_at": None if is_planned else entry.get("ts"),
                 "last_event_at": entry.get("ts"),
                 "finished_at": None,
                 "error": None,
                 "event_count": 0,
                 "latest_action": None,
                 "elapsed_ms": None,
+                "phase_index": entry.get("phase_index"),
+                "description": entry.get("description"),
+                "estimate_ms": entry.get("estimate_ms"),
             },
         )
-        if row.get("started_at") is None:
+        if is_planned:
+            row["planned_at"] = row.get("planned_at") or entry.get("ts")
+            if entry.get("phase_index") is not None:
+                row["phase_index"] = entry.get("phase_index")
+            if entry.get("description"):
+                row["description"] = entry.get("description")
+            if entry.get("estimate_ms") is not None:
+                row["estimate_ms"] = entry.get("estimate_ms")
+        if row.get("started_at") is None and not is_planned:
             row["started_at"] = entry.get("ts")
         if entry.get("ts"):
             row["last_event_at"] = entry.get("ts")
-        row["event_count"] = int(row.get("event_count") or 0) + 1
+        if not is_planned:
+            row["event_count"] = int(row.get("event_count") or 0) + 1
         if entry.get("type") == "claude_action":
             row["latest_action"] = {
                 "action": entry.get("action"),
@@ -166,6 +180,8 @@ def scan_progress_state(path: Path) -> dict:
                 "ts": entry.get("ts"),
             }
         if status == "running" and row.get("status") in {"done", "failed"}:
+            return
+        if status == "not_started" and row.get("status") != "not_started":
             return
         row["status"] = status
         if status in {"done", "failed"}:
@@ -260,6 +276,12 @@ def scan_progress_state(path: Path) -> dict:
                     state["latest_stage_key"] = "publish_done"
                     state["latest_stage"] = (
                         entry.get("message") or "Published weekly dashboard"
+                    )
+                elif etype == "thread_planned":
+                    note_thread(
+                        entry.get("thread") or entry.get("title"),
+                        "not_started",
+                        entry,
                     )
                 elif etype == "thread_started":
                     note_thread(
