@@ -141,12 +141,30 @@ def scan_progress_state(path: Path) -> dict:
                 "name": label,
                 "status": "running",
                 "started_at": entry.get("ts"),
+                "last_event_at": entry.get("ts"),
                 "finished_at": None,
                 "error": None,
+                "event_count": 0,
+                "latest_action": None,
+                "elapsed_ms": None,
             },
         )
         if row.get("started_at") is None:
             row["started_at"] = entry.get("ts")
+        if entry.get("ts"):
+            row["last_event_at"] = entry.get("ts")
+        row["event_count"] = int(row.get("event_count") or 0) + 1
+        if entry.get("type") == "claude_action":
+            row["latest_action"] = {
+                "action": entry.get("action"),
+                "tool": entry.get("tool"),
+                "preview": entry.get("preview"),
+                "text": entry.get("text"),
+                "error": entry.get("error"),
+                "api_error_status": entry.get("api_error_status"),
+                "is_error": entry.get("is_error"),
+                "ts": entry.get("ts"),
+            }
         if status == "running" and row.get("status") in {"done", "failed"}:
             return
         row["status"] = status
@@ -308,6 +326,20 @@ def scan_progress_state(path: Path) -> dict:
     except Exception:
         pass
     thread_rows = list(threads.values())
+    now = datetime.now(timezone.utc)
+    for row in thread_rows:
+        started = parse_progress_datetime(row.get("started_at"))
+        if started is None:
+            continue
+        if row.get("status") == "running" and not state.get("terminated"):
+            finished = now
+        else:
+            finished = (
+                parse_progress_datetime(row.get("finished_at"))
+                or parse_progress_datetime(row.get("last_event_at"))
+                or started
+            )
+        row["elapsed_ms"] = max(0, int((finished - started).total_seconds() * 1000))
     state["threads"] = thread_rows
     state["thread_count"] = len(thread_rows)
     state["thread_done_count"] = sum(

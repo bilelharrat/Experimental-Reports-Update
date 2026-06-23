@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   AlertCircle,
   Brain,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Download,
@@ -24,6 +25,7 @@ import JobLogModal from "./JobLogModal.vue";
 const t = useT();
 const jobs = ref([]);
 const collapsed = ref(false);
+const expandedJobThreads = ref(new Set());
 const openJob = ref(null);
 let pollId = null;
 let polling = false;
@@ -180,10 +182,56 @@ function actionLine(a) {
   return null;
 }
 
+function jobKey(j) {
+  return `${j.kind}:${j.job_id || j.report_id || j.file_id || j.item_id || j.title}`;
+}
+
+function hasThreads(j) {
+  return Array.isArray(j?.threads) && j.threads.length > 0;
+}
+
+function threadsExpanded(j) {
+  return expandedJobThreads.value.has(jobKey(j));
+}
+
+function toggleThreads(j) {
+  const key = jobKey(j);
+  const next = new Set(expandedJobThreads.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedJobThreads.value = next;
+}
+
 function toolCallText(count) {
   return count === 1
     ? t("jobs.tool_call_one")
     : t("jobs.tool_calls", { count });
+}
+
+function threadIcon(thread) {
+  if (thread.status === "done") return CheckCircle2;
+  if (thread.status === "failed") return AlertCircle;
+  return Loader2;
+}
+
+function fmtThreadElapsed(thread) {
+  const ms = Number(thread?.elapsed_ms);
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const totalS = Math.floor(ms / 1000);
+  if (totalS < 60) return `${Math.max(1, Math.round(ms / 1000))}s`;
+  const m = Math.floor(totalS / 60);
+  const s = totalS % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function threadEventText(thread) {
+  const count = Number(thread?.event_count || 0);
+  if (!count) return "";
+  return count === 1
+    ? t("jobs.modal.event_count_one")
+    : t("jobs.modal.event_count", { count });
 }
 
 function open(j) {
@@ -229,7 +277,7 @@ const visible = computed(() => jobs.value.length > 0);
       <ul v-if="!collapsed" class="space-y-2">
         <li
           v-for="j in jobs"
-          :key="`${j.kind}:${j.job_id || j.file_id || j.item_id || j.title}`"
+          :key="jobKey(j)"
           class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
         >
           <button
@@ -306,6 +354,65 @@ const visible = computed(() => jobs.value.length > 0);
               </div>
             </div>
           </button>
+          <div v-if="hasThreads(j)" class="border-t border-subtle bg-canvas/60">
+            <button
+              type="button"
+              @click.stop="toggleThreads(j)"
+              class="w-full px-3 py-1.5 flex items-center gap-2 text-left text-[11px] text-ink-muted hover:bg-surface-muted focus-ring"
+              :title="threadsExpanded(j) ? t('jobs.collapse') : t('jobs.expand')"
+            >
+              <ChevronDown v-if="threadsExpanded(j)" class="h-3 w-3 shrink-0" />
+              <ChevronRight v-else class="h-3 w-3 shrink-0" />
+              <span class="font-mono uppercase tracking-wide">{{
+                t("jobs.parallel_flows")
+              }}</span>
+              <span class="ml-auto font-mono">
+                {{ progressText(j) || `${j.threads.length}` }}
+              </span>
+            </button>
+            <ul
+              v-if="threadsExpanded(j)"
+              class="px-2 pb-2 space-y-1"
+              :aria-label="t('jobs.parallel_flows')"
+            >
+              <li
+                v-for="thread in j.threads"
+                :key="thread.name"
+                class="rounded border border-subtle bg-surface px-2 py-1.5"
+              >
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <component
+                    :is="threadIcon(thread)"
+                    class="h-3 w-3 shrink-0"
+                    :class="{
+                      'text-success-ink': thread.status === 'done',
+                      'text-danger': thread.status === 'failed',
+                      'text-accent animate-spin': thread.status === 'running',
+                    }"
+                  />
+                  <span class="truncate text-[11px] font-medium text-ink-primary">
+                    {{ thread.name }}
+                  </span>
+                </div>
+                <div
+                  class="mt-0.5 flex items-center gap-2 pl-4 text-[10px] text-ink-muted font-mono"
+                >
+                  <span v-if="threadEventText(thread)">{{
+                    threadEventText(thread)
+                  }}</span>
+                  <span v-if="fmtThreadElapsed(thread)" class="tabular-nums">
+                    {{ fmtThreadElapsed(thread) }}
+                  </span>
+                  <span
+                    v-if="thread.latest_action && actionLine(thread.latest_action)"
+                    class="truncate"
+                  >
+                    {{ actionLine(thread.latest_action) }}
+                  </span>
+                </div>
+              </li>
+            </ul>
+          </div>
         </li>
       </ul>
     </aside>

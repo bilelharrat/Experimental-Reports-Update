@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from docx import Document
 import pytest
@@ -718,27 +719,56 @@ def test_recover_stale_memo_report_blocks_generated_renderer_scripts(memo_env):
 
 def test_active_memo_job_registers_subtask_completion(memo_env):
     report, run_dir = _make_memo_report(memo_env)
-    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
-    stream.emit(
-        "job_init",
-        kind="memo",
-        title="Investment memo — Generalist, Inc.",
-        report_id=report["id"],
-        company_id="generalist-inc",
-        run_id=report["run_id"],
-    )
-    stream.emit("thread_started", thread="Pressure tests")
-    stream.emit(
-        "claude_action",
-        action="tool_use",
-        tool="Write",
-        thread="Pressure tests",
-        preview="analysis/pressure_tests.md",
-    )
-    stream.emit("thread_finished", thread="Pressure tests")
-    stream.emit("thread_started", thread="Validation log")
+    stream_path = memo_prep.stream_path(run_dir)
+    stream_path.parent.mkdir(parents=True, exist_ok=True)
+    base_ts = datetime.now(timezone.utc) - timedelta(seconds=10)
 
-    state = api._scan_progress_state(memo_prep.stream_path(run_dir))
+    def ts(offset_s: int) -> str:
+        return (base_ts + timedelta(seconds=offset_s)).isoformat()
+
+    stream_path.write_text(
+        "\n".join(
+            json.dumps(event)
+            for event in [
+                {
+                    "type": "job_init",
+                    "ts": ts(0),
+                    "kind": "memo",
+                    "title": "Investment memo — Generalist, Inc.",
+                    "report_id": report["id"],
+                    "company_id": "generalist-inc",
+                    "run_id": report["run_id"],
+                },
+                {
+                    "type": "thread_started",
+                    "ts": ts(1),
+                    "thread": "Pressure tests",
+                },
+                {
+                    "type": "claude_action",
+                    "ts": ts(2),
+                    "action": "tool_use",
+                    "tool": "Write",
+                    "thread": "Pressure tests",
+                    "preview": "analysis/pressure_tests.md",
+                },
+                {
+                    "type": "thread_finished",
+                    "ts": ts(5),
+                    "thread": "Pressure tests",
+                },
+                {
+                    "type": "thread_started",
+                    "ts": ts(6),
+                    "thread": "Validation log",
+                },
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    state = api._scan_progress_state(stream_path)
 
     assert state["terminated"] is False
     assert state["thread_count"] == 2
@@ -746,12 +776,19 @@ def test_active_memo_job_registers_subtask_completion(memo_env):
     assert state["thread_failed_count"] == 0
     assert state["open_thread_count"] == 1
     assert {
-        (thread["name"], thread["status"])
+        (thread["name"], thread["status"], thread["event_count"])
         for thread in state["threads"]
     } == {
-        ("Pressure tests", "done"),
-        ("Validation log", "running"),
+        ("Pressure tests", "done", 3),
+        ("Validation log", "running", 1),
     }
+    pressure = next(
+        thread for thread in state["threads"]
+        if thread["name"] == "Pressure tests"
+    )
+    assert pressure["elapsed_ms"] == 4000
+    assert pressure["last_event_at"] == ts(5)
+    assert pressure["latest_action"]["action"] == "tool_use"
 
     memo_job = next(
         job for job in api._memo_kind_records()
