@@ -2522,6 +2522,311 @@ def run_investment_memo(
     return out
 
 
+def _build_internal_diligence_memo_prompt(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    internal_markdown_path: Path,
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+) -> str:
+    """Build the separate internal diligence memo prompt."""
+    package_path = run_dir / "logs" / "memo_package.json"
+    analysis_block = (
+        f"\n- Serena memo analysis session: `{analysis_session_path}`"
+        if analysis_session_path and analysis_session_path.exists()
+        else ""
+    )
+    research_block = (
+        f"\n- Company research folder: `{research_dir}`"
+        if research_dir and research_dir.exists()
+        else "\n- Company research folder: not populated"
+    )
+    lessons_block = (
+        f"\n- Prior memo lessons: `{lessons_path}`"
+        if lessons_path and lessons_path.exists()
+        else ""
+    )
+    warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
+    scope_block = ""
+    if scope_check:
+        scope_block = f"""\
+
+## Scope context
+
+- classification: `{scope_check.get('classification')}`
+- outcome: `{scope_check.get('outcome')}`
+- reason: {scope_check.get('reason') or '(no reason recorded)'}
+{warning_lines if warning_lines else "- No additional warnings recorded."}
+"""
+
+    return f"""\
+You are writing a **separate internal BSH diligence memo** for {company_name}.
+This is not the LP-facing investment memo. It is an internal-only Markdown
+document that the server will render into Word after you exit.
+
+## Run context
+
+- Run folder: `{run_dir}`
+- Company: {company_name} (`{company_slug}`)
+- Run ID: {run_id}
+- LP-facing English memo DOCX path: `{memo_paths.get('en')}`
+- LP-facing Chinese memo DOCX path: `{memo_paths.get('zh')}`
+- Structured LP memo package: `{package_path}`
+- Output Markdown path: `{internal_markdown_path}`
+{research_block}{analysis_block}{lessons_block}
+{scope_block}
+
+## Inputs to read
+
+Read these before writing:
+
+1. `{package_path}` for the final LP-facing memo content.
+2. `{settings_path}` for BSH mandate / preferences.
+3. The `{company_slug}` entry in `{companies_yaml_path}`.
+4. The run folder's `analysis/` artifacts.
+5. The Serena memo analysis session folder if listed above.
+6. The company research folder if populated.
+
+Do not edit `logs/memo_package.json` or either LP-facing memo DOCX. Do not
+write a DOCX or a renderer script. Write only the Markdown file at the exact
+output path.
+
+## Internal memo audience and register
+
+This memo is BSH-internal only. It may discuss internal participation sizing,
+suggested allocation, conviction, risk controls, sensitivity to round scarcity,
+SPV/SAFE economics, carry/fees, information asymmetry, and diligence priorities.
+Use plain investment-team language. Avoid "ticket"; use "suggested allocation",
+"participation", or "commitment". Avoid legal-rights checklist phrasing unless
+the actual control or information constraint directly changes economics.
+
+## Required Markdown structure
+
+Write a complete Markdown memo with this exact top-level structure:
+
+# Internal Diligence Memo — {company_name}
+
+## Internal Recommendation
+- Recommendation: Proceed / Proceed if confirmed / Hold pending confirmation / Pass.
+- Suggested allocation: state a range or "not yet sized" and explain why.
+- Conviction: High / Medium / Low.
+- One-paragraph rationale.
+
+## Allocation Rationale
+Explain the suggested allocation using stage, valuation, scarcity,
+oversubscription, sponsor access, company quality, expected upside, and
+unresolved proof points. Do not default to a small allocation just because ARR,
+margin, or lead-investor details are undisclosed if those gaps are normal for
+the stage.
+
+## Internal Diligence Priorities
+List the 5-8 highest-value diligence items that would change allocation,
+timing, or pass/revisit posture.
+
+## Structure, Fees, And Economics
+Explain SPV/SAFE mechanics, carry, fees, conversion assumptions, dilution,
+valuation entry, and any document-confirmation items in economic terms.
+
+## Risk Controls And Stop/Revisit Conditions
+Give the internal risk controls, monitoring items, and stop/revisit conditions.
+
+## LP-Facing Memo Delta
+List what is intentionally internal and should not appear in the LP-facing
+sell-side memo.
+
+## Source Notes
+Use source-class language and short file/source names. Do not include bracketed
+source-token scaffolding like `[S1]` unless referring to the final package's
+source index.
+
+## Output requirements
+
+- Write only `{internal_markdown_path}`.
+- Markdown only. No front matter. No code fences around the memo.
+- Keep it concise but substantive: roughly 1,200-2,500 words.
+- Include at least one Markdown table where useful.
+- End with a one-line "Internal use only" footer.
+"""
+
+
+def run_internal_diligence_memo(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    internal_markdown_path: Path,
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 1200,
+) -> dict:
+    """Spawn Claude to write the separate internal diligence memo Markdown."""
+    if not is_available():
+        return {
+            "ok": False,
+            "error": (
+                "Claude Code (`claude`) not found on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and run "
+                "`claude` once to authenticate."
+            ),
+        }
+    if not run_dir.exists():
+        return {"ok": False, "error": f"Run folder missing: {run_dir}"}
+    if not settings_path.exists():
+        return {"ok": False, "error": f"Settings file missing: {settings_path}"}
+    if not companies_yaml_path.exists():
+        return {"ok": False, "error": f"companies.yaml missing: {companies_yaml_path}"}
+
+    prompt = _build_internal_diligence_memo_prompt(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=settings_path,
+        companies_yaml_path=companies_yaml_path,
+        memo_paths=memo_paths,
+        internal_markdown_path=internal_markdown_path,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
+    add_dirs = [
+        str(run_dir),
+        str(settings_path.parent),
+        str(companies_yaml_path.parent),
+    ]
+    if research_dir and research_dir.exists():
+        add_dirs.append(str(research_dir))
+    if analysis_session_path and analysis_session_path.exists():
+        add_dirs.append(str(analysis_session_path))
+    if lessons_path and lessons_path.exists():
+        add_dirs.append(str(lessons_path.parent))
+
+    cmd = [
+        claude_path() or "claude",
+        "-p",
+        prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Write,Edit,Bash,Grep,Glob",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    for d in add_dirs:
+        cmd += ["--add-dir", d]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="internal_diligence_memo_starting",
+            message="Writing internal diligence memo",
+            output=str(internal_markdown_path),
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": f"Failed to launch claude: {exc}"}
+
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    result_event: dict | None = None
+    state: dict[str, Any] = {}
+    try:
+        for line in proc.stdout or []:  # type: ignore[union-attr]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            try:
+                if progress:
+                    _process_event(event, progress, state)
+            except Exception:
+                logger.exception("progress event handling failed")
+            if event.get("type") == "result":
+                result_event = event
+                break
+        if result_event is not None:
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "internal memo claude subprocess kept running after result; "
+                    "terminating process group"
+                )
+                _terminate_process_group(proc, grace_s=2.0)
+        else:
+            proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        _terminate_process_group(proc, grace_s=2.0)
+        return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
+
+    if result_event and result_event.get("subtype") == "error":
+        return {
+            "ok": False,
+            "error": result_event.get("error") or "Internal memo run failed",
+            "cost_usd": result_event.get("total_cost_usd"),
+            "duration_ms": result_event.get("duration_ms"),
+            "subtype": result_event.get("subtype"),
+        }
+    if result_event is None and proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "ok": False,
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            ),
+        }
+
+    if not internal_markdown_path.exists():
+        return {
+            "ok": False,
+            "error": f"Internal memo markdown was not written: {internal_markdown_path}",
+        }
+    out: dict = {"ok": True}
+    if result_event:
+        out["cost_usd"] = result_event.get("total_cost_usd")
+        out["duration_ms"] = result_event.get("duration_ms")
+        out["subtype"] = result_event.get("subtype")
+    return out
+
+
 def _build_hormuz_appendix_prompt(
     *,
     run_dir: Path,

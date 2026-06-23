@@ -101,21 +101,26 @@ const memoPreview = computed(() => {
 const previewFile = ref(null);
 const previewPdfUrl = ref(null);
 const previewDocxUrl = ref(null);
-function openMemoPreview(lang) {
+function openMemoPreview(kind) {
   const r = activeReport.value;
-  const purl = r?.preview_urls?.[lang];
+  const purl = r?.preview_urls?.[kind];
   if (!purl) return;
   previewPdfUrl.value = withApiToken(purl);
-  previewDocxUrl.value = r?.download_urls?.[lang]
-    ? withApiToken(r.download_urls[lang])
+  previewDocxUrl.value = r?.download_urls?.[kind]
+    ? withApiToken(r.download_urls[kind])
     : null;
   const name = r?.company_name || company.value?.name || "Memo";
+  const isInternal = kind === "internal";
   previewFile.value = {
-    id: `memo-${r.id}-${lang}`,
+    id: `memo-${r.id}-${kind}`,
     kind: "pdf",
-    label: `${name} — ${lang === "zh" ? "投资备忘录" : "Investment Memo"}`,
-    filename: `${name} - Investment Memo (${lang.toUpperCase()}).pdf`,
-    language: lang,
+    label: isInternal
+      ? `${name} — Internal Diligence Memo`
+      : `${name} — ${kind === "zh" ? "投资备忘录" : "Investment Memo"}`,
+    filename: isInternal
+      ? `${name} - Internal Diligence Memo.pdf`
+      : `${name} - Investment Memo (${kind.toUpperCase()}).pdf`,
+    language: kind,
   };
 }
 function closeMemoPreview() {
@@ -593,6 +598,24 @@ onUnmounted(stopPolling);
           >
             <Eye class="h-4 w-4" />
             <span>{{ tr("research.preview_pdf_zh") }}</span>
+          </button>
+          <a
+            v-if="activeReport.download_urls?.internal"
+            :href="withApiToken(activeReport.download_urls.internal)"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          >
+            <FileText class="h-4 w-4" />
+            <span>{{ tr("research.download_internal") }}</span>
+            <Download class="h-3.5 w-3.5 text-ink-muted" />
+          </a>
+          <button
+            v-if="activeReport.preview_urls?.internal"
+            type="button"
+            @click="openMemoPreview('internal')"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          >
+            <Eye class="h-4 w-4" />
+            <span>{{ tr("research.preview_pdf_internal") }}</span>
           </button>
           <a
             v-if="activeReport.run_dir"

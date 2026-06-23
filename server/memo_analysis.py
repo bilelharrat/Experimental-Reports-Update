@@ -34,6 +34,7 @@ from pathlib import Path
 from . import (
     claude_runner,
     docx_pdf,
+    internal_memo_renderer,
     job_progress,
     memo_chinese_parity,
     memo_docx_renderer,
@@ -55,6 +56,21 @@ def _memo_paths_abs(report: dict) -> dict[str, Path]:
         rel = entry.get("path")
         if lang and rel:
             paths[str(lang)] = memo_prep.DATA_DIR.parent / rel
+    return paths
+
+
+def _internal_memo_paths_abs(report: dict) -> dict[str, Path]:
+    entries = report.get("internal_memo_files") or []
+    if not entries:
+        return {}
+    entry = entries[0]
+    paths: dict[str, Path] = {}
+    if entry.get("markdown_path"):
+        paths["md"] = memo_prep.DATA_DIR.parent / entry["markdown_path"]
+    if entry.get("path"):
+        paths["docx"] = memo_prep.DATA_DIR.parent / entry["path"]
+    if entry.get("pdf_path"):
+        paths["pdf"] = memo_prep.DATA_DIR.parent / entry["pdf_path"]
     return paths
 
 
@@ -265,6 +281,136 @@ def _run_chinese_parity_gate(
 
     storage.update_report(report_id, memo_chinese_parity=parity_payload)
     return True
+
+
+def _run_internal_diligence_memo(
+    *,
+    report_id: str,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    memo_paths_abs: dict[str, Path],
+    internal_paths_abs: dict[str, Path],
+    stream: job_progress.ProgressLog,
+    result: dict,
+    analysis_session_path: Path | None,
+    lessons_path: Path | None,
+    scope_check: dict | None,
+    warnings: list[str],
+) -> dict | None:
+    md_path = internal_paths_abs.get("md")
+    docx_path = internal_paths_abs.get("docx")
+    if not md_path or not docx_path:
+        _fail_internal_memo(
+            report_id=report_id,
+            stream=stream,
+            result=result,
+            message="Report record is missing internal diligence memo paths.",
+        )
+        return None
+
+    storage.update_report(
+        report_id,
+        stage="Writing internal diligence memo",
+        progress=92,
+    )
+    internal_result = claude_runner.run_internal_diligence_memo(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=memo_prep.SETTINGS_FILE,
+        companies_yaml_path=memo_prep.COMPANIES_FILE,
+        memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+        internal_markdown_path=md_path,
+        research_dir=research_store.RESEARCH_ROOT / company_slug,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+        progress=stream,
+        timeout_sec=1200,
+    )
+    if not internal_result.get("ok"):
+        _fail_internal_memo(
+            report_id=report_id,
+            stream=stream,
+            result=_combined_result(result, internal_result),
+            message=internal_result.get("error") or "Internal diligence memo failed.",
+        )
+        return None
+
+    storage.update_report(
+        report_id,
+        stage="Rendering internal diligence memo DOCX",
+        progress=94,
+    )
+    stream.emit(
+        "stage",
+        stage="rendering_internal_memo_docx",
+        message="Rendering internal diligence memo DOCX",
+        markdown_path=memo_prep._rel(md_path),
+    )
+    try:
+        internal_memo_renderer.render_internal_memo(md_path, docx_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("internal diligence memo render failed for report %s", report_id)
+        _fail_internal_memo(
+            report_id=report_id,
+            stream=stream,
+            result=_combined_result(result, internal_result),
+            message=(
+                "Internal diligence memo render failed: "
+                f"{type(exc).__name__}: {exc}"
+            ),
+        )
+        return None
+
+    internal_files = [
+        {
+            "kind": "internal_diligence_memo",
+            "language": "en",
+            "markdown_path": memo_prep._rel(md_path),
+            "path": memo_prep._rel(docx_path),
+        }
+    ]
+    storage.update_report(report_id, internal_memo_files=internal_files)
+    return internal_result
+
+
+def _fail_internal_memo(
+    *,
+    report_id: str,
+    stream: job_progress.ProgressLog,
+    result: dict,
+    message: str,
+) -> None:
+    storage.update_report(
+        report_id,
+        status="failed_during_analysis",
+        stage="Internal diligence memo failed",
+        claude_cost_usd=result.get("cost_usd"),
+        claude_duration_ms=result.get("duration_ms"),
+    )
+    stream.emit("error", error=message, phase="internal_diligence_memo")
+
+
+def _combined_result(primary: dict, secondary: dict | None) -> dict:
+    if not secondary:
+        return dict(primary)
+    out = dict(primary)
+    total_cost = (primary.get("cost_usd") or 0) + (secondary.get("cost_usd") or 0)
+    total_duration = (primary.get("duration_ms") or 0) + (
+        secondary.get("duration_ms") or 0
+    )
+    out["cost_usd"] = total_cost or primary.get("cost_usd") or secondary.get("cost_usd")
+    out["duration_ms"] = (
+        total_duration
+        or primary.get("duration_ms")
+        or secondary.get("duration_ms")
+    )
+    return out
 
 
 def _fail_renderer_contract(
@@ -500,6 +646,7 @@ def _run(report_id: str) -> None:
         lang: memo_prep.DATA_DIR.parent / rel
         for lang, rel in memo_paths_rel.items()
     }
+    internal_paths_abs = _internal_memo_paths_abs(report)
     analysis_session_path = None
     analysis_session_id = report.get("analysis_session_id")
     if analysis_session_id:
@@ -648,6 +795,25 @@ def _run(report_id: str) -> None:
         memo_quality_lint=lint_result.to_dict(),
     )
 
+    internal_result = _run_internal_diligence_memo(
+        report_id=report_id,
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        memo_paths_abs=memo_paths_abs,
+        internal_paths_abs=internal_paths_abs,
+        stream=stream,
+        result=result,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=report.get("scope_check"),
+        warnings=list(report.get("warnings") or []),
+    )
+    if internal_result is None:
+        return
+    combined_result = _combined_result(result, internal_result)
+
     # --- Render PDF previews from the .docx files --------------------
     # The .docx is the real deliverable; the PDF is a faithful rendition
     # used only for the in-app preview popup. A conversion failure must
@@ -655,7 +821,7 @@ def _run(report_id: str) -> None:
     storage.update_report(
         report_id,
         stage="Rendering PDF previews",
-        progress=95,
+        progress=96,
     )
     stream.emit("stage", stage="rendering_pdf", message="Rendering PDF previews")
 
@@ -690,7 +856,44 @@ def _run(report_id: str) -> None:
                 )
         updated_memo_files.append(new_entry)
 
-    storage.update_report(report_id, memo_files=updated_memo_files)
+    current_report = storage.get_report(report_id) or {}
+    updated_internal_files: list[dict] = []
+    for entry in current_report.get("internal_memo_files") or []:
+        new_entry = dict(entry)
+        docx_rel = new_entry.get("path")
+        if docx_rel:
+            docx_abs = memo_prep.DATA_DIR.parent / docx_rel
+            if docx_abs.exists():
+                pdf_abs = docx_abs.with_suffix(".pdf")
+                try:
+                    ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        "PDF render crashed for internal memo (%s)", report_id
+                    )
+                    ok = False
+                    err = f"PDF conversion crashed: {type(exc).__name__}: {exc}"
+                if ok:
+                    new_entry["pdf_path"] = memo_prep._rel(pdf_abs)
+                else:
+                    logger.warning(
+                        "PDF render failed for internal memo (%s): %s",
+                        report_id, err,
+                    )
+                    stream.emit(
+                        "claude_action",
+                        action="tool_result",
+                        tool="internal-docx→pdf",
+                        is_error=True,
+                        preview=(err or "PDF conversion failed")[:200],
+                    )
+        updated_internal_files.append(new_entry)
+
+    storage.update_report(
+        report_id,
+        memo_files=updated_memo_files,
+        internal_memo_files=updated_internal_files,
+    )
 
     # The skill is supposed to update the manifest itself with an
     # "Analysis finalization" block. We do not append our own. If the
@@ -701,13 +904,14 @@ def _run(report_id: str) -> None:
         status="complete",
         stage="Memo ready",
         progress=100,
-        claude_cost_usd=result.get("cost_usd"),
-        claude_duration_ms=result.get("duration_ms"),
+        claude_cost_usd=combined_result.get("cost_usd"),
+        claude_duration_ms=combined_result.get("duration_ms"),
     )
     stream.emit(
         "done",
         report_id=report_id,
         memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-        cost_usd=result.get("cost_usd"),
-        duration_ms=result.get("duration_ms"),
+        internal_memo_paths={k: str(v) for k, v in internal_paths_abs.items()},
+        cost_usd=combined_result.get("cost_usd"),
+        duration_ms=combined_result.get("duration_ms"),
     )

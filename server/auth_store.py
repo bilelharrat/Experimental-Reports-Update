@@ -3,7 +3,7 @@
 The HTTP shape lives in ``server/api.py``. This module is the data layer:
 
 - **Users** (``data/users.json``): email → password hash (PBKDF2-SHA256).
-  Seeded on first start with the three accounts the operator named; later
+  Seeded on first start with the accounts the operator named; later
   a password-change / password-set endpoint can mutate these in place
   without re-plumbing.
 - **Sessions** (``data/sessions.json``): sha256(raw_token) → row with
@@ -42,6 +42,7 @@ PBKDF2_ALGO = "sha256"
 SEED_USERS: list[tuple[str, str]] = [
     ("robert@bshventures.com", "redapple"),
     ("elina.sun@bshventures.com", "redapple"),
+    ("aurora.pan@bshventures.com", "redapple"),
     ("serena@bshfoundation.org", "redapple"),
     ("seline.sun@bshfoundation.org", "redapple"),
     ("liupengsen50@gmail.com", "redapple"),

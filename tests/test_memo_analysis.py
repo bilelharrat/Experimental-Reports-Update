@@ -54,6 +54,8 @@ def _make_memo_report(data_root):
     memo_dir.mkdir(parents=True)
     en_path = memo_dir / f"Generalist, Inc. - Investment Memo - {run_id}.docx"
     zh_path = memo_dir / f"Generalist, Inc. - 投资备忘录 - {run_id}.docx"
+    internal_md = memo_dir / f"Generalist, Inc. - Internal Diligence Memo - {run_id}.md"
+    internal_docx = memo_dir / f"Generalist, Inc. - Internal Diligence Memo - {run_id}.docx"
     _write_clean_memo_docx(en_path)
     _write_clean_memo_docx(zh_path)
 
@@ -72,6 +74,14 @@ def _make_memo_report(data_root):
         memo_files=[
             {"language": "en", "path": memo_prep._rel(en_path)},
             {"language": "zh", "path": memo_prep._rel(zh_path)},
+        ],
+        internal_memo_files=[
+            {
+                "kind": "internal_diligence_memo",
+                "language": "en",
+                "markdown_path": memo_prep._rel(internal_md),
+                "path": memo_prep._rel(internal_docx),
+            }
         ],
     )
     return report, run_dir
@@ -110,6 +120,38 @@ def _write_bad_memo_docx(path):
     table.cell(1, 0).text = "Last priced valuation"
     table.cell(1, 1).text = "~$1.0B post-money [companies.yaml]"
     document.save(path)
+
+
+def _write_internal_memo_markdown(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join([
+            "# Internal Diligence Memo - Generalist, Inc.",
+            "",
+            "## Internal Recommendation",
+            "Recommendation: Proceed if confirmed.",
+            "",
+            "| Item | View |",
+            "|---|---|",
+            "| Suggested allocation | $5-10M pending confirmation |",
+            "| Conviction | Medium |",
+            "",
+            "## Allocation Rationale",
+            "The suggested allocation reflects scarce access, stage fit, and "
+            "remaining deployment proof that can change commitment sizing.",
+            "",
+            "## Internal Diligence Priorities",
+            "- Confirm deployment depth.",
+            "- Confirm valuation support.",
+            "- Confirm SPV economics.",
+            "",
+            "## Risk Controls And Stop/Revisit Conditions",
+            "Hold pending confirmation if customer proof is not source-backed.",
+            "",
+            "Internal use only.",
+        ]),
+        encoding="utf-8",
+    )
 
 
 def _memo_package(body_en=None, body_zh=None):
@@ -291,6 +333,16 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
     monkeypatch.setattr(
         claude_runner, "run_investment_memo", fake_run_investment_memo
     )
+
+    def fake_run_internal_diligence_memo(**kwargs):
+        _write_internal_memo_markdown(kwargs["internal_markdown_path"])
+        return {"ok": True, "cost_usd": 0.25, "duration_ms": 250}
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        fake_run_internal_diligence_memo,
+    )
     monkeypatch.setattr(
         docx_pdf,
         "convert_docx_to_pdf",
@@ -304,9 +356,13 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
     assert updated["progress"] == 100
     assert updated["stage"] == "Memo ready"
     assert not any("pdf_path" in f for f in updated["memo_files"])
+    assert updated["internal_memo_files"][0]["path"].endswith(".docx")
+    assert "pdf_path" not in updated["internal_memo_files"][0]
+    assert (run_dir / "memo" / f"Generalist, Inc. - Internal Diligence Memo - {report['run_id']}.docx").exists()
 
     events = _events(memo_prep.stream_path(run_dir))
     assert events[-1]["type"] == "done"
+    assert events[-1]["internal_memo_paths"]["md"].endswith(".md")
     assert any(
         e.get("type") == "claude_action"
         and e.get("tool") == "docx→pdf"
@@ -382,6 +438,33 @@ def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
     assert events[-1]["type"] == "error"
     assert events[-1]["phase"] == "chinese_parity_gate"
     assert events[-1]["findings"]
+
+
+def test_report_detail_advertises_internal_memo_urls(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    internal_docx = run_dir / "memo" / (
+        f"Generalist, Inc. - Internal Diligence Memo - {report['run_id']}.docx"
+    )
+    internal_pdf = internal_docx.with_suffix(".pdf")
+    _write_clean_memo_docx(internal_docx)
+    internal_pdf.write_bytes(b"%PDF-1.4\n")
+    storage.update_report(
+        report["id"],
+        internal_memo_files=[
+            {
+                "kind": "internal_diligence_memo",
+                "language": "en",
+                "markdown_path": memo_prep._rel(internal_docx.with_suffix(".md")),
+                "path": memo_prep._rel(internal_docx),
+                "pdf_path": memo_prep._rel(internal_pdf),
+            }
+        ],
+    )
+
+    detail = api._report_detail(storage.get_report(report["id"]))
+
+    assert detail["download_urls"]["internal"].endswith("artifact=internal")
+    assert detail["preview_urls"]["internal"].endswith("artifact=internal")
 
 
 def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(

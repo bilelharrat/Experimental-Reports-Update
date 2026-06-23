@@ -3,7 +3,7 @@
 Runs against an in-process FastAPI app (no need to restart the running
 dev server). Exercises:
 
-  - bootstrap seeds the 3 named users on first start
+  - bootstrap seeds the named users on first start
   - POST /api/auth/token with bad password is rejected (401)
   - POST /api/auth/token with the seed creds returns a token
   - the issued token unlocks /api/options
@@ -50,7 +50,11 @@ def main() -> None:
 def _run_checks(client: TestClient) -> None:
     print("\n1. Seed users present after startup")
     emails = auth_store.list_user_emails()
-    _check("3 seed emails registered", len(emails) == 3, ", ".join(emails))
+    _check(
+        f"{len(auth_store.SEED_USERS)} seed users registered",
+        len(emails) == len(auth_store.SEED_USERS),
+        ", ".join(emails),
+    )
     _check(f"{SEED_EMAIL} present", SEED_EMAIL in emails)
 
     print("\n2. Login: wrong password → 401")

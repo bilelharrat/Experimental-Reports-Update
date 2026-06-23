@@ -154,3 +154,25 @@ def test_investment_memo_prompt_includes_serena_lessons(tmp_path):
     assert str(lessons_path) in prompt
     assert "Current company evidence" in prompt
     assert "override stale or contradictory lessons" in prompt
+
+
+def test_internal_diligence_prompt_is_separate_internal_artifact(tmp_path):
+    prompt = claude_runner._build_internal_diligence_memo_prompt(
+        run_dir=tmp_path,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+        internal_markdown_path=tmp_path / "memo" / "internal.md",
+    )
+
+    assert "separate internal BSH diligence memo" in prompt
+    assert "Output Markdown path" in prompt
+    assert "Suggested allocation" in prompt
+    assert "Do not edit `logs/memo_package.json`" in prompt
+    assert "Write only the Markdown file" in prompt

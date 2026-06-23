@@ -242,6 +242,10 @@ def _memo_filename(company_name: str, run_id: str, language: str) -> str:
     return f"{company_name} - Investment Memo - {run_id}.docx"
 
 
+def _internal_memo_filename(company_name: str, run_id: str, suffix: str) -> str:
+    return f"{company_name} - Internal Diligence Memo - {run_id}.{suffix}"
+
+
 def _rel(path: Path | str) -> str:
     p = Path(path)
     try:
@@ -258,6 +262,7 @@ def _write_manifest_skeleton(
     stage: dict,
     memo_paths: dict[str, str],
     warnings: list[str],
+    internal_memo_paths: dict[str, str] | None = None,
     analysis_session_id: str | None = None,
 ) -> Path:
     lines: list[str] = ["# Investment Memo Run Manifest", ""]
@@ -290,6 +295,10 @@ def _write_manifest_skeleton(
     lines += ["", "## Predicted artifacts", ""]
     lines.append(f"- {_rel(memo_paths['en'])}")
     lines.append(f"- {_rel(memo_paths['zh'])}")
+    if internal_memo_paths and internal_memo_paths.get("internal_md"):
+        lines.append(f"- {_rel(internal_memo_paths['internal_md'])}")
+    if internal_memo_paths and internal_memo_paths.get("internal_docx"):
+        lines.append(f"- {_rel(internal_memo_paths['internal_docx'])}")
     lines += ["", "## Validation", ""]
     lines.append("- english: pending")
     lines.append("- chinese: pending")
@@ -377,6 +386,8 @@ def bootstrap_memo_run(
         "en": str(run_dir / "memo" / _memo_filename(company_name, run_id, "en")),
         "zh": str(run_dir / "memo" / _memo_filename(company_name, run_id, "zh")),
     }
+    internal_md = run_dir / "memo" / _internal_memo_filename(company_name, run_id, "md")
+    internal_docx = run_dir / "memo" / _internal_memo_filename(company_name, run_id, "docx")
 
     # Mint the report record up front so the run is browseable even if
     # we fail downstream.
@@ -395,6 +406,14 @@ def bootstrap_memo_run(
         memo_files=[
             {"language": "en", "path": _rel(memo_paths["en"])},
             {"language": "zh", "path": _rel(memo_paths["zh"])},
+        ],
+        internal_memo_files=[
+            {
+                "kind": "internal_diligence_memo",
+                "language": "en",
+                "markdown_path": _rel(internal_md),
+                "path": _rel(internal_docx),
+            }
         ],
         skill=SKILL_NAME,
         skill_version=SKILL_VERSION,
@@ -484,6 +503,10 @@ def bootstrap_memo_run(
         company=company,
         stage=stage_assessment,
         memo_paths=memo_paths,
+        internal_memo_paths={
+            "internal_md": str(internal_md),
+            "internal_docx": str(internal_docx),
+        },
         warnings=warnings,
         analysis_session_id=analysis_session_id,
     )

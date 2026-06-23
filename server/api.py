@@ -474,6 +474,7 @@ class ReportSummary(BaseModel):
     run_dir: str | None = None
     skill: str | None = None
     memo_files: list[dict] = Field(default_factory=list)
+    internal_memo_files: list[dict] = Field(default_factory=list)
     analysis_session_id: str | None = None
     analysis_session_approved: bool = False
 
@@ -1739,15 +1740,51 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
     return ReportDetail(**_report_detail(report))
 
 
+def _report_artifact_entry(
+    report: dict,
+    *,
+    artifact: str,
+    language: str,
+    preview: bool = False,
+) -> dict | None:
+    if artifact == "internal":
+        entries = report.get("internal_memo_files") or []
+        return next(
+            (
+                f
+                for f in entries
+                if f.get("kind") == "internal_diligence_memo"
+                and (not preview or f.get("pdf_path"))
+            ),
+            None,
+        )
+    entries = report.get("memo_files") or []
+    key = "pdf_path" if preview else "path"
+    return next(
+        (
+            f
+            for f in entries
+            if f.get("language") == language and f.get(key)
+        ),
+        None,
+    )
+
+
 @router.get("/reports/{report_id}/download")
-def download_memo(report_id: str, language: str = "en") -> FileResponse:
+def download_memo(
+    report_id: str,
+    language: str = "en",
+    artifact: str = "memo",
+) -> FileResponse:
     """Download a memo .docx in the requested language.
 
     Returns 404 if the report doesn't exist, isn't an investment memo, or
     the rendered file isn't on disk (e.g., still running, or the run
     folder was deleted).
     """
-    if language not in ("en", "zh"):
+    if artifact not in ("memo", "internal"):
+        raise HTTPException(status_code=400, detail="artifact must be 'memo' or 'internal'")
+    if artifact == "memo" and language not in ("en", "zh"):
         raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
     report = storage.get_report(report_id)
     if report is None:
@@ -1756,10 +1793,10 @@ def download_memo(report_id: str, language: str = "en") -> FileResponse:
         raise HTTPException(
             status_code=404, detail="Report is not an investment memo"
         )
-    memo_files = report.get("memo_files") or []
-    target = next((f for f in memo_files if f.get("language") == language), None)
+    target = _report_artifact_entry(report, artifact=artifact, language=language)
     if not target or not target.get("path"):
-        raise HTTPException(status_code=404, detail=f"No {language} file recorded")
+        label = "internal diligence memo" if artifact == "internal" else f"{language} file"
+        raise HTTPException(status_code=404, detail=f"No {label} recorded")
     repo_root = memo_prep.DATA_DIR.parent
     file_path = (repo_root / target["path"]).resolve()
     if not file_path.exists():
@@ -1782,7 +1819,11 @@ def download_memo(report_id: str, language: str = "en") -> FileResponse:
 
 
 @router.get("/reports/{report_id}/preview")
-def preview_memo(report_id: str, language: str = "en") -> FileResponse:
+def preview_memo(
+    report_id: str,
+    language: str = "en",
+    artifact: str = "memo",
+) -> FileResponse:
     """Serve the rendered PDF of a memo for inline preview.
 
     Mirrors `download_memo` but targets the `pdf_path` recorded on the
@@ -1791,7 +1832,9 @@ def preview_memo(report_id: str, language: str = "en") -> FileResponse:
     than downloading. Returns 404 if no PDF was produced (e.g. Word
     automation unavailable) — the .docx download is still offered.
     """
-    if language not in ("en", "zh"):
+    if artifact not in ("memo", "internal"):
+        raise HTTPException(status_code=400, detail="artifact must be 'memo' or 'internal'")
+    if artifact == "memo" and language not in ("en", "zh"):
         raise HTTPException(status_code=400, detail="language must be 'en' or 'zh'")
     report = storage.get_report(report_id)
     if report is None:
@@ -1800,12 +1843,17 @@ def preview_memo(report_id: str, language: str = "en") -> FileResponse:
         raise HTTPException(
             status_code=404, detail="Report is not an investment memo"
         )
-    memo_files = report.get("memo_files") or []
-    target = next((f for f in memo_files if f.get("language") == language), None)
+    target = _report_artifact_entry(
+        report,
+        artifact=artifact,
+        language=language,
+        preview=True,
+    )
     if not target or not target.get("pdf_path"):
+        label = "internal diligence memo" if artifact == "internal" else f"{language} PDF"
         raise HTTPException(
             status_code=404,
-            detail=f"No {language} PDF preview was rendered for this run",
+            detail=f"No {label} preview was rendered for this run",
         )
     repo_root = memo_prep.DATA_DIR.parent
     file_path = (repo_root / target["pdf_path"]).resolve()
@@ -5541,6 +5589,7 @@ def _report_summary(r: dict) -> dict:
         "run_dir": r.get("run_dir"),
         "skill": r.get("skill"),
         "memo_files": list(r.get("memo_files") or []),
+        "internal_memo_files": list(r.get("internal_memo_files") or []),
         "analysis_session_id": r.get("analysis_session_id"),
         "analysis_session_approved": bool(r.get("analysis_session_approved")),
     }
@@ -5567,6 +5616,10 @@ def _report_detail(r: dict) -> dict:
             "en": f"/api/reports/{rid}/download?language=en",
             "zh": f"/api/reports/{rid}/download?language=zh",
         }
+        if r.get("internal_memo_files"):
+            base["download_urls"]["internal"] = (
+                f"/api/reports/{rid}/download?artifact=internal"
+            )
         # Only advertise a preview URL for a language whose PDF was
         # actually rendered (Word automation can be unavailable, or an
         # older run may predate PDF rendering).
@@ -5581,6 +5634,10 @@ def _report_detail(r: dict) -> dict:
             for lang in ("en", "zh")
             if lang in have_pdf
         }
+        if any(f.get("pdf_path") for f in r.get("internal_memo_files") or []):
+            preview_urls["internal"] = (
+                f"/api/reports/{rid}/preview?artifact=internal"
+            )
         if preview_urls:
             base["preview_urls"] = preview_urls
     return base

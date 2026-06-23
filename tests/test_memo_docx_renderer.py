@@ -6,7 +6,12 @@ import json
 from docx import Document
 import pytest
 
-from server import memo_chinese_parity, memo_docx_renderer, memo_quality_lint
+from server import (
+    internal_memo_renderer,
+    memo_chinese_parity,
+    memo_docx_renderer,
+    memo_quality_lint,
+)
 
 
 def _package() -> dict:
@@ -230,6 +235,39 @@ def test_parameterized_renderer_writes_bilingual_docx_and_logs(tmp_path):
 
     lint_result = memo_quality_lint.lint_memo_docx(out_en)
     assert lint_result.has_blocking_findings is False
+
+
+def test_internal_memo_markdown_renderer_writes_docx(tmp_path):
+    md_path = tmp_path / "internal.md"
+    out_path = tmp_path / "internal.docx"
+    md_path.write_text(
+        "\n".join([
+            "# Internal Diligence Memo - Generalist",
+            "",
+            "## Internal Recommendation",
+            "Recommendation: Proceed if confirmed with a staged allocation.",
+            "",
+            "| Item | View |",
+            "|---|---|",
+            "| Suggested allocation | $5-10M pending confirmation |",
+            "| Conviction | Medium |",
+            "",
+            "## Internal Diligence Priorities",
+            "- Confirm deployment depth.",
+            "- Confirm SPV economics.",
+            "",
+            "Internal use only.",
+        ]),
+        encoding="utf-8",
+    )
+
+    result = internal_memo_renderer.render_internal_memo(md_path, out_path)
+
+    assert result["ok"] is True
+    assert out_path.exists()
+    text = _all_text(out_path)
+    assert "Internal Diligence Memo" in text
+    assert "Suggested allocation" in text
 
 
 def test_generated_renderer_script_detector_flags_old_pattern(tmp_path):
