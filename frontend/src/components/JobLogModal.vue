@@ -338,6 +338,29 @@ function actionLabel(entry) {
   return entry.type;
 }
 
+function eventDetailLines(entry) {
+  const lines = [];
+  if (Array.isArray(entry.contract_errors) && entry.contract_errors.length) {
+    lines.push(...entry.contract_errors.map((err) => `check: ${err}`));
+  }
+  if (Array.isArray(entry.expected_files) && entry.expected_files.length) {
+    for (const file of entry.expected_files) {
+      const status = file.exists ? "found" : "missing";
+      const path = file.path || file.label || "unknown path";
+      lines.push(`${file.label || "file"}: ${status} · ${path}`);
+    }
+  }
+  if (
+    Array.isArray(entry.generated_renderer_scripts) &&
+    entry.generated_renderer_scripts.length
+  ) {
+    lines.push(
+      ...entry.generated_renderer_scripts.map((path) => `blocked: ${path}`),
+    );
+  }
+  return lines;
+}
+
 function _eventMs(e) {
   const d = e && e.ts ? Date.parse(e.ts) : NaN;
   return Number.isFinite(d) ? d : null;
@@ -381,8 +404,8 @@ function fmtElapsed(ms) {
 }
 
 const headerSubtitle = computed(() => {
-  if (stage.value?.message) return stage.value.message;
   if (terminated.value && errorText.value) return errorText.value;
+  if (stage.value?.message) return stage.value.message;
   if (terminated.value) return t("jobs.modal.complete");
   return t("jobs.modal.working");
 });
@@ -543,6 +566,18 @@ function liveTailText(count) {
                   >
                   <div class="min-w-0 flex-1 break-words text-ink-secondary">
                     {{ actionLabel(entry) }}
+                    <div
+                      v-if="eventDetailLines(entry).length"
+                      class="mt-1 space-y-0.5 text-[11px] text-ink-muted"
+                    >
+                      <div
+                        v-for="line in eventDetailLines(entry)"
+                        :key="line"
+                        class="font-mono"
+                      >
+                        {{ line }}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <!-- End-of-section collapse — live updates auto-scroll to
@@ -586,6 +621,18 @@ function liveTailText(count) {
               >
               <div class="min-w-0 flex-1 break-words text-ink-secondary">
                 {{ actionLabel(entry) }}
+                <div
+                  v-if="eventDetailLines(entry).length"
+                  class="mt-1 space-y-0.5 text-[11px] text-ink-muted"
+                >
+                  <div
+                    v-for="line in eventDetailLines(entry)"
+                    :key="line"
+                    class="font-mono"
+                  >
+                    {{ line }}
+                  </div>
+                </div>
               </div>
             </div>
           </template>

@@ -113,4 +113,44 @@ describe("JobLogModal", () => {
     expect(row.find("svg").classes()).toContain("text-success-ink");
     expect(row.find("svg").classes()).not.toContain("animate-spin");
   });
+
+  it("shows renderer contract failure details in the event log", async () => {
+    wrapper = mountModal([
+      {
+        type: "job_init",
+        ts: "2026-06-22T00:00:00.000Z",
+        kind: "memo",
+        title: "Investment memo — ZaiNar, Inc.",
+      },
+      {
+        type: "stage",
+        ts: "2026-06-22T00:00:01.000Z",
+        stage: "rendering_docx",
+        message: "Rendering memo DOCX from structured package",
+      },
+      {
+        type: "error",
+        ts: "2026-06-22T00:00:02.000Z",
+        error: "Renderer contract failed: memo_package missing",
+        phase: "renderer_contract",
+        contract_errors: ["memo_package missing"],
+        expected_files: [
+          {
+            label: "memo_package",
+            path: "data/memos/zainar/logs/memo_package.json",
+            exists: false,
+          },
+        ],
+      },
+    ]);
+
+    await flushPromises();
+
+    expect(wrapper.text()).toContain(
+      "Renderer contract failed: memo_package missing",
+    );
+    expect(wrapper.text()).toContain("check: memo_package missing");
+    expect(wrapper.text()).toContain("memo_package: missing");
+    expect(wrapper.text()).toContain("data/memos/zainar/logs/memo_package.json");
+  });
 });

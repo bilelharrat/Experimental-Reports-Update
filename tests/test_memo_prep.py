@@ -3,6 +3,14 @@ from __future__ import annotations
 from server import claude_runner, memo_prep
 
 
+class _CaptureProgress:
+    def __init__(self):
+        self.events = []
+
+    def emit(self, type_, **fields):
+        self.events.append({"type": type_, **fields})
+
+
 def test_early_stage_round_is_scope_warning_not_failure():
     assessment = memo_prep._assess_stage(
         {"latest_funding": {"round": "Series A"}}
@@ -50,6 +58,63 @@ def test_investment_memo_prompt_carries_scope_warning_override(tmp_path):
     assert "Scope-warning override from prep" in prompt
     assert "Proceed with the memo anyway" in prompt
     assert "Do **not** stop or decline solely because" in prompt
+
+
+def test_memo_progress_detects_analysis_pass_written_by_bash():
+    progress = _CaptureProgress()
+    state = {"thread_map": claude_runner._MEMO_ANALYSIS_PASSES}
+
+    claude_runner._process_event(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "Bash",
+                        "input": {
+                            "description": "Write pressure-test analysis",
+                            "command": "cat > analysis/pressure_tests.md <<'EOF'\n...",
+                        },
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+    claude_runner._process_event(
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "is_error": False,
+                        "content": "ok",
+                    }
+                ]
+            },
+        },
+        progress,
+        state,
+    )
+
+    assert {
+        (event.get("type"), event.get("thread"))
+        for event in progress.events
+        if event.get("thread")
+    } == {
+        ("thread_started", "Arithmetic / pressure tests"),
+        ("claude_action", "Arithmetic / pressure tests"),
+    }
+    assert any(
+        event.get("action") == "tool_result"
+        and event.get("thread") == "Arithmetic / pressure tests"
+        for event in progress.events
+    )
 
 
 def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):

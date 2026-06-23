@@ -351,24 +351,43 @@ def _scan_progress_for_slides(text: str, progress, state: dict) -> None:
             )
 
 
-def _thread_for_tool_use(name: str, inp: dict, state: dict) -> str | None:
-    """If this tool_use should be attributed to a sub-thread (e.g. one of
-    the memo skill's parallel analysis passes), return the thread label.
+def _threads_for_tool_use(name: str, inp: dict, state: dict) -> list[str]:
+    """Return composite-job thread labels for this Claude tool_use.
 
-    Driven by `state["thread_map"]` (filename → label). Only writers
-    (Write/Edit) get attributed — Reads/Bash/Grep aren't pass-specific.
-    Runners that don't set `thread_map` get no threading.
+    Driven by `state["thread_map"]` (filename -> label). Memo runs usually
+    write expected analysis files through Write/Edit, but Claude can also use
+    Bash with shell redirection. Scanning for known artifact filenames keeps
+    sub-task progress visible when the tool shape changes.
     """
     thread_map = state.get("thread_map")
     if not thread_map:
-        return None
-    if name not in ("Write", "Edit"):
-        return None
-    fp = (inp.get("file_path") or "").replace("\\", "/")
-    if not fp:
-        return None
-    leaf = fp.rsplit("/", 1)[-1]
-    return thread_map.get(leaf)
+        return []
+
+    found: list[str] = []
+
+    def add(label: str | None) -> None:
+        if label and label not in found:
+            found.append(label)
+
+    fp = str(inp.get("file_path") or "").replace("\\", "/")
+    if fp:
+        add(thread_map.get(fp.rsplit("/", 1)[-1]))
+
+    haystack_parts: list[str] = []
+    for key in ("command", "description", "path", "pattern"):
+        value = inp.get(key)
+        if isinstance(value, str):
+            haystack_parts.append(value)
+    if not found:
+        try:
+            haystack_parts.append(json.dumps(inp, ensure_ascii=False)[:20000])
+        except Exception:
+            pass
+    haystack = "\n".join(haystack_parts).replace("\\", "/")
+    for leaf, label in thread_map.items():
+        if leaf in haystack:
+            add(label)
+    return found
 
 
 def _process_event(event: dict, progress, state: dict) -> None:
@@ -378,8 +397,8 @@ def _process_event(event: dict, progress, state: dict) -> None:
     invocation so we can pair tool_result events back to their tool_use, plus
     which slides we've emitted so we can dedup and detect stage transitions.
 
-    If `state["thread_map"]` is set (filename → pass label), Write/Edit
-    events to those files are tagged with `thread=<label>` so the
+    If `state["thread_map"]` is set (filename -> pass label), tool events
+    that mention those files are tagged with `thread=<label>` so the
     JobLogModal can render them as composite/threaded sub-tasks.
     """
     etype = event.get("type")
@@ -407,26 +426,32 @@ def _process_event(event: dict, progress, state: dict) -> None:
                 name = block.get("name") or "?"
                 inp = block.get("input") or {}
                 tool_id = block.get("id")
-                thread_label = _thread_for_tool_use(name, inp, state)
+                thread_labels = _threads_for_tool_use(name, inp, state)
+                thread_label = thread_labels[0] if thread_labels else None
                 state["last_tool"] = {
                     "id": tool_id,
                     "name": name,
                     "thread": thread_label,
+                    "threads": thread_labels,
                 }
                 # Track all in-flight tools by id so the user-message
                 # handler can re-attach thread labels even when many
                 # parallel tool calls are pending at once.
                 in_flight = state.setdefault("in_flight", {})
                 if tool_id:
-                    in_flight[tool_id] = {"name": name, "thread": thread_label}
-                if thread_label:
+                    in_flight[tool_id] = {
+                        "name": name,
+                        "thread": thread_label,
+                        "threads": thread_labels,
+                    }
+                for started_label in thread_labels:
                     threads_started = state.setdefault("threads_started", set())
-                    if thread_label not in threads_started:
-                        threads_started.add(thread_label)
+                    if started_label not in threads_started:
+                        threads_started.add(started_label)
                         progress.emit(
                             "thread_started",
-                            thread=thread_label,
-                            title=thread_label,
+                            thread=started_label,
+                            title=started_label,
                         )
                 preview = ""
                 if name == "Read":
@@ -503,9 +528,11 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     "tool": name,
                     "preview": preview[:500],
                 }
-                if thread_label:
-                    emit_kwargs["thread"] = thread_label
-                progress.emit("claude_action", **emit_kwargs)
+                if thread_labels:
+                    for label in thread_labels:
+                        progress.emit("claude_action", **emit_kwargs, thread=label)
+                else:
+                    progress.emit("claude_action", **emit_kwargs)
         return
     if etype == "user":
         msg = event.get("message") or {}
@@ -520,7 +547,10 @@ def _process_event(event: dict, progress, state: dict) -> None:
                 if meta is None:
                     meta = state.get("last_tool") or {}
                 tool = meta.get("name") or "?"
+                thread_labels = list(meta.get("threads") or [])
                 thread_label = meta.get("thread")
+                if thread_label and thread_label not in thread_labels:
+                    thread_labels.insert(0, thread_label)
                 content = block.get("content")
                 # Content can be a string or a list of blocks
                 if isinstance(content, list):
@@ -537,9 +567,11 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     "is_error": bool(block.get("is_error")),
                     "preview": (content_str or "")[:200],
                 }
-                if thread_label:
-                    tr_kwargs["thread"] = thread_label
-                progress.emit("claude_action", **tr_kwargs)
+                if thread_labels:
+                    for label in thread_labels:
+                        progress.emit("claude_action", **tr_kwargs, thread=label)
+                else:
+                    progress.emit("claude_action", **tr_kwargs)
         return
     if etype == "result":
         progress.emit(

@@ -94,6 +94,64 @@ const memoPreview = computed(() => {
   if (previewLanguage.value === "zh") return r.content_zh || r.content || "";
   return r.content_en || r.content || "";
 });
+const reportFailureDetail = computed(() => {
+  const r = activeReport.value;
+  if (!r) return "";
+  return r.failure_detail || r.error || r.stage || "";
+});
+const reportIsFailed = computed(() =>
+  String(activeReport.value?.status || "").startsWith("failed"),
+);
+const reportFailureTitle = computed(() => {
+  const r = activeReport.value;
+  if (!r) return "";
+  if (
+    r.failure_phase === "renderer_contract" ||
+    String(r.stage || "").toLowerCase().includes("renderer")
+  ) {
+    return tr("research.failed_run_renderer");
+  }
+  if (r.failure_phase === "internal_diligence_memo") {
+    return tr("research.failed_run_internal_memo");
+  }
+  if (r.failure_phase === "chinese_parity_gate") {
+    return tr("research.failed_run_chinese_parity");
+  }
+  if (
+    r.failure_phase === "quality_gate" ||
+    String(r.status || "") === "failed_quality_gate" ||
+    String(r.stage || "").toLowerCase().includes("quality")
+  ) {
+    return tr("research.failed_run_quality_gate");
+  }
+  return tr("research.failed_run_generic");
+});
+const reportHeadline = computed(() => {
+  const r = activeReport.value;
+  if (!r) return "";
+  if (reportIsFailed.value) return r.stage || reportFailureTitle.value;
+  return r.stage || r.status || "";
+});
+const memoArtifactsVisible = computed(() => {
+  const r = activeReport.value;
+  if (!isMemo.value || !r) return false;
+  const downloadUrls = r.download_urls || {};
+  const previewUrls = r.preview_urls || {};
+  return Boolean(
+    Object.keys(downloadUrls).length ||
+      Object.keys(previewUrls).length ||
+      r.content_en ||
+      r.content_zh,
+  );
+});
+const rendererContractErrors = computed(() => {
+  const errors = activeReport.value?.renderer_contract?.errors;
+  return Array.isArray(errors) ? errors : [];
+});
+const rendererContractFiles = computed(() => {
+  const files = activeReport.value?.renderer_contract?.expected_files;
+  return Array.isArray(files) ? files : [];
+});
 
 // PDF preview popup (reuses the generic FilePreviewModal). `previewFile`
 // non-null = modal open; we hand the modal explicit tokened URLs since
@@ -229,10 +287,17 @@ async function pollReport() {
   try {
     const r = await api.getReport(activeReport.value.id);
     activeReport.value = r;
-    if (r.status === "complete") {
+    const status = String(r.status || "");
+    if (
+      status === "complete" ||
+      status === "complete_with_warnings" ||
+      status.startsWith("failed")
+    ) {
       stopPolling();
-      emit("reports-changed");
-      libraryRefresh.value += 1;
+      if (status === "complete" || status === "complete_with_warnings") {
+        emit("reports-changed");
+        libraryRefresh.value += 1;
+      }
     }
   } catch (e) {
     stopPolling();
@@ -497,13 +562,18 @@ onUnmounted(stopPolling);
             · {{ (activeReport.language || "en").toUpperCase() }}
           </div>
           <div class="font-display text-lg font-semibold text-ink-primary">
-            {{ activeReport.stage || activeReport.status }}
+            {{ reportHeadline }}
           </div>
         </div>
         <span
           v-if="activeReport.status === 'complete'"
           class="text-xs px-2 py-1 rounded bg-success-soft text-success-ink"
           >{{ tr("research.status_complete") }}</span
+        >
+        <span
+          v-else-if="reportIsFailed"
+          class="text-xs px-2 py-1 rounded bg-danger/10 text-danger"
+          >{{ tr("research.status_failed") }}</span
         >
         <span
           v-else
@@ -555,11 +625,18 @@ onUnmounted(stopPolling);
       </ul>
 
       <!-- Memo-specific affordances: language toggle, download buttons,
-           bilingual preview. Only shown for completed memo runs. -->
+           bilingual preview. Shown for complete runs and for failed runs
+           when a rendered artifact exists for QA. -->
       <div
-        v-if="isMemo && activeReport.status === 'complete'"
+        v-if="memoArtifactsVisible"
         class="mt-6 space-y-4"
       >
+        <div
+          v-if="reportIsFailed"
+          class="rounded-lg border border-warning/40 bg-warning-soft/40 px-3 py-2 text-xs text-warning-ink"
+        >
+          {{ tr("research.failed_artifacts_available") }}
+        </div>
         <!-- Download + preview row: both .docx files (always available
              once complete) plus a PDF preview when one was rendered. -->
         <div class="flex flex-wrap items-center gap-3">
@@ -685,11 +762,43 @@ onUnmounted(stopPolling);
         class="mt-6 rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm text-ink-primary"
       >
         <div class="font-semibold text-danger mb-1">
-          {{ tr("research.failed_run", { status: activeReport.status }) }}
+          {{ reportFailureTitle }}
         </div>
         <p v-if="activeReport.stage" class="text-ink-secondary">
           {{ activeReport.stage }}
         </p>
+        <p
+          v-if="reportFailureDetail && reportFailureDetail !== activeReport.stage"
+          class="mt-1 text-ink-secondary"
+        >
+          {{ reportFailureDetail }}
+        </p>
+        <div v-if="rendererContractErrors.length" class="mt-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-danger">
+            {{ tr("research.renderer_contract_checks") }}
+          </div>
+          <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
+            <li v-for="err in rendererContractErrors" :key="err">
+              {{ err }}
+            </li>
+          </ul>
+        </div>
+        <div v-if="rendererContractFiles.length" class="mt-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            {{ tr("research.expected_files") }}
+          </div>
+          <ul class="mt-1 space-y-1 text-xs text-ink-muted font-mono">
+            <li v-for="file in rendererContractFiles" :key="file.label">
+              {{ file.label }}:
+              {{
+                file.exists
+                  ? tr("research.expected_file_found")
+                  : tr("research.expected_file_missing")
+              }}
+              <span v-if="file.path">· {{ file.path }}</span>
+            </li>
+          </ul>
+        </div>
         <p v-if="activeReport.run_dir" class="mt-2 text-xs text-ink-muted">
           {{ tr("research.run_folder_preserved_prefix") }}
           <span class="font-mono">{{ activeReport.run_dir }}</span>

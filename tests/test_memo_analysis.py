@@ -418,21 +418,25 @@ def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
     monkeypatch.setattr(
         claude_runner, "run_investment_memo", fake_run_investment_memo
     )
-    monkeypatch.setattr(
-        docx_pdf,
-        "convert_docx_to_pdf",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("PDF rendering should not run after Chinese parity failure")
-        ),
-    )
+    def fake_convert_docx_to_pdf(docx_path, pdf_path):
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+        return True, None
+
+    monkeypatch.setattr(docx_pdf, "convert_docx_to_pdf", fake_convert_docx_to_pdf)
 
     memo_analysis._run(report["id"])
 
     updated = storage.get_report(report["id"])
     assert updated["status"] == "failed_quality_gate"
     assert updated["stage"] == "Memo failed Chinese parity gate"
+    assert updated["artifacts_available"] is True
     assert updated["memo_chinese_parity"]["p0_count"] >= 1
+    assert all(f.get("pdf_path") for f in updated["memo_files"])
     assert (run_dir / "logs" / "memo_chinese_parity.md").exists()
+
+    detail = api._report_detail(updated)
+    assert detail["download_urls"]["en"].endswith("language=en")
+    assert detail["preview_urls"]["en"].endswith("language=en")
 
     events = _events(memo_prep.stream_path(run_dir))
     assert events[-1]["type"] == "error"
@@ -501,21 +505,25 @@ def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     monkeypatch.setattr(
         claude_runner, "run_investment_memo", fake_run_investment_memo
     )
-    monkeypatch.setattr(
-        docx_pdf,
-        "convert_docx_to_pdf",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("PDF rendering should not run after quality failure")
-        ),
-    )
+    def fake_convert_docx_to_pdf(docx_path, pdf_path):
+        pdf_path.write_bytes(b"%PDF-1.4\n")
+        return True, None
+
+    monkeypatch.setattr(docx_pdf, "convert_docx_to_pdf", fake_convert_docx_to_pdf)
 
     memo_analysis._run(report["id"])
 
     updated = storage.get_report(report["id"])
     assert updated["status"] == "failed_quality_gate"
     assert updated["stage"] == "Memo failed quality gate"
+    assert updated["artifacts_available"] is True
     assert updated["memo_quality_lint"]["p0_count"] >= 1
+    assert all(f.get("pdf_path") for f in updated["memo_files"])
     assert (run_dir / "logs" / "memo_quality_lint.md").exists()
+
+    detail = api._report_detail(updated)
+    assert detail["download_urls"]["en"].endswith("language=en")
+    assert detail["preview_urls"]["en"].endswith("language=en")
 
     events = _events(memo_prep.stream_path(run_dir))
     assert events[-1]["type"] == "error"
@@ -561,11 +569,23 @@ def test_memo_run_fails_when_memo_package_missing(memo_env, monkeypatch):
     updated = storage.get_report(report["id"])
     assert updated["status"] == "failed_during_analysis"
     assert updated["stage"] == "Renderer contract failed"
+    assert updated["failure_phase"] == "renderer_contract"
+    assert "memo_package.json" in updated["failure_detail"]
+    assert updated["renderer_contract"]["errors"]
 
     events = _events(memo_prep.stream_path(run_dir))
     assert events[-1]["type"] == "error"
     assert events[-1]["phase"] == "renderer_contract"
     assert "memo_package.json" in events[-1]["error"]
+    assert "memo_package missing" in events[-1]["contract_errors"]
+    assert any(
+        file.get("label") == "memo_package" and file.get("exists") is False
+        for file in events[-1]["expected_files"]
+    )
+
+    detail = api._report_detail(updated)
+    assert detail["failure_detail"] == updated["failure_detail"]
+    assert detail["renderer_contract"]["errors"]
 
 
 def test_memo_run_blocks_generated_renderer_scripts(memo_env, monkeypatch):

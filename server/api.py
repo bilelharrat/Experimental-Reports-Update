@@ -466,6 +466,10 @@ class ReportSummary(BaseModel):
     status: str
     progress: int = 0
     stage: str | None = None
+    error: str | None = None
+    failure_phase: str | None = None
+    failure_detail: str | None = None
+    renderer_contract: dict | None = None
     created_at: str
     updated_at: str
     # Memo-run extensions (only set for kind=investment_memo_latestage).
@@ -5582,6 +5586,10 @@ def _report_summary(r: dict) -> dict:
         "status": r.get("status", "queued"),
         "progress": int(r.get("progress") or 0),
         "stage": r.get("stage"),
+        "error": r.get("error"),
+        "failure_phase": r.get("failure_phase"),
+        "failure_detail": r.get("failure_detail"),
+        "renderer_contract": r.get("renderer_contract"),
         "created_at": r.get("created_at"),
         "updated_at": r.get("updated_at"),
         "kind": r.get("kind"),
@@ -5610,31 +5618,50 @@ def _report_detail(r: dict) -> dict:
     # ready-to-click .docx downloads.
     if r.get("kind") == "investment_memo_latestage" and r.get("id"):
         rid = r["id"]
+        repo_root = memo_prep.DATA_DIR.parent
+
+        def rel_exists(value: Any) -> bool:
+            return bool(value and (repo_root / str(value)).exists())
+
         base["stream_url"] = f"/api/memos/{rid}/stream"
         base["log_url"] = f"/api/jobs/log?path=memo:{rid}"
-        base["download_urls"] = {
-            "en": f"/api/reports/{rid}/download?language=en",
-            "zh": f"/api/reports/{rid}/download?language=zh",
+        memo_files = r.get("memo_files") or []
+        have_docx = {
+            f.get("language")
+            for f in memo_files
+            if rel_exists(f.get("path"))
         }
-        if r.get("internal_memo_files"):
-            base["download_urls"]["internal"] = (
+        download_urls = {
+            lang: f"/api/reports/{rid}/download?language={lang}"
+            for lang in ("en", "zh")
+            if lang in have_docx
+        }
+        if any(
+            rel_exists(f.get("path"))
+            for f in r.get("internal_memo_files") or []
+        ):
+            download_urls["internal"] = (
                 f"/api/reports/{rid}/download?artifact=internal"
             )
+        if download_urls:
+            base["download_urls"] = download_urls
         # Only advertise a preview URL for a language whose PDF was
         # actually rendered (Word automation can be unavailable, or an
         # older run may predate PDF rendering).
-        memo_files = r.get("memo_files") or []
         have_pdf = {
             f.get("language")
             for f in memo_files
-            if f.get("pdf_path")
+            if rel_exists(f.get("pdf_path"))
         }
         preview_urls = {
             lang: f"/api/reports/{rid}/preview?language={lang}"
             for lang in ("en", "zh")
             if lang in have_pdf
         }
-        if any(f.get("pdf_path") for f in r.get("internal_memo_files") or []):
+        if any(
+            rel_exists(f.get("pdf_path"))
+            for f in r.get("internal_memo_files") or []
+        ):
             preview_urls["internal"] = (
                 f"/api/reports/{rid}/preview?artifact=internal"
             )
