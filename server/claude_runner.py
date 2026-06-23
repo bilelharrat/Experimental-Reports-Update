@@ -1861,11 +1861,11 @@ This is a final-writing override. It supersedes any older skill instruction
 that asks for inline source markers, bracketed source traces, scaffolded
 taxonomy labels, or prompt-visible headings in final prose. Preserve the full
 diligence standard from the skill, but the finished English memo is an
-exec-ready sell-side investment memo for BSH partners, not a generated
-research report and not a buyer-side diligence memo.
+exec-ready LP-facing sell-side investment memo, not a generated research
+report, buyer-side diligence memo, or BSH internal allocation note.
 
 Final memo prose must:
-- write like a senior investor making an allocation case under uncertainty;
+- write like a senior investor explaining the investment case under uncertainty;
 - convert evidence into judgment;
 - avoid process language, methodology narration, task labels, and validation
   scaffolding in the body;
@@ -1884,8 +1884,7 @@ Final memo prose must:
 
 Sell-side investment memo posture:
 - Do not write as if BSH is negotiating control terms in a private-equity
-  process. BSH is assessing whether to take available allocation in a scarce
-  financing.
+  process or exposing its internal intended position to LPs.
 - Do not default to "small/minimum" allocation because revenue, ARR, gross
   margin, lead investor, or detailed SAFE side terms are undisclosed. For
   early-growth or Series A/A2 deep-tech rounds, those gaps are normal unless
@@ -1894,8 +1893,9 @@ Sell-side investment memo posture:
   syndicate.
 - If the round is oversubscribed, has top-tier participation, or the available
   economics are attractive versus what others are receiving, reflect that as
-  positive evidence for allocation size and urgency. Do not recommend the
-  minimum allocation unless the facts show BSH's conviction is genuinely low.
+  positive evidence for scarcity and urgency. Do not default to a minimum
+  participation recommendation unless the facts show conviction is genuinely
+  low.
 - Treat SPV/SAFE economics as deal mechanics to explain plainly, not as a
   thesis-breaking risk by default. Use "confirm economics before funding" only
   when the actual documents are ambiguous.
@@ -1916,36 +1916,39 @@ Final memo body and operating tables must not contain:
 - cute or fuzzy finance phrasing such as `soft instrument`, `hard IP wall`,
   `moat narrows`, `no-rights SAFE`, `where nothing else works`, or
   `least-proven part of the story`;
-- internal IC, buyer-side diligence, or deal-legal checklist shorthand. This is
-  a public-facing, exec-ready sell-side investment memo for BSH partners, so
-  write every deal mechanic, governance point, and recommendation as plain
-  narrative prose describing what it means economically for BSH. Say that a
-  valuation rests on or is supported by specific evidence; that a structure
-  offers limited governance, reporting, or oversight; that the allocation is
-  calibrated to conviction rather than defaulted to a minimum; and frame the
-  decision as a clear recommendation with stop-or-revisit conditions. Use
-  investment-case, allocation, confirmation, decision, and stop/revisit
-  vocabulary; never legal-rights or diligence-checklist labels;
+- internal IC, buyer-side diligence, bank/debt, control-investor, or
+  deal-legal checklist shorthand. This is an LP-facing, exec-ready sell-side
+  investment memo, not a BSH internal allocation note. Write every deal
+  mechanic, governance point, and recommendation as plain narrative prose
+  describing what it means economically for investors. Say that a valuation
+  rests on or is supported by specific evidence; that a structure offers
+  limited governance, reporting, or oversight; and frame the decision as a
+  clear recommendation with stop-or-revisit conditions. Use investment-case,
+  participation, confirmation, decision, and stop/revisit vocabulary instead
+  of process labels, small-check reflexes, legal-rights labels, or
+  control-rights checklist phrasing;
+- BSH internal participation-sizing language or internal recommendation
+  instructions;
 - em dash bridging in English body prose or operating tables;
 - meta-language about `the memo`, `the analysis`, `the framework`, or
   `this section`.
 
 Memo spine requirement:
-- core_bet: what has to be true for BSH to make money;
+- core_bet: what has to be true for investors to make money;
 - entry_tension: what the valuation or instrument already assumes;
 - current_proof: what is proven today by source class;
 - unproven_but_modelable: what is missing but can be modeled conservatively;
-- stop_or_revisit: what would make BSH decline or revisit later;
-- action: recommended allocation range, conviction posture, confirmation
-  items, and next diligence.
+- stop_or_revisit: what would make investors decline or revisit later;
+- action: recommendation posture, confirmation items, and next diligence.
 
 The opening, Investment View, risk section, scenario section, and final
 Investment Decision / Closing View must use the same spine. The first two
 body paragraphs must state company, transaction, valuation / entry terms,
 central price/proof tension, and recommendation posture. The substantive
-ending must state what BSH should do, target allocation posture, confirmation
-items, stop/revisit conditions, and next diligence actions before any sources
-or disclosures.
+ending must state the investment recommendation, confirmation items,
+stop/revisit conditions, and next diligence actions before any sources or
+disclosures. Do not include BSH internal participation sizing in the
+LP-facing memo.
 
 Positive examples for early-commercial infrastructure deals:
 - "ZaiNar is a scarce technical asset in network-side positioning; the A2
@@ -1960,7 +1963,7 @@ Positive examples for early-commercial infrastructure deals:
   economics and document-confirmation points without turning them into a
   control-rights checklist."
 - "If the round is meaningfully oversubscribed and BSH has differentiated
-  access, the allocation recommendation should reflect scarcity and upside,
+  access, the recommendation should reflect scarcity and upside,
   not mechanically default to a minimum check."
 
 Banned phrase / rewrite guidance:
@@ -1972,7 +1975,7 @@ Banned phrase / rewrite guidance:
 | The analysis suggests... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
 | Proving the case | investment case, base case, conviction, support |
-| Sizing the position | allocation, position size, commitment |
+| Describing participation | participation, commitment, exposure |
 | Sharp open questions | Top 3 Decision Questions or Top 3 Gating Questions |
 | Missing proof | What Still Needs Confirmation |
 | Recommendation labels | Proceed / Proceed if confirmed / Hold pending confirmation / Pass |
@@ -2211,8 +2214,7 @@ shape:
     "stage": "Late-stage / pre-IPO",
     "sector": "AI",
     "location": "City, Region",
-    "round": "Round / valuation context",
-    "bsh_allocation": "Target allocation / position size if known"
+    "round": "Round / valuation context"
   }},
   "run": {{"run_id": "{run_id}", "as_of": "YYYY-MM-DD"}},
   "sections": [
@@ -4809,7 +4811,7 @@ public data override stale or contradictory lessons.
     prompt = f"""\
 You are Serena's Strategic Risk Mapper for a late-stage investment memo.
 Generate the 5-8 decision-grade strategic risks that should control whether
-BSH should invest in {company_name}.
+the investment case for {company_name} is attractive.
 
 Company:
 ```json

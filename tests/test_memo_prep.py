@@ -67,8 +67,10 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     )
 
     assert "Human Executive Memo Voice Contract" in prompt
-    assert "exec-ready sell-side investment memo" in prompt
-    assert "allocation case under uncertainty" in prompt
+    assert "exec-ready LP-facing sell-side investment memo" in prompt
+    assert "investment case under uncertainty" in prompt
+    assert "bsh_allocation" not in prompt
+    assert "BSH target allocation" not in prompt
     assert "The memo therefore..." in prompt
     assert "Top 3 Decision Questions" in prompt
     assert "Proceed if confirmed" in prompt

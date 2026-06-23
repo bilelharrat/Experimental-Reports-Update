@@ -3458,7 +3458,7 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "id": f"memo-risk-{i}",
             "claim": r["title"],
             "detail": (
-                f"{r['why_it_matters']} BSH should treat this as a lead risk "
+                f"{r['why_it_matters']} Treat this as a lead risk "
                 f"unless the evidence answers: {r['decision_question']}"
             ),
             "source_trace": ["strategic_risks", "risk_priorities"],
@@ -3669,7 +3669,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             "id": "risk-pass-trigger",
             "text": (
                 f"If {pass_trigger[:1].lower() + pass_trigger[1:] if pass_trigger else 'the lead evidence remains missing'}, "
-                "BSH should not stretch the thesis."
+                "investors should not stretch the thesis."
             ),
             "purpose": "risk framing",
             "tone": "pass_trigger",
@@ -5113,7 +5113,7 @@ def _refresh_memo_packet(session: dict) -> None:
     ][:3]
     recommendation_logic = str(
         thesis.get("recommendation_logic")
-        or "State the recommended action, allocation posture, conditions, and next diligence."
+        or "State the recommendation, confirmation items, conditions, and next diligence."
     ).strip()
     lines += [
         "",

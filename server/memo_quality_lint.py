@@ -154,6 +154,11 @@ _FUZZY_PATTERNS = (
 _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bunderwrit(?:e|es|ing|ten|er|ers)\b", re.IGNORECASE),
     re.compile(r"\btickets?\b", re.IGNORECASE),
+    re.compile(r"\bBSH target allocation\b", re.IGNORECASE),
+    re.compile(r"\btarget allocation\b", re.IGNORECASE),
+    re.compile(r"\bposition size\b", re.IGNORECASE),
+    re.compile(r"\bBSH should\b", re.IGNORECASE),
+    re.compile(r"\bwhat BSH should do\b", re.IGNORECASE),
     re.compile(r"\bkill criteria\b", re.IGNORECASE),
     re.compile(r"\bNeed More Information\b", re.IGNORECASE),
     re.compile(r"\bConditional Yes\b", re.IGNORECASE),

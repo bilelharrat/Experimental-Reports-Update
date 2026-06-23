@@ -103,8 +103,8 @@ The next version must make the introduction and conclusion stronger:
 
 - First two body paragraphs must state company, transaction, valuation, central
   price/proof tension, and recommendation posture.
-- The final close must state what BSH should do, allocation posture, funding
-  gates, stop/revisit conditions, and next diligence actions.
+- The final close must state the recommendation, confirmation gates,
+  stop/revisit conditions, and next diligence actions.
 - Legal disclosures should not be the memo's substantive ending.
 
 ## Target Behavior
@@ -165,7 +165,7 @@ Changes:
   - central price/proof tension;
   - recommendation posture.
 - Add final `Investment Decision` / `Closing View` requirement before Sources:
-  recommendation, allocation posture, gates, stop/revisit conditions, next diligence.
+  recommendation, confirmation gates, stop/revisit conditions, next diligence.
 
 ### 2. Strengthen The Prompt Wrapper Override
 

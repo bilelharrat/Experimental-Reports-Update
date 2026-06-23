@@ -160,6 +160,8 @@ def test_linter_blocks_buyer_side_language_in_final_body(tmp_path):
             "Recommendation: Conditional Yes at the minimum ticket.",
             "Top 3 Gating Questions (for BSH)",
             "What Is Not Yet Underwritten",
+            "BSH target allocation: $5-10M.",
+            "The final section says what BSH should do and the position size.",
             "Require data room access, a named institutional lead, MFN, "
             "down-round protection, information rights, and voting rights.",
         ],

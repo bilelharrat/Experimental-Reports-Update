@@ -705,7 +705,7 @@ Fix plan:
   and Disclosures.
 - The final close must state:
   - recommendation: Proceed, Proceed if confirmed, Hold pending confirmation, or Pass;
-  - allocation posture: initial allocation, full allocation, watchlist, or pass;
+  - recommendation posture: proceed, proceed if confirmed, hold, or pass;
   - required pre-funding evidence;
   - stop/revisit conditions;
   - what changes the next-round/step-up case;
@@ -745,7 +745,7 @@ Fix plan:
   - `current_proof`: what is proven today;
   - `unproven_but_modelable`: what is missing but can be modeled;
   - `stop_or_revisit`: what makes BSH pass or revisit later;
-  - `action`: recommended allocation range and confirmation items.
+  - `action`: recommendation posture and confirmation items.
 - Require introduction, Investment View, risk section, scenario section, and
   final close to use this same spine.
 - Add a linter or prompt test that the final memo includes a recommendation
@@ -834,8 +834,8 @@ Tasks:
 - Add an opening-thesis contract: company, transaction, valuation, central
   price/proof tension, recommendation posture.
 - Add a final `Investment Decision` / `Closing View` section before Sources.
-- Require Proceed-if-confirmed conclusions to include allocation posture,
-  gates, stop/revisit conditions, and next diligence actions.
+- Require Proceed-if-confirmed conclusions to include confirmation gates,
+  stop/revisit conditions, and next diligence actions.
 - Add a memo-spine handoff field or prompt block so the opening and conclusion
   use the same core frame.
 - Add tests asserting the prompt includes the opening/conclusion contract and
@@ -902,7 +902,7 @@ Tasks:
   - no em dash bridges,
   - introduction states company, deal, valuation, price/proof tension, and
     recommendation posture,
-  - final close states allocation posture, gates, stop/revisit conditions, and next
+  - final close states recommendation posture, gates, stop/revisit conditions, and next
     diligence actions,
   - disclosure gaps converted into model treatment,
   - SAFE/SPV mechanics stated plainly,
@@ -920,6 +920,6 @@ The remediation is complete when:
 - The Executive Summary no longer includes analysis-scaffold labels.
 - The introduction makes the investment frame clear in the first two body
   paragraphs.
-- The final close states what BSH should do and what would change the decision.
+- The final close states the recommendation and what would change the decision.
 - Generated DOCX output passes the memo quality linter.
 - Focused tests pass, and a fresh ZaiNar memo regression is reviewed.

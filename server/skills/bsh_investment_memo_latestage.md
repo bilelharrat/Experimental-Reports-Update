@@ -1,6 +1,6 @@
 ---
 name: bsh-investment-memo-latestage-v1
-description: "Generate Berkeley Summit House (BSH) investment memos (.docx) for growth, late-stage, and pre-IPO companies, using the V3 formatting-enhanced, non-linear, falsification-first framework with versioned, non-destructive run storage and professional document packaging. Produces two parallel .docx files per run — one in English and one in Simplified Chinese (简体中文) — with identical structure, identical analytical content, and CJK-safe typography in the Chinese version. The final deliverable is an exec-ready sell-side investment memo for BSH partners, not a buyer-side diligence memo. Trigger whenever Serena asks to evaluate an allocation opportunity, write up a growth-stage or pre-IPO company, create an investment memo for a financing round, or analyze a Pitchbook / CB Insights summary for a growth, late-stage, or pre-IPO company."
+description: "Generate Berkeley Summit House (BSH) investment memos (.docx) for growth, late-stage, and pre-IPO companies, using the V3 formatting-enhanced, non-linear, falsification-first framework with versioned, non-destructive run storage and professional document packaging. Produces two parallel .docx files per run — one in English and one in Simplified Chinese (简体中文) — with identical structure, identical analytical content, and CJK-safe typography in the Chinese version. The final deliverable is an exec-ready LP-facing sell-side investment memo, not a buyer-side diligence memo or BSH internal allocation note. Trigger whenever Serena asks to evaluate an allocation opportunity, write up a growth-stage or pre-IPO company, create an investment memo for a financing round, or analyze a Pitchbook / CB Insights summary for a growth, late-stage, or pre-IPO company."
 ---
 
 # BSH Investment Memo Generator (Growth / Late-Stage / Pre-IPO, Non-Linear, Versioned, Non-Destructive, Formatting-Enhanced)
@@ -57,19 +57,17 @@ Banned phrase / rewrite guidance:
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
 
-**Sell-side register (enforced automatically).** This is a public-facing,
-exec-ready sell-side investment memo for BSH partners — not an internal IC or
-buyer-side diligence checklist. Write every deal mechanic, governance point, and
-recommendation as plain narrative prose describing what it means economically
-for BSH. Say that a valuation rests on or is supported by specific evidence;
-that a structure offers limited governance, reporting, or oversight; that the
-allocation is calibrated to conviction rather than defaulted to a minimum; and
-frame the decision as a clear recommendation with stop-or-revisit conditions.
-Describe SPV, SAFE, and round economics as plain deal mechanics — what the
-structure means for BSH economically — never as a legal-rights or
-diligence-checklist of terms.
+**Sell-side register (enforced automatically).** This is an LP-facing,
+exec-ready sell-side investment memo, not an internal IC, buyer-side diligence
+checklist, or BSH internal allocation note. Write every deal mechanic,
+governance point, and recommendation as plain narrative prose describing what it
+means economically for investors. Say that a valuation rests on or is supported
+by specific evidence; that a structure offers limited governance, reporting, or
+oversight; and frame the decision as a clear recommendation with stop-or-revisit
+conditions. Describe SPV, SAFE, and round economics as plain deal mechanics,
+never as legal-rights or diligence-checklist terms.
 
-The final memo should sound like an experienced investor making a call: here is what is happening, what must be true, what can go wrong, and what BSH should do.
+The final memo should sound like an experienced investor explaining the opportunity: here is what is happening, what must be true, what can go wrong, and what would make the investment attractive or unattractive.
 
 ---
 
@@ -1013,7 +1011,7 @@ analysis/scenario_swim_lanes.md
 ## Missingness Calibration Rule
 Absence of critical data is not neutral.
 
-Missing information about NRR, gross margin, burn, EBITDA / operating margin, customer concentration, pricing durability, or capital structure must be calibrated to stage and round context. For Series A/A2 and early-growth deep-tech financings, lack of disclosed ARR, margin, a public lead name, or detailed side-letter terms is common and should not automatically become a high-severity risk or a tiny allocation recommendation. For later-stage and pre-IPO rounds, the same missingness carries more weight.
+Missing information about NRR, gross margin, burn, EBITDA / operating margin, customer concentration, pricing durability, or capital structure must be calibrated to stage and round context. For Series A/A2 and early-growth deep-tech financings, lack of disclosed ARR, margin, a public lead name, or detailed side-letter terms is common and should not automatically become a high-severity risk or a low-conviction recommendation. For later-stage and pre-IPO rounds, the same missingness carries more weight.
 
 When critical metrics are missing:
 - explicitly state what is missing
@@ -1084,7 +1082,7 @@ inventory, and manifest finalization.
 
 The memo package is the dynamic surface. It must include:
 - `schema_version: 1`
-- `company` metadata: name, descriptor, stage, sector, location, round, BSH target allocation / position size
+- `company` metadata: name, descriptor, stage, sector, location, round
 - `run` metadata: run id and as-of date
 - `sections`: ordered section objects using the exact memo structure below
 - section `blocks` of type `heading`, `paragraph`, `bullets`, `callout`, or `table`
@@ -1144,7 +1142,6 @@ Required cover-page elements:
    - Sector
    - Location
    - Round (for late-stage transactions where round size and post-money are public or in-talks)
-   - BSH target allocation / position size
 
    Do not include a `Prepared by` line on the cover. Internal authorship belongs in the run manifest, not the deliverable.
 7. **Table of Contents** placed below the metadata block, listing the six body-section entries only — I. Executive Summary, II. Company Overview, III. Investment Highlights, IV. Investment Risk, V. Financial Forecast & Valuation, VI. Sources, Source Classes, and Fact Reference Index — with their page numbers. Do **not** include the Validation & Assumptions Log appendix in the TOC; appendix material is auditing scaffolding rather than navigable narrative content. Use a small Tiffany-rule header labeled `TABLE OF CONTENTS` (English) or `目录` (Chinese), then a compact two-column layout (section name on the left, page number right-aligned with dot leaders or simple right-alignment). Include only top-level (Heading 1) entries to keep the cover page uncluttered. Subsection headings are reserved for the body, not the cover.
@@ -1282,7 +1279,6 @@ Required text content:
 - Sector: [AI / Consumer / etc.]
 - Location: [City, Country]
 - Round: [round size / post-money / instrument]
-- BSH target allocation / position size: [allocation range, conditional or firm]
 
 Do not include `Prepared by` on the cover. Author attribution belongs in the run manifest.
 
@@ -1313,13 +1309,13 @@ Required subsection order:
 *Investment Opportunity*  
 Lead with the opening thesis contract before any table:
 1. sentence 1: what the company is and why it matters;
-2. sentence 2: what BSH is being asked to buy and at what entry terms;
+2. sentence 2: what investors are being offered and at what entry terms;
 3. sentence 3: the central price/proof tension, especially when valuation has moved faster than disclosed commercial proof;
 4. sentence 4: the current recommendation posture and the confirmation items that can move it.
 
 The first two body paragraphs must state the company, transaction, valuation / entry terms, central price/proof tension, and recommendation posture. Do not start with a negative throat-clearing phrase such as "The investment case is not..." and do not write meta-language such as "The memo frames..."
 
-Then describe the deal itself: round size and structure (priced equity, secondary, SPV), BSH target allocation or position size, valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, how BSH got access (GP partner channel, intermediary, direct), expected liquidity timeline, and any co-investment terms (management fee, carry).
+Then describe the deal itself: round size and structure (priced equity, secondary, SPV), valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, access channel where relevant, expected liquidity timeline, and any investor-facing co-investment terms (management fee, carry).
 
 Include a **Key Metrics Snapshot** table near the top with the most important available metrics, such as:
 - ARR / revenue
@@ -1568,7 +1564,6 @@ Note assumptions explicitly. If financials are unavailable, say so and explain w
 
 Before Sources, include a substantive final investment close that mirrors the opening thesis. It must state:
 - recommendation: Proceed, Proceed if confirmed, Hold pending confirmation, or Pass;
-- allocation posture: target allocation, full available allocation, waitlist / revisit, or pass;
 - required confirmation evidence before funding;
 - stop / revisit conditions;
 - what changes the next-round / step-up case;

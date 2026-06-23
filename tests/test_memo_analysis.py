@@ -81,7 +81,7 @@ def _write_clean_memo_docx(path):
     document = Document()
     document.add_paragraph("I. Executive Summary")
     document.add_paragraph(
-        "Generalist builds automation infrastructure. BSH should proceed only "
+        "Generalist builds automation infrastructure. Investors should proceed only "
         "after deployment depth and valuation support are confirmed."
     )
     table = document.add_table(rows=2, cols=2)
@@ -125,7 +125,6 @@ def _memo_package(body_en=None, body_zh=None):
             "sector": "AI Robotics",
             "location": "San Francisco, CA",
             "round": "Series D context",
-            "bsh_allocation": "$5-10M",
         },
         "run": {"run_id": "2026-05-22__191917", "as_of": "2026-05-22"},
         "sections": [
@@ -138,7 +137,7 @@ def _memo_package(body_en=None, body_zh=None):
                             "en": body_en
                             or (
                                 "Generalist builds automation infrastructure. "
-                                "BSH should proceed only after deployment depth "
+                                "Investors should proceed only after deployment depth "
                                 "and valuation support are confirmed."
                             ),
                             "zh": (
@@ -333,7 +332,7 @@ def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
     def fake_run_investment_memo(**kwargs):
         package = _memo_package(
             body_zh=(
-                "Generalist builds automation infrastructure. BSH should proceed "
+                "Generalist builds automation infrastructure. Investors should proceed "
                 "only after deployment depth and valuation support are confirmed."
             )
         )
