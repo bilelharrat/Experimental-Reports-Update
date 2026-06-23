@@ -69,6 +69,78 @@ def test_structured_prompt_error_extracts_json_stdout(monkeypatch):
     assert "session_id" not in err
 
 
+def test_health_check_treats_json_is_error_as_failure(monkeypatch):
+    auth_payload = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": True,
+        "api_error_status": 401,
+        "result": "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+    }
+
+    class Completed:
+        def __init__(self, *, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(args, **kwargs):
+        if args[1:] == ["--version"]:
+            return Completed(stdout="2.1.145 (Claude Code)\n")
+        return Completed(stdout=json.dumps(auth_payload))
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
+    monkeypatch.setattr(claude_runner.subprocess, "run", fake_run)
+
+    result = claude_runner.health_check()
+
+    assert result["ok"] is False
+    assert result["api_error_status"] == 401
+    assert "Invalid authentication credentials" in result["error"]
+
+
+def test_health_check_keeps_hook_stderr_secondary(monkeypatch):
+    auth_payload = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": True,
+        "api_error_status": 401,
+        "result": "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+    }
+
+    class Completed:
+        def __init__(self, *, returncode=0, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(args, **kwargs):
+        if args[1:] == ["--version"]:
+            return Completed(stdout="2.1.145 (Claude Code)\n")
+        return Completed(
+            returncode=1,
+            stdout=json.dumps(auth_payload),
+            stderr=(
+                "SessionEnd hook failed: Library not loaded: "
+                "libsimdjson.29.dylib"
+            ),
+        )
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
+    monkeypatch.setattr(claude_runner.subprocess, "run", fake_run)
+
+    result = claude_runner.health_check()
+
+    assert result["ok"] is False
+    assert result["api_error_status"] == 401
+    assert result["error"] == (
+        "Failed to authenticate. API Error: 401 Invalid authentication credentials"
+    )
+    assert "libsimdjson.29.dylib" in result["stderr_tail"]
+
+
 def test_translate_company_does_not_warn_on_provider_limit(monkeypatch, caplog):
     def fake_run_structured_prompt(**kwargs):
         return None, "claude exited 1: You've hit your session limit"

@@ -120,9 +120,10 @@ async function mountRouteWithRouter(path) {
     routes: [
       { path: "/stock-research", name: "stock-research", component: StockResearchView },
       {
-        path: "/research/:companyId",
+        path: "/:companyId",
         name: "research",
         component: ResearchView,
+        alias: "/research/:companyId",
         props: true,
       },
     ],
@@ -176,6 +177,13 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).toContain("Generalist");
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
+  });
+
+  it("renders company pages at the production base-relative URL", async () => {
+    const wrapper = await mountRoute("/generalist?tab=analysis");
+
+    expect(wrapper.text()).toContain("Generalist");
+    expect(wrapper.text()).toContain("Core Memo Workflow");
   });
 
   it("hides Memo Studio for companies remembered as public tickers", async () => {

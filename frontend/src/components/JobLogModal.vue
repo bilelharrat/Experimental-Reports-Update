@@ -271,7 +271,7 @@ function actionIcon(entry) {
   if (entry.tool === "WebSearch") return Globe;
   if (entry.tool === "WebFetch") return Download;
   if (entry.action === "thinking") return Brain;
-  if (entry.action === "result") return CheckCircle2;
+  if (entry.action === "result") return entry.is_error ? AlertCircle : CheckCircle2;
   if (entry.type === "job_init") {
     if (entry.kind === "pdf_translation") return Languages;
     return FileText;
@@ -318,6 +318,11 @@ function actionLabel(entry) {
     return `${entry.tool} → ${status}`;
   }
   if (entry.action === "result") {
+    if (entry.is_error) {
+      const status = entry.api_error_status ? ` ${entry.api_error_status}` : "";
+      const message = entry.error || entry.text || entry.preview || "";
+      return `${t("jobs.modal.job_failed")}${status}${message ? ` - ${message}` : ""}`;
+    }
     const cost = entry.cost_usd
       ? ` ($${Number(entry.cost_usd).toFixed(4)})`
       : "";
@@ -340,6 +345,12 @@ function actionLabel(entry) {
 
 function eventDetailLines(entry) {
   const lines = [];
+  if (entry.api_error_status) {
+    lines.push(`provider_status: ${entry.api_error_status}`);
+  }
+  if (entry.error && entry.action !== "result") {
+    lines.push(`error: ${entry.error}`);
+  }
   if (Array.isArray(entry.contract_errors) && entry.contract_errors.length) {
     lines.push(...entry.contract_errors.map((err) => `check: ${err}`));
   }

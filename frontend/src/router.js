@@ -79,9 +79,10 @@ export const router = createRouter({
       component: HypothesisLabView,
     },
     {
-      path: "/research/:companyId",
+      path: "/:companyId",
       name: "research",
       component: ResearchView,
+      alias: "/research/:companyId",
       props: true,
     },
     {

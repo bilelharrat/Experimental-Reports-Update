@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from server import claude_runner, memo_prep
 
 
@@ -115,6 +117,64 @@ def test_memo_progress_detects_analysis_pass_written_by_bash():
         and event.get("thread") == "Arithmetic / pressure tests"
         for event in progress.events
     )
+
+
+def test_investment_memo_runner_treats_stream_is_error_as_failure(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    settings_path = tmp_path / "serena_background.md"
+    companies_path = tmp_path / "companies.yaml"
+    settings_path.write_text("background", encoding="utf-8")
+    companies_path.write_text("companies: []", encoding="utf-8")
+
+    result_event = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": True,
+        "api_error_status": 401,
+        "duration_ms": 4765,
+        "total_cost_usd": 0,
+        "result": "Failed to authenticate. API Error: 401 Invalid authentication credentials",
+    }
+
+    class FakeProc:
+        stdout = iter([json.dumps(result_event)])
+        stderr = iter(())
+        returncode = 1
+        pid = 12345
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def poll(self):
+            return self.returncode
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
+    monkeypatch.setattr(
+        claude_runner.subprocess,
+        "Popen",
+        lambda *args, **kwargs: FakeProc(),
+    )
+
+    result = claude_runner.run_investment_memo(
+        run_dir=run_dir,
+        company_name="ZaiNar, Inc.",
+        company_slug="zainar-inc",
+        run_id="2026-06-23__072519",
+        settings_path=settings_path,
+        companies_yaml_path=companies_path,
+        memo_paths={
+            "en": str(run_dir / "memo" / "memo-en.docx"),
+            "zh": str(run_dir / "memo" / "memo-zh.docx"),
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["api_error_status"] == 401
+    assert "Invalid authentication credentials" in result["error"]
 
 
 def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):

@@ -223,19 +223,37 @@ def health_check(*, timeout_sec: int = 60) -> dict:
 
     duration_ms = int((time.monotonic() - started) * 1000)
 
+    parsed_stdout: dict | None = None
+    try:
+        maybe_data = json.loads(proc.stdout or "{}")
+        if isinstance(maybe_data, dict):
+            parsed_stdout = maybe_data
+    except json.JSONDecodeError:
+        parsed_stdout = None
+
     if proc.returncode != 0:
-        return {
+        error = (
+            _extract_claude_output_message(proc.stdout)
+            if parsed_stdout and parsed_stdout.get("is_error")
+            else None
+        ) or _claude_exit_error(proc.returncode, proc.stderr, proc.stdout)
+        result = {
             "ok": False,
             "available": True,
             "path": path,
             "version": version,
             "duration_ms": duration_ms,
-            "error": _claude_exit_error(proc.returncode, proc.stderr, proc.stdout),
+            "error": error,
+            "api_error_status": (
+                parsed_stdout.get("api_error_status") if parsed_stdout else None
+            ),
         }
+        stderr_tail = (proc.stderr or "").strip()
+        if stderr_tail:
+            result["stderr_tail"] = stderr_tail[-600:]
+        return result
 
-    try:
-        data = json.loads(proc.stdout or "{}")
-    except json.JSONDecodeError:
+    if parsed_stdout is None:
         return {
             "ok": False,
             "available": True,
@@ -244,6 +262,24 @@ def health_check(*, timeout_sec: int = 60) -> dict:
             "duration_ms": duration_ms,
             "error": "claude returned non-JSON output",
             "stdout_preview": (proc.stdout or "")[:300],
+        }
+
+    data = parsed_stdout
+
+    if data.get("is_error"):
+        return {
+            "ok": False,
+            "available": True,
+            "path": path,
+            "version": version,
+            "duration_ms": duration_ms,
+            "error": (
+                data.get("error")
+                or data.get("result")
+                or "claude returned an error result"
+            ),
+            "api_error_status": data.get("api_error_status"),
+            "subtype": data.get("subtype"),
         }
 
     return {
@@ -574,10 +610,19 @@ def _process_event(event: dict, progress, state: dict) -> None:
                     progress.emit("claude_action", **tr_kwargs)
         return
     if etype == "result":
+        is_error = bool(event.get("is_error"))
         progress.emit(
             "claude_action",
             action="result",
             subtype=event.get("subtype"),
+            is_error=is_error,
+            error=(
+                event.get("error")
+                or event.get("result")
+                if is_error
+                else None
+            ),
+            api_error_status=event.get("api_error_status"),
             cost_usd=event.get("total_cost_usd"),
             duration_ms=event.get("duration_ms"),
             usage=event.get("usage"),
@@ -2518,8 +2563,8 @@ def run_investment_memo(
     # have for the individual passes — the skill doesn't emit per-pass
     # markers — so we attribute success/failure to the overall return.
     if progress:
-        finish_ok = (
-            bool(result_event) and result_event.get("subtype") != "error"
+        finish_ok = bool(result_event) and not (
+            result_event.get("subtype") == "error" or result_event.get("is_error")
         )
         for thread_label in state.get("threads_started") or ():
             progress.emit(
@@ -2527,13 +2572,20 @@ def run_investment_memo(
                 thread=thread_label,
             )
 
-    if result_event and result_event.get("subtype") == "error":
+    if result_event and (
+        result_event.get("subtype") == "error" or result_event.get("is_error")
+    ):
         return {
             "ok": False,
-            "error": result_event.get("error") or "Claude skill run failed",
+            "error": (
+                result_event.get("error")
+                or result_event.get("result")
+                or "Claude skill run failed"
+            ),
             "cost_usd": result_event.get("total_cost_usd"),
             "duration_ms": result_event.get("duration_ms"),
             "subtype": result_event.get("subtype"),
+            "api_error_status": result_event.get("api_error_status"),
         }
 
     if result_event is None and proc.returncode and proc.returncode != 0:
@@ -2828,13 +2880,20 @@ def run_internal_diligence_memo(
         _terminate_process_group(proc, grace_s=2.0)
         return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
 
-    if result_event and result_event.get("subtype") == "error":
+    if result_event and (
+        result_event.get("subtype") == "error" or result_event.get("is_error")
+    ):
         return {
             "ok": False,
-            "error": result_event.get("error") or "Internal memo run failed",
+            "error": (
+                result_event.get("error")
+                or result_event.get("result")
+                or "Internal memo run failed"
+            ),
             "cost_usd": result_event.get("total_cost_usd"),
             "duration_ms": result_event.get("duration_ms"),
             "subtype": result_event.get("subtype"),
+            "api_error_status": result_event.get("api_error_status"),
         }
     if result_event is None and proc.returncode and proc.returncode != 0:
         tail = "".join(stderr_log[-20:]).strip()

@@ -298,6 +298,8 @@ def scan_progress_state(path: Path) -> dict:
                             "tool": entry.get("tool"),
                             "preview": entry.get("preview"),
                             "text": entry.get("text"),
+                            "error": entry.get("error"),
+                            "api_error_status": entry.get("api_error_status"),
                             "is_error": entry.get("is_error"),
                             "ts": entry.get("ts"),
                         }

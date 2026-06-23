@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
+  AlertCircle,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -140,6 +141,7 @@ function actionIcon(a) {
   if (a.tool === "Read") return FileText;
   if (a.tool === "Write" || a.tool === "Edit") return Pencil;
   if (a.tool === "Bash") return Terminal;
+  if (a.action === "result" && a.is_error) return AlertCircle;
   return Sparkles;
 }
 
@@ -164,7 +166,17 @@ function actionLine(a) {
     }`;
   }
   if (a.action === "init") return t("jobs.action.claude_initialized");
-  if (a.action === "result") return t("jobs.action.run_finished");
+  if (a.action === "result") {
+    if (a.is_error) {
+      const status = a.api_error_status ? ` ${a.api_error_status}` : "";
+      const message = (a.error || a.text || "").replace(/\s+/g, " ").trim();
+      return trim(
+        `${t("jobs.modal.job_failed")}${status}${message ? ` - ${message}` : ""}`,
+        200,
+      );
+    }
+    return t("jobs.action.run_finished");
+  }
   return null;
 }
 

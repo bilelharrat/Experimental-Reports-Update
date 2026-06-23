@@ -659,6 +659,7 @@ def _scan_memo_stream(run_dir: Path) -> dict:
                     etype == "claude_action"
                     and entry.get("action") == "result"
                     and entry.get("subtype") != "error"
+                    and not entry.get("is_error")
                     and state["success_result"] is None
                 ):
                     state["success_result"] = entry
