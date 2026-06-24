@@ -614,6 +614,7 @@ def test_investment_memo_prompt_includes_phase_one_intake_discipline(tmp_path):
     assert "`- id: zainar-inc`" in prompt
     assert "Do not waste a\npass searching for `slug:`." in prompt
     assert "read all relevant raw source files together" in " ".join(prompt.split())
+    assert "Parallel execution of the eight orthogonal passes" in prompt
 
 
 def test_investment_memo_prompt_can_embed_resolved_registry_entry(tmp_path):

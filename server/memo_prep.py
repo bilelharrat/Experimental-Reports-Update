@@ -27,6 +27,7 @@ What this module **deliberately does not do** (see `docs/architecture.md`):
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +46,17 @@ SKILL_NAME = "bsh-investment-memo-latestage-v1"
 SKILL_VERSION = 1
 JOB_KIND = "memo"
 REPORT_TYPE = "Investment Memo (Late-Stage)"
+
+
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _internal_diligence_memo_enabled() -> bool:
+    return _env_flag("BSH_MEMO_GENERATE_INTERNAL", default=False)
 
 
 class AnalysisSessionNotReadyError(ValueError):
@@ -386,8 +398,31 @@ def bootstrap_memo_run(
         "en": str(run_dir / "memo" / _memo_filename(company_name, run_id, "en")),
         "zh": str(run_dir / "memo" / _memo_filename(company_name, run_id, "zh")),
     }
-    internal_md = run_dir / "memo" / _internal_memo_filename(company_name, run_id, "md")
-    internal_docx = run_dir / "memo" / _internal_memo_filename(company_name, run_id, "docx")
+    internal_memo_files: list[dict] = []
+    internal_memo_paths: dict[str, str] | None = None
+    if _internal_diligence_memo_enabled():
+        internal_md = run_dir / "memo" / _internal_memo_filename(
+            company_name,
+            run_id,
+            "md",
+        )
+        internal_docx = run_dir / "memo" / _internal_memo_filename(
+            company_name,
+            run_id,
+            "docx",
+        )
+        internal_memo_files = [
+            {
+                "kind": "internal_diligence_memo",
+                "language": "en",
+                "markdown_path": _rel(internal_md),
+                "path": _rel(internal_docx),
+            }
+        ]
+        internal_memo_paths = {
+            "internal_md": str(internal_md),
+            "internal_docx": str(internal_docx),
+        }
 
     # Mint the report record up front so the run is browseable even if
     # we fail downstream.
@@ -407,14 +442,7 @@ def bootstrap_memo_run(
             {"language": "en", "path": _rel(memo_paths["en"])},
             {"language": "zh", "path": _rel(memo_paths["zh"])},
         ],
-        internal_memo_files=[
-            {
-                "kind": "internal_diligence_memo",
-                "language": "en",
-                "markdown_path": _rel(internal_md),
-                "path": _rel(internal_docx),
-            }
-        ],
+        internal_memo_files=internal_memo_files,
         skill=SKILL_NAME,
         skill_version=SKILL_VERSION,
         run_id=run_id,
@@ -503,10 +531,7 @@ def bootstrap_memo_run(
         company=company,
         stage=stage_assessment,
         memo_paths=memo_paths,
-        internal_memo_paths={
-            "internal_md": str(internal_md),
-            "internal_docx": str(internal_docx),
-        },
+        internal_memo_paths=internal_memo_paths,
         warnings=warnings,
         analysis_session_id=analysis_session_id,
     )

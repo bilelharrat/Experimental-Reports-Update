@@ -33,6 +33,8 @@ def memo_env(monkeypatch, tmp_path):
         data_root / "settings" / "serena_background.md",
     )
     monkeypatch.setattr(memo_prep, "COMPANIES_FILE", data_root / "companies.yaml")
+    monkeypatch.setenv("BSH_MEMO_GENERATE_INTERNAL", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "0")
     return data_root
 
 
@@ -310,6 +312,7 @@ def _write_memo_package(run_dir, *, body_en=None, body_zh=None):
 def test_memo_run_completes_when_optional_pdf_render_fails(
     memo_env, monkeypatch
 ):
+    monkeypatch.setenv("BSH_MEMO_RENDER_PDF_PREVIEWS", "1")
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit(
@@ -373,9 +376,328 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
     )
 
 
+def test_memo_run_skips_pdf_and_internal_memo_by_default(memo_env, monkeypatch):
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+
+    def fake_run_investment_memo(**kwargs):
+        _write_memo_package(run_dir)
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=1.25,
+            duration_ms=1234,
+        )
+        return {"ok": True, "cost_usd": 1.25, "duration_ms": 1234}
+
+    monkeypatch.setattr(
+        claude_runner, "run_investment_memo", fake_run_investment_memo
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("internal memo should be opt-in")
+        ),
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PDF previews should be opt-in")
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert updated["stage"] == "Memo ready"
+    assert not any("pdf_path" in f for f in updated["memo_files"])
+    internal_docx = run_dir / "memo" / (
+        f"Generalist, Inc. - Internal Diligence Memo - {report['run_id']}.docx"
+    )
+    assert not internal_docx.exists()
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(e.get("stage") == "pdf_previews_skipped" for e in events)
+    assert any(e.get("stage") == "internal_memo_skipped" for e in events)
+    assert events[-1]["type"] == "done"
+    assert "internal_memo_paths" not in events[-1]
+
+
+def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
+    memo_env, monkeypatch
+):
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+    called_passes = []
+
+    def fake_analysis_pass(**kwargs):
+        called_passes.append(kwargs["pass_id"])
+        return {
+            "summary": f"{kwargs['pass_label']} summary.",
+            "key_findings": [
+                {
+                    "claim": "Commercial proof",
+                    "finding": "Evidence supports a scoped diligence path.",
+                    "evidence_class": "company-reported",
+                    "implication": "Use as conditional support.",
+                    "confidence": "medium",
+                }
+            ],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": ["Use in the investment case."],
+            "claude_cost_usd": 0.01,
+            "claude_duration_ms": 100,
+        }, None
+
+    def fake_english_package(**kwargs):
+        assert (run_dir / "analysis" / "fast").exists()
+        return {
+            "analysis_artifacts": {
+                "claim_register_md": "# Claim Register\n\n- Commercial proof: supported.",
+                "scenario_swim_lanes_md": "# Scenario Swim Lanes\n\n- Base: proceed if confirmed.",
+                "pre_mortem_md": "# Pre-Mortem\n\n- Deployment stalls.",
+                "reverse_ic_md": "# Reverse IC\n\n- Pass if valuation support fails.",
+                "validation_log_md": "# Validation Log\n\n- Revenue: not disclosed.",
+                "gating_questions_md": "# Gating Questions\n\n1. Confirm contracts.",
+            },
+            "memo_package": _memo_package(body_zh=""),
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+        }, None
+
+    def fake_bilingual_package(**kwargs):
+        assert kwargs["english_package_path"].name == "memo_package.en.json"
+        return {
+            "memo_package": _memo_package(),
+            "claude_cost_usd": 0.05,
+            "claude_duration_ms": 400,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_analysis_pass",
+        fake_analysis_pass,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package",
+        fake_english_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        fake_bilingual_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_investment_memo",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fast path should not call legacy memo runner")
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert updated["stage"] == "Memo ready"
+    assert len(called_passes) == len(memo_analysis._FAST_MEMO_PASSES)
+    assert (run_dir / "logs" / "memo_package.en.json").exists()
+    assert (run_dir / "logs" / "memo_package.json").exists()
+    assert (run_dir / "analysis" / "claim_register.md").exists()
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(e.get("stage") == "memo_fast_parallel_dispatch" for e in events)
+    assert any(e.get("type") == "phase_timing" for e in events)
+    assert any(e.get("stage") == "pdf_previews_skipped" for e in events)
+    assert events[-1]["type"] == "done"
+
+
+def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
+    memo_env, monkeypatch, tmp_path
+):
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    packet_dir = tmp_path / "packet"
+    packet_dir.mkdir()
+    (packet_dir / "memo_packet.md").write_text("# Packet\n", encoding="utf-8")
+    storage.update_report(
+        report["id"],
+        analysis_session_id="session-1",
+        analysis_session_approved=True,
+    )
+    monkeypatch.setattr(
+        memo_analysis.serena_analysis,
+        "session_dir",
+        lambda company_id, session_id: packet_dir,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_analysis_pass",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("approved packet mode should skip analysis fan-out")
+        ),
+    )
+
+    def fake_english_package(**kwargs):
+        assert kwargs["analysis_session_path"] == packet_dir
+        return {
+            "analysis_artifacts": {
+                "claim_register_md": "# Claim Register\n",
+                "scenario_swim_lanes_md": "# Scenario Swim Lanes\n",
+                "pre_mortem_md": "# Pre-Mortem\n",
+                "reverse_ic_md": "# Reverse IC\n",
+                "validation_log_md": "# Validation Log\n",
+                "gating_questions_md": "# Gating Questions\n",
+            },
+            "memo_package": _memo_package(body_zh=""),
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package",
+        fake_english_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        lambda **_kwargs: (
+            {
+                "memo_package": _memo_package(),
+                "claude_cost_usd": 0.05,
+                "claude_duration_ms": 400,
+            },
+            None,
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(e.get("stage") == "memo_fast_packet_mode" for e in events)
+    assert not (run_dir / "analysis" / "fast").exists()
+
+
+def test_memo_fast_pipeline_draft_packet_still_runs_parallel_passes(
+    memo_env, monkeypatch, tmp_path
+):
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    packet_dir = tmp_path / "packet"
+    packet_dir.mkdir()
+    (packet_dir / "memo_packet.md").write_text("# Draft Packet\n", encoding="utf-8")
+    storage.update_report(
+        report["id"],
+        analysis_session_id="session-1",
+        analysis_session_approved=False,
+    )
+    monkeypatch.setattr(
+        memo_analysis.serena_analysis,
+        "session_dir",
+        lambda company_id, session_id: packet_dir,
+    )
+    called_passes = []
+
+    def fake_analysis_pass(**kwargs):
+        called_passes.append(kwargs["pass_id"])
+        return {
+            "summary": f"{kwargs['pass_label']} summary.",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+            "claude_cost_usd": 0.01,
+            "claude_duration_ms": 100,
+        }, None
+
+    def fake_english_package(**kwargs):
+        assert kwargs["analysis_session_path"] is None
+        return {
+            "analysis_artifacts": {
+                "claim_register_md": "# Claim Register\n",
+                "scenario_swim_lanes_md": "# Scenario Swim Lanes\n",
+                "pre_mortem_md": "# Pre-Mortem\n",
+                "reverse_ic_md": "# Reverse IC\n",
+                "validation_log_md": "# Validation Log\n",
+                "gating_questions_md": "# Gating Questions\n",
+            },
+            "memo_package": _memo_package(body_zh=""),
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_analysis_pass",
+        fake_analysis_pass,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package",
+        fake_english_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        lambda **_kwargs: (
+            {
+                "memo_package": _memo_package(),
+                "claude_cost_usd": 0.05,
+                "claude_duration_ms": 400,
+            },
+            None,
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert len(called_passes) == len(memo_analysis._FAST_MEMO_PASSES)
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(e.get("stage") == "memo_fast_parallel_dispatch" for e in events)
+    assert not any(e.get("stage") == "memo_fast_packet_mode" for e in events)
+    assert (run_dir / "analysis" / "fast").exists()
+
+
 def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
     memo_env, monkeypatch
 ):
+    monkeypatch.setenv("BSH_MEMO_RENDER_PDF_PREVIEWS", "1")
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit(
@@ -964,6 +1286,7 @@ def test_resume_continues_from_quality_failed_archive_after_transport_error(
 def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     memo_env, monkeypatch
 ):
+    monkeypatch.setenv("BSH_MEMO_RENDER_PDF_PREVIEWS", "1")
     report, run_dir = _make_memo_report(memo_env)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
     stream.emit(

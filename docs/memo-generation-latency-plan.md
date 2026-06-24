@@ -6,8 +6,9 @@ tracked Python renderer instead. Treat this document as the current plan of
 record.
 
 **Current status:** the major latency and reliability change is implemented.
-Claude authors memo judgment and `logs/memo_package.json`; Python validates the
-package and renders both DOCX files through `server.memo_docx_renderer`.
+The default memo path now produces `logs/memo_package.json` through a fast
+multi-subprocess pipeline; Python validates the package and renders both DOCX
+files through `server.memo_docx_renderer`.
 Progress hardening is also in place: the runner now exposes initial source
 intake as `Phase 1 - Intake and setup`, pre-populates the later memo phases as
 `not_started` rows in the same expandable task window, embeds the resolved
@@ -16,15 +17,43 @@ blocks Task/ToolSearch scaffolding tools for memo runs, and maps optional
 synthesis artifacts into the same per-flow progress UI. Phase 1 carries a
 150-second estimate so the UI can show that setup usually takes about 2m 30s.
 
-**Last verified command:**
+The default runtime path now uses real parallelism for independent memo
+analysis:
+
+- `BSH_MEMO_FAST_PIPELINE` defaults to enabled. With no approved Memo Studio
+  packet, Python runs eight narrow Claude analysis subprocesses in parallel
+  (bounded by `BSH_MEMO_FAST_MAX_WORKERS`, default `4`), writes compact
+  `analysis/*.md` artifacts plus `analysis/fast/*.json`, then runs one English
+  synthesis/package subprocess and one Chinese package-completion subprocess.
+- `BSH_MEMO_FAST_PIPELINE=0` restores the legacy single-Claude skill run for
+  quality comparison or emergency fallback.
+- Approved Memo Studio sessions are the fastest path: the memo runner skips
+  the eight analysis subprocesses and uses the approved packet as primary
+  synthesis input.
+
+The default runtime path also treats two expensive conveniences as opt-in:
+
+- `BSH_MEMO_RENDER_PDF_PREVIEWS=1` enables Word/AppleScript PDF previews for
+  the English and Chinese DOCX outputs. Without it, the run completes after the
+  DOCX, parity, and quality gates pass, and the UI simply omits preview links.
+- `BSH_MEMO_GENERATE_INTERNAL=1` enables the separate internal diligence memo
+  Claude pass. Without it, the LP-facing memo becomes ready without waiting for
+  a second Claude subprocess.
+
+This keeps the critical path focused on the sell-side memo deliverables:
+parallel analysis or approved packet synthesis, English source package,
+Chinese-completed `memo_package.json`, English DOCX, Chinese DOCX, Chinese
+parity gate, and English quality gate.
+
+**Last verified commands:**
 
 ```bash
-PYTHONPATH=. pytest -q tests/test_memo_docx_renderer.py tests/test_memo_analysis.py tests/test_memo_prep.py tests/test_serena_analysis.py
+python -m py_compile server/claude_runner.py server/memo_analysis.py
+python -m pytest tests/test_memo_analysis.py tests/test_memo_prep.py tests/test_serena_analysis.py tests/test_memo_quality_lint.py
 ```
 
-At handoff this passed with 74 tests and only existing FastAPI deprecation
-warnings. After the Phase 1 progress/intake hardening, the same command passed
-with 94 tests and the same existing FastAPI deprecation warnings.
+Latest run passed with 126 tests and only existing FastAPI `on_event`
+deprecation warnings.
 
 ---
 
@@ -33,15 +62,27 @@ with 94 tests and the same existing FastAPI deprecation warnings.
 Important files:
 
 - `server/claude_runner.py`
-  - The memo prompt tells Claude to write `logs/memo_package.json`.
+  - Fast-path helpers run compact JSON analysis passes, English package
+    synthesis, and Chinese package completion.
+  - The legacy memo prompt tells Claude to write `logs/memo_package.json`.
   - Claude is explicitly told not to run `python -m server.memo_docx_renderer`
     and not to write final `.docx` files.
   - The prompt requires core section ids, bilingual block/table/source
     treatment text, and a non-empty source list.
 
 - `server/memo_analysis.py`
+  - `_run_fast_memo_pipeline()` is the default path. It emits `phase_timing`
+    events for the full fast pipeline, parallel analysis, each pass, English
+    package synthesis, and Chinese package completion.
+  - `BSH_MEMO_FAST_MAX_WORKERS` controls bounded analysis-pass parallelism.
   - Normal runs and stale-run recovery both call `_render_memo_outputs()`.
   - `_render_memo_outputs()` calls `memo_docx_renderer.render_memos()`.
+  - `_maybe_render_memo_pdf_previews()` skips Word PDF conversion unless
+    `BSH_MEMO_RENDER_PDF_PREVIEWS=1`.
+  - Internal diligence generation is skipped unless
+    `BSH_MEMO_GENERATE_INTERNAL=1`.
+  - Approved Memo Studio sessions skip the fast analysis fan-out and enter
+    packet-first synthesis/package generation.
   - `_renderer_contract_errors()` verifies:
     - `logs/memo_package.json`
     - English and Chinese DOCX outputs
@@ -62,8 +103,14 @@ Important files:
     - missing required core sections
     - empty section block lists
     - unsupported block types
+    - required sections without substantive content
     - missing Chinese translations for final user-facing text
     - missing sources
+
+- `server/memo_chinese_parity.py`
+  - Checks English/Chinese rendered DOCX parity after rendering.
+  - Blocks missing Chinese core sections, missing CJK body text, material
+    table-count divergence, and prompt-scaffold Chinese artifacts.
 
 - `server/memo_quality_lint.py`
   - Runs a hard P0 quality gate on the English source-of-truth DOCX.
@@ -82,105 +129,20 @@ Important files:
 
 ---
 
-## Remaining Tightening Work
+## Implemented Quality Gates
 
-These are the next high-value changes. They are intentionally smaller than the
-completed renderer handoff and should be safe to do directly on `main`.
+The renderer now rejects structurally valid but empty memo packages. Required
+core sections need substantive content, not only headings, spacers, title-only
+callouts, title-only tables, or generic filler. Existing tests cover
+heading-only sections, spacer-only sections, empty tables, and valid
+substantive sections.
 
-### 1. Add A Content Floor To `validate_package()`
+The Chinese parity gate now runs after DOCX rendering and before the English
+quality gate. It checks rendered English/Chinese structure and CJK body
+presence, and fails closed on missing Chinese core sections, missing CJK body
+text, material table-count divergence, and prompt-scaffold Chinese artifacts.
 
-Problem:
-
-`validate_package()` currently requires each core section to have non-empty
-`blocks`, but a section can still be structurally valid while carrying no useful
-memo content. Examples that may pass today:
-
-- a core section with only `spacer`
-- a core section with only headings
-- a single generic sentence such as "More diligence is needed"
-- an empty-looking table with headers but no real rows
-
-Implementation direction:
-
-- Add a helper in `server/memo_docx_renderer.py`, probably near
-  `_validate_block()`:
-  - `_block_content_score(block) -> dict`
-  - or `_has_real_content(block) -> bool`
-- Count real content as:
-  - paragraph/callout body text with meaningful length
-  - bullet items with meaningful length
-  - table rows with at least one non-empty body row
-  - callout items
-- Do not count:
-  - `spacer`
-  - headings alone
-  - title-only callouts
-  - title-only tables
-
-Suggested acceptance floor:
-
-- Every required core section must contain at least one real content block.
-- `executive_summary` should contain either:
-  - at least two real content blocks, or
-  - one real paragraph plus one table/callout.
-- `investment_highlights` and `investment_risk` should each contain at least
-  two real bullets, or one substantive table/callout plus explanatory prose.
-- `financial_forecast_valuation` should include a real paragraph or table that
-  references model treatment, scenario ranges, valuation, revenue, margins,
-  or diligence thresholds.
-
-Tests to add:
-
-- `test_renderer_rejects_heading_only_required_section`
-- `test_renderer_rejects_spacer_only_required_section`
-- `test_renderer_rejects_table_with_headers_but_no_rows`
-- `test_renderer_accepts_substantive_required_sections`
-
-### 2. Add Chinese/English Parity And Native-Chinese Quality Checks
-
-Problem:
-
-The package validator now requires Chinese text, but it does not prove that:
-
-- the Chinese memo has the same analytical structure as English;
-- the rendered Chinese DOCX has actual CJK text in core sections;
-- the Chinese reads like fluent professional Chinese rather than stiff
-  translationese;
-- important deal terms are consistently localized.
-
-Implementation direction:
-
-- Add a lightweight post-render check in `server/memo_analysis.py`, after
-  `_render_memo_outputs()` and before the English quality gate, or add a helper
-  in a new small module if it grows.
-- Use `python-docx` extraction, similar to `memo_quality_lint.py`.
-- Compare the English and Chinese rendered documents:
-  - section heading count
-  - table count
-  - callout-like table count if easy to detect
-  - source/fact-reference section presence
-  - approximate paragraph count range
-- Check the Chinese document:
-  - contains CJK characters in every required core section;
-  - does not contain large English-only body paragraphs outside names, tickers,
-    dates, units, and source titles;
-  - does not contain prompt-scaffold artifacts translated literally.
-
-Suggested failure model:
-
-- P0: missing Chinese core section, missing CJK in core section, materially
-  different table count, missing source section.
-- P1: suspiciously low CJK ratio, excessive English in body prose, repeated
-  translationese markers.
-
-Tests to add:
-
-- `test_chinese_parity_passes_for_renderer_output`
-- `test_chinese_parity_fails_when_zh_section_missing`
-- `test_chinese_parity_fails_when_zh_has_no_cjk_body`
-- `test_chinese_parity_fails_when_table_counts_diverge`
-
-#### Chinese Memo Guidance For Prompt And Review
+### Chinese Memo Guidance For Prompt And Review
 
 The Chinese memo should be a native professional investment memo, not an
 English memo mirrored word-for-word. It must preserve the same claims,
@@ -248,7 +210,12 @@ Bad Chinese output to reject:
 - `该公司拥有硬 IP 墙和强源追踪，因此应进行上行案例。`
 - `根据 memo_packet 和 chart_specs，投资亮点如下。`
 
-### 3. Add Package Hash And Renderer Version Traceability
+## Remaining Tightening Work
+
+These are intentionally smaller than the completed renderer handoff and fast
+pipeline changes, and should be safe to do directly on `main`.
+
+### 1. Add Package Hash And Renderer Version Traceability
 
 Problem:
 
@@ -274,44 +241,21 @@ Tests to add:
   `renderer_version`;
 - memo analysis test asserts the report record gets `memo_package_sha256`.
 
-### 4. Clean Up Stale Failure Wording
+### 2. Run Real-Run Timing Calibration
 
-Problem:
+The fast path is now instrumented with `phase_timing` events, but production
+wall-clock targets should be measured on real memo runs. Compare:
 
-`server/memo_analysis.py` still has a fallback missing-output message that says:
+- approved-packet mode, which skips analysis fan-out;
+- normal fast mode with `BSH_MEMO_FAST_MAX_WORKERS=4`;
+- normal fast mode with `BSH_MEMO_FAST_MAX_WORKERS=8`;
+- legacy mode with `BSH_MEMO_FAST_PIPELINE=0` for quality and latency baseline.
 
-> Skill finished but the expected output files are missing...
-
-With Python-owned rendering, this should say renderer/server, not skill. This is
-mostly diagnostic hygiene, but it matters when a production run fails.
-
-Implementation direction:
-
-- Update the message around the post-render existence check in
-  `server/memo_analysis.py`.
-- The post-render existence check may now be redundant because
-  `_renderer_contract_errors()` already checks outputs. Keep it if useful as a
-  defensive check, but make the text accurate.
-
-Test to add or update:
-
-- If no direct test exists for that fallback, add one only if easy. Otherwise a
-  small wording-only change is acceptable.
-
----
-
-## Suggested Sequencing
-
-1. Content floor in package validation.
-2. Chinese/English parity checks.
-3. Package hash and renderer version traceability.
-4. Stale wording cleanup.
-
-Run after each slice:
+Run after each future slice:
 
 ```bash
-PYTHONPATH=. pytest -q tests/test_memo_docx_renderer.py tests/test_memo_analysis.py tests/test_memo_prep.py tests/test_serena_analysis.py
-python -m py_compile server/memo_docx_renderer.py server/memo_analysis.py server/claude_runner.py server/docx_pdf.py
+python -m py_compile server/claude_runner.py server/memo_analysis.py server/memo_docx_renderer.py server/docx_pdf.py
+python -m pytest tests/test_memo_docx_renderer.py tests/test_memo_analysis.py tests/test_memo_prep.py tests/test_serena_analysis.py tests/test_memo_quality_lint.py
 ```
 
 Do not create branches or worktrees for this repo. Per `AGENTS.md`, all work

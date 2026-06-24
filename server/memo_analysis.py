@@ -1,13 +1,14 @@
-"""Background worker that runs Serena's investment-memo skill.
+"""Background worker for investment-memo generation.
 
-This worker spawns **one Claude subprocess** that executes Serena's
-`bsh-investment-memo-latestage` skill verbatim. The skill itself does
-the analytical work and writes a structured memo package. Python then
-invokes the tracked DOCX renderer and finalizes the run manifest. This
-worker's job is to:
+The default worker path runs a fast multi-subprocess Claude pipeline:
+independent analysis passes fan out in parallel, one synthesis pass writes the
+English source package, and one Chinese-completion pass writes the final
+structured memo package. Python then invokes the tracked DOCX renderer and
+finalizes the run manifest. The legacy one-Claude skill run is still available
+with ``BSH_MEMO_FAST_PIPELINE=0``. This worker's job is to:
 
   1. Reload context from the prep stage's report record.
-  2. Spawn the Claude subprocess (via ``claude_runner.run_investment_memo``).
+  2. Produce ``logs/memo_package.json`` through the fast or legacy Claude path.
   3. Render the DOCX files from Claude's structured ``memo_package.json``.
   4. Verify the expected output files and renderer logs exist.
   5. Update the report record + emit the terminal ``done`` / ``error``.
@@ -20,17 +21,21 @@ What this worker deliberately does **not** do (see `docs/architecture.md`):
     package and the worker calls the tracked ``server.memo_docx_renderer``.
   - Does **not** touch ``data/uploads/`` — that's the Document
     Library, a separate feature, not a memo input.
-  - Does **not** split the skill into multiple Claude subprocesses.
-    Parallelism is achieved by the skill issuing parallel tool calls
-    for the 8 orthogonal passes inside its single subprocess.
+  - Does **not** let Claude write final `.docx` files. Python owns rendering
+    for both the fast and legacy paths.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 import json
 import logging
+import os
+import time
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from . import (
     claude_runner,
@@ -47,6 +52,206 @@ from . import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _memo_pdf_previews_enabled() -> bool:
+    """PDF previews are expensive Word automation; keep them opt-in."""
+    return _env_flag("BSH_MEMO_RENDER_PDF_PREVIEWS", default=False)
+
+
+def _internal_diligence_memo_enabled() -> bool:
+    """The LP-facing memo is ready before the optional internal memo."""
+    return _env_flag("BSH_MEMO_GENERATE_INTERNAL", default=False)
+
+
+def _memo_fast_pipeline_enabled() -> bool:
+    """Use real parallel Claude workers unless explicitly disabled."""
+    return _env_flag("BSH_MEMO_FAST_PIPELINE", default=True)
+
+
+def _memo_fast_max_workers() -> int:
+    raw = os.environ.get("BSH_MEMO_FAST_MAX_WORKERS")
+    try:
+        value = int(raw) if raw is not None else 4
+    except ValueError:
+        value = 4
+    return max(1, min(value, 8))
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _emit_phase_timing(
+    stream: job_progress.ProgressLog,
+    *,
+    phase: str,
+    status: str,
+    started_at: str,
+    started_monotonic: float,
+    **fields: Any,
+) -> None:
+    payload = {
+        "phase": phase,
+        "status": status,
+        "started_at": started_at,
+        **fields,
+    }
+    if status in {"finished", "failed", "skipped"}:
+        payload["finished_at"] = _now_iso()
+        payload["duration_ms"] = int((time.monotonic() - started_monotonic) * 1000)
+    stream.emit("phase_timing", **payload)
+
+
+class _ThreadProgress:
+    """Attach a stable progress thread to events from one fast memo worker."""
+
+    def __init__(self, base: job_progress.ProgressLog, thread: str):
+        self._base = base
+        self._thread = thread
+        self.cost_usd = 0.0
+        self.duration_ms = 0
+
+    def emit(self, type_: str, **fields: Any) -> None:
+        fields.setdefault("thread", self._thread)
+        if type_ == "claude_action" and fields.get("action") == "result":
+            self.cost_usd += _as_float(fields.get("cost_usd"))
+            self.duration_ms += _as_int(fields.get("duration_ms"))
+        self._base.emit(type_, **fields)
+
+    @property
+    def is_terminated(self) -> bool:
+        try:
+            return self._base.is_terminated
+        except Exception:  # noqa: BLE001
+            return False
+
+
+@dataclass(frozen=True)
+class _FastMemoPassSpec:
+    pass_id: str
+    label: str
+    artifact_filename: str
+    focus: str
+
+
+@dataclass
+class _FastMemoPassResult:
+    spec: _FastMemoPassSpec
+    data: dict | None
+    error: str | None
+    duration_ms: int
+    cost_usd: float
+
+    @property
+    def ok(self) -> bool:
+        return isinstance(self.data, dict) and not self.error
+
+
+_FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
+    _FastMemoPassSpec(
+        pass_id="arithmetic_denominators",
+        label="Arithmetic / pressure tests",
+        artifact_filename="pressure_tests.md",
+        focus=(
+            "Pressure-test valuation, contract values, SAFE/SPV economics, "
+            "revenue recognition, ARR/revenue proxies, unit arithmetic, and "
+            "what the disclosed numbers imply. Build ranges instead of false "
+            "precision."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="time_base",
+        label="Time-base integrity",
+        artifact_filename="time_base_checks.md",
+        focus=(
+            "Date-tag every valuation, round, contract, pipeline, ARR/revenue, "
+            "funding, and customer metric. Separate contemporaneous, stale-mark, "
+            "forward, and trailing claims."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="growth_bridge",
+        label="Growth bridge",
+        artifact_filename="growth_bridge.md",
+        focus=(
+            "Bridge disclosed commercial activity into modeled revenue or value: "
+            "binding contracts, cancellable contracts, MOUs, LOIs, pipeline, "
+            "conversion ranges, implementation capacity, and recognition timing."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="deployment_behavior",
+        label="Adoption ladder",
+        artifact_filename="adoption_ladder.md",
+        focus=(
+            "Assess deployment depth and adoption maturity by product/use case. "
+            "Separate announced, pilot, named production, repeatable production, "
+            "renewal/upsell, and broad deployment evidence."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="gtm_operating_burden",
+        label="Distribution / GTM",
+        artifact_filename="distribution_notes.md",
+        focus=(
+            "Assess distribution model, customer acquisition path, sales cycle, "
+            "implementation burden, budget owner, channel leverage, carrier or "
+            "enterprise access, and GTM strain."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="replacement_coexistence",
+        label="Replacement vs coexistence",
+        artifact_filename="replacement_vs_coexistence.md",
+        focus=(
+            "Determine whether the company replaces incumbents, coexists as an "
+            "additive layer, licenses through incumbents, or depends on standards "
+            "and ecosystem adoption."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="competitive_rights",
+        label="Competitive compression",
+        artifact_filename="competitive_notes.md",
+        focus=(
+            "Assess competitive compression, IP/patent durability, rights or "
+            "standards leverage, defensibility, alternative technical approaches, "
+            "and what could reduce pricing power."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="alternative_explanations",
+        label="Alternative explanations",
+        artifact_filename="disconfirming_evidence.md",
+        focus=(
+            "Generate the strongest non-bullish interpretations of the facts. "
+            "Identify disconfirming evidence, what would make us pass, and the "
+            "specific evidence needed to change the decision."
+        ),
+    ),
+)
 
 
 def _memo_paths_abs(report: dict) -> dict[str, Path]:
@@ -73,6 +278,23 @@ def _internal_memo_paths_abs(report: dict) -> dict[str, Path]:
     if entry.get("pdf_path"):
         paths["pdf"] = memo_prep.DATA_DIR.parent / entry["pdf_path"]
     return paths
+
+
+def _analysis_session_path_for_report(
+    company_slug: str,
+    report: dict,
+    *,
+    require_approved: bool = False,
+) -> Path | None:
+    if require_approved and not report.get("analysis_session_approved"):
+        return None
+    analysis_session_id = report.get("analysis_session_id")
+    if not analysis_session_id:
+        return None
+    candidate = serena_analysis.session_dir(company_slug, str(analysis_session_id))
+    if candidate.exists():
+        return candidate
+    return None
 
 
 def _memo_package_path(run_dir: Path) -> Path:
@@ -279,6 +501,35 @@ def _render_memo_pdf_previews(
     return updated_memo_files
 
 
+def _maybe_render_memo_pdf_previews(
+    *,
+    report_id: str,
+    memo_paths_abs: dict[str, Path],
+    stream: job_progress.ProgressLog,
+    progress: int | None = None,
+    recovered: bool = False,
+) -> list[dict]:
+    if _memo_pdf_previews_enabled():
+        return _render_memo_pdf_previews(
+            report_id=report_id,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            progress=progress,
+            recovered=recovered,
+        )
+    stream.emit(
+        "stage",
+        stage="pdf_previews_skipped",
+        message=(
+            "Skipping memo PDF previews; set "
+            "BSH_MEMO_RENDER_PDF_PREVIEWS=1 to enable them."
+        ),
+        recovered=recovered,
+    )
+    current_report = storage.get_report(report_id) or {}
+    return list(current_report.get("memo_files") or [])
+
+
 def _render_internal_pdf_previews(
     *,
     report_id: str,
@@ -385,7 +636,7 @@ def _render_memo_outputs(
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("memo package render failed for report %s", report_id)
-        _render_memo_pdf_previews(
+        _maybe_render_memo_pdf_previews(
             report_id=report_id,
             memo_paths_abs=memo_paths_abs,
             stream=stream,
@@ -413,7 +664,7 @@ def _render_memo_outputs(
     )
     errors = list(contract.get("errors") or [])
     if errors:
-        _render_memo_pdf_previews(
+        _maybe_render_memo_pdf_previews(
             report_id=report_id,
             memo_paths_abs=memo_paths_abs,
             stream=stream,
@@ -639,6 +890,499 @@ def _combined_result(primary: dict, secondary: dict | None) -> dict:
     return out
 
 
+def _fast_pass_markdown(
+    spec: _FastMemoPassSpec,
+    payload: dict | None,
+    error: str | None,
+) -> str:
+    lines = [f"# {spec.label}", ""]
+    if error:
+        lines.extend([
+            "## Status",
+            "",
+            f"Pass failed: {error}",
+            "",
+            "The memo package pass should treat this as an explicit evidence gap.",
+            "",
+        ])
+        return "\n".join(lines)
+
+    data = payload if isinstance(payload, dict) else {}
+    lines.extend([
+        "## Summary",
+        "",
+        str(data.get("summary") or "No summary returned.").strip(),
+        "",
+        "## Key Findings",
+        "",
+    ])
+    findings = data.get("key_findings") if isinstance(data.get("key_findings"), list) else []
+    if findings:
+        lines.append("| Claim | Finding | Evidence Class | Implication | Confidence |")
+        lines.append("|---|---|---|---|---|")
+        for item in findings:
+            if not isinstance(item, dict):
+                continue
+            cells = [
+                str(item.get(key) or "").replace("\n", " ").strip()
+                for key in (
+                    "claim",
+                    "finding",
+                    "evidence_class",
+                    "implication",
+                    "confidence",
+                )
+            ]
+            lines.append("| " + " | ".join(cells) + " |")
+    else:
+        lines.append("- No key findings returned.")
+
+    lines.extend(["", "## Supporting Evidence", ""])
+    evidence = (
+        data.get("supporting_evidence")
+        if isinstance(data.get("supporting_evidence"), list)
+        else []
+    )
+    if evidence:
+        for item in evidence:
+            if not isinstance(item, dict):
+                continue
+            source = str(item.get("source") or "Source").strip()
+            klass = str(item.get("source_class") or "source").strip()
+            detail = str(item.get("detail") or "").strip()
+            as_of = str(item.get("as_of") or "").strip()
+            suffix = f" ({as_of})" if as_of else ""
+            lines.append(f"- **{source}** [{klass}]{suffix}: {detail}")
+    else:
+        lines.append("- No supporting evidence returned.")
+
+    lines.extend(["", "## Disconfirming Evidence", ""])
+    disconfirming = (
+        data.get("disconfirming_evidence")
+        if isinstance(data.get("disconfirming_evidence"), list)
+        else []
+    )
+    lines.extend(
+        f"- {str(item).strip()}" for item in disconfirming if str(item).strip()
+    )
+    if not disconfirming:
+        lines.append("- No disconfirming evidence returned.")
+
+    lines.extend(["", "## Open Questions", ""])
+    questions = data.get("open_questions") if isinstance(data.get("open_questions"), list) else []
+    lines.extend(f"- {str(item).strip()}" for item in questions if str(item).strip())
+    if not questions:
+        lines.append("- No open questions returned.")
+
+    lines.extend(["", "## Memo Uses", ""])
+    memo_uses = data.get("memo_uses") if isinstance(data.get("memo_uses"), list) else []
+    lines.extend(f"- {str(item).strip()}" for item in memo_uses if str(item).strip())
+    if not memo_uses:
+        lines.append("- No memo-use guidance returned.")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _write_fast_pass_outputs(*, run_dir: Path, result: _FastMemoPassResult) -> None:
+    analysis_dir = run_dir / "analysis"
+    fast_dir = analysis_dir / "fast"
+    fast_dir.mkdir(parents=True, exist_ok=True)
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    (fast_dir / f"{result.spec.pass_id}.json").write_text(
+        json.dumps(
+            {
+                "pass_id": result.spec.pass_id,
+                "label": result.spec.label,
+                "artifact_filename": result.spec.artifact_filename,
+                "status": "ok" if result.ok else "failed",
+                "error": result.error,
+                "duration_ms": result.duration_ms,
+                "cost_usd": result.cost_usd,
+                "data": result.data,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (analysis_dir / result.spec.artifact_filename).write_text(
+        _fast_pass_markdown(result.spec, result.data, result.error),
+        encoding="utf-8",
+    )
+
+
+def _write_fast_synthesis_artifacts(run_dir: Path, artifacts: dict) -> None:
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    mapping = {
+        "claim_register_md": "claim_register.md",
+        "scenario_swim_lanes_md": "scenario_swim_lanes.md",
+        "pre_mortem_md": "pre_mortem.md",
+        "reverse_ic_md": "reverse_ic.md",
+        "validation_log_md": "validation_log.md",
+        "gating_questions_md": "gating_questions.md",
+    }
+    for key, filename in mapping.items():
+        content = str(artifacts.get(key) or "").strip()
+        if not content:
+            title = filename.rsplit(".", 1)[0].replace("_", " ").title()
+            content = f"# {title}\n\nNo content returned."
+        (analysis_dir / filename).write_text(content.rstrip() + "\n", encoding="utf-8")
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _run_fast_memo_pass(
+    *,
+    spec: _FastMemoPassSpec,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    stream: job_progress.ProgressLog,
+    research_dir: Path | None,
+    lessons_path: Path | None,
+    scope_check: dict | None,
+    warnings: list[str],
+) -> _FastMemoPassResult:
+    started_at = _now_iso()
+    started_monotonic = time.monotonic()
+    sub_progress = _ThreadProgress(stream, spec.label)
+    sub_progress.emit(
+        "thread_started",
+        title=spec.label,
+        pass_id=spec.pass_id,
+        artifact=spec.artifact_filename,
+    )
+    _emit_phase_timing(
+        stream,
+        phase=f"fast_pass:{spec.pass_id}",
+        status="started",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        thread=spec.label,
+    )
+    try:
+        data, error = claude_runner.run_memo_fast_analysis_pass(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            pass_id=spec.pass_id,
+            pass_label=spec.label,
+            artifact_filename=spec.artifact_filename,
+            focus=spec.focus,
+            settings_path=memo_prep.SETTINGS_FILE,
+            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            research_dir=research_dir,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            progress=sub_progress,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("fast memo pass crashed: %s", spec.pass_id)
+        data, error = None, f"{type(exc).__name__}: {exc}"
+    duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+    result = _FastMemoPassResult(
+        spec=spec,
+        data=data,
+        error=error,
+        duration_ms=duration_ms,
+        cost_usd=round(
+            _as_float((data or {}).get("claude_cost_usd")) or sub_progress.cost_usd,
+            6,
+        ),
+    )
+    _write_fast_pass_outputs(run_dir=run_dir, result=result)
+    sub_progress.emit(
+        "thread_finished" if result.ok else "thread_failed",
+        error=result.error or None,
+        pass_id=spec.pass_id,
+        artifact=spec.artifact_filename,
+        duration_ms=duration_ms,
+    )
+    _emit_phase_timing(
+        stream,
+        phase=f"fast_pass:{spec.pass_id}",
+        status="finished" if result.ok else "failed",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        thread=spec.label,
+        error=result.error,
+    )
+    return result
+
+
+def _run_fast_memo_pipeline(
+    *,
+    report_id: str,
+    report: dict,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    memo_paths_abs: dict[str, Path],
+    analysis_session_path: Path | None,
+    lessons_path: Path | None,
+) -> dict:
+    started_at = _now_iso()
+    started_monotonic = time.monotonic()
+    cost_usd = 0.0
+    worker_duration_ms = 0
+    warnings = list(report.get("warnings") or [])
+    scope_check = report.get("scope_check")
+    research_dir = research_store.RESEARCH_ROOT / company_slug
+    memo_paths = {k: str(v) for k, v in memo_paths_abs.items()}
+
+    stream.emit(
+        "stage",
+        stage="memo_fast_pipeline_starting",
+        message="Running fast memo pipeline with real parallel Claude workers",
+        max_workers=_memo_fast_max_workers(),
+        packet_mode=bool(analysis_session_path),
+    )
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_pipeline",
+        status="started",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+    )
+    claude_runner.emit_memo_phase_planned(stream)
+
+    stream.emit(
+        "thread_started",
+        thread=claude_runner._MEMO_PHASE1_THREAD,
+        title=claude_runner._MEMO_PHASE1_THREAD,
+    )
+    stream.emit(
+        "stage",
+        stage="fast_intake_ready",
+        message="Using prepared run folder, registry entry, and source folders",
+        thread=claude_runner._MEMO_PHASE1_THREAD,
+    )
+    stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
+
+    if analysis_session_path:
+        stream.emit(
+            "thread_started",
+            thread=claude_runner._MEMO_PHASE2_THREAD,
+            title=claude_runner._MEMO_PHASE2_THREAD,
+        )
+        stream.emit(
+            "stage",
+            stage="memo_fast_packet_mode",
+            message=(
+                "Approved Memo Studio packet found; skipping parallel analysis "
+                "subprocesses"
+            ),
+            thread=claude_runner._MEMO_PHASE2_THREAD,
+            analysis_session_path=str(analysis_session_path),
+        )
+        stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE2_THREAD)
+        pass_results: list[_FastMemoPassResult] = []
+    else:
+        phase2_started_at = _now_iso()
+        phase2_started = time.monotonic()
+        stream.emit(
+            "thread_started",
+            thread=claude_runner._MEMO_PHASE2_THREAD,
+            title=claude_runner._MEMO_PHASE2_THREAD,
+        )
+        stream.emit(
+            "stage",
+            stage="memo_fast_parallel_dispatch",
+            message=f"Running {len(_FAST_MEMO_PASSES)} memo analysis passes in parallel",
+            thread=claude_runner._MEMO_PHASE2_THREAD,
+            passes=[spec.label for spec in _FAST_MEMO_PASSES],
+            max_workers=_memo_fast_max_workers(),
+        )
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_parallel_analysis",
+            status="started",
+            started_at=phase2_started_at,
+            started_monotonic=phase2_started,
+        )
+        worker_count = min(_memo_fast_max_workers(), len(_FAST_MEMO_PASSES))
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            pass_results = list(
+                pool.map(
+                    lambda spec: _run_fast_memo_pass(
+                        spec=spec,
+                        run_dir=run_dir,
+                        company_name=company_name,
+                        company_slug=company_slug,
+                        run_id=run_id,
+                        stream=stream,
+                        research_dir=research_dir,
+                        lessons_path=lessons_path,
+                        scope_check=scope_check,
+                        warnings=warnings,
+                    ),
+                    _FAST_MEMO_PASSES,
+                )
+            )
+        cost_usd += sum(result.cost_usd for result in pass_results)
+        worker_duration_ms += sum(result.duration_ms for result in pass_results)
+        stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE2_THREAD)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_parallel_analysis",
+            status="finished",
+            started_at=phase2_started_at,
+            started_monotonic=phase2_started,
+            ok_count=sum(1 for result in pass_results if result.ok),
+            error_count=sum(1 for result in pass_results if not result.ok),
+            worker_duration_ms=worker_duration_ms,
+        )
+        if not any(result.ok for result in pass_results):
+            message = "All fast memo analysis passes failed."
+            storage.update_report(
+                report_id,
+                status="failed_during_analysis",
+                stage="Fast memo analysis failed",
+                failure_phase="fast_parallel_analysis",
+                failure_detail=message,
+                error=message,
+            )
+            stream.emit("error", error=message, phase="fast_parallel_analysis")
+            return {"ok": False, "error": message, "cost_usd": cost_usd}
+
+    phase3_started_at = _now_iso()
+    phase3_started = time.monotonic()
+    phase3_progress = _ThreadProgress(stream, claude_runner._MEMO_PHASE3_THREAD)
+    phase3_progress.emit("thread_started", title=claude_runner._MEMO_PHASE3_THREAD)
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_english_package",
+        status="started",
+        started_at=phase3_started_at,
+        started_monotonic=phase3_started,
+    )
+    english_result, english_error = claude_runner.run_memo_fast_english_package(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=memo_prep.SETTINGS_FILE,
+        companies_yaml_path=memo_prep.COMPANIES_FILE,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+        progress=phase3_progress,
+    )
+    if english_error or not isinstance(english_result, dict):
+        message = english_error or "English package pass returned no data."
+        phase3_progress.emit("thread_failed", error=message)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_english_package",
+            status="failed",
+            started_at=phase3_started_at,
+            started_monotonic=phase3_started,
+            error=message,
+        )
+        return {"ok": False, "error": message, "cost_usd": cost_usd}
+    cost_usd += _as_float(english_result.get("claude_cost_usd")) or phase3_progress.cost_usd
+    worker_duration_ms += _as_int(english_result.get("claude_duration_ms")) or phase3_progress.duration_ms
+    artifacts = english_result.get("analysis_artifacts")
+    if isinstance(artifacts, dict):
+        _write_fast_synthesis_artifacts(run_dir, artifacts)
+    english_package = english_result.get("memo_package")
+    if not isinstance(english_package, dict):
+        message = "English package pass did not return memo_package."
+        phase3_progress.emit("thread_failed", error=message)
+        return {"ok": False, "error": message, "cost_usd": cost_usd}
+    english_package_path = run_dir / "logs" / "memo_package.en.json"
+    _write_json(english_package_path, english_package)
+    phase3_progress.emit("thread_finished")
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_english_package",
+        status="finished",
+        started_at=phase3_started_at,
+        started_monotonic=phase3_started,
+        memo_package=memo_prep._rel(english_package_path),
+    )
+
+    phase4_started_at = _now_iso()
+    phase4_started = time.monotonic()
+    phase4_progress = _ThreadProgress(stream, claude_runner._MEMO_PHASE4_THREAD)
+    phase4_progress.emit("thread_started", title=claude_runner._MEMO_PHASE4_THREAD)
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_chinese_package",
+        status="started",
+        started_at=phase4_started_at,
+        started_monotonic=phase4_started,
+    )
+    bilingual_result, bilingual_error = claude_runner.run_memo_fast_bilingual_package(
+        run_dir=run_dir,
+        company_name=company_name,
+        run_id=run_id,
+        english_package_path=english_package_path,
+        progress=phase4_progress,
+    )
+    if bilingual_error or not isinstance(bilingual_result, dict):
+        message = bilingual_error or "Chinese package pass returned no data."
+        phase4_progress.emit("thread_failed", error=message)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_chinese_package",
+            status="failed",
+            started_at=phase4_started_at,
+            started_monotonic=phase4_started,
+            error=message,
+        )
+        return {"ok": False, "error": message, "cost_usd": cost_usd}
+    cost_usd += _as_float(bilingual_result.get("claude_cost_usd")) or phase4_progress.cost_usd
+    worker_duration_ms += _as_int(bilingual_result.get("claude_duration_ms")) or phase4_progress.duration_ms
+    memo_package = bilingual_result.get("memo_package")
+    if not isinstance(memo_package, dict):
+        message = "Chinese package pass did not return memo_package."
+        phase4_progress.emit("thread_failed", error=message)
+        return {"ok": False, "error": message, "cost_usd": cost_usd}
+    final_package_path = _memo_package_path(run_dir)
+    _write_json(final_package_path, memo_package)
+    phase4_progress.emit("thread_finished")
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_chinese_package",
+        status="finished",
+        started_at=phase4_started_at,
+        started_monotonic=phase4_started,
+        memo_package=memo_prep._rel(final_package_path),
+    )
+
+    duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_pipeline",
+        status="finished",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        worker_duration_ms=worker_duration_ms,
+        cost_usd=round(cost_usd, 6),
+    )
+    return {
+        "ok": True,
+        "cost_usd": round(cost_usd, 6),
+        "duration_ms": duration_ms,
+        "worker_duration_ms": worker_duration_ms,
+        "fast_pipeline": True,
+    }
+
+
 def _fail_renderer_contract(
     *,
     report_id: str,
@@ -771,7 +1515,7 @@ def recover_stale_reports() -> int:
             recovered=True,
         ):
             continue
-        _render_memo_pdf_previews(
+        _maybe_render_memo_pdf_previews(
             report_id=report["id"],
             memo_paths_abs=memo_paths_abs,
             stream=stream,
@@ -956,12 +1700,7 @@ def _finalize_memo_from_package(
         if f.get("language") and f.get("path")
     }
     internal_paths_abs = _internal_memo_paths_abs(report)
-    analysis_session_path = None
-    analysis_session_id = report.get("analysis_session_id")
-    if analysis_session_id:
-        candidate = serena_analysis.session_dir(company_slug, str(analysis_session_id))
-        if candidate.exists():
-            analysis_session_path = candidate
+    analysis_session_path = _analysis_session_path_for_report(company_slug, report)
     lessons_path = serena_analysis.memo_lessons_path(company_slug)
     if not lessons_path.exists():
         lessons_path = None
@@ -1006,14 +1745,14 @@ def _finalize_memo_from_package(
 
     if missing:
         msg = (
-            "Skill finished but the expected output files are missing: "
+            "Renderer finished but the expected output files are missing: "
             + "; ".join(missing)
-            + ". Check the tool-call trace in the run folder's stream.jsonl."
+            + ". Check the renderer logs and run folder's stream.jsonl."
         )
         storage.update_report(
             report_id,
             status="failed_during_analysis",
-            stage="Skill completed but outputs missing",
+            stage="Renderer completed but outputs missing",
             error=msg,
             failure_phase="post_run_check",
             failure_detail=msg,
@@ -1031,7 +1770,7 @@ def _finalize_memo_from_package(
         stream.emit("error", **payload)
         return False
 
-    _render_memo_pdf_previews(
+    _maybe_render_memo_pdf_previews(
         report_id=report_id,
         memo_paths_abs=memo_paths_abs,
         stream=stream,
@@ -1110,37 +1849,52 @@ def _finalize_memo_from_package(
         thread=claude_runner.MEMO_PHASE6_THREAD,
         title=claude_runner.MEMO_PHASE6_THREAD,
     )
-    internal_result = _run_internal_diligence_memo(
-        report_id=report_id,
-        run_dir=run_dir,
-        company_name=company_name,
-        company_slug=company_slug,
-        run_id=run_id,
-        memo_paths_abs=memo_paths_abs,
-        internal_paths_abs=internal_paths_abs,
-        stream=stream,
-        result=result,
-        analysis_session_path=analysis_session_path,
-        lessons_path=lessons_path,
-        scope_check=report.get("scope_check"),
-        warnings=list(report.get("warnings") or []),
-    )
-    if internal_result is None:
-        return False
-    combined_result = _combined_result(result, internal_result)
+    internal_generated = False
+    if internal_paths_abs and _internal_diligence_memo_enabled():
+        internal_result = _run_internal_diligence_memo(
+            report_id=report_id,
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            memo_paths_abs=memo_paths_abs,
+            internal_paths_abs=internal_paths_abs,
+            stream=stream,
+            result=result,
+            analysis_session_path=analysis_session_path,
+            lessons_path=lessons_path,
+            scope_check=report.get("scope_check"),
+            warnings=list(report.get("warnings") or []),
+        )
+        if internal_result is None:
+            return False
+        combined_result = _combined_result(result, internal_result)
+        internal_generated = True
 
-    storage.update_report(
-        report_id,
-        stage="Rendering PDF previews",
-        progress=96,
-    )
-    stream.emit(
-        "stage",
-        stage="rendering_pdf",
-        message="Rendering PDF previews",
-        recovered=recovered,
-    )
-    _render_internal_pdf_previews(report_id=report_id, stream=stream)
+        if _memo_pdf_previews_enabled():
+            storage.update_report(
+                report_id,
+                stage="Rendering PDF previews",
+                progress=96,
+            )
+            stream.emit(
+                "stage",
+                stage="rendering_pdf",
+                message="Rendering PDF previews",
+                recovered=recovered,
+            )
+            _render_internal_pdf_previews(report_id=report_id, stream=stream)
+    else:
+        combined_result = dict(result)
+        stream.emit(
+            "stage",
+            stage="internal_memo_skipped",
+            message=(
+                "Skipping internal diligence memo; set "
+                "BSH_MEMO_GENERATE_INTERNAL=1 to enable it."
+            ),
+            recovered=recovered,
+        )
     stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE6_THREAD)
 
     storage.update_report(
@@ -1161,10 +1915,13 @@ def _finalize_memo_from_package(
     done_payload = {
         "report_id": report_id,
         "memo_paths": {k: str(v) for k, v in memo_paths_abs.items()},
-        "internal_memo_paths": {k: str(v) for k, v in internal_paths_abs.items()},
         "cost_usd": combined_result.get("cost_usd"),
         "duration_ms": combined_result.get("duration_ms"),
     }
+    if internal_generated:
+        done_payload["internal_memo_paths"] = {
+            k: str(v) for k, v in internal_paths_abs.items()
+        }
     if recovered:
         done_payload["recovered"] = True
     stream.emit("done", **done_payload)
@@ -1339,15 +2096,7 @@ def _resume(report_id: str) -> None:
             "duration_ms": report.get("claude_duration_ms"),
         }
     else:
-        analysis_session_path = None
-        analysis_session_id = report.get("analysis_session_id")
-        if analysis_session_id:
-            candidate = serena_analysis.session_dir(
-                company_slug,
-                str(analysis_session_id),
-            )
-            if candidate.exists():
-                analysis_session_path = candidate
+        analysis_session_path = _analysis_session_path_for_report(company_slug, report)
         lessons_path = serena_analysis.memo_lessons_path(company_slug)
         if not lessons_path.exists():
             lessons_path = None
@@ -1435,12 +2184,12 @@ def _run(report_id: str) -> None:
         for lang, rel in memo_paths_rel.items()
     }
     internal_paths_abs = _internal_memo_paths_abs(report)
-    analysis_session_path = None
-    analysis_session_id = report.get("analysis_session_id")
-    if analysis_session_id:
-        candidate = serena_analysis.session_dir(company_slug, str(analysis_session_id))
-        if candidate.exists():
-            analysis_session_path = candidate
+    analysis_session_path = _analysis_session_path_for_report(company_slug, report)
+    approved_analysis_session_path = _analysis_session_path_for_report(
+        company_slug,
+        report,
+        require_approved=True,
+    )
     lessons_path = serena_analysis.memo_lessons_path(company_slug)
     if not lessons_path.exists():
         lessons_path = None
@@ -1452,23 +2201,45 @@ def _run(report_id: str) -> None:
         progress=15,
     )
 
-    # --- One Claude subprocess; Serena's skill runs end-to-end ---------
-    result = claude_runner.run_investment_memo(
-        run_dir=run_dir,
-        company_name=company_name,
-        company_slug=company_slug,
-        run_id=run_id,
-        settings_path=memo_prep.SETTINGS_FILE,
-        companies_yaml_path=memo_prep.COMPANIES_FILE,
-        memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-        research_dir=research_store.RESEARCH_ROOT / company_slug,
-        analysis_session_path=analysis_session_path,
-        lessons_path=lessons_path,
-        scope_check=report.get("scope_check"),
-        warnings=list(report.get("warnings") or []),
-        progress=stream,
-        timeout_sec=3600,
-    )
+    if _memo_fast_pipeline_enabled():
+        result = _run_fast_memo_pipeline(
+            report_id=report_id,
+            report=report,
+            run_dir=run_dir,
+            stream=stream,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            memo_paths_abs=memo_paths_abs,
+            analysis_session_path=approved_analysis_session_path,
+            lessons_path=lessons_path,
+        )
+    else:
+        stream.emit(
+            "stage",
+            stage="memo_legacy_pipeline_starting",
+            message=(
+                "Running legacy single-Claude memo pipeline because "
+                "BSH_MEMO_FAST_PIPELINE=0"
+            ),
+        )
+        # --- One Claude subprocess; Serena's skill runs end-to-end ---------
+        result = claude_runner.run_investment_memo(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            settings_path=memo_prep.SETTINGS_FILE,
+            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+            research_dir=research_store.RESEARCH_ROOT / company_slug,
+            analysis_session_path=analysis_session_path,
+            lessons_path=lessons_path,
+            scope_check=report.get("scope_check"),
+            warnings=list(report.get("warnings") or []),
+            progress=stream,
+            timeout_sec=3600,
+        )
 
     if not result.get("ok"):
         message = result.get("error") or "Claude skill run failed"
@@ -1491,7 +2262,7 @@ def _run(report_id: str) -> None:
                 stream=stream,
                 result=result,
             ):
-                _render_memo_pdf_previews(
+                _maybe_render_memo_pdf_previews(
                     report_id=report_id,
                     memo_paths_abs=memo_paths_abs,
                     stream=stream,

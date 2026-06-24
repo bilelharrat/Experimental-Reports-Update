@@ -1509,6 +1509,9 @@ def test_investment_memo_prompt_can_reference_research_and_analysis_dirs(
     assert "memo_packet.md" in prompt
     assert "selected operator narrative choices" in prompt
     assert "operator HIL guidance" in prompt
+    assert "Approved Memo Studio execution mode" in prompt
+    assert "Do not rerun the eight\northogonal analysis passes from scratch" in prompt
+    assert "Parallel execution of the eight orthogonal passes" not in prompt
     assert "DO NOT read from `data/uploads/`" in prompt
 
 

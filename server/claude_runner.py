@@ -2288,7 +2288,7 @@ _MEMO_PHASE2_THREAD = "Phase 2 - Parallel analysis passes"
 _MEMO_PHASE3_THREAD = "Phase 3 - Synthesis and decision questions"
 _MEMO_PHASE4_THREAD = "Phase 4 - Memo package drafting"
 MEMO_PHASE5_THREAD = "Phase 5 - Rendering and QA"
-MEMO_PHASE6_THREAD = "Phase 6 - Internal diligence and previews"
+MEMO_PHASE6_THREAD = "Phase 6 - Optional internal diligence and previews"
 
 _MEMO_PHASE_PLAN: tuple[dict[str, Any], ...] = (
     {
@@ -2326,7 +2326,7 @@ _MEMO_PHASE_PLAN: tuple[dict[str, Any], ...] = (
         "thread": MEMO_PHASE6_THREAD,
         "title": MEMO_PHASE6_THREAD,
         "phase_index": 6,
-        "description": "Generate the internal diligence memo and final previews.",
+        "description": "Optional internal diligence memo and PDF previews when enabled.",
     },
 )
 
@@ -2358,6 +2358,122 @@ _MEMO_SYNTHESIS_FILES = {
     "reverse_ic.md",
     "validation_log.md",
     "gating_questions.md",
+}
+
+MEMO_FAST_PASS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "summary": {"type": "string"},
+        "key_findings": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "claim": {"type": "string"},
+                    "finding": {"type": "string"},
+                    "evidence_class": {"type": "string"},
+                    "implication": {"type": "string"},
+                    "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
+                },
+                "required": [
+                    "claim",
+                    "finding",
+                    "evidence_class",
+                    "implication",
+                    "confidence",
+                ],
+            },
+        },
+        "supporting_evidence": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "source": {"type": "string"},
+                    "source_class": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "as_of": {"type": ["string", "null"]},
+                },
+                "required": ["source", "source_class", "detail", "as_of"],
+            },
+        },
+        "disconfirming_evidence": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"type": "string"},
+        },
+        "open_questions": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {"type": "string"},
+        },
+        "memo_uses": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"type": "string"},
+        },
+    },
+    "required": [
+        "summary",
+        "key_findings",
+        "supporting_evidence",
+        "disconfirming_evidence",
+        "open_questions",
+        "memo_uses",
+    ],
+}
+
+MEMO_FAST_ENGLISH_PACKAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "analysis_artifacts": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "claim_register_md": {"type": "string"},
+                "scenario_swim_lanes_md": {"type": "string"},
+                "pre_mortem_md": {"type": "string"},
+                "reverse_ic_md": {"type": "string"},
+                "validation_log_md": {"type": "string"},
+                "gating_questions_md": {"type": "string"},
+            },
+            "required": [
+                "claim_register_md",
+                "scenario_swim_lanes_md",
+                "pre_mortem_md",
+                "reverse_ic_md",
+                "validation_log_md",
+                "gating_questions_md",
+            ],
+        },
+        "memo_package": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    },
+    "required": ["analysis_artifacts", "memo_package"],
+}
+
+MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "memo_package": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    },
+    "required": ["memo_package"],
 }
 
 HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
@@ -2677,6 +2793,45 @@ memo claims.
 
 """
 
+    if analysis_session_path and analysis_session_path.exists():
+        analysis_execution_block = """\
+## Approved Memo Studio execution mode
+
+This run has a Serena memo analysis packet. Treat `memo_packet.md` and the
+artifact YAML files as the primary synthesis. Do not rerun the eight
+orthogonal analysis passes from scratch, do not reread every raw source file by
+default, and do not spend the run recreating Memo Studio work that already
+exists.
+
+Read the approved packet and artifact files together, then write only the
+concise run-folder analysis artifacts needed by the renderer contract and audit
+trail. Use raw company research files only when a material final-memo claim
+needs support or a packet claim is contradictory. Once the packet is reconciled,
+move directly to memo package drafting, translation, and JSON package writing.
+
+"""
+    else:
+        analysis_execution_block = """\
+## Parallel execution of the eight orthogonal passes
+
+The skill's "Non-Linear Analysis Engine" section lists eight orthogonal
+analytical passes (Arithmetic / denominators, Deployment / behavior,
+Budget / ownership, Rights / licensing / dependency, Replacement vs
+coexistence, GTM / operating burden, Time-series change-over-time,
+Competitive compression). **These eight passes have no
+inter-dependencies and must be issued as parallel tool calls in a
+single assistant turn.** Issue all eight Read/Write/Bash calls for the
+passes together, let them stream back, then move on to the synthesis
+step. Sequential per-pass execution is wasteful — fan them out
+concurrently.
+
+The synthesis step (Claim Register reconciliation, Scenario Swim
+Lanes, Top 3 Decision Questions, Pre-Mortem, Reverse IC), the memo
+drafting step, the translation step, and the package-writing step
+remain sequential. Server-side `.docx` rendering happens after Claude exits.
+
+"""
+
     lessons_block = ""
     if lessons_path and lessons_path.exists():
         lessons_block = f"""\
@@ -2878,26 +3033,10 @@ the research directory listing returns, read all relevant raw source files
 together in the next assistant turn. Do not walk those files one at a time
 unless a specific tool result forces it.
 
-Once the minimum source package is loaded, immediately leave Phase 1 and launch
-the orthogonal analysis passes below.
+Once the minimum source package is loaded, immediately leave Phase 1 and follow
+the execution mode below.
 
-## Parallel execution of the eight orthogonal passes
-
-The skill's "Non-Linear Analysis Engine" section lists eight orthogonal
-analytical passes (Arithmetic / denominators, Deployment / behavior,
-Budget / ownership, Rights / licensing / dependency, Replacement vs
-coexistence, GTM / operating burden, Time-series change-over-time,
-Competitive compression). **These eight passes have no
-inter-dependencies and must be issued as parallel tool calls in a
-single assistant turn.** Issue all eight Read/Write/Bash calls for the
-passes together, let them stream back, then move on to the synthesis
-step. Sequential per-pass execution is wasteful — fan them out
-concurrently.
-
-The synthesis step (Claim Register reconciliation, Scenario Swim
-Lanes, Top 3 Decision Questions, Pre-Mortem, Reverse IC), the memo
-drafting step, the translation step, and the package-writing step
-remain sequential. Server-side `.docx` rendering happens after Claude exits.
+{analysis_execution_block}\
 
 ## Output contract — exactly per the skill text
 
@@ -2921,6 +3060,378 @@ SKILL: bsh-investment-memo-latestage-v1 (verbatim — follow this)
 
 {skill_text}
 """
+
+
+def _research_file_listing(research_dir: Path | None) -> str:
+    if not research_dir or not research_dir.exists():
+        return "- No research directory is populated for this run."
+    try:
+        files = [
+            p.name
+            for p in sorted(research_dir.iterdir())
+            if p.is_file() and p.name != "index.yaml"
+        ][:80]
+    except Exception:
+        logger.exception("failed to list memo research files: %s", research_dir)
+        return "- Research directory exists, but file listing failed."
+    return "\n".join(f"- {name}" for name in files) or "- No research files found."
+
+
+def _analysis_session_file_listing(analysis_session_path: Path | None) -> str:
+    if not analysis_session_path or not analysis_session_path.exists():
+        return "- No Memo Studio analysis packet is attached."
+    try:
+        files = [
+            str(p.relative_to(analysis_session_path))
+            for p in sorted(analysis_session_path.rglob("*"))
+            if p.is_file()
+        ][:120]
+    except Exception:
+        logger.exception(
+            "failed to list memo analysis session files: %s",
+            analysis_session_path,
+        )
+        return "- Memo Studio packet exists, but file listing failed."
+    return "\n".join(f"- {name}" for name in files) or "- Packet folder is empty."
+
+
+def _run_memo_local_json_artifact(
+    *,
+    prompt: str,
+    schema: dict[str, Any],
+    run_dir: Path,
+    progress,
+    progress_message: str,
+    timeout_label: str,
+    timeout_sec: int,
+    silence_timeout_sec: int = 180,
+    add_dirs: list[Path] | None = None,
+    allowed_tools: str = "Read,Bash,Grep,Glob",
+) -> tuple[dict | None, str | None]:
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(run_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", allowed_tools,
+        "--json-schema", json.dumps(schema),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    for directory in add_dirs or []:
+        if directory.exists():
+            cmd.extend(["--add-dir", str(directory)])
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message=progress_message,
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label=timeout_label,
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if stream_error:
+        return None, stream_error
+    if not final_text:
+        return None, "claude returned empty result"
+    parsed = _parse_claude_json_object(final_text)
+    if not isinstance(parsed, dict):
+        return None, f"claude output didn't parse as JSON: {final_text[:300]}"
+    result_event = state.get("result_event") or {}
+    parsed["claude_cost_usd"] = result_event.get("total_cost_usd")
+    parsed["claude_duration_ms"] = result_event.get("duration_ms")
+    parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return parsed, None
+
+
+def run_memo_fast_analysis_pass(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    pass_id: str,
+    pass_label: str,
+    artifact_filename: str,
+    focus: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    research_dir: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 900,
+) -> tuple[dict | None, str | None]:
+    """Run one narrow memo-analysis pass as its own Claude subprocess."""
+    registry_entry = _extract_company_registry_entry_yaml(
+        companies_yaml_path,
+        company_slug,
+    )
+    scope = json.dumps(scope_check or {}, ensure_ascii=False)
+    warning_text = "\n".join(f"- {w}" for w in warnings or []) or "- None."
+    registry_block = (
+        f"```yaml\n{registry_entry}\n```"
+        if registry_entry
+        else f"Read the `{company_slug}` entry from `{companies_yaml_path}`."
+    )
+    lessons_block = (
+        f"\nMemo lessons: `{lessons_path}`\n"
+        if lessons_path and lessons_path.exists()
+        else ""
+    )
+    prompt = f"""\
+You are running one independent fast-path analysis pass for a BSH LP-facing
+investment memo.
+
+Company: {company_name} (`{company_slug}`)
+Run id: {run_id}
+Pass: {pass_label} (`{pass_id}`)
+Artifact later written by server: `analysis/{artifact_filename}`
+
+Registry entry:
+{registry_block}
+
+Research folder:
+`{research_dir if research_dir else '(none)'}`
+Files:
+{_research_file_listing(research_dir)}
+
+BSH background:
+`{settings_path}`
+{lessons_block}
+Scope check: `{scope}`
+Warnings:
+{warning_text}
+
+Focus for this pass:
+{focus}
+
+Rules:
+- Do not write files. Return only the JSON object matching the attached schema.
+- Keep it compact and memo-useful: maximum 8 key findings.
+- Separate company-reported, investor/intermediary, independent secondary, and
+  internal model evidence.
+- Do not fabricate missing metrics. State what is disclosed, what is missing,
+  and how the memo should treat the gap.
+- This is a sell-side LP memo input. Convert evidence into investment judgment,
+  but do not draft final memo prose.
+"""
+    add_dirs = [settings_path.parent, companies_yaml_path.parent]
+    if research_dir and research_dir.exists():
+        add_dirs.append(research_dir)
+    if lessons_path and lessons_path.exists():
+        add_dirs.append(lessons_path.parent)
+    return _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_FAST_PASS_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message=f"Running memo pass: {pass_label}",
+        timeout_label=f"memo pass {pass_id}",
+        timeout_sec=timeout_sec,
+        add_dirs=add_dirs,
+    )
+
+
+def run_memo_fast_english_package(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 1200,
+) -> tuple[dict | None, str | None]:
+    """Synthesize fast-pass artifacts into an English source package."""
+    registry_entry = _extract_company_registry_entry_yaml(
+        companies_yaml_path,
+        company_slug,
+    )
+    registry_block = (
+        f"```yaml\n{registry_entry}\n```"
+        if registry_entry
+        else f"Read the `{company_slug}` entry from `{companies_yaml_path}`."
+    )
+    analysis_dir = run_dir / "analysis"
+    fast_dir = analysis_dir / "fast"
+    source_mode = (
+        "Use the approved Memo Studio packet as the primary synthesis."
+        if analysis_session_path and analysis_session_path.exists()
+        else "Use the fast parallel analysis artifacts as the primary synthesis."
+    )
+    prompt = f"""\
+You are drafting the English source package for a BSH LP-facing sell-side
+investment memo about {company_name}. This is the fast-path synthesis pass:
+{source_mode}
+
+{HUMAN_EXEC_MEMO_VOICE_CONTRACT}
+
+Company registry entry:
+{registry_block}
+
+Run context:
+- run_id: {run_id}
+- run_dir: `{run_dir}`
+- English DOCX later rendered by server: `{memo_paths.get('en')}`
+- Chinese DOCX later rendered by server: `{memo_paths.get('zh')}`
+- scope_check: `{json.dumps(scope_check or {}, ensure_ascii=False)}`
+- warnings: `{json.dumps(warnings or [], ensure_ascii=False)}`
+
+Research folder:
+`{research_dir if research_dir else '(none)'}`
+Files:
+{_research_file_listing(research_dir)}
+
+Memo Studio packet:
+`{analysis_session_path if analysis_session_path else '(none)'}`
+Files:
+{_analysis_session_file_listing(analysis_session_path)}
+
+Fast analysis artifacts:
+- JSON directory: `{fast_dir}`
+- Markdown directory: `{analysis_dir}`
+
+Read the relevant packet/artifact files. Do not rerun the eight analysis
+passes. Produce ONE JSON object with:
+1. `analysis_artifacts`: concise markdown strings for claim register,
+   scenario swim lanes, pre-mortem, reverse IC, validation log, and gating
+   questions. Keep each artifact useful but short.
+2. `memo_package`: an English source package for the fixed renderer. Every
+   user-facing string must be represented as `{{"en": "...", "zh": ""}}`.
+   Leave `zh` blank; a separate subprocess will fill Chinese. Do not write
+   final DOCX files.
+
+Package requirements:
+- `schema_version: 1`
+- `company`, `run`, `sections`, and `sources`
+- Required section ids: `executive_summary`, `company_overview`,
+  `investment_highlights`, `investment_risk`,
+  `financial_forecast_valuation`
+- Use paragraph, heading, bullets, callout, and table blocks.
+- Include at least two substantive Executive Summary blocks.
+- Include a non-empty sources list.
+- Use first-person sponsor voice: "we recommend", "we would proceed if",
+  "we are being offered". Never use "the recommendation is", "the opportunity
+  offered to investors is", or other detached recommendation language.
+
+Return only the JSON matching the attached schema.
+"""
+    add_dirs = [settings_path.parent, companies_yaml_path.parent, run_dir]
+    if research_dir and research_dir.exists():
+        add_dirs.append(research_dir)
+    if analysis_session_path and analysis_session_path.exists():
+        add_dirs.append(analysis_session_path)
+    if lessons_path and lessons_path.exists():
+        add_dirs.append(lessons_path.parent)
+    return _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_FAST_ENGLISH_PACKAGE_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Synthesizing English memo package",
+        timeout_label="memo English package",
+        timeout_sec=timeout_sec,
+        add_dirs=add_dirs,
+    )
+
+
+def run_memo_fast_bilingual_package(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    english_package_path: Path,
+    progress=None,
+    timeout_sec: int = 1200,
+) -> tuple[dict | None, str | None]:
+    """Fill Chinese strings in the English source package."""
+    prompt = f"""\
+You are completing the Simplified Chinese version of a BSH LP-facing investment
+memo package for {company_name}.
+
+Input English source package:
+`{english_package_path}`
+
+Run id: {run_id}
+
+Task:
+- Read the English package.
+- Return `memo_package` with the exact same structure, same English strings,
+  same source list, same recommendation, same numbers, and same table rows.
+- Fill every blank `zh` user-facing string with native professional Simplified
+  Chinese suitable for institutional investment readers.
+- Preserve company names, executive names, tickers, dates, currency amounts,
+  percentages, URLs, SAFE, SPV, ARR, NRR, IRR, EBITDA, CAGR, and other standard
+  acronyms in Latin form where appropriate.
+- Do not soften risks or change the investment recommendation.
+- Do not introduce new analysis.
+- Do not write files or DOCX outputs. Return only the JSON object matching the
+  attached schema.
+
+Chinese style:
+- Formal written Chinese, not colloquial.
+- Use Chinese punctuation in Chinese sentences.
+- Keep a half-width space around Latin acronyms inside Chinese sentences.
+- Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
+  `源追踪`, `备忘录包`, `硬 IP 墙`, or `软性工具`.
+"""
+    return _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Completing Chinese memo package",
+        timeout_label="memo Chinese package",
+        timeout_sec=timeout_sec,
+        add_dirs=[run_dir],
+    )
 
 
 def run_investment_memo(

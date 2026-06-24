@@ -22,27 +22,36 @@ memo_prep.bootstrap_memo_run(company_id)          # synchronous, seconds
   │
   ▼  (hand off to background daemon thread)
 memo_analysis._run(report_id)                      # long-running
-  ├── Spawn one Claude subprocess via claude_runner.run_investment_memo()
-  │   Prompt = Serena's skill text + fixed renderer contract + a
-  │   parallel-tool-call hint for the 8 orthogonal passes.
-  │   Tools: Read, Write, Edit, Bash, Grep, Glob.
+  ├── Default fast path (BSH_MEMO_FAST_PIPELINE defaults to on)
+  │   ├── If no approved Memo Studio packet exists:
+  │   │   ├── Spawn 8 narrow Claude subprocesses for independent analysis
+  │   │   │   passes (bounded by BSH_MEMO_FAST_MAX_WORKERS, default 4)
+  │   │   └── Python writes concise analysis/*.md + analysis/fast/*.json
+  │   ├── If an approved Memo Studio packet exists:
+  │   │   └── Skip the analysis fan-out and use the packet as synthesis input
+  │   ├── Spawn one Claude subprocess to write:
+  │   │   ├── synthesis artifacts (claim register, scenarios, gates, etc.)
+  │   │   └── logs/memo_package.en.json, the English source package
+  │   └── Spawn one Claude subprocess to fill Chinese strings and write
+  │       logs/memo_package.json
   │
-  │   Claude itself:
-  │   - Reads Serena_Background.md  (BSH thesis)
-  │   - Reads the companies.yaml entry for this company
-  │   - Runs the 8 orthogonal analytical passes in parallel via batched tool
-  │     calls — writes analysis/*.md as it goes
-  │   - Writes the synthesis artifacts (claim register, scenarios, gating
-  │     questions, pre-mortem, reverse IC, validation log)
-  │   - Writes logs/memo_package.json as structured memo data
+  ├── Legacy fallback path (BSH_MEMO_FAST_PIPELINE=0)
+  │   └── Spawn one Claude subprocess via claude_runner.run_investment_memo()
+  │       using Serena's full skill prompt and prompt-level parallel tool calls
   │
-  ├── On Claude exit:
-  │     If returncode != 0 → mark report failed_during_analysis
-  │     Else block generated render scripts like build_memo.py
+  ├── After logs/memo_package.json exists:
+  │     Block generated render scripts like build_memo.py
   │     Else validate logs/memo_package.json
   │     Else Python runs server.memo_docx_renderer
   │     Else verify the two .docx files, validation logs, file inventory,
-  │     and manifest renderer marker exist → continue post-run gates
+  │     and manifest renderer marker exist
+  │     Else run Chinese parity and English memo quality gates
+  │     Else mark the LP-facing memo ready
+  │
+  │     Optional post-processing:
+  │     - BSH_MEMO_RENDER_PDF_PREVIEWS=1 renders PDF previews via Word.
+  │     - BSH_MEMO_GENERATE_INTERNAL=1 runs the separate internal diligence
+  │       memo Claude pass.
   │
   └── Emit terminal `done` (or `error`) on logs/stream.jsonl
 ```
@@ -74,25 +83,28 @@ memo_analysis._run(report_id)                      # long-running
   background for the memo." Off by default. Photo-heavy files and
   translated files are excluded from auto-suggestion.
 
-## Why a single Claude subprocess instead of N
+## Fast Path vs. Legacy Path
 
-Serena's `bsh-investment-memo-latestage` skill is a coherent script. It
-reads inputs, runs analyses, writes artifacts, renders `.docx`,
-validates. Splitting it into N Python-orchestrated subprocesses means
-rewriting Serena's script in pieces — which lost fidelity and merged
-in concepts from the Document Library (we tried this; it was wrong).
+The default path now uses real Python-orchestrated parallelism for the
+independent analysis work. Each analysis pass is a narrow Claude subprocess
+with a compact JSON schema. Python writes the markdown artifacts from those
+structured results, then a synthesis/package subprocess drafts the English
+source package and a final translation/package subprocess fills Simplified
+Chinese.
 
-The script's analytical passes are naturally parallelizable because the
-**8 orthogonal passes have no inter-dependencies**. We exploit that by
-adding one instruction to the prompt: "issue the eight orthogonal
-passes via parallel tool calls in a single response." Claude executes
-them concurrently inside its own process.
+This keeps wall-clock time closer to the slowest analysis pass plus synthesis,
+rather than serializing all reasoning and writing behind one model stream.
+
+The legacy single-subprocess skill remains available with
+`BSH_MEMO_FAST_PIPELINE=0`. Keep it as a fallback for regressions or for
+comparing output quality, but it is no longer the default latency path.
 
 ## Run-folder layout
 
 ```
 data/memos/<slug>/<YYYY-MM-DD>__<HHMMSS>__<slug>__memo-run/
-├── analysis/                  # produced by the skill
+├── analysis/                  # produced by Claude/Python analysis passes
+│   ├── fast/*.json             # default fast-path structured pass outputs
 │   ├── claim_register.md
 │   ├── pressure_tests.md
 │   ├── time_base_checks.md
@@ -104,15 +116,19 @@ data/memos/<slug>/<YYYY-MM-DD>__<HHMMSS>__<slug>__memo-run/
 │   ├── gating_questions.md
 │   └── (optional) adoption_ladder.md, replacement_vs_coexistence.md,
 │                  core_franchise_resilience.md, competitive_notes.md
-├── memo/                      # produced by the skill
+├── memo/                      # rendered by server.memo_docx_renderer
 │   ├── <Company> - Investment Memo - <run_id>.docx
 │   ├── <Company> - 投资备忘录 - <run_id>.docx
 │   └── (optional) memo_en.md, memo_zh.md (working drafts)
 └── logs/
-    ├── run_manifest.md        # prep writes skeleton; skill appends finalization
+    ├── memo_package.en.json   # default fast-path English source package
+    ├── memo_package.json      # renderer input package
+    ├── run_manifest.md        # prep skeleton + renderer finalization
     ├── stream.jsonl           # progress events (used by SSE + active-jobs rail)
-    ├── validation.txt         # skill's docx validate.py output (English)
-    ├── validation_cn.txt      # skill's docx validate.py output (Chinese)
+    ├── validation.txt         # renderer validation output (English)
+    ├── validation_cn.txt      # renderer validation output (Chinese)
+    ├── memo_chinese_parity.md # Chinese/English parity gate report
+    ├── file_inventory.md      # renderer output inventory
     ├── previews/              # optional visual QA PNGs for the English memo
     └── previews_cn/           # optional visual QA PNGs for the Chinese memo
 ```
@@ -144,20 +160,29 @@ any prior run.
 - Versioned run-folder creation + manifest skeleton (`memo_prep.py`).
 - Scope check (late-stage / pre-IPO preferred; warn early-stage).
 - Report record bookkeeping (`server/storage.py`).
-- Spawning one Claude subprocess and translating its stream-json output
-  into our progress events (`server/claude_runner.py`).
+- Orchestrating the default fast memo pipeline: parallel analysis
+  subprocesses, English package subprocess, Chinese completion subprocess,
+  and phase timing events (`server/memo_analysis.py`,
+  `server/claude_runner.py`).
+- Running the legacy single-subprocess memo skill when
+  `BSH_MEMO_FAST_PIPELINE=0`.
 - Stable DOCX rendering from `logs/memo_package.json`
   (`server/memo_docx_renderer.py`).
 - Post-run verification: did Claude avoid generated renderer scripts, did
   the package pass schema validation, do the expected `.docx` files and
   renderer logs exist, and does the English memo pass the quality gate?
+- Optional post-run conveniences:
+  - `BSH_MEMO_RENDER_PDF_PREVIEWS=1` renders PDF previews. This can be slow
+    because it automates Microsoft Word and has a per-DOCX timeout.
+  - `BSH_MEMO_GENERATE_INTERNAL=1` runs a second Claude subprocess for the
+    internal diligence memo. It is no longer part of the default critical path.
 
-**Claude (running Serena's skill):**
+**Claude:**
 
-- All analytical work (the 8 orthogonal passes, synthesis, etc.).
-- Reading inputs.
-- Producing `logs/memo_package.json` as structured memo content.
-- Not invoking renderers or writing final `.docx` files.
+- Fast path: runs narrow independent analysis passes, then a synthesis /
+  English-package pass, then a Chinese-package pass.
+- Legacy path: runs Serena's full skill in one subprocess.
+- In both paths, Claude does not invoke renderers or write final `.docx` files.
 
 If a memo run misbehaves, the first question is: is the failure on the
 Python side (wrong inputs, missing run folder, scope check wrong) or on
