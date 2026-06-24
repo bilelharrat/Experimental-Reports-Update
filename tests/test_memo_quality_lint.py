@@ -195,6 +195,40 @@ def test_linter_blocks_third_person_recommendation_voice(tmp_path):
     assert "The opportunity offered to investors is" in snippets
 
 
+def test_linter_blocks_meta_process_language(tmp_path):
+    path = tmp_path / "meta-process-language.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "The memo frames ZaiNar as a scarce technical asset.",
+            "This memo treats ZaiNar as a scarce technical asset.",
+            "Our memo recommends participating through the SPV.",
+            "The analysis suggests revenue should be treated as unproven.",
+            "Our analysis points to conditional participation.",
+            "This document outlines the key risks.",
+            "This section covers the investment risk.",
+            "The framework points toward conditional participation.",
+            "We outline the investment case below.",
+            "We discuss the downside case later.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    snippets = " ".join(f.snippet for f in result.findings)
+
+    assert result.has_blocking_findings is True
+    assert any(f.code == "meta_process_language" for f in result.findings)
+    assert "The memo" in snippets
+    assert "The analysis" in snippets
+    assert "This memo" in snippets
+    assert "Our memo" in snippets
+    assert "Our analysis" in snippets
+    assert "This document" in snippets
+    assert "We outline" in snippets
+    assert "We discuss" in snippets
+
+
 def test_linter_allows_gating_questions_as_investment_memo_language(tmp_path):
     path = tmp_path / "gating-questions.docx"
     _save_docx(

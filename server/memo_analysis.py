@@ -26,6 +26,7 @@ What this worker deliberately does **not** do (see `docs/architecture.md`):
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
@@ -124,6 +125,52 @@ def _emit_phase_timing(
     stream.emit("phase_timing", **payload)
 
 
+@contextmanager
+def _timed_phase(
+    stream: job_progress.ProgressLog,
+    *,
+    phase: str,
+    **fields: Any,
+):
+    started_at = _now_iso()
+    started_monotonic = time.monotonic()
+    _emit_phase_timing(
+        stream,
+        phase=phase,
+        status="started",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        **fields,
+    )
+    outcome: dict[str, Any] = {}
+    try:
+        yield outcome
+    except Exception as exc:  # noqa: BLE001
+        outcome.setdefault("error", f"{type(exc).__name__}: {exc}")
+        status = str(outcome.pop("status", "failed"))
+        _emit_phase_timing(
+            stream,
+            phase=phase,
+            status=status,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            **fields,
+            **outcome,
+        )
+        raise
+    else:
+        status = str(outcome.pop("status", "finished"))
+        _emit_phase_timing(
+            stream,
+            phase=phase,
+            status=status,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            **fields,
+            **outcome,
+        )
+
+
 class _ThreadProgress:
     """Attach a stable progress thread to events from one fast memo worker."""
 
@@ -163,6 +210,7 @@ class _FastMemoPassResult:
     error: str | None
     duration_ms: int
     cost_usd: float
+    usage: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -342,15 +390,25 @@ def _block_generated_renderer_scripts(
     result: dict,
     recovered: bool = False,
 ) -> bool:
-    forbidden_scripts = memo_docx_renderer.find_generated_renderer_scripts(run_dir)
-    if not forbidden_scripts:
-        return False
-    rel_paths = [memo_prep._rel(path) for path in forbidden_scripts]
-    msg = (
-        "Memo run generated bespoke renderer code instead of using "
-        "server.memo_docx_renderer: "
-        + "; ".join(rel_paths[:8])
-    )
+    with _timed_phase(
+        stream,
+        phase="memo_renderer_script_precheck",
+        recovered=recovered,
+        run_dir=memo_prep._rel(run_dir),
+    ) as timing:
+        forbidden_scripts = memo_docx_renderer.find_generated_renderer_scripts(run_dir)
+        timing["generated_renderer_script_count"] = len(forbidden_scripts)
+        if not forbidden_scripts:
+            return False
+        rel_paths = [memo_prep._rel(path) for path in forbidden_scripts]
+        msg = (
+            "Memo run generated bespoke renderer code instead of using "
+            "server.memo_docx_renderer: "
+            + "; ".join(rel_paths[:8])
+        )
+        timing["status"] = "failed"
+        timing["error"] = msg
+        timing["generated_renderer_scripts"] = rel_paths
     storage.update_report(
         report_id,
         status="failed_during_analysis",
@@ -456,46 +514,62 @@ def _render_memo_pdf_previews(
         recovered=recovered,
     )
 
-    current_report = storage.get_report(report_id) or {}
-    updated_memo_files: list[dict] = []
-    for entry in current_report.get("memo_files") or []:
-        lang = entry.get("language")
-        new_entry = dict(entry)
-        docx_abs = memo_paths_abs.get(lang)
-        if docx_abs and docx_abs.exists():
-            existing_pdf = new_entry.get("pdf_path")
-            if existing_pdf and (
-                memo_prep.DATA_DIR.parent / existing_pdf
-            ).exists():
-                updated_memo_files.append(new_entry)
-                continue
-            pdf_abs = docx_abs.with_suffix(".pdf")
-            try:
-                ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "PDF render crashed for %s memo (%s)", lang, report_id
-                )
-                ok = False
-                err = f"PDF conversion crashed: {type(exc).__name__}: {exc}"
-            if ok:
-                new_entry["pdf_path"] = memo_prep._rel(pdf_abs)
-            else:
-                logger.warning(
-                    "PDF render failed for %s memo (%s): %s",
-                    lang,
-                    report_id,
-                    err,
-                )
-                stream.emit(
-                    "claude_action",
-                    action="tool_result",
-                    tool="docx→pdf",
-                    is_error=True,
-                    preview=(err or "PDF conversion failed")[:200],
-                    recovered=recovered,
-                )
-        updated_memo_files.append(new_entry)
+    with _timed_phase(
+        stream,
+        phase="memo_pdf_previews",
+        recovered=recovered,
+        enabled=True,
+    ) as timing:
+        current_report = storage.get_report(report_id) or {}
+        updated_memo_files: list[dict] = []
+        converted_count = 0
+        skipped_existing_count = 0
+        failed_count = 0
+        for entry in current_report.get("memo_files") or []:
+            lang = entry.get("language")
+            new_entry = dict(entry)
+            docx_abs = memo_paths_abs.get(lang)
+            if docx_abs and docx_abs.exists():
+                existing_pdf = new_entry.get("pdf_path")
+                if existing_pdf and (
+                    memo_prep.DATA_DIR.parent / existing_pdf
+                ).exists():
+                    skipped_existing_count += 1
+                    updated_memo_files.append(new_entry)
+                    continue
+                pdf_abs = docx_abs.with_suffix(".pdf")
+                try:
+                    ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        "PDF render crashed for %s memo (%s)", lang, report_id
+                    )
+                    ok = False
+                    err = f"PDF conversion crashed: {type(exc).__name__}: {exc}"
+                if ok:
+                    converted_count += 1
+                    new_entry["pdf_path"] = memo_prep._rel(pdf_abs)
+                else:
+                    failed_count += 1
+                    logger.warning(
+                        "PDF render failed for %s memo (%s): %s",
+                        lang,
+                        report_id,
+                        err,
+                    )
+                    stream.emit(
+                        "claude_action",
+                        action="tool_result",
+                        tool="docx→pdf",
+                        is_error=True,
+                        preview=(err or "PDF conversion failed")[:200],
+                        recovered=recovered,
+                    )
+            updated_memo_files.append(new_entry)
+        timing["memo_file_count"] = len(updated_memo_files)
+        timing["converted_count"] = converted_count
+        timing["skipped_existing_count"] = skipped_existing_count
+        timing["failed_count"] = failed_count
 
     storage.update_report(report_id, memo_files=updated_memo_files)
     return updated_memo_files
@@ -526,6 +600,16 @@ def _maybe_render_memo_pdf_previews(
         ),
         recovered=recovered,
     )
+    _emit_phase_timing(
+        stream,
+        phase="memo_pdf_previews",
+        status="skipped",
+        started_at=_now_iso(),
+        started_monotonic=time.monotonic(),
+        recovered=recovered,
+        enabled=False,
+        reason="BSH_MEMO_RENDER_PDF_PREVIEWS not enabled",
+    )
     current_report = storage.get_report(report_id) or {}
     return list(current_report.get("memo_files") or [])
 
@@ -535,45 +619,60 @@ def _render_internal_pdf_previews(
     report_id: str,
     stream: job_progress.ProgressLog,
 ) -> list[dict]:
-    current_report = storage.get_report(report_id) or {}
-    updated_internal_files: list[dict] = []
-    for entry in current_report.get("internal_memo_files") or []:
-        new_entry = dict(entry)
-        docx_rel = new_entry.get("path")
-        if docx_rel:
-            docx_abs = memo_prep.DATA_DIR.parent / docx_rel
-            if docx_abs.exists():
-                existing_pdf = new_entry.get("pdf_path")
-                if existing_pdf and (
-                    memo_prep.DATA_DIR.parent / existing_pdf
-                ).exists():
-                    updated_internal_files.append(new_entry)
-                    continue
-                pdf_abs = docx_abs.with_suffix(".pdf")
-                try:
-                    ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception(
-                        "PDF render crashed for internal memo (%s)", report_id
-                    )
-                    ok = False
-                    err = f"PDF conversion crashed: {type(exc).__name__}: {exc}"
-                if ok:
-                    new_entry["pdf_path"] = memo_prep._rel(pdf_abs)
-                else:
-                    logger.warning(
-                        "PDF render failed for internal memo (%s): %s",
-                        report_id,
-                        err,
-                    )
-                    stream.emit(
-                        "claude_action",
-                        action="tool_result",
-                        tool="internal-docx→pdf",
-                        is_error=True,
-                        preview=(err or "PDF conversion failed")[:200],
-                    )
-        updated_internal_files.append(new_entry)
+    with _timed_phase(
+        stream,
+        phase="memo_internal_pdf_previews",
+        enabled=True,
+    ) as timing:
+        current_report = storage.get_report(report_id) or {}
+        updated_internal_files: list[dict] = []
+        converted_count = 0
+        skipped_existing_count = 0
+        failed_count = 0
+        for entry in current_report.get("internal_memo_files") or []:
+            new_entry = dict(entry)
+            docx_rel = new_entry.get("path")
+            if docx_rel:
+                docx_abs = memo_prep.DATA_DIR.parent / docx_rel
+                if docx_abs.exists():
+                    existing_pdf = new_entry.get("pdf_path")
+                    if existing_pdf and (
+                        memo_prep.DATA_DIR.parent / existing_pdf
+                    ).exists():
+                        skipped_existing_count += 1
+                        updated_internal_files.append(new_entry)
+                        continue
+                    pdf_abs = docx_abs.with_suffix(".pdf")
+                    try:
+                        ok, err = docx_pdf.convert_docx_to_pdf(docx_abs, pdf_abs)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception(
+                            "PDF render crashed for internal memo (%s)", report_id
+                        )
+                        ok = False
+                        err = f"PDF conversion crashed: {type(exc).__name__}: {exc}"
+                    if ok:
+                        converted_count += 1
+                        new_entry["pdf_path"] = memo_prep._rel(pdf_abs)
+                    else:
+                        failed_count += 1
+                        logger.warning(
+                            "PDF render failed for internal memo (%s): %s",
+                            report_id,
+                            err,
+                        )
+                        stream.emit(
+                            "claude_action",
+                            action="tool_result",
+                            tool="internal-docx→pdf",
+                            is_error=True,
+                            preview=(err or "PDF conversion failed")[:200],
+                        )
+            updated_internal_files.append(new_entry)
+        timing["internal_file_count"] = len(updated_internal_files)
+        timing["converted_count"] = converted_count
+        timing["skipped_existing_count"] = skipped_existing_count
+        timing["failed_count"] = failed_count
     storage.update_report(report_id, internal_memo_files=updated_internal_files)
     return updated_internal_files
 
@@ -626,59 +725,82 @@ def _render_memo_outputs(
         memo_package=memo_prep._rel(package_path),
         recovered=recovered,
     )
+    package_size_bytes = None
     try:
-        memo_docx_renderer.render_memos(
-            package_path,
-            out_en=memo_paths_abs["en"],
-            out_zh=memo_paths_abs["zh"],
-            manifest_path=run_dir / "logs" / "run_manifest.md",
-            inventory_path=run_dir / "logs" / "file_inventory.md",
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("memo package render failed for report %s", report_id)
-        _maybe_render_memo_pdf_previews(
-            report_id=report_id,
-            memo_paths_abs=memo_paths_abs,
-            stream=stream,
-            recovered=recovered,
-        )
-        _fail_renderer_contract(
-            report_id=report_id,
-            stream=stream,
-            result=result,
-            message=(
+        package_size_bytes = package_path.stat().st_size
+    except OSError:
+        pass
+    with _timed_phase(
+        stream,
+        phase="memo_docx_render",
+        recovered=recovered,
+        memo_package=memo_prep._rel(package_path),
+        package_size_bytes=package_size_bytes,
+        output_en=memo_prep._rel(memo_paths_abs["en"]),
+        output_zh=memo_prep._rel(memo_paths_abs["zh"]),
+    ) as timing:
+        try:
+            memo_docx_renderer.render_memos(
+                package_path,
+                out_en=memo_paths_abs["en"],
+                out_zh=memo_paths_abs["zh"],
+                manifest_path=run_dir / "logs" / "run_manifest.md",
+                inventory_path=run_dir / "logs" / "file_inventory.md",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("memo package render failed for report %s", report_id)
+            message = (
                 "Memo package render failed: "
                 f"{type(exc).__name__}: {exc}"
-            ),
-            contract=_renderer_contract_diagnostics(
-                run_dir=run_dir,
+            )
+            timing["status"] = "failed"
+            timing["error"] = message
+            _maybe_render_memo_pdf_previews(
+                report_id=report_id,
                 memo_paths_abs=memo_paths_abs,
-            ),
-            recovered=recovered,
-        )
-        return False
+                stream=stream,
+                recovered=recovered,
+            )
+            _fail_renderer_contract(
+                report_id=report_id,
+                stream=stream,
+                result=result,
+                message=message,
+                contract=_renderer_contract_diagnostics(
+                    run_dir=run_dir,
+                    memo_paths_abs=memo_paths_abs,
+                ),
+                recovered=recovered,
+            )
+            return False
 
-    contract = _renderer_contract_diagnostics(
-        run_dir=run_dir,
-        memo_paths_abs=memo_paths_abs,
-    )
-    errors = list(contract.get("errors") or [])
-    if errors:
-        _maybe_render_memo_pdf_previews(
-            report_id=report_id,
+        contract = _renderer_contract_diagnostics(
+            run_dir=run_dir,
             memo_paths_abs=memo_paths_abs,
-            stream=stream,
-            recovered=recovered,
         )
-        _fail_renderer_contract(
-            report_id=report_id,
-            stream=stream,
-            result=result,
-            message="Renderer contract failed: " + "; ".join(errors),
-            contract=contract,
-            recovered=recovered,
-        )
-        return False
+        errors = list(contract.get("errors") or [])
+        timing["renderer_contract_error_count"] = len(errors)
+        timing["expected_files"] = contract.get("expected_files")
+        if errors:
+            message = "Renderer contract failed: " + "; ".join(errors)
+            timing["status"] = "failed"
+            timing["error"] = message
+            timing["renderer_contract_errors"] = errors
+            _maybe_render_memo_pdf_previews(
+                report_id=report_id,
+                memo_paths_abs=memo_paths_abs,
+                stream=stream,
+                recovered=recovered,
+            )
+            _fail_renderer_contract(
+                report_id=report_id,
+                stream=stream,
+                result=result,
+                message=message,
+                contract=contract,
+                recovered=recovered,
+            )
+            return False
     return True
 
 
@@ -702,54 +824,101 @@ def _run_chinese_parity_gate(
         message="Checking Chinese memo structure and CJK parity",
         recovered=recovered,
     )
-    parity_result = memo_chinese_parity.lint_chinese_memo_pair(
-        memo_paths_abs["en"],
-        memo_paths_abs["zh"],
-    )
-    parity_path = run_dir / "logs" / "memo_chinese_parity.md"
-    parity_path.write_text(
-        memo_chinese_parity.render_markdown_report(parity_result),
-        encoding="utf-8",
-    )
-    parity_payload = parity_result.to_dict()
-    if parity_result.has_blocking_findings:
-        msg = (
-            "Generated Chinese memo failed the parity gate with "
-            f"{parity_payload['p0_count']} P0 finding"
-            f"{'' if parity_payload['p0_count'] == 1 else 's'}. "
-            f"See {memo_prep._rel(parity_path)}."
+    with _timed_phase(
+        stream,
+        phase="memo_chinese_parity_gate",
+        recovered=recovered,
+        english_memo=memo_prep._rel(memo_paths_abs["en"]),
+        chinese_memo=memo_prep._rel(memo_paths_abs["zh"]),
+    ) as timing:
+        failure_payload = None
+        failure_message = None
+        parity_result = memo_chinese_parity.lint_chinese_memo_pair(
+            memo_paths_abs["en"],
+            memo_paths_abs["zh"],
         )
-        storage.update_report(
-            report_id,
-            status="failed_quality_gate",
-            stage="Memo failed Chinese parity gate",
-            progress=89,
-            error=msg,
-            failure_phase="chinese_parity_gate",
-            failure_detail=msg,
-            artifacts_available=True,
-            memo_chinese_parity=parity_payload,
-            claude_cost_usd=result.get("cost_usd"),
-            claude_duration_ms=result.get("duration_ms"),
+        parity_path = run_dir / "logs" / "memo_chinese_parity.md"
+        parity_path.write_text(
+            memo_chinese_parity.render_markdown_report(parity_result),
+            encoding="utf-8",
         )
-        payload = {
-            "error": msg,
-            "phase": "chinese_parity_gate",
-            "parity_report": memo_prep._rel(parity_path),
-            "findings": parity_payload["findings"][:10],
-        }
-        if recovered:
-            payload["recovered"] = True
+        parity_payload = parity_result.to_dict()
+        timing["parity_report"] = memo_prep._rel(parity_path)
+        timing["finding_count"] = parity_payload.get("finding_count")
+        timing["p0_count"] = parity_payload.get("p0_count")
+        if parity_result.has_blocking_findings:
+            msg = (
+                "Generated Chinese memo failed the parity gate with "
+                f"{parity_payload['p0_count']} P0 finding"
+                f"{'' if parity_payload['p0_count'] == 1 else 's'}. "
+                f"See {memo_prep._rel(parity_path)}."
+            )
+            timing["status"] = "failed"
+            timing["error"] = msg
+            failure_message = msg
+            storage.update_report(
+                report_id,
+                status="failed_quality_gate",
+                stage="Memo failed Chinese parity gate",
+                progress=89,
+                error=msg,
+                failure_phase="chinese_parity_gate",
+                failure_detail=msg,
+                artifacts_available=True,
+                memo_chinese_parity=parity_payload,
+                claude_cost_usd=result.get("cost_usd"),
+                claude_duration_ms=result.get("duration_ms"),
+            )
+            payload = {
+                "error": msg,
+                "phase": "chinese_parity_gate",
+                "parity_report": memo_prep._rel(parity_path),
+                "findings": parity_payload["findings"][:10],
+            }
+            if recovered:
+                payload["recovered"] = True
+            failure_payload = payload
+
+    if failure_payload:
         stream.emit(
             "thread_failed",
             thread=claude_runner.MEMO_PHASE5_THREAD,
-            error=msg,
+            error=failure_message,
         )
-        stream.emit("error", **payload)
+        stream.emit("error", **failure_payload)
         return False
 
     storage.update_report(report_id, memo_chinese_parity=parity_payload)
     return True
+
+
+def _lint_memo_quality_gate(
+    *,
+    run_dir: Path,
+    memo_paths_abs: dict[str, Path],
+    stream: job_progress.ProgressLog,
+    recovered: bool = False,
+) -> tuple[memo_quality_lint.MemoLintResult, Path]:
+    memo_path = memo_paths_abs["en"]
+    with _timed_phase(
+        stream,
+        phase="memo_quality_gate",
+        recovered=recovered,
+        english_memo=memo_prep._rel(memo_path),
+    ) as timing:
+        lint_result = memo_quality_lint.lint_memo_docx(memo_path)
+        lint_path = run_dir / "logs" / "memo_quality_lint.md"
+        lint_path.write_text(
+            memo_quality_lint.render_markdown_report(lint_result),
+            encoding="utf-8",
+        )
+        lint_payload = lint_result.to_dict()
+        timing["lint_report"] = memo_prep._rel(lint_path)
+        timing["finding_count"] = lint_payload.get("finding_count")
+        timing["p0_count"] = lint_payload.get("p0_count")
+        if lint_result.has_blocking_findings:
+            timing["status"] = "failed"
+    return lint_result, lint_path
 
 
 def _run_internal_diligence_memo(
@@ -768,84 +937,105 @@ def _run_internal_diligence_memo(
     scope_check: dict | None,
     warnings: list[str],
 ) -> dict | None:
-    md_path = internal_paths_abs.get("md")
-    docx_path = internal_paths_abs.get("docx")
-    if not md_path or not docx_path:
-        _fail_internal_memo(
-            report_id=report_id,
-            stream=stream,
-            result=result,
-            message="Report record is missing internal diligence memo paths.",
-        )
-        return None
-
-    storage.update_report(
-        report_id,
-        stage="Writing internal diligence memo",
-        progress=92,
-    )
-    internal_result = claude_runner.run_internal_diligence_memo(
-        run_dir=run_dir,
-        company_name=company_name,
-        company_slug=company_slug,
+    with _timed_phase(
+        stream,
+        phase="memo_internal_diligence",
         run_id=run_id,
-        settings_path=memo_prep.SETTINGS_FILE,
-        companies_yaml_path=memo_prep.COMPANIES_FILE,
-        memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-        internal_markdown_path=md_path,
-        research_dir=research_store.RESEARCH_ROOT / company_slug,
-        analysis_session_path=analysis_session_path,
-        lessons_path=lessons_path,
-        scope_check=scope_check,
-        warnings=warnings,
-        progress=stream,
-        timeout_sec=1200,
-    )
-    if not internal_result.get("ok"):
-        _fail_internal_memo(
-            report_id=report_id,
-            stream=stream,
-            result=_combined_result(result, internal_result),
-            message=internal_result.get("error") or "Internal diligence memo failed.",
-        )
-        return None
+    ) as timing:
+        md_path = internal_paths_abs.get("md")
+        docx_path = internal_paths_abs.get("docx")
+        if not md_path or not docx_path:
+            message = "Report record is missing internal diligence memo paths."
+            timing["status"] = "failed"
+            timing["error"] = message
+            _fail_internal_memo(
+                report_id=report_id,
+                stream=stream,
+                result=result,
+                message=message,
+            )
+            return None
 
-    storage.update_report(
-        report_id,
-        stage="Rendering internal diligence memo DOCX",
-        progress=94,
-    )
-    stream.emit(
-        "stage",
-        stage="rendering_internal_memo_docx",
-        message="Rendering internal diligence memo DOCX",
-        markdown_path=memo_prep._rel(md_path),
-    )
-    try:
-        internal_memo_renderer.render_internal_memo(md_path, docx_path)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("internal diligence memo render failed for report %s", report_id)
-        _fail_internal_memo(
-            report_id=report_id,
-            stream=stream,
-            result=_combined_result(result, internal_result),
-            message=(
+        timing["markdown_path"] = memo_prep._rel(md_path)
+        timing["docx_path"] = memo_prep._rel(docx_path)
+        storage.update_report(
+            report_id,
+            stage="Writing internal diligence memo",
+            progress=92,
+        )
+        internal_result = claude_runner.run_internal_diligence_memo(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            settings_path=memo_prep.SETTINGS_FILE,
+            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+            internal_markdown_path=md_path,
+            research_dir=research_store.RESEARCH_ROOT / company_slug,
+            analysis_session_path=analysis_session_path,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            progress=stream,
+            timeout_sec=1200,
+        )
+        timing["claude_cost_usd"] = internal_result.get("cost_usd")
+        timing["claude_duration_ms"] = internal_result.get("duration_ms")
+        if not internal_result.get("ok"):
+            message = internal_result.get("error") or "Internal diligence memo failed."
+            timing["status"] = "failed"
+            timing["error"] = message
+            _fail_internal_memo(
+                report_id=report_id,
+                stream=stream,
+                result=_combined_result(result, internal_result),
+                message=message,
+            )
+            return None
+
+        storage.update_report(
+            report_id,
+            stage="Rendering internal diligence memo DOCX",
+            progress=94,
+        )
+        stream.emit(
+            "stage",
+            stage="rendering_internal_memo_docx",
+            message="Rendering internal diligence memo DOCX",
+            markdown_path=memo_prep._rel(md_path),
+        )
+        try:
+            internal_memo_renderer.render_internal_memo(md_path, docx_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "internal diligence memo render failed for report %s",
+                report_id,
+            )
+            message = (
                 "Internal diligence memo render failed: "
                 f"{type(exc).__name__}: {exc}"
-            ),
-        )
-        return None
+            )
+            timing["status"] = "failed"
+            timing["error"] = message
+            _fail_internal_memo(
+                report_id=report_id,
+                stream=stream,
+                result=_combined_result(result, internal_result),
+                message=message,
+            )
+            return None
 
-    internal_files = [
-        {
-            "kind": "internal_diligence_memo",
-            "language": "en",
-            "markdown_path": memo_prep._rel(md_path),
-            "path": memo_prep._rel(docx_path),
-        }
-    ]
-    storage.update_report(report_id, internal_memo_files=internal_files)
-    return internal_result
+        internal_files = [
+            {
+                "kind": "internal_diligence_memo",
+                "language": "en",
+                "markdown_path": memo_prep._rel(md_path),
+                "path": memo_prep._rel(docx_path),
+            }
+        ]
+        storage.update_report(report_id, internal_memo_files=internal_files)
+        return internal_result
 
 
 def _fail_internal_memo(
@@ -999,6 +1189,7 @@ def _write_fast_pass_outputs(*, run_dir: Path, result: _FastMemoPassResult) -> N
                 "error": result.error,
                 "duration_ms": result.duration_ms,
                 "cost_usd": result.cost_usd,
+                "usage": result.usage,
                 "data": result.data,
             },
             ensure_ascii=False,
@@ -1097,6 +1288,9 @@ def _run_fast_memo_pass(
             _as_float((data or {}).get("claude_cost_usd")) or sub_progress.cost_usd,
             6,
         ),
+        usage=(data or {}).get("claude_usage")
+        if isinstance((data or {}).get("claude_usage"), dict)
+        else None,
     )
     _write_fast_pass_outputs(run_dir=run_dir, result=result)
     sub_progress.emit(
@@ -1114,6 +1308,9 @@ def _run_fast_memo_pass(
         started_monotonic=started_monotonic,
         thread=spec.label,
         error=result.error,
+        cost_usd=result.cost_usd,
+        claude_duration_ms=_as_int((data or {}).get("claude_duration_ms")),
+        usage=result.usage,
     )
     return result
 
@@ -1240,6 +1437,8 @@ def _run_fast_memo_pipeline(
             started_monotonic=phase2_started,
             ok_count=sum(1 for result in pass_results if result.ok),
             error_count=sum(1 for result in pass_results if not result.ok),
+            pass_count=len(pass_results),
+            worker_count=worker_count,
             worker_duration_ms=worker_duration_ms,
         )
         if not any(result.ok for result in pass_results):
@@ -1313,6 +1512,11 @@ def _run_fast_memo_pipeline(
         started_at=phase3_started_at,
         started_monotonic=phase3_started,
         memo_package=memo_prep._rel(english_package_path),
+        cost_usd=_as_float(english_result.get("claude_cost_usd")),
+        claude_duration_ms=_as_int(english_result.get("claude_duration_ms")),
+        usage=english_result.get("claude_usage")
+        if isinstance(english_result.get("claude_usage"), dict)
+        else None,
     )
 
     phase4_started_at = _now_iso()
@@ -1362,6 +1566,11 @@ def _run_fast_memo_pipeline(
         started_at=phase4_started_at,
         started_monotonic=phase4_started,
         memo_package=memo_prep._rel(final_package_path),
+        cost_usd=_as_float(bilingual_result.get("claude_cost_usd")),
+        claude_duration_ms=_as_int(bilingual_result.get("claude_duration_ms")),
+        usage=bilingual_result.get("claude_usage")
+        if isinstance(bilingual_result.get("claude_usage"), dict)
+        else None,
     )
 
     duration_ms = int((time.monotonic() - started_monotonic) * 1000)
@@ -1531,11 +1740,11 @@ def recover_stale_reports() -> int:
             recovered=True,
         ):
             continue
-        lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
-        lint_path = run_dir / "logs" / "memo_quality_lint.md"
-        lint_path.write_text(
-            memo_quality_lint.render_markdown_report(lint_result),
-            encoding="utf-8",
+        lint_result, lint_path = _lint_memo_quality_gate(
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+            stream=stream,
+            recovered=True,
         )
         if lint_result.has_blocking_findings:
             lint_payload = lint_result.to_dict()
@@ -1689,6 +1898,9 @@ def _finalize_memo_from_package(
     stream: job_progress.ProgressLog,
     result: dict,
     recovered: bool = False,
+    background_started_at: str | None = None,
+    background_started_monotonic: float | None = None,
+    background_fields: dict[str, Any] | None = None,
 ) -> bool:
     company_name = str(report.get("company_name") or report.get("company_id"))
     company_slug = str(report.get("company_id"))
@@ -1799,11 +2011,11 @@ def _finalize_memo_from_package(
         message="Running memo quality gate",
         recovered=recovered,
     )
-    lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
-    lint_path = run_dir / "logs" / "memo_quality_lint.md"
-    lint_path.write_text(
-        memo_quality_lint.render_markdown_report(lint_result),
-        encoding="utf-8",
+    lint_result, lint_path = _lint_memo_quality_gate(
+        run_dir=run_dir,
+        memo_paths_abs=memo_paths_abs,
+        stream=stream,
+        recovered=recovered,
     )
     if lint_result.has_blocking_findings:
         lint_payload = lint_result.to_dict()
@@ -1895,6 +2107,16 @@ def _finalize_memo_from_package(
             ),
             recovered=recovered,
         )
+        _emit_phase_timing(
+            stream,
+            phase="memo_internal_diligence",
+            status="skipped",
+            started_at=_now_iso(),
+            started_monotonic=time.monotonic(),
+            recovered=recovered,
+            enabled=False,
+            reason="BSH_MEMO_GENERATE_INTERNAL not enabled or no internal memo paths",
+        )
     stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE6_THREAD)
 
     storage.update_report(
@@ -1924,6 +2146,19 @@ def _finalize_memo_from_package(
         }
     if recovered:
         done_payload["recovered"] = True
+    if background_started_at and background_started_monotonic is not None:
+        _emit_phase_timing(
+            stream,
+            phase="memo_background_run",
+            status="finished",
+            started_at=background_started_at,
+            started_monotonic=background_started_monotonic,
+            **(background_fields or {}),
+            cost_usd=combined_result.get("cost_usd"),
+            claude_duration_ms=combined_result.get("duration_ms"),
+            worker_duration_ms=combined_result.get("worker_duration_ms"),
+            internal_generated=internal_generated,
+        )
     stream.emit("done", **done_payload)
     return True
 
@@ -2193,6 +2428,23 @@ def _run(report_id: str) -> None:
     lessons_path = serena_analysis.memo_lessons_path(company_slug)
     if not lessons_path.exists():
         lessons_path = None
+    fast_pipeline_enabled = _memo_fast_pipeline_enabled()
+    background_started_at = _now_iso()
+    background_started = time.monotonic()
+    _emit_phase_timing(
+        stream,
+        phase="memo_background_run",
+        status="started",
+        started_at=background_started_at,
+        started_monotonic=background_started,
+        report_id=report_id,
+        company_id=company_slug,
+        run_id=run_id,
+        fast_pipeline=fast_pipeline_enabled,
+        approved_packet_mode=bool(approved_analysis_session_path),
+        internal_memo_enabled=_internal_diligence_memo_enabled(),
+        pdf_previews_enabled=_memo_pdf_previews_enabled(),
+    )
 
     storage.update_report(
         report_id,
@@ -2201,7 +2453,7 @@ def _run(report_id: str) -> None:
         progress=15,
     )
 
-    if _memo_fast_pipeline_enabled():
+    if fast_pipeline_enabled:
         result = _run_fast_memo_pipeline(
             report_id=report_id,
             report=report,
@@ -2215,6 +2467,16 @@ def _run(report_id: str) -> None:
             lessons_path=lessons_path,
         )
     else:
+        legacy_started_at = _now_iso()
+        legacy_started = time.monotonic()
+        _emit_phase_timing(
+            stream,
+            phase="memo_legacy_claude",
+            status="started",
+            started_at=legacy_started_at,
+            started_monotonic=legacy_started,
+            timeout_sec=3600,
+        )
         stream.emit(
             "stage",
             stage="memo_legacy_pipeline_starting",
@@ -2239,6 +2501,17 @@ def _run(report_id: str) -> None:
             warnings=list(report.get("warnings") or []),
             progress=stream,
             timeout_sec=3600,
+        )
+        _emit_phase_timing(
+            stream,
+            phase="memo_legacy_claude",
+            status="finished" if result.get("ok") else "failed",
+            started_at=legacy_started_at,
+            started_monotonic=legacy_started,
+            cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+            usage=result.get("usage"),
+            error=result.get("error"),
         )
 
     if not result.get("ok"):
@@ -2286,6 +2559,23 @@ def _run(report_id: str) -> None:
             claude_cost_usd=result.get("cost_usd"),
             claude_duration_ms=result.get("duration_ms"),
         )
+        _emit_phase_timing(
+            stream,
+            phase="memo_background_run",
+            status="failed",
+            started_at=background_started_at,
+            started_monotonic=background_started,
+            report_id=report_id,
+            company_id=company_slug,
+            run_id=run_id,
+            fast_pipeline=fast_pipeline_enabled,
+            approved_packet_mode=bool(approved_analysis_session_path),
+            error=message,
+            artifacts_available=salvaged,
+            cost_usd=result.get("cost_usd"),
+            claude_duration_ms=result.get("duration_ms"),
+            worker_duration_ms=result.get("worker_duration_ms"),
+        )
         stream.emit(
             "error",
             error=message,
@@ -2300,5 +2590,14 @@ def _run(report_id: str) -> None:
         run_dir=run_dir,
         stream=stream,
         result=result,
+        background_started_at=background_started_at,
+        background_started_monotonic=background_started,
+        background_fields={
+            "report_id": report_id,
+            "company_id": company_slug,
+            "run_id": run_id,
+            "fast_pipeline": fast_pipeline_enabled,
+            "approved_packet_mode": bool(approved_analysis_session_path),
+        },
     )
     return

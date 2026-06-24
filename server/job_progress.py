@@ -123,6 +123,7 @@ def scan_progress_state(path: Path) -> dict:
         "thread_failed_count": 0,
         "open_thread_count": 0,
         "threads": [],
+        "phase_timings": [],
         "backoff_until": None,
         "backoff_remaining_seconds": None,
         "recoverable": None,
@@ -242,6 +243,11 @@ def scan_progress_state(path: Path) -> dict:
                         ]
                     if "recoverable" in entry:
                         state["recoverable"] = entry["recoverable"]
+                elif etype == "phase_timing":
+                    phase_timings = state.setdefault("phase_timings", [])
+                    phase_timings.append(entry)
+                    if len(phase_timings) > 200:
+                        del phase_timings[:-200]
                 elif etype == "candidates":
                     state["latest_stage_key"] = "candidates"
                     state["latest_stage"] = entry.get("message") or "Found candidates"

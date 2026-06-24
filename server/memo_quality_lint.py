@@ -181,10 +181,15 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bkeep (?:the )?(?:position|allocation|check|ticket) small\b", re.IGNORECASE),
 )
 _META_LANGUAGE_PATTERNS = (
-    re.compile(r"\bthe memo\b", re.IGNORECASE),
-    re.compile(r"\bthe analysis\b", re.IGNORECASE),
-    re.compile(r"\bthe framework\b", re.IGNORECASE),
-    re.compile(r"\bthis section\b", re.IGNORECASE),
+    re.compile(r"\b(?:the|this|our) memo\b", re.IGNORECASE),
+    re.compile(r"\b(?:the|this|our) analysis\b", re.IGNORECASE),
+    re.compile(r"\b(?:the|this|our) framework\b", re.IGNORECASE),
+    re.compile(r"\b(?:the|this|our) section\b", re.IGNORECASE),
+    re.compile(r"\b(?:the|this|our) document\b", re.IGNORECASE),
+    re.compile(
+        r"\bwe (?:will )?(?:outline|discuss|summari[sz]e|cover|frame|review|walk through)\b",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -389,6 +394,23 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                 )
                 break
 
+        for pattern in _META_LANGUAGE_PATTERNS:
+            match = pattern.search(block.text)
+            if match:
+                findings.append(
+                    _finding(
+                        block,
+                        "P0",
+                        "meta_process_language",
+                        match.group(0),
+                        (
+                            "Rewrite writer/process language as direct "
+                            "investment judgment."
+                        ),
+                    )
+                )
+                break
+
         if "—" in block.text:
             findings.append(
                 _finding(
@@ -417,19 +439,6 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                 )
             )
 
-        for pattern in _META_LANGUAGE_PATTERNS:
-            match = pattern.search(block.text)
-            if match:
-                findings.append(
-                    _finding(
-                        block,
-                        "P1",
-                        "meta_language",
-                        match.group(0),
-                        "Rewrite process language as direct investment judgment.",
-                    )
-                )
-                break
     return _dedupe_findings(findings)
 
 

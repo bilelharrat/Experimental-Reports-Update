@@ -2491,8 +2491,11 @@ Final memo prose must:
 - convert evidence into judgment;
 - avoid process language, methodology narration, task labels, and validation
   scaffolding in the body;
-- avoid meta-commentary about "the memo", "the analysis", "the framework",
-  "this section", or what the writer is doing;
+- make statements directly. Do not write about the memo as an object, do not
+  narrate what the memo/document/section/analysis does, and do not use
+  writer-process phrases such as "this memo", "our memo", "the analysis",
+  "this document", "this section", "we outline", "we discuss", or
+  "we summarize";
 - use first-person sponsor voice when stating our view, access, conviction,
   and action: "we believe", "we are being offered", "we recommend",
   "we would proceed if", and "we would revisit if";
@@ -2541,6 +2544,37 @@ Sell-side investment memo posture:
   generic late-stage checklist. Avoid questions that would also disqualify
   normal early-growth financings that top firms routinely complete.
 
+Concrete positive writing patterns:
+- Opening: "We invest behind physical-world infrastructure that makes people
+  safer and more capable. ZaiNar matters because accurate network-side
+  positioning is becoming a control layer for defense, industrial automation,
+  logistics, and Physical AI."
+- Transaction: "We are being offered SPV exposure to a SAFE expected to convert
+  into the A2 at an effective entry near $2.55B after the discount, subject to
+  confirming the final A2 terms and conversion mechanics."
+- Recommendation: "We recommend proceeding if the binding-contract split,
+  A2 lead, final terms, and SAFE conversion mechanics confirm the current
+  investment case."
+- Revisit trigger: "We would revisit if the A2 prices materially below the
+  current mark, slips beyond the expected closing window, or the binding
+  contract figure is not large enough to support the valuation."
+- Evidence gap: "Revenue is not disclosed; our base case uses binding
+  contract value, implementation timing, and conservative conversion ranges
+  rather than treating pipeline or MOUs as revenue."
+- Risk: "Key risk centers on whether signed commercial interest converts into
+  repeatable deployments quickly enough to support a $3.0B valuation."
+
+Concrete negative examples to reject:
+- "The recommendation is Proceed if confirmed: participate in the SPV."
+- "The opportunity offered to investors is a Wisdom-sponsored SPV interest."
+- "The base case credits a high-conviction franchise."
+- "The memo frames this as a scarce technical asset."
+- "Our memo recommends participating through the SPV."
+- "The analysis suggests the right posture is a small ticket."
+- "This document outlines the key investment risks."
+- "We outline the investment case below."
+- "Due to lack of data, revenue cannot be underwritten."
+
 Final memo body and operating tables must not contain:
 - bracketed source tokens or file references such as `[S1]`, `[WV]`,
   `[WV SPV memo]`, `[companies.yaml]`, `[internal]`, or similar;
@@ -2568,8 +2602,10 @@ Final memo body and operating tables must not contain:
 - BSH internal participation-sizing language or internal recommendation
   instructions;
 - em dash bridging in English body prose or operating tables;
-- meta-language about `the memo`, `the analysis`, `the framework`, or
-  `this section`.
+- meta-language about the memo/document/analysis/framework/section, including
+  `this memo`, `our memo`, `the memo`, `this document`, `the analysis`,
+  `our analysis`, `the framework`, `this section`, or writer-process phrases
+  such as `we outline`, `we discuss`, `we cover`, or `we summarize`.
 
 Memo spine requirement:
 - core_bet: what has to be true for investors to make money;
@@ -2617,6 +2653,8 @@ Banned phrase / rewrite guidance:
 | The current recommendation posture is... | We would proceed if... / We would revisit if... |
 | The memo therefore... | Remove, or rewrite as direct judgment. |
 | The analysis suggests... | State the conclusion directly. |
+| This memo / our memo / this document... | Remove the frame; make the investment statement. |
+| We outline / discuss / summarize... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
 | Proving the case | investment case, base case, conviction, support |
 | Describing participation | participation, commitment, exposure |
@@ -3178,6 +3216,7 @@ def _run_memo_local_json_artifact(
     result_event = state.get("result_event") or {}
     parsed["claude_cost_usd"] = result_event.get("total_cost_usd")
     parsed["claude_duration_ms"] = result_event.get("duration_ms")
+    parsed["claude_usage"] = result_event.get("usage")
     parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
     return parsed, None
 
@@ -3650,6 +3689,7 @@ def run_investment_memo(
             ),
             "cost_usd": result_event.get("total_cost_usd"),
             "duration_ms": result_event.get("duration_ms"),
+            "usage": result_event.get("usage"),
             "subtype": result_event.get("subtype"),
             "api_error_status": result_event.get("api_error_status"),
         }
@@ -3668,6 +3708,7 @@ def run_investment_memo(
     if result_event:
         out["cost_usd"] = result_event.get("total_cost_usd")
         out["duration_ms"] = result_event.get("duration_ms")
+        out["usage"] = result_event.get("usage")
         out["subtype"] = result_event.get("subtype")
     return out
 
@@ -4105,6 +4146,7 @@ def run_resume_memo_package(
             ),
             "cost_usd": result_event.get("total_cost_usd"),
             "duration_ms": result_event.get("duration_ms"),
+            "usage": result_event.get("usage"),
             "subtype": result_event.get("subtype"),
             "api_error_status": result_event.get("api_error_status"),
         }
@@ -4129,6 +4171,7 @@ def run_resume_memo_package(
     if result_event:
         out["cost_usd"] = result_event.get("total_cost_usd")
         out["duration_ms"] = result_event.get("duration_ms")
+        out["usage"] = result_event.get("usage")
         out["subtype"] = result_event.get("subtype")
     return out
 
@@ -4419,6 +4462,7 @@ def run_internal_diligence_memo(
             ),
             "cost_usd": result_event.get("total_cost_usd"),
             "duration_ms": result_event.get("duration_ms"),
+            "usage": result_event.get("usage"),
             "subtype": result_event.get("subtype"),
             "api_error_status": result_event.get("api_error_status"),
         }
@@ -4441,6 +4485,7 @@ def run_internal_diligence_memo(
     if result_event:
         out["cost_usd"] = result_event.get("total_cost_usd")
         out["duration_ms"] = result_event.get("duration_ms")
+        out["usage"] = result_event.get("usage")
         out["subtype"] = result_event.get("subtype")
     return out
 

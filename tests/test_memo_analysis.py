@@ -535,7 +535,28 @@ def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
 
     events = _events(memo_prep.stream_path(run_dir))
     assert any(e.get("stage") == "memo_fast_parallel_dispatch" for e in events)
-    assert any(e.get("type") == "phase_timing" for e in events)
+    phase_events = [e for e in events if e.get("type") == "phase_timing"]
+    phases = {(e.get("phase"), e.get("status")) for e in phase_events}
+    assert ("memo_background_run", "started") in phases
+    assert ("memo_background_run", "finished") in phases
+    assert ("memo_fast_parallel_analysis", "finished") in phases
+    assert ("memo_fast_english_package", "finished") in phases
+    assert ("memo_fast_chinese_package", "finished") in phases
+    assert ("memo_docx_render", "finished") in phases
+    assert ("memo_chinese_parity_gate", "finished") in phases
+    assert ("memo_quality_gate", "finished") in phases
+    assert ("memo_pdf_previews", "skipped") in phases
+    assert ("memo_internal_diligence", "skipped") in phases
+    assert any(
+        e.get("phase") == "memo_fast_parallel_analysis"
+        and e.get("worker_count") == memo_analysis._memo_fast_max_workers()
+        for e in phase_events
+    )
+    scanned = job_progress.scan_progress_state(memo_prep.stream_path(run_dir))
+    assert any(
+        e.get("phase") == "memo_docx_render"
+        for e in scanned.get("phase_timings") or []
+    )
     assert any(e.get("stage") == "pdf_previews_skipped" for e in events)
     assert events[-1]["type"] == "done"
 

@@ -686,6 +686,14 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "investment case under uncertainty" in prompt
     assert "first-person sponsor voice" in prompt
     assert "Open from the sponsor thesis" in prompt
+    assert "Concrete positive writing patterns" in prompt
+    assert "Concrete negative examples to reject" in prompt
+    assert "We are being offered SPV exposure" in prompt
+    assert "We recommend proceeding if the binding-contract split" in prompt
+    assert "Revenue is not disclosed; our base case uses" in prompt
+    assert "Make statements directly" in prompt
+    assert "Our memo recommends participating through the SPV" in prompt
+    assert "We outline the investment case below" in prompt
     assert "bsh_allocation" not in prompt
     assert "BSH target allocation" not in prompt
     assert "The recommendation is..." in prompt
@@ -697,6 +705,53 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "would be misleading to forecast precisely" in prompt
     assert "not revenue-recognized" in prompt
     assert "Final Prose QA Requirements" in prompt
+
+
+def test_fast_english_package_prompt_includes_concrete_voice_guidance(
+    tmp_path, monkeypatch
+):
+    captured = {}
+    companies_path = tmp_path / "companies.yaml"
+    companies_path.write_text(
+        "- id: generalist-inc\n  name: Generalist, Inc.\n",
+        encoding="utf-8",
+    )
+
+    def fake_run_json_artifact(**kwargs):
+        captured.update(kwargs)
+        return {"analysis_artifacts": {}, "memo_package": {}}, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "_run_memo_local_json_artifact",
+        fake_run_json_artifact,
+    )
+
+    result, error = claude_runner.run_memo_fast_english_package(
+        run_dir=tmp_path,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=tmp_path / "serena_background.md",
+        companies_yaml_path=companies_path,
+        memo_paths={
+            "en": str(tmp_path / "memo" / "memo-en.docx"),
+            "zh": str(tmp_path / "memo" / "memo-zh.docx"),
+        },
+    )
+
+    prompt = captured["prompt"]
+    assert error is None
+    assert result is not None
+    assert "Human Executive Memo Voice Contract" in prompt
+    assert "Concrete positive writing patterns" in prompt
+    assert "Concrete negative examples to reject" in prompt
+    assert "We are being offered SPV exposure" in prompt
+    assert "We recommend proceeding if the binding-contract split" in prompt
+    assert "The recommendation is Proceed if confirmed" in prompt
+    assert "The memo frames this as a scarce technical asset" in prompt
+    assert "Our memo recommends participating through the SPV" in prompt
+    assert "We outline the investment case below" in prompt
 
 
 def test_investment_memo_prompt_uses_fixed_docx_renderer(tmp_path):

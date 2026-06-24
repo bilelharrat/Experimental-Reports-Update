@@ -40,14 +40,37 @@ If the Serena memo packet includes selected operator narrative choices, use them
 
 These choices are source-backed direction, not copy-paste text. Integrate them into natural IC prose and override them only when the evidence directly contradicts the selected posture.
 
+Make statements directly. Do not write about the memo as an object, do not
+narrate what the memo/document/section/analysis does, and do not use
+writer-process phrasing.
+
 Avoid meta-commentary about the document itself:
-- do not write "the memo frames", "the memo therefore", "the analysis suggests", "this section covers", or similar writer/process language
+- do not write "the memo frames", "our memo recommends", "this document outlines", "the memo therefore", "the analysis suggests", "this section covers", "we outline", "we discuss", "we summarize", or similar writer/process language
 - do not write third-person situational recommendation language such as "the recommendation is", "the recommendation should", "the right posture is", "the opportunity offered to investors is", "the base case credits", or "the current recommendation posture is"
 - use first-person sponsor language instead: "we believe", "we are being offered", "we recommend", "we would proceed if", and "we would revisit if"
 - do not explain uncertainty with phrases like "due to lack of data" or "this implies false precision"
 - state uncertainty directly: "Revenue is not disclosed", "contracts are not revenue-recognized", "pipeline is early-stage"
 
 The opening should not read like a tombstone or detached analyst note. Lead with the sponsor thesis: why we care about the category, why the timing matters, why this company is shaping the layer or market that matters, and why we want exposure. Then explain technical proof, commercial proof, and the SPV / round mechanics.
+
+Concrete positive writing patterns:
+- Opening: "We invest behind physical-world infrastructure that makes people safer and more capable. ZaiNar matters because accurate network-side positioning is becoming a control layer for defense, industrial automation, logistics, and Physical AI."
+- Transaction: "We are being offered SPV exposure to a SAFE expected to convert into the A2 at an effective entry near $2.55B after the discount, subject to confirming the final A2 terms and conversion mechanics."
+- Recommendation: "We recommend proceeding if the binding-contract split, A2 lead, final terms, and SAFE conversion mechanics confirm the current investment case."
+- Revisit trigger: "We would revisit if the A2 prices materially below the current mark, slips beyond the expected closing window, or the binding contract figure is not large enough to support the valuation."
+- Evidence gap: "Revenue is not disclosed; our base case uses binding contract value, implementation timing, and conservative conversion ranges rather than treating pipeline or MOUs as revenue."
+- Risk: "Key risk centers on whether signed commercial interest converts into repeatable deployments quickly enough to support a $3.0B valuation."
+
+Concrete negative examples to reject:
+- "The recommendation is Proceed if confirmed: participate in the SPV."
+- "The opportunity offered to investors is a Wisdom-sponsored SPV interest."
+- "The base case credits a high-conviction franchise."
+- "The memo frames this as a scarce technical asset."
+- "Our memo recommends participating through the SPV."
+- "The analysis suggests the right posture is a small ticket."
+- "This document outlines the key investment risks."
+- "We outline the investment case below."
+- "Due to lack of data, revenue cannot be underwritten."
 
 Banned phrase / rewrite guidance:
 
@@ -63,6 +86,8 @@ Banned phrase / rewrite guidance:
 | The current recommendation posture is... | We would proceed if... / We would revisit if... |
 | The memo therefore... | Remove, or rewrite as direct judgment. |
 | The analysis suggests... | State the conclusion directly. |
+| This memo / our memo / this document... | Remove the frame; make the investment statement. |
+| We outline / discuss / summarize... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
 | implies false precision | would be misleading to forecast precisely |
 | not treated as ARR | not revenue-recognized |
@@ -2017,6 +2042,7 @@ Do not finalize the memo unless all of the following are true:
 Before DOCX generation, scan the English memo body and remove:
 - banned phrases from the Human Executive Memo Voice Contract
 - third-person situational recommendation language such as "the recommendation is", "the recommendation should", "the right posture is", "the opportunity offered to investors is", "the base case credits", and "the current recommendation posture is"
+- self-referential document/process language such as "this memo", "our memo", "this document", "our analysis", "this section", "we outline", "we discuss", or "we summarize"
 - bracketed source tokens, source IDs, file names, artifact names, and raw source traces outside the Sources, Source Classes, and Fact Reference Index
 - meta language about "the memo", "the analysis", "the framework", "this section", or the writing process
 - methodology leakage from claim registers, research tasks, evidence matrices, validation logs, confidence scoring, or reviewer prompts
