@@ -29,6 +29,7 @@ Write the final English memo like a senior BSH investment partner would brief IC
 - fluent, not template-driven
 - judgment-led, not process-led
 - grounded in evidence, but expressed as conviction under uncertainty
+- written in first-person sponsor voice when stating our view, access, conviction, and action
 
 Convert evidence into partner-level conclusions. Do not narrate how the analysis was performed. Do not reproduce confidence scaffolding, methodology notes, task labels, validation language, reviewer prompts, or research workflow language in final body prose.
 
@@ -41,8 +42,12 @@ These choices are source-backed direction, not copy-paste text. Integrate them i
 
 Avoid meta-commentary about the document itself:
 - do not write "the memo frames", "the memo therefore", "the analysis suggests", "this section covers", or similar writer/process language
+- do not write third-person situational recommendation language such as "the recommendation is", "the recommendation should", "the right posture is", "the opportunity offered to investors is", "the base case credits", or "the current recommendation posture is"
+- use first-person sponsor language instead: "we believe", "we are being offered", "we recommend", "we would proceed if", and "we would revisit if"
 - do not explain uncertainty with phrases like "due to lack of data" or "this implies false precision"
 - state uncertainty directly: "Revenue is not disclosed", "contracts are not revenue-recognized", "pipeline is early-stage"
+
+The opening should not read like a tombstone or detached analyst note. Lead with the sponsor thesis: why we care about the category, why the timing matters, why this company is shaping the layer or market that matters, and why we want exposure. Then explain technical proof, commercial proof, and the SPV / round mechanics.
 
 Banned phrase / rewrite guidance:
 
@@ -50,6 +55,12 @@ Banned phrase / rewrite guidance:
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
 | The principal risk is that... | Key risk centers on... |
+| The recommendation is... | We recommend... / We would proceed if... |
+| The recommendation should... | We would keep the decision conditional until... |
+| The right posture is... | We would proceed / hold / pass because... |
+| The opportunity offered to investors is... | We are being offered... |
+| The base case credits... | Our base case gives credit for... |
+| The current recommendation posture is... | We would proceed if... / We would revisit if... |
 | The memo therefore... | Remove, or rewrite as direct judgment. |
 | The analysis suggests... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
@@ -66,6 +77,12 @@ by specific evidence; that a structure offers limited governance, reporting, or
 oversight; and frame the decision as a clear recommendation with stop-or-revisit
 conditions. Describe SPV, SAFE, and round economics as plain deal mechanics,
 never as legal-rights or diligence-checklist terms.
+
+For Wisdom-sponsored opportunities, write in a Wisdom / BSH sponsor register:
+"we invest", "we want to be in the room", "we are participating through the
+SPV", and "we recommend proceeding if...". Do not describe the sponsor,
+investors, or recommendation from a detached third-person vantage point unless
+identifying a legal counterparty.
 
 The final memo should sound like an experienced investor explaining the opportunity: here is what is happening, what must be true, what can go wrong, and what would make the investment attractive or unattractive.
 
@@ -1022,7 +1039,7 @@ When critical metrics are missing:
 ## Top 3 Decision Questions
 Collapse all open diligence into the three highest-value decision questions that would most change the recommendation.
 
-These are the questions that should appear in the Open Questions subsection of the Executive Summary (Section I) and should directly drive whether the recommendation is:
+These are the questions that should appear in the Open Questions subsection of the Executive Summary (Section I) and should directly drive whether we recommend:
 - Proceed
 - Proceed if confirmed
 - Hold pending confirmation
@@ -1295,7 +1312,7 @@ Preferred display hierarchy:
 
 Start this section on page 2.
 
-The Executive Summary is a tight synthesis of Sections II (Company Overview), III (Investment Highlights), and IV (Investment Risk). It opens with what the deal is, then what BSH would be betting on, then what could go wrong, and concludes with a recommendation and the open questions that most need resolution.
+The Executive Summary is a tight synthesis of Sections II (Company Overview), III (Investment Highlights), and IV (Investment Risk). It opens with our sponsor thesis and why we want exposure, then explains what the deal is, what investors would be betting on, what could go wrong, and the confirmation items that control whether we proceed.
 
 Write it like a spoken IC summary, not a report introduction. In compressed prose, answer: what the company is, what transaction is in front of BSH, why now, why the company could win, what must prove true, why the deal could fail, and the investment view. Use the required subsection labels for navigation, but keep the language direct and partner-like.
 
@@ -1308,12 +1325,13 @@ Required subsection order:
 
 *Investment Opportunity*  
 Lead with the opening thesis contract before any table:
-1. sentence 1: what the company is and why it matters;
-2. sentence 2: what investors are being offered and at what entry terms;
-3. sentence 3: the central price/proof tension, especially when valuation has moved faster than disclosed commercial proof;
-4. sentence 4: the current recommendation posture and the confirmation items that can move it.
+1. sentence 1: why we care about this category or market shift;
+2. sentence 2: why this company is the asset we want exposure to;
+3. sentence 3: what we are being offered and at what entry terms;
+4. sentence 4: the central price/proof tension, especially when valuation has moved faster than disclosed commercial proof;
+5. sentence 5: what we recommend and the confirmation items that can move the decision.
 
-The first two body paragraphs must state the company, transaction, valuation / entry terms, central price/proof tension, and recommendation posture. Do not start with a negative throat-clearing phrase such as "The investment case is not..." and do not write meta-language such as "The memo frames..."
+The first two body paragraphs must state sponsor conviction, company relevance, transaction, valuation / entry terms, central price/proof tension, and recommendation. Do not start with a negative throat-clearing phrase such as "The investment case is not..." and do not write meta-language such as "The memo frames..." Do not write detached constructions such as "The recommendation is..." or "The opportunity offered to investors is..."; use "we recommend", "we would proceed if", and "we are being offered" instead.
 
 Then describe the deal itself: round size and structure (priced equity, secondary, SPV), valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, access channel where relevant, expected liquidity timeline, and any investor-facing co-investment terms (management fee, carry).
 
@@ -1998,6 +2016,7 @@ Do not finalize the memo unless all of the following are true:
 
 Before DOCX generation, scan the English memo body and remove:
 - banned phrases from the Human Executive Memo Voice Contract
+- third-person situational recommendation language such as "the recommendation is", "the recommendation should", "the right posture is", "the opportunity offered to investors is", "the base case credits", and "the current recommendation posture is"
 - bracketed source tokens, source IDs, file names, artifact names, and raw source traces outside the Sources, Source Classes, and Fact Reference Index
 - meta language about "the memo", "the analysis", "the framework", "this section", or the writing process
 - methodology leakage from claim registers, research tasks, evidence matrices, validation logs, confidence scoring, or reviewer prompts

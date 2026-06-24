@@ -683,8 +683,13 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "Human Executive Memo Voice Contract" in prompt
     assert "exec-ready LP-facing sell-side investment memo" in prompt
     assert "investment case under uncertainty" in prompt
+    assert "first-person sponsor voice" in prompt
+    assert "Open from the sponsor thesis" in prompt
     assert "bsh_allocation" not in prompt
     assert "BSH target allocation" not in prompt
+    assert "The recommendation is..." in prompt
+    assert "The opportunity offered to investors is..." in prompt
+    assert "We recommend... / We would proceed if..." in prompt
     assert "The memo therefore..." in prompt
     assert "Top 3 Decision Questions" in prompt
     assert "Proceed if confirmed" in prompt
@@ -829,6 +834,89 @@ def test_resume_memo_package_prompt_is_package_only(tmp_path):
     assert "Write only" in prompt
     assert "logs/memo_package.json" in prompt
     assert "Do not write DOCX files" in prompt
+
+
+def test_resume_memo_package_prompt_includes_quality_gate_feedback(tmp_path):
+    run_dir = tmp_path / "run"
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(parents=True)
+    settings_path = tmp_path / "serena_background.md"
+    settings_path.write_text("background", encoding="utf-8")
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nExisting analysis.",
+        encoding="utf-8",
+    )
+    quality_lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    quality_lint_path.parent.mkdir(parents=True)
+    quality_lint_path.write_text(
+        "# Memo Quality Lint\n\nP0 sell_side_voice_violation\n",
+        encoding="utf-8",
+    )
+
+    prompt = claude_runner._build_resume_memo_package_prompt(
+        run_dir=run_dir,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=settings_path,
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(run_dir / "memo" / "memo-en.docx"),
+            "zh": str(run_dir / "memo" / "memo-zh.docx"),
+        },
+        quality_lint_path=quality_lint_path,
+    )
+
+    assert str(quality_lint_path) in prompt
+    assert "failed the DOCX quality gate" in prompt
+    assert "fix every P0 finding" in prompt
+    assert "do not rerun analysis" in prompt
+    assert "do not write DOCX files" in prompt
+
+
+def test_resume_memo_package_prompt_uses_prior_package_as_draft(tmp_path):
+    run_dir = tmp_path / "run"
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(parents=True)
+    settings_path = tmp_path / "serena_background.md"
+    settings_path.write_text("background", encoding="utf-8")
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nExisting analysis.",
+        encoding="utf-8",
+    )
+    quality_lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    prior_package_path = run_dir / "logs" / "memo_package.quality_failed.20260623T114731Z.json"
+    quality_lint_path.parent.mkdir(parents=True)
+    quality_lint_path.write_text(
+        "# Memo Quality Lint\n\nP0 sell_side_voice_violation\n",
+        encoding="utf-8",
+    )
+    prior_package_path.write_text(
+        '{"schema_version": 1, "sections": [], "sources": []}',
+        encoding="utf-8",
+    )
+
+    prompt = claude_runner._build_resume_memo_package_prompt(
+        run_dir=run_dir,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id="2026-05-21__211535",
+        settings_path=settings_path,
+        companies_yaml_path=tmp_path / "companies.yaml",
+        memo_paths={
+            "en": str(run_dir / "memo" / "memo-en.docx"),
+            "zh": str(run_dir / "memo" / "memo-zh.docx"),
+        },
+        quality_lint_path=quality_lint_path,
+        prior_package_path=prior_package_path,
+    )
+
+    assert str(prior_package_path) in prompt
+    assert "Use `" in prompt
+    assert "as the working draft" in prompt
+    assert "do not reread every analysis artifact by default" in prompt
+    assert "After reading the quality report and prior draft" in prompt
+    assert "corrections are clear" in prompt
 
 
 def test_resume_progress_keeps_analysis_reads_in_phase_four():
@@ -1016,6 +1104,7 @@ def test_resume_memo_package_runner_keeps_standard_memo_tooling(tmp_path, monkey
         return FakeProc()
 
     monkeypatch.setattr(claude_runner.subprocess, "Popen", fake_popen)
+    progress = _CaptureProgress()
 
     result = claude_runner.run_resume_memo_package(
         run_dir=run_dir,
@@ -1028,9 +1117,20 @@ def test_resume_memo_package_runner_keeps_standard_memo_tooling(tmp_path, monkey
             "en": str(run_dir / "memo" / "memo-en.docx"),
             "zh": str(run_dir / "memo" / "memo-zh.docx"),
         },
+        progress=progress,
     )
 
     assert result["ok"] is True
+    planned_threads = [
+        event["thread"]
+        for event in progress.events
+        if event.get("type") == "thread_planned"
+    ]
+    assert claude_runner._MEMO_PHASE1_THREAD not in planned_threads
+    assert claude_runner._MEMO_PHASE2_THREAD not in planned_threads
+    assert claude_runner._MEMO_PHASE4_THREAD in planned_threads
+    assert claude_runner.MEMO_PHASE5_THREAD in planned_threads
+    assert claude_runner.MEMO_PHASE6_THREAD in planned_threads
     assert "--allowedTools" in captured["cmd"]
     allowed = captured["cmd"][captured["cmd"].index("--allowedTools") + 1]
     assert allowed == "Read,Write,Edit,Bash,Grep,Glob"

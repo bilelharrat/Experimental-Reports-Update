@@ -34,6 +34,11 @@ vi.mock("../src/api.js", () => ({
     getCompany: vi.fn(),
     options: vi.fn(),
     listThreads: vi.fn(),
+    listFiles: vi.fn(),
+    uploadFile: vi.fn(),
+    deleteFile: vi.fn(),
+    fileUrl: vi.fn((companyId, fileId) => `/api/companies/${companyId}/files/${fileId}`),
+    listResearchFiles: vi.fn(),
     listCompanyReports: vi.fn(),
     getReport: vi.fn(),
     generateReport: vi.fn(),
@@ -160,6 +165,8 @@ describe("route smoke tests", () => {
       languages: ["en"],
     });
     api.listThreads.mockResolvedValue([]);
+    api.listFiles.mockResolvedValue([]);
+    api.listResearchFiles.mockResolvedValue([]);
     api.listCompanyReports.mockResolvedValue([]);
     api.memoAnalysis.get.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
@@ -296,6 +303,39 @@ describe("route smoke tests", () => {
     expect(api.getReport).toHaveBeenCalledWith("report-1");
     expect(wrapper.text()).toContain("Resume memo run");
     expect(wrapper.text()).toContain("Redo from scratch");
+    wrapper.unmount();
+  });
+
+  it("shows generated memo download links in the documents library", async () => {
+    api.listCompanyReports.mockResolvedValue([
+      {
+        id: "report-1",
+        company_id: "generalist",
+        company_name: "Generalist",
+        report_type: "Investment Memo (Late-Stage)",
+        audience: "Internal",
+        language: "en",
+        kind: "investment_memo_latestage",
+        status: "failed_quality_gate",
+        progress: 98,
+        stage: "Memo failed quality gate",
+        created_at: "2026-06-23T11:14:02Z",
+        updated_at: "2026-06-23T11:14:02Z",
+        download_urls: {
+          en: "/api/reports/report-1/download?language=en",
+          zh: "/api/reports/report-1/download?language=zh",
+        },
+      },
+    ]);
+
+    const wrapper = await mountRoute("/research/generalist?tab=documents");
+    const hrefs = wrapper.findAll("a").map((a) => a.attributes("href"));
+
+    expect(wrapper.text()).toContain("Generated reports");
+    expect(wrapper.text()).toContain("EN");
+    expect(wrapper.text()).toContain("ZH");
+    expect(hrefs).toContain("/api/reports/report-1/download?language=en");
+    expect(hrefs).toContain("/api/reports/report-1/download?language=zh");
     wrapper.unmount();
   });
 

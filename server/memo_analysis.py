@@ -89,11 +89,27 @@ def _memo_package_render_validation_error(package_path: Path) -> str | None:
     return None
 
 
-def _archive_invalid_memo_package(package_path: Path) -> Path:
+def _archive_memo_package(package_path: Path, *, label: str) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive_path = package_path.with_name(f"memo_package.invalid.{stamp}.json")
+    archive_path = package_path.with_name(f"memo_package.{label}.{stamp}.json")
     package_path.replace(archive_path)
     return archive_path
+
+
+def _archive_invalid_memo_package(package_path: Path) -> Path:
+    return _archive_memo_package(package_path, label="invalid")
+
+
+def _latest_archived_memo_package(run_dir: Path, *, label: str) -> Path | None:
+    logs_dir = run_dir / "logs"
+    if not logs_dir.exists():
+        return None
+    archives = sorted(
+        logs_dir.glob(f"memo_package.{label}.*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return archives[0] if archives else None
 
 
 def _block_generated_renderer_scripts(
@@ -972,6 +988,13 @@ def _finalize_memo_from_package(
         recovered=recovered,
     ):
         return False
+    storage.update_report(
+        report_id,
+        renderer_contract=_renderer_contract_diagnostics(
+            run_dir=run_dir,
+            memo_paths_abs=memo_paths_abs,
+        ),
+    )
 
     en_exists = memo_paths_abs.get("en") and memo_paths_abs["en"].exists()
     zh_exists = memo_paths_abs.get("zh") and memo_paths_abs["zh"].exists()
@@ -1128,6 +1151,9 @@ def _finalize_memo_from_package(
         error=None,
         failure_phase=None,
         failure_detail=None,
+        resume_from_status=None,
+        resume_from_failure_phase=None,
+        resume_from_failure_detail=None,
         artifacts_available=True,
         claude_cost_usd=combined_result.get("cost_usd"),
         claude_duration_ms=combined_result.get("duration_ms"),
@@ -1163,6 +1189,20 @@ def _resume(report_id: str) -> None:
         raise RuntimeError(
             "Cannot resume: no memo_package.json or analysis artifacts exist"
         )
+    quality_failed = (
+        report.get("status") == "failed_quality_gate"
+        or report.get("failure_phase") == "quality_gate"
+        or report.get("resume_from_status") == "failed_quality_gate"
+        or report.get("resume_from_failure_phase") == "quality_gate"
+    )
+    quality_lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    prior_package_path = _latest_archived_memo_package(
+        run_dir,
+        label="quality_failed",
+    )
+    quality_failed = quality_failed or (
+        quality_lint_path.exists() and prior_package_path is not None
+    )
 
     _archive_stream_for_resume(run_dir)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=True)
@@ -1190,6 +1230,62 @@ def _resume(report_id: str) -> None:
         failure_phase=None,
         failure_detail=None,
     )
+
+    if quality_failed and package_path.exists():
+        if not analysis_artifacts:
+            message = (
+                "Previous memo failed the DOCX quality gate, but no analysis "
+                "artifacts are available to regenerate the memo package."
+            )
+            storage.update_report(
+                report_id,
+                status="failed_during_analysis",
+                stage="Memo resume failed",
+                error=message,
+                failure_phase="resume",
+                failure_detail=message,
+            )
+            stream.emit("error", error=message, phase="resume")
+            return
+        archive_path = _archive_memo_package(package_path, label="quality_failed")
+        prior_package_path = archive_path
+        stage_message = (
+            "Previous memo package failed the DOCX quality gate; "
+            "regenerating from analysis artifacts"
+        )
+        stream.emit(
+            "stage",
+            stage="resume_package_quality_failed",
+            message=stage_message,
+            memo_package=memo_prep._rel(archive_path),
+            quality_lint=(
+                memo_prep._rel(quality_lint_path)
+                if quality_lint_path.exists()
+                else None
+            ),
+            recovered=True,
+        )
+        storage.update_report(
+            report_id,
+            stage="Regenerating memo package after quality gate failure",
+            progress=65,
+        )
+    elif quality_failed and prior_package_path and not package_path.exists():
+        stream.emit(
+            "stage",
+            stage="resume_package_quality_failed_continue",
+            message=(
+                "Continuing memo package regeneration from archived "
+                "quality-gate package"
+            ),
+            memo_package=memo_prep._rel(prior_package_path),
+            quality_lint=(
+                memo_prep._rel(quality_lint_path)
+                if quality_lint_path.exists()
+                else None
+            ),
+            recovered=True,
+        )
 
     if package_path.exists():
         package_error = _memo_package_render_validation_error(package_path)
@@ -1268,6 +1364,8 @@ def _resume(report_id: str) -> None:
             lessons_path=lessons_path,
             scope_check=report.get("scope_check"),
             warnings=list(report.get("warnings") or []),
+            quality_lint_path=quality_lint_path if quality_lint_path.exists() else None,
+            prior_package_path=prior_package_path,
             progress=stream,
             timeout_sec=1800,
         )

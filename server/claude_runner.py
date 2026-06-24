@@ -669,8 +669,10 @@ def _transition_memo_phase(progress, state: dict, next_label: str) -> None:
         state["active_phase_thread"] = next_label
 
 
-def emit_memo_phase_planned(progress) -> None:
+def emit_memo_phase_planned(progress, *, start_phase: int = 1) -> None:
     for item in _MEMO_PHASE_PLAN:
+        if int(item.get("phase_index") or 0) < start_phase:
+            continue
         progress.emit("thread_planned", **item)
 
 
@@ -2375,6 +2377,13 @@ Final memo prose must:
   scaffolding in the body;
 - avoid meta-commentary about "the memo", "the analysis", "the framework",
   "this section", or what the writer is doing;
+- use first-person sponsor voice when stating our view, access, conviction,
+  and action: "we believe", "we are being offered", "we recommend",
+  "we would proceed if", and "we would revisit if";
+- never use third-person situational voice for the investment call, including
+  "the recommendation is", "the recommendation should", "the right posture is",
+  "the opportunity offered to investors is", "the base case credits", or
+  "the current recommendation posture is";
 - state uncertainty directly instead of explaining why certainty is
   unavailable;
 - avoid template-visible language, symmetrical model phrasing, and repetitive
@@ -2387,6 +2396,15 @@ Final memo prose must:
   estimates, or closing diligence.
 
 Sell-side investment memo posture:
+- Open from the sponsor thesis, not from a tombstone. Start with why we care
+  about the category, why the timing matters, why this company is shaping the
+  layer or market that matters, and why we want exposure. Then explain the
+  technical proof, commercial proof, and SPV/round mechanics.
+- For Wisdom-sponsored opportunities, write in a Wisdom/BSH sponsor register:
+  "we invest", "we want to be in the room", "we are participating through the
+  SPV", and "we recommend proceeding if...". Do not describe the sponsor or
+  investors from a detached third-person vantage point unless identifying a
+  legal counterparty.
 - Do not write as if BSH is negotiating control terms in a private-equity
   process or exposing its internal intended position to LPs.
 - Do not default to "small/minimum" allocation because revenue, ARR, gross
@@ -2467,7 +2485,7 @@ Positive examples for early-commercial infrastructure deals:
   economics and document-confirmation points without turning them into a
   control-rights checklist."
 - "If the round is meaningfully oversubscribed and BSH has differentiated
-  access, the recommendation should reflect scarcity and upside,
+  access, we would reflect scarcity and upside in our recommendation,
   not mechanically default to a minimum check."
 
 Banned phrase / rewrite guidance:
@@ -2475,6 +2493,12 @@ Banned phrase / rewrite guidance:
 | Avoid | Prefer |
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
+| The recommendation is... | We recommend... / We would proceed if... |
+| The recommendation should... | We would keep the decision conditional until... |
+| The right posture is... | We would proceed / hold / pass because... |
+| The opportunity offered to investors is... | We are being offered... |
+| The base case credits... | Our base case gives credit for... |
+| The current recommendation posture is... | We would proceed if... / We would revisit if... |
 | The memo therefore... | Remove, or rewrite as direct judgment. |
 | The analysis suggests... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
@@ -3152,6 +3176,8 @@ def _build_resume_memo_package_prompt(
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
     company_registry_entry_yaml: str | None = None,
+    quality_lint_path: Path | None = None,
+    prior_package_path: Path | None = None,
 ) -> str:
     """Build the narrow resume prompt that only authors memo_package.json."""
     package_path = run_dir / "logs" / "memo_package.json"
@@ -3183,6 +3209,10 @@ def _build_resume_memo_package_prompt(
     ]
     if lessons_path and lessons_path.exists():
         allowed_read_paths.append(lessons_path)
+    if quality_lint_path and quality_lint_path.exists():
+        allowed_read_paths.append(quality_lint_path)
+    if prior_package_path and prior_package_path.exists():
+        allowed_read_paths.append(prior_package_path)
     allowed_read_list = "\n".join(f"- `{path}`" for path in allowed_read_paths)
     research_line = (
         f"- Company research folder: `{research_dir}`"
@@ -3198,6 +3228,16 @@ def _build_resume_memo_package_prompt(
         f"- Prior memo lessons: `{lessons_path}`"
         if lessons_path and lessons_path.exists()
         else "- Prior memo lessons: not provided"
+    )
+    quality_lint_line = (
+        f"- Prior DOCX quality report: `{quality_lint_path}`"
+        if quality_lint_path and quality_lint_path.exists()
+        else "- Prior DOCX quality report: not provided"
+    )
+    prior_package_line = (
+        f"- Prior memo package draft to repair: `{prior_package_path}`"
+        if prior_package_path and prior_package_path.exists()
+        else "- Prior memo package draft to repair: not provided"
     )
     warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
     scope_block = ""
@@ -3222,6 +3262,42 @@ Use this embedded YAML as the registry source for `{company_slug}`:
 {company_registry_entry_yaml}
 ```
 
+"""
+
+    quality_lint_block = ""
+    if quality_lint_path and quality_lint_path.exists():
+        quality_lint_block = f"""\
+## Quality-gate remediation context
+
+The previous rendered memo failed the DOCX quality gate. Read
+`{quality_lint_path}` before writing the package, fix every P0 finding, and
+avoid repeating the cited wording or tone. This is still only a memo-package
+writing pass: do not rerun analysis, do not overwrite files in `analysis/`,
+and do not write DOCX files.
+
+"""
+    prior_package_block = ""
+    analysis_instruction = f"""\
+Read the files below before writing the package:
+
+{analysis_list}
+"""
+    if prior_package_path and prior_package_path.exists():
+        prior_package_block = f"""\
+## Prior package draft
+
+Use `{prior_package_path}` as the working draft. Preserve the structure and
+source treatment that already passed renderer validation, then make the
+smallest substantive edits needed to fix the quality-gate findings. Read
+analysis artifacts only when a changed claim needs support or clarification;
+do not reread every analysis artifact by default.
+
+"""
+        analysis_instruction = f"""\
+The prior package draft is the primary source for this repair pass. Read the
+analysis files below only as needed to verify or support changed claims:
+
+{analysis_list}
 """
 
     return f"""\
@@ -3251,13 +3327,13 @@ authoritative; do not look for another schema or example.
 {research_line}
 {analysis_session_line}
 {lessons_line}
+{quality_lint_line}
+{prior_package_line}
 
-{scope_block}{registry_block}\
+{scope_block}{registry_block}{quality_lint_block}{prior_package_block}\
 ## Existing analysis artifacts to use
 
-Read the files below before writing the package:
-
-{analysis_list}
+{analysis_instruction}
 
 You may read only these exact supporting files:
 
@@ -3337,6 +3413,9 @@ scenario ranges, valuation, revenue, margins, or diligence thresholds.
 
 The Chinese memo must be native professional investment Chinese with analytical
 parity to English. Do not translate prompt scaffolding into visible prose.
+After reading the quality report and prior draft, write `{package_path}` as
+soon as the corrections are clear. Do not spend the response drafting prose in
+chat instead of writing the JSON package.
 
 {HUMAN_EXEC_MEMO_VOICE_CONTRACT}
 """
@@ -3356,6 +3435,8 @@ def run_resume_memo_package(
     lessons_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
+    quality_lint_path: Path | None = None,
+    prior_package_path: Path | None = None,
     progress=None,
     timeout_sec: int = 1800,
 ) -> dict:
@@ -3393,6 +3474,8 @@ def run_resume_memo_package(
             companies_yaml_path,
             company_slug,
         ),
+        quality_lint_path=quality_lint_path,
+        prior_package_path=prior_package_path,
     )
     add_dirs = [
         str(run_dir),
@@ -3405,6 +3488,8 @@ def run_resume_memo_package(
         add_dirs.append(str(analysis_session_path))
     if lessons_path and lessons_path.exists():
         add_dirs.append(str(lessons_path.parent))
+    if prior_package_path and prior_package_path.exists():
+        add_dirs.append(str(prior_package_path.parent))
 
     cmd = [
         claude_path() or "claude",
@@ -3430,7 +3515,7 @@ def run_resume_memo_package(
             message="Resuming memo from existing analysis artifacts",
             memo_package=str(run_dir / "logs" / "memo_package.json"),
         )
-        emit_memo_phase_planned(progress)
+        emit_memo_phase_planned(progress, start_phase=4)
 
     stderr_log: list[str] = []
     try:
@@ -6037,6 +6122,11 @@ Instructions:
 - Candidate text should be IC-ready guidance or near-final memo language:
   specific, compressed, evidence-grounded, and free of meta phrases such as
   "the memo should", "the analysis suggests", or "this section".
+- Endings and recommendation candidates must use first-person sponsor voice:
+  "we recommend", "we would proceed if", "we would hold", or "we would
+  revisit if". Do not write "the recommendation is", "the recommendation
+  should", "the right posture is", "the opportunity offered to investors is",
+  "the base case credits", or "the current recommendation posture is".
 - Each candidate must include supported claims, evidence references, source
   traces where available, confidence, overclaiming risk, and suggested
   infographic pairings where useful.

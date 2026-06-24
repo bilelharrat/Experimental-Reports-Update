@@ -698,6 +698,117 @@ def test_resume_regenerates_existing_invalid_memo_package(
     assert events[-1]["type"] == "done"
 
 
+def test_resume_regenerates_quality_failed_memo_package(
+    memo_env, monkeypatch
+):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nCompleted before quality gate failure.\n",
+        encoding="utf-8",
+    )
+    package_path = _write_memo_package(
+        run_dir,
+        body_en=(
+            "Confirm before funding: Series A2 closes at or above $3.0B "
+            "pre-money with a named institutional lead."
+        ),
+    )
+    quality_lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    quality_lint_path.write_text(
+        "\n".join([
+            "# Memo Quality Lint",
+            "",
+            "- status: failed",
+            "- p0_count: 1",
+            "",
+            "| Severity | Code | Location | Snippet | Suggestion |",
+            "|---|---|---|---|---|",
+            "| P0 | sell_side_voice_violation | paragraph 1 | Confirm before funding | Rewrite buyer-side diligence wording. |",
+        ]),
+        encoding="utf-8",
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_quality_gate",
+        stage="Memo failed quality gate",
+        failure_phase="quality_gate",
+        failure_detail="Generated memo failed the DOCX quality gate",
+        artifacts_available=True,
+        memo_quality_lint={"p0_count": 1, "finding_count": 1},
+    )
+
+    stored = storage.get_report(report["id"])
+    summary = api._report_summary(stored)
+    detail = api._report_detail(stored)
+    assert summary["resume_available"] is True
+    assert detail["resume_available"] is True
+    storage.update_report(
+        report["id"],
+        status="analyzing",
+        stage="Resume queued",
+        progress=98,
+        resume_from_status="failed_quality_gate",
+        resume_from_failure_phase="quality_gate",
+        resume_from_failure_detail="Generated memo failed the DOCX quality gate",
+        failure_phase=None,
+        failure_detail=None,
+    )
+
+    def fake_resume_package(**kwargs):
+        assert not package_path.exists()
+        archives = list((run_dir / "logs").glob("memo_package.quality_failed.*.json"))
+        assert archives
+        assert kwargs["quality_lint_path"] == quality_lint_path
+        assert kwargs["prior_package_path"] == archives[0]
+        _write_memo_package(run_dir)
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=0.5,
+            duration_ms=500,
+        )
+        return {"ok": True, "cost_usd": 0.5, "duration_ms": 500, "resumed": True}
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_resume_memo_package",
+        fake_resume_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        lambda **kwargs: (
+            _write_internal_memo_markdown(kwargs["internal_markdown_path"])
+            or {"ok": True, "cost_usd": 0.25, "duration_ms": 250}
+        ),
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda docx_path, pdf_path: (pdf_path.write_bytes(b"%PDF-1.4\n") or True, None),
+    )
+
+    memo_analysis._resume(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert updated["stage"] == "Memo ready"
+    assert updated["failure_phase"] is None
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(
+        event.get("stage") == "resume_package_quality_failed"
+        for event in events
+    )
+    assert not any(
+        event.get("stage") == "resume_package_reuse"
+        for event in events
+    )
+    assert events[-1]["type"] == "done"
+
+
 def test_resume_memo_endpoint_queues_failed_report(memo_env, monkeypatch):
     report, run_dir = _make_memo_report(memo_env)
     analysis_dir = run_dir / "analysis"
@@ -725,6 +836,129 @@ def test_resume_memo_endpoint_queues_failed_report(memo_env, monkeypatch):
     assert called == [report["id"]]
     assert response.status == "analyzing"
     assert response.stage == "Resume queued"
+    queued = storage.get_report(report["id"])
+    assert queued["resume_from_status"] == "failed_during_analysis"
+    assert queued["resume_from_failure_phase"] == "analysis"
+    assert (
+        queued["resume_from_failure_detail"]
+        == "Failed to authenticate. API Error: 403 Request not allowed"
+    )
+
+
+def test_resume_memo_endpoint_preserves_original_resume_source(
+    memo_env, monkeypatch
+):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n",
+        encoding="utf-8",
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Memo resume failed",
+        failure_phase="resume",
+        failure_detail="API Error: socket closed",
+        resume_from_status="failed_quality_gate",
+        resume_from_failure_phase="quality_gate",
+        resume_from_failure_detail="Generated memo failed quality gate",
+    )
+    called = []
+    monkeypatch.setattr(
+        memo_analysis,
+        "start_resume",
+        lambda report_id: called.append(report_id),
+    )
+
+    response = api.resume_memo_report(report["id"])
+
+    assert called == [report["id"]]
+    assert response.status == "analyzing"
+    queued = storage.get_report(report["id"])
+    assert queued["resume_from_status"] == "failed_quality_gate"
+    assert queued["resume_from_failure_phase"] == "quality_gate"
+    assert queued["resume_from_failure_detail"] == "Generated memo failed quality gate"
+
+
+def test_resume_continues_from_quality_failed_archive_after_transport_error(
+    memo_env, monkeypatch
+):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nCompleted before transport failure.\n",
+        encoding="utf-8",
+    )
+    original_package = _write_memo_package(
+        run_dir,
+        body_en="Confirm before funding: buyer-side checkpoint language.",
+    )
+    archived_package = original_package.with_name(
+        "memo_package.quality_failed.20260623T114731Z.json"
+    )
+    original_package.replace(archived_package)
+    quality_lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    quality_lint_path.write_text(
+        "# Memo Quality Lint\n\nP0 sell_side_voice_violation\n",
+        encoding="utf-8",
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Memo resume failed",
+        failure_phase="resume",
+        failure_detail="API Error: socket closed",
+        artifacts_available=True,
+    )
+
+    def fake_resume_package(**kwargs):
+        assert kwargs["quality_lint_path"] == quality_lint_path
+        assert kwargs["prior_package_path"] == archived_package
+        _write_memo_package(run_dir)
+        kwargs["progress"].emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=0.5,
+            duration_ms=500,
+        )
+        return {"ok": True, "cost_usd": 0.5, "duration_ms": 500, "resumed": True}
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_resume_memo_package",
+        fake_resume_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        lambda **kwargs: (
+            _write_internal_memo_markdown(kwargs["internal_markdown_path"])
+            or {"ok": True, "cost_usd": 0.25, "duration_ms": 250}
+        ),
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda docx_path, pdf_path: (pdf_path.write_bytes(b"%PDF-1.4\n") or True, None),
+    )
+
+    memo_analysis._resume(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(
+        event.get("stage") == "resume_package_quality_failed_continue"
+        for event in events
+    )
+    assert not any(
+        event.get("stage") == "resume_package_reuse"
+        for event in events
+    )
 
 
 def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
@@ -776,7 +1010,10 @@ def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     assert updated["memo_quality_lint"]["p0_count"] >= 1
     assert all(f.get("pdf_path") for f in updated["memo_files"])
     assert (run_dir / "logs" / "memo_quality_lint.md").exists()
+    assert updated["renderer_contract"]["errors"] == []
 
+    summary = api._report_summary(updated)
+    assert summary["download_urls"]["en"].endswith("language=en")
     detail = api._report_detail(updated)
     assert detail["download_urls"]["en"].endswith("language=en")
     assert detail["preview_urls"]["en"].endswith("language=en")

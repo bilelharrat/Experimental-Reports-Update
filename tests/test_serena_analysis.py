@@ -468,6 +468,8 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
     assert "Use this packet as evidence, not copy" in packet
     assert "Memo Spine For Final Draft" in packet
     assert "partner-level conclusions" in packet
+    assert "Use first-person sponsor voice" in packet
+    assert "the recommendation is" in packet
 
     context = captured["artifacts"]
     assert context["strategic_risks"]["risks"]
@@ -1150,7 +1152,7 @@ def test_memo_analysis_narrative_job_preserves_selected_ids_and_packet(
                 "endings": [
                     {
                         "id": selected_ending,
-                        "text": "The recommendation should stay conditional until proof arrives.",
+                        "text": "We would keep the decision conditional until proof arrives.",
                         "purpose": "closing",
                         "tone": "conditional",
                         "supported_claims": ["Gates remain open."],
@@ -1225,6 +1227,8 @@ def test_memo_analysis_narrative_fallback_creates_operator_choices(
     assert hooks["transitions"][0]["purpose"] == "risk framing"
     assert hooks["endings"][0]["purpose"] == "conclusion posture"
     assert "The memo should" not in hooks["openings"][0]["text"]
+    assert "The right posture is" not in hooks["endings"][0]["text"]
+    assert hooks["endings"][0]["text"].startswith("We would")
     assert hooks["reviewer_prompts"][0]["id"] == "operator-final-posture"
 
     packet = (
@@ -1234,6 +1238,7 @@ def test_memo_analysis_narrative_fallback_creates_operator_choices(
     assert "Intro stance:" in packet
     assert "Risk-section posture:" in packet
     assert "Conclusion posture:" in packet
+    assert "Rewrite any detached phrasing into first-person sponsor voice" in packet
 
 
 def test_memo_analysis_completed_memo_runs_are_exposed_for_grader(
@@ -1412,6 +1417,7 @@ def test_analysis_session_tracks_readiness_and_approval(tmp_path, monkeypatch):
     packet_text = memo_packet.read_text(encoding="utf-8")
     assert "Use this packet as evidence, not copy" in packet_text
     assert "Never copy source labels" in packet_text
+    assert "Use first-person sponsor voice" in packet_text
     assert "source-class and model-treatment language" in packet_text
     assert "Memo Spine For Final Draft" in packet_text
     assert "**kill_criteria:**" in packet_text

@@ -152,6 +152,15 @@ _FUZZY_PATTERNS = (
     re.compile(r"\bleast-proven part of the story\b", re.IGNORECASE),
 )
 _SELL_SIDE_BANNED_PATTERNS = (
+    re.compile(
+        r"\bthe recommendation (?:is|should|would|must|remain|remains)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bthe current recommendation posture\b", re.IGNORECASE),
+    re.compile(r"\bthe right posture is\b", re.IGNORECASE),
+    re.compile(r"\bthe opportunity offered to investors is\b", re.IGNORECASE),
+    re.compile(r"\bthe base case credits\b", re.IGNORECASE),
+    re.compile(r"\bthe investment view is\b", re.IGNORECASE),
     re.compile(r"\bunderwrit(?:e|es|ing|ten|er|ers)\b", re.IGNORECASE),
     re.compile(r"\btickets?\b", re.IGNORECASE),
     re.compile(r"\bBSH target allocation\b", re.IGNORECASE),
@@ -372,8 +381,9 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                         "sell_side_voice_violation",
                         match.group(0),
                         (
-                            "Rewrite buyer-side diligence or IC jargon as "
-                            "exec-ready sell-side investment memo language."
+                            "Rewrite buyer-side, detached, or IC jargon as "
+                            "first-person exec-ready sell-side investment "
+                            "memo language."
                         ),
                     )
                 )

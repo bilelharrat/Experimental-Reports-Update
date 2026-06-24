@@ -12,7 +12,7 @@ import {
   Eye,
   ChevronRight,
 } from "lucide-vue-next";
-import { api } from "../api.js";
+import { api, withApiToken } from "../api.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
 import { openSummary } from "../state.js";
 import { useT } from "../i18n.js";
@@ -337,6 +337,41 @@ const counts = computed(() => {
               class="text-xs px-1.5 py-0.5 rounded bg-warning-soft text-warning-ink"
               >{{ r.progress }}%</span
             >
+            <div
+              v-if="r.download_urls?.en || r.download_urls?.zh || r.download_urls?.internal"
+              class="flex items-center gap-1"
+            >
+              <a
+                v-if="r.download_urls?.en"
+                :href="withApiToken(r.download_urls.en)"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded border border-subtle bg-surface text-xs text-ink-secondary hover:text-ink-primary hover:bg-surface-muted focus-ring"
+                :title="t('research.download_en')"
+                @click.stop
+              >
+                <Download class="h-3.5 w-3.5" />
+                <span>EN</span>
+              </a>
+              <a
+                v-if="r.download_urls?.zh"
+                :href="withApiToken(r.download_urls.zh)"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded border border-subtle bg-surface text-xs text-ink-secondary hover:text-ink-primary hover:bg-surface-muted focus-ring"
+                :title="t('research.download_zh')"
+                @click.stop
+              >
+                <Download class="h-3.5 w-3.5" />
+                <span>ZH</span>
+              </a>
+              <a
+                v-if="r.download_urls?.internal"
+                :href="withApiToken(r.download_urls.internal)"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded border border-subtle bg-surface text-xs text-ink-secondary hover:text-ink-primary hover:bg-surface-muted focus-ring"
+                :title="t('research.download_internal')"
+                @click.stop
+              >
+                <Download class="h-3.5 w-3.5" />
+                <span>INT</span>
+              </a>
+            </div>
           </li>
         </ul>
       </div>

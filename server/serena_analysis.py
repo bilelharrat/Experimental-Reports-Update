@@ -3618,8 +3618,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "intro-bsh-decision",
             "text": (
-                f"BSH's decision on {name} turns less on category excitement "
-                "than on proof of depth, economics, and durability."
+                f"We will judge {name} less on category excitement than on "
+                "proof of depth, economics, and durability."
             ),
             "purpose": "intro stance",
             "tone": "ic_ready",
@@ -3687,8 +3687,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-proceed-if-confirmed",
             "text": (
-                "The right posture is proceed if confirmed only if the lead "
-                "gating questions can be answered with independent evidence."
+                "We would proceed if confirmed only after the lead gating "
+                "questions are answered with independent evidence."
             ),
             "purpose": "conclusion posture",
             "tone": "proceed_if_confirmed",
@@ -3704,7 +3704,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-hold-pending-confirmation",
             "text": (
-                f"Hold pending confirmation is the clean answer until BSH can resolve {gate_lc.rstrip('?')}."
+                f"We would hold pending confirmation until we can resolve {gate_lc.rstrip('?')}."
             ),
             "purpose": "conclusion posture",
             "tone": "hold_pending_confirmation",
@@ -3720,8 +3720,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-pass-discipline",
             "text": (
-                "If the missing proof does not arrive, the disciplined answer "
-                "is pass rather than forcing the BSH thesis around the deal."
+                "If the missing proof does not arrive, we would pass rather "
+                "than force the BSH thesis around the deal."
             ),
             "purpose": "conclusion posture",
             "tone": "pass_discipline",
@@ -5067,6 +5067,14 @@ def _refresh_memo_packet(session: dict) -> None:
         ),
         "",
         (
+            "Use first-person sponsor voice for our view, access, conviction, "
+            "and action. Do not write third-person situational recommendation "
+            "language such as 'the recommendation is', 'the recommendation "
+            "should', 'the right posture is', 'the opportunity offered to "
+            "investors is', or 'the base case credits'."
+        ),
+        "",
+        (
             "Never copy source labels, reviewer prompts, artifact names, "
             "bracketed source tokens, design prompts, methodology notes, "
             "confidence scaffolding, no-go labels, or validation language into "
@@ -5394,7 +5402,8 @@ def _refresh_memo_packet(session: dict) -> None:
             (
                 "Use these operator-selected choices as final memo guidance "
                 "for intro stance, risk-section posture, and conclusion posture. "
-                "They are source-backed direction, not text that must be copied verbatim."
+                "They are source-backed direction, not text that must be copied verbatim. "
+                "Rewrite any detached phrasing into first-person sponsor voice."
             ),
         ]
         if selected_opening:

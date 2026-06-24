@@ -173,6 +173,28 @@ def test_linter_blocks_buyer_side_language_in_final_body(tmp_path):
     assert any(f.code == "sell_side_voice_violation" for f in result.findings)
 
 
+def test_linter_blocks_third_person_recommendation_voice(tmp_path):
+    path = tmp_path / "third-person-recommendation.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "The opportunity offered to investors is a sponsor-backed SPV interest.",
+            "The base case credits commercial pull before revenue is disclosed.",
+            "The recommendation is Proceed if confirmed: participate in the SPV.",
+            "The right posture is proceed if confirmed only if contracts bind.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    snippets = " ".join(f.snippet for f in result.findings)
+
+    assert result.has_blocking_findings is True
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+    assert "The recommendation is" in snippets
+    assert "The opportunity offered to investors is" in snippets
+
+
 def test_linter_allows_gating_questions_as_investment_memo_language(tmp_path):
     path = tmp_path / "gating-questions.docx"
     _save_docx(

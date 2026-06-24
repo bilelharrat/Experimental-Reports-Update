@@ -482,6 +482,8 @@ class ReportSummary(BaseModel):
     internal_memo_files: list[dict] = Field(default_factory=list)
     analysis_session_id: str | None = None
     analysis_session_approved: bool = False
+    download_urls: dict | None = None
+    preview_urls: dict | None = None
     resume_available: bool = False
 
 
@@ -495,8 +497,6 @@ class ReportDetail(ReportSummary):
     scope_check: dict | None = None
     stream_url: str | None = None
     log_url: str | None = None
-    download_urls: dict | None = None
-    preview_urls: dict | None = None
     analysis_artifacts: list[dict] = Field(default_factory=list)
     resume_available: bool = False
 
@@ -1831,12 +1831,13 @@ def _report_resume_available(report: dict) -> bool:
     status = str(report.get("status") or "")
     if not status.startswith("failed") or status in {
         "failed_scope_check",
-        "failed_quality_gate",
     }:
         return False
     run_dir = _memo_run_dir(report)
     if not run_dir or not run_dir.exists():
         return False
+    if status == "failed_quality_gate":
+        return bool(_report_analysis_artifacts(report))
     if (run_dir / "logs" / "memo_package.json").exists():
         return True
     return bool(_report_analysis_artifacts(report))
@@ -2016,6 +2017,16 @@ def resume_memo_report(report_id: str) -> ReportDetail:
         stage="Resume queued",
         progress=max(int(report.get("progress") or 0), 60),
         error=None,
+        resume_from_status=report.get("resume_from_status") or status,
+        resume_from_failure_phase=(
+            report.get("resume_from_failure_phase")
+            or report.get("failure_phase")
+        ),
+        resume_from_failure_detail=(
+            report.get("resume_from_failure_detail")
+            or report.get("failure_detail")
+            or report.get("error")
+        ),
         failure_phase=None,
         failure_detail=None,
     ) or report
@@ -5722,8 +5733,49 @@ def _company_view(c: dict) -> dict:
     }
 
 
+def _memo_report_artifact_urls(r: dict) -> tuple[dict[str, str], dict[str, str]]:
+    """Return download/preview URLs for memo artifacts that exist on disk."""
+    if r.get("kind") != "investment_memo_latestage" or not r.get("id"):
+        return {}, {}
+    rid = r["id"]
+    repo_root = memo_prep.DATA_DIR.parent
+
+    def rel_exists(value: Any) -> bool:
+        return bool(value and (repo_root / str(value)).exists())
+
+    memo_files = r.get("memo_files") or []
+    have_docx = {
+        f.get("language")
+        for f in memo_files
+        if rel_exists(f.get("path"))
+    }
+    download_urls = {
+        lang: f"/api/reports/{rid}/download?language={lang}"
+        for lang in ("en", "zh")
+        if lang in have_docx
+    }
+    if any(rel_exists(f.get("path")) for f in r.get("internal_memo_files") or []):
+        download_urls["internal"] = (
+            f"/api/reports/{rid}/download?artifact=internal"
+        )
+
+    have_pdf = {
+        f.get("language")
+        for f in memo_files
+        if rel_exists(f.get("pdf_path"))
+    }
+    preview_urls = {
+        lang: f"/api/reports/{rid}/preview?language={lang}"
+        for lang in ("en", "zh")
+        if lang in have_pdf
+    }
+    if any(rel_exists(f.get("pdf_path")) for f in r.get("internal_memo_files") or []):
+        preview_urls["internal"] = f"/api/reports/{rid}/preview?artifact=internal"
+    return download_urls, preview_urls
+
+
 def _report_summary(r: dict) -> dict:
-    return {
+    base = {
         "id": r.get("id"),
         "company_id": r.get("company_id"),
         "company_name": r.get("company_name"),
@@ -5753,6 +5805,12 @@ def _report_summary(r: dict) -> dict:
             else False
         ),
     }
+    download_urls, preview_urls = _memo_report_artifact_urls(r)
+    if download_urls:
+        base["download_urls"] = download_urls
+    if preview_urls:
+        base["preview_urls"] = preview_urls
+    return base
 
 
 def _report_detail(r: dict) -> dict:
@@ -5770,55 +5828,16 @@ def _report_detail(r: dict) -> dict:
     # ready-to-click .docx downloads.
     if r.get("kind") == "investment_memo_latestage" and r.get("id"):
         rid = r["id"]
-        repo_root = memo_prep.DATA_DIR.parent
-
-        def rel_exists(value: Any) -> bool:
-            return bool(value and (repo_root / str(value)).exists())
-
         base["stream_url"] = f"/api/memos/{rid}/stream"
         base["log_url"] = f"/api/jobs/log?path=memo:{rid}"
         base["analysis_artifacts"] = _report_analysis_artifacts(r)
         base["resume_available"] = _report_resume_available(r)
-        memo_files = r.get("memo_files") or []
-        have_docx = {
-            f.get("language")
-            for f in memo_files
-            if rel_exists(f.get("path"))
-        }
-        download_urls = {
-            lang: f"/api/reports/{rid}/download?language={lang}"
-            for lang in ("en", "zh")
-            if lang in have_docx
-        }
-        if any(
-            rel_exists(f.get("path"))
-            for f in r.get("internal_memo_files") or []
-        ):
-            download_urls["internal"] = (
-                f"/api/reports/{rid}/download?artifact=internal"
-            )
+        download_urls, preview_urls = _memo_report_artifact_urls(r)
         if download_urls:
             base["download_urls"] = download_urls
         # Only advertise a preview URL for a language whose PDF was
         # actually rendered (Word automation can be unavailable, or an
         # older run may predate PDF rendering).
-        have_pdf = {
-            f.get("language")
-            for f in memo_files
-            if rel_exists(f.get("pdf_path"))
-        }
-        preview_urls = {
-            lang: f"/api/reports/{rid}/preview?language={lang}"
-            for lang in ("en", "zh")
-            if lang in have_pdf
-        }
-        if any(
-            rel_exists(f.get("pdf_path"))
-            for f in r.get("internal_memo_files") or []
-        ):
-            preview_urls["internal"] = (
-                f"/api/reports/{rid}/preview?artifact=internal"
-            )
         if preview_urls:
             base["preview_urls"] = preview_urls
     return base
