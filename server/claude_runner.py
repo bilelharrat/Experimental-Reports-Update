@@ -2336,12 +2336,12 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "pre_mortem.md": "Pre-mortem",
     "reverse_ic.md": "Reverse IC",
     "validation_log.md": "Validation log",
-    "gating_questions.md": "Expected bars",
+    "risk_sensitivities.md": "Risk and valuation sensitivities",
 }
 
 _MEMO_PHASE1_THREAD = "Phase 1 - Intake and setup"
 _MEMO_PHASE2_THREAD = "Phase 2 - Parallel analysis passes"
-_MEMO_PHASE3_THREAD = "Phase 3 - Synthesis and expected bars"
+_MEMO_PHASE3_THREAD = "Phase 3 - Synthesis and sensitivities"
 _MEMO_PHASE4_THREAD = "Phase 4 - Memo package drafting"
 MEMO_PHASE5_THREAD = "Phase 5 - Rendering and QA"
 MEMO_PHASE6_THREAD = "Phase 6 - Optional internal diligence and previews"
@@ -2364,7 +2364,9 @@ _MEMO_PHASE_PLAN: tuple[dict[str, Any], ...] = (
         "thread": _MEMO_PHASE3_THREAD,
         "title": _MEMO_PHASE3_THREAD,
         "phase_index": 3,
-        "description": "Reconcile claims, scenarios, validation log, and expected bars.",
+        "description": (
+            "Reconcile claims, scenarios, validation log, and risk sensitivities."
+        ),
     },
     {
         "thread": _MEMO_PHASE4_THREAD,
@@ -2413,7 +2415,7 @@ _MEMO_SYNTHESIS_FILES = {
     "pre_mortem.md",
     "reverse_ic.md",
     "validation_log.md",
-    "gating_questions.md",
+    "risk_sensitivities.md",
 }
 
 MEMO_FAST_PASS_SCHEMA: dict[str, Any] = {
@@ -2501,7 +2503,7 @@ MEMO_FAST_ENGLISH_PACKAGE_SCHEMA: dict[str, Any] = {
                 "pre_mortem_md": {"type": "string"},
                 "reverse_ic_md": {"type": "string"},
                 "validation_log_md": {"type": "string"},
-                "gating_questions_md": {"type": "string"},
+                "risk_sensitivities_md": {"type": "string"},
             },
             "required": [
                 "claim_register_md",
@@ -2509,7 +2511,7 @@ MEMO_FAST_ENGLISH_PACKAGE_SCHEMA: dict[str, Any] = {
                 "pre_mortem_md",
                 "reverse_ic_md",
                 "validation_log_md",
-                "gating_questions_md",
+                "risk_sensitivities_md",
             ],
         },
         "memo_package": {
@@ -2552,7 +2554,7 @@ Final memo prose must:
   writer-process language;
 - use first-person sponsor voice when stating our view, access, conviction,
   and action: "we believe", "we are being offered", "we recommend",
-  "we would proceed if", and "we would revisit if";
+  "we recommend", and "we are participating through";
 - never use detached third-person constructions for the investment call;
   recommendation, access, base case, and action sentences need a first-person
   sponsor subject or a direct investment-case subject;
@@ -2564,7 +2566,7 @@ Final memo prose must:
   the memo;
 - use source-class language in Sections I-V, with detailed source IDs only in
   a separate Sources, Source Classes, and Fact Reference Index;
-- convert disclosure gaps into confirmation items, scenario ranges, Fermi
+- convert disclosure gaps into risk factors, valuation sensitivities, Fermi
   estimates, or closing diligence.
 
 Sell-side investment memo posture:
@@ -2574,7 +2576,7 @@ Sell-side investment memo posture:
   technical proof, commercial proof, and SPV/round mechanics.
 - For Wisdom-sponsored opportunities, write in a Wisdom/BSH sponsor register:
   "we invest", "we want to be in the room", "we are participating through the
-  SPV", and "we recommend proceeding if...". Do not describe the sponsor or
+  SPV", and "we recommend participating...". Do not describe the sponsor or
   investors from a detached third-person vantage point unless identifying a
   legal counterparty.
 - Do not write as if BSH is negotiating control terms in a private-equity
@@ -2591,19 +2593,42 @@ Sell-side investment memo posture:
   participation recommendation unless the facts show conviction is genuinely
   low.
 - Treat SPV/SAFE economics as deal mechanics to explain plainly, not as a
-  thesis-breaking risk by default. State the expected economic bar and how the
-  investment case is supported if the terms match it.
-- Expected bars must be few, deal-relevant, and measurable where the source
-  package allows. They must not become a generic late-stage checklist or
-  disqualify normal early-growth financings that top firms routinely complete.
-- Do not express closing conditions as question-form prose. Final memo text must
-  state closing confirmations as active investment conditions: "We proceed once
-  final A2 terms, SAFE conversion mechanics, closing timing, and the
-  binding-contract split are confirmed."
+  thesis-breaking risk by default. State the economics, valuation support, and
+  sensitivity to the final instrument terms without turning the memo into a
+  checklist.
+- The finished investment memo is an offer memo, not an internal approval note.
+  Do not use investment conditions, expected bars, confirmation bars, diligence
+  gates, proceed-if-confirmed language, or next-step checklists in final prose.
+  Convert those ideas into investment thesis, risk factors, valuation
+  sensitivities, and deal-mechanics disclosure.
+- Do not use funding-gate or checklist phrasing in final prose: no "confirm
+  before funding", "before BSH funds", "before signing subscription
+  documents", "we still need", "need to confirm", "require the split", or
+  "diligence actions". Convert each item into risk or valuation language:
+  "The $500M+ figure blends signed contracts and MOUs, so valuation support is
+  strongest where binding contract value converts to recognized revenue."
+- Do not use confirmation-section headings in the finished memo. Ban "Closing
+  Confirmations", "Closing Confirmation Bars", "What Must Be Confirmed",
+  "Confirmation Items", and "Next Diligence Actions". Those are internal
+  workflow/checklist labels. Fold the same substance into the investment
+  thesis, risk factors, valuation sensitivity, or deal-mechanics disclosure.
+- Do not start final memo sentences, bullets, or table cells with imperative
+  "Confirm ...". That is internal-note/checklist voice. The final memo should
+  say, "A2 lead, final pre-money, and closing evidence match the disclosed
+  Series A2 economics."
 - Do not speculate about sponsor, company, investor, or counterparty
   capability to share, provide, produce, or confirm information. State the
-  expected bar, the evidence already supporting it, and what would make us
-  revisit.
+  disclosed fact, the risk to the investment case, and the valuation
+  sensitivity directly.
+- Do not narrate the sponsor memo or source process in final prose. Avoid
+  "memo language was", "the sponsor implies", "the sponsor frames", and
+  "the sponsor itself flags". State the fact or risk directly, then say how it
+  affects the investment case.
+- Do not use source-process narration as a substitute for investment judgment:
+  no "the sponsor acknowledges", "the sponsor discloses", "inside the memo",
+  "source material", "embedded in the registry", or "the registry". Write the
+  fact in plain form: "The $500M+ figure blends signed contracts and MOUs" or
+  "available evidence does not document revenue attribution."
 - Do not write passive availability language about future process access or
   ease of confirmation. Those are guesses about process, not investment
   judgments.
@@ -2615,12 +2640,12 @@ Sell-side investment memo posture:
   "before we underwrite", or "right way to view the underwriting". Use
   investment-case language instead: "we give credit to", "our base case
   credits", "the investment case rests on", "the valuation is supported by",
-  or "we proceed once the evidence is confirmed."
+  or "the valuation is supported by."
 - Do not use writer-process framing such as "we frame it as", "we frame the
   market", or "the framework". State the investment conclusion directly.
 - Do not write imperative diligence commands such as "Require X before
-  underwriting". Use active expected-bar language: "We proceed once X is
-  confirmed" or "Our base case gives credit after X is confirmed."
+  underwriting". Use investment-case language: "The base case gives credit to
+  X", "X supports the valuation", or "X remains the principal risk factor."
 
 Concrete positive writing patterns:
 - Opening: "We invest behind physical-world infrastructure that makes people
@@ -2628,14 +2653,13 @@ Concrete positive writing patterns:
   positioning is becoming a control layer for defense, industrial automation,
   logistics, and Physical AI."
 - Transaction: "We are being offered SPV exposure to a SAFE expected to convert
-  into the A2 at an effective entry near $2.55B after the discount, subject to
-  confirming the final A2 terms and conversion mechanics."
-- Recommendation: "We recommend proceeding if the binding-contract split,
-  final A2 terms, SAFE conversion mechanics, and closing evidence confirm the
-  current investment case."
-- Revisit trigger: "We would revisit if the A2 prices materially below the
-  current mark, slips beyond the expected closing window, or the binding
-  contract figure is not large enough to support the valuation."
+  into the A2 at an effective entry near $2.55B after the discount."
+- Recommendation: "We recommend participating in the SPV because the entry
+  prices scarce technical infrastructure, patent depth, early commercial pull,
+  and defense validation before the full revenue curve is visible."
+- Risk sensitivity: "The principal sensitivity is the binding-contract share
+  inside the $500M+ commercial figure and whether final SAFE mechanics preserve
+  the disclosed effective entry."
 - Evidence gap: "Revenue is not disclosed; our base case uses binding
   contract value, implementation timing, and conservative conversion ranges
   rather than treating pipeline or MOUs as revenue."
@@ -2656,10 +2680,17 @@ Final memo body and operating tables must not contain:
 - internal artifact names such as `companies.yaml`, `memo_packet`,
   `source_trace`, `claim_register`, `research_tasks`, `reviewer_prompts`, or
   analysis file names;
+- source-process narration such as `memo language was`, `the sponsor implies`,
+  `the sponsor frames`, `the sponsor itself flags`, `the sponsor acknowledges`,
+  `the sponsor discloses`, `inside the memo`, `source material`,
+  `embedded in the registry`, `the registry`, or `we still need`;
 - scaffold headings or labels such as `Critical Reality Check`,
   `present-state`, `upside-state`, `upside-only`,
-  `Strongest independent support`, `Strongest disconfirming facts`, or
-  `Still unproven`;
+  `Strongest independent support`, `Strongest disconfirming facts`,
+  `Still unproven`, `Diligence Thresholds`, `Closing Confirmations`,
+  `Closing Confirmation Bars`, `What Must Be Confirmed`,
+  `Confirmation Items`, `Expected Bars`, `Investment Conditions`, or
+  `Next Diligence Actions`;
 - cute or fuzzy finance phrasing such as `soft instrument`, `hard IP wall`,
   `moat narrows`, `no-rights SAFE`, `where nothing else works`, or
   `least-proven part of the story`;
@@ -2670,8 +2701,8 @@ Final memo body and operating tables must not contain:
 - passive counterparty-capability or availability speculation;
 - detached recommendation-label headings; state the investment decision directly
   in a sentence;
-- internal question-list labels or internal-audience suffixes; use `Closing
-  Confirmations` or `What Must Be Confirmed` instead;
+- internal question-list labels, confirmation labels, expected-bar labels, or
+  internal-audience suffixes;
 - internal IC, buyer-side diligence, bank/debt, control-investor, or
   deal-legal checklist shorthand. This is an LP-facing, exec-ready sell-side
   investment memo, not a BSH internal allocation note. Write every deal
@@ -2679,10 +2710,10 @@ Final memo body and operating tables must not contain:
   describing what it means economically for investors. Say that a valuation
   rests on or is supported by specific evidence; that a structure offers
   limited governance, reporting, or oversight; and frame the decision as a
-  clear recommendation with stop-or-revisit conditions. Use investment-case,
-  participation, confirmation, decision, and stop/revisit vocabulary instead
-  of process labels, small-check reflexes, legal-rights labels, or
-  control-rights checklist phrasing;
+  clear recommendation. Use investment-case, participation, valuation-support,
+  and risk-sensitivity vocabulary instead of process labels, confirmation
+  labels, small-check reflexes, legal-rights labels, or control-rights
+  checklist phrasing;
 - BSH internal participation-sizing language or internal recommendation
   instructions;
 - em dash bridging in English body prose or operating tables;
@@ -2694,15 +2725,15 @@ Memo spine requirement:
 - entry_tension: what the valuation or instrument already assumes;
 - current_proof: what is proven today by source class;
 - unproven_but_modelable: what is missing but can be modeled conservatively;
-- stop_or_revisit: what would make investors decline or revisit later;
-- action: recommendation verdict, confirmation items, and next diligence.
+- risk_sensitivity: what weakens valuation support or return potential;
+- action: recommendation verdict and investment rationale.
 
 The opening, Investment View, risk section, scenario section, and final
 Investment Decision / Closing View must use the same spine. The first two
 body paragraphs must state company, transaction, valuation / entry terms,
 central price/proof tension, and recommendation verdict. The substantive
-ending must state the investment recommendation, confirmation items,
-stop/revisit conditions, and next diligence actions before any sources or
+ending must state the investment recommendation, risk sensitivities, and
+valuation support before any sources or
 disclosures. Do not include BSH internal participation sizing in the
 LP-facing memo.
 
@@ -2716,8 +2747,8 @@ Positive examples for early-commercial infrastructure deals:
 - "Pipeline is not contracted revenue. Use a 5-15% conversion range for
   scenario construction until named site-level commitments are available."
 - "An SPV interest depends on the SAFE converting as described; explain the
-  economics and document-confirmation points without turning them into a
-  control-rights checklist."
+  economics and valuation sensitivity without turning them into a
+  control-rights or confirmation checklist."
 - "If the round is meaningfully oversubscribed and BSH has differentiated
   access, we would reflect scarcity and upside in our recommendation,
   not mechanically default to a minimum check."
@@ -2727,29 +2758,39 @@ Banned phrase / rewrite guidance:
 | Avoid | Prefer |
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
-| Detached recommendation framing | We recommend... / We would proceed if... |
+| Detached recommendation framing | We recommend participating... / We do not recommend participating... |
 | Detached opportunity framing | We are being offered... |
 | Detached base-case framing | Our base case gives credit for... |
 | Memo/document/process narration | Remove the frame; make the investment statement. |
 | Analysis-process narration | State the conclusion directly. |
 | Uncertainty apology | State the disclosed and undisclosed facts directly. |
 | Detached decision label | Investment Decision / We recommend... |
-| Question-form closing condition | We proceed once final A2 terms and closing timing are confirmed. |
-| Sponsor capability speculation | We proceed once the relevant terms or evidence are confirmed. |
-| Passive availability language | Remove the process guess; state the expected bar and stop/revisit condition. |
+| Question-form closing condition | State the deal economics, risk factor, or valuation sensitivity. |
+| Sponsor capability speculation | State the disclosed fact and investment implication directly. |
+| Passive availability language | Remove the process guess; state the risk or valuation sensitivity. |
+| confirm before funding / before BSH funds | State the risk or valuation sensitivity. |
+| Confirm [anything] | State the deal fact, support point, or risk sensitivity directly. |
+| Closing Confirmations / Closing Confirmation Bars / What Must Be Confirmed | Remove the section; fold the substance into recommendation, risk, valuation, or deal mechanics. |
+| before signing subscription documents | State the deal fact or valuation sensitivity directly. |
+| we still need / need to confirm | State what is disclosed, not disclosed, and why it matters. |
+| the sponsor implies / the sponsor frames | State the investment fact or risk directly. |
+| sponsor acknowledges / sponsor discloses | State the disclosed fact directly. |
+| memo language was | State the disclosed timing or term directly. |
+| source material / inside the memo / registry | available evidence / disclosed materials / omit the process frame |
+| Diligence Thresholds / Next Diligence Actions | Fold into recommendation, risk, valuation, or deal-mechanics prose. |
 | No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
 | underwrite / underwriting | give credit to / investment case / valuation support |
 | before we underwrite... | before we give full credit to... / once confirmed |
 | the right way to view the underwriting | the investment case rests on... |
 | We frame it as... | State the conclusion directly without writer-process narration. |
-| Require X before underwriting | We proceed once X is confirmed. |
-| Internal question-list labels | Closing Confirmations / What Must Be Confirmed |
+| Require X before underwriting | X is a valuation-support factor / X remains a risk factor. |
+| Internal question-list labels | Remove; use investment thesis, risk, valuation, or deal mechanics. |
 | Proving the case | investment case, base case, conviction, support |
 | Describing participation | participation, commitment, exposure |
-| Unresolved inquiry framing | Expected bars / Closing Confirmation Bars |
-| Missing proof | What Still Needs Confirmation |
-| Recommendation labels | Proceed / Proceed if confirmed / Hold pending confirmation / Pass |
-| Decision discipline | stop/revisit conditions |
+| Unresolved inquiry framing | Risk factors / valuation sensitivities / deal-mechanics disclosure |
+| Missing proof | Risk factor / valuation sensitivity / disclosed evidence gap |
+| Recommendation labels | We recommend participating / We do not recommend participating |
+| Decision discipline | risk sensitivities |
 | False precision | State the evidence range without over-modeling it. |
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
@@ -2908,7 +2949,7 @@ strategic risks, risk priorities, research tasks, thesis spine,
 infographic source brief, chart/infographic plans, narrative hooks, and
 benchmark dashboard. Treat the thesis spine as draft authorship guidance:
 the final memo structure still follows the skill, but
-Investment Highlights, Investment Risks, Closing Confirmation Bars,
+Investment Highlights, Investment Risks, Valuation Sensitivity,
 infographic choices, selected operator narrative choices, source-brief
 warnings, intro stance, risk-section stance, and conclusion verdict come from
 this packet when they are supported by evidence. Treat selected
@@ -2952,7 +2993,7 @@ step. Sequential per-pass execution is wasteful — fan them out
 concurrently.
 
 The synthesis step (Claim Register reconciliation, Scenario Swim
-Lanes, Closing Confirmation Bars, Pre-Mortem, Reverse IC), the memo
+Lanes, valuation sensitivity, Pre-Mortem, Reverse IC), the memo
 drafting step, the translation step, and the package-writing step
 remain sequential. Server-side `.docx` rendering happens after Claude exits.
 
@@ -3135,7 +3176,7 @@ thresholds.
 
 The Chinese memo must be native professional investment Chinese with
 analytical parity to English: same recommendation, confidence level, risks,
-valuation posture, evidence, caveats, tables, and confirmation bars. Do not
+valuation posture, evidence, caveats, tables, and risk / valuation sensitivity. Do not
 translate prompt scaffolding into visible prose. Avoid terms like `上行状态`,
 `现态`, `关键现实检查`, `源追踪`, `备忘录包`, `审阅者提示`, `声明登记`,
 `硬 IP 墙`, or `软性工具`; rewrite them as precise investment judgments,
@@ -3468,8 +3509,8 @@ Fast analysis artifacts:
 Read the relevant packet/artifact files. Do not rerun the eight analysis
 passes. Produce ONE JSON object with:
 1. `analysis_artifacts`: concise markdown strings for claim register,
-   scenario swim lanes, pre-mortem, reverse IC, validation log, and expected
-   bars. Keep each artifact useful but short.
+   scenario swim lanes, pre-mortem, reverse IC, validation log, and risk and
+   valuation sensitivities. Keep each artifact useful but short.
 2. `memo_package`: an English source package for the fixed renderer. Every
    user-facing string must be represented as `{{"en": "...", "zh": ""}}`.
    Leave `zh` blank; a separate subprocess will fill Chinese. Do not write
@@ -4372,7 +4413,7 @@ Write a complete Markdown memo with this exact top-level structure:
 # Internal Diligence Memo — {company_name}
 
 ## Internal Recommendation
-- Recommendation: Proceed / Proceed if confirmed / Hold pending confirmation / Pass.
+- Recommendation: Proceed / Hold / Pass.
 - Suggested allocation: state a range or "not yet sized" and explain why.
 - Conviction: High / Medium / Low.
 - One-paragraph rationale.
@@ -6806,8 +6847,8 @@ Instructions:
   specific, compressed, evidence-grounded, and free of meta phrases such as
   document-process framing, analysis-process framing, or section narration.
 - Endings and recommendation candidates must use first-person sponsor voice:
-  "we recommend", "we would proceed if", "we would hold", or "we would
-  revisit if". Do not write detached third-person recommendation,
+  "we recommend participating", "we would hold", or "we would pass". Do not
+  write detached third-person recommendation,
   opportunity, or base-case framing.
 - Each candidate must include supported claims, evidence references, source
   traces where available, confidence, overclaiming risk, and suggested
@@ -6818,8 +6859,8 @@ Instructions:
   stance, risk posture, or conclusion posture that cannot be safely inferred
   from the evidence. Make them optional unless approval is unsafe without
   the operator's answer.
-- Do not invent facts. Unsupported claims must become expected bars, missing
-  evidence, or stop/revisit triggers.
+- Do not invent facts. Unsupported claims must become risk factors, missing
+  evidence, or valuation sensitivities.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -7128,8 +7169,8 @@ Instructions:
 - Use the current strategic risks, risk priorities, selected research-task
   results, chart specs, and benchmark context above.
 - Build 3-5 investment highlights, 3-5 investment risks, direct
-  recommendation logic, the top expected bars for defending the investment
-  recommendation, bull-case requirements, and pass triggers.
+  recommendation logic, the top risk and valuation sensitivities for defending
+  the investment recommendation, bull-case requirements, and pass triggers.
 - Write every highlight and risk as final-memo raw material: concise,
   judgment-led, source-backed, and free of process language. Convert research
   task answers into conclusions instead of copying task labels or confidence
@@ -7138,15 +7179,13 @@ Instructions:
   generic operating risks. Each risk detail must carry the specific data,
   contradiction, or missing proof that makes the risk matter.
 - recommendation_logic must be usable as the conclusion spine: conviction,
-  dependencies, failure modes, and the operator's likely proceed / proceed-if-
-  confirmed / hold-pending-confirmation / pass verdict. Write it as advocacy
-  for the investment case under defined bars, not as a passive diligence
-  checklist.
-- Top expected bars are not questions. For each bar, state the measurable
-  threshold that makes the recommendation defensible, the support threshold,
-  the confirmation evidence, and the stop/revisit implication if the bar is not
-  met. Use active expected-bar phrases, not company/sponsor capability
-  questions or passive availability framing.
+  dependencies, failure modes, and the operator's likely proceed / hold / pass
+  verdict. Write it as advocacy for the investment case, not as a passive
+  diligence checklist.
+- Top sensitivities are not questions or conditions. For each sensitivity,
+  state the measurable variable, the support evidence, and the downside impact
+  if the fact pattern weakens. Use risk and valuation language, not
+  company/sponsor capability questions or passive availability framing.
 - Treat incomplete research-task results, partial chart specs, and nullable
   benchmark metrics as evidence gaps, not as facts.
 - Source_trace values must name artifact/source categories actually used,

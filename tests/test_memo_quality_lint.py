@@ -166,6 +166,12 @@ def test_linter_blocks_buyer_side_language_in_final_body(tmp_path):
             "Wisdom Ventures should be able to share the executed term sheet.",
             "Federal contract identifiers are realistically obtainable.",
             "These items should be closeable in the diligence window.",
+            "Confirm before funding: the signed-vs-MOU split matches the model.",
+            "Confirm the A2 closes on disclosed terms.",
+            "Confirm final terms before signing subscription documents.",
+            "We still need a claim-scope read before giving credit to patents.",
+            "Diligence Thresholds",
+            "Next Diligence Actions",
             "Require data room access, a named institutional lead, MFN, "
             "down-round protection, information rights, and voting rights.",
         ],
@@ -213,6 +219,14 @@ def test_linter_blocks_meta_process_language(tmp_path):
             "This document outlines the key risks.",
             "This section covers the investment risk.",
             "The framework points toward conditional participation.",
+            "Memo language was closing imminent as of May 2026.",
+            "The sponsor implies a licensing fallback under standardization.",
+            "The sponsor itself flags standardization risk.",
+            "The sponsor acknowledges the figure is MOU-heavy.",
+            "Sponsor explicitly discloses 18 to 36 month carrier sales cycles.",
+            "Pipeline figures inside the memo are company-provided.",
+            "The competitor list embedded in the registry understates threat.",
+            "Revenue is not documented in source material.",
             "We outline the investment case below.",
             "We discuss the downside case later.",
         ],
@@ -229,6 +243,11 @@ def test_linter_blocks_meta_process_language(tmp_path):
     assert "Our memo" in snippets
     assert "Our analysis" in snippets
     assert "This document" in snippets
+    assert "Memo language was" in snippets
+    assert "The sponsor implies" in snippets
+    assert "The sponsor acknowledges" in snippets
+    assert "inside the memo" in snippets
+    assert "embedded in the registry" in snippets
     assert "We outline" in snippets
     assert "We discuss" in snippets
 
@@ -254,7 +273,7 @@ def test_linter_blocks_internal_questionnaire_language(tmp_path):
     assert any(f.code == "sell_side_voice_violation" for f in result.findings)
 
 
-def test_linter_allows_active_closing_confirmation_language(tmp_path):
+def test_linter_blocks_confirmation_sections_and_conditions(tmp_path):
     path = tmp_path / "closing-confirmations.docx"
     _save_docx(
         path,
@@ -263,9 +282,41 @@ def test_linter_allows_active_closing_confirmation_language(tmp_path):
             "Closing Confirmations",
             "We proceed once final A2 terms, SAFE conversion mechanics, and the binding-contract split are confirmed.",
             "We would revisit if the A2 slips beyond the expected closing window or prices below the current mark.",
+            "The recommendation is Proceed if confirmed.",
+            "Investment Conditions",
+            "Expected Bars",
+            "Valuation Sensitivity Bars",
+            "Stop or Revisit Conditions",
+            "What Would Make Us Revisit or Decline",
+            "Immediate Confirmation Work",
+            "Closing bar: contract split supports the case.",
+            "Cross-check DoD signings on SAM.gov and USAspending.gov.",
+            "Source two non-investor technical references through the network.",
+            "Patent counsel claim-scope and freedom-to-operate read supports durable patent leverage.",
         ],
     )
 
     result = memo_quality_lint.lint_memo_docx(path)
 
-    assert not any(f.code == "sell_side_voice_violation" for f in result.findings)
+    assert result.has_blocking_findings is True
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+
+
+def test_linter_blocks_imperative_confirm_items_and_heading(tmp_path):
+    path = tmp_path / "confirm-items.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "Closing Confirmations",
+            "Confirm the A2 lead investor identity and final pre-money.",
+            "Expected bar: A2 lead investor identity and final pre-money match the disclosed Series A2 economics.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    snippets = " ".join(f.snippet for f in result.findings)
+
+    assert result.has_blocking_findings is True
+    assert "Confirm the A2 lead" in snippets
+    assert "Closing Confirmations" in snippets

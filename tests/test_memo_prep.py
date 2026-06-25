@@ -233,8 +233,8 @@ def test_memo_phase_transitions_do_not_skip_phase_two():
                         "id": "toolu_1",
                         "name": "Write",
                         "input": {
-                            "file_path": "analysis/gating_questions.md",
-                            "content": "questions",
+                            "file_path": "analysis/risk_sensitivities.md",
+                            "content": "sensitivities",
                         },
                     }
                 ]
@@ -689,16 +689,16 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
     assert "We are being offered SPV exposure" in prompt
-    assert "We recommend proceeding if the binding-contract split" in prompt
+    assert "We recommend participating in the SPV because" in prompt
     assert "Revenue is not disclosed; our base case uses" in prompt
     assert "Make statements directly" in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
     assert "detached third-person recommendation or opportunity framing" in prompt
-    assert "Expected bars must be few" in prompt
+    assert "risk and valuation sensitivities" in prompt
     assert "Closing Confirmation Bars" in prompt
     assert "bsh_allocation" not in prompt
     assert "BSH target allocation" not in prompt
-    assert "We recommend... / We would proceed if..." in prompt
+    assert "We would proceed if" not in prompt
     assert "Proceed if confirmed" in prompt
     assert "not revenue-recognized" in prompt
     assert "Final Prose QA Requirements" in prompt
@@ -750,7 +750,7 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
     assert "We are being offered SPV exposure" in prompt
-    assert "We recommend proceeding if the binding-contract split" in prompt
+    assert "We recommend participating in the SPV because" in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
     assert "Never use detached recommendation, opportunity" in prompt
     assert "Concrete negative examples to reject" not in prompt

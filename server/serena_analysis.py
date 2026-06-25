@@ -48,12 +48,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "strategic_risk_mapper",
         "label": "Strategic Risk Mapper",
-        "description": "Generate the expected bars and failure modes that shape the memo.",
+        "description": (
+            "Generate risk and valuation sensitivities and failure modes that "
+            "shape the memo."
+        ),
         "stage": "core",
         "critical": True,
         "run_label": "Map risks",
         "ready_label": "Risk map ready for prioritization",
-        "input_label": "Pick the expected bars that deserve diligence.",
+        "input_label": "Pick the sensitivities that deserve diligence.",
         "produces": "strategic_risks",
     },
     {
@@ -71,12 +74,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "thesis_spine_builder",
         "label": "Thesis Spine",
-        "description": "Draft memo-grade highlights, risks, recommendation logic, and expected bars.",
+        "description": (
+            "Draft memo-grade highlights, risks, recommendation logic, and "
+            "risk or valuation sensitivities."
+        ),
         "stage": "core",
         "critical": True,
         "run_label": "Draft thesis",
         "ready_label": "Thesis ready for review",
-        "input_label": "Edit the claims and expected bars before approval.",
+        "input_label": "Edit the claims and sensitivities before approval.",
         "depends_on": ["strategic_risk_mapper", "priority_prompt_harness"],
         "produces": "thesis_spine",
     },
@@ -2772,7 +2778,7 @@ def _deterministic_research_result(
     return (
         f"First-pass deterministic result for {name}: '{risk_title}' remains "
         f"open until Serena validates {evidence_text}. Recommended source path: "
-        f"{source_type}. Expected bar: {decision_question}"
+        f"{source_type}. Sensitivity: {decision_question}"
     )
 
 
@@ -3200,10 +3206,10 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
                 "support_threshold": support_threshold or expected_bar,
                 "confirmation_evidence": confirmation_evidence,
                 "stop_or_revisit_if_missing": stop_or_revisit or (
-                    "Revisit the recommendation if this bar resolves below threshold."
+                    "Revisit the recommendation if this sensitivity resolves below threshold."
                 ),
                 # Compatibility fields for existing UI/tests. Values are
-                # expected-bar statements, not final-memo questions.
+                # sensitivity statements, not final-memo questions.
                 "question": expected_bar,
                 "why_it_matters": support_threshold or expected_bar,
                 "evidence_needed": confirmation_evidence,
@@ -3381,7 +3387,7 @@ def _strategic_risks(company: dict) -> list[dict]:
         [
             "pre-mortem",
             "reverse IC case",
-            "top three expected bars",
+            "top three risk or valuation sensitivities",
             "missingness penalties",
         ],
         ["all analysis artifacts", "partner notes", "independent negative searches"],
@@ -3409,7 +3415,7 @@ def _research_task_search_plan(risk: dict) -> dict:
             "Check selected company background documents first.",
             "Extract supporting and contradicting evidence with source locators.",
             "Use public web/filing sources only where local evidence is insufficient.",
-            "Return unresolved expected bars when evidence remains missing or weak.",
+            "Return unresolved risk or valuation sensitivities when evidence remains missing or weak.",
         ],
     }
 
@@ -3467,7 +3473,8 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "claim": "Final view depends on deployment depth, revenue quality, and valuation support",
             "detail": (
                 "These are the proof points most likely to determine whether "
-                "the conclusion is proceed, proceed if confirmed, hold, or pass."
+                "we can recommend participating, recommend passing, or carry "
+                "a weaker risk-sensitive stance."
             ),
             "state": "upside_state",
             "source_trace": ["strategic_risks", "risk_priorities", "chart_specs"],
@@ -3490,7 +3497,7 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
     gates = [
         {
             "id": f"gate-{i}",
-            "expected_bar": _question_to_confirmation_action(
+            "expected_bar": _question_to_sensitivity_statement(
                 r["decision_question"]
             ),
             "support_threshold": r["why_it_matters"],
@@ -3498,7 +3505,7 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "stop_or_revisit_if_missing": (
                 "Revisit the recommendation if this bar resolves below threshold."
             ),
-            "question": _question_to_confirmation_action(r["decision_question"]),
+            "question": _question_to_sensitivity_statement(r["decision_question"]),
             "why_it_matters": r["why_it_matters"],
             "evidence_needed": r.get("evidence_needed") or [],
         }
@@ -3510,9 +3517,10 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
         "investment_highlights": highlights[:5],
         "investment_risks": risks_out[:5],
         "recommendation_logic": (
-            "Use Proceed if confirmed when the lead expected bars have "
-            "independent support and the benchmark work supports the valuation; "
-            "revisit or pass if the selected bars resolve below threshold."
+            "State the recommendation directly. Support participation when the "
+            "lead sensitivities have independent evidence and benchmark work "
+            "supports valuation; revisit or pass if the selected sensitivities "
+            "resolve below threshold."
         ),
         "top_gating_questions": gates[:3],
         "bull_case_must_be_true": [
@@ -3612,13 +3620,18 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             limit=220,
         )
     intro_fact = desc or f"{name} operates in {sector}."
-    gate_text = str(main_gate or "").removeprefix("Expected bar:").strip()
+    gate_text = (
+        str(main_gate or "")
+        .removeprefix("Expected bar:")
+        .removeprefix("Sensitivity:")
+        .strip()
+    )
     gate_lc = gate_text[:1].lower() + gate_text[1:] if gate_text else gate_text
     openings = [
         {
             "id": "intro-operating-proof",
             "text": (
-                f"We recommend exposure to {name} if {gate_lc.rstrip('.')}."
+                f"We recommend exposure to {name}; conviction is strongest where {gate_lc.rstrip('.')}."
             ),
             "purpose": "intro stance",
             "tone": "proof_first",
@@ -3719,34 +3732,34 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
     ]
     endings = [
         {
-            "id": "conclusion-proceed-if-confirmed",
+            "id": "conclusion-recommend-participating",
             "text": (
-                "We recommend Proceed if confirmed when the lead expected bars "
-                "are supported by independent evidence."
+                "We recommend participating when independent evidence supports "
+                "the lead sensitivities and the valuation case."
             ),
             "purpose": "conclusion posture",
-            "tone": "proceed_if_confirmed",
+            "tone": "recommend_participating",
             "supported_claims": [main_gate, recommendation_logic],
             "evidence_references": ["top_gating_questions", "recommendation_logic"],
             "source_traces": [],
             "confidence": "medium",
-            "overclaiming_risk": "Do not use if the evidence base supports only holding for confirmation.",
+            "overclaiming_risk": "Do not use if the evidence base does not support participation.",
             "paired_infographic_ids": [],
             "reviewer_prompts": [],
             "status": "draft",
         },
         {
-            "id": "conclusion-hold-pending-confirmation",
+            "id": "conclusion-risk-sensitive",
             "text": (
-                f"We would hold if {gate_lc.rstrip('.')} remains below the expected bar."
+                f"The recommendation weakens if {gate_lc.rstrip('.')} remains below the support threshold."
             ),
             "purpose": "conclusion posture",
-            "tone": "hold_pending_confirmation",
+            "tone": "risk_sensitive",
             "supported_claims": [main_gate, lead_risk],
             "evidence_references": ["top_gating_questions", "investment_risks"],
             "source_traces": [],
             "confidence": "medium",
-            "overclaiming_risk": "Use if unresolved evidence is material enough to hold the decision.",
+            "overclaiming_risk": "Use if unresolved evidence is material enough to weaken the recommendation.",
             "paired_infographic_ids": [],
             "reviewer_prompts": [],
             "status": "draft",
@@ -3786,9 +3799,9 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
                 ),
                 "required": False,
                 "options": [
-                    "Proceed if confirmed",
-                    "Hold pending confirmation",
-                    "Pass unless lead proof arrives",
+                    "We recommend participating",
+                    "We recommend passing",
+                    "Risk-sensitive recommendation",
                 ],
                 "resolved_choice": None,
                 "rationale": "Operator HIL guidance can make the conclusion sharper than a default balanced ending.",
@@ -5033,8 +5046,8 @@ def _memo_packet_source_fingerprint(session: dict) -> str:
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
 
-def _question_to_confirmation_action(value: str | None) -> str:
-    """Convert internal question-shaped gates into expected-bar prose."""
+def _question_to_sensitivity_statement(value: str | None) -> str:
+    """Convert internal question-shaped prompts into sensitivity prose."""
     raw = str(value or "").strip()
     if not raw:
         return ""
@@ -5052,22 +5065,22 @@ def _question_to_confirmation_action(value: str | None) -> str:
             return ""
         return fragment[0].lower() + fragment[1:]
     if lowered.startswith("is "):
-        return f"Expected bar: {text[3:]}."
+        return f"Sensitivity: {text[3:]}."
     if lowered.startswith("are "):
-        return f"Expected bar: {text[4:]}."
+        return f"Sensitivity: {text[4:]}."
     if lowered.startswith("can "):
-        return f"Expected bar: {text[4:]}."
+        return f"Sensitivity: {text[4:]}."
     if lowered.startswith("does "):
-        return f"Expected bar: {text[5:]}."
+        return f"Sensitivity: {text[5:]}."
     if lowered.startswith("do "):
-        return f"Expected bar: {text[3:]}."
+        return f"Sensitivity: {text[3:]}."
     if lowered.startswith("what is "):
-        return f"Expected bar: specified {text[8:]}."
+        return f"Sensitivity: specified {text[8:]}."
     if lowered.startswith("what are "):
-        return f"Expected bar: specified {text[9:]}."
+        return f"Sensitivity: specified {text[9:]}."
     if lowered.startswith("how "):
-        return f"Expected bar: {text}."
-    return f"The expected bar is {decap(text)}."
+        return f"Sensitivity: {text}."
+    return f"Sensitivity: {decap(text)}."
 
 
 def _memo_packet_is_current(session: dict) -> bool:
@@ -5133,7 +5146,7 @@ def _refresh_memo_packet(session: dict) -> None:
         "",
         (
             "Use this packet as evidence, not copy. The final memo must translate "
-            "evidence matrices, research tasks, risks, and expected bars into "
+            "evidence matrices, research tasks, risks, and sensitivities into "
             "partner-level conclusions."
         ),
         "",
@@ -5180,7 +5193,7 @@ def _refresh_memo_packet(session: dict) -> None:
         if str(item.get("claim") or "").strip()
     ]
     unproven = [
-        _question_to_confirmation_action(
+        _question_to_sensitivity_statement(
             item.get("expected_bar") or item.get("question")
         )
         for item in gates[:3]
@@ -5235,9 +5248,9 @@ def _refresh_memo_packet(session: dict) -> None:
     lines += ["", "## Investment Risks"]
     for item in thesis.get("investment_risks") or []:
         lines.append(f"- **{item.get('claim')}** — {item.get('detail')}")
-    lines += ["", "## Closing Confirmation Actions"]
+    lines += ["", "## Risk And Valuation Sensitivities"]
     for item in thesis.get("top_gating_questions") or []:
-        action = _question_to_confirmation_action(
+        action = _question_to_sensitivity_statement(
             item.get("expected_bar") or item.get("question")
         )
         if action:
@@ -5271,9 +5284,9 @@ def _refresh_memo_packet(session: dict) -> None:
                         lines.append(f"    - {prefix}{evidence.get('excerpt')}")
                 open_questions = item.get("open_questions") or []
                 if open_questions:
-                    lines.append("  - Confirmation actions:")
+                    lines.append("  - Risk and valuation sensitivities:")
                     for question in open_questions[:3]:
-                        action = _question_to_confirmation_action(question)
+                        action = _question_to_sensitivity_statement(question)
                         if action:
                             lines.append(f"    - {action}")
             elif item.get("prompt"):
@@ -5291,7 +5304,7 @@ def _refresh_memo_packet(session: dict) -> None:
                         f"{item['contradicting_count']} contradicting."
                     )
             if evidence_summary["missing"]:
-                lines.append("- Missing evidence / expected bars:")
+                lines.append("- Missing evidence / sensitivities:")
                 for item in evidence_summary["missing"][:5]:
                     questions = item.get("questions") or []
                     suffix = "; ".join(questions[:3]) if questions else "No source-backed evidence yet."
@@ -6594,7 +6607,7 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         ("thesis_spine", "Thesis spine drafted", bool(thesis.get("investment_highlights"))),
         ("highlights", "3-5 Investment Highlights drafted", 3 <= len(thesis.get("investment_highlights") or []) <= 5),
         ("memo_risks", "3-5 Investment Risks drafted", 3 <= len(thesis.get("investment_risks") or []) <= 5),
-        ("gating_questions", "Top 3 expected bars selected", len(thesis.get("top_gating_questions") or []) >= 3),
+        ("gating_questions", "Top 3 risk sensitivities selected", len(thesis.get("top_gating_questions") or []) >= 3),
         ("approved", "Final memo generation approved", bool(session.get("approved_for_memo"))),
     ]
     if completed_task_results:

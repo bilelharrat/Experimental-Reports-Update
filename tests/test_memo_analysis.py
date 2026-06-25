@@ -133,11 +133,11 @@ def _write_internal_memo_markdown(path):
             "# Internal Diligence Memo - Generalist, Inc.",
             "",
             "## Internal Recommendation",
-            "Recommendation: Proceed if confirmed.",
+            "Recommendation: Proceed.",
             "",
             "| Item | View |",
             "|---|---|",
-            "| Suggested allocation | $5-10M pending confirmation |",
+            "| Suggested allocation | $5-10M with deployment-depth sensitivity |",
             "| Conviction | Medium |",
             "",
             "## Allocation Rationale",
@@ -145,12 +145,12 @@ def _write_internal_memo_markdown(path):
             "remaining deployment proof that can change commitment sizing.",
             "",
             "## Internal Diligence Priorities",
-            "- Confirm deployment depth.",
-            "- Confirm valuation support.",
-            "- Confirm SPV economics.",
+            "- Deployment depth shapes allocation size.",
+            "- Valuation support shapes conviction.",
+            "- SPV economics shape effective entry.",
             "",
             "## Risk Controls And Stop/Revisit Conditions",
-            "Hold pending confirmation if customer proof is not source-backed.",
+            "Customer proof below the support threshold weakens commitment sizing.",
             "",
             "Internal use only.",
         ]),
@@ -481,11 +481,14 @@ def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
         return {
             "analysis_artifacts": {
                 "claim_register_md": "# Claim Register\n\n- Commercial proof: supported.",
-                "scenario_swim_lanes_md": "# Scenario Swim Lanes\n\n- Base: proceed if confirmed.",
+                "scenario_swim_lanes_md": "# Scenario Swim Lanes\n\n- Base: participate with contract-conversion sensitivity.",
                 "pre_mortem_md": "# Pre-Mortem\n\n- Deployment stalls.",
                 "reverse_ic_md": "# Reverse IC\n\n- Pass if valuation support fails.",
                 "validation_log_md": "# Validation Log\n\n- Revenue: not disclosed.",
-                "gating_questions_md": "# Gating Questions\n\n1. Confirm contracts.",
+                "risk_sensitivities_md": (
+                    "# Risk Sensitivities\n\n"
+                    "1. Binding contract conversion supports valuation."
+                ),
             },
             "memo_package": _memo_package(body_zh=""),
             "claude_cost_usd": 0.10,
@@ -633,7 +636,7 @@ def test_memo_fast_pipeline_retries_transient_english_package_failure(
                 "pre_mortem_md": "# Pre-Mortem\n",
                 "reverse_ic_md": "# Reverse IC\n",
                 "validation_log_md": "# Validation Log\n",
-                "gating_questions_md": "# Gating Questions\n",
+                "risk_sensitivities_md": "# Risk Sensitivities\n",
             },
             "memo_package": _memo_package(body_zh=""),
             "claude_cost_usd": 0.10,
@@ -710,7 +713,23 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
         "claim-scope and freedom-to-operate read before we underwrite the "
         "licensing fallback. The instrument has no preference, no voting, "
         "and no information rights at the LP level. This is the right way "
-        "to view the underwriting: a pipeline-conversion case."
+        "to view the underwriting: a pipeline-conversion case. Confirm before "
+        "funding: final terms match the disclosed A2 economics. We still need "
+        "a claim-scope read that the sponsor implies is covered by the IP "
+        "portfolio. Memo language was closing imminent. Diligence Thresholds. "
+        "Next Diligence Actions. The sponsor itself acknowledges that a "
+        "meaningful portion is in MOU form and that pipeline figures are "
+        "company-provided and unaudited. Sponsor explicitly discloses 18 to "
+        "36 month carrier sales cycles. The competitor list embedded in the "
+        "registry understates the threat surface. Revenue is not documented "
+        "in source material. Closing Confirmations. We recommend proceeding "
+        "with a participation in the Wisdom Ventures ZaiNar SPV subject to "
+        "the closing confirmations below. Valuation Sensitivity Bars. Stop "
+        "or Revisit Conditions. What Would Make Us Revisit or Decline. "
+        "Immediate Confirmation Work. Closing bar: signed mix supports the case. "
+        "Cross-check DoD signings on SAM.gov and USAspending.gov. Patent counsel "
+        "claim-scope and freedom-to-operate read supports durable patent leverage. "
+        "Source two non-investor technical references through the BSH and partner networks."
     )
     package_path = _write_memo_package(run_dir, body_en=bad_text)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=True)
@@ -723,6 +742,27 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert "underwriting" not in package_text.lower()
     assert "We frame" not in package_text
     assert "information rights" not in package_text
+    assert "We should confirm" not in package_text
+    assert "Confirm before funding" not in package_text
+    assert "We still need" not in package_text
+    assert "sponsor implies" not in package_text
+    assert "Memo language was" not in package_text
+    assert "Diligence Thresholds" not in package_text
+    assert "Next Diligence Actions" not in package_text
+    assert "Closing Confirmations" not in package_text
+    assert "Expected bar" not in package_text
+    assert "subject to" not in package_text
+    assert "Valuation Sensitivity Bars" not in package_text
+    assert "Stop or Revisit Conditions" not in package_text
+    assert "What Would Make Us Revisit" not in package_text
+    assert "Immediate Confirmation Work" not in package_text
+    assert "Closing bar" not in package_text
+    assert "Cross-check" not in package_text
+    assert "Source two" not in package_text
+    assert "sponsor itself acknowledges" not in package_text
+    assert "Sponsor explicitly discloses" not in package_text
+    assert "embedded in the registry" not in package_text
+    assert "source material" not in package_text
     memo_paths_abs = memo_analysis._memo_paths_abs(report)
     memo_analysis.memo_docx_renderer.render_memos(
         package_path,
@@ -779,7 +819,7 @@ def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
                 "pre_mortem_md": "# Pre-Mortem\n",
                 "reverse_ic_md": "# Reverse IC\n",
                 "validation_log_md": "# Validation Log\n",
-                "gating_questions_md": "# Gating Questions\n",
+                "risk_sensitivities_md": "# Risk Sensitivities\n",
             },
             "memo_package": _memo_package(body_zh=""),
             "claude_cost_usd": 0.10,
@@ -856,7 +896,7 @@ def test_memo_fast_pipeline_draft_packet_still_runs_parallel_passes(
                 "pre_mortem_md": "# Pre-Mortem\n",
                 "reverse_ic_md": "# Reverse IC\n",
                 "validation_log_md": "# Validation Log\n",
-                "gating_questions_md": "# Gating Questions\n",
+                "risk_sensitivities_md": "# Risk Sensitivities\n",
             },
             "memo_package": _memo_package(body_zh=""),
             "claude_cost_usd": 0.10,

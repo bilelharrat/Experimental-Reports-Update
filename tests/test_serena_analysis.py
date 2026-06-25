@@ -413,15 +413,15 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
                     for i in range(1, 4)
                 ],
                 "recommendation_logic": (
-                    "Proceed only if deployment depth and valuation support "
-                    "survive independent checks."
+                    "We recommend participating when deployment depth and "
+                    "valuation support survive independent checks."
                 ),
                 "top_gating_questions": [
                     {
-                        "expected_bar": f"Claude expected bar {i}.",
-                        "support_threshold": "The bar supports recommendation quality.",
+                        "expected_bar": f"Claude sensitivity {i}.",
+                        "support_threshold": "The sensitivity supports recommendation quality.",
                         "confirmation_evidence": ["Independent customer evidence"],
-                        "stop_or_revisit_if_missing": "Revisit if the bar resolves below threshold.",
+                        "stop_or_revisit_if_missing": "Revisit if the sensitivity resolves below threshold.",
                     }
                     for i in range(1, 4)
                 ],
@@ -1922,7 +1922,7 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
     assert session is not None
     thesis = session["artifacts"]["thesis_spine"]
     thesis["investment_highlights"][0]["claim"] = "Edited deployment wedge"
-    thesis["top_gating_questions"][0]["expected_bar"] = "Edited expected bar."
+    thesis["top_gating_questions"][0]["expected_bar"] = "Edited sensitivity."
 
     thesis_response = client.patch(
         "/api/companies/generalist/memo-analysis/artifacts/thesis_spine",
@@ -1937,7 +1937,7 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
         "Edited deployment wedge"
     )
     assert thesis_payload["top_gating_questions"][0]["expected_bar"] == (
-        "Edited expected bar."
+        "Edited sensitivity."
     )
 
     charts = thesis_response.json()["artifacts"]["chart_specs"]["specs"]
@@ -1976,7 +1976,7 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
     )
     packet = packet_path.read_text(encoding="utf-8")
     assert "Edited deployment wedge" in packet
-    assert "Edited expected bar." in packet
+    assert "Edited sensitivity." in packet
     assert disabled_chart_title not in packet
     assert selected_opening["text"] in packet
     assert selected_ending["text"] in packet
@@ -2884,7 +2884,7 @@ def test_structured_research_results_feed_readiness_and_memo_packet(
         / "memo_packet.md"
     ).read_text(encoding="utf-8")
     assert "Evidence Matrix Summary" in packet
-    assert "Missing evidence / expected bars" in packet
+    assert "Missing evidence / sensitivities" in packet
     assert "Strongest source-backed support" in packet
     assert "Only pilots were confirmed." in packet
     assert "Need production deployment count." in packet

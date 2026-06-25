@@ -324,7 +324,8 @@ _FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
         focus=(
             "Generate the strongest non-bullish interpretations of the facts. "
             "Identify disconfirming evidence, pass/revisit triggers, and the "
-            "specific expected bars needed to change the decision."
+            "specific risk or valuation sensitivities that would change the "
+            "decision."
         ),
     ),
 )
@@ -400,14 +401,291 @@ def _archive_invalid_memo_package(package_path: Path) -> Path:
 
 _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
+        re.compile(r"\bWhat Must Be Confirmed Before Funding\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bWhat Must Be Confirmed\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bClosing Confirmations?\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bClosing Confirmation Bars?\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bConfirmation Items?\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bExpected Bars?\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bValuation Sensitivity Bars?\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bInvestment Conditions?\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bStop or Revisit Conditions?\b", re.IGNORECASE),
+        "Downside Sensitivities",
+    ),
+    (
+        re.compile(r"\bWhat Would Make Us Revisit or Decline\b", re.IGNORECASE),
+        "Downside Sensitivities",
+    ),
+    (
+        re.compile(r"\bImmediate Confirmation Work\b", re.IGNORECASE),
+        "Risk And Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bClosing bar:\s*", re.IGNORECASE),
+        "Valuation sensitivity: ",
+    ),
+    (
+        re.compile(
+            r"\bWe recommend proceeding once ([^.]+?) are confirmed\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "We recommend participating in the SPV; "
+            r"\1 drive the investment's valuation sensitivity."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bWe recommend proceeding if ([^.]+?) confirm the current "
+            r"investment case\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "We recommend participating in the SPV; "
+            r"\1 are central to valuation support."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bWe recommend proceeding with a participation in ([^.]+?) "
+            r"subject to the closing confirmations below\.?",
+            re.IGNORECASE,
+        ),
+        r"We recommend participating in \1.",
+    ),
+    (
+        re.compile(
+            r"\bWe recommend proceeding with a participation in ([^.]+?) "
+            r"subject to (?:the )?Valuation Sensitivity below\.?",
+            re.IGNORECASE,
+        ),
+        r"We recommend participating in \1.",
+    ),
+    (
+        re.compile(
+            r"\bWe recommend ([^.]+?) subject to ([^.]+?)\.?",
+            re.IGNORECASE,
+        ),
+        r"We recommend \1. \2 is a valuation sensitivity.",
+    ),
+    (
+        re.compile(
+            r"\bthe unresolved questions sit around ([^.]+?)\.",
+            re.IGNORECASE,
+        ),
+        r"valuation sensitivity centers on \1.",
+    ),
+    (
+        re.compile(
+            r"\bWe would revisit if ([^.]+?)\.",
+            re.IGNORECASE,
+        ),
+        r"Downside sensitivity centers on \1.",
+    ),
+    (
+        re.compile(r"\bDiligence Thresholds\b", re.IGNORECASE),
+        "Valuation Sensitivity",
+    ),
+    (
+        re.compile(r"\bNext Diligence Actions\b", re.IGNORECASE),
+        "Risk and Valuation Follow-Through",
+    ),
+    (
+        re.compile(
+            r"\bTreat as forward until the A2 lead and final pre-money are "
+            r"confirmed; confirm before funding the SPV\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Use as a forward round marker; final A2 lead, pre-money, and "
+            "closing evidence determine whether the disclosed entry economics "
+            "hold."
+        ),
+    ),
+    (
+        re.compile(r"\bConfirm before funding:\s*([^.]+)\.?", re.IGNORECASE),
+        r"Valuation sensitivity: \1.",
+    ),
+    (
+        re.compile(
+            r"\bConfirm A2 lead investor identity, final pre-money, and that "
+            r"the priced round actually closes \(memo language was [^)]+\)\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "A2 lead investor identity, final pre-money, and priced-round "
+            "closing evidence determine whether the disclosed Series A2 "
+            "economics hold."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bConfirm the A2 closes on disclosed terms\.?",
+            re.IGNORECASE,
+        ),
+        "A2 closing terms determine whether the disclosed entry economics hold.",
+    ),
+    (
+        re.compile(
+            r"\bConfirm in subscription docs that the SAFE applies "
+            r"lower-of-cap-or-discount mechanics so the discount controls\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "SAFE lower-of-cap-or-discount mechanics determine whether the "
+            "15% discount controls at the disclosed A2 economics."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bConfirm the SAFE applies lower-of cap or discount, with the "
+            r"15% discount controlling at a \$3\.0B A2 pre-money\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "SAFE lower-of-cap-or-discount mechanics drive the effective entry, "
+            "with the 15% discount controlling at a $3.0B A2 pre-money."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bConfirm the split between signed contracts and MOUs inside the "
+            r"\$500M\+ figure, and a 12-month recognition outlook on the "
+            r"signed share\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "The signed-contract mix, MOU mix, and 12-month recognition outlook "
+            "inside the $500M+ figure drive valuation support."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bConfirm the DoD \$36M contract vehicle type and IP rights "
+            r"regime under DFARS so we understand commercial restrictions on "
+            r"derivative tech\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "DoD contract vehicle type and DFARS IP-rights regime determine "
+            "whether derivative-tech monetization is materially restricted."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bA2 lead investor, final pre-money, and the priced round "
+            r"actually closes\.?",
+            re.IGNORECASE,
+        ),
+        "The current entry assumes disclosed A2 lead, final pre-money, and priced-round closing economics.",
+    ),
+    (
+        re.compile(
+            r"\bA2 close and final terms match the SPV subscription economics\.?",
+            re.IGNORECASE,
+        ),
+        "Final A2 economics shape the SPV's effective entry.",
+    ),
+    (
+        re.compile(
+            r"\bSAFE document confirms lower-of cap or discount mechanic with "
+            r"the 15% discount controlling at a \$3\.0B A2\.?",
+            re.IGNORECASE,
+        ),
+        "SAFE lower-of-cap-or-discount mechanics drive whether the 15% discount controls at a $3.0B A2.",
+    ),
+    (
+        re.compile(
+            r"\bDoD contract vehicle type and DFARS IP rights regime so we "
+            r"understand commercial restrictions on derivative tech\.?",
+            re.IGNORECASE,
+        ),
+        "DoD contract vehicle type and DFARS IP-rights regime shape commercial restrictions on derivative tech.",
+    ),
+    (
+        re.compile(
+            r"\bRequest signed-vs-MOU split, Kajima cohort detail, and any "
+            r"healthcare deployment named with revenue attribution\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Signed-vs-MOU mix, Kajima cohort detail, and healthcare deployments "
+            "with revenue attribution drive commercial-conversion sensitivity."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bSigned-vs-MOU split, Kajima cohort detail, and any healthcare "
+            r"deployment named with revenue attribution support the base case\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Commercial-conversion support depends on signed-vs-MOU mix, "
+            "Kajima cohort detail, and healthcare deployments with revenue attribution."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bRequire split of signed vs\. MOU; risk-weight MOU using a "
+            r"15-35% conversion range for scenario work\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "The signed-vs-MOU mix drives scenario value; risk-weight MOUs using "
+            "a 15-35% conversion range for scenario work."
+        ),
+    ),
+    (
+        re.compile(
+            r"\brequire a signed-vs-MOU split as a Valuation Sensitivity\b",
+            re.IGNORECASE,
+        ),
+        "the signed-vs-MOU mix is a valuation sensitivity",
+    ),
+    (
         re.compile(
             r"\bRequire claim-scope and freedom-to-operate read versus "
             r"([^.]+?) before underwriting as multi-year monopoly\.?",
             re.IGNORECASE,
         ),
         (
-            "We should confirm claim-scope and freedom-to-operate versus "
-            r"\1 before treating the patent estate as a multi-year monopoly."
+            "Claim-scope and freedom-to-operate determine patent durability "
+            r"versus \1."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bWe should confirm claim-scope and freedom-to-operate versus "
+            r"([^.]+?) before treating the patent estate as a multi-year monopoly\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Claim-scope and freedom-to-operate determine patent durability "
+            r"versus \1."
         ),
     ),
     (
@@ -416,6 +694,176 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         "before we give full credit to the licensing fallback",
+    ),
+    (
+        re.compile(
+            r"\bWe treat this as a credible defensive perimeter; we still need "
+            r"a claim-scope and freedom-to-operate read against ([^.]+?) "
+            r"before we give full credit to the licensing fallback that the "
+            r"sponsor implies under 3GPP standardization\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "We treat this as a credible defensive perimeter. Claim-scope and "
+            r"freedom-to-operate drive licensing leverage against \1 under "
+            "3GPP standardization."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bWe still need a claim-scope read that the sponsor implies is "
+            r"covered by the IP portfolio\.?",
+            re.IGNORECASE,
+        ),
+        "Claim-scope analysis drives patent-coverage risk.",
+    ),
+    (
+        re.compile(r"\bwe still need\b", re.IGNORECASE),
+        "Risk factor:",
+    ),
+    (
+        re.compile(
+            r"\bThe sponsor itself flags this as the primary standardization "
+            r"risk and frames ZaiNar's IP portfolio as the licensing fallback\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Future SRS-based positioning is the primary standardization risk; "
+            "the licensing-fallback case depends on ZaiNar patent claims "
+            "covering the standardized function."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bThe sponsor itself flags carrier sales cycles of 18 to 36 "
+            r"months, so this layer is a credible distribution thesis rather "
+            r"than a near-term revenue thesis\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Carrier sales cycles run 18 to 36 months, so this layer is a "
+            "credible distribution thesis rather than a near-term revenue thesis."
+        ),
+    ),
+    (
+        re.compile(
+            r"\.\s+the investment case identifies carrier sales cycles of 18 "
+            r"to 36 months, so this layer is a credible distribution thesis "
+            r"rather than a near-term revenue thesis\.?",
+            re.IGNORECASE,
+        ),
+        (
+            ". Carrier sales cycles run 18 to 36 months, so this layer is a "
+            "credible distribution thesis rather than a near-term revenue thesis."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bThe sponsor itself acknowledges that a meaningful portion is "
+            r"in MOU form and that pipeline figures are company-provided and "
+            r"unaudited\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "A meaningful portion is in MOU form, and pipeline figures are "
+            "company-provided and unaudited."
+        ),
+    ),
+    (
+        re.compile(r"\bsponsor acknowledges MOU-heavy\b", re.IGNORECASE),
+        "includes material MOU component",
+    ),
+    (
+        re.compile(
+            r"\bthe references that the sponsor relied on are economically "
+            r"aligned with the company\b",
+            re.IGNORECASE,
+        ),
+        "the reported references remain economically aligned with the company",
+    ),
+    (
+        re.compile(
+            r"\bSponsor explicitly discloses 18 to 36 month carrier sales cycles\.?",
+            re.IGNORECASE,
+        ),
+        "Carrier sales cycles run 18 to 36 months.",
+    ),
+    (
+        re.compile(
+            r"\bSponsor reference calls with ([^.]+?) reportedly returned "
+            r"uniformly positive views, while remaining economically aligned "
+            r"with the company\.?",
+            re.IGNORECASE,
+        ),
+        (
+            r"Reference calls with \1 reportedly returned uniformly positive "
+            "views; those references remain economically aligned with the company."
+        ),
+    ),
+    (
+        re.compile(r"\bthe sponsor implies\b", re.IGNORECASE),
+        "the investment case assumes",
+    ),
+    (
+        re.compile(r"\bthe sponsor frames\b", re.IGNORECASE),
+        "the investment case treats",
+    ),
+    (
+        re.compile(r"\bthe sponsor itself flags\b", re.IGNORECASE),
+        "the investment case identifies",
+    ),
+    (
+        re.compile(r"\bmemo language was\b", re.IGNORECASE),
+        "the disclosed timing was",
+    ),
+    (
+        re.compile(r"\binside the memo\b", re.IGNORECASE),
+        "in sponsor materials",
+    ),
+    (
+        re.compile(r"\bwe mirror that posture\b", re.IGNORECASE),
+        "we treat those figures as pipeline rather than bookings",
+    ),
+    (
+        re.compile(
+            r"\bwe treat those figures as pipeline rather than bookings rather "
+            r"than restate the totals as bookings\b",
+            re.IGNORECASE,
+        ),
+        "we treat those figures as pipeline rather than bookings",
+    ),
+    (
+        re.compile(
+            r"\bThe Information's \$5B figure matches the May 2026 sponsor "
+            r"restatement, which we flag rather than double-count\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "The Information's $5B figure matches the May 2026 sponsor figure, "
+            "so we do not double-count it."
+        ),
+    ),
+    (
+        re.compile(r"\bsource material\b", re.IGNORECASE),
+        "available evidence",
+    ),
+    (
+        re.compile(
+            r"\bThe competitor list embedded in the registry\b",
+            re.IGNORECASE,
+        ),
+        "The listed competitor set",
+    ),
+    (
+        re.compile(r"\bembedded in the registry\b", re.IGNORECASE),
+        "listed in available materials",
+    ),
+    (
+        re.compile(
+            r"\bWe will look for a refreshed signed-vs-MOU split before closing\.?",
+            re.IGNORECASE,
+        ),
+        "Closing bar: the refreshed signed-vs-MOU split supports the base scenario.",
     ),
     (
         re.compile(
@@ -437,6 +885,80 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         "before giving credit to derivative-tech monetization",
+    ),
+    (
+        re.compile(
+            r"\bwe confirm the executed document before funding\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "the investment case assumes the executed document confirms the "
+            "conversion mechanics."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bCross-check DoD signings on SAM\.gov and USAspending\.gov\.?",
+            re.IGNORECASE,
+        ),
+        "SAM.gov and USAspending.gov support the defense-contract evidence base.",
+    ),
+    (
+        re.compile(
+            r"\bPatent counsel claim-scope and freedom-to-operate read supports "
+            r"durable patent leverage\.?",
+            re.IGNORECASE,
+        ),
+        "Patent durability depends on claim-scope and freedom-to-operate support.",
+    ),
+    (
+        re.compile(
+            r"\bSource two non-investor technical references through the BSH "
+            r"and partner networks\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Independent technical-reference depth remains a sensitivity for "
+            "deployment readiness."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bIf the A2 reprices below \$3\.0B, conversion mechanics and "
+            r"effective entry should be re-evaluated\.?",
+            re.IGNORECASE,
+        ),
+        "If the A2 reprices below $3.0B, we revisit conversion mechanics and effective entry.",
+    ),
+    (
+        re.compile(
+            r"\bThe \$36M\+ DoD contracts may carry DFARS government-purpose "
+            r"or unlimited rights in delivered software and data\. Without "
+            r"disclosure, we cannot rule out constraints on commercial "
+            r"monetization of derivative tech in adjacent verticals\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "DFARS terms determine whether government-purpose or unlimited "
+            "rights constrain commercial monetization of derivative tech in "
+            "adjacent verticals."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bConfirm A2 close and final terms with Wisdom Ventures before "
+            r"signing subscription documents\.?",
+            re.IGNORECASE,
+        ),
+        "A2 close and final terms match the SPV subscription economics.",
+    ),
+    (
+        re.compile(
+            r"\bCommission claim-scope and freedom-to-operate read on the "
+            r"patent estate\.?",
+            re.IGNORECASE,
+        ),
+        "Patent counsel claim-scope and freedom-to-operate read supports durable patent leverage.",
     ),
     (
         re.compile(
@@ -1339,11 +1861,11 @@ def _fast_pass_markdown(
     if not disconfirming:
         lines.append("- No disconfirming evidence returned.")
 
-    lines.extend(["", "## Unresolved Expected Bars", ""])
+    lines.extend(["", "## Unresolved Risk And Valuation Sensitivities", ""])
     questions = data.get("open_questions") if isinstance(data.get("open_questions"), list) else []
     lines.extend(f"- {str(item).strip()}" for item in questions if str(item).strip())
     if not questions:
-        lines.append("- No unresolved expected bars returned.")
+        lines.append("- No unresolved risk sensitivities returned.")
 
     lines.extend(["", "## Memo Uses", ""])
     memo_uses = data.get("memo_uses") if isinstance(data.get("memo_uses"), list) else []
@@ -1387,16 +1909,25 @@ def _write_fast_pass_outputs(*, run_dir: Path, result: _FastMemoPassResult) -> N
 def _write_fast_synthesis_artifacts(run_dir: Path, artifacts: dict) -> None:
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(parents=True, exist_ok=True)
-    mapping = {
-        "claim_register_md": "claim_register.md",
-        "scenario_swim_lanes_md": "scenario_swim_lanes.md",
-        "pre_mortem_md": "pre_mortem.md",
-        "reverse_ic_md": "reverse_ic.md",
-        "validation_log_md": "validation_log.md",
-        "gating_questions_md": "gating_questions.md",
-    }
-    for key, filename in mapping.items():
+    mapping = (
+        ("claim_register_md", "claim_register.md", ()),
+        ("scenario_swim_lanes_md", "scenario_swim_lanes.md", ()),
+        ("pre_mortem_md", "pre_mortem.md", ()),
+        ("reverse_ic_md", "reverse_ic.md", ()),
+        ("validation_log_md", "validation_log.md", ()),
+        (
+            "risk_sensitivities_md",
+            "risk_sensitivities.md",
+            ("gating_questions_md",),
+        ),
+    )
+    for key, filename, aliases in mapping:
         content = str(artifacts.get(key) or "").strip()
+        if not content:
+            for alias in aliases:
+                content = str(artifacts.get(alias) or "").strip()
+                if content:
+                    break
         if not content:
             title = filename.rsplit(".", 1)[0].replace("_", " ").title()
             content = f"# {title}\n\nNo content returned."
