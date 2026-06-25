@@ -470,7 +470,9 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
     assert "Memo Spine For Final Draft" in packet
     assert "partner-level conclusions" in packet
     assert "Use first-person sponsor voice" in packet
-    assert "the recommendation is" in packet
+    assert "third-person situational recommendation language" in packet
+    assert "detached opportunity framing" in packet
+    assert "the recommendation is" not in packet
 
     context = captured["artifacts"]
     assert context["strategic_risks"]["risks"]
@@ -1229,7 +1231,7 @@ def test_memo_analysis_narrative_fallback_creates_operator_choices(
     assert hooks["endings"][0]["purpose"] == "conclusion posture"
     assert "The memo should" not in hooks["openings"][0]["text"]
     assert "The right posture is" not in hooks["endings"][0]["text"]
-    assert hooks["endings"][0]["text"].startswith("We would")
+    assert hooks["endings"][0]["text"].startswith("We recommend")
     assert hooks["reviewer_prompts"][0]["id"] == "operator-final-posture"
 
     packet = (
@@ -2882,7 +2884,7 @@ def test_structured_research_results_feed_readiness_and_memo_packet(
         / "memo_packet.md"
     ).read_text(encoding="utf-8")
     assert "Evidence Matrix Summary" in packet
-    assert "Missing evidence / open questions" in packet
+    assert "Missing evidence / expected bars" in packet
     assert "Strongest source-backed support" in packet
     assert "Only pilots were confirmed." in packet
     assert "Need production deployment count." in packet

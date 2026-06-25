@@ -687,24 +687,27 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "first-person sponsor voice" in prompt
     assert "Open from the sponsor thesis" in prompt
     assert "Concrete positive writing patterns" in prompt
-    assert "Concrete negative examples to reject" in prompt
+    assert "Rejected language categories" in prompt
     assert "We are being offered SPV exposure" in prompt
     assert "We recommend proceeding if the binding-contract split" in prompt
     assert "Revenue is not disclosed; our base case uses" in prompt
     assert "Make statements directly" in prompt
-    assert "Our memo recommends participating through the SPV" in prompt
-    assert "We outline the investment case below" in prompt
+    assert "passive sponsor/counterparty capability speculation" in prompt
+    assert "detached third-person recommendation or opportunity framing" in prompt
+    assert "Expected bars must be few" in prompt
+    assert "Closing Confirmation Bars" in prompt
     assert "bsh_allocation" not in prompt
     assert "BSH target allocation" not in prompt
-    assert "The recommendation is..." in prompt
-    assert "The opportunity offered to investors is..." in prompt
     assert "We recommend... / We would proceed if..." in prompt
-    assert "The memo therefore..." in prompt
-    assert "Top 3 Decision Questions" in prompt
     assert "Proceed if confirmed" in prompt
-    assert "would be misleading to forecast precisely" in prompt
     assert "not revenue-recognized" in prompt
     assert "Final Prose QA Requirements" in prompt
+    assert "Concrete negative examples to reject" not in prompt
+    assert "The recommendation is" not in prompt
+    assert "The opportunity offered to investors is" not in prompt
+    assert "Our memo recommends" not in prompt
+    assert "We outline the investment case below" not in prompt
+    assert "Top 3 Decision Questions" not in prompt
 
 
 def test_fast_english_package_prompt_includes_concrete_voice_guidance(
@@ -745,13 +748,16 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert result is not None
     assert "Human Executive Memo Voice Contract" in prompt
     assert "Concrete positive writing patterns" in prompt
-    assert "Concrete negative examples to reject" in prompt
+    assert "Rejected language categories" in prompt
     assert "We are being offered SPV exposure" in prompt
     assert "We recommend proceeding if the binding-contract split" in prompt
-    assert "The recommendation is Proceed if confirmed" in prompt
-    assert "The memo frames this as a scarce technical asset" in prompt
-    assert "Our memo recommends participating through the SPV" in prompt
-    assert "We outline the investment case below" in prompt
+    assert "passive sponsor/counterparty capability speculation" in prompt
+    assert "Never use detached recommendation, opportunity" in prompt
+    assert "Concrete negative examples to reject" not in prompt
+    assert "The recommendation is" not in prompt
+    assert "The memo frames this as a scarce technical asset" not in prompt
+    assert "Our memo recommends" not in prompt
+    assert "We outline the investment case below" not in prompt
 
 
 def test_investment_memo_prompt_uses_fixed_docx_renderer(tmp_path):

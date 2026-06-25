@@ -2493,16 +2493,13 @@ Final memo prose must:
   scaffolding in the body;
 - make statements directly. Do not write about the memo as an object, do not
   narrate what the memo/document/section/analysis does, and do not use
-  writer-process phrases such as "this memo", "our memo", "the analysis",
-  "this document", "this section", "we outline", "we discuss", or
-  "we summarize";
+  writer-process language;
 - use first-person sponsor voice when stating our view, access, conviction,
   and action: "we believe", "we are being offered", "we recommend",
   "we would proceed if", and "we would revisit if";
-- never use third-person situational voice for the investment call, including
-  "the recommendation is", "the recommendation should", "the right posture is",
-  "the opportunity offered to investors is", "the base case credits", or
-  "the current recommendation posture is";
+- never use detached third-person constructions for the investment call;
+  recommendation, access, base case, and action sentences need a first-person
+  sponsor subject or a direct investment-case subject;
 - state uncertainty directly instead of explaining why certainty is
   unavailable;
 - avoid template-visible language, symmetrical model phrasing, and repetitive
@@ -2540,19 +2537,20 @@ Sell-side investment memo posture:
 - Treat SPV/SAFE economics as deal mechanics to explain plainly, not as a
   thesis-breaking risk by default. State the expected economic bar and how the
   investment case is supported if the terms match it.
-- Expected bars should be few, deal-relevant, and measurable where the source
-  package allows. They should not become a generic late-stage checklist or
+- Expected bars must be few, deal-relevant, and measurable where the source
+  package allows. They must not become a generic late-stage checklist or
   disqualify normal early-growth financings that top firms routinely complete.
-- Do not turn closing diligence into questionnaire prose. Final memo text must
+- Do not express closing conditions as question-form prose. Final memo text must
   state closing confirmations as active investment conditions: "We proceed once
   final A2 terms, SAFE conversion mechanics, closing timing, and the
   binding-contract split are confirmed."
-- Do not speculate about what a sponsor, company, investor, or counterparty
-  "should be able to" share, provide, produce, or confirm. State the expected
-  bar, the evidence already supporting it, and what would make us revisit.
-- Do not write passive availability language such as "should be closeable",
-  "realistically obtainable", or "expected to be available." Those are guesses
-  about process, not investment judgments.
+- Do not speculate about sponsor, company, investor, or counterparty
+  capability to share, provide, produce, or confirm information. State the
+  expected bar, the evidence already supporting it, and what would make us
+  revisit.
+- Do not write passive availability language about future process access or
+  ease of confirmation. Those are guesses about process, not investment
+  judgments.
 - Do not use legal-rights shorthand in operating tables. Translate it into
   economic meaning: "The SPV offers limited direct governance and reporting;
   the manager controls investor-level decisions as a single block."
@@ -2577,16 +2575,13 @@ Concrete positive writing patterns:
 - Risk: "Key risk centers on whether signed commercial interest converts into
   repeatable deployments quickly enough to support a $3.0B valuation."
 
-Concrete negative examples to reject:
-- "The recommendation is Proceed if confirmed: participate in the SPV."
-- "The opportunity offered to investors is a Wisdom-sponsored SPV interest."
-- "The base case credits a high-conviction franchise."
-- "The memo frames this as a scarce technical asset."
-- "Our memo recommends participating through the SPV."
-- "The analysis suggests the right posture is a small ticket."
-- "This document outlines the key investment risks."
-- "We outline the investment case below."
-- "Due to lack of data, revenue cannot be underwritten."
+Rejected language categories:
+- detached third-person recommendation or opportunity framing;
+- memo/document/process narration;
+- analysis-process narration;
+- passive sponsor/counterparty capability speculation;
+- legal-rights checklist shorthand in operating tables;
+- uncertainty apologies instead of direct evidence treatment.
 
 Final memo body and operating tables must not contain:
 - bracketed source tokens or file references such as `[S1]`, `[WV]`,
@@ -2605,13 +2600,10 @@ Final memo body and operating tables must not contain:
   `information rights`, `voting rights`, `named lead`, `named institutional
   lead`, or `governance at the LP level`; explain the investor economics in
   plain English instead;
-- passive counterparty-capability speculation such as `should be able to`,
-  `would be able to`, `should be closeable`, or `realistically obtainable`;
-- detached recommendation labels such as `Decision Posture`, `Recommendation
-  Posture`, or `Current Recommendation Posture`; state the investment decision
-  directly in a sentence;
-- internal questionnaire labels such as `Open Questions`, `Top 3 Decision
-  Questions`, `Top 3 Gating Questions`, or `(for BSH)`; use `Closing
+- passive counterparty-capability or availability speculation;
+- detached recommendation-label headings; state the investment decision directly
+  in a sentence;
+- internal question-list labels or internal-audience suffixes; use `Closing
   Confirmations` or `What Must Be Confirmed` instead;
 - internal IC, buyer-side diligence, bank/debt, control-investor, or
   deal-legal checklist shorthand. This is an LP-facing, exec-ready sell-side
@@ -2628,9 +2620,7 @@ Final memo body and operating tables must not contain:
   instructions;
 - em dash bridging in English body prose or operating tables;
 - meta-language about the memo/document/analysis/framework/section, including
-  `this memo`, `our memo`, `the memo`, `this document`, `the analysis`,
-  `our analysis`, `the framework`, `this section`, or writer-process phrases
-  such as `we outline`, `we discuss`, `we cover`, or `we summarize`.
+  writer-process phrasing.
 
 Memo spine requirement:
 - core_bet: what has to be true for investors to make money;
@@ -2638,12 +2628,12 @@ Memo spine requirement:
 - current_proof: what is proven today by source class;
 - unproven_but_modelable: what is missing but can be modeled conservatively;
 - stop_or_revisit: what would make investors decline or revisit later;
-- action: recommendation posture, confirmation items, and next diligence.
+- action: recommendation verdict, confirmation items, and next diligence.
 
 The opening, Investment View, risk section, scenario section, and final
 Investment Decision / Closing View must use the same spine. The first two
 body paragraphs must state company, transaction, valuation / entry terms,
-central price/proof tension, and recommendation posture. The substantive
+central price/proof tension, and recommendation verdict. The substantive
 ending must state the investment recommendation, confirmation items,
 stop/revisit conditions, and next diligence actions before any sources or
 disclosures. Do not include BSH internal participation sizing in the
@@ -2654,7 +2644,7 @@ Positive examples for early-commercial infrastructure deals:
   prices real IP, technical depth, and early commercial pull before the full
   revenue curve is visible."
 - "Company-reported contract and MOU figures support commercial momentum; the
-  base case should credit the binding portion and leave upside for MOU and
+  base case credits the binding portion and leaves upside for MOU and
   carrier conversion."
 - "Pipeline is not contracted revenue. Use a 5-15% conversion range for
   scenario construction until named site-level commitments are available."
@@ -2670,30 +2660,25 @@ Banned phrase / rewrite guidance:
 | Avoid | Prefer |
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
-| The recommendation is... | We recommend... / We would proceed if... |
-| The recommendation should... | We would keep the decision conditional until... |
-| The right posture is... | We would proceed / hold / pass because... |
-| The opportunity offered to investors is... | We are being offered... |
-| The base case credits... | Our base case gives credit for... |
-| The current recommendation posture is... | We would proceed if... / We would revisit if... |
-| The memo therefore... | Remove, or rewrite as direct judgment. |
-| The analysis suggests... | State the conclusion directly. |
-| This memo / our memo / this document... | Remove the frame; make the investment statement. |
-| We outline / discuss / summarize... | State the conclusion directly. |
-| Due to lack of data... | Revenue is not disclosed. |
-| Decision Posture | Investment Decision / We recommend... |
-| Is the Series A2 actually closing...? | We proceed once final A2 terms and closing timing are confirmed. |
-| Sponsor can/should/would share... | We proceed once the relevant terms or evidence are confirmed. |
-| These items should be closeable / realistically obtainable | Remove the process guess; state the expected bar and stop/revisit condition. |
+| Detached recommendation framing | We recommend... / We would proceed if... |
+| Detached opportunity framing | We are being offered... |
+| Detached base-case framing | Our base case gives credit for... |
+| Memo/document/process narration | Remove the frame; make the investment statement. |
+| Analysis-process narration | State the conclusion directly. |
+| Uncertainty apology | State the disclosed and undisclosed facts directly. |
+| Detached decision label | Investment Decision / We recommend... |
+| Question-form closing condition | We proceed once final A2 terms and closing timing are confirmed. |
+| Sponsor capability speculation | We proceed once the relevant terms or evidence are confirmed. |
+| Passive availability language | Remove the process guess; state the expected bar and stop/revisit condition. |
 | No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
-| Open Questions / Top 3 Decision Questions | Closing Confirmations / What Must Be Confirmed |
+| Internal question-list labels | Closing Confirmations / What Must Be Confirmed |
 | Proving the case | investment case, base case, conviction, support |
 | Describing participation | participation, commitment, exposure |
-| Sharp open questions | Expected bars / Closing Confirmation Bars |
+| Unresolved inquiry framing | Expected bars / Closing Confirmation Bars |
 | Missing proof | What Still Needs Confirmation |
 | Recommendation labels | Proceed / Proceed if confirmed / Hold pending confirmation / Pass |
 | Decision discipline | stop/revisit conditions |
-| implies false precision | would be misleading to forecast precisely |
+| False precision | State the evidence range without over-modeling it. |
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
 | The principal risk is that... | Key risk centers on... |
@@ -2703,8 +2688,8 @@ Banned phrase / rewrite guidance:
 
 Before DOCX generation, run a final prose QA pass. Remove banned phrases,
 meta language, methodology leakage, over-explained risks, template-visible
-structure, and unnatural model voice. The output should sound like an
-experienced investor making a call under uncertainty.
+structure, and unnatural model voice. The output must read like an experienced
+investor making a call under uncertainty.
 """
 
 
@@ -2778,7 +2763,7 @@ def _build_investment_memo_prompt(
       - carries non-fatal scope warnings from prep into the analysis,
       - points final memo content at the tracked parameterized renderer,
       - hints that the eight orthogonal analysis passes have no
-        inter-dependencies and should run via parallel tool calls in a
+        inter-dependencies and can run via parallel tool calls in a
         single response.
 
     Everything else is the skill text.
@@ -2853,8 +2838,8 @@ benchmark dashboard. Treat the thesis spine as draft authorship guidance:
 the final memo structure still follows the skill, but
 Investment Highlights, Investment Risks, Closing Confirmation Bars,
 infographic choices, selected operator narrative choices, source-brief
-warnings, intro stance, risk-section posture, and conclusion posture should
-come from this packet when they are supported by evidence. Treat selected
+warnings, intro stance, risk-section stance, and conclusion verdict come from
+this packet when they are supported by evidence. Treat selected
 openings, risk framings, and endings as operator HIL guidance, not copy-paste
 text. Do not convert draft status, source-brief no-go claims, missing
 evidence, unresolved readiness blockers, or reviewer prompts into factual
@@ -3048,8 +3033,8 @@ include all required core section ids: `executive_summary`,
 `company_overview`, `investment_highlights`, `investment_risk`, and
 `financial_forecast_valuation`, each with non-empty blocks. Include a
 non-empty `sources` list. Use `paragraph`, `heading`, `bullets`, `callout`,
-and `table` blocks. Tables should carry headers and rows as arrays; callouts
-should carry concise title/body/items. The same package drives both EN and ZH
+and `table` blocks. Tables carry headers and rows as arrays; callouts carry
+concise title/body/items. The same package drives both EN and ZH
 output, so every final user-facing string in blocks, table cells, and source
 treatment must be bilingual (`{{"en": "...", "zh": "..."}}`) unless it is a
 proper noun, date, numeric value, source id, or intentionally language-neutral
@@ -3321,7 +3306,7 @@ Rules:
 - Separate company-reported, investor/intermediary, independent secondary, and
   internal model evidence.
 - Do not fabricate missing metrics. State what is disclosed, what is missing,
-  and how the memo should treat the gap.
+  and how the memo must treat the gap.
 - This is a sell-side LP memo input. Convert evidence into investment judgment,
   but do not draft final memo prose.
 """
@@ -3411,8 +3396,8 @@ Fast analysis artifacts:
 Read the relevant packet/artifact files. Do not rerun the eight analysis
 passes. Produce ONE JSON object with:
 1. `analysis_artifacts`: concise markdown strings for claim register,
-   scenario swim lanes, pre-mortem, reverse IC, validation log, and gating
-   questions. Keep each artifact useful but short.
+   scenario swim lanes, pre-mortem, reverse IC, validation log, and expected
+   bars. Keep each artifact useful but short.
 2. `memo_package`: an English source package for the fixed renderer. Every
    user-facing string must be represented as `{{"en": "...", "zh": ""}}`.
    Leave `zh` blank; a separate subprocess will fill Chinese. Do not write
@@ -3428,8 +3413,8 @@ Package requirements:
 - Include at least two substantive Executive Summary blocks.
 - Include a non-empty sources list.
 - Use first-person sponsor voice: "we recommend", "we would proceed if",
-  "we are being offered". Never use "the recommendation is", "the opportunity
-  offered to investors is", or other detached recommendation language.
+  "we are being offered". Never use detached recommendation, opportunity,
+  access, or base-case framing.
 
 Return only the JSON matching the attached schema.
 """
@@ -4325,7 +4310,7 @@ valuation entry, and any document-confirmation items in economic terms.
 Give the internal risk controls, monitoring items, and stop/revisit conditions.
 
 ## LP-Facing Memo Delta
-List what is intentionally internal and should not appear in the LP-facing
+List what is intentionally internal and must not appear in the LP-facing
 sell-side memo.
 
 ## Source Notes
@@ -4791,8 +4776,8 @@ QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
         "summary_en": {
             "type": "string",
             "description": "3–4 sentences in English. What this document is, "
-                           "what it actually says, and why an analyst should "
-                           "care.",
+                           "what it actually says, and why it matters to an "
+                           "analyst.",
         },
         "summary_zh": {
             "type": "string",
@@ -4921,7 +4906,7 @@ QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
 
 
 def _quick_summary_read_instructions(kind: str, filename: str) -> str:
-    """Per-kind instructions for how Claude should read the source file."""
+    """Per-kind instructions for how Claude reads the source file."""
     if kind == "pdf":
         return (
             f"This is a PDF. Use the Read tool on `{filename}` with "
@@ -4970,8 +4955,8 @@ def _quick_summary_read_instructions(kind: str, filename: str) -> str:
             f"text).\n"
             f"  - Be multi-paragraph when warranted. Don't pad, but don't "
             f"under-describe either — an analyst reading just the "
-            f"description (without seeing the image) should be able to "
-            f"act on its contents.\n"
+            f"description (without seeing the image) can act on its "
+            f"contents.\n"
             f"  - The Chinese version is a faithful translation of the "
             f"English version, not a paraphrase or summary. Same content, "
             f"different language. Preserve numbers / dates / currency / "
@@ -6512,7 +6497,7 @@ Instructions:
   excerpts.
 - Narrative opportunities must explicitly identify the strongest available
   source-backed material for three final memo moments: the intro stance, the
-  risk-section posture, and the conclusion/recommendation posture.
+  risk-section stance, and the conclusion/recommendation verdict.
 - Use the Serena research folder above for local company documents. Do NOT read
   from `data/uploads/` or the Document Library.
 - If local research files exist, inspect only the high-signal files needed for
@@ -6522,8 +6507,8 @@ Instructions:
   prohibited_for_visuals when the evidence is not good enough for visuals.
 - Numeric metrics must include unit, period, denominator or calculation notes,
   and source traces when available. Use null when unavailable.
-- Ambiguous tone, aggressiveness, visual mode, or claim-framing choices should
-  appear as reviewer_prompts rather than silently resolved.
+- Put ambiguous tone, aggressiveness, visual mode, or claim-framing choices in
+  reviewer_prompts rather than silently resolving them.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -6725,20 +6710,19 @@ Instructions:
   read from `data/uploads/` or the Document Library.
 - Draft operator-selectable candidates for three final memo moments:
   1. openings = intro stance: the first 2-4 sentences' judgment and proof burden;
-  2. transitions = risk-section posture: how the risk section should lead and
-     what can change the recommendation;
-  3. endings = conclusion/recommendation posture: conviction, conditions,
+  2. transitions = risk-section posture: lead risk and recommendation-moving
+     evidence;
+  3. endings = conclusion/recommendation verdict: conviction, conditions,
      failure modes, and next diligence.
 - Generate at least three distinct openings, at least two risk-posture
   transitions, and at least three endings when the evidence allows.
-- Candidate text should be IC-ready guidance or near-final memo language:
+- Candidate text must be IC-ready guidance or near-final memo language:
   specific, compressed, evidence-grounded, and free of meta phrases such as
-  "the memo should", "the analysis suggests", or "this section".
+  document-process framing, analysis-process framing, or section narration.
 - Endings and recommendation candidates must use first-person sponsor voice:
   "we recommend", "we would proceed if", "we would hold", or "we would
-  revisit if". Do not write "the recommendation is", "the recommendation
-  should", "the right posture is", "the opportunity offered to investors is",
-  "the base case credits", or "the current recommendation posture is".
+  revisit if". Do not write detached third-person recommendation,
+  opportunity, or base-case framing.
 - Each candidate must include supported claims, evidence references, source
   traces where available, confidence, overclaiming risk, and suggested
   infographic pairings where useful.
@@ -6746,10 +6730,10 @@ Instructions:
   semantically valid.
 - Use reviewer_prompts only for genuine operator HIL choices about intro
   stance, risk posture, or conclusion posture that cannot be safely inferred
-  from the evidence. Make them optional unless approval would be unsafe without
+  from the evidence. Make them optional unless approval is unsafe without
   the operator's answer.
-- Do not invent facts. Unsupported claims should be explicitly framed as
-  questions, missing evidence, or pass triggers.
+- Do not invent facts. Unsupported claims must become expected bars, missing
+  evidence, or stop/revisit triggers.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -6839,7 +6823,7 @@ public data override stale or contradictory lessons.
 
     prompt = f"""\
 You are Serena's Strategic Risk Mapper for a late-stage investment memo.
-Generate the 5-8 decision-grade strategic risks that should control whether
+Generate the 5-8 decision-grade strategic risks that control whether
 the investment case for {company_name} is attractive.
 
 Company:
@@ -6856,7 +6840,7 @@ Available files in that folder:
 
 Instructions:
 - Frame risks as investment bars and failure modes, not generic risk labels.
-  The risk title should be sharp enough to become a one-sentence memo risk.
+  The risk title must be sharp enough to become a one-sentence memo risk.
 - Prefer risks that can change a BSH recommendation: valuation durability,
   deployment depth, revenue quality, market abstraction, moat durability,
   budget ownership, public-comp support, and disconfirming evidence.
@@ -6870,7 +6854,7 @@ Instructions:
 - Use WebSearch/WebFetch when public filings, transcripts, market data, or
   current public evidence are needed.
 - Separate verified evidence from inference. Do not invent facts.
-- Include concrete evidence Serena should gather and the best source types.
+- Include concrete evidence targets and the best source types.
 - Make research_prompt actionable enough that a later background job can run it.
 
 OUTPUT REQUIREMENTS:
@@ -7064,23 +7048,22 @@ Instructions:
   judgment-led, source-backed, and free of process language. Convert research
   task answers into conclusions instead of copying task labels or confidence
   scaffolding.
-- Investment risks should identify what can change BSH's recommendation, not
-  generic operating risks. Each risk detail should carry the specific data,
+- Investment risks must identify what can change BSH's recommendation, not
+  generic operating risks. Each risk detail must carry the specific data,
   contradiction, or missing proof that makes the risk matter.
-- recommendation_logic should be usable as the conclusion spine: conviction,
+- recommendation_logic must be usable as the conclusion spine: conviction,
   dependencies, failure modes, and the operator's likely proceed / proceed-if-
-  confirmed / hold-pending-confirmation / pass posture. Write it as advocacy
+  confirmed / hold-pending-confirmation / pass verdict. Write it as advocacy
   for the investment case under defined bars, not as a passive diligence
   checklist.
 - Top expected bars are not questions. For each bar, state the measurable
   threshold that makes the recommendation defensible, the support threshold,
   the confirmation evidence, and the stop/revisit implication if the bar is not
-  met. Use active phrases such as "Signed contract value of at least..." or
-  "A2 terms remain within..." rather than "Can the company..." or
-  "Should the sponsor be able to share..."
+  met. Use active expected-bar phrases, not company/sponsor capability
+  questions or passive availability framing.
 - Treat incomplete research-task results, partial chart specs, and nullable
   benchmark metrics as evidence gaps, not as facts.
-- Source_trace values should name artifact/source categories actually used,
+- Source_trace values must name artifact/source categories actually used,
   such as strategic_risks, research_tasks, chart_specs, benchmark_dashboard,
   Serena research folder files, public filings, transcripts, or web sources.
 - Use the Serena research folder above for local company documents. Do NOT
@@ -7274,10 +7257,10 @@ Instructions:
 - If local research files exist, inspect relevant files with Read/Bash.
 - Use WebSearch/WebFetch for public comp metrics and recent public evidence.
 - Set nullable metric fields to null when source-backed values are not found.
-- Source traces should identify titles, URLs or local locators, concise
+- Source traces must identify titles, URLs or local locators, concise
   excerpts, and confidence. Do not invent metrics or sources.
-- Benchmark gaps should be the missing data that matters before memo use.
-- Must-prove claims should translate the benchmark work into private-company
+- Benchmark gaps are the missing data that matters before memo use.
+- Must-prove claims must translate the benchmark work into private-company
   proof points BSH needs before making the investment decision.
 
 OUTPUT REQUIREMENTS:
@@ -7429,8 +7412,8 @@ Grade against:
 - Evidence quality and source provenance.
 - Chart/table clarity.
 - Opening and ending strength.
-- Missing diligence that would matter at IC.
-- Specific lessons future Serena memo runs should reuse.
+- Missing evidence that would matter at IC.
+- Specific lessons for future Serena memo runs.
 
 Current evidence overrides stale lessons. Do not reward unsupported claims.
 """
@@ -7541,7 +7524,7 @@ Instructions:
   current public evidence are needed.
 - Separate verified evidence from inference. Do not invent source facts.
 - Preserve useful numbers, dates, names, and source titles.
-- If evidence is thin, say so plainly and list what Serena should check next.
+- If evidence is thin, state the limitation and list the next evidence targets.
 - Evidence entries must include file_id, filename, locator, exact excerpt, and
   confidence when a local selected source supports them. Use null file_id /
   filename only for web or source-category evidence.

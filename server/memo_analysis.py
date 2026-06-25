@@ -295,8 +295,8 @@ _FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
         artifact_filename="disconfirming_evidence.md",
         focus=(
             "Generate the strongest non-bullish interpretations of the facts. "
-            "Identify disconfirming evidence, what would make us pass, and the "
-            "specific evidence needed to change the decision."
+            "Identify disconfirming evidence, pass/revisit triggers, and the "
+            "specific expected bars needed to change the decision."
         ),
     ),
 )
@@ -497,8 +497,8 @@ def _render_memo_pdf_previews(
 ) -> list[dict]:
     """Best-effort PDF previews for the LP-facing memo DOCX files.
 
-    PDF previews are QA affordances only. A conversion failure should never
-    block access to the underlying DOCX, and failed quality/parity runs should
+    PDF previews are QA affordances only. A conversion failure must never
+    block access to the underlying DOCX, and failed quality/parity runs must
     still expose whatever rendered memo artifacts exist.
     """
     if progress is not None:
@@ -1092,7 +1092,7 @@ def _fast_pass_markdown(
             "",
             f"Pass failed: {error}",
             "",
-            "The memo package pass should treat this as an explicit evidence gap.",
+            "The memo package pass must treat this as an explicit evidence gap.",
             "",
         ])
         return "\n".join(lines)
@@ -1158,11 +1158,11 @@ def _fast_pass_markdown(
     if not disconfirming:
         lines.append("- No disconfirming evidence returned.")
 
-    lines.extend(["", "## Open Questions", ""])
+    lines.extend(["", "## Unresolved Expected Bars", ""])
     questions = data.get("open_questions") if isinstance(data.get("open_questions"), list) else []
     lines.extend(f"- {str(item).strip()}" for item in questions if str(item).strip())
     if not questions:
-        lines.append("- No open questions returned.")
+        lines.append("- No unresolved expected bars returned.")
 
     lines.extend(["", "## Memo Uses", ""])
     memo_uses = data.get("memo_uses") if isinstance(data.get("memo_uses"), list) else []

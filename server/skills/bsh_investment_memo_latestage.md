@@ -45,15 +45,15 @@ narrate what the memo/document/section/analysis does, and do not use
 writer-process phrasing.
 
 Avoid meta-commentary about the document itself:
-- do not write "the memo frames", "our memo recommends", "this document outlines", "the memo therefore", "the analysis suggests", "this section covers", "we outline", "we discuss", "we summarize", or similar writer/process language
-- do not write third-person situational recommendation language such as "the recommendation is", "the recommendation should", "the right posture is", "the opportunity offered to investors is", "the base case credits", or "the current recommendation posture is"
+- do not write memo/document/process narration, analysis-process narration, or writer-process language
+- do not write detached third-person constructions for the investment call; recommendation, access, base case, and action sentences need a first-person sponsor subject or a direct investment-case subject
 - use first-person sponsor language instead: "we believe", "we are being offered", "we recommend", "we would proceed if", and "we would revisit if"
 - do not explain uncertainty with phrases like "due to lack of data" or "this implies false precision"
 - state uncertainty directly: "Revenue is not disclosed", "contracts are not revenue-recognized", "pipeline is early-stage"
 
-The opening should not read like a tombstone or detached analyst note. Lead with the sponsor thesis: why we care about the category, why the timing matters, why this company is shaping the layer or market that matters, and why we want exposure. Then explain technical proof, commercial proof, and the SPV / round mechanics.
+Open with the sponsor thesis: why we care about the category, why the timing matters, why this company is shaping the layer or market that matters, and why we want exposure. Then explain technical proof, commercial proof, and the SPV / round mechanics.
 
-Do not turn closing diligence into questionnaire prose. Replace question bullets such as "Is the Series A2 actually closing...?" or "What is the binding contract value...?" with expected-bar statements: "The investment case is supported if final A2 terms, closing timing, SAFE conversion, and the binding-contract split remain within the disclosed range."
+Express closing conditions as expected bars, not questions. Replace question-form bullets with expected-bar statements: "The investment case is supported if final A2 terms, closing timing, SAFE conversion, and the binding-contract split remain within the disclosed range."
 
 Do not use legal-rights shorthand in operating tables. Translate it into economic meaning: "The SPV offers limited direct governance and reporting; the manager controls investor-level decisions as a single block."
 
@@ -65,16 +65,13 @@ Concrete positive writing patterns:
 - Evidence gap: "Revenue is not disclosed; our base case uses binding contract value, implementation timing, and conservative conversion ranges rather than treating pipeline or MOUs as revenue."
 - Risk: "Key risk centers on whether signed commercial interest converts into repeatable deployments quickly enough to support a $3.0B valuation."
 
-Concrete negative examples to reject:
-- "The recommendation is Proceed if confirmed: participate in the SPV."
-- "The opportunity offered to investors is a Wisdom-sponsored SPV interest."
-- "The base case credits a high-conviction franchise."
-- "The memo frames this as a scarce technical asset."
-- "Our memo recommends participating through the SPV."
-- "The analysis suggests the right posture is a small ticket."
-- "This document outlines the key investment risks."
-- "We outline the investment case below."
-- "Due to lack of data, revenue cannot be underwritten."
+Rejected language categories:
+- detached third-person recommendation or opportunity framing
+- memo/document/process narration
+- analysis-process narration
+- passive sponsor/counterparty capability speculation
+- legal-rights checklist shorthand in operating tables
+- uncertainty apologies instead of direct evidence treatment
 
 Banned phrase / rewrite guidance:
 
@@ -82,22 +79,16 @@ Banned phrase / rewrite guidance:
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
 | The principal risk is that... | Key risk centers on... |
-| The recommendation is... | We recommend... / We would proceed if... |
-| The recommendation should... | We would keep the decision conditional until... |
-| The right posture is... | We would proceed / hold / pass because... |
-| The opportunity offered to investors is... | We are being offered... |
-| The base case credits... | Our base case gives credit for... |
-| The current recommendation posture is... | We would proceed if... / We would revisit if... |
-| The memo therefore... | Remove, or rewrite as direct judgment. |
-| The analysis suggests... | State the conclusion directly. |
-| This memo / our memo / this document... | Remove the frame; make the investment statement. |
-| We outline / discuss / summarize... | State the conclusion directly. |
-| Due to lack of data... | Revenue is not disclosed. |
-| Decision Posture | Investment Decision / We recommend... |
-| Is the Series A2 actually closing...? | Before funding, we need to confirm final A2 terms and closing timing. |
+| Detached recommendation framing | We recommend... / We would proceed if... |
+| Detached opportunity framing | We are being offered... |
+| Detached base-case framing | Our base case gives credit for... |
+| Memo/document/process narration | Remove the frame; make the investment statement. |
+| Analysis-process narration | State the conclusion directly. |
+| Uncertainty apology | State the disclosed and undisclosed facts directly. |
+| Detached decision label | Investment Decision / We recommend... |
 | Sponsor-capability speculation | The expected bar is... / The investment case is supported if... |
 | No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
-| implies false precision | would be misleading to forecast precisely |
+| False precision | State the evidence range without over-modeling it. |
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
 
@@ -120,7 +111,7 @@ SPV", and "we recommend proceeding if...". Do not describe the sponsor,
 investors, or recommendation from a detached third-person vantage point unless
 identifying a legal counterparty.
 
-The final memo should sound like an experienced investor explaining the opportunity: here is what is happening, what must be true, what can go wrong, and what would make the investment attractive or unattractive.
+The final memo reads like an experienced investor explaining the opportunity: here is what is happening, what must be true, what can go wrong, and what would make the investment attractive or unattractive.
 
 ---
 
@@ -306,7 +297,7 @@ Also create:
 logs/file_inventory.md
 ```
 
-This should list every file written in the current run folder so storage integrity can be audited later.
+List every file written in the current run folder so storage integrity can be audited later.
 
 If a file or run folder with the target name already exists, generate a new timestamped run folder instead of overwriting.
 
@@ -321,7 +312,7 @@ If a file or run folder with the target name already exists, generate a new time
 - If a prior run exists on the same day, create a new timestamped run folder.
 - Validation, intermediate extracts, and notes must be stored alongside the run, not mixed into shared directories.
 - If a tool fails or validation fails, preserve the failed run's artifacts in its run folder for debugging.
-- The current run folder should be created before major extraction work begins so all downstream artifacts have a stable location.
+- Create the current run folder before major extraction work begins so all downstream artifacts have a stable location.
 - Never reuse an earlier run folder as a working directory for a new run.
 - When a run completes, preserve both successful and failed intermediate artifacts unless they contain obvious duplicate temporary junk.
 - If the memo is regenerated within the same run, save it as a new timestamped file inside the same run folder rather than overwriting the prior draft.
@@ -372,7 +363,7 @@ All intermediate analytical artifacts from this step must be written into the cu
 
 This skill is scoped to growth-stage, late-stage, and pre-IPO deals. Apply full pressure testing across revenue quality, deployment depth, pricing power, gross margin and operating margin where available, GTM efficiency, competitive compression, capital structure, and valuation timing.
 
-If a deal turns out to be early-stage or early-growth once inputs are reviewed, calibrate expectations to that stage rather than forcing late-stage diligence norms onto thin data. Missing later-stage diligence inputs should be framed as confirmation work, not automatic disqualifiers.
+If a deal turns out to be early-stage or early-growth once inputs are reviewed, calibrate expectations to that stage rather than forcing late-stage diligence norms onto thin data. Frame missing later-stage diligence inputs as confirmation work, not automatic disqualifiers.
 
 ### Source hierarchy
 
@@ -419,7 +410,7 @@ Rules:
 
 ## Required Core Passes (Always Run)
 
-The following passes must run on every deal, though their depth should scale by stage and available data.
+The following passes must run on every deal, though their depth scales by stage and available data.
 
 ### 1. Arithmetic & Denominator Pass
 For every important numeric claim, run arithmetic pressure tests before narrative interpretation.
@@ -622,7 +613,7 @@ Run these independently and allow them to challenge one another:
 7. Time-series change-over-time
 8. Competitive compression
 
-The memo should only be written after these passes have been completed at the level appropriate to the deal stage.
+Write the memo only after these passes have been completed at the level appropriate to the deal stage.
 
 ---
 
@@ -1001,8 +992,8 @@ Never give a false sense of calibration just because a number looks precise.
 Separate what is already evidenced today from what still depends on future execution, but keep the taxonomy private.
 
 In particular:
-- current deployment, current growth quality, and current moat components should be described as proven only when evidenced
-- agentic workflows, broad enterprise rollout, durable pricing expansion, and future platform status should be framed as future possibilities unless current evidence proves they are already happening
+- describe current deployment, current growth quality, and current moat components as proven only when evidenced
+- frame agentic workflows, broad enterprise rollout, durable pricing expansion, and future platform status as future possibilities unless current evidence proves they are already happening
 - do not use future-state optionality to justify current-state labels like "dominant," "default workflow layer," or "platform" without present evidence
 - do not render visible parenthetical labels such as `(present-state)`, `(upside-state)`, or `upside-only` in the final memo
 
@@ -1064,7 +1055,7 @@ analysis/scenario_swim_lanes.md
 ## Missingness Calibration Rule
 Absence of critical data is not neutral.
 
-Missing information about NRR, gross margin, burn, EBITDA / operating margin, customer concentration, pricing durability, or capital structure must be calibrated to stage and round context. For Series A/A2 and early-growth deep-tech financings, lack of disclosed ARR, margin, a public lead name, or detailed side-letter terms is common and should not automatically become a high-severity risk or a low-conviction recommendation. For later-stage and pre-IPO rounds, the same missingness carries more weight.
+Missing information about NRR, gross margin, burn, EBITDA / operating margin, customer concentration, pricing durability, or capital structure must be calibrated to stage and round context. For Series A/A2 and early-growth deep-tech financings, lack of disclosed ARR, margin, a public lead name, or detailed side-letter terms is common; do not automatically turn those gaps into a high-severity risk or a low-conviction recommendation. For later-stage and pre-IPO rounds, the same missingness carries more weight.
 
 When critical metrics are missing:
 - explicitly state what is missing
@@ -1088,7 +1079,7 @@ Write the internal expected-bar list to the existing artifact path:
 analysis/gating_questions.md
 ```
 
-Only after completing this work should you write the memo narrative.
+Write the memo narrative only after completing this work.
 
 ---
 
@@ -1108,7 +1099,7 @@ Only proceed to Step 3 after Step 2 produces, at minimum, these artifacts in the
 
 These are working artifacts for the run and must be preserved.
 
-The transition summary passed into memo writing should include:
+The transition summary passed into memo writing must include:
 - validated claims
 - unproven claims
 - strongest disconfirming evidence
@@ -1149,7 +1140,7 @@ block types rather than writing new code.
 
 Recommended generation order:
 1. Finish the English memo first — the English version is the source of truth for analytical content.
-2. Validate that the English memo is complete, the structure matches the spec, all required tables and callouts are present, and the recommendation is clear.
+2. Validate that the English memo is complete, the structure matches the spec, all required tables and callouts are present, and the recommendation verdict is clear.
 3. Translate the English memo into Simplified Chinese following the rules in the **Bilingual Output: English + Simplified Chinese (简体中文)** section below.
 4. Write the bilingual structured package to `logs/memo_package.json`.
 5. Cross-check that the Chinese memo's tables, callouts, recommendation, and Closing Confirmation Bars match the English memo exactly in content (only language differs).
@@ -1181,7 +1172,7 @@ Do not rely on default Word theme formatting. Apply explicit styles or direct fo
 
 ## Cover Page Layout (Mandatory)
 
-The cover page must be visually stronger than the body pages and should not look like a loose metadata note.
+The cover page must be visually stronger than the body pages and must not look like a loose metadata note.
 
 Required cover-page elements:
 1. BSH brand line or small running identifier
@@ -1367,7 +1358,7 @@ Lead with the opening thesis contract before any table:
 4. sentence 4: the central price/proof tension, especially when valuation has moved faster than disclosed commercial proof;
 5. sentence 5: what we recommend and the confirmation items that can move the decision.
 
-The first two body paragraphs must state sponsor conviction, company relevance, transaction, valuation / entry terms, central price/proof tension, and recommendation. Do not start with a negative throat-clearing phrase such as "The investment case is not..." and do not write meta-language such as "The memo frames..." Do not write detached constructions such as "The recommendation is..." or "The opportunity offered to investors is..."; use "we recommend", "we would proceed if", and "we are being offered" instead.
+The first two body paragraphs must state sponsor conviction, company relevance, transaction, valuation / entry terms, central price/proof tension, and recommendation. Do not start with negative throat-clearing, meta-language, or detached recommendation/opportunity constructions; use "we recommend", "we would proceed if", and "we are being offered" instead.
 
 Then describe the deal itself: round size and structure (priced equity, secondary, SPV), valuation / price per share, discount or premium versus the most recent priced round, co-investors and their reputations, access channel where relevant, expected liquidity timeline, and any investor-facing co-investment terms (management fee, carry).
 
@@ -1384,12 +1375,12 @@ Include a **Key Metrics Snapshot** table near the top with the most important av
 If contemporaneous and stale-mark multiples differ materially, include a **Valuation Timing Warning (for BSH)** callout box here.
 
 *Investment Thesis* (3–5 bullets, summary of Section III)  
-The core reasons BSH would invest. Each bullet should be a bold, concrete investor claim followed by 1–2 sentences of supporting logic. The first sentence makes the claim; the second sentence states the source class or model treatment and what must prove true. Do not use parenthetical evidence-state labels in the final memo.
+The core reasons BSH would invest. Each bullet uses a bold, concrete investor claim followed by 1–2 sentences of supporting logic. The first sentence makes the claim; the second sentence states the source class or model treatment and what must prove true. Do not use parenthetical evidence-state labels in the final memo.
 
 These bullets must be derivable from Section III. Do not introduce thesis claims here that are not developed in III.
 
 *Investment Risk* (3–5 bullets, summary of Section IV)  
-The strongest reasons not to invest, framed as the risks most likely to change the recommendation. Each bullet should name the risk and the disconfirming or stress evidence behind it.
+The strongest reasons not to invest, framed as the risks most likely to change the recommendation. Each bullet names the risk and the disconfirming or stress evidence behind it.
 
 If a callout improves readability, render a deal-specific investor-facing evidence box with one of these headings:
 - **What BSH Is Buying**
@@ -1406,7 +1397,7 @@ A clear recommendation: **Proceed / Proceed if confirmed / Hold pending confirma
 Treat this as the Investment View: state conviction, dependencies, failure modes, and recommendation. Do not summarize the memo's structure or methodology.
 
 *Closing Confirmation Bars*  
-Render the **Closing Confirmation Bars** as a concise callout box. These should be the three expected bars that most directly support or weaken the recommendation. Each bar must be stated quantitatively or specifically where the source package allows: binding contract value at or above the stated threshold, A2 economics within the disclosed range, SAFE conversion mechanics matching the expected entry, or named deployment evidence supporting the valuation. Do not phrase these as questions.
+Render the **Closing Confirmation Bars** as a concise callout box. These are the three expected bars that most directly support or weaken the recommendation. Each bar must be stated quantitatively or specifically where the source package allows: binding contract value at or above the stated threshold, A2 economics within the disclosed range, SAFE conversion mechanics matching the expected entry, or named deployment evidence supporting the valuation. Do not phrase these as questions.
 
 ---
 
@@ -1542,7 +1533,7 @@ Section IV consolidates everything that argues against the deal — the risks th
 *Risk Register*  
 Render as a compact risk table with 4–6 rows.
 
-Each risk statement should be a sharp one-sentence risk. Put evidence, mitigants, and monitoring notes in the compact table fields or adjacent notes, not in layered explanatory risk prose.
+Each risk statement is a sharp one-sentence risk. Put evidence, mitigants, and monitoring notes in the compact table fields or adjacent notes, not in layered explanatory risk prose.
 
 | # | Risk | Severity | Likelihood | Disconfirming Evidence | Mitigant / Monitoring Approach |
 |---|------|----------|------------|------------------------|-------------------------------|
@@ -1818,7 +1809,7 @@ Apply this font system to the Chinese `.docx`:
 | Cover title (BSH) | "Microsoft YaHei", "Noto Sans CJK SC" — bold, Navy `1B2A4A` |
 | Headings | "Microsoft YaHei", "Noto Sans CJK SC" — bold, Navy `1B2A4A` |
 | Table headers | "Microsoft YaHei", "Noto Sans CJK SC" — bold, white on Navy fill |
-| Latin / numeric runs inside Chinese paragraphs | Arial (the docx engine should fall back to Arial automatically; if not, set the runs explicitly) |
+| Latin / numeric runs inside Chinese paragraphs | Arial (the docx engine normally falls back to Arial automatically; if not, set the runs explicitly) |
 
 Other typography rules:
 - Use Chinese-style punctuation (，。；：「」『』《》) for Chinese-language sentences. Do not mix Latin punctuation into Chinese sentences.
@@ -1872,7 +1863,7 @@ Use the BSH palette consistently:
 - Pale Gold `F7F0D9` — warning callout background
 - Warm Grey `F3F3F3` — neutral callout background
 
-Use accent colors sparingly. The memo should feel sharp and institutional, not decorative.
+Use accent colors sparingly. Maintain sharp institutional layout; avoid decorative styling.
 
 ## Cover Page Styling
 
@@ -1898,7 +1889,7 @@ If supported, use a different first page so the cover has no running header and 
 ## Header / Footer Contract
 
 - Running header on body pages: `[Company Name] | BSH Confidential Investment Memo`
-- Header text should be compact and subdued
+- Header text must be compact and subdued
 - Include a thin accent line only if it improves clarity and does not clutter the page
 - Footer must display a real visible page-number field
 
@@ -1919,7 +1910,7 @@ Recommended settings:
 - Table spacing: 4–8pt before and after
 - Avoid consecutive blank paragraphs as a spacing method
 
-The memo should feel dense enough for serious review but never cramped.
+Use compact spacing suitable for serious review without cramped pages.
 
 ## Section Header Treatment
 
@@ -1996,7 +1987,7 @@ Required elements:
 - Closing Confirmation Bars callout inside the Executive Summary
 - Visible separation between Opportunity, Thesis, Risk, Recommendation, and Closing Confirmation Bars
 
-The Executive Summary should be highly skimmable in under two minutes.
+The Executive Summary must be highly skimmable in under two minutes.
 
 ## Page Architecture Rules
 
@@ -2011,9 +2002,9 @@ The Executive Summary should be highly skimmable in under two minutes.
 
 ## Visual Quality Standard
 
-The memo should feel like a high-quality LP-facing sell-side investment memo, not a default generated report.
+Use the visual standard of a high-quality LP-facing sell-side investment memo, not a default generated report.
 
-It should:
+It must:
 - look polished without feeling glossy
 - privilege clarity, comparability, and scan-ability
 - make critical warnings impossible to miss
@@ -2052,8 +2043,8 @@ Do not finalize the memo unless all of the following are true:
 
 Before DOCX generation, scan the English memo body and remove:
 - banned phrases from the Human Executive Memo Voice Contract
-- third-person situational recommendation language such as "the recommendation is", "the recommendation should", "the right posture is", "the opportunity offered to investors is", "the base case credits", and "the current recommendation posture is"
-- self-referential document/process language such as "this memo", "our memo", "this document", "our analysis", "this section", "we outline", "we discuss", or "we summarize"
+- detached third-person recommendation, opportunity, or base-case framing
+- self-referential memo/document/process language and writer-process language
 - bracketed source tokens, source IDs, file names, artifact names, and raw source traces outside the Sources, Source Classes, and Fact Reference Index
 - meta language about "the memo", "the analysis", "the framework", "this section", or the writing process
 - methodology leakage from claim registers, research tasks, evidence matrices, validation logs, confidence scoring, or reviewer prompts
@@ -2061,7 +2052,7 @@ Before DOCX generation, scan the English memo body and remove:
 - fuzzy phrases such as "soft instrument", "hard IP wall", "moat narrows", "no-rights SAFE", "where nothing else works", and "least-proven part of the story"
 - English em dash bridges in body prose and operating tables
 - repetitive openings and symmetrical bullet phrasing that make the memo feel generated
-- over-explained risks that should be one-sentence risk statements with evidence in compact notes or tables
+- over-explained risks that belong as one-sentence risk statements with evidence in compact notes or tables
 - template-visible structure and unnatural model voice
 
 If a sentence explains how the memo was built, rewrite it as the investment judgment. If a sentence apologizes for missing data, state the uncertainty directly.
@@ -2161,7 +2152,7 @@ Prefer a memo that is precise, critical, and partially unresolved over a memo th
 
 This system is only successful if it preserves execution reliability, memo consistency, non-destructive storage, and investment rigor all at once.
 
-It should prefer:
+It must prefer:
 - dated, traceable, source-aware arithmetic over slogan-like valuation framing
 - growth bridges over blended growth narratives
 - distribution-aware deployment analysis over average-only math

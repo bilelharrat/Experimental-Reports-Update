@@ -1,7 +1,7 @@
 """Persistent pre-memo analysis sessions for Serena's memo workflow.
 
 The memo generator writes the final DOCX deliverables. This module owns the
-work that should happen before that point: strategic risks, priorities,
+work that happens before that point: strategic risks, priorities,
 research prompts, thesis spine, chart plans, narrative hooks, private-company
 benchmarking, and readiness gates.
 
@@ -48,7 +48,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "strategic_risk_mapper",
         "label": "Strategic Risk Mapper",
-        "description": "Generate the expected bars and failure modes that should shape the memo.",
+        "description": "Generate the expected bars and failure modes that shape the memo.",
         "stage": "core",
         "critical": True,
         "run_label": "Map risks",
@@ -1888,7 +1888,7 @@ def _fallback_memo_grader(report: dict, *, error: str | None = None) -> dict:
             {
                 "area": "Evidence quality",
                 "score": 0.0,
-                "rationale": "Claude grading was unavailable; Serena should review the memo manually.",
+                "rationale": "Claude grading was unavailable; Serena must review the memo manually.",
             }
         ],
         "strongest_sections": [],
@@ -3409,7 +3409,7 @@ def _research_task_search_plan(risk: dict) -> dict:
             "Check selected company background documents first.",
             "Extract supporting and contradicting evidence with source locators.",
             "Use public web/filing sources only where local evidence is insufficient.",
-            "Return open questions when evidence remains missing or weak.",
+            "Return unresolved expected bars when evidence remains missing or weak.",
         ],
     }
 
@@ -3510,10 +3510,9 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
         "investment_highlights": highlights[:5],
         "investment_risks": risks_out[:5],
         "recommendation_logic": (
-            "Hold pending confirmation until the lead risks have independent "
-            "support, the benchmark dashboard supports the valuation posture, "
-            "and the operator selects whether the final view is proceed, "
-            "proceed if confirmed, hold pending confirmation, or pass."
+            "Use Proceed if confirmed when the lead expected bars have "
+            "independent support and the benchmark work supports the valuation; "
+            "revisit or pass if the selected bars resolve below threshold."
         ),
         "top_gating_questions": gates[:3],
         "bull_case_must_be_true": [
@@ -3590,7 +3589,12 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         if isinstance(thesis, dict)
         else ""
     )
-    main_gate = gates[0]["question"] if gates else "whether the current traction is deep enough to support BSH entry"
+    main_gate = (
+        gates[0].get("expected_bar")
+        or gates[0].get("question")
+        if gates and isinstance(gates[0], dict)
+        else "current traction supports the entry valuation"
+    )
     lead_highlight = (
         _clean_text(highlights[0].get("claim"), limit=180)
         if highlights and isinstance(highlights[0], dict)
@@ -3608,12 +3612,13 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             limit=220,
         )
     intro_fact = desc or f"{name} operates in {sector}."
-    gate_lc = main_gate[:1].lower() + main_gate[1:] if main_gate else main_gate
+    gate_text = str(main_gate or "").removeprefix("Expected bar:").strip()
+    gate_lc = gate_text[:1].lower() + gate_text[1:] if gate_text else gate_text
     openings = [
         {
             "id": "intro-operating-proof",
             "text": (
-                f"{name} is a {sector} investment only if {gate_lc.rstrip('?')}."
+                f"We recommend exposure to {name} if {gate_lc.rstrip('.')}."
             ),
             "purpose": "intro stance",
             "tone": "proof_first",
@@ -3698,7 +3703,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             "id": "risk-pass-trigger",
             "text": (
                 f"If {pass_trigger[:1].lower() + pass_trigger[1:] if pass_trigger else 'the lead evidence remains missing'}, "
-                "investors should not stretch the thesis."
+                "do not stretch the thesis."
             ),
             "purpose": "risk framing",
             "tone": "pass_trigger",
@@ -3716,8 +3721,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-proceed-if-confirmed",
             "text": (
-                "We would proceed if confirmed only after the lead gating "
-                "questions are answered with independent evidence."
+                "We recommend Proceed if confirmed when the lead expected bars "
+                "are supported by independent evidence."
             ),
             "purpose": "conclusion posture",
             "tone": "proceed_if_confirmed",
@@ -3733,7 +3738,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-hold-pending-confirmation",
             "text": (
-                f"We would hold pending confirmation until we can resolve {gate_lc.rstrip('?')}."
+                f"We would hold if {gate_lc.rstrip('.')} remains below the expected bar."
             ),
             "purpose": "conclusion posture",
             "tone": "hold_pending_confirmation",
@@ -3776,7 +3781,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             {
                 "id": "operator-final-posture",
                 "prompt": (
-                    "Choose the final recommendation posture once the selected "
+                    "Choose the final recommendation verdict once the selected "
                     "intro and risk framing are reviewed."
                 ),
                 "required": False,
@@ -4089,7 +4094,7 @@ def _fallback_infographic_claims(artifacts: dict) -> list[dict]:
                 "evidence_status": "needs_review",
                 "source_traces": traces[:2],
                 "contradictions": [],
-                "warnings": ["Risk framing should not be illustrated as proven fact."],
+                "warnings": ["Risk framing must not be illustrated as proven fact."],
                 "prohibited_for_visuals": False,
                 "confidence": "low",
             })
@@ -5135,9 +5140,8 @@ def _refresh_memo_packet(session: dict) -> None:
         (
             "Use first-person sponsor voice for our view, access, conviction, "
             "and action. Do not write third-person situational recommendation "
-            "language such as 'the recommendation is', 'the recommendation "
-            "should', 'the right posture is', 'the opportunity offered to "
-            "investors is', or 'the base case credits'."
+            "language, detached opportunity framing, detached base-case "
+            "framing, or passive sponsor-capability speculation."
         ),
         "",
         (
@@ -5287,7 +5291,7 @@ def _refresh_memo_packet(session: dict) -> None:
                         f"{item['contradicting_count']} contradicting."
                     )
             if evidence_summary["missing"]:
-                lines.append("- Missing evidence / open questions:")
+                lines.append("- Missing evidence / expected bars:")
                 for item in evidence_summary["missing"][:5]:
                     questions = item.get("questions") or []
                     suffix = "; ".join(questions[:3]) if questions else "No source-backed evidence yet."
