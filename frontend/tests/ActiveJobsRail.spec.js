@@ -36,6 +36,7 @@ describe("ActiveJobsRail", () => {
         thread_done_count: 1,
         thread_failed_count: 0,
         open_thread_count: 1,
+        elapsed_ms: 65000,
         threads: [
           {
             name: "Phase 1 - Intake and setup",
@@ -67,14 +68,7 @@ describe("ActiveJobsRail", () => {
 
     expect(wrapper.text()).toContain("Parallel flows");
     expect(wrapper.text()).toContain("1/2 subtasks");
-    expect(wrapper.text()).not.toContain("Pressure tests");
-
-    const toggle = wrapper
-      .findAll("button")
-      .find((button) => button.text().includes("Parallel flows"));
-    expect(toggle).toBeTruthy();
-    await toggle.trigger("click");
-
+    expect(wrapper.text()).toContain("elapsed 1m 5s");
     expect(wrapper.text()).toContain("Phase 1 - Intake and setup");
     expect(wrapper.text()).toContain("3 events");
     expect(wrapper.text()).toContain("4s");
@@ -82,5 +76,12 @@ describe("ActiveJobsRail", () => {
     expect(wrapper.text()).toContain("actual 4s");
     expect(wrapper.text()).toContain("Phase 2 - Parallel analysis passes");
     expect(wrapper.text()).toContain("not started");
+
+    const toggle = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Parallel flows"));
+    expect(toggle).toBeTruthy();
+    await toggle.trigger("click");
+    expect(wrapper.text()).not.toContain("Phase 1 - Intake and setup");
   });
 });

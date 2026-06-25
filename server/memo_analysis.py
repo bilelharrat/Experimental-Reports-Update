@@ -86,6 +86,24 @@ def _memo_fast_max_workers() -> int:
     return max(1, min(value, 8))
 
 
+def _memo_fast_english_package_retries() -> int:
+    raw = os.environ.get("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES")
+    try:
+        value = int(raw) if raw is not None else 1
+    except ValueError:
+        value = 1
+    return max(0, min(value, 3))
+
+
+def _memo_fast_retry_backoff_sec() -> float:
+    raw = os.environ.get("BSH_MEMO_FAST_RETRY_BACKOFF_SEC")
+    try:
+        value = float(raw) if raw is not None else 0.0
+    except ValueError:
+        value = 0.0
+    return max(0.0, min(value, 60.0))
+
+
 def _as_float(value: Any) -> float:
     try:
         return float(value or 0)
@@ -1392,13 +1410,33 @@ def _run_fast_memo_pipeline(
             thread=claude_runner._MEMO_PHASE2_THREAD,
             title=claude_runner._MEMO_PHASE2_THREAD,
         )
+        worker_count = min(_memo_fast_max_workers(), len(_FAST_MEMO_PASSES))
+        for index, spec in enumerate(_FAST_MEMO_PASSES, start=1):
+            stream.emit(
+                "thread_planned",
+                thread=spec.label,
+                title=spec.label,
+                phase_index=2 + (index / 100),
+                parent_thread=claude_runner._MEMO_PHASE2_THREAD,
+                group="memo_fast_pass",
+                pass_id=spec.pass_id,
+                artifact=spec.artifact_filename,
+                estimate_ms=180_000,
+                description=(
+                    f"Fast memo analysis pass {index}/{len(_FAST_MEMO_PASSES)}. "
+                    f"Runs with up to {worker_count} parallel Claude workers."
+                ),
+            )
         stream.emit(
             "stage",
             stage="memo_fast_parallel_dispatch",
-            message=f"Running {len(_FAST_MEMO_PASSES)} memo analysis passes in parallel",
+            message=(
+                f"Running {len(_FAST_MEMO_PASSES)} memo analysis passes "
+                f"with up to {worker_count} parallel workers"
+            ),
             thread=claude_runner._MEMO_PHASE2_THREAD,
             passes=[spec.label for spec in _FAST_MEMO_PASSES],
-            max_workers=_memo_fast_max_workers(),
+            max_workers=worker_count,
         )
         _emit_phase_timing(
             stream,
@@ -1407,7 +1445,6 @@ def _run_fast_memo_pipeline(
             started_at=phase2_started_at,
             started_monotonic=phase2_started,
         )
-        worker_count = min(_memo_fast_max_workers(), len(_FAST_MEMO_PASSES))
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
             pass_results = list(
                 pool.map(
@@ -1465,20 +1502,117 @@ def _run_fast_memo_pipeline(
         started_at=phase3_started_at,
         started_monotonic=phase3_started,
     )
-    english_result, english_error = claude_runner.run_memo_fast_english_package(
-        run_dir=run_dir,
-        company_name=company_name,
-        company_slug=company_slug,
-        run_id=run_id,
-        settings_path=memo_prep.SETTINGS_FILE,
-        companies_yaml_path=memo_prep.COMPANIES_FILE,
-        memo_paths=memo_paths,
-        research_dir=research_dir,
-        analysis_session_path=analysis_session_path,
-        lessons_path=lessons_path,
-        scope_check=scope_check,
-        warnings=warnings,
-        progress=phase3_progress,
+    english_result: dict | None = None
+    english_error: str | None = None
+    attempts_used = 0
+    last_transient = False
+    max_attempts = 1 + _memo_fast_english_package_retries()
+    phase3_cost_before = phase3_progress.cost_usd
+    phase3_duration_before = phase3_progress.duration_ms
+    for attempt in range(1, max_attempts + 1):
+        attempts_used = attempt
+        attempt_started_at = _now_iso()
+        attempt_started = time.monotonic()
+        attempt_cost_before = phase3_progress.cost_usd
+        attempt_duration_before = phase3_progress.duration_ms
+        if attempt > 1:
+            phase3_progress.emit(
+                "stage",
+                stage="memo_fast_english_package_retry",
+                message=(
+                    "Retrying English package synthesis after transient "
+                    f"Claude transport error (attempt {attempt}/{max_attempts})"
+                ),
+                attempt=attempt,
+                max_attempts=max_attempts,
+                previous_error=english_error,
+            )
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_english_package_attempt",
+            status="started",
+            started_at=attempt_started_at,
+            started_monotonic=attempt_started,
+            attempt=attempt,
+            max_attempts=max_attempts,
+        )
+        attempt_result, attempt_error = claude_runner.run_memo_fast_english_package(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            settings_path=memo_prep.SETTINGS_FILE,
+            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            memo_paths=memo_paths,
+            research_dir=research_dir,
+            analysis_session_path=analysis_session_path,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            progress=phase3_progress,
+        )
+        attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
+        attempt_duration = max(
+            0, phase3_progress.duration_ms - attempt_duration_before
+        )
+        if attempt_error or not isinstance(attempt_result, dict):
+            message = attempt_error or "English package pass returned no data."
+            last_transient = claude_runner.is_transient_claude_error(message)
+            english_error = message
+            _emit_phase_timing(
+                stream,
+                phase="memo_fast_english_package_attempt",
+                status="failed",
+                started_at=attempt_started_at,
+                started_monotonic=attempt_started,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                transient=last_transient,
+                error=message,
+                cost_usd=round(attempt_cost, 6),
+                claude_duration_ms=attempt_duration,
+            )
+            if last_transient and attempt < max_attempts:
+                backoff_sec = _memo_fast_retry_backoff_sec()
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_fast_english_package_retry_scheduled",
+                    message=(
+                        "English package synthesis hit a transient Claude "
+                        f"transport error; retrying attempt {attempt + 1}/"
+                        f"{max_attempts}"
+                    ),
+                    attempt=attempt,
+                    next_attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    retry_in_sec=backoff_sec,
+                    previous_error=message,
+                )
+                if backoff_sec > 0:
+                    time.sleep(backoff_sec)
+                continue
+            break
+        english_result = attempt_result
+        english_error = None
+        last_transient = False
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_english_package_attempt",
+            status="finished",
+            started_at=attempt_started_at,
+            started_monotonic=attempt_started,
+            attempt=attempt,
+            max_attempts=max_attempts,
+            cost_usd=round(attempt_cost, 6),
+            claude_duration_ms=attempt_duration,
+            usage=attempt_result.get("claude_usage")
+            if isinstance(attempt_result.get("claude_usage"), dict)
+            else None,
+        )
+        break
+    phase3_cost_delta = max(0.0, phase3_progress.cost_usd - phase3_cost_before)
+    phase3_duration_delta = max(
+        0, phase3_progress.duration_ms - phase3_duration_before
     )
     if english_error or not isinstance(english_result, dict):
         message = english_error or "English package pass returned no data."
@@ -1490,10 +1624,26 @@ def _run_fast_memo_pipeline(
             started_at=phase3_started_at,
             started_monotonic=phase3_started,
             error=message,
+            attempts=attempts_used,
+            max_attempts=max_attempts,
+            transient=last_transient,
+            cost_usd=round(phase3_cost_delta, 6),
+            claude_duration_ms=phase3_duration_delta,
         )
-        return {"ok": False, "error": message, "cost_usd": cost_usd}
-    cost_usd += _as_float(english_result.get("claude_cost_usd")) or phase3_progress.cost_usd
-    worker_duration_ms += _as_int(english_result.get("claude_duration_ms")) or phase3_progress.duration_ms
+        return {
+            "ok": False,
+            "error": message,
+            "cost_usd": round(cost_usd + phase3_cost_delta, 6),
+            "worker_duration_ms": worker_duration_ms + phase3_duration_delta,
+        }
+    phase3_added_cost = phase3_cost_delta or _as_float(
+        english_result.get("claude_cost_usd")
+    )
+    phase3_added_duration = phase3_duration_delta or _as_int(
+        english_result.get("claude_duration_ms")
+    )
+    cost_usd += phase3_added_cost
+    worker_duration_ms += phase3_added_duration
     artifacts = english_result.get("analysis_artifacts")
     if isinstance(artifacts, dict):
         _write_fast_synthesis_artifacts(run_dir, artifacts)
@@ -1501,7 +1651,24 @@ def _run_fast_memo_pipeline(
     if not isinstance(english_package, dict):
         message = "English package pass did not return memo_package."
         phase3_progress.emit("thread_failed", error=message)
-        return {"ok": False, "error": message, "cost_usd": cost_usd}
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_english_package",
+            status="failed",
+            started_at=phase3_started_at,
+            started_monotonic=phase3_started,
+            error=message,
+            attempts=attempts_used,
+            max_attempts=max_attempts,
+            cost_usd=round(phase3_added_cost, 6),
+            claude_duration_ms=phase3_added_duration,
+        )
+        return {
+            "ok": False,
+            "error": message,
+            "cost_usd": round(cost_usd, 6),
+            "worker_duration_ms": worker_duration_ms,
+        }
     english_package_path = run_dir / "logs" / "memo_package.en.json"
     _write_json(english_package_path, english_package)
     phase3_progress.emit("thread_finished")
@@ -1512,8 +1679,10 @@ def _run_fast_memo_pipeline(
         started_at=phase3_started_at,
         started_monotonic=phase3_started,
         memo_package=memo_prep._rel(english_package_path),
-        cost_usd=_as_float(english_result.get("claude_cost_usd")),
-        claude_duration_ms=_as_int(english_result.get("claude_duration_ms")),
+        attempts=attempts_used,
+        max_attempts=max_attempts,
+        cost_usd=round(phase3_added_cost, 6),
+        claude_duration_ms=phase3_added_duration,
         usage=english_result.get("claude_usage")
         if isinstance(english_result.get("claude_usage"), dict)
         else None,

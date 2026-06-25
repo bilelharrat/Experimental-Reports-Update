@@ -27,6 +27,7 @@ const t = useT();
 const jobs = ref([]);
 const collapsed = ref(false);
 const expandedJobThreads = ref(new Set());
+const autoExpandedJobThreads = ref(new Set());
 const openJob = ref(null);
 let pollId = null;
 let polling = false;
@@ -35,7 +36,24 @@ async function tick() {
   if (polling) return;
   polling = true;
   try {
-    jobs.value = await api.listActiveJobs();
+    const nextJobs = await api.listActiveJobs();
+    const expanded = new Set(expandedJobThreads.value);
+    const autoExpanded = new Set(autoExpandedJobThreads.value);
+    for (const job of nextJobs) {
+      const key = jobKey(job);
+      if (
+        job.kind === "memo" &&
+        hasThreads(job) &&
+        !expanded.has(key) &&
+        !autoExpanded.has(key)
+      ) {
+        expanded.add(key);
+        autoExpanded.add(key);
+      }
+    }
+    jobs.value = nextJobs;
+    expandedJobThreads.value = expanded;
+    autoExpandedJobThreads.value = autoExpanded;
   } catch {
     // network blip — keep prior value
   } finally {
@@ -244,6 +262,11 @@ function fmtThreadElapsed(thread) {
   return `${h}h ${m % 60}m`;
 }
 
+function jobElapsedText(job) {
+  const duration = fmtThreadElapsed({ elapsed_ms: job?.elapsed_ms });
+  return duration ? t("jobs.modal.elapsed_duration", { duration }) : "";
+}
+
 function fmtThreadEstimate(thread) {
   const ms = Number(thread?.estimate_ms);
   if (!Number.isFinite(ms) || ms <= 0) return "";
@@ -385,6 +408,9 @@ const visible = computed(() => jobs.value.length > 0);
                   </span>
                   <span v-if="j.claude_cost_usd != null">
                     ${{ Number(j.claude_cost_usd).toFixed(4) }}
+                  </span>
+                  <span v-if="jobElapsedText(j)" class="tabular-nums">
+                    {{ jobElapsedText(j) }}
                   </span>
                   <span v-if="j.last_event_at" class="ml-auto">
                     {{ t("jobs.age_ago", { age: fmtAge(j.last_event_at) }) }}

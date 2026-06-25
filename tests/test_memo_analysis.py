@@ -318,7 +318,7 @@ def test_memo_run_completes_when_optional_pdf_render_fails(
     stream.emit(
         "job_init",
         kind="memo",
-        title="Investment memo — Generalist, Inc.",
+        title="Investment memo - Generalist, Inc.",
         report_id=report["id"],
         company_id="generalist-inc",
         run_id=report["run_id"],
@@ -559,6 +559,145 @@ def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
     )
     assert any(e.get("stage") == "pdf_previews_skipped" for e in events)
     assert events[-1]["type"] == "done"
+
+
+def test_memo_fast_pipeline_retries_transient_english_package_failure(
+    memo_env, monkeypatch
+):
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_RETRY_BACKOFF_SEC", "0")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+    called_passes = []
+    english_calls = []
+
+    def fake_analysis_pass(**kwargs):
+        called_passes.append(kwargs["pass_id"])
+        return {
+            "summary": f"{kwargs['pass_label']} summary.",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+            "claude_cost_usd": 0.01,
+            "claude_duration_ms": 100,
+        }, None
+
+    def fake_english_package(**kwargs):
+        english_calls.append(kwargs["run_id"])
+        progress = kwargs["progress"]
+        if len(english_calls) == 1:
+            progress.emit(
+                "claude_action",
+                action="thinking",
+                text=(
+                    "API Error: The socket connection was closed unexpectedly. "
+                    "For more information, pass verbose: true in the second "
+                    "argument to fetch()"
+                ),
+            )
+            progress.emit(
+                "claude_action",
+                action="result",
+                subtype="success",
+                cost_usd=0.71,
+                duration_ms=254522,
+            )
+            return None, (
+                "claude exited 1: API Error: The socket connection was closed "
+                "unexpectedly"
+            )
+        progress.emit(
+            "claude_action",
+            action="result",
+            subtype="success",
+            cost_usd=0.10,
+            duration_ms=500,
+        )
+        return {
+            "analysis_artifacts": {
+                "claim_register_md": "# Claim Register\n",
+                "scenario_swim_lanes_md": "# Scenario Swim Lanes\n",
+                "pre_mortem_md": "# Pre-Mortem\n",
+                "reverse_ic_md": "# Reverse IC\n",
+                "validation_log_md": "# Validation Log\n",
+                "gating_questions_md": "# Gating Questions\n",
+            },
+            "memo_package": _memo_package(body_zh=""),
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_analysis_pass",
+        fake_analysis_pass,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package",
+        fake_english_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        lambda **_kwargs: (
+            {
+                "memo_package": _memo_package(),
+                "claude_cost_usd": 0.05,
+                "claude_duration_ms": 400,
+            },
+            None,
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert len(called_passes) == len(memo_analysis._FAST_MEMO_PASSES)
+    assert len(english_calls) == 2
+    assert updated["claude_cost_usd"] >= 0.94
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(
+        e.get("stage") == "memo_fast_english_package_retry_scheduled"
+        for e in events
+    )
+    attempt_events = [
+        e
+        for e in events
+        if e.get("type") == "phase_timing"
+        and e.get("phase") == "memo_fast_english_package_attempt"
+    ]
+    assert any(e.get("status") == "failed" and e.get("transient") for e in attempt_events)
+    assert any(e.get("status") == "finished" and e.get("attempt") == 2 for e in attempt_events)
+    phase3_finished = [
+        e
+        for e in events
+        if e.get("type") == "phase_timing"
+        and e.get("phase") == "memo_fast_english_package"
+        and e.get("status") == "finished"
+    ]
+    assert phase3_finished[-1]["attempts"] == 2
+    assert phase3_finished[-1]["cost_usd"] >= 0.81
+    assert not any(
+        e.get("type") == "thread_failed"
+        and e.get("thread") == claude_runner._MEMO_PHASE3_THREAD
+        for e in events
+    )
 
 
 def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
@@ -868,6 +1007,19 @@ def test_report_detail_advertises_partial_analysis_artifacts(memo_env):
             artifact="analysis",
             analysis_file="../pressure_tests.md",
         )
+
+
+def test_claude_transient_error_classifier_excludes_provider_limits():
+    assert claude_runner.is_transient_claude_error(
+        "claude exited 1: API Error: The socket connection was closed unexpectedly"
+    )
+    assert claude_runner.is_transient_claude_error("fetch failed")
+    assert not claude_runner.is_transient_claude_error(
+        "Failed to authenticate. API Error: 403 Request not allowed"
+    )
+    assert not claude_runner.is_transient_claude_error(
+        "usage limit reached; try again later"
+    )
 
 
 def test_failed_memo_report_can_resume_from_analysis_artifacts(

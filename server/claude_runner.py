@@ -101,6 +101,25 @@ _PROVIDER_LIMIT_MARKERS = (
 )
 
 
+_TRANSIENT_CLAUDE_ERROR_MARKERS = (
+    "socket connection was closed unexpectedly",
+    "socket closed",
+    "connection reset",
+    "connection aborted",
+    "connection closed",
+    "network error",
+    "fetch failed",
+    "failed to fetch",
+    "econnreset",
+    "etimedout",
+    "ehostunreach",
+    "enetworkdown",
+    "enetworkunreach",
+    "epipe",
+    "tls handshake",
+)
+
+
 def provider_limit_reason(
     value: Any, *, include_bare_claude_exit: bool = False
 ) -> str | None:
@@ -116,6 +135,25 @@ def provider_limit_reason(
     if include_bare_claude_exit and "claude exited 1" in lowered:
         return text
     return None
+
+
+def transient_claude_error_reason(value: Any) -> str | None:
+    """Return text if a Claude CLI failure looks safe to retry once."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if provider_limit_reason(text):
+        return None
+    lowered = text.lower()
+    if any(marker in lowered for marker in _TRANSIENT_CLAUDE_ERROR_MARKERS):
+        return text
+    return None
+
+
+def is_transient_claude_error(value: Any) -> bool:
+    return transient_claude_error_reason(value) is not None
 
 
 def _extract_claude_output_message(text: str | None) -> str | None:
@@ -1309,6 +1347,10 @@ def _process_search_event(event: dict, progress, state: dict) -> None:
             if btype == "text":
                 text = (block.get("text") or "").strip()
                 if text:
+                    if "api error" in text.lower() or transient_claude_error_reason(text):
+                        state["last_api_error_text"] = text[:1000]
+                    if transient_claude_error_reason(text):
+                        state["last_transient_error_text"] = text[:1000]
                     progress.emit(
                         "claude_action", action="thinking", text=text[:400]
                     )
@@ -1485,8 +1527,18 @@ def _consume_stream_json_process(
         return None, f"{timeout_label} did not exit cleanly"
 
     if proc.returncode and proc.returncode != 0:
+        result_event = state.get("result_event") or {}
+        result_text = (
+            result_event.get("result")
+            if isinstance(result_event.get("result"), str)
+            else None
+        )
         return None, _claude_exit_error(
-            proc.returncode, "".join(stderr_log[-20:])
+            proc.returncode,
+            "".join(stderr_log[-20:]),
+            state.get("last_transient_error_text"),
+            state.get("last_api_error_text"),
+            result_text,
         )
 
     return final_text, None

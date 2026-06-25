@@ -102,6 +102,7 @@ def scan_progress_state(path: Path) -> dict:
         "last_event_at": None,
         "latest_stage": None,
         "latest_stage_key": None,
+        "elapsed_ms": None,
         "slide_no": None,
         "slide_count": None,
         "page_no": None,
@@ -153,6 +154,10 @@ def scan_progress_state(path: Path) -> dict:
                 "phase_index": entry.get("phase_index"),
                 "description": entry.get("description"),
                 "estimate_ms": entry.get("estimate_ms"),
+                "group": entry.get("group"),
+                "parent_thread": entry.get("parent_thread"),
+                "pass_id": entry.get("pass_id"),
+                "artifact": entry.get("artifact"),
             },
         )
         if is_planned:
@@ -163,8 +168,18 @@ def scan_progress_state(path: Path) -> dict:
                 row["description"] = entry.get("description")
             if entry.get("estimate_ms") is not None:
                 row["estimate_ms"] = entry.get("estimate_ms")
+            for key in ("group", "parent_thread", "pass_id", "artifact"):
+                if entry.get(key) is not None:
+                    row[key] = entry.get(key)
         if row.get("started_at") is None and not is_planned:
             row["started_at"] = entry.get("ts")
+        if not is_planned and entry.get("description"):
+            row["description"] = row.get("description") or entry.get("description")
+        if row.get("description") is None and entry.get("description"):
+            row["description"] = entry.get("description")
+        for key in ("group", "parent_thread", "pass_id", "artifact"):
+            if entry.get(key) is not None:
+                row[key] = entry.get(key)
         if entry.get("ts"):
             row["last_event_at"] = entry.get("ts")
         if not is_planned:
@@ -355,6 +370,17 @@ def scan_progress_state(path: Path) -> dict:
         pass
     thread_rows = list(threads.values())
     now = datetime.now(timezone.utc)
+    state_started = parse_progress_datetime(state.get("started_at"))
+    state_finished = None
+    if state.get("terminated"):
+        state_finished = parse_progress_datetime(state.get("last_event_at"))
+    elif state_started is not None:
+        state_finished = now
+    if state_started is not None and state_finished is not None:
+        state["elapsed_ms"] = max(
+            0,
+            int((state_finished - state_started).total_seconds() * 1000),
+        )
     for row in thread_rows:
         started = parse_progress_datetime(row.get("started_at"))
         if started is None:

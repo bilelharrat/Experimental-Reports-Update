@@ -3288,6 +3288,7 @@ def _common_state_fields(state: dict) -> dict:
     return {
         "started_at": state.get("started_at"),
         "last_event_at": state.get("last_event_at"),
+        "elapsed_ms": state.get("elapsed_ms"),
         "latest_stage": state.get("latest_stage"),
         "latest_stage_key": state.get("latest_stage_key"),
         "claude_cost_usd": state.get("claude_cost_usd"),
