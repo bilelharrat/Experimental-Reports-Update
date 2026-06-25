@@ -700,6 +700,49 @@ def test_memo_fast_pipeline_retries_transient_english_package_failure(
     )
 
 
+def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    bad_text = (
+        "The relevant competitive surface is broader than legacy positioning "
+        "vendors. We frame it as technology paradigms rather than a logo list, "
+        "because the durable pricing-power question is whether incumbent "
+        "paradigms absorb the function ZaiNar performs. We still need a "
+        "claim-scope and freedom-to-operate read before we underwrite the "
+        "licensing fallback. The instrument has no preference, no voting, "
+        "and no information rights at the LP level. This is the right way "
+        "to view the underwriting: a pipeline-conversion case."
+    )
+    package_path = _write_memo_package(run_dir, body_en=bad_text)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=True)
+
+    rewrite_count = memo_analysis._clean_memo_package_voice(package_path, stream)
+
+    assert rewrite_count >= 1
+    package_text = package_path.read_text(encoding="utf-8")
+    assert "underwrite" not in package_text.lower()
+    assert "underwriting" not in package_text.lower()
+    assert "We frame" not in package_text
+    assert "information rights" not in package_text
+    memo_paths_abs = memo_analysis._memo_paths_abs(report)
+    memo_analysis.memo_docx_renderer.render_memos(
+        package_path,
+        out_en=memo_paths_abs["en"],
+        out_zh=memo_paths_abs["zh"],
+        manifest_path=run_dir / "logs" / "run_manifest.md",
+        inventory_path=run_dir / "logs" / "file_inventory.md",
+    )
+
+    lint_result = memo_analysis.memo_quality_lint.lint_memo_docx(
+        memo_paths_abs["en"]
+    )
+    assert not any(
+        finding.code in {"sell_side_voice_violation", "meta_process_language"}
+        for finding in lint_result.findings
+    )
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(e.get("stage") == "memo_package_voice_cleanup" for e in events)
+
+
 def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
     memo_env, monkeypatch, tmp_path
 ):
@@ -1111,6 +1154,84 @@ def test_failed_memo_report_can_resume_from_analysis_artifacts(
     )
     assert events[-1]["type"] == "done"
     assert events[-1]["recovered"] is True
+
+
+def test_resume_retries_transient_resume_package_failure(
+    memo_env, monkeypatch
+):
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.setenv("BSH_MEMO_RESUME_PACKAGE_RETRIES", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_RETRY_BACKOFF_SEC", "0")
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n\nCompleted before provider failure.\n",
+        encoding="utf-8",
+    )
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo - Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Claude skill run failed",
+        error="claude exited 1",
+        failure_phase="analysis",
+        failure_detail="claude exited 1",
+        artifacts_available=False,
+    )
+    calls = []
+
+    def fake_resume_package(**kwargs):
+        calls.append(kwargs["run_id"])
+        if len(calls) == 1:
+            return {
+                "ok": False,
+                "error": (
+                    "claude exited 1: API Error: The socket connection was "
+                    "closed unexpectedly"
+                ),
+                "cost_usd": 0.71,
+                "duration_ms": 254522,
+            }
+        _write_memo_package(run_dir)
+        return {"ok": True, "cost_usd": 0.5, "duration_ms": 500, "resumed": True}
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_resume_memo_package",
+        fake_resume_package,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_internal_diligence_memo",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("internal memo should be opt-in")
+        ),
+    )
+
+    memo_analysis._resume(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert len(calls) == 2
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(e.get("stage") == "resume_package_retry_scheduled" for e in events)
+    attempts = [
+        e
+        for e in events
+        if e.get("type") == "phase_timing"
+        and e.get("phase") == "memo_resume_package_attempt"
+    ]
+    assert any(e.get("status") == "failed" and e.get("transient") for e in attempts)
+    assert any(e.get("status") == "finished" and e.get("attempt") == 2 for e in attempts)
 
 
 def test_resume_regenerates_existing_invalid_memo_package(
@@ -1672,6 +1793,69 @@ def test_recover_stale_memo_report_emits_missing_done(memo_env):
 
     state = api._scan_progress_state(memo_prep.stream_path(run_dir))
     assert state["terminated"] is True
+
+
+def test_recover_stale_memo_report_repairs_failed_record_when_stream_done(
+    memo_env,
+):
+    report, run_dir = _make_memo_report(memo_env)
+    package_path = _write_memo_package(run_dir)
+    memo_paths_abs = memo_analysis._memo_paths_abs(report)
+    memo_analysis.memo_docx_renderer.render_memos(
+        package_path,
+        out_en=memo_paths_abs["en"],
+        out_zh=memo_paths_abs["zh"],
+        manifest_path=run_dir / "logs" / "run_manifest.md",
+        inventory_path=run_dir / "logs" / "file_inventory.md",
+    )
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=True)
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Resume investment memo - Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+        resumed=True,
+    )
+    stream.emit(
+        "done",
+        report_id=report["id"],
+        memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+        cost_usd=2.25,
+        duration_ms=111000,
+        recovered=True,
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Memo resume failed",
+        error="API Error: The socket connection was closed unexpectedly.",
+        failure_phase="resume",
+        failure_detail="API Error: The socket connection was closed unexpectedly.",
+        artifacts_available=False,
+    )
+
+    recovered = memo_analysis.recover_stale_reports()
+
+    assert recovered == 1
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert updated["stage"] == "Memo ready"
+    assert updated["error"] is None
+    assert updated["failure_phase"] is None
+    assert updated["artifacts_available"] is True
+    assert updated["claude_cost_usd"] == 2.25
+    assert updated["claude_duration_ms"] == 111000
+    assert updated["memo_quality_lint"]["p0_count"] == 0
+    assert updated["memo_chinese_parity"]["p0_count"] == 0
+    assert all(
+        item["exists"]
+        for item in updated["renderer_contract"]["expected_files"]
+    )
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert sum(1 for event in events if event.get("type") == "done") == 1
 
 
 def test_recover_stale_memo_report_blocks_generated_renderer_scripts(memo_env):

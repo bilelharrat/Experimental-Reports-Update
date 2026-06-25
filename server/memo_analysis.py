@@ -32,6 +32,7 @@ from dataclasses import dataclass
 import json
 import logging
 import os
+import re
 import time
 import threading
 from datetime import datetime, timezone
@@ -88,6 +89,15 @@ def _memo_fast_max_workers() -> int:
 
 def _memo_fast_english_package_retries() -> int:
     raw = os.environ.get("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES")
+    try:
+        value = int(raw) if raw is not None else 1
+    except ValueError:
+        value = 1
+    return max(0, min(value, 3))
+
+
+def _memo_resume_package_retries() -> int:
+    raw = os.environ.get("BSH_MEMO_RESUME_PACKAGE_RETRIES")
     try:
         value = int(raw) if raw is not None else 1
     except ValueError:
@@ -386,6 +396,157 @@ def _archive_memo_package(package_path: Path, *, label: str) -> Path:
 
 def _archive_invalid_memo_package(package_path: Path) -> Path:
     return _archive_memo_package(package_path, label="invalid")
+
+
+_MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"\bRequire claim-scope and freedom-to-operate read versus "
+            r"([^.]+?) before underwriting as multi-year monopoly\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "We should confirm claim-scope and freedom-to-operate versus "
+            r"\1 before treating the patent estate as a multi-year monopoly."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bbefore we underwrite the licensing fallback\b",
+            re.IGNORECASE,
+        ),
+        "before we give full credit to the licensing fallback",
+    ),
+    (
+        re.compile(
+            r"\bWe underwrite the displacement TAM as bounded;",
+            re.IGNORECASE,
+        ),
+        "Our case treats the displacement TAM as bounded;",
+    ),
+    (
+        re.compile(
+            r"\bwhich is the right way to view the underwriting:\s*",
+            re.IGNORECASE,
+        ),
+        "which supports the investment case: ",
+    ),
+    (
+        re.compile(
+            r"\bbefore underwriting derivative-tech monetization\b",
+            re.IGNORECASE,
+        ),
+        "before giving credit to derivative-tech monetization",
+    ),
+    (
+        re.compile(
+            r"\bWe frame it as technology paradigms rather than a logo list, "
+            r"because the durable pricing-power question is whether incumbent "
+            r"paradigms absorb the function ZaiNar performs\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Durable pricing power turns on whether incumbent technology "
+            "paradigms absorb the function ZaiNar performs."
+        ),
+    ),
+    (
+        re.compile(r"\bwe frame it as\b", re.IGNORECASE),
+        "the investment case treats it as",
+    ),
+    (
+        re.compile(
+            r"\bno preference, no voting, and no information rights at the LP level\b",
+            re.IGNORECASE,
+        ),
+        "limited direct governance, reporting, and downside preference at the LP level",
+    ),
+    (
+        re.compile(r"\bno voting(?: rights)?\b", re.IGNORECASE),
+        "limited direct governance",
+    ),
+    (
+        re.compile(r"\binformation rights\b", re.IGNORECASE),
+        "reporting access",
+    ),
+    (
+        re.compile(r"\bvoting rights\b", re.IGNORECASE),
+        "direct governance",
+    ),
+    (
+        re.compile(r"\bunderwriting\b", re.IGNORECASE),
+        "investment case",
+    ),
+    (
+        re.compile(r"\bunderwritten\b", re.IGNORECASE),
+        "supported",
+    ),
+    (
+        re.compile(r"\bunderwrites\b", re.IGNORECASE),
+        "supports",
+    ),
+    (
+        re.compile(r"\bunderwrite\b", re.IGNORECASE),
+        "give credit to",
+    ),
+)
+
+
+def _rewrite_memo_package_voice_text(text: str) -> str:
+    updated = text
+    for pattern, replacement in _MEMO_PACKAGE_VOICE_REWRITES:
+        updated = pattern.sub(replacement, updated)
+    return updated
+
+
+def _clean_memo_package_voice(package_path: Path, stream: job_progress.ProgressLog) -> int:
+    if not package_path.exists():
+        return 0
+    try:
+        payload = json.loads(package_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to read memo package for voice cleanup: %s", package_path)
+        return 0
+
+    changes: list[dict[str, str]] = []
+
+    def visit(value: Any, path: str = "") -> Any:
+        if isinstance(value, dict):
+            return {
+                key: visit(item, f"{path}.{key}" if path else str(key))
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [visit(item, f"{path}[{index}]") for index, item in enumerate(value)]
+        if isinstance(value, str) and path.endswith(".en"):
+            rewritten = _rewrite_memo_package_voice_text(value)
+            if rewritten != value:
+                changes.append(
+                    {
+                        "path": path,
+                        "before": value[:220],
+                        "after": rewritten[:220],
+                    }
+                )
+            return rewritten
+        return value
+
+    cleaned = visit(payload)
+    if not changes:
+        return 0
+    package_path.write_text(
+        json.dumps(cleaned, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    stream.emit(
+        "stage",
+        stage="memo_package_voice_cleanup",
+        message="Cleaned buyer-side underwriting/process language before DOCX rendering",
+        memo_package=memo_prep._rel(package_path),
+        rewrite_count=len(changes),
+        rewrites=changes[:8],
+    )
+    return len(changes)
 
 
 def _latest_archived_memo_package(run_dir: Path, *, label: str) -> Path | None:
@@ -743,6 +904,7 @@ def _render_memo_outputs(
         memo_package=memo_prep._rel(package_path),
         recovered=recovered,
     )
+    voice_rewrite_count = _clean_memo_package_voice(package_path, stream)
     package_size_bytes = None
     try:
         package_size_bytes = package_path.stat().st_size
@@ -754,6 +916,7 @@ def _render_memo_outputs(
         recovered=recovered,
         memo_package=memo_prep._rel(package_path),
         package_size_bytes=package_size_bytes,
+        voice_rewrite_count=voice_rewrite_count,
         output_en=memo_prep._rel(memo_paths_abs["en"]),
         output_zh=memo_prep._rel(memo_paths_abs["zh"]),
     ) as timing:
@@ -1844,6 +2007,73 @@ def _scan_memo_stream(run_dir: Path) -> dict:
     return state
 
 
+def _recover_done_memo_report(
+    *,
+    report: dict,
+    run_dir: Path,
+    terminal: dict,
+) -> bool:
+    report_id = str(report.get("id") or "")
+    if not report_id:
+        return False
+    memo_paths_abs = _memo_paths_abs(report)
+    if not memo_paths_abs.get("en") or not memo_paths_abs.get("zh"):
+        return False
+    package_path = _memo_package_path(run_dir)
+    if _memo_package_render_validation_error(package_path):
+        return False
+    contract = _renderer_contract_diagnostics(
+        run_dir=run_dir,
+        memo_paths_abs=memo_paths_abs,
+    )
+    if contract.get("errors"):
+        return False
+    expected_files = contract.get("expected_files") or []
+    if any(not item.get("exists") for item in expected_files):
+        return False
+
+    parity_result = memo_chinese_parity.lint_chinese_memo_pair(
+        memo_paths_abs["en"],
+        memo_paths_abs["zh"],
+    )
+    if parity_result.has_blocking_findings:
+        return False
+    parity_path = run_dir / "logs" / "memo_chinese_parity.md"
+    parity_path.write_text(
+        memo_chinese_parity.render_markdown_report(parity_result),
+        encoding="utf-8",
+    )
+
+    lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
+    if lint_result.has_blocking_findings:
+        return False
+    lint_path = run_dir / "logs" / "memo_quality_lint.md"
+    lint_path.write_text(
+        memo_quality_lint.render_markdown_report(lint_result),
+        encoding="utf-8",
+    )
+
+    storage.update_report(
+        report_id,
+        status="complete",
+        stage="Memo ready",
+        progress=100,
+        error=None,
+        failure_phase=None,
+        failure_detail=None,
+        resume_from_status=None,
+        resume_from_failure_phase=None,
+        resume_from_failure_detail=None,
+        artifacts_available=True,
+        renderer_contract=contract,
+        memo_chinese_parity=parity_result.to_dict(),
+        memo_quality_lint=lint_result.to_dict(),
+        claude_cost_usd=terminal.get("cost_usd"),
+        claude_duration_ms=terminal.get("duration_ms"),
+    )
+    return True
+
+
 def recover_stale_reports() -> int:
     """Mark memo runs complete when Claude succeeded but finalization was lost.
 
@@ -1862,7 +2092,17 @@ def recover_stale_reports() -> int:
         if run_dir is None or not run_dir.exists():
             continue
         stream_state = _scan_memo_stream(run_dir)
-        if stream_state.get("terminal") is not None:
+        terminal = stream_state.get("terminal")
+        if terminal is not None:
+            if (
+                terminal.get("type") == "done"
+                and _recover_done_memo_report(
+                    report=report,
+                    run_dir=run_dir,
+                    terminal=terminal,
+                )
+            ):
+                recovered += 1
             continue
         result = stream_state.get("success_result")
         if not result:
@@ -2504,24 +2744,103 @@ def _resume(report_id: str) -> None:
         lessons_path = serena_analysis.memo_lessons_path(company_slug)
         if not lessons_path.exists():
             lessons_path = None
-        result = claude_runner.run_resume_memo_package(
-            run_dir=run_dir,
-            company_name=company_name,
-            company_slug=company_slug,
-            run_id=run_id,
-            settings_path=memo_prep.SETTINGS_FILE,
-            companies_yaml_path=memo_prep.COMPANIES_FILE,
-            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-            research_dir=research_store.RESEARCH_ROOT / company_slug,
-            analysis_session_path=analysis_session_path,
-            lessons_path=lessons_path,
-            scope_check=report.get("scope_check"),
-            warnings=list(report.get("warnings") or []),
-            quality_lint_path=quality_lint_path if quality_lint_path.exists() else None,
-            prior_package_path=prior_package_path,
-            progress=stream,
-            timeout_sec=1800,
-        )
+        result = {"ok": False, "error": "Resume memo package did not run"}
+        max_attempts = 1 + _memo_resume_package_retries()
+        for attempt in range(1, max_attempts + 1):
+            attempt_started_at = _now_iso()
+            attempt_started = time.monotonic()
+            if attempt > 1:
+                stream.emit(
+                    "stage",
+                    stage="resume_package_retry",
+                    message=(
+                        "Retrying memo package resume after transient Claude "
+                        f"transport error (attempt {attempt}/{max_attempts})"
+                    ),
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    previous_error=result.get("error"),
+                    recovered=True,
+                )
+            _emit_phase_timing(
+                stream,
+                phase="memo_resume_package_attempt",
+                status="started",
+                started_at=attempt_started_at,
+                started_monotonic=attempt_started,
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+            result = claude_runner.run_resume_memo_package(
+                run_dir=run_dir,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                settings_path=memo_prep.SETTINGS_FILE,
+                companies_yaml_path=memo_prep.COMPANIES_FILE,
+                memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+                research_dir=research_store.RESEARCH_ROOT / company_slug,
+                analysis_session_path=analysis_session_path,
+                lessons_path=lessons_path,
+                scope_check=report.get("scope_check"),
+                warnings=list(report.get("warnings") or []),
+                quality_lint_path=(
+                    quality_lint_path if quality_lint_path.exists() else None
+                ),
+                prior_package_path=prior_package_path,
+                progress=stream,
+                timeout_sec=1800,
+            )
+            if result.get("ok"):
+                _emit_phase_timing(
+                    stream,
+                    phase="memo_resume_package_attempt",
+                    status="finished",
+                    started_at=attempt_started_at,
+                    started_monotonic=attempt_started,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    cost_usd=result.get("cost_usd"),
+                    claude_duration_ms=result.get("duration_ms"),
+                    usage=result.get("usage"),
+                )
+                break
+            message = result.get("error") or "Resume memo package run failed"
+            transient = claude_runner.is_transient_claude_error(message)
+            _emit_phase_timing(
+                stream,
+                phase="memo_resume_package_attempt",
+                status="failed",
+                started_at=attempt_started_at,
+                started_monotonic=attempt_started,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                transient=transient,
+                error=message,
+                cost_usd=result.get("cost_usd"),
+                claude_duration_ms=result.get("duration_ms"),
+                usage=result.get("usage"),
+            )
+            if transient and attempt < max_attempts:
+                backoff_sec = _memo_fast_retry_backoff_sec()
+                stream.emit(
+                    "stage",
+                    stage="resume_package_retry_scheduled",
+                    message=(
+                        "Memo resume hit a transient Claude transport error; "
+                        f"retrying attempt {attempt + 1}/{max_attempts}"
+                    ),
+                    attempt=attempt,
+                    next_attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    retry_in_sec=backoff_sec,
+                    previous_error=message,
+                    recovered=True,
+                )
+                if backoff_sec > 0:
+                    time.sleep(backoff_sec)
+                continue
+            break
 
     if not result.get("ok"):
         message = result.get("error") or "Resume memo package run failed"

@@ -760,6 +760,10 @@ def _process_event(event: dict, progress, state: dict) -> None:
             if btype == "text":
                 text = (block.get("text") or "").strip()
                 if text:
+                    if "api error" in text.lower() or transient_claude_error_reason(text):
+                        state["last_api_error_text"] = text[:1000]
+                    if transient_claude_error_reason(text):
+                        state["last_transient_error_text"] = text[:1000]
                     if state.get("resume_packaging"):
                         _transition_memo_phase(progress, state, _MEMO_PHASE4_THREAD)
                     elif state.get("memo_phase_tracking"):
@@ -2606,6 +2610,17 @@ Sell-side investment memo posture:
 - Do not use legal-rights shorthand in operating tables. Translate it into
   economic meaning: "The SPV offers limited direct governance and reporting;
   the manager controls investor-level decisions as a single block."
+- Do not use buyer-side underwriting vocabulary in final prose or tables:
+  no "underwrite", "underwriting", "underwritten", "before underwriting",
+  "before we underwrite", or "right way to view the underwriting". Use
+  investment-case language instead: "we give credit to", "our base case
+  credits", "the investment case rests on", "the valuation is supported by",
+  or "we proceed once the evidence is confirmed."
+- Do not use writer-process framing such as "we frame it as", "we frame the
+  market", or "the framework". State the investment conclusion directly.
+- Do not write imperative diligence commands such as "Require X before
+  underwriting". Use active expected-bar language: "We proceed once X is
+  confirmed" or "Our base case gives credit after X is confirmed."
 
 Concrete positive writing patterns:
 - Opening: "We invest behind physical-world infrastructure that makes people
@@ -2723,6 +2738,11 @@ Banned phrase / rewrite guidance:
 | Sponsor capability speculation | We proceed once the relevant terms or evidence are confirmed. |
 | Passive availability language | Remove the process guess; state the expected bar and stop/revisit condition. |
 | No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
+| underwrite / underwriting | give credit to / investment case / valuation support |
+| before we underwrite... | before we give full credit to... / once confirmed |
+| the right way to view the underwriting | the investment case rests on... |
+| We frame it as... | State the conclusion directly without writer-process narration. |
+| Require X before underwriting | We proceed once X is confirmed. |
 | Internal question-list labels | Closing Confirmations / What Must Be Confirmed |
 | Proving the case | investment case, base case, conviction, support |
 | Describing participation | participation, commitment, exposure |
@@ -4218,21 +4238,35 @@ def run_resume_memo_package(
             "subtype": result_event.get("subtype"),
             "api_error_status": result_event.get("api_error_status"),
         }
-    if result_event is None and proc.returncode and proc.returncode != 0:
-        tail = "".join(stderr_log[-20:]).strip()
+
+    exit_error = None
+    if proc.returncode and proc.returncode != 0:
+        result_text = (
+            result_event.get("result")
+            if result_event and isinstance(result_event.get("result"), str)
+            else None
+        )
+        exit_error = _claude_exit_error(
+            proc.returncode,
+            "".join(stderr_log[-20:]),
+            state.get("last_transient_error_text"),
+            state.get("last_api_error_text"),
+            result_text,
+        )
+    if result_event is None and exit_error:
         return {
             "ok": False,
-            "error": (
-                f"claude exited {proc.returncode}"
-                + (f": {tail[:600]}" if tail else "")
-            ),
+            "error": exit_error,
         }
 
     package_path = run_dir / "logs" / "memo_package.json"
     if not package_path.exists():
         return {
             "ok": False,
-            "error": f"Resume run did not write {package_path}",
+            "error": exit_error or f"Resume run did not write {package_path}",
+            "cost_usd": result_event.get("total_cost_usd") if result_event else None,
+            "duration_ms": result_event.get("duration_ms") if result_event else None,
+            "usage": result_event.get("usage") if result_event else None,
         }
 
     out: dict = {"ok": True, "resumed": True}

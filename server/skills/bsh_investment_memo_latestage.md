@@ -57,6 +57,18 @@ Express closing conditions as expected bars, not questions. Replace question-for
 
 Do not use legal-rights shorthand in operating tables. Translate it into economic meaning: "The SPV offers limited direct governance and reporting; the manager controls investor-level decisions as a single block."
 
+Do not use buyer-side underwriting vocabulary in final prose or tables: no
+"underwrite", "underwriting", "underwritten", "before underwriting", "before
+we underwrite", or "right way to view the underwriting". Use investment-case
+language instead: "we give credit to", "our base case credits", "the
+investment case rests on", "the valuation is supported by", or "we proceed
+once the evidence is confirmed." Do not use writer-process framing such as
+"we frame it as", "we frame the market", or "the framework"; state the
+investment conclusion directly. Do not write imperative diligence commands
+such as "Require X before underwriting"; write active expected bars such as
+"We proceed once X is confirmed" or "Our base case gives credit after X is
+confirmed."
+
 Concrete positive writing patterns:
 - Opening: "We invest behind physical-world infrastructure that makes people safer and more capable. ZaiNar matters because accurate network-side positioning is becoming a control layer for defense, industrial automation, logistics, and Physical AI."
 - Transaction: "We are being offered SPV exposure to a SAFE expected to convert into the A2 at an effective entry near $2.55B after the discount, subject to confirming the final A2 terms and conversion mechanics."
@@ -88,6 +100,11 @@ Banned phrase / rewrite guidance:
 | Detached decision label | Investment Decision / We recommend... |
 | Sponsor-capability speculation | The expected bar is... / The investment case is supported if... |
 | No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
+| underwrite / underwriting | give credit to / investment case / valuation support |
+| before we underwrite... | before we give full credit to... / once confirmed |
+| the right way to view the underwriting | the investment case rests on... |
+| We frame it as... | State the conclusion directly without writer-process narration. |
+| Require X before underwriting | We proceed once X is confirmed. |
 | False precision | State the evidence range without over-modeling it. |
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
