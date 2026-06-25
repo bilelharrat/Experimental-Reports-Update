@@ -780,6 +780,8 @@ def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
     assert (run_dir / "logs" / "memo_chinese_parity.md").exists()
 
     detail = api._report_detail(updated)
+    assert detail["artifacts_available"] is True
+    assert detail["memo_chinese_parity"]["p0_count"] >= 1
     assert detail["download_urls"]["en"].endswith("language=en")
     assert detail["preview_urls"]["en"].endswith("language=en")
 
@@ -1357,8 +1359,12 @@ def test_memo_run_fails_closed_when_docx_quality_gate_finds_p0(
     assert updated["renderer_contract"]["errors"] == []
 
     summary = api._report_summary(updated)
+    assert summary["artifacts_available"] is True
+    assert summary["memo_quality_lint"]["p0_count"] >= 1
     assert summary["download_urls"]["en"].endswith("language=en")
     detail = api._report_detail(updated)
+    assert detail["artifacts_available"] is True
+    assert detail["memo_quality_lint"]["p0_count"] >= 1
     assert detail["download_urls"]["en"].endswith("language=en")
     assert detail["preview_urls"]["en"].endswith("language=en")
 

@@ -69,6 +69,7 @@ const audience = ref("Internal");
 
 const activeReport = ref(null);
 const companyReports = ref([]);
+const generationError = ref(null);
 const resuming = ref(false);
 const startingFresh = ref(false);
 // The Generate button is "generating" only when a report is actively
@@ -162,6 +163,34 @@ const analysisArtifacts = computed(() => {
   const artifacts = activeReport.value?.analysis_artifacts;
   return Array.isArray(artifacts) ? artifacts : [];
 });
+const gateDiagnostics = computed(() => {
+  const r = activeReport.value;
+  if (!r) return [];
+  const items = [];
+  const add = (label, payload) => {
+    if (!payload || typeof payload !== "object") return;
+    items.push({
+      label,
+      status: payload.status || "",
+      p0Count: Number(payload.p0_count || 0),
+      findingCount: Number(payload.finding_count || 0),
+      findings: Array.isArray(payload.findings) ? payload.findings : [],
+    });
+  };
+  add(tr("research.gate_quality"), r.memo_quality_lint);
+  add(tr("research.gate_chinese_parity"), r.memo_chinese_parity);
+  return items;
+});
+const gateFindings = computed(() =>
+  gateDiagnostics.value
+    .flatMap((diag) =>
+      diag.findings.map((finding) => ({
+        ...finding,
+        gateLabel: diag.label,
+      })),
+    )
+    .slice(0, 6),
+);
 const memoArtifactsVisible = computed(() => {
   const r = activeReport.value;
   if (!isMemo.value || !r) return false;
@@ -171,6 +200,7 @@ const memoArtifactsVisible = computed(() => {
     Object.keys(downloadUrls).length ||
       Object.keys(previewUrls).length ||
       analysisArtifacts.value.length ||
+      r.artifacts_available ||
       r.content_en ||
       r.content_zh,
   );
@@ -273,6 +303,12 @@ const companyErrorBody = computed(() => {
   if (s === 404) return tr("research.company_not_found_body", { id: props.companyId });
   return tr("research.company_load_failed_body", { id: props.companyId });
 });
+function requestErrorPayload(e) {
+  return {
+    message: e?.message || String(e),
+    status: e?.status ?? null,
+  };
+}
 
 async function loadCompany() {
   companyError.value = null;
@@ -361,6 +397,7 @@ async function generate(analysisSessionId = null, options = {}) {
     await resumeReport();
     return;
   }
+  generationError.value = null;
   startingFresh.value = true;
   try {
     const r = await api.generateReport({
@@ -385,7 +422,12 @@ async function generate(analysisSessionId = null, options = {}) {
     emit("reports-changed");
     startPolling();
   } catch (e) {
-    companyError.value = e.message;
+    generationError.value = requestErrorPayload(e);
+    try {
+      await loadCompanyReports();
+    } catch {
+      // Keep the original generate failure visible.
+    }
   } finally {
     startingFresh.value = false;
   }
@@ -394,6 +436,7 @@ async function generate(analysisSessionId = null, options = {}) {
 async function resumeReport() {
   const reportId = activeReport.value?.id;
   if (!reportId || !canResumeMemo.value) return;
+  generationError.value = null;
   resuming.value = true;
   try {
     const r = await api.resumeReport(reportId);
@@ -402,7 +445,12 @@ async function resumeReport() {
     emit("reports-changed");
     startPolling();
   } catch (e) {
-    companyError.value = e.message;
+    generationError.value = requestErrorPayload(e);
+    try {
+      await loadCompanyReports();
+    } catch {
+      // Keep the original resume failure visible.
+    }
   } finally {
     resuming.value = false;
   }
@@ -613,7 +661,7 @@ onUnmounted(stopPolling);
       </div>
       <div class="mt-5 flex items-center gap-3">
         <button
-          @click="generate"
+          @click="generate()"
           :disabled="generating || resuming"
           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
         >
@@ -650,6 +698,23 @@ onUnmounted(stopPolling);
         >
           {{ tr("research.resume_or_start_fresh_hint") }}
         </span>
+      </div>
+      <div
+        v-if="generationError"
+        class="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-ink-primary"
+      >
+        <div class="font-semibold text-danger">
+          {{ tr("research.generation_request_failed") }}
+        </div>
+        <p class="mt-1 text-ink-secondary">
+          {{ generationError.message }}
+        </p>
+        <p
+          v-if="generationError.status"
+          class="mt-1 text-xs text-ink-muted font-mono"
+        >
+          HTTP {{ generationError.status }}
+        </p>
       </div>
     </section>
 
@@ -900,6 +965,27 @@ onUnmounted(stopPolling);
         >
           {{ reportFailureDetail }}
         </p>
+        <div v-if="gateDiagnostics.length" class="mt-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-danger">
+            {{ tr("research.gate_diagnostics") }}
+          </div>
+          <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
+            <li v-for="diag in gateDiagnostics" :key="diag.label">
+              {{ diag.label }}:
+              {{ diag.p0Count }}
+              {{ tr("research.gate_p0_findings") }}
+              · {{ diag.findingCount }} {{ tr("research.gate_total_findings") }}
+              <span v-if="diag.status">· {{ diag.status }}</span>
+            </li>
+          </ul>
+          <ul v-if="gateFindings.length" class="mt-2 space-y-1 text-xs text-ink-muted">
+            <li v-for="finding in gateFindings" :key="`${finding.gateLabel}-${finding.code}-${finding.location}-${finding.snippet}`">
+              <span class="font-mono text-ink-secondary">{{ finding.code }}</span>
+              <span v-if="finding.location"> · {{ finding.location }}</span>
+              <span v-if="finding.snippet"> · {{ finding.snippet }}</span>
+            </li>
+          </ul>
+        </div>
         <div v-if="rendererContractErrors.length" class="mt-3">
           <div class="text-xs font-semibold uppercase tracking-wide text-danger">
             {{ tr("research.renderer_contract_checks") }}

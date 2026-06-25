@@ -48,35 +48,35 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "strategic_risk_mapper",
         "label": "Strategic Risk Mapper",
-        "description": "Generate the decision questions that should shape the memo.",
+        "description": "Generate the expected bars and failure modes that should shape the memo.",
         "stage": "core",
         "critical": True,
         "run_label": "Map risks",
         "ready_label": "Risk map ready for prioritization",
-        "input_label": "Pick the questions that deserve diligence.",
+        "input_label": "Pick the expected bars that deserve diligence.",
         "produces": "strategic_risks",
     },
     {
         "name": "priority_prompt_harness",
         "label": "Risk Prioritizer",
-        "description": "Rank the risks and convert selected ones into diligence questions.",
+        "description": "Rank the risks and convert selected ones into support-threshold checks.",
         "stage": "core",
         "critical": True,
         "run_label": "Build diligence queue",
         "ready_label": "Diligence queue ready for source selection",
-        "input_label": "Select sources and run only the questions that matter.",
+        "input_label": "Select sources and run only the threshold checks that matter.",
         "depends_on": ["strategic_risk_mapper"],
         "produces": "research_tasks",
     },
     {
         "name": "thesis_spine_builder",
         "label": "Thesis Spine",
-        "description": "Draft memo-grade highlights, risks, recommendation logic, and gates.",
+        "description": "Draft memo-grade highlights, risks, recommendation logic, and expected bars.",
         "stage": "core",
         "critical": True,
         "run_label": "Draft thesis",
         "ready_label": "Thesis ready for review",
-        "input_label": "Edit the claims and gating questions before approval.",
+        "input_label": "Edit the claims and expected bars before approval.",
         "depends_on": ["strategic_risk_mapper", "priority_prompt_harness"],
         "produces": "thesis_spine",
     },
@@ -2772,7 +2772,7 @@ def _deterministic_research_result(
     return (
         f"First-pass deterministic result for {name}: '{risk_title}' remains "
         f"open until Serena validates {evidence_text}. Recommended source path: "
-        f"{source_type}. Decision question: {decision_question}"
+        f"{source_type}. Expected bar: {decision_question}"
     )
 
 
@@ -3170,22 +3170,43 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
         for row in gate_rows:
             if not isinstance(row, dict):
                 continue
-            question = str(
-                row.get("question") or row.get("decision_question") or ""
+            expected_bar = str(
+                row.get("expected_bar")
+                or row.get("support_threshold")
+                or row.get("question")
+                or row.get("decision_question")
+                or ""
             ).strip()
-            why = str(row.get("why_it_matters") or row.get("rationale") or "").strip()
-            if not question:
+            support_threshold = str(
+                row.get("support_threshold")
+                or row.get("why_it_matters")
+                or row.get("rationale")
+                or ""
+            ).strip()
+            stop_or_revisit = str(
+                row.get("stop_or_revisit_if_missing")
+                or row.get("stop_or_revisit")
+                or ""
+            ).strip()
+            if not expected_bar:
                 continue
+            confirmation_evidence = _string_list(
+                row.get("confirmation_evidence") or row.get("evidence_needed"),
+                fallback=["specific source support", "disconfirming evidence review"],
+            )[:8]
             gates.append({
                 "id": f"gate-{len(gates) + 1}",
-                "question": question,
-                "why_it_matters": why or (
-                    "This question can change the investment recommendation."
+                "expected_bar": expected_bar,
+                "support_threshold": support_threshold or expected_bar,
+                "confirmation_evidence": confirmation_evidence,
+                "stop_or_revisit_if_missing": stop_or_revisit or (
+                    "Revisit the recommendation if this bar resolves below threshold."
                 ),
-                "evidence_needed": _string_list(
-                    row.get("evidence_needed"),
-                    fallback=["independent support", "disconfirming evidence"],
-                )[:8],
+                # Compatibility fields for existing UI/tests. Values are
+                # expected-bar statements, not final-memo questions.
+                "question": expected_bar,
+                "why_it_matters": support_threshold or expected_bar,
+                "evidence_needed": confirmation_evidence,
             })
             if len(gates) >= 5:
                 break
@@ -3360,7 +3381,7 @@ def _strategic_risks(company: dict) -> list[dict]:
         [
             "pre-mortem",
             "reverse IC case",
-            "top three gating questions",
+            "top three expected bars",
             "missingness penalties",
         ],
         ["all analysis artifacts", "partner notes", "independent negative searches"],
@@ -3469,7 +3490,15 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
     gates = [
         {
             "id": f"gate-{i}",
-            "question": r["decision_question"],
+            "expected_bar": _question_to_confirmation_action(
+                r["decision_question"]
+            ),
+            "support_threshold": r["why_it_matters"],
+            "confirmation_evidence": r.get("evidence_needed") or [],
+            "stop_or_revisit_if_missing": (
+                "Revisit the recommendation if this bar resolves below threshold."
+            ),
+            "question": _question_to_confirmation_action(r["decision_question"]),
             "why_it_matters": r["why_it_matters"],
             "evidence_needed": r.get("evidence_needed") or [],
         }
@@ -4999,6 +5028,43 @@ def _memo_packet_source_fingerprint(session: dict) -> str:
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def _question_to_confirmation_action(value: str | None) -> str:
+    """Convert internal question-shaped gates into expected-bar prose."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    text = raw.rstrip(" ?")
+    lowered = text.lower()
+    is_question_shaped = raw.endswith("?") or lowered.startswith(
+        ("is ", "are ", "can ", "does ", "do ", "what is ", "what are ", "how ")
+    )
+    if not is_question_shaped:
+        return raw if raw.endswith((".", "!", ";")) else f"{raw}."
+
+    def decap(fragment: str) -> str:
+        fragment = fragment.strip()
+        if not fragment:
+            return ""
+        return fragment[0].lower() + fragment[1:]
+    if lowered.startswith("is "):
+        return f"Expected bar: {text[3:]}."
+    if lowered.startswith("are "):
+        return f"Expected bar: {text[4:]}."
+    if lowered.startswith("can "):
+        return f"Expected bar: {text[4:]}."
+    if lowered.startswith("does "):
+        return f"Expected bar: {text[5:]}."
+    if lowered.startswith("do "):
+        return f"Expected bar: {text[3:]}."
+    if lowered.startswith("what is "):
+        return f"Expected bar: specified {text[8:]}."
+    if lowered.startswith("what are "):
+        return f"Expected bar: specified {text[9:]}."
+    if lowered.startswith("how "):
+        return f"Expected bar: {text}."
+    return f"The expected bar is {decap(text)}."
+
+
 def _memo_packet_is_current(session: dict) -> bool:
     artifacts = (
         session.get("artifacts")
@@ -5062,7 +5128,7 @@ def _refresh_memo_packet(session: dict) -> None:
         "",
         (
             "Use this packet as evidence, not copy. The final memo must translate "
-            "evidence matrices, research tasks, risks, and gating questions into "
+            "evidence matrices, research tasks, risks, and expected bars into "
             "partner-level conclusions."
         ),
         "",
@@ -5110,9 +5176,11 @@ def _refresh_memo_packet(session: dict) -> None:
         if str(item.get("claim") or "").strip()
     ]
     unproven = [
-        str(item.get("question") or "").strip()
+        _question_to_confirmation_action(
+            item.get("expected_bar") or item.get("question")
+        )
         for item in gates[:3]
-        if str(item.get("question") or "").strip()
+        if str(item.get("expected_bar") or item.get("question") or "").strip()
     ]
     pass_triggers = [
         str(item).strip()
@@ -5147,11 +5215,11 @@ def _refresh_memo_packet(session: dict) -> None:
             )
         ),
         (
-            "- **kill_criteria:** "
+            "- **stop_or_revisit:** "
             + (
                 "; ".join(pass_triggers)
                 if pass_triggers
-                else "Name the evidence that would make BSH pass."
+                else "Name the evidence that would make us hold, pass, or revisit."
             )
         ),
         f"- **action:** {recommendation_logic}",
@@ -5163,9 +5231,13 @@ def _refresh_memo_packet(session: dict) -> None:
     lines += ["", "## Investment Risks"]
     for item in thesis.get("investment_risks") or []:
         lines.append(f"- **{item.get('claim')}** — {item.get('detail')}")
-    lines += ["", "## Top Gating Questions"]
+    lines += ["", "## Closing Confirmation Actions"]
     for item in thesis.get("top_gating_questions") or []:
-        lines.append(f"- {item.get('question')}")
+        action = _question_to_confirmation_action(
+            item.get("expected_bar") or item.get("question")
+        )
+        if action:
+            lines.append(f"- {action}")
     lines += ["", "## Strategic Risks"]
     for item in risks.get("risks") or []:
         lines.append(f"- **{item.get('title')}** — {item.get('decision_question')}")
@@ -5195,9 +5267,11 @@ def _refresh_memo_packet(session: dict) -> None:
                         lines.append(f"    - {prefix}{evidence.get('excerpt')}")
                 open_questions = item.get("open_questions") or []
                 if open_questions:
-                    lines.append("  - Open questions:")
+                    lines.append("  - Confirmation actions:")
                     for question in open_questions[:3]:
-                        lines.append(f"    - {question}")
+                        action = _question_to_confirmation_action(question)
+                        if action:
+                            lines.append(f"    - {action}")
             elif item.get("prompt"):
                 lines.append(f"  - Prompt: {item.get('prompt')}")
         evidence_summary = _memo_packet_evidence_summary(research_tasks.get("tasks") or [])
@@ -6516,7 +6590,7 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         ("thesis_spine", "Thesis spine drafted", bool(thesis.get("investment_highlights"))),
         ("highlights", "3-5 Investment Highlights drafted", 3 <= len(thesis.get("investment_highlights") or []) <= 5),
         ("memo_risks", "3-5 Investment Risks drafted", 3 <= len(thesis.get("investment_risks") or []) <= 5),
-        ("gating_questions", "Top 3 gating questions selected", len(thesis.get("top_gating_questions") or []) >= 3),
+        ("gating_questions", "Top 3 expected bars selected", len(thesis.get("top_gating_questions") or []) >= 3),
         ("approved", "Final memo generation approved", bool(session.get("approved_for_memo"))),
     ]
     if completed_task_results:

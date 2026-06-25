@@ -156,6 +156,7 @@ const messages = {
     "research.generating": "Generating…",
     "research.generating_hint":
       "You can leave this page; the report continues in the background.",
+    "research.generation_request_failed": "Memo generation request failed",
     "research.memo_studio_unapproved_block_title":
       "Memo Studio draft needs review",
     "research.memo_studio_unapproved_block_body":
@@ -180,18 +181,23 @@ const messages = {
     "research.failed_run_chinese_parity": "Chinese memo parity check failed",
     "research.failed_run_internal_memo": "Internal diligence memo failed",
     "research.failed_artifacts_available":
-      "Draft memo artifacts are available for QA. This run did not pass all gates.",
+      "Draft memo artifacts remain visible for debugging. This run did not pass all gates.",
     "research.partial_analysis_artifacts": "Partial analysis artifacts",
     "research.partial_analysis_artifacts_body":
       "These analysis files were generated before the run stopped.",
     "research.run_folder_preserved_prefix": "Run folder preserved at",
     "research.start_fresh_hint":
-      'Hit "Generate report" above to start a fresh run.',
+      'Review any preserved artifacts, diagnostics, and run folder above, then hit "Generate report" to start a fresh run.',
     "research.resume_memo": "Resume memo run",
     "research.resuming_memo": "Resuming…",
     "research.redo_memo": "Redo from scratch",
     "research.resume_or_start_fresh_hint":
       "Resume reuses existing run artifacts; redo starts a fresh run.",
+    "research.gate_diagnostics": "Gate diagnostics",
+    "research.gate_quality": "Quality gate",
+    "research.gate_chinese_parity": "Chinese parity",
+    "research.gate_p0_findings": "P0 findings",
+    "research.gate_total_findings": "total",
     "research.renderer_contract_checks": "Renderer contract checks",
     "research.expected_files": "Expected files",
     "research.expected_file_found": "found",
@@ -815,6 +821,7 @@ const messages = {
     "research.generate_button": "生成报告",
     "research.generating": "生成中…",
     "research.generating_hint": "可以离开此页面；报告会在后台继续生成。",
+    "research.generation_request_failed": "备忘录生成请求失败",
     "research.memo_studio_unapproved_block_title":
       "备忘录工作台草稿待审核",
     "research.memo_studio_unapproved_block_body":
@@ -839,17 +846,23 @@ const messages = {
     "research.failed_run_chinese_parity": "中文备忘录一致性检查未通过",
     "research.failed_run_internal_memo": "内部尽调备忘录生成失败",
     "research.failed_artifacts_available":
-      "已生成可供 QA 的备忘录草稿。本次运行未通过全部检查。",
+      "备忘录草稿仍保留用于调试。本次运行未通过全部检查。",
     "research.partial_analysis_artifacts": "部分分析产物",
     "research.partial_analysis_artifacts_body":
       "这些分析文件已在本次运行停止前生成。",
     "research.run_folder_preserved_prefix": "运行目录已保留在",
-    "research.start_fresh_hint": "点击上方“生成报告”重新运行。",
+    "research.start_fresh_hint":
+      "先查看上方保留的产物、诊断和运行目录，然后点击“生成报告”重新运行。",
     "research.resume_memo": "继续生成备忘录",
     "research.resuming_memo": "正在继续…",
     "research.redo_memo": "从头重新生成",
     "research.resume_or_start_fresh_hint":
       "继续生成会复用现有运行产物；从头重新生成会启动一次全新运行。",
+    "research.gate_diagnostics": "检查诊断",
+    "research.gate_quality": "质量检查",
+    "research.gate_chinese_parity": "中文一致性",
+    "research.gate_p0_findings": "个 P0 问题",
+    "research.gate_total_findings": "总计",
     "research.renderer_contract_checks": "渲染契约检查",
     "research.expected_files": "预期文件",
     "research.expected_file_found": "已找到",

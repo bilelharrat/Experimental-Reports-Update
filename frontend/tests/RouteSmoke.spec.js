@@ -306,6 +306,53 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
+  it("shows gate diagnostics and preserved artifacts for failed quality gates", async () => {
+    api.getReport.mockResolvedValue({
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "failed_quality_gate",
+      progress: 98,
+      stage: "Memo failed quality gate",
+      failure_phase: "quality_gate",
+      failure_detail: "Generated memo failed the DOCX quality gate with 1 P0 finding.",
+      run_dir: "data/memos/generalist/run",
+      artifacts_available: true,
+      resume_available: false,
+      download_urls: {
+        en: "/api/reports/report-1/download?language=en",
+      },
+      memo_quality_lint: {
+        status: "failed",
+        finding_count: 1,
+        p0_count: 1,
+        findings: [
+          {
+            severity: "P0",
+            code: "sell_side_voice_violation",
+            location: "paragraph 1",
+            snippet: "The recommendation is Proceed if confirmed",
+            suggestion: "Use first-person sell-side memo language.",
+          },
+        ],
+      },
+    });
+
+    const wrapper = await mountRoute("/research/generalist?report=report-1");
+    const hrefs = wrapper.findAll("a").map((a) => a.attributes("href"));
+
+    expect(wrapper.text()).toContain("Draft memo artifacts remain visible for debugging");
+    expect(wrapper.text()).toContain("Gate diagnostics");
+    expect(wrapper.text()).toContain("sell_side_voice_violation");
+    expect(wrapper.text()).toContain("The recommendation is Proceed if confirmed");
+    expect(hrefs).toContain("/api/reports/report-1/download?language=en");
+    wrapper.unmount();
+  });
+
   it("shows generated memo download links in the documents library", async () => {
     api.listCompanyReports.mockResolvedValue([
       {
@@ -387,6 +434,28 @@ describe("route smoke tests", () => {
       language: "en",
       analysis_session_id: null,
     });
+    wrapper.unmount();
+  });
+
+  it("shows generate request failures while the company page remains loaded", async () => {
+    const err = Object.assign(
+      new Error('400 Bad Request: {"detail":"Settings file missing"}'),
+      { status: 400 },
+    );
+    api.generateReport.mockRejectedValue(err);
+
+    const wrapper = await mountRoute("/research/generalist");
+    const generateButton = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Generate report"));
+
+    expect(generateButton).toBeTruthy();
+    await generateButton.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Memo generation request failed");
+    expect(wrapper.text()).toContain("Settings file missing");
+    expect(wrapper.text()).toContain("HTTP 400");
     wrapper.unmount();
   });
 

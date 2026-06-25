@@ -112,6 +112,7 @@ const memoWorkProducts = computed(() => {
       status: thesisApproved.value ? "approved" : "draft",
       summary: firstText(
         listItems(thesis.value.investment_highlights)[0]?.claim,
+        listItems(thesis.value.top_gating_questions)[0]?.expected_bar,
         listItems(thesis.value.top_gating_questions)[0]?.question,
       ),
       value: thesis.value,
@@ -527,15 +528,15 @@ const toolPrompts = computed(() => {
   ]);
   return {
     strategic_risk_mapper: risks.value.slice(0, 3).map((risk) => ({
-      label: risk.title || "Decision question",
+      label: risk.title || "Expected bar",
       text: risk.decision_question || risk.why_it_matters,
     })),
     priority_prompt_harness: taskPrompts,
     thesis_spine_builder: listItems(thesis.value?.top_gating_questions)
       .slice(0, 3)
       .map((gate) => ({
-        label: "Gating question",
-        text: gate.question || gate.why_it_matters,
+        label: "Expected bar",
+        text: gate.expected_bar || gate.question || gate.why_it_matters,
       })),
     infographic_source_brief: sourcePrompts,
     chart_spec_builder: chartPrompts,
@@ -1301,11 +1302,11 @@ watch(additionalAreas, (areas) => {
                   class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
                   :for="`gate-question-${gate.id || index}`"
                 >
-                  Question {{ index + 1 }}
+                  Expected Bar {{ index + 1 }}
                 </label>
                 <textarea
                   :id="`gate-question-${gate.id || index}`"
-                  v-model="gate.question"
+                  v-model="gate.expected_bar"
                   rows="2"
                   class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
                 ></textarea>
@@ -1313,11 +1314,11 @@ watch(additionalAreas, (areas) => {
                   class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
                   :for="`gate-why-${gate.id || index}`"
                 >
-                  Why It Matters
+                  Support Threshold
                 </label>
                 <textarea
                   :id="`gate-why-${gate.id || index}`"
-                  v-model="gate.why_it_matters"
+                  v-model="gate.support_threshold"
                   rows="2"
                   class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
                 ></textarea>

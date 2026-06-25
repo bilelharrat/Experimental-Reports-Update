@@ -2280,12 +2280,12 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "pre_mortem.md": "Pre-mortem",
     "reverse_ic.md": "Reverse IC",
     "validation_log.md": "Validation log",
-    "gating_questions.md": "Decision questions",
+    "gating_questions.md": "Expected bars",
 }
 
 _MEMO_PHASE1_THREAD = "Phase 1 - Intake and setup"
 _MEMO_PHASE2_THREAD = "Phase 2 - Parallel analysis passes"
-_MEMO_PHASE3_THREAD = "Phase 3 - Synthesis and decision questions"
+_MEMO_PHASE3_THREAD = "Phase 3 - Synthesis and expected bars"
 _MEMO_PHASE4_THREAD = "Phase 4 - Memo package drafting"
 MEMO_PHASE5_THREAD = "Phase 5 - Rendering and QA"
 MEMO_PHASE6_THREAD = "Phase 6 - Optional internal diligence and previews"
@@ -2308,7 +2308,7 @@ _MEMO_PHASE_PLAN: tuple[dict[str, Any], ...] = (
         "thread": _MEMO_PHASE3_THREAD,
         "title": _MEMO_PHASE3_THREAD,
         "phase_index": 3,
-        "description": "Reconcile claims, scenarios, validation log, and decision questions.",
+        "description": "Reconcile claims, scenarios, validation log, and expected bars.",
     },
     {
         "thread": _MEMO_PHASE4_THREAD,
@@ -2538,11 +2538,24 @@ Sell-side investment memo posture:
   participation recommendation unless the facts show conviction is genuinely
   low.
 - Treat SPV/SAFE economics as deal mechanics to explain plainly, not as a
-  thesis-breaking risk by default. Use "confirm economics before funding" only
-  when the actual documents are ambiguous.
-- Decision questions should be few and deal-relevant. They should not be a
-  generic late-stage checklist. Avoid questions that would also disqualify
-  normal early-growth financings that top firms routinely complete.
+  thesis-breaking risk by default. State the expected economic bar and how the
+  investment case is supported if the terms match it.
+- Expected bars should be few, deal-relevant, and measurable where the source
+  package allows. They should not become a generic late-stage checklist or
+  disqualify normal early-growth financings that top firms routinely complete.
+- Do not turn closing diligence into questionnaire prose. Final memo text must
+  state closing confirmations as active investment conditions: "We proceed once
+  final A2 terms, SAFE conversion mechanics, closing timing, and the
+  binding-contract split are confirmed."
+- Do not speculate about what a sponsor, company, investor, or counterparty
+  "should be able to" share, provide, produce, or confirm. State the expected
+  bar, the evidence already supporting it, and what would make us revisit.
+- Do not write passive availability language such as "should be closeable",
+  "realistically obtainable", or "expected to be available." Those are guesses
+  about process, not investment judgments.
+- Do not use legal-rights shorthand in operating tables. Translate it into
+  economic meaning: "The SPV offers limited direct governance and reporting;
+  the manager controls investor-level decisions as a single block."
 
 Concrete positive writing patterns:
 - Opening: "We invest behind physical-world infrastructure that makes people
@@ -2553,8 +2566,8 @@ Concrete positive writing patterns:
   into the A2 at an effective entry near $2.55B after the discount, subject to
   confirming the final A2 terms and conversion mechanics."
 - Recommendation: "We recommend proceeding if the binding-contract split,
-  A2 lead, final terms, and SAFE conversion mechanics confirm the current
-  investment case."
+  final A2 terms, SAFE conversion mechanics, and closing evidence confirm the
+  current investment case."
 - Revisit trigger: "We would revisit if the A2 prices materially below the
   current mark, slips beyond the expected closing window, or the binding
   contract figure is not large enough to support the valuation."
@@ -2588,6 +2601,18 @@ Final memo body and operating tables must not contain:
 - cute or fuzzy finance phrasing such as `soft instrument`, `hard IP wall`,
   `moat narrows`, `no-rights SAFE`, `where nothing else works`, or
   `least-proven part of the story`;
+- deal-legal checklist terms such as `MFN`, `down-round protection`,
+  `information rights`, `voting rights`, `named lead`, `named institutional
+  lead`, or `governance at the LP level`; explain the investor economics in
+  plain English instead;
+- passive counterparty-capability speculation such as `should be able to`,
+  `would be able to`, `should be closeable`, or `realistically obtainable`;
+- detached recommendation labels such as `Decision Posture`, `Recommendation
+  Posture`, or `Current Recommendation Posture`; state the investment decision
+  directly in a sentence;
+- internal questionnaire labels such as `Open Questions`, `Top 3 Decision
+  Questions`, `Top 3 Gating Questions`, or `(for BSH)`; use `Closing
+  Confirmations` or `What Must Be Confirmed` instead;
 - internal IC, buyer-side diligence, bank/debt, control-investor, or
   deal-legal checklist shorthand. This is an LP-facing, exec-ready sell-side
   investment memo, not a BSH internal allocation note. Write every deal
@@ -2656,9 +2681,15 @@ Banned phrase / rewrite guidance:
 | This memo / our memo / this document... | Remove the frame; make the investment statement. |
 | We outline / discuss / summarize... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
+| Decision Posture | Investment Decision / We recommend... |
+| Is the Series A2 actually closing...? | We proceed once final A2 terms and closing timing are confirmed. |
+| Sponsor can/should/would share... | We proceed once the relevant terms or evidence are confirmed. |
+| These items should be closeable / realistically obtainable | Remove the process guess; state the expected bar and stop/revisit condition. |
+| No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
+| Open Questions / Top 3 Decision Questions | Closing Confirmations / What Must Be Confirmed |
 | Proving the case | investment case, base case, conviction, support |
 | Describing participation | participation, commitment, exposure |
-| Sharp open questions | Top 3 Decision Questions or Top 3 Gating Questions |
+| Sharp open questions | Expected bars / Closing Confirmation Bars |
 | Missing proof | What Still Needs Confirmation |
 | Recommendation labels | Proceed / Proceed if confirmed / Hold pending confirmation / Pass |
 | Decision discipline | stop/revisit conditions |
@@ -2820,7 +2851,7 @@ strategic risks, risk priorities, research tasks, thesis spine,
 infographic source brief, chart/infographic plans, narrative hooks, and
 benchmark dashboard. Treat the thesis spine as draft authorship guidance:
 the final memo structure still follows the skill, but
-Investment Highlights, Investment Risks, Top 3 Decision Questions,
+Investment Highlights, Investment Risks, Closing Confirmation Bars,
 infographic choices, selected operator narrative choices, source-brief
 warnings, intro stance, risk-section posture, and conclusion posture should
 come from this packet when they are supported by evidence. Treat selected
@@ -2864,7 +2895,7 @@ step. Sequential per-pass execution is wasteful — fan them out
 concurrently.
 
 The synthesis step (Claim Register reconciliation, Scenario Swim
-Lanes, Top 3 Decision Questions, Pre-Mortem, Reverse IC), the memo
+Lanes, Closing Confirmation Bars, Pre-Mortem, Reverse IC), the memo
 drafting step, the translation step, and the package-writing step
 remain sequential. Server-side `.docx` rendering happens after Claude exits.
 
@@ -3047,7 +3078,7 @@ thresholds.
 
 The Chinese memo must be native professional investment Chinese with
 analytical parity to English: same recommendation, confidence level, risks,
-valuation posture, evidence, caveats, tables, and decision questions. Do not
+valuation posture, evidence, caveats, tables, and confirmation bars. Do not
 translate prompt scaffolding into visible prose. Avoid terms like `上行状态`,
 `现态`, `关键现实检查`, `源追踪`, `备忘录包`, `审阅者提示`, `声明登记`,
 `硬 IP 墙`, or `软性工具`; rewrite them as precise investment judgments,
@@ -5538,6 +5569,26 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
+                    "expected_bar": {
+                        "type": "string",
+                        "description": (
+                            "Measurable bar that supports the recommendation, "
+                            "written as a statement rather than a question."
+                        ),
+                    },
+                    "support_threshold": {
+                        "type": "string",
+                        "description": (
+                            "Specific threshold or evidence level that makes "
+                            "the recommendation defensible."
+                        ),
+                    },
+                    "confirmation_evidence": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "stop_or_revisit_if_missing": {"type": "string"},
+                    # Deprecated compatibility alias; do not use for new output.
                     "question": {"type": "string"},
                     "why_it_matters": {"type": "string"},
                     "evidence_needed": {
@@ -5545,7 +5596,12 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
                         "items": {"type": "string"},
                     },
                 },
-                "required": ["question", "why_it_matters", "evidence_needed"],
+                "required": [
+                    "expected_bar",
+                    "support_threshold",
+                    "confirmation_evidence",
+                    "stop_or_revisit_if_missing",
+                ],
             },
         },
         "bull_case_must_be_true": {
@@ -6799,13 +6855,13 @@ Available files in that folder:
 {lessons_block}
 
 Instructions:
-- Frame risks as investment decision questions, not generic risk labels. The
-  risk title should be sharp enough to become a one-sentence memo risk.
+- Frame risks as investment bars and failure modes, not generic risk labels.
+  The risk title should be sharp enough to become a one-sentence memo risk.
 - Prefer risks that can change a BSH recommendation: valuation durability,
   deployment depth, revenue quality, market abstraction, moat durability,
   budget ownership, public-comp support, and disconfirming evidence.
 - For each risk, include the best bull answer, best bear answer, concrete
-  evidence needed, and the source types that can actually settle the question.
+  support threshold, and the source types that can confirm or break the bar.
 - Prioritize risks that help an operator choose the final risk-section posture:
   lead-risk, pass trigger, conditional-yes dependency, or monitoring item.
 - Use the Serena research folder above for local company documents. Do NOT
@@ -7002,8 +7058,8 @@ Instructions:
 - Use the current strategic risks, risk priorities, selected research-task
   results, chart specs, and benchmark context above.
 - Build 3-5 investment highlights, 3-5 investment risks, direct
-  recommendation logic, the top decision questions, bull-case
-  requirements, and pass triggers.
+  recommendation logic, the top expected bars for defending the investment
+  recommendation, bull-case requirements, and pass triggers.
 - Write every highlight and risk as final-memo raw material: concise,
   judgment-led, source-backed, and free of process language. Convert research
   task answers into conclusions instead of copying task labels or confidence
@@ -7013,10 +7069,15 @@ Instructions:
   contradiction, or missing proof that makes the risk matter.
 - recommendation_logic should be usable as the conclusion spine: conviction,
   dependencies, failure modes, and the operator's likely proceed / proceed-if-
-  confirmed / hold-pending-confirmation / pass posture.
-- Top decision questions should become operator HIL choices where applicable:
-  ask what Serena must decide, which evidence would change the answer, and what
-  the memo conclusion should do if the evidence remains missing.
+  confirmed / hold-pending-confirmation / pass posture. Write it as advocacy
+  for the investment case under defined bars, not as a passive diligence
+  checklist.
+- Top expected bars are not questions. For each bar, state the measurable
+  threshold that makes the recommendation defensible, the support threshold,
+  the confirmation evidence, and the stop/revisit implication if the bar is not
+  met. Use active phrases such as "Signed contract value of at least..." or
+  "A2 terms remain within..." rather than "Can the company..." or
+  "Should the sponsor be able to share..."
 - Treat incomplete research-task results, partial chart specs, and nullable
   benchmark metrics as evidence gaps, not as facts.
 - Source_trace values should name artifact/source categories actually used,

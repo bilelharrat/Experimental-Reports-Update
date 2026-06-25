@@ -161,6 +161,11 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bthe opportunity offered to investors is\b", re.IGNORECASE),
     re.compile(r"\bthe base case credits\b", re.IGNORECASE),
     re.compile(r"\bthe investment view is\b", re.IGNORECASE),
+    re.compile(r"\bdecision posture\b", re.IGNORECASE),
+    re.compile(r"\brecommendation posture\b", re.IGNORECASE),
+    re.compile(r"\bopen questions\b", re.IGNORECASE),
+    re.compile(r"\btop\s+3\s+(?:decision|gating)\s+questions\b", re.IGNORECASE),
+    re.compile(r"\(for BSH\)", re.IGNORECASE),
     re.compile(r"\bunderwrit(?:e|es|ing|ten|er|ers)\b", re.IGNORECASE),
     re.compile(r"\btickets?\b", re.IGNORECASE),
     re.compile(r"\bBSH target allocation\b", re.IGNORECASE),
@@ -178,6 +183,10 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\binformation rights\b", re.IGNORECASE),
     re.compile(r"\bvoting rights\b", re.IGNORECASE),
     re.compile(r"\brequire data room\b", re.IGNORECASE),
+    re.compile(r"\b(?:should|would|could|ought to) be able to\b", re.IGNORECASE),
+    re.compile(r"\bshould be closeable\b", re.IGNORECASE),
+    re.compile(r"\brealistically obtainable\b", re.IGNORECASE),
+    re.compile(r"\bbefore BSH funds\b", re.IGNORECASE),
     re.compile(r"\bkeep (?:the )?(?:position|allocation|check|ticket) small\b", re.IGNORECASE),
 )
 _META_LANGUAGE_PATTERNS = (

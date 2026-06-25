@@ -162,6 +162,10 @@ def test_linter_blocks_buyer_side_language_in_final_body(tmp_path):
             "What Is Not Yet Underwritten",
             "BSH target allocation: $5-10M.",
             "The final section says what BSH should do and the position size.",
+            "Decision Posture: proceed if confirmed.",
+            "Wisdom Ventures should be able to share the executed term sheet.",
+            "Federal contract identifiers are realistically obtainable.",
+            "These items should be closeable in the diligence window.",
             "Require data room access, a named institutional lead, MFN, "
             "down-round protection, information rights, and voting rights.",
         ],
@@ -229,15 +233,36 @@ def test_linter_blocks_meta_process_language(tmp_path):
     assert "We discuss" in snippets
 
 
-def test_linter_allows_gating_questions_as_investment_memo_language(tmp_path):
+def test_linter_blocks_internal_questionnaire_language(tmp_path):
     path = tmp_path / "gating-questions.docx"
     _save_docx(
         path,
         paragraphs=[
             "I. Executive Summary",
             "Top 3 Gating Questions",
+            "Top 3 Decision Questions (for BSH)",
+            "Open Questions",
             "Does binding deployment evidence support the current allocation?",
             "Can carrier conversion produce upside without assuming all MOUs become revenue?",
+            "The final contract split must be met before BSH funds.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert result.has_blocking_findings is True
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+
+
+def test_linter_allows_active_closing_confirmation_language(tmp_path):
+    path = tmp_path / "closing-confirmations.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "Closing Confirmations",
+            "We proceed once final A2 terms, SAFE conversion mechanics, and the binding-contract split are confirmed.",
+            "We would revisit if the A2 slips beyond the expected closing window or prices below the current mark.",
         ],
     )
 

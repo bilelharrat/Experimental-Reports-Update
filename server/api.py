@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import logging
 import os
 import re
@@ -79,6 +80,23 @@ ACTIVE_JOB_MAX_IDLE_SECONDS = int(
 SEARCH_JOB_MAX_IDLE_SECONDS = int(
     os.environ.get("BSH_SEARCH_JOB_MAX_IDLE_SECONDS", "180")
 )
+
+
+def _record_report_generation_event(event: str, **payload: Any) -> None:
+    row = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "event": event,
+        **payload,
+    }
+    try:
+        path = storage.DATA_DIR / "_api" / "report_generation_events.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception:  # noqa: BLE001
+        logger.debug("Failed to record report generation event", exc_info=True)
+
+
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 EXTERNAL_RESEARCH_MAX_FILE_BYTES = research_store.MAX_FILE_BYTES
 EXTERNAL_RESEARCH_ALLOWED_EXTENSIONS = {
@@ -480,6 +498,9 @@ class ReportSummary(BaseModel):
     skill: str | None = None
     memo_files: list[dict] = Field(default_factory=list)
     internal_memo_files: list[dict] = Field(default_factory=list)
+    artifacts_available: bool = False
+    memo_quality_lint: dict | None = None
+    memo_chinese_parity: dict | None = None
     analysis_session_id: str | None = None
     analysis_session_approved: bool = False
     download_urls: dict | None = None
@@ -1708,11 +1729,37 @@ def get_report(report_id: str) -> ReportDetail:
 
 @router.post("/reports", status_code=201)
 def post_report(payload: GenerateRequest) -> ReportDetail:
+    base_event = {
+        "company_id": payload.company_id,
+        "report_type": payload.report_type,
+        "audience": payload.audience,
+        "language": payload.language,
+        "analysis_session_id": payload.analysis_session_id,
+    }
+    _record_report_generation_event("request_received", **base_event)
     if payload.report_type not in REPORT_TYPES:
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail="Invalid report_type",
+        )
         raise HTTPException(status_code=400, detail="Invalid report_type")
     if payload.audience not in AUDIENCES:
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail="Invalid audience",
+        )
         raise HTTPException(status_code=400, detail="Invalid audience")
     if payload.language not in LANGUAGES:
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail="Invalid language",
+        )
         raise HTTPException(status_code=400, detail="Invalid language")
 
     # Investment memos route through the bsh-investment-memo-latestage prep
@@ -1725,14 +1772,45 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
                 analysis_session_id=payload.analysis_session_id,
             )
         except memo_prep.AnalysisSessionNotReadyError as exc:
+            _record_report_generation_event(
+                "request_rejected",
+                **base_event,
+                status_code=400,
+                detail=str(exc),
+            )
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ValueError as exc:
+            _record_report_generation_event(
+                "request_rejected",
+                **base_event,
+                status_code=404,
+                detail=str(exc),
+            )
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RuntimeError as exc:
+            _record_report_generation_event(
+                "request_failed",
+                **base_event,
+                status_code=500,
+                detail=str(exc),
+            )
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         report = result.get("report") or storage.get_report(result["report_id"])
         if report is None:
+            _record_report_generation_event(
+                "request_failed",
+                **base_event,
+                status_code=500,
+                detail="Report record vanished after prep",
+            )
             raise HTTPException(status_code=500, detail="Report record vanished after prep")
+        _record_report_generation_event(
+            "report_created",
+            **base_event,
+            report_id=report.get("id"),
+            status=report.get("status"),
+            run_dir=report.get("run_dir"),
+        )
         return ReportDetail(**_report_detail(report))
 
     try:
@@ -1743,8 +1821,21 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
             language=payload.language,
         )
     except ValueError as exc:
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=404,
+            detail=str(exc),
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     generator.start_generation(report["id"])
+    _record_report_generation_event(
+        "report_created",
+        **base_event,
+        report_id=report.get("id"),
+        status=report.get("status"),
+        run_dir=report.get("run_dir"),
+    )
     return ReportDetail(**_report_detail(report))
 
 
@@ -5797,6 +5888,9 @@ def _report_summary(r: dict) -> dict:
         "skill": r.get("skill"),
         "memo_files": list(r.get("memo_files") or []),
         "internal_memo_files": list(r.get("internal_memo_files") or []),
+        "artifacts_available": bool(r.get("artifacts_available")),
+        "memo_quality_lint": r.get("memo_quality_lint"),
+        "memo_chinese_parity": r.get("memo_chinese_parity"),
         "analysis_session_id": r.get("analysis_session_id"),
         "analysis_session_approved": bool(r.get("analysis_session_approved")),
         "resume_available": (

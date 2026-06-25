@@ -418,9 +418,10 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
                 ),
                 "top_gating_questions": [
                     {
-                        "question": f"Claude gate {i}?",
-                        "why_it_matters": "It controls recommendation quality.",
-                        "evidence_needed": ["Independent customer evidence"],
+                        "expected_bar": f"Claude expected bar {i}.",
+                        "support_threshold": "The bar supports recommendation quality.",
+                        "confirmation_evidence": ["Independent customer evidence"],
+                        "stop_or_revisit_if_missing": "Revisit if the bar resolves below threshold.",
                     }
                     for i in range(1, 4)
                 ],
@@ -1420,7 +1421,7 @@ def test_analysis_session_tracks_readiness_and_approval(tmp_path, monkeypatch):
     assert "Use first-person sponsor voice" in packet_text
     assert "source-class and model-treatment language" in packet_text
     assert "Memo Spine For Final Draft" in packet_text
-    assert "**kill_criteria:**" in packet_text
+    assert "**stop_or_revisit:**" in packet_text
     assert "Investment Highlights" in packet_text
 
 
@@ -1919,7 +1920,7 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
     assert session is not None
     thesis = session["artifacts"]["thesis_spine"]
     thesis["investment_highlights"][0]["claim"] = "Edited deployment wedge"
-    thesis["top_gating_questions"][0]["question"] = "Edited gate question?"
+    thesis["top_gating_questions"][0]["expected_bar"] = "Edited expected bar."
 
     thesis_response = client.patch(
         "/api/companies/generalist/memo-analysis/artifacts/thesis_spine",
@@ -1933,8 +1934,8 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
     assert thesis_payload["investment_highlights"][0]["claim"] == (
         "Edited deployment wedge"
     )
-    assert thesis_payload["top_gating_questions"][0]["question"] == (
-        "Edited gate question?"
+    assert thesis_payload["top_gating_questions"][0]["expected_bar"] == (
+        "Edited expected bar."
     )
 
     charts = thesis_response.json()["artifacts"]["chart_specs"]["specs"]
@@ -1973,7 +1974,7 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
     )
     packet = packet_path.read_text(encoding="utf-8")
     assert "Edited deployment wedge" in packet
-    assert "Edited gate question?" in packet
+    assert "Edited expected bar." in packet
     assert disabled_chart_title not in packet
     assert selected_opening["text"] in packet
     assert selected_ending["text"] in packet

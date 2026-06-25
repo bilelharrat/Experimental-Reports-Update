@@ -53,10 +53,14 @@ Avoid meta-commentary about the document itself:
 
 The opening should not read like a tombstone or detached analyst note. Lead with the sponsor thesis: why we care about the category, why the timing matters, why this company is shaping the layer or market that matters, and why we want exposure. Then explain technical proof, commercial proof, and the SPV / round mechanics.
 
+Do not turn closing diligence into questionnaire prose. Replace question bullets such as "Is the Series A2 actually closing...?" or "What is the binding contract value...?" with expected-bar statements: "The investment case is supported if final A2 terms, closing timing, SAFE conversion, and the binding-contract split remain within the disclosed range."
+
+Do not use legal-rights shorthand in operating tables. Translate it into economic meaning: "The SPV offers limited direct governance and reporting; the manager controls investor-level decisions as a single block."
+
 Concrete positive writing patterns:
 - Opening: "We invest behind physical-world infrastructure that makes people safer and more capable. ZaiNar matters because accurate network-side positioning is becoming a control layer for defense, industrial automation, logistics, and Physical AI."
 - Transaction: "We are being offered SPV exposure to a SAFE expected to convert into the A2 at an effective entry near $2.55B after the discount, subject to confirming the final A2 terms and conversion mechanics."
-- Recommendation: "We recommend proceeding if the binding-contract split, A2 lead, final terms, and SAFE conversion mechanics confirm the current investment case."
+- Recommendation: "We recommend proceeding if the binding-contract split, final A2 terms, SAFE conversion mechanics, and closing evidence confirm the current investment case."
 - Revisit trigger: "We would revisit if the A2 prices materially below the current mark, slips beyond the expected closing window, or the binding contract figure is not large enough to support the valuation."
 - Evidence gap: "Revenue is not disclosed; our base case uses binding contract value, implementation timing, and conservative conversion ranges rather than treating pipeline or MOUs as revenue."
 - Risk: "Key risk centers on whether signed commercial interest converts into repeatable deployments quickly enough to support a $3.0B valuation."
@@ -89,6 +93,10 @@ Banned phrase / rewrite guidance:
 | This memo / our memo / this document... | Remove the frame; make the investment statement. |
 | We outline / discuss / summarize... | State the conclusion directly. |
 | Due to lack of data... | Revenue is not disclosed. |
+| Decision Posture | Investment Decision / We recommend... |
+| Is the Series A2 actually closing...? | Before funding, we need to confirm final A2 terms and closing timing. |
+| Sponsor-capability speculation | The expected bar is... / The investment case is supported if... |
+| No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
 | implies false precision | would be misleading to forecast precisely |
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
@@ -101,7 +109,10 @@ means economically for investors. Say that a valuation rests on or is supported
 by specific evidence; that a structure offers limited governance, reporting, or
 oversight; and frame the decision as a clear recommendation with stop-or-revisit
 conditions. Describe SPV, SAFE, and round economics as plain deal mechanics,
-never as legal-rights or diligence-checklist terms.
+never as legal-rights or diligence-checklist terms. Do not write `MFN`,
+`down-round protection`, `information rights`, `voting rights`, `named lead`,
+`named institutional lead`, or `governance at the LP level` in the final memo;
+translate the economics into plain investor language.
 
 For Wisdom-sponsored opportunities, write in a Wisdom / BSH sponsor register:
 "we invest", "we want to be in the room", "we are participating through the
@@ -509,7 +520,7 @@ analysis/disconfirming_evidence.md
 
 ## Required Stage-Calibrated Passes (Run on Every Deal)
 
-These passes are required, not optional, but their depth and evidentiary expectations must scale to the stage and source package. They may use proxies when direct evidence is unavailable, but they may not be skipped silently. If any pass cannot be completed, document the gap and reflect it in the decision questions and confidence rating.
+These passes are required, not optional, but their depth and evidentiary expectations must scale to the stage and source package. They may use proxies when direct evidence is unavailable, but they may not be skipped silently. If any pass cannot be completed, document the gap and convert it into an expected bar, support threshold, or stop/revisit condition.
 
 ### 4. Procurement / Spend Pass
 Assess:
@@ -937,7 +948,7 @@ In Sections I through V, use reader-facing source-class language instead:
 - if a fact is inferred rather than directly reported, label it as an **estimate** or **internal model**;
 - if a claim is unresolved, say so in the body and pair it with model treatment or diligence thresholds.
 
-The reader should be able to tell whether a claim is company-originated, independently supported, estimated, or unresolved without seeing internal citation tokens. The fact index should map every material claim back to source title, source class, date, confidence, and usage.
+The reader can tell whether a claim is company-originated, independently supported, estimated, or unresolved without seeing internal citation tokens. The fact index maps every material claim back to source title, source class, date, confidence, and usage.
 
 ## Disclosure Gap -> Model Treatment Rule
 Disclosure gaps are modeling inputs, not stopping points.
@@ -1016,7 +1027,7 @@ Do not reuse the same evidence in both the bull and bear case without stating th
 For each major uncertainty, state:
 - what evidence would upgrade confidence
 - what evidence would downgrade confidence
-- whether the missing evidence is realistically obtainable
+- whether the missing evidence can be confirmed to the expected bar
 
 Examples:
 - deployment depth
@@ -1059,20 +1070,20 @@ When critical metrics are missing:
 - explicitly state what is missing
 - explain why it matters
 - calibrate confidence to stage, sponsor access, syndicate quality, scarcity, and available proxies
-- move the missing item into the top decision-question list only if it could materially change the decision
+- move the missing item into the top expected-bar list only if it could materially change the recommendation
 
-## Top 3 Decision Questions
-Collapse all open diligence into the three highest-value decision questions that would most change the recommendation.
+## Top 3 Expected Bars
+Collapse all open diligence into the three highest-value expected bars that would most change how strongly we can defend the recommendation.
 
-These are the questions that should appear in the Open Questions subsection of the Executive Summary (Section I) and should directly drive whether we recommend:
-- Proceed
-- Proceed if confirmed
-- Hold pending confirmation
-- Pass
+These are not questions and not process asks. Write each as:
+- the expected bar that supports the investment case;
+- the support threshold that makes the recommendation defensible;
+- the confirmation evidence that would substantiate the bar;
+- the stop/revisit condition if the bar resolves below threshold.
 
-Additional questions may be included after the top three, but they are secondary.
+Additional confirmation bars may be included after the top three, but they are secondary.
 
-Write the internal decision-question list to:
+Write the internal expected-bar list to the existing artifact path:
 ```text
 analysis/gating_questions.md
 ```
@@ -1107,7 +1118,7 @@ The transition summary passed into memo writing should include:
 - growth bridge summary
 - average vs distribution risk summary
 - base / bull / bear swim lanes
-- top 3 decision questions
+- top 3 expected bars
 
 ---
 
@@ -1141,7 +1152,7 @@ Recommended generation order:
 2. Validate that the English memo is complete, the structure matches the spec, all required tables and callouts are present, and the recommendation is clear.
 3. Translate the English memo into Simplified Chinese following the rules in the **Bilingual Output: English + Simplified Chinese (简体中文)** section below.
 4. Write the bilingual structured package to `logs/memo_package.json`.
-5. Cross-check that the Chinese memo's tables, callouts, recommendation, and Top 3 Decision Questions (for BSH) match the English memo exactly in content (only language differs).
+5. Cross-check that the Chinese memo's tables, callouts, recommendation, and Closing Confirmation Bars match the English memo exactly in content (only language differs).
 
 Save the outputs into the current run folder under:
 ```text
@@ -1199,27 +1210,27 @@ Do not allow the cover page to look like default Word output.
 
 ## Executive Summary Packaging (Mandatory)
 
-The Executive Summary must be visually structured for rapid IC-style review and must follow the five-subsection order defined in the memo structure: Investment Opportunity → Investment Thesis → Investment Risk → Investment Recommendation → Open Questions.
+The Executive Summary must be visually structured for rapid review and must follow the five-subsection order defined in the memo structure: Investment Opportunity → Investment Thesis → Investment Risk → Investment Recommendation → Closing Confirmation Bars.
 
 Required executive-summary components:
 1. **Key Metrics Snapshot** table inside Investment Opportunity, near the top of page 2
 2. **Valuation Timing Warning (for BSH)** callout inside Investment Opportunity whenever contemporaneous vs stale-mark multiples differ materially
 3. A deal-specific investor-facing evidence callout when it adds value, such as **What Is Priced In**, **What Still Needs Confirmation**, **Bear-Case Evidence**, or **Evidence Required Before the Next Step-Up**
 4. A clear **Investment Recommendation** verdict (Proceed / Proceed if confirmed / Hold pending confirmation / Pass) with explicit confirmation items when conditional
-5. **Top 3 Decision Questions (for BSH)** callout inside Open Questions
+5. **Closing Confirmation Bars** callout inside the Executive Summary
 6. Clear separation between:
    - facts evidenced today
    - future execution dependencies
-   - unresolved diligence items
+   - unresolved expected bars
 
-The `(for BSH)` suffix on internal callouts marks them as BSH-internal decision content. They contain valuation timing risk, disconfirming evidence, and confirmation questions that drive the BSH-specific decision. The Chinese equivalent of the suffix is `(仅供 BSH)`.
+Do not use `(for BSH)` callout suffixes in the final memo. Confirmation bars contain expected thresholds, support evidence, and stop/revisit implications that defend the recommendation.
 
 Recommended packaging order on the page:
 - Investment Opportunity narrative + Key Metrics Snapshot table + (Valuation Timing Warning (for BSH) callout if relevant)
 - Investment Thesis bullets
 - Investment Risk bullets + deal-specific evidence callout if useful
 - Investment Recommendation
-- Open Questions / Top 3 Decision Questions (for BSH) callout
+- Closing Confirmation Bars callout
 
 ## Mandatory Structured Components
 
@@ -1265,9 +1276,9 @@ Style:
 
 ### 2. Decision Gate Box
 Use for:
-- top 3 decision questions
+- top 3 expected bars
 - recommendation conditions
-- must-prove-before-investing items
+- expected bars and support thresholds
 
 Style:
 - light neutral or pale fill
@@ -1337,7 +1348,7 @@ Preferred display hierarchy:
 
 Start this section on page 2.
 
-The Executive Summary is a tight synthesis of Sections II (Company Overview), III (Investment Highlights), and IV (Investment Risk). It opens with our sponsor thesis and why we want exposure, then explains what the deal is, what investors would be betting on, what could go wrong, and the confirmation items that control whether we proceed.
+The Executive Summary is a tight synthesis of Sections II (Company Overview), III (Investment Highlights), and IV (Investment Risk). It opens with our sponsor thesis and why we want exposure, then explains the deal, the evidence supporting investor returns, the failure modes, and the expected bars that control whether the recommendation holds.
 
 Write it like a spoken IC summary, not a report introduction. In compressed prose, answer: what the company is, what transaction is in front of BSH, why now, why the company could win, what must prove true, why the deal could fail, and the investment view. Use the required subsection labels for navigation, but keep the language direct and partner-like.
 
@@ -1346,7 +1357,7 @@ Required subsection order:
 2. Investment Thesis (summary of III)
 3. Investment Risk (summary of IV)
 4. Investment Recommendation
-5. Open Questions
+5. Closing Confirmation Bars
 
 *Investment Opportunity*  
 Lead with the opening thesis contract before any table:
@@ -1390,12 +1401,12 @@ If a callout improves readability, render a deal-specific investor-facing eviden
 Do not use scaffold headings such as "Critical Reality Check," "Strongest independent support," "Still unproven," or "Already true versus upside-only." Translate those analytical distinctions into normal investor language.
 
 *Investment Recommendation*  
-A clear recommendation: **Proceed / Proceed if confirmed / Hold pending confirmation / Pass**. Follow with 2–4 sentences explaining the logic, and — if conditional — list the specific confirmation items that must be met before BSH funds.
+A clear recommendation: **Proceed / Proceed if confirmed / Hold pending confirmation / Pass**. Follow with 2–4 sentences defending the logic. If conditional, state the expected bars that support the recommendation and the stop/revisit implications if those bars resolve below threshold.
 
 Treat this as the Investment View: state conviction, dependencies, failure modes, and recommendation. Do not summarize the memo's structure or methodology.
 
-*Open Questions*  
-Render the **Top 3 Decision Questions (for BSH)** as a concise callout box. These should be the three questions most likely to change the investment decision and the ones BSH co-founders should resolve in async review. The `(for BSH)` suffix marks the callout as BSH-internal content.
+*Closing Confirmation Bars*  
+Render the **Closing Confirmation Bars** as a concise callout box. These should be the three expected bars that most directly support or weaken the recommendation. Each bar must be stated quantitatively or specifically where the source package allows: binding contract value at or above the stated threshold, A2 economics within the disclosed range, SAFE conversion mechanics matching the expected entry, or named deployment evidence supporting the valuation. Do not phrase these as questions.
 
 ---
 
@@ -1607,7 +1618,7 @@ Note assumptions explicitly. If financials are unavailable, say so and explain w
 
 Before Sources, include a substantive final investment close that mirrors the opening thesis. It must state:
 - recommendation: Proceed, Proceed if confirmed, Hold pending confirmation, or Pass;
-- required confirmation evidence before funding;
+- expected bars and support thresholds that defend the recommendation;
 - stop / revisit conditions;
 - what changes the next-round / step-up case;
 - next diligence actions in priority order.
@@ -1701,7 +1712,7 @@ Rules:
 | Investment Thesis | 投资逻辑 |
 | Investment Risk | 投资风险 |
 | Investment Recommendation | 投资建议 |
-| Open Questions | 待解决问题 |
+| Closing Confirmation Bars | 交割确认标准 |
 | Key Metrics Snapshot | 关键指标速览 |
 | What BSH Is Buying | BSH 本次配置的核心资产 |
 | What Is Priced In | 估值中已反映的预期 |
@@ -1709,7 +1720,7 @@ Rules:
 | Bear-Case Evidence | 悲观情景证据 |
 | Evidence Required Before the Next Step-Up | 下一轮估值上调前所需证据 |
 | Investment Decision / Closing View | 投资决策 / 结论观点 |
-| Top 3 Decision Questions (for BSH) | 三大核心决策问题（仅供 BSH） |
+| Closing Confirmation Bars | 交割确认标准 |
 | Valuation Timing Warning (for BSH) | 估值时点警示（仅供 BSH） |
 | (for BSH) | （仅供 BSH） |
 | II. Company Overview | 二、项目简介 |
@@ -1968,22 +1979,22 @@ All critical callouts must be visually differentiated from body text.
 - Background: Pale Tiffany
 - Use for What BSH Is Buying, What Still Needs Confirmation, Bear-Case Evidence, and Evidence Required Before the Next Step-Up
 
-### Decision Question Box
+### Confirmation Bar Box
 - Background: Warm Grey or Pale Tiffany
-- Use for Top 3 Decision Questions (for BSH) and recommendation confirmation items
+- Use for Closing Confirmation Bars and recommendation-support thresholds
 
 Do not render these as plain paragraphs with only bold text.
 
 ## Executive Summary Layout Rules
 
-The Executive Summary must have visible structure and follow the five-subsection order: Investment Opportunity → Investment Thesis → Investment Risk → Investment Recommendation → Open Questions.
+The Executive Summary must have visible structure and follow the five-subsection order: Investment Opportunity → Investment Thesis → Investment Risk → Investment Recommendation → Closing Confirmation Bars.
 
 Required elements:
 - Key Metrics Snapshot table inside Investment Opportunity
 - Valuation Timing Warning (for BSH) callout inside Investment Opportunity when contemporaneous vs stale-mark multiples differ materially
 - deal-specific investor-facing evidence callout when it improves IC readability
-- Top 3 Decision Questions (for BSH) callout inside Open Questions
-- Visible separation between Opportunity, Thesis, Risk, Recommendation, and Open Questions
+- Closing Confirmation Bars callout inside the Executive Summary
+- Visible separation between Opportunity, Thesis, Risk, Recommendation, and Closing Confirmation Bars
 
 The Executive Summary should be highly skimmable in under two minutes.
 
@@ -2000,7 +2011,7 @@ The Executive Summary should be highly skimmable in under two minutes.
 
 ## Visual Quality Standard
 
-The memo should feel closer to a high-quality buy-side IC memorandum than a default generated report.
+The memo should feel like a high-quality LP-facing sell-side investment memo, not a default generated report.
 
 It should:
 - look polished without feeling glossy
@@ -2059,12 +2070,12 @@ If a sentence explains how the memo was built, rewrite it as the investment judg
 20. The cover page uses the mandatory cover-page layout and does not look like a loose metadata note.
 21. Body pages use explicit fonts and sizes; the document does not fall back to default Word theme formatting.
 22. Section headers are styled consistently and visibly.
-23. The Executive Summary follows the five-subsection order (Investment Opportunity → Investment Thesis → Investment Risk → Investment Recommendation → Open Questions) and includes:
+23. The Executive Summary follows the five-subsection order (Investment Opportunity → Investment Thesis → Investment Risk → Investment Recommendation → Closing Confirmation Bars) and includes:
     - a Key Metrics Snapshot table inside Investment Opportunity
     - a Valuation Timing Warning (for BSH) callout inside Investment Opportunity when contemporaneous vs stale-mark multiples differ materially
     - a deal-specific investor-facing evidence callout when it improves IC readability
     - an explicit Investment Recommendation verdict (Proceed / Proceed if confirmed / Hold pending confirmation / Pass)
-    - a Top 3 Decision Questions (for BSH) callout inside Open Questions
+    - a Closing Confirmation Bars callout
 24. All mandatory table-driven sections are actually rendered as tables (Key Metrics Snapshot, Board of Directors, Revenue, Key Metrics, Competitive Analysis, Moat, Risk Register, Time-Base Integrity, Growth Bridge, Scenario Analysis, Validation & Assumptions Log).
 25. The memo contains at least **8** tables.
 26. The memo contains at least **3** callout boxes.
@@ -2077,7 +2088,7 @@ If a sentence explains how the memo was built, rewrite it as the investment judg
 31. A Simplified Chinese `.docx` exists alongside the English `.docx` in the same `memo/` directory and shares the same timestamp.
 32. The Chinese memo uses the exact section header translations specified in the **Bilingual Output** section.
 33. The Chinese memo uses CJK-safe fonts (Microsoft YaHei or Noto Sans CJK SC) for all CJK text; Latin / numeric runs inside Chinese paragraphs render in Arial.
-34. The Chinese memo's tables, callouts, recommendation verdict, and Top 3 Decision Questions (for BSH) (三大核心决策问题（仅供 BSH）) match the English memo's content exactly — only the language differs.
+34. The Chinese memo's tables, callouts, recommendation verdict, and Closing Confirmation Bars match the English memo's content exactly — only the language differs.
 35. The Chinese memo preserves company name, executive names, ticker symbols, currency amounts, percentages, and dates in their original Latin form (per the translation scope rules).
 36. The Chinese memo uses Chinese-style punctuation (，。；：「」《》) inside Chinese-language sentences and leaves a half-width space on either side of any Latin acronym embedded in a Chinese sentence.
 37. The Chinese memo's footer renders page numbers as `第 X 页` and the running header reads `[Company Name] | BSH 机密投资备忘录`.
@@ -2099,7 +2110,7 @@ logs/previews_cn/
 
 If either memo fails visual QA, fix the layout before delivery.
 
-If any of these conditions are not met, say so explicitly in the memo and mark the unresolved items as open diligence questions.
+If any of these conditions are not met, state the limitation directly and convert unresolved items into expected bars, support thresholds, or stop/revisit conditions.
 
 ---
 
@@ -2110,7 +2121,7 @@ After writing `logs/memo_package.json`:
 1. Confirm `logs/memo_package.json` is the only dynamic rendering input and no generated renderer script exists in the run folder.
 2. Do not run the fixed renderer yourself. The server will render, validate,
    update `logs/run_manifest.md`, and update `logs/file_inventory.md`.
-3. Briefly summarize in the chat reply: recommendation, top 2 reasons to proceed or pass, and the top 3 decision questions. Use English for the chat summary unless Serena requests otherwise.
+3. Briefly summarize in the chat reply: recommendation, top 2 reasons to proceed or pass, and the top 3 expected bars. Use English for the chat summary unless Serena requests otherwise.
 4. Do not move, rename, or delete prior runs as part of presentation.
 
 ---
@@ -2154,5 +2165,5 @@ It should prefer:
 - dated, traceable, source-aware arithmetic over slogan-like valuation framing
 - growth bridges over blended growth narratives
 - distribution-aware deployment analysis over average-only math
-- top 3 decision questions over long undifferentiated diligence lists
+- top 3 expected bars over long undifferentiated diligence lists
 - confidence calibrated to missingness, not confidence despite missingness
