@@ -197,6 +197,7 @@ def _memo_package(body_en=None, body_zh=None):
                     },
                     {
                         "type": "table",
+                        "component": "key_metrics_snapshot",
                         "title": {
                             "en": "Key Metrics Snapshot",
                             "zh": "关键指标快照",
@@ -218,6 +219,27 @@ def _memo_package(body_en=None, body_zh=None):
                             ]
                         ],
                     },
+                    {
+                        "type": "table",
+                        "component": "deal_terms",
+                        "title": {
+                            "en": "Headline Terms",
+                            "zh": "核心交易条款",
+                        },
+                        "headers": [
+                            {"en": "Term", "zh": "条款"},
+                            {"en": "Detail", "zh": "细节"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Round", "zh": "轮次"},
+                                {
+                                    "en": "Series D context with valuation modeled by scenario range.",
+                                    "zh": "Series D 背景，估值通过情景区间建模。",
+                                },
+                            ]
+                        ],
+                    },
                 ],
             },
             {
@@ -229,7 +251,64 @@ def _memo_package(body_en=None, body_zh=None):
                             "en": "The company sells automation systems for repeatable industrial workflows.",
                             "zh": "该公司销售面向可重复工业流程的自动化系统。",
                         },
-                    }
+                    },
+                    {
+                        "type": "table",
+                        "component": "board",
+                        "title": {"en": "Board of Directors", "zh": "董事会"},
+                        "headers": [
+                            {"en": "Member", "zh": "成员"},
+                            {"en": "Strategic value", "zh": "战略价值"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Lead investor director", "zh": "领投方董事"},
+                                {
+                                    "en": "Adds governance support for late-stage scaling.",
+                                    "zh": "为后期扩张提供治理支持。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "table",
+                        "component": "revenue",
+                        "title": {"en": "Revenue Picture", "zh": "收入情况"},
+                        "headers": [
+                            {"en": "Component", "zh": "组成"},
+                            {"en": "Treatment", "zh": "处理方式"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Recognized revenue", "zh": "已确认收入"},
+                                {
+                                    "en": "Not disclosed; model uses deployment proxies.",
+                                    "zh": "未披露；模型使用部署代理指标。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "table",
+                        "component": "key_operating_metrics",
+                        "title": {
+                            "en": "Key Operating Metrics",
+                            "zh": "关键运营指标",
+                        },
+                        "headers": [
+                            {"en": "Metric", "zh": "指标"},
+                            {"en": "Read", "zh": "解读"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Gross margin", "zh": "毛利率"},
+                                {
+                                    "en": "Unavailable; margin path remains a valuation sensitivity.",
+                                    "zh": "不可得；利润率路径仍是估值敏感因素。",
+                                },
+                            ]
+                        ],
+                    },
                 ],
             },
             {
@@ -247,7 +326,64 @@ def _memo_package(body_en=None, body_zh=None):
                                 "zh": "可重复的生产环境使用可支持扩张判断。",
                             }
                         ],
-                    }
+                    },
+                    {
+                        "type": "table",
+                        "component": "competitive_analysis",
+                        "title": {"en": "Competitive Analysis", "zh": "竞争分析"},
+                        "headers": [
+                            {"en": "Competitor", "zh": "竞争方"},
+                            {"en": "Weakness vs. company", "zh": "相对弱点"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Legacy vendors", "zh": "传统厂商"},
+                                {
+                                    "en": "Less integrated into targeted workflows.",
+                                    "zh": "在目标流程中的集成较弱。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "table",
+                        "component": "replacement_coexistence",
+                        "title": {
+                            "en": "Replacement vs. Coexistence",
+                            "zh": "替代与共存",
+                        },
+                        "headers": [
+                            {"en": "Workflow", "zh": "流程"},
+                            {"en": "Read", "zh": "解读"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Industrial workflow", "zh": "工业流程"},
+                                {
+                                    "en": "Coexists first, then replaces manual workflow layers.",
+                                    "zh": "先共存，再替代人工流程层。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "table",
+                        "component": "moat",
+                        "title": {"en": "Moat", "zh": "护城河"},
+                        "headers": [
+                            {"en": "Component", "zh": "组成"},
+                            {"en": "Durability", "zh": "持久性"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Workflow lock-in", "zh": "流程锁定"},
+                                {
+                                    "en": "Strengthens as production integrations deepen.",
+                                    "zh": "随着生产集成加深而增强。",
+                                },
+                            ]
+                        ],
+                    },
                 ],
             },
             {
@@ -265,7 +401,44 @@ def _memo_package(body_en=None, body_zh=None):
                                 "zh": "企业采用可能继续偏服务交付。",
                             }
                         ],
-                    }
+                    },
+                    {
+                        "type": "table",
+                        "component": "risk_register",
+                        "title": {"en": "Risk Register", "zh": "风险清单"},
+                        "headers": [
+                            {"en": "Risk", "zh": "风险"},
+                            {"en": "Severity", "zh": "严重性"},
+                            {"en": "Likelihood", "zh": "可能性"},
+                            {"en": "Mitigation", "zh": "缓释方式"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Services-heavy adoption", "zh": "服务交付占比高"},
+                                {"en": "Medium", "zh": "中"},
+                                {"en": "Medium", "zh": "中"},
+                                {
+                                    "en": "Track repeatable deployment margin by cohort.",
+                                    "zh": "按批次跟踪可重复部署利润率。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "callout",
+                        "component": "disconfirming_evidence",
+                        "tone": "warning",
+                        "title": {
+                            "en": "Bear-Case Evidence",
+                            "zh": "熊市情景证据",
+                        },
+                        "items": [
+                            {
+                                "en": "Revenue disclosure remains limited relative to valuation.",
+                                "zh": "相对于估值，收入披露仍有限。",
+                            }
+                        ],
+                    },
                 ],
             },
             {
@@ -277,7 +450,83 @@ def _memo_package(body_en=None, body_zh=None):
                             "en": "The valuation case should use conservative scenario ranges.",
                             "zh": "估值判断应使用保守情景区间。",
                         },
-                    }
+                    },
+                    {
+                        "type": "table",
+                        "component": "time_base_integrity",
+                        "title": {
+                            "en": "Time-Base Integrity Table",
+                            "zh": "时间基准一致性表",
+                        },
+                        "headers": [
+                            {"en": "Event", "zh": "事件"},
+                            {"en": "Valuation", "zh": "估值"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Current round", "zh": "当前轮次"},
+                                {
+                                    "en": "Modeled against latest disclosed valuation date.",
+                                    "zh": "基于最近披露估值日期建模。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "table",
+                        "component": "growth_bridge",
+                        "title": {"en": "Growth Bridge Table", "zh": "增长桥接表"},
+                        "headers": [
+                            {"en": "Bridge item", "zh": "桥接项"},
+                            {"en": "Model treatment", "zh": "模型处理"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "New deployments", "zh": "新增部署"},
+                                {
+                                    "en": "Credited only where repeatable usage is visible.",
+                                    "zh": "仅在可重复使用可见时计入。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "table",
+                        "component": "scenario_analysis",
+                        "title": {"en": "Scenario Analysis", "zh": "情景分析"},
+                        "headers": [
+                            {"en": "Scenario", "zh": "情景"},
+                            {"en": "Valuation outcome", "zh": "估值结果"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Base", "zh": "基准"},
+                                {
+                                    "en": "Moderate step-up if deployments repeat with margin evidence.",
+                                    "zh": "若部署可重复且利润率有证据，则温和上调。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "heading",
+                        "level": 2,
+                        "component": "investment_decision",
+                        "text": {
+                            "en": "Investment Decision / Closing View",
+                            "zh": "投资决策 / 结论观点",
+                        },
+                    },
+                    {
+                        "type": "paragraph",
+                        "text": {
+                            "en": (
+                                "We recommend participating where customer proof "
+                                "and margin evidence support valuation."
+                            ),
+                            "zh": "若客户验证和利润率证据支撑估值，我们建议参与。",
+                        },
+                    },
                 ],
             },
         ],
@@ -307,6 +556,17 @@ def _write_memo_package(run_dir, *, body_en=None, body_zh=None):
         encoding="utf-8",
     )
     return path
+
+
+def _force_zh_to_english(value):
+    if isinstance(value, dict):
+        if "en" in value and "zh" in value:
+            value["zh"] = value["en"]
+        for child in value.values():
+            _force_zh_to_english(child)
+    elif isinstance(value, list):
+        for item in value:
+            _force_zh_to_english(item)
 
 
 def test_memo_run_completes_when_optional_pdf_render_fails(
@@ -761,7 +1021,21 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
         "Immediate Confirmation Work. Closing bar: signed mix supports the case. "
         "Cross-check DoD signings on SAM.gov and USAspending.gov. Patent counsel "
         "claim-scope and freedom-to-operate read supports durable patent leverage. "
-        "Source two non-investor technical references through the BSH and partner networks."
+        "Source two non-investor technical references through the BSH and partner networks. "
+        "BSH thesis fit relies on the late-stage financial-return exception. "
+        "The disclosed founders are not Asian-immigrant per the BSH preference. "
+        "Late-stage rules allow financial return to justify thesis exceptions if moat "
+        "and multiple are compelling; the case therefore rests on the IP, channel, "
+        "and contracted-traction case clearing on its own. Stop / Revisit Triggers. "
+        "Series A2 slips materially beyond the May 2026 \"closing imminent\" framing, "
+        "or reprices above approximately $3.53B pre-money, in which case the cap "
+        "binds and the SAFE discount benefit erodes. The binding-contract share "
+        "inside the $500M+ figure proves to be a small fraction of the headline, "
+        "or the Kajima per-site economic is restated below approximately $5M ARR "
+        "per site on a recurring basis. Series B pricing materially below the "
+        "disclosed $15B target on a recapitalization or down-round path, shifting "
+        "the SPV from a paper-mark outcome into a flat-to-modest carry for the "
+        "holding period."
     )
     package_path = _write_memo_package(run_dir, body_en=bad_text)
     stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=True)
@@ -792,6 +1066,7 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert "subject to" not in package_text
     assert "Valuation Sensitivity Bars" not in package_text
     assert "Stop or Revisit Conditions" not in package_text
+    assert "Stop / Revisit Triggers" not in package_text
     assert "What Would Make Us Revisit" not in package_text
     assert "Immediate Confirmation Work" not in package_text
     assert "Closing bar" not in package_text
@@ -801,6 +1076,16 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert "Sponsor explicitly discloses" not in package_text
     assert "embedded in the registry" not in package_text
     assert "source material" not in package_text
+    assert "late-stage financial-return exception" not in package_text
+    assert "Asian-immigrant" not in package_text
+    assert "BSH preference" not in package_text
+    assert "thesis exceptions" not in package_text
+    assert "paper-mark outcome" not in package_text
+    assert "flat-to-modest carry" not in package_text
+    assert "technical moat, channel access, and contracted traction" in package_text
+    assert "Series A2 closing timing and pricing remain material" in package_text
+    assert "Commercial quality depends on the binding-contract share" in package_text
+    assert "flat-to-modest return profile" in package_text
     memo_paths_abs = memo_analysis._memo_paths_abs(report)
     memo_analysis.memo_docx_renderer.render_memos(
         package_path,
@@ -997,6 +1282,9 @@ def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
                 "where deployment depth and valuation support are visible."
             )
         )
+        for section in package["sections"]:
+            if section["id"] == "company_overview":
+                _force_zh_to_english(section)
         executive_table = package["sections"][0]["blocks"][1]
         executive_table["title"]["zh"] = "Key Metrics Snapshot"
         executive_table["headers"][0]["zh"] = "Metric"
@@ -1135,6 +1423,9 @@ def test_claude_transient_error_classifier_excludes_provider_limits():
         "claude exited 1: API Error: The socket connection was closed unexpectedly"
     )
     assert claude_runner.is_transient_claude_error("fetch failed")
+    assert claude_runner.is_transient_claude_error(
+        "memo English package stalled after 180s without output"
+    )
     assert not claude_runner.is_transient_claude_error(
         "Failed to authenticate. API Error: 403 Request not allowed"
     )

@@ -93,6 +93,143 @@ REQUIRED_SECTION_IDS = (
     "investment_risk",
     "financial_forecast_valuation",
 )
+REQUIRED_MEMO_COMPONENTS = (
+    {
+        "id": "key_metrics_snapshot",
+        "label": "Executive Summary / Key Metrics Snapshot table",
+        "block_types": {"table"},
+        "patterns": (r"\bkey metrics snapshot\b",),
+    },
+    {
+        "id": "deal_terms",
+        "label": "deal mechanics / headline terms table",
+        "block_types": {"table"},
+        "patterns": (
+            r"\bheadline terms\b",
+            r"\bdeal terms\b",
+            r"\btransaction terms\b",
+            r"\bspv\b.*\bsafe\b",
+        ),
+    },
+    {
+        "id": "board",
+        "label": "Company Overview / Board of Directors table",
+        "block_types": {"table"},
+        "patterns": (r"\bboard of directors\b", r"\bboard\b.*\bstrategic value\b"),
+    },
+    {
+        "id": "revenue",
+        "label": "Company Overview / Revenue table",
+        "block_types": {"table"},
+        "patterns": (r"\brevenue picture\b", r"\brevenue\b", r"\barr\b"),
+    },
+    {
+        "id": "key_operating_metrics",
+        "label": "Company Overview / Key Operating Metrics table",
+        "block_types": {"table"},
+        "patterns": (
+            r"\bkey operating metrics\b",
+            r"\bkey metrics\b",
+            r"\barr per employee\b",
+            r"\bgross margin\b",
+        ),
+    },
+    {
+        "id": "competitive_analysis",
+        "label": "Investment Highlights / Competitive Analysis table",
+        "block_types": {"table"},
+        "patterns": (
+            r"\bcompetitive analysis\b",
+            r"\bcompetitive landscape\b",
+            r"\bcompetitor\b.*\bweakness\b",
+        ),
+    },
+    {
+        "id": "replacement_coexistence",
+        "label": "Investment Highlights / Replacement vs. Coexistence treatment",
+        "block_types": {"table"},
+        "patterns": (
+            r"\breplacement\b.*\bcoexistence\b",
+            r"\breplaces?\b.*\bcoexists?\b",
+        ),
+    },
+    {
+        "id": "moat",
+        "label": "Investment Highlights / Moat or defensibility table",
+        "block_types": {"table"},
+        "patterns": (
+            r"\bmoat\b",
+            r"\bdefensibility\b",
+            r"\bright[s]? durability\b",
+        ),
+    },
+    {
+        "id": "risk_register",
+        "label": "Investment Risk / Risk Register table",
+        "block_types": {"table"},
+        "patterns": (r"\brisk register\b", r"\bseverity\b.*\blikelihood\b"),
+    },
+    {
+        "id": "disconfirming_evidence",
+        "label": "Investment Risk / disconfirming evidence treatment",
+        "block_types": {"paragraph", "bullets", "callout", "table"},
+        "patterns": (
+            r"\bdisconfirming evidence\b",
+            r"\bbear-case evidence\b",
+            r"\bdownside scenario\b",
+            r"\bcountercase\b",
+        ),
+    },
+    {
+        "id": "time_base_integrity",
+        "label": "Financial Forecast & Valuation / Time-Base Integrity table",
+        "block_types": {"table"},
+        "patterns": (
+            r"\btime-base integrity\b",
+            r"\btime base integrity\b",
+            r"\blast priced valuation\b",
+            r"\bstale-mark\b",
+        ),
+    },
+    {
+        "id": "growth_bridge",
+        "label": "Financial Forecast & Valuation / Growth Bridge table",
+        "block_types": {"table"},
+        "patterns": (
+            r"\bgrowth bridge\b",
+            r"\bbridge\b.*\bconversion\b",
+            r"\borganic\b.*\bpricing\b",
+        ),
+    },
+    {
+        "id": "scenario_analysis",
+        "label": "Financial Forecast & Valuation / Scenario Analysis table",
+        "block_types": {"table"},
+        "patterns": (
+            r"\bscenario analysis\b",
+            r"\bseries b scenario\b",
+            r"\bbear\b.*\bbase\b.*\bbull\b",
+            r"\bgross moic\b",
+        ),
+    },
+    {
+        "id": "investment_decision",
+        "label": "Investment Decision / Closing View",
+        "block_types": {"heading", "paragraph", "callout"},
+        "patterns": (
+            r"\binvestment decision\b",
+            r"\bclosing view\b",
+            r"\brecommendation\b",
+            r"\bwe recommend\b",
+        ),
+    },
+    {
+        "id": "source_index",
+        "label": "Sources, Source Classes, and Fact Reference Index",
+        "block_types": {"table"},
+        "patterns": (r"\bsource index\b", r"\bfact reference index\b"),
+    },
+)
 SUPPORTED_BLOCK_TYPES = {
     "heading",
     "paragraph",
@@ -212,6 +349,13 @@ def _package_validation_errors(package: Any) -> list[str]:
         section_id = str(section.get("id") or "").strip()
         if section_id:
             by_id[section_id] = section
+            if section_id not in SECTION_TITLES and not _loc(
+                section.get("title"), "en"
+            ):
+                errors.append(
+                    f"{location} section id {section_id!r} must provide a "
+                    "bilingual title or use a renderer-supported section id"
+                )
         blocks = section.get("blocks")
         if not isinstance(blocks, list) or not blocks:
             errors.append(f"{location} blocks must be a non-empty list")
@@ -230,11 +374,82 @@ def _package_validation_errors(package: Any) -> list[str]:
             errors.append(f"missing required section {section_id}")
         else:
             _validate_section_content_floor(section_id, by_id[section_id], errors)
+    _validate_required_memo_components(package, errors)
 
     if isinstance(sources, list):
         for index, source in enumerate(sources):
             _validate_source(source, f"sources[{index}]", errors)
     return errors
+
+
+def _validate_required_memo_components(package: dict, errors: list[str]) -> None:
+    coverage = _memo_component_coverage(package)
+    for component in REQUIRED_MEMO_COMPONENTS:
+        component_id = str(component["id"])
+        if not coverage.get(component_id):
+            errors.append(
+                f"missing required memo component {component_id}: "
+                f"{component['label']}"
+            )
+
+
+def _memo_component_coverage(package: dict) -> dict[str, bool]:
+    coverage = {str(component["id"]): False for component in REQUIRED_MEMO_COMPONENTS}
+    if isinstance(package.get("sources"), list) and package.get("sources"):
+        coverage["source_index"] = True
+    for section in package.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        section_title = _content_text(section.get("title")) or _section_title(section, "en")
+        previous_heading = ""
+        for block in section.get("blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            for component_id in _declared_component_ids(block):
+                if component_id in coverage:
+                    coverage[component_id] = True
+            signature = _block_signature_text(block, section_title, previous_heading)
+            kind = str(block.get("type") or "paragraph")
+            for component in REQUIRED_MEMO_COMPONENTS:
+                component_id = str(component["id"])
+                if coverage.get(component_id) or kind not in component["block_types"]:
+                    continue
+                if any(
+                    re.search(pattern, signature, flags=re.IGNORECASE)
+                    for pattern in component["patterns"]
+                ):
+                    coverage[component_id] = True
+            if kind == "heading":
+                previous_heading = _content_text(block.get("text") or block.get("title"))
+    return coverage
+
+
+def _declared_component_ids(block: dict) -> list[str]:
+    value = block.get("component") or block.get("components")
+    if isinstance(value, str):
+        return [value.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _block_signature_text(block: dict, section_title: str, previous_heading: str) -> str:
+    values = [section_title, previous_heading]
+    for key in ("component", "title", "label", "text", "body"):
+        value = block.get(key)
+        if isinstance(value, list):
+            values.extend(_content_text(item) for item in value)
+        else:
+            values.append(_content_text(value))
+    if block.get("type") == "table":
+        values.extend(_content_text(header) for header in block.get("headers") or [])
+        for row in block.get("rows") or []:
+            cells = row.get("cells") if isinstance(row, dict) else row
+            if isinstance(cells, (list, tuple)):
+                values.extend(_content_text(cell) for cell in cells)
+    if block.get("type") in {"bullets", "callout"}:
+        values.extend(_content_text(item) for item in block.get("items") or [])
+    return " ".join(value for value in values if value)
 
 
 def _validate_section_content_floor(
@@ -633,8 +848,7 @@ def _add_cover(document: Document, package: dict, locale: str) -> None:
         after=6,
     )
     toc_rows = []
-    for index, section_id in enumerate(TOC_SECTION_IDS, start=1):
-        title = _section_title({"id": section_id}, locale)
+    for index, title in enumerate(_toc_titles(package, locale), start=1):
         toc_rows.append([title, str(index)])
     _add_table(document, {"headers": [], "rows": toc_rows, "compact": True}, locale)
     document.add_page_break()
@@ -966,6 +1180,11 @@ def _validation_report(package: dict, output_path: Path, locale: str) -> str:
         for block in section.get("blocks", [])
         if isinstance(block, dict) and block.get("type") == "callout"
     )
+    coverage = _memo_component_coverage(package)
+    coverage_lines = [
+        f"- {component['id']}: {'present' if coverage[str(component['id'])] else 'missing'}"
+        for component in REQUIRED_MEMO_COMPONENTS
+    ]
     return "\n".join([
         "# Memo Renderer Validation",
         "",
@@ -975,6 +1194,11 @@ def _validation_report(package: dict, output_path: Path, locale: str) -> str:
         f"- paragraphs: {paragraph_count}",
         f"- tables: {table_count}",
         f"- declared_callouts: {callout_count}",
+        "",
+        "## Content Coverage",
+        "",
+        *coverage_lines,
+        "",
         "- status: passed",
         "",
     ])
@@ -1033,6 +1257,19 @@ def _section_title(section: dict, locale: str) -> str:
     return _loc(section.get("title"), locale) or _loc(
         SECTION_TITLES.get(str(section.get("id") or ""), ""), locale
     )
+
+
+def _toc_titles(package: dict, locale: str) -> list[str]:
+    titles: list[str] = []
+    for section in package.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        title = _section_title(section, locale)
+        if title:
+            titles.append(title)
+    if package.get("sources") and not _has_section(package, "sources"):
+        titles.append(_section_title({"id": "sources"}, locale))
+    return titles
 
 
 def _row_values(row: Any, locale: str) -> list[str]:

@@ -3300,9 +3300,13 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
             payload.get("bull_case_must_be_true"),
             fallback=fallback.get("bull_case_must_be_true") or [],
         )[:6],
-        "pass_triggers": _string_list(
-            payload.get("pass_triggers"),
-            fallback=fallback.get("pass_triggers") or [],
+        "downside_sensitivities": _string_list(
+            payload.get("downside_sensitivities") or payload.get("pass_triggers"),
+            fallback=(
+                fallback.get("downside_sensitivities")
+                or fallback.get("pass_triggers")
+                or []
+            ),
         )[:6],
     }
 
@@ -3590,10 +3594,10 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "Revenue quality supports the proposed valuation.",
             "Competitive compression is manageable."
         ],
-        "pass_triggers": [
-            "No independent support for deployment depth.",
-            "Valuation depends on stale or inappropriate comps.",
-            "Growth is mainly pricing, services, or acquisition-driven without durable expansion."
+        "downside_sensitivities": [
+            "Valuation support weakens where deployment depth lacks independent support.",
+            "Valuation support weakens where comparable-company evidence is stale or economically mismatched.",
+            "Revenue quality weakens where growth is mainly pricing, services, or acquisition-driven without durable expansion."
         ],
     }
 
@@ -3714,10 +3718,14 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         if memo_risks and isinstance(memo_risks[0], dict)
         else "deployment depth and revenue quality remain unproven"
     )
-    pass_trigger = ""
+    downside_sensitivity = ""
     if isinstance(thesis, dict):
-        pass_trigger = _clean_text(
-            (thesis.get("pass_triggers") or [None])[0],
+        downside_sensitivity = _clean_text(
+            (
+                thesis.get("downside_sensitivities")
+                or thesis.get("pass_triggers")
+                or [None]
+            )[0],
             limit=220,
         )
     intro_fact = desc or f"{name} operates in {sector}."
@@ -3818,18 +3826,18 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             "status": "draft",
         },
         {
-            "id": "risk-pass-trigger",
+            "id": "risk-downside-sensitivity",
             "text": (
-                f"If {pass_trigger[:1].lower() + pass_trigger[1:] if pass_trigger else 'the lead evidence remains missing'}, "
-                "do not stretch the thesis."
+                "Valuation support weakens where "
+                f"{downside_sensitivity[:1].lower() + downside_sensitivity[1:] if downside_sensitivity else 'the lead evidence remains missing'}."
             ),
             "purpose": "risk framing",
-            "tone": "pass_trigger",
-            "supported_claims": [pass_trigger or lead_risk],
-            "evidence_references": ["pass_triggers", "investment_risks"],
+            "tone": "downside_sensitivity",
+            "supported_claims": [downside_sensitivity or lead_risk],
+            "evidence_references": ["downside_sensitivities", "investment_risks"],
             "source_traces": [],
-            "confidence": "medium" if pass_trigger else "low",
-            "overclaiming_risk": "Use only if this pass trigger is still current after operator review.",
+            "confidence": "medium" if downside_sensitivity else "low",
+            "overclaiming_risk": "Use only if the downside sensitivity is supported by current evidence.",
             "paired_infographic_ids": [],
             "reviewer_prompts": [],
             "status": "draft",
@@ -3870,18 +3878,18 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             "status": "draft",
         },
         {
-            "id": "conclusion-pass-discipline",
+            "id": "conclusion-evidence-discipline",
             "text": (
-                "We do not recommend participating where material evidence remains insufficient "
-                "rather than force the BSH thesis around the deal."
+                "We keep recommendation strength tied to source-backed evidence "
+                "rather than stretching the investment case around weak proof."
             ),
             "purpose": "conclusion posture",
-            "tone": "pass_discipline",
-            "supported_claims": [pass_trigger or lead_risk],
-            "evidence_references": ["pass_triggers", "investment_risks"],
+            "tone": "evidence_discipline",
+            "supported_claims": [downside_sensitivity or lead_risk],
+            "evidence_references": ["downside_sensitivities", "investment_risks"],
             "source_traces": [],
             "confidence": "medium",
-            "overclaiming_risk": "Use only when the operator wants a pass-ready conclusion posture.",
+            "overclaiming_risk": "Use only when the evidence base materially weakens the recommendation.",
             "paired_infographic_ids": [],
             "reviewer_prompts": [],
             "status": "draft",
@@ -4325,7 +4333,10 @@ def _infographic_source_brief(company: dict, artifacts: dict) -> dict:
             if item.get("claim")
         ][:10] + _string_list(benchmark_gaps)[:6],
         "no_go_claims": _string_list(
-            thesis.get("pass_triggers") if isinstance(thesis, dict) else []
+            (
+                thesis.get("downside_sensitivities")
+                or thesis.get("pass_triggers")
+            ) if isinstance(thesis, dict) else []
         )[:8],
         "visual_opportunities": visual_opportunities,
         "narrative_opportunities": narrative_opportunities,
@@ -5316,9 +5327,13 @@ def _refresh_memo_packet(session: dict) -> None:
         for item in sensitivities[:3]
         if _sensitivity_statement(item)
     ]
-    pass_triggers = [
+    downside_sensitivities = [
         str(item).strip()
-        for item in thesis.get("pass_triggers") or []
+        for item in (
+            thesis.get("downside_sensitivities")
+            or thesis.get("pass_triggers")
+            or []
+        )
         if str(item or "").strip()
     ][:3]
     recommendation_logic = str(
@@ -5351,8 +5366,8 @@ def _refresh_memo_packet(session: dict) -> None:
         (
             "- **risk_sensitivity:** "
             + (
-                "; ".join(pass_triggers)
-                if pass_triggers
+                "; ".join(downside_sensitivities)
+                if downside_sensitivities
                 else "Name the evidence that strengthens or weakens valuation support."
             )
         ),

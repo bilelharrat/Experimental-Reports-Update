@@ -431,10 +431,10 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
                     "Revenue quality supports valuation.",
                     "Public comps are economically relevant.",
                 ],
-                "pass_triggers": [
-                    "No independent deployment support.",
-                    "Weak revenue quality.",
-                    "Inappropriate comp set.",
+                "downside_sensitivities": [
+                    "Valuation support weakens without independent deployment support.",
+                    "Revenue quality weakens if signed contracts do not convert.",
+                    "The comp set weakens if public peers are economically mismatched.",
                 ],
                 "source_basis": {"claude_sources_checked": ["memo studio artifacts"]},
             },
@@ -460,6 +460,10 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
     assert artifact["investment_highlights"][0]["claim"] == "Claude highlight 1"
     assert artifact["investment_risks"][0]["id"] == "memo-risk-1"
     assert artifact["risk_valuation_sensitivities"][0]["id"] == "sensitivity-1"
+    assert artifact["downside_sensitivities"][0].startswith(
+        "Valuation support weakens"
+    )
+    assert "pass_triggers" not in artifact
     assert artifact["source_basis"]["claude_sources_checked"] == [
         "memo studio artifacts"
     ]
@@ -467,6 +471,8 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
         serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
     ).read_text(encoding="utf-8")
     assert "Claude highlight 1" in packet
+    assert "Valuation support weakens without independent deployment support" in packet
+    assert "pass_triggers" not in packet
     assert "Use this packet as evidence, not copy" in packet
     assert "Memo Spine For Final Draft" in packet
     assert "partner-level conclusions" in packet

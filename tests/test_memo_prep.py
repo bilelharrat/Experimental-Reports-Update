@@ -759,6 +759,15 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "passive sponsor/counterparty capability speculation" in prompt
     assert "Never use detached" in prompt
     assert "recommendation, opportunity, access, or base-case framing" in prompt
+    assert "Use `analysis/fast/*.json` as the primary synthesis inputs" in prompt
+    assert "Read markdown\nartifacts only when a JSON artifact is missing" in prompt
+    assert "Memo Content Parity Contract" in prompt
+    assert "content coverage against the reusable" in prompt
+    assert "`risk_register`" in prompt
+    assert "`scenario_analysis`" in prompt
+    assert "founder demographic traits" in prompt
+    assert "thesis-fit exception labels" in prompt
+    assert captured["silence_timeout_sec"] == 600
     assert "Concrete negative examples to reject" not in prompt
     assert "The recommendation is" not in prompt
     assert "The memo frames this as a scarce technical asset" not in prompt
@@ -766,6 +775,13 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "We outline the investment case below" not in prompt
     assert "We back physical-world infrastructure" not in prompt
     assert "we want exposure" not in prompt
+
+
+def test_thesis_spine_schema_uses_downside_sensitivities_not_pass_triggers():
+    schema_text = json.dumps(claude_runner.SERENA_THESIS_SPINE_SCHEMA)
+
+    assert "downside_sensitivities" in schema_text
+    assert "pass_triggers" not in schema_text
 
 
 def test_investment_memo_prompt_uses_fixed_docx_renderer(tmp_path):
@@ -790,6 +806,9 @@ def test_investment_memo_prompt_uses_fixed_docx_renderer(tmp_path):
     assert "build_memo.py" in prompt
     assert "job is to author a complete `memo_package.json`" in prompt
     assert "not rendering code" in prompt
+    assert "Memo Content Parity Contract" in prompt
+    assert "`board`" in prompt
+    assert "`growth_bridge`" in prompt
 
 
 def test_investment_memo_prompt_bans_source_tokens_and_scaffold_labels(tmp_path):
@@ -904,6 +923,10 @@ def test_resume_memo_package_prompt_is_package_only(tmp_path):
     assert "Do not inspect `server/`" in prompt
     assert "You may read only these exact supporting files" in prompt
     assert str(settings_path) in prompt
+    assert "Memo Content Parity Contract" in prompt
+    assert "`risk_register`" in prompt
+    assert "`growth_bridge`" in prompt
+    assert "Unknown ids without titles" in prompt
     assert "Write only" in prompt
     assert "logs/memo_package.json" in prompt
     assert "Do not write DOCX files" in prompt

@@ -57,13 +57,15 @@ The finished investment memo is an offer memo, not an internal approval note. Do
 
 Do not use funding-gate or checklist phrasing that tells the reader to confirm, require, or wait for process items before funding or signing. Convert each item into risk or valuation language: "The $500M+ figure blends signed contracts and MOUs, so valuation support is strongest where binding contract value converts to recognized revenue."
 
-Do not use confirmation-section headings, expected-bar headings, investment condition headings, or next-step checklist headings in the finished memo. Those are internal workflow labels. Fold the same substance into the investment thesis, risk factors, valuation sensitivity, or deal-mechanics disclosure.
+Do not use confirmation-section headings, expected-bar headings, investment condition headings, revisit-condition headings, or next-step checklist headings in the finished memo. Those are internal workflow labels. Fold the same substance into the investment thesis, risk factors, valuation sensitivity, or deal-mechanics disclosure.
 
 Do not start final memo sentences, bullets, or table cells with imperative evidence-request verbs. That is internal-note/checklist voice. The final memo should state the disclosed fact, model treatment, and valuation sensitivity directly.
 
 Do not narrate the sponsor memo or source process in final prose. Avoid "memo language was", "the sponsor implies", "the sponsor frames", and "the sponsor itself flags". State the fact or risk directly, then say how it affects the investment case.
 
 Do not use source-process narration as a substitute for investment judgment. Do not narrate what a sponsor note, registry, source packet, or memo artifact says. Write the fact in plain form: "The $500M+ figure blends signed contracts and MOUs" or "available evidence does not document revenue attribution."
+
+Do not use founder demographic traits, BSH founder-background preferences, or internal thesis exception labels as investment rationale, investment risk, recommendation logic, source treatment, or final memo disclosure. Team discussion belongs in operating history, domain expertise, technical authorship, recruiting strength, governance, and company-building evidence.
 
 Do not use legal-rights shorthand in operating tables. Translate it into economic meaning: "The SPV offers limited direct governance and reporting; the manager controls investor-level decisions as a single block."
 
@@ -1186,6 +1188,37 @@ The memo package is the dynamic surface. It must include:
 - bilingual strings as `{ "en": "...", "zh": "..." }` wherever text appears
 - `sources`: source title, source class, model treatment, and as-of date
 
+### Repeatable Content Parity Contract
+
+The final package must preserve the full institutional memo standard for every
+company. Do not let a memo become a short executive summary merely because the
+language is cleaner. If a figure is unavailable, keep the relevant component
+and state the source class, model treatment, and valuation sensitivity.
+
+Every successful package must include the reusable component slugs below on
+the corresponding block as `component: "<slug>"`. The fixed renderer validates
+these slugs and writes content coverage into `logs/validation.txt`.
+
+- `key_metrics_snapshot`: Executive Summary table.
+- `deal_terms`: deal mechanics / headline terms table.
+- `board`: Board of Directors table.
+- `revenue`: revenue picture table.
+- `key_operating_metrics`: key operating metrics table.
+- `competitive_analysis`: competitive analysis table.
+- `replacement_coexistence`: replacement-vs-coexistence treatment.
+- `moat`: moat / defensibility table.
+- `risk_register`: compact risk register table with mitigation or monitoring.
+- `disconfirming_evidence`: bear-case or disconfirming evidence treatment.
+- `time_base_integrity`: valuation/date/multiple timing table.
+- `growth_bridge`: growth bridge table.
+- `scenario_analysis`: bear/base/bull or equivalent scenario table.
+- `investment_decision`: final Investment Decision / Closing View.
+- `source_index`: source/fact index through the `sources` list or a sources section.
+
+If you add any section id beyond the renderer-supported core ids, provide a
+bilingual section `title`. Unknown ids without titles lose visible structure
+in the DOCX and fail package validation.
+
 Forbidden run artifacts include `build_memo.py`, `build_memos.py`,
 `generate_memo.py`, `render_memo.py`, and JavaScript variants. If you need
 different layout behavior, express it through the package data and the supported
@@ -1479,8 +1512,8 @@ Two components, both required.
 
 *Founders / Management Team* — for each founder and key executive:
 - Name, title
-- Immigration background (yes/no, origin) and age if known — these are BSH thesis factors
 - Relevant prior experience and domain expertise
+- Technical authorship, operating role, recruiting strength, and company-building evidence
 - Why this person is suited to this problem (factual; quality assessment lives in III)
 
 *Board of Directors* — render as a table. List board members with background and strategic value, including institutional investor representatives, independent directors, and observer seats if known. Note open seats and governance dynamics relevant to a pre-IPO transition.
@@ -2112,7 +2145,7 @@ If a sentence explains how the memo was built, rewrite it as the investment judg
     - a deal-specific investor-facing evidence callout when it improves investment readability
     - an explicit Investment Recommendation in sentence form
     - a valuation-sensitivity treatment when material
-24. Core table-driven sections are rendered as tables when source support exists (Key Metrics Snapshot, Board of Directors, Revenue, Key Metrics, Competitive Analysis, Moat, Risk Register, Time-Base Integrity, Growth Bridge, Scenario Analysis, and any optional Source Treatment And Assumptions appendix).
+24. Core table-driven components are present and rendered as tables or the specified component type even when the answer is source-limited: Key Metrics Snapshot, Headline Terms, Board of Directors, Revenue, Key Operating Metrics, Competitive Analysis, Replacement vs. Coexistence, Moat, Risk Register, Disconfirming Evidence, Time-Base Integrity, Growth Bridge, Scenario Analysis, Investment Decision / Closing View, and Sources / Fact Reference Index.
 25. Use enough tables to make comparisons and source treatment clear without filler.
 26. Use callout boxes only where they improve reader judgment.
 27. The footer shows visible page numbers (`Page 1`, `Page 2`, etc.). A footer that renders as only `Page` is a hard failure.

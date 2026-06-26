@@ -208,6 +208,25 @@ Verification completed:
 - `python -m py_compile server/claude_runner.py server/serena_analysis.py server/memo_analysis.py server/memo_prep.py server/memo_quality_lint.py server/memo_docx_renderer.py`
   passed.
 
+Post-agent failure triage - 2026-06-26:
+
+- ZaiNar run `2026-06-26__064012` completed all eight fast analysis passes but
+  the English synthesis/package subprocess was interrupted by the 180-second
+  silence watchdog after it read the artifacts and began drafting JSON.
+- The failure was not a prompt-schema failure; all eight
+  `analysis/fast/*.json` artifacts were present and marked `ok`, and the API
+  reports the failed memo as resumable from analysis artifacts.
+- Fixes applied: English package synthesis now uses a 600-second silence window,
+  silence-watchdog interruptions are classified as retryable, retry UI wording
+  says "retryable Claude interruption" rather than only "transport error", and
+  the English synthesis prompt now instructs Claude to use `analysis/fast/*.json`
+  as primary inputs and read markdown/source files only for targeted support.
+- Verification after the triage fix: `tests/test_memo_prep.py
+  tests/test_memo_analysis.py` passed 55 tests; `tests/test_memo_docx_renderer.py
+  tests/test_memo_quality_lint.py tests/test_serena_analysis.py` passed 83 tests
+  with the same two FastAPI deprecation warnings; memo Vue suites still passed
+  18 tests.
+
 Remaining required-scan hits are classified as follows:
 
 - `lessons_path` / `memo_lessons`: internal variable and artifact names; lesson
@@ -553,7 +572,7 @@ rows rather than collapsing multiple unrelated prompt surfaces into one entry.
 |---|---|---|---|---|---|---|---|---|---|
 | P01 | `server/claude_runner.py::HUMAN_EXEC_MEMO_VOICE_CONTRACT` | primary prompt | seed list / function inventory / bad-language scan | full constant | `VERIFIED` | voice rules could teach sponsor voice, third-person recommendations, or internal labels | rewritten to use `BSH` for mandate statements, `we recommend` for action, polished positive examples, and category-level rejected-language rules | re-read constant; `tests/test_memo_prep.py`; scoped high-risk scan clean | Removed exact copyable bad examples from positive guidance. |
 | P02 | `server/claude_runner.py::_build_investment_memo_prompt` | primary prompt | seed list / function inventory | full function and assembled helper text | `VERIFIED` | main memo wrapper can override or contradict the voice contract | aligned final-output prohibitions, source treatment, recommendation posture, renderer contract, and memo-package requirements | re-read function; `tests/test_memo_prep.py`; scoped high-risk scan clean | Kept internal tool names where they describe workflow, not final prose. |
-| P03 | `server/claude_runner.py::run_memo_fast_analysis_pass` | analysis prompt | seed list / function inventory | full function | `VERIFIED` | analysis prompt may produce packet language later copied into final prose | boxed analysis as source material and shifted pass/revisit wording toward downside triggers and evidence treatment | re-read function; `tests/test_memo_analysis.py`; phrase scan classification | Internal artifact names remain acceptable in analysis outputs. |
+| P03 | `server/claude_runner.py::run_memo_fast_analysis_pass` | analysis prompt | seed list / function inventory | full function | `VERIFIED` | analysis prompt may produce packet language later copied into final prose | boxed analysis as source material and shifted pass/revisit wording toward downside sensitivity and evidence treatment | re-read function; `tests/test_memo_analysis.py`; phrase scan classification | Internal artifact names remain acceptable in analysis outputs. |
 | P04 | `server/claude_runner.py::run_memo_fast_english_package` | package prompt | seed list / function inventory | full function and schema descriptions | `VERIFIED` | package prompt may normalize draft memo phrasing before final generation | marked package output as source-grounded final content, replaced conditional/gate vocabulary, and aligned schema descriptions | re-read function; `tests/test_memo_prep.py`; focused suite | Positive examples now use `BSH invests...` and `We recommend participating...`. |
 | P05 | `server/claude_runner.py::run_memo_fast_bilingual_package` | package prompt | seed list / function inventory | full function and translation guidance | `VERIFIED` | bilingual guidance may preserve awkward English or literal translation artifacts | aligned English and Chinese guidance with final memo voice and source-treatment vocabulary | re-read function; focused suite; phrase scan classification | Translation parity still preserves facts without preserving bad English phrasing. |
 | P06 | `server/claude_runner.py::_build_resume_memo_package_prompt` | recovery prompt | seed list / function inventory / call-chain review | full function | `VERIFIED` | stale-run recovery can reintroduce older packet language | required current voice contract and source-material boundaries on resume | re-read function; `tests/test_memo_analysis.py`; phrase scan classification | No full resume run was executed. |

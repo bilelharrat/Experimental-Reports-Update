@@ -117,6 +117,8 @@ _TRANSIENT_CLAUDE_ERROR_MARKERS = (
     "enetworkunreach",
     "epipe",
     "tls handshake",
+    "stalled after",
+    "without output",
 )
 
 
@@ -2504,6 +2506,7 @@ MEMO_FAST_ENGLISH_PACKAGE_SCHEMA: dict[str, Any] = {
                 "countercase_md": {"type": "string"},
                 "source_treatment_assumptions_md": {"type": "string"},
                 "risk_sensitivities_md": {"type": "string"},
+                "content_coverage_md": {"type": "string"},
             },
             "required": [
                 "claim_register_md",
@@ -2654,6 +2657,12 @@ Sell-side investment memo posture:
 - Do not use uniqueness claims such as "only scaled platform" unless the source
   package independently supports both uniqueness and scale. Use precise
   capability claims instead.
+- Do not use protected or sensitive founder demographic traits, BSH founder
+  background preferences, or thesis-fit exception labels as investment
+  rationale, investment risk, recommendation logic, source treatment, or final
+  memo disclosure. Team discussion belongs in operating history, domain
+  expertise, technical authorship, recruiting strength, governance, and
+  company-building evidence.
 
 Concrete positive writing patterns:
 - Opening: "BSH invests in physical-world infrastructure that makes people
@@ -2693,6 +2702,8 @@ Final memo body and operating tables must not contain:
 - scaffold headings or labels from analytical worksheets, evidence-state
   tables, closing checklists, expected-bar lists, investment-condition lists,
   revisit-condition lists, or internal question lists;
+- founder demographic preference language, thesis-fit exception labels, or
+  internal mandate exceptions as investment rationale or risk factors;
 - cute or fuzzy finance metaphors, no-rights legal shorthand, overclaimed
   scarcity phrases, or shorthand that obscures the economic point;
 - deal-legal checklist terms such as `MFN`, `down-round protection`,
@@ -2802,6 +2813,40 @@ Before DOCX generation, run a final prose QA pass. Remove banned phrases,
 meta language, methodology leakage, over-explained risks, template-visible
 structure, and unnatural model voice. The output must read like an experienced
 investor making a call under uncertainty.
+"""
+
+MEMO_CONTENT_PARITY_CONTRACT = """\
+## Memo Content Parity Contract
+
+The package must preserve the full institutional memo content standard across
+every company, not just the current run. Do not collapse analytical artifacts
+into a short executive summary. If a metric is unavailable, include the
+component and state the source class, model treatment, and valuation
+sensitivity rather than omitting the component.
+
+Every successful package must include these reusable component slugs. Put the
+slug on the relevant block as `component: "<slug>"`; the renderer validates
+these and writes content coverage into `logs/validation.txt`.
+
+- `key_metrics_snapshot`: Executive Summary table.
+- `deal_terms`: deal mechanics / headline terms table.
+- `board`: Board of Directors table.
+- `revenue`: revenue picture table.
+- `key_operating_metrics`: key operating metrics table.
+- `competitive_analysis`: competitive analysis table.
+- `replacement_coexistence`: replacement-vs-coexistence treatment.
+- `moat`: moat / defensibility table.
+- `risk_register`: compact risk register table with mitigation or monitoring.
+- `disconfirming_evidence`: bear-case or disconfirming evidence treatment.
+- `time_base_integrity`: valuation/date/multiple timing table.
+- `growth_bridge`: growth bridge table.
+- `scenario_analysis`: bear/base/bull or equivalent scenario table.
+- `investment_decision`: final Investment Decision / Closing View.
+- `source_index`: source/fact index through the `sources` list or a sources section.
+
+If you add any non-core section id, provide a bilingual section `title`; the
+renderer only auto-titles known core section ids. Unknown ids without titles
+lose visible structure and will fail validation.
 """
 
 
@@ -3134,7 +3179,7 @@ shape:
         {{"type": "paragraph", "text": {{"en": "Body prose.", "zh": "正文。"}}}},
         {{"type": "bullets", "items": [{{"en": "Bullet.", "zh": "要点。"}}]}},
         {{"type": "callout", "tone": "warning", "title": {{"en": "Valuation Sensitivity", "zh": "估值敏感因素"}}, "items": []}},
-        {{"type": "table", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
+        {{"type": "table", "component": "key_metrics_snapshot", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
       ]
     }}
   ],
@@ -3182,6 +3227,8 @@ need at least two substantive bullets, or explanatory prose plus a substantive
 table/callout. `financial_forecast_valuation` must explicitly address model
 treatment, scenario ranges, valuation, revenue, margins, or valuation
 sensitivities.
+
+{MEMO_CONTENT_PARITY_CONTRACT}
 
 The Chinese memo must be native professional investment Chinese with
 analytical parity to English: same recommendation, confidence level, risks,
@@ -3521,10 +3568,18 @@ Fast analysis artifacts:
 - Markdown directory: `{analysis_dir}`
 
 Read the relevant packet/artifact files. Do not rerun the eight analysis
-passes. Produce ONE JSON object with:
+passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
+they already contain the structured results from each pass. Read markdown
+artifacts only when a JSON artifact is missing, contradictory, or needs a
+short source-specific detail; when reading markdown, use targeted reads rather
+than loading every full artifact. Use raw company research files only for a
+specific source-support check that affects a final package claim.
+
+Produce ONE JSON object with:
 1. `analysis_artifacts`: concise markdown strings for claim register,
    scenario swim lanes, downside scenario, countercase, source-treatment log,
-   and risk and valuation sensitivities. Keep each artifact useful but short.
+   risk and valuation sensitivities, and content coverage against the reusable
+   component slugs. Keep each artifact useful but short.
 2. `memo_package`: an English source package for the fixed renderer. Every
    user-facing string must be represented as `{{"en": "...", "zh": ""}}`.
    Leave `zh` blank; a separate subprocess will fill Chinese. Do not write
@@ -3543,6 +3598,8 @@ Package requirements:
   offered", and "we are participating through". Never use detached
   recommendation, opportunity, access, or base-case framing.
 
+{MEMO_CONTENT_PARITY_CONTRACT}
+
 Return only the JSON matching the attached schema.
 """
     add_dirs = [settings_path.parent, companies_yaml_path.parent, run_dir]
@@ -3560,6 +3617,7 @@ Return only the JSON matching the attached schema.
         progress_message="Synthesizing English memo package",
         timeout_label="memo English package",
         timeout_sec=timeout_sec,
+        silence_timeout_sec=600,
         add_dirs=add_dirs,
     )
 
@@ -4071,7 +4129,7 @@ The package must be JSON with this shape:
         {{"type": "paragraph", "text": {{"en": "Body prose.", "zh": "正文。"}}}},
         {{"type": "bullets", "items": [{{"en": "Bullet.", "zh": "要点。"}}]}},
         {{"type": "callout", "tone": "warning", "title": {{"en": "Valuation Sensitivity", "zh": "估值敏感因素"}}, "items": []}},
-        {{"type": "table", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
+        {{"type": "table", "component": "key_metrics_snapshot", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
       ]
     }}
   ],
@@ -4108,6 +4166,8 @@ only headings, title-only callouts, title-only tables, or generic filler.
 substantive bullets or equivalent explanatory prose/table/callout.
 `financial_forecast_valuation` must explicitly address model treatment,
 scenario ranges, valuation, revenue, margins, or valuation sensitivities.
+
+{MEMO_CONTENT_PARITY_CONTRACT}
 
 The Chinese memo must be native professional investment Chinese with analytical
 parity to English. Do not translate prompt scaffolding into visible prose.
@@ -4234,44 +4294,25 @@ def run_resume_memo_package(
     )
     stderr_thread.start()
 
-    result_event: dict | None = None
     state: dict[str, Any] = {
         "thread_map": {},
         "phase_thread": _MEMO_PHASE4_THREAD,
         "memo_phase_tracking": True,
         "resume_packaging": True,
     }
-    try:
-        for line in proc.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            try:
-                if progress:
-                    _process_event(event, progress, state)
-            except Exception:
-                logger.exception("resume progress event handling failed")
-            if event.get("type") == "result":
-                result_event = event
-                break
-        if result_event is not None:
-            try:
-                proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                logger.warning(
-                    "resume memo subprocess kept running after result; "
-                    "terminating process group"
-                )
-                _terminate_process_group(proc, grace_s=2.0)
-        else:
-            proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        _terminate_process_group(proc, grace_s=2.0)
-        return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
+    _, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_event,
+        timeout_sec=timeout_sec,
+        timeout_label="memo package resume",
+        silence_timeout_sec=180,
+    )
+    result_event: dict | None = state.get("result_event")
+    if stream_error:
+        return {"ok": False, "error": stream_error}
 
     if progress:
         finish_ok = bool(result_event) and not (
@@ -5742,11 +5783,18 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
             "maxItems": 6,
             "items": {"type": "string"},
         },
-        "pass_triggers": {
+        "downside_sensitivities": {
             "type": "array",
             "minItems": 3,
             "maxItems": 6,
-            "items": {"type": "string"},
+            "items": {
+                "type": "string",
+                "description": (
+                    "Investor-facing downside sensitivity stated as a factual "
+                    "risk or valuation implication, not as a stop/revisit "
+                    "condition, checklist, or pass trigger."
+                ),
+            },
         },
         "source_basis": {
             "type": "object",
@@ -5760,7 +5808,7 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
         "recommendation_logic",
         "risk_valuation_sensitivities",
         "bull_case_must_be_true",
-        "pass_triggers",
+        "downside_sensitivities",
         "source_basis",
     ],
 }
@@ -7194,7 +7242,7 @@ Instructions:
   results, chart specs, and benchmark context above.
 - Build 3-5 investment highlights, 3-5 investment risks, direct
   recommendation logic, the top risk and valuation sensitivities for defending
-  the investment recommendation, bull-case drivers, and downside triggers.
+  the investment recommendation, bull-case drivers, and downside sensitivities.
 - Write every highlight and risk as final-memo raw material: concise,
   judgment-led, source-backed, and free of process language. Convert research
   task answers into conclusions instead of copying task labels or confidence
@@ -7203,13 +7251,17 @@ Instructions:
   generic operating risks. Each risk detail must carry the specific data,
   contradiction, or missing proof that makes the risk matter.
 - recommendation_logic must be usable as the conclusion spine: conviction,
-  valuation sensitivities, failure modes, and the operator's likely proceed /
-  hold / pass verdict. Write it as advocacy for the investment case, not as a
-  passive diligence checklist.
+  valuation sensitivities, failure modes, and concrete downside impact. Write it
+  as advocacy for the investment case, not as a passive diligence checklist.
 - Top sensitivities are not questions or conditions. For each sensitivity,
   state the measurable variable, the support evidence, and the downside impact
   if the fact pattern weakens. Use risk and valuation language, not
   company/sponsor capability questions or passive availability framing.
+- Do not produce stop/revisit headings, pass triggers, investment-condition
+  lists, protected-trait thesis-fit exceptions, or internal BSH mandate
+  preference language. If founder background is relevant, tie it only to
+  sourced operating history, domain expertise, technical authorship, or
+  company-building record.
 - Treat incomplete research-task results, partial chart specs, and nullable
   benchmark metrics as evidence gaps, not as facts.
 - Source_trace values must name artifact/source categories actually used,

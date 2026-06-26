@@ -323,7 +323,7 @@ _FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
         artifact_filename="disconfirming_evidence.md",
         focus=(
             "Generate the strongest non-bullish interpretations of the facts. "
-            "Identify disconfirming evidence, downside triggers, and the "
+            "Identify disconfirming evidence, downside sensitivity, and the "
             "specific risk or valuation sensitivities that would change the "
             "decision."
         ),
@@ -437,8 +437,101 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "Downside Sensitivities",
     ),
     (
+        re.compile(r"\bStop\s*/\s*Revisit Triggers?\b", re.IGNORECASE),
+        "Downside Sensitivities",
+    ),
+    (
         re.compile(r"\bWhat Would Make Us Revisit or Decline\b", re.IGNORECASE),
         "Downside Sensitivities",
+    ),
+    (
+        re.compile(
+            r"\bBSH thesis fit relies on the late-stage financial-return "
+            r"exception\. The disclosed founders are not Asian-immigrant per "
+            r"the BSH preference\. Late-stage rules allow financial return to "
+            r"justify thesis exceptions if moat and multiple are compelling; "
+            r"the case therefore rests on the IP, channel, and "
+            r"contracted-traction case clearing on its own\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "The investment case rests on whether ZaiNar's technical moat, "
+            "channel access, and contracted traction support the disclosed "
+            "entry valuation on their own."
+        ),
+    ),
+    (
+        re.compile(
+            r"\b[Ss]izing should reflect this distribution, the late-stage "
+            r"financial-return exception under the BSH thesis, and the "
+            r"single-asset SPV illiquidity profile\.?",
+        ),
+        (
+            "Sizing should reflect the return distribution and the single-asset "
+            "SPV illiquidity profile."
+        ),
+    ),
+    (
+        re.compile(r"\blate-stage financial-return exception\b", re.IGNORECASE),
+        "return-based late-stage investment case",
+    ),
+    (
+        re.compile(r"\bAsian-immigrant\b", re.IGNORECASE),
+        "founder-background",
+    ),
+    (
+        re.compile(
+            r"\bSeries A2 slips materially beyond the May 2026 "
+            r"\"closing imminent\" framing, or reprices above approximately "
+            r"\$3\.53B pre-money, in which case the cap binds and the SAFE "
+            r"discount benefit erodes\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Series A2 closing timing and pricing remain material to entry "
+            "economics. A material delay beyond the May 2026 closing-imminent "
+            "disclosure leaves the SPV holding an unpriced SAFE for longer; an "
+            "A2 above approximately $3.53B pre-money shifts conversion toward "
+            "the $3B cap rather than the 15% discount."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bThe binding-contract share inside the \$500M\+ figure proves "
+            r"to be a small fraction of the headline, or the Kajima per-site "
+            r"economic is restated below approximately \$5M ARR per site on a "
+            r"recurring basis\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Commercial quality depends on the binding-contract share inside "
+            "the $500M+ figure and the recurring economics behind Kajima. "
+            "Valuation support weakens if binding contracts are only a small "
+            "share or if Kajima's per-site recurring value is materially below "
+            "the disclosed $10M ARR claim."
+        ),
+    ),
+    (
+        re.compile(
+            r"\bSeries B pricing materially below the disclosed \$15B target "
+            r"on a recapitalization or down-round path, shifting the SPV from "
+            r"a paper-mark outcome into a flat-to-modest carry for the holding "
+            r"period\.?",
+            re.IGNORECASE,
+        ),
+        (
+            "Series B pricing materially below the disclosed $15B target would "
+            "move the SPV from an unrealized valuation-gain case toward a "
+            "flat-to-modest return profile for the holding period."
+        ),
+    ),
+    (
+        re.compile(r"\bpaper-mark outcome\b", re.IGNORECASE),
+        "unrealized valuation-gain case",
+    ),
+    (
+        re.compile(r"\bflat-to-modest carry\b", re.IGNORECASE),
+        "flat-to-modest return",
     ),
     (
         re.compile(r"\bImmediate Confirmation Work\b", re.IGNORECASE),
@@ -2043,6 +2136,12 @@ def _write_fast_synthesis_artifacts(run_dir: Path, artifacts: dict) -> None:
             ("gating_questions_md",),
             "Risk Sensitivities",
         ),
+        (
+            "content_coverage_md",
+            "content_coverage.md",
+            (),
+            "Content Coverage",
+        ),
     )
     for key, filename, aliases, title in mapping:
         content = str(artifacts.get(key) or "").strip()
@@ -2340,8 +2439,8 @@ def _run_fast_memo_pipeline(
                 "stage",
                 stage="memo_fast_english_package_retry",
                 message=(
-                    "Retrying English package synthesis after transient "
-                    f"Claude transport error (attempt {attempt}/{max_attempts})"
+                    "Retrying English package synthesis after a retryable "
+                    f"Claude interruption (attempt {attempt}/{max_attempts})"
                 ),
                 attempt=attempt,
                 max_attempts=max_attempts,
@@ -2398,8 +2497,8 @@ def _run_fast_memo_pipeline(
                     "stage",
                     stage="memo_fast_english_package_retry_scheduled",
                     message=(
-                        "English package synthesis hit a transient Claude "
-                        f"transport error; retrying attempt {attempt + 1}/"
+                        "English package synthesis hit a retryable Claude "
+                        f"interruption; retrying attempt {attempt + 1}/"
                         f"{max_attempts}"
                     ),
                     attempt=attempt,

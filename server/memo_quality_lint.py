@@ -223,6 +223,7 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bValuation Sensitivity Bars?\b", re.IGNORECASE),
     re.compile(r"\bInvestment Conditions?\b", re.IGNORECASE),
     re.compile(r"\bStop or Revisit Conditions?\b", re.IGNORECASE),
+    re.compile(r"\bStop\s*/\s*Revisit Triggers?\b", re.IGNORECASE),
     re.compile(r"\bWhat Would Make Us Revisit\b", re.IGNORECASE),
     re.compile(r"\bImmediate Confirmation Work\b", re.IGNORECASE),
     re.compile(r"\bClosing bar\b", re.IGNORECASE),
@@ -255,6 +256,15 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\brealistically obtainable\b", re.IGNORECASE),
     re.compile(r"\bbefore BSH funds\b", re.IGNORECASE),
     re.compile(r"\bkeep (?:the )?(?:position|allocation|check|ticket) small\b", re.IGNORECASE),
+    re.compile(r"\blate-stage financial-return exception\b", re.IGNORECASE),
+    re.compile(r"\bfinancial-return exception\b", re.IGNORECASE),
+    re.compile(r"\bthesis-fit exception", re.IGNORECASE),
+    re.compile(r"\bBSH preference\b", re.IGNORECASE),
+    re.compile(r"\bAsian-immigrant\b", re.IGNORECASE),
+    re.compile(r"\bAsian ethnicity preferred\b", re.IGNORECASE),
+    re.compile(r"\bimmigrant background founders\b", re.IGNORECASE),
+    re.compile(r"\bpaper-mark outcome\b", re.IGNORECASE),
+    re.compile(r"\bflat-to-modest carry\b", re.IGNORECASE),
 )
 _META_LANGUAGE_PATTERNS = (
     re.compile(r"\b(?:the|this|our) memo\b", re.IGNORECASE),
