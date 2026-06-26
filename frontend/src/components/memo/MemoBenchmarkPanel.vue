@@ -122,7 +122,7 @@ const emit = defineEmits(["save-benchmark"]);
         class="mt-4 grid md:grid-cols-2 gap-3 text-xs text-ink-secondary"
       >
         <div v-if="benchmarkView?.benchmark_gaps?.length">
-          <div class="uppercase tracking-wide text-ink-muted">Benchmark gaps</div>
+          <div class="uppercase tracking-wide text-ink-muted">Benchmark Evidence Limits</div>
           <ul class="mt-1 space-y-1">
             <li v-for="gap in benchmarkView?.benchmark_gaps || []" :key="gap">
               {{ gap }}
@@ -130,7 +130,7 @@ const emit = defineEmits(["save-benchmark"]);
           </ul>
         </div>
         <div v-if="benchmarkView?.must_prove?.length">
-          <div class="uppercase tracking-wide text-ink-muted">Must prove</div>
+          <div class="uppercase tracking-wide text-ink-muted">Required Valuation Support</div>
           <ul class="mt-1 space-y-1">
             <li v-for="claim in benchmarkView?.must_prove || []" :key="claim">
               {{ claim }}
@@ -142,7 +142,7 @@ const emit = defineEmits(["save-benchmark"]);
         v-if="benchmarkView?.source_traces?.length"
         class="mt-4 text-xs text-ink-secondary"
       >
-        <div class="uppercase tracking-wide text-ink-muted">Source traces</div>
+        <div class="uppercase tracking-wide text-ink-muted">Source Evidence</div>
         <div
           v-for="(trace, index) in benchmarkView.source_traces.slice(0, 4)"
           :key="`${trace.locator || trace.title || trace.url}-${index}`"

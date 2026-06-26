@@ -57,9 +57,10 @@ def test_investment_memo_prompt_carries_scope_warning_override(tmp_path):
         warnings=["Latest funding round 'series a' is early-stage."],
     )
 
-    assert "Scope-warning override from prep" in prompt
+    assert "Stage Calibration Context From Prep" in prompt
     assert "Proceed with the memo anyway" in prompt
     assert "Do **not** stop or decline solely because" in prompt
+    assert "valuation sensitivity" in prompt
 
 
 def test_memo_progress_detects_analysis_pass_written_by_bash():
@@ -690,16 +691,19 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "Rejected language categories" in prompt
     assert "We are being offered SPV exposure" in prompt
     assert "We recommend participating in the SPV because" in prompt
+    assert "BSH invests in physical-world infrastructure" in prompt
     assert "Revenue is not disclosed; our base case uses" in prompt
     assert "Make statements directly" in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
     assert "detached third-person recommendation or opportunity framing" in prompt
     assert "risk and valuation sensitivities" in prompt
-    assert "Closing Confirmation Bars" in prompt
+    assert "closing checklists" in prompt
     assert "bsh_allocation" not in prompt
     assert "BSH target allocation" not in prompt
     assert "We would proceed if" not in prompt
-    assert "Proceed if confirmed" in prompt
+    assert "Proceed if confirmed" not in prompt
+    assert "We back physical-world infrastructure" not in prompt
+    assert "we want exposure" not in prompt
     assert "not revenue-recognized" in prompt
     assert "Final Prose QA Requirements" in prompt
     assert "Concrete negative examples to reject" not in prompt
@@ -749,15 +753,19 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "Human Executive Memo Voice Contract" in prompt
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
+    assert "BSH invests in physical-world infrastructure" in prompt
     assert "We are being offered SPV exposure" in prompt
     assert "We recommend participating in the SPV because" in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
-    assert "Never use detached recommendation, opportunity" in prompt
+    assert "Never use detached" in prompt
+    assert "recommendation, opportunity, access, or base-case framing" in prompt
     assert "Concrete negative examples to reject" not in prompt
     assert "The recommendation is" not in prompt
     assert "The memo frames this as a scarce technical asset" not in prompt
     assert "Our memo recommends" not in prompt
     assert "We outline the investment case below" not in prompt
+    assert "We back physical-world infrastructure" not in prompt
+    assert "we want exposure" not in prompt
 
 
 def test_investment_memo_prompt_uses_fixed_docx_renderer(tmp_path):
@@ -802,12 +810,15 @@ def test_investment_memo_prompt_bans_source_tokens_and_scaffold_labels(tmp_path)
     assert "inline source markers" in prompt
     assert "Sources, Source Classes, and Fact Reference Index" in prompt
     assert "Memo spine requirement" in prompt
-    assert "Critical Reality Check" in prompt
-    assert "present-state" in prompt
-    assert "upside-state" in prompt
-    assert "soft instrument" in prompt
-    assert "hard IP wall" in prompt
+    assert "scaffold headings or labels from analytical worksheets" in prompt
+    assert "fuzzy finance metaphors" in prompt
+    assert "evidence-state labels" in prompt
     assert "em dash bridging" in prompt
+    assert "Critical Reality Check" not in prompt
+    assert "present-state" not in prompt
+    assert "upside-state" not in prompt
+    assert "soft instrument" not in prompt
+    assert "hard IP wall" not in prompt
     assert "must include at least one inline citation marker" not in prompt
     assert "Render a **Critical Reality Check" not in prompt
     assert "Critical Reality Check (for BSH)** evidence-summary callout" not in prompt
@@ -975,8 +986,9 @@ def test_resume_memo_package_prompt_uses_prior_package_as_draft(tmp_path):
 
     assert str(prior_package_path) in prompt
     assert "Use `" in prompt
-    assert "as the working draft" in prompt
-    assert "do not reread every analysis artifact by default" in prompt
+    assert "as prior output evidence and structure context" in prompt
+    assert "as authoritative prose" in prompt
+    assert "do not lock in prior phrasing" in prompt
     assert "After reading the quality report and prior draft" in prompt
     assert "corrections are clear" in prompt
 

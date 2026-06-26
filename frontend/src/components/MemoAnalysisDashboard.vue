@@ -112,8 +112,8 @@ const memoWorkProducts = computed(() => {
       status: thesisApproved.value ? "approved" : "draft",
       summary: firstText(
         listItems(thesis.value.investment_highlights)[0]?.claim,
-        listItems(thesis.value.top_gating_questions)[0]?.expected_bar,
-        listItems(thesis.value.top_gating_questions)[0]?.question,
+        thesisSensitivities(thesis.value)[0]?.sensitivity,
+        thesisSensitivities(thesis.value)[0]?.expected_bar,
       ),
       value: thesis.value,
     }));
@@ -298,13 +298,13 @@ const memoReviewItems = computed(() => {
         id: `task-evidence:${taskId}`,
         type: "missing evidence",
         title: task.title || taskId,
-        detail: "Completed result has no supporting or contradicting source trace.",
+        detail: "Completed result has no supporting or contradicting source evidence.",
         severity: "medium",
       }));
     }
     for (const [index, question] of listItems(task.open_questions).entries()) {
       rows.push(reviewItemRow({
-        id: `task-open-question:${taskId}:${index}`,
+        id: `task-evidence-limit:${taskId}:${index}`,
         type: "missing evidence",
         title: task.title || taskId,
         detail: question,
@@ -332,8 +332,8 @@ const memoReviewItems = computed(() => {
   }
   for (const [index, item] of listItems(sourceBrief.value?.no_go_claims).entries()) {
     rows.push(reviewItemRow({
-      id: `source-brief-no-go:${index}`,
-      type: "no-go claim",
+      id: `source-brief-unsupported:${index}`,
+      type: "unsupported visual claim",
       title: "Infographic source brief",
       detail: item,
       severity: "high",
@@ -344,7 +344,7 @@ const memoReviewItems = computed(() => {
     rows.push(reviewItemRow({
       id: `source-brief-prompt:${prompt.id || prompt.prompt}`,
       type: "ambiguous choice",
-      title: "Source brief reviewer choice",
+      title: "Source brief operator choice",
       detail: prompt.prompt,
       severity: prompt.required ? "high" : "medium",
     }));
@@ -404,7 +404,7 @@ const memoReviewItems = computed(() => {
     rows.push(reviewItemRow({
       id: `grader-missing:${index}`,
       type: "memo grader finding",
-      title: "Missing diligence",
+      title: "Evidence limits",
       detail: item,
       severity: "high",
     }));
@@ -504,7 +504,7 @@ const toolPrompts = computed(() => {
       }));
   const sourcePrompts = [
     ...listItems(sourceBrief.value?.reviewer_prompts).map((prompt) => ({
-      label: "Reviewer choice",
+      label: "Operator review choice",
       text: prompt.prompt,
     })),
     ...listItems(sourceBrief.value?.missing_evidence).map((item) => ({
@@ -512,7 +512,7 @@ const toolPrompts = computed(() => {
       text: item,
     })),
     ...listItems(sourceBrief.value?.no_go_claims).map((item) => ({
-      label: "No-go claim",
+      label: "Unsupported visual claim",
       text: item,
     })),
   ];
@@ -522,7 +522,7 @@ const toolPrompts = computed(() => {
       text: prompt.prompt,
     })),
     ...listItems(spec.information_gaps).map((gap) => ({
-      label: spec.title || "Chart gap",
+      label: spec.title || "Chart evidence limit",
       text: gap,
     })),
   ]);
@@ -532,11 +532,11 @@ const toolPrompts = computed(() => {
       text: risk.decision_question || risk.why_it_matters,
     })),
     priority_prompt_harness: taskPrompts,
-    thesis_spine_builder: listItems(thesis.value?.top_gating_questions)
+    thesis_spine_builder: thesisSensitivities(thesis.value)
       .slice(0, 3)
       .map((gate) => ({
-        label: "Expected bar",
-        text: gate.expected_bar || gate.question || gate.why_it_matters,
+        label: "Risk or valuation sensitivity",
+        text: sensitivityLabel(gate) || sensitivitySupport(gate),
       })),
     infographic_source_brief: sourcePrompts,
     chart_spec_builder: chartPrompts,
@@ -546,17 +546,17 @@ const toolPrompts = computed(() => {
     })),
     private_benchmark_dashboard: [
       ...listItems(benchmark.value?.benchmark_gaps).map((gap) => ({
-        label: "Benchmark gap",
+        label: "Benchmark evidence limit",
         text: gap,
       })),
       ...listItems(benchmark.value?.must_prove).map((claim) => ({
-        label: "Must prove",
+        label: "Required valuation support",
         text: claim,
       })),
     ],
     memo_grader: [
       ...listItems(memoGrader.value?.missing_diligence).map((item) => ({
-        label: "Missing diligence",
+        label: "Evidence limits",
         text: item,
       })),
       ...listItems(memoGrader.value?.rewrite_guidance).map((item) => ({
@@ -696,7 +696,11 @@ function workStatus(value, fallback = "draft") {
   if (["archived", "superseded"].includes(raw)) return raw;
   if (value?.approved || raw === "approved") return "approved";
   if (value?.manually_edited) return "manually_edited";
-  if (value?.include_in_final_memo || value?.final_memo_inclusion_state === "include") {
+  if (
+    value?.include_in_final_memo
+    || value?.memo_inclusion_decision === "include"
+    || value?.final_memo_inclusion_state === "include"
+  ) {
     return "used_in_memo";
   }
   if (["done", "graded", "complete", "completed"].includes(raw)) return "needs_review";
@@ -989,6 +993,7 @@ async function saveThesisDraft() {
   if (!thesisDraft.value) return;
   await patchArtifact("thesis_spine", {
     ...thesisDraft.value,
+    risk_valuation_sensitivities: thesisSensitivities(thesisDraft.value),
     updated_at: new Date().toISOString(),
   });
 }
@@ -1081,6 +1086,20 @@ function evidenceLabel(item) {
 
 function listItems(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function thesisSensitivities(value) {
+  return listItems(
+    value?.risk_valuation_sensitivities || value?.top_gating_questions,
+  );
+}
+
+function sensitivityLabel(item) {
+  return item?.sensitivity || item?.expected_bar || item?.question || "";
+}
+
+function sensitivitySupport(item) {
+  return item?.support_evidence || item?.support_threshold || item?.why_it_matters || "";
 }
 
 function approvalTitle() {
@@ -1290,35 +1309,35 @@ watch(additionalAreas, (areas) => {
               </div>
             </div>
             <div class="mt-4 text-xs uppercase tracking-wide text-ink-muted">
-              Top Gating Questions
+              Risk And Valuation Sensitivities
             </div>
             <div class="mt-2 space-y-3">
               <div
-                v-for="(gate, index) in thesisDraft.top_gating_questions"
+                v-for="(gate, index) in thesisSensitivities(thesisDraft)"
                 :key="gate.id || index"
                 class="rounded-lg border border-subtle bg-surface-muted p-3 space-y-2"
               >
                 <label
                   class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
-                  :for="`gate-question-${gate.id || index}`"
+                  :for="`sensitivity-${gate.id || index}`"
                 >
-                  Expected Bar {{ index + 1 }}
+                  Sensitivity {{ index + 1 }}
                 </label>
                 <textarea
-                  :id="`gate-question-${gate.id || index}`"
-                  v-model="gate.expected_bar"
+                  :id="`sensitivity-${gate.id || index}`"
+                  v-model="gate.sensitivity"
                   rows="2"
                   class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
                 ></textarea>
                 <label
                   class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
-                  :for="`gate-why-${gate.id || index}`"
+                  :for="`sensitivity-support-${gate.id || index}`"
                 >
-                  Support Threshold
+                  Support Evidence
                 </label>
                 <textarea
-                  :id="`gate-why-${gate.id || index}`"
-                  v-model="gate.support_threshold"
+                  :id="`sensitivity-support-${gate.id || index}`"
+                  v-model="gate.support_evidence"
                   rows="2"
                   class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
                 ></textarea>

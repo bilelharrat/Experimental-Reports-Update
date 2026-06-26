@@ -85,10 +85,10 @@ _MODEL_TREATMENT_TERMS = (
     "proxy",
     "estimate",
     "fermi",
-    "diligence",
-    "threshold",
-    "confirm",
-    "confirmation",
+    "sensitivity",
+    "valuation",
+    "risk",
+    "scenario",
     "credit",
     "binding",
     "mou",
@@ -99,7 +99,6 @@ _MODEL_TREATMENT_TERMS = (
     "recognized",
     "assumption",
     "sanity bridge",
-    "what would change",
     # Analytical characterizations that themselves treat an undisclosed figure
     # (e.g. a valuation step-table whose multiple column reads "undefined (no
     # denominator)" or "forward, not yet closed").
@@ -143,6 +142,28 @@ _SCAFFOLD_PATTERNS = (
     re.compile(r"\bStill unproven\b", re.IGNORECASE),
     re.compile(r"\bAlready true\b.*\b(upside|today)\b", re.IGNORECASE),
 )
+_PACKET_PROCESS_LABEL_PATTERNS = (
+    re.compile(r"\bPrompt\s*:", re.IGNORECASE),
+    re.compile(r"\bDesign prompt\b", re.IGNORECASE),
+    re.compile(r"\bReviewer prompts?\b", re.IGNORECASE),
+    re.compile(r"\bNarrative reviewer prompts?\b", re.IGNORECASE),
+    re.compile(r"\bConfidence\s*:", re.IGNORECASE),
+    re.compile(r"\bSource traces?\b", re.IGNORECASE),
+    re.compile(r"\bsource[-_ ]trace notes?\b", re.IGNORECASE),
+    re.compile(r"\bNo-go\b", re.IGNORECASE),
+    re.compile(r"\bprohibited visual\b", re.IGNORECASE),
+    re.compile(r"\bMust-prove\b", re.IGNORECASE),
+    re.compile(r"\bBenchmark gaps?\b", re.IGNORECASE),
+    re.compile(r"\bReadiness Reviews?\b", re.IGNORECASE),
+    re.compile(r"\bWaivers?\b", re.IGNORECASE),
+    re.compile(r"\bMemo Uses?\b", re.IGNORECASE),
+    re.compile(r"\bPre-Mortem\b", re.IGNORECASE),
+    re.compile(r"\bReverse IC\b", re.IGNORECASE),
+    re.compile(r"\bValidation\s*&\s*Assumptions Log\b", re.IGNORECASE),
+    re.compile(r"\bsupport thresholds?\b", re.IGNORECASE),
+    re.compile(r"\bconfirmation evidence\b", re.IGNORECASE),
+    re.compile(r"\btop\s+gating\s+questions\b", re.IGNORECASE),
+)
 _FUZZY_PATTERNS = (
     re.compile(r"\bsoft instrument\b", re.IGNORECASE),
     re.compile(r"\bhard IP wall\b", re.IGNORECASE),
@@ -161,6 +182,15 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bthe opportunity offered to investors is\b", re.IGNORECASE),
     re.compile(r"\bthe base case credits\b", re.IGNORECASE),
     re.compile(r"\bthe investment view is\b", re.IGNORECASE),
+    re.compile(r"\bwe invest behind\b", re.IGNORECASE),
+    re.compile(r"\bwe back\b", re.IGNORECASE),
+    re.compile(r"\bwe want exposure\b", re.IGNORECASE),
+    re.compile(r"\bwhy we want exposure\b", re.IGNORECASE),
+    re.compile(r"\bcontrol layer underneath\b", re.IGNORECASE),
+    re.compile(r"\bonly scaled platform\b", re.IGNORECASE),
+    re.compile(r"\bas framed\b", re.IGNORECASE),
+    re.compile(r"\bframed (?:A2|terms|economics|round)\b", re.IGNORECASE),
+    re.compile(r"\bon the framed\b", re.IGNORECASE),
     re.compile(r"\bdecision posture\b", re.IGNORECASE),
     re.compile(r"\brecommendation posture\b", re.IGNORECASE),
     re.compile(r"\bopen questions\b", re.IGNORECASE),
@@ -183,6 +213,7 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bwe would revisit if\b", re.IGNORECASE),
     re.compile(r"\bwe recommend proceeding if\b", re.IGNORECASE),
     re.compile(r"\bwe recommend proceeding once\b", re.IGNORECASE),
+    re.compile(r"\bproceed only after\b", re.IGNORECASE),
     re.compile(r"\b(?:proceed|participate|recommend)[^.]{0,80}\bsubject to\b", re.IGNORECASE),
     re.compile(r"\bClosing Confirmations?\b", re.IGNORECASE),
     re.compile(r"\bClosing Confirmation Bars?\b", re.IGNORECASE),
@@ -209,7 +240,9 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\brequire (?:the )?(?:split|signed-vs-MOU split)\b", re.IGNORECASE),
     re.compile(r"\bdiligence actions?\b", re.IGNORECASE),
     re.compile(r"\bDiligence Thresholds\b", re.IGNORECASE),
+    re.compile(r"\bdiligence thresholds?\b", re.IGNORECASE),
     re.compile(r"\bNext Diligence Actions\b", re.IGNORECASE),
+    re.compile(r"\bsupport thresholds?\b", re.IGNORECASE),
     re.compile(r"\bnamed institutional lead\b", re.IGNORECASE),
     re.compile(r"\bnamed lead\b", re.IGNORECASE),
     re.compile(r"\bdown-?round protection\b", re.IGNORECASE),
@@ -365,43 +398,58 @@ def _extract_docx_blocks(path: Path) -> list[_TextBlock]:
 def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
     findings: list[MemoLintFinding] = []
     for block in blocks:
-        if block.allowed_trace_section:
-            continue
-
-        for match in _BRACKET_RE.finditer(block.text):
-            if _source_like_bracket(match.group(0)):
-                findings.append(
-                    _finding(
-                        block,
-                        "P0",
-                        (
-                            "operating_table_source_token"
-                            if block.operating_table
-                            else "source_token_leak"
-                        ),
-                        match.group(0),
-                        (
-                            "Move detailed source IDs to the fact reference index "
-                            "and use source-class language here."
-                        ),
+        if not block.allowed_trace_section:
+            for match in _BRACKET_RE.finditer(block.text):
+                if _source_like_bracket(match.group(0)):
+                    findings.append(
+                        _finding(
+                            block,
+                            "P0",
+                            (
+                                "operating_table_source_token"
+                                if block.operating_table
+                                else "source_token_leak"
+                            ),
+                            match.group(0),
+                            (
+                                "Move detailed source IDs to the fact reference "
+                                "index and use source-class language here."
+                            ),
+                        )
                     )
-                )
 
-        for pattern in _INTERNAL_ARTIFACT_PATTERNS:
-            match = pattern.search(block.text)
-            if match:
-                findings.append(
-                    _finding(
-                        block,
-                        "P0",
-                        "internal_artifact_leak",
-                        match.group(0),
-                        (
-                            "Remove internal file or artifact names from the body "
-                            "and operating tables."
-                        ),
+            for pattern in _INTERNAL_ARTIFACT_PATTERNS:
+                match = pattern.search(block.text)
+                if match:
+                    findings.append(
+                        _finding(
+                            block,
+                            "P0",
+                            "internal_artifact_leak",
+                            match.group(0),
+                            (
+                                "Remove internal file or artifact names from the "
+                                "body and operating tables."
+                            ),
+                        )
                     )
-                )
+
+            for pattern in _PACKET_PROCESS_LABEL_PATTERNS:
+                match = pattern.search(block.text)
+                if match:
+                    findings.append(
+                        _finding(
+                            block,
+                            "P0",
+                            "packet_process_label",
+                            match.group(0),
+                            (
+                                "Convert copied packet or review labels into "
+                                "investor-facing evidence, source-treatment, "
+                                "risk, or valuation language."
+                            ),
+                        )
+                    )
 
         for pattern in _SCAFFOLD_PATTERNS:
             match = pattern.search(block.text)
@@ -464,7 +512,7 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                 )
                 break
 
-        if "—" in block.text:
+        if not block.allowed_trace_section and "—" in block.text:
             findings.append(
                 _finding(
                     block,
@@ -478,7 +526,10 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                 )
             )
 
-        if _unresolved_disclosure_gap(block.text, block.row_text):
+        if (
+            not block.allowed_trace_section
+            and _unresolved_disclosure_gap(block.text, block.row_text)
+        ):
             findings.append(
                 _finding(
                     block,
@@ -487,7 +538,8 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                     "not disclosed",
                     (
                         "Pair missing disclosure with source class, model "
-                        "treatment, conversion range, proxy, or diligence threshold."
+                        "treatment, conversion range, proxy, risk factor, or "
+                        "valuation sensitivity."
                     ),
                 )
             )
@@ -538,7 +590,7 @@ def _unresolved_disclosure_gap(text: str, row_text: str = "") -> bool:
         return False
     # A disclosure gap is treated when the same block — or, for a table cell,
     # any sibling cell in the same row — supplies a source class, model
-    # treatment, proxy, diligence threshold, or an explicit analytical
+    # treatment, proxy, risk factor, valuation sensitivity, or an explicit analytical
     # characterization of why the figure is absent.
     scope = f"{lowered} {row_text.lower()}".strip()
     return not any(term in scope for term in _MODEL_TREATMENT_TERMS)

@@ -95,15 +95,15 @@ def _write_clean_memo_docx(path):
     document = Document()
     document.add_paragraph("I. Executive Summary")
     document.add_paragraph(
-        "Generalist builds automation infrastructure. Investors should proceed only "
-        "after deployment depth and valuation support are confirmed."
+        "Generalist builds automation infrastructure. We recommend participating "
+        "where deployment depth and valuation support are visible."
     )
     table = document.add_table(rows=2, cols=2)
     table.cell(0, 0).text = "Metric"
     table.cell(0, 1).text = "Treatment"
     table.cell(1, 0).text = "Revenue"
     table.cell(1, 1).text = (
-        "Not disclosed; model uses customer-count proxy and diligence threshold."
+        "Not disclosed; model uses customer-count proxy and valuation sensitivity."
     )
     document.add_paragraph("VI. Sources, Source Classes, and Fact Reference Index")
     document.add_paragraph("[S1] Company materials, company-reported.")
@@ -149,8 +149,8 @@ def _write_internal_memo_markdown(path):
             "- Valuation support shapes conviction.",
             "- SPV economics shape effective entry.",
             "",
-            "## Risk Controls And Stop/Revisit Conditions",
-            "Customer proof below the support threshold weakens commitment sizing.",
+            "## Risk Controls And Downside Sensitivities",
+            "Customer proof that fails to support valuation weakens commitment sizing.",
             "",
             "Internal use only.",
         ]),
@@ -183,8 +183,8 @@ def _memo_package(body_en=None, body_zh=None):
                             "en": body_en
                             or (
                                 "Generalist builds automation infrastructure. "
-                                "Investors should proceed only after deployment depth "
-                                "and valuation support are confirmed."
+                                "We recommend participating where deployment depth "
+                                "and valuation support are visible."
                             ),
                             "zh": (
                                 body_zh
@@ -211,9 +211,9 @@ def _memo_package(body_en=None, body_zh=None):
                                 {
                                     "en": (
                                         "Not disclosed; model uses customer-count "
-                                        "proxy and diligence threshold."
+                                        "proxy and valuation sensitivity."
                                     ),
-                                    "zh": "未披露；模型使用客户数量代理和尽调门槛。",
+                                    "zh": "未披露；模型使用客户数量代理和估值敏感因素。",
                                 },
                             ]
                         ],
@@ -482,9 +482,11 @@ def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
             "analysis_artifacts": {
                 "claim_register_md": "# Claim Register\n\n- Commercial proof: supported.",
                 "scenario_swim_lanes_md": "# Scenario Swim Lanes\n\n- Base: participate with contract-conversion sensitivity.",
-                "pre_mortem_md": "# Pre-Mortem\n\n- Deployment stalls.",
-                "reverse_ic_md": "# Reverse IC\n\n- Pass if valuation support fails.",
-                "validation_log_md": "# Validation Log\n\n- Revenue: not disclosed.",
+                "downside_scenario_md": "# Downside Scenario\n\n- Deployment stalls.",
+                "countercase_md": "# Countercase\n\n- Pass if valuation support fails.",
+                "source_treatment_assumptions_md": (
+                    "# Source Treatment And Assumptions\n\n- Revenue: not disclosed."
+                ),
                 "risk_sensitivities_md": (
                     "# Risk Sensitivities\n\n"
                     "1. Binding contract conversion supports valuation."
@@ -564,6 +566,34 @@ def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
     assert events[-1]["type"] == "done"
 
 
+def test_fast_synthesis_artifacts_normalize_legacy_private_labels(tmp_path):
+    memo_analysis._write_fast_synthesis_artifacts(
+        tmp_path,
+        {
+            "claim_register_md": "# Claim Register\n",
+            "scenario_swim_lanes_md": "# Scenario Swim Lanes\n",
+            "pre_mortem_md": "# Pre-Mortem\n\n- Deployment stalls.",
+            "reverse_ic_md": "# Reverse IC\n\n- Valuation support fails.",
+            "validation_log_md": "# Validation Log\n\n- Revenue is undisclosed.",
+            "risk_sensitivities_md": "# Risk Sensitivities\n",
+        },
+    )
+
+    analysis_dir = tmp_path / "analysis"
+    assert not (analysis_dir / "pre_mortem.md").exists()
+    assert not (analysis_dir / "reverse_ic.md").exists()
+    assert not (analysis_dir / "validation_log.md").exists()
+    assert (analysis_dir / "downside_scenario.md").read_text(
+        encoding="utf-8"
+    ).startswith("# Downside Scenario")
+    assert (analysis_dir / "countercase.md").read_text(
+        encoding="utf-8"
+    ).startswith("# Countercase")
+    assert (analysis_dir / "source_treatment_assumptions.md").read_text(
+        encoding="utf-8"
+    ).startswith("# Source Treatment And Assumptions")
+
+
 def test_memo_fast_pipeline_retries_transient_english_package_failure(
     memo_env, monkeypatch
 ):
@@ -633,9 +663,9 @@ def test_memo_fast_pipeline_retries_transient_english_package_failure(
             "analysis_artifacts": {
                 "claim_register_md": "# Claim Register\n",
                 "scenario_swim_lanes_md": "# Scenario Swim Lanes\n",
-                "pre_mortem_md": "# Pre-Mortem\n",
-                "reverse_ic_md": "# Reverse IC\n",
-                "validation_log_md": "# Validation Log\n",
+                "downside_scenario_md": "# Downside Scenario\n",
+                "countercase_md": "# Countercase\n",
+                "source_treatment_assumptions_md": "# Source Treatment And Assumptions\n",
                 "risk_sensitivities_md": "# Risk Sensitivities\n",
             },
             "memo_package": _memo_package(body_zh=""),
@@ -709,7 +739,9 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
         "The relevant competitive surface is broader than legacy positioning "
         "vendors. We frame it as technology paradigms rather than a logo list, "
         "because the durable pricing-power question is whether incumbent "
-        "paradigms absorb the function ZaiNar performs. We still need a "
+        "paradigms absorb the function ZaiNar performs. We back infrastructure "
+        "because this is why we want exposure. We still need a "
+        "claim-scope review because we want exposure to network positioning. "
         "claim-scope and freedom-to-operate read before we underwrite the "
         "licensing fallback. The instrument has no preference, no voting, "
         "and no information rights at the LP level. This is the right way "
@@ -741,6 +773,12 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert "underwrite" not in package_text.lower()
     assert "underwriting" not in package_text.lower()
     assert "We frame" not in package_text
+    assert "We back" not in package_text
+    assert "we want exposure" not in package_text
+    assert "BSH should" not in package_text
+    assert "we recommend participating in network positioning" in package_text
+    assert "BSH invests in infrastructure" in package_text
+    assert "why the opportunity fits BSH's mandate" in package_text
     assert "information rights" not in package_text
     assert "We should confirm" not in package_text
     assert "Confirm before funding" not in package_text
@@ -816,9 +854,9 @@ def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
             "analysis_artifacts": {
                 "claim_register_md": "# Claim Register\n",
                 "scenario_swim_lanes_md": "# Scenario Swim Lanes\n",
-                "pre_mortem_md": "# Pre-Mortem\n",
-                "reverse_ic_md": "# Reverse IC\n",
-                "validation_log_md": "# Validation Log\n",
+                "downside_scenario_md": "# Downside Scenario\n",
+                "countercase_md": "# Countercase\n",
+                "source_treatment_assumptions_md": "# Source Treatment And Assumptions\n",
                 "risk_sensitivities_md": "# Risk Sensitivities\n",
             },
             "memo_package": _memo_package(body_zh=""),
@@ -893,9 +931,9 @@ def test_memo_fast_pipeline_draft_packet_still_runs_parallel_passes(
             "analysis_artifacts": {
                 "claim_register_md": "# Claim Register\n",
                 "scenario_swim_lanes_md": "# Scenario Swim Lanes\n",
-                "pre_mortem_md": "# Pre-Mortem\n",
-                "reverse_ic_md": "# Reverse IC\n",
-                "validation_log_md": "# Validation Log\n",
+                "downside_scenario_md": "# Downside Scenario\n",
+                "countercase_md": "# Countercase\n",
+                "source_treatment_assumptions_md": "# Source Treatment And Assumptions\n",
                 "risk_sensitivities_md": "# Risk Sensitivities\n",
             },
             "memo_package": _memo_package(body_zh=""),
@@ -955,8 +993,8 @@ def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
     def fake_run_investment_memo(**kwargs):
         package = _memo_package(
             body_zh=(
-                "Generalist builds automation infrastructure. Investors should proceed "
-                "only after deployment depth and valuation support are confirmed."
+                "Generalist builds automation infrastructure. We recommend participating "
+                "where deployment depth and valuation support are visible."
             )
         )
         executive_table = package["sections"][0]["blocks"][1]
@@ -965,7 +1003,7 @@ def test_memo_run_fails_closed_when_chinese_parity_gate_finds_p0(
         executive_table["headers"][1]["zh"] = "Treatment"
         executive_table["rows"][0][0]["zh"] = "Revenue"
         executive_table["rows"][0][1]["zh"] = (
-            "Not disclosed; model uses customer-count proxy and diligence threshold."
+            "Not disclosed; model uses customer-count proxy and valuation sensitivity."
         )
         path = run_dir / "logs" / "memo_package.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1805,7 +1843,7 @@ def test_recover_stale_memo_report_emits_missing_done(memo_env):
         company_id="generalist-inc",
         run_id=report["run_id"],
     )
-    stream.emit("thread_started", thread="Validation log")
+    stream.emit("thread_started", thread="Source treatment and assumptions")
     stream.emit(
         "claude_action",
         action="result",
@@ -1825,7 +1863,7 @@ def test_recover_stale_memo_report_emits_missing_done(memo_env):
     events = _events(memo_prep.stream_path(run_dir))
     assert any(
         event.get("type") == "thread_finished"
-        and event.get("thread") == "Validation log"
+        and event.get("thread") == "Source treatment and assumptions"
         for event in events
     )
     assert events[-1]["type"] == "done"
@@ -1978,7 +2016,7 @@ def test_active_memo_job_registers_subtask_completion(memo_env):
                 {
                     "type": "thread_started",
                     "ts": ts(6),
-                    "thread": "Validation log",
+                    "thread": "Source treatment and assumptions",
                 },
             ]
         )
@@ -1998,7 +2036,7 @@ def test_active_memo_job_registers_subtask_completion(memo_env):
         for thread in state["threads"]
     } == {
         ("Pressure tests", "done", 3),
-        ("Validation log", "running", 1),
+        ("Source treatment and assumptions", "running", 1),
     }
     pressure = next(
         thread for thread in state["threads"]

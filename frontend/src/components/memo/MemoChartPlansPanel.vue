@@ -92,10 +92,10 @@ function promptStatus(prompt) {
             {{ spec.status.replaceAll('_', ' ') }}
           </span>
           <span
-            v-if="spec.final_memo_inclusion_state"
+            v-if="spec.memo_inclusion_decision || spec.final_memo_inclusion_state"
             class="rounded border border-subtle bg-surface px-2 py-0.5"
           >
-            {{ spec.final_memo_inclusion_state.replaceAll('_', ' ') }}
+            {{ (spec.memo_inclusion_decision || spec.final_memo_inclusion_state).replaceAll('_', ' ') }}
           </span>
         </div>
         <div
@@ -170,7 +170,7 @@ function promptStatus(prompt) {
           class="mt-3 text-xs text-ink-secondary"
         >
           <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-            Reviewer prompts
+            Operator review notes
           </div>
           <div
             v-for="prompt in listItems(spec.reviewer_prompts).slice(0, 4)"
@@ -188,7 +188,7 @@ function promptStatus(prompt) {
           class="mt-3 text-xs text-ink-secondary"
         >
           <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-            Source traces
+            Source evidence
           </div>
           <div
             v-for="trace in listItems(spec.source_traces).slice(0, 3)"

@@ -323,7 +323,7 @@ _FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
         artifact_filename="disconfirming_evidence.md",
         focus=(
             "Generate the strongest non-bullish interpretations of the facts. "
-            "Identify disconfirming evidence, pass/revisit triggers, and the "
+            "Identify disconfirming evidence, downside triggers, and the "
             "specific risk or valuation sensitivities that would change the "
             "decision."
         ),
@@ -693,13 +693,14 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\bbefore we underwrite the licensing fallback\b",
             re.IGNORECASE,
         ),
-        "before we give full credit to the licensing fallback",
+        "where the licensing fallback supports valuation",
     ),
     (
         re.compile(
             r"\bWe treat this as a credible defensive perimeter; we still need "
             r"a claim-scope and freedom-to-operate read against ([^.]+?) "
-            r"before we give full credit to the licensing fallback that the "
+            r"before we give full "
+            r"credit to the licensing fallback that the "
             r"sponsor implies under 3GPP standardization\.?",
             re.IGNORECASE,
         ),
@@ -821,6 +822,81 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "in sponsor materials",
     ),
     (
+        re.compile(r"\bWe invest behind\b", re.IGNORECASE),
+        "BSH invests in",
+    ),
+    (
+        re.compile(r"\bWe back\b", re.IGNORECASE),
+        "BSH invests in",
+    ),
+    (
+        re.compile(r"\bwhy we want exposure\b", re.IGNORECASE),
+        "why the opportunity fits BSH's mandate",
+    ),
+    (
+        re.compile(r"\bwe want exposure to\b", re.IGNORECASE),
+        "we recommend participating in",
+    ),
+    (
+        re.compile(r"\binvest behind\b", re.IGNORECASE),
+        "invest in",
+    ),
+    (
+        re.compile(r"\bcontrol layer underneath\b", re.IGNORECASE),
+        "control layer for",
+    ),
+    (
+        re.compile(r"\bonly scaled platform delivering\b", re.IGNORECASE),
+        "platform delivering",
+    ),
+    (
+        re.compile(r"\bon the framed terms\b", re.IGNORECASE),
+        "on the disclosed terms",
+    ),
+    (
+        re.compile(r"\bprices as framed\b", re.IGNORECASE),
+        "prices at the disclosed economics",
+    ),
+    (
+        re.compile(r"\bclosing as framed\b", re.IGNORECASE),
+        "closing at the disclosed economics",
+    ),
+    (
+        re.compile(r"\bat the framed A2\b", re.IGNORECASE),
+        "at the disclosed A2 economics",
+    ),
+    (
+        re.compile(r"\bat the framed Series A2\b", re.IGNORECASE),
+        "at the disclosed Series A2 economics",
+    ),
+    (
+        re.compile(r"\bas framed\b", re.IGNORECASE),
+        "at the disclosed economics",
+    ),
+    (
+        re.compile(r"\bframed terms\b", re.IGNORECASE),
+        "disclosed terms",
+    ),
+    (
+        re.compile(
+            r"\bproduced for (?:the|this|our) memo\b",
+            re.IGNORECASE,
+        ),
+        "used for the investment case",
+    ),
+    (
+        re.compile(r"\bfor (?:the|this|our) memo\b", re.IGNORECASE),
+        "for the investment case",
+    ),
+    (
+        re.compile(r"\bWisdom Ventures SPV memo\b", re.IGNORECASE),
+        "Wisdom Ventures SPV materials",
+    ),
+    (
+        re.compile(r"\bWV SPV memo\b", re.IGNORECASE),
+        "Wisdom Ventures SPV materials",
+    ),
+    (
         re.compile(r"\bwe mirror that posture\b", re.IGNORECASE),
         "we treat those figures as pipeline rather than bookings",
     ),
@@ -863,7 +939,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\bWe will look for a refreshed signed-vs-MOU split before closing\.?",
             re.IGNORECASE,
         ),
-        "Closing bar: the refreshed signed-vs-MOU split supports the base scenario.",
+        "The refreshed signed-vs-MOU split supports the base scenario.",
     ),
     (
         re.compile(
@@ -1804,7 +1880,10 @@ def _fast_pass_markdown(
     lines.extend([
         "## Summary",
         "",
-        str(data.get("summary") or "No summary returned.").strip(),
+        str(
+            data.get("summary")
+            or "No source-backed summary was available for this analysis pass."
+        ).strip(),
         "",
         "## Key Findings",
         "",
@@ -1828,7 +1907,7 @@ def _fast_pass_markdown(
             ]
             lines.append("| " + " | ".join(cells) + " |")
     else:
-        lines.append("- No key findings returned.")
+        lines.append("- No source-backed key findings were available.")
 
     lines.extend(["", "## Supporting Evidence", ""])
     evidence = (
@@ -1847,7 +1926,7 @@ def _fast_pass_markdown(
             suffix = f" ({as_of})" if as_of else ""
             lines.append(f"- **{source}** [{klass}]{suffix}: {detail}")
     else:
-        lines.append("- No supporting evidence returned.")
+        lines.append("- No supporting source evidence was available.")
 
     lines.extend(["", "## Disconfirming Evidence", ""])
     disconfirming = (
@@ -1859,22 +1938,45 @@ def _fast_pass_markdown(
         f"- {str(item).strip()}" for item in disconfirming if str(item).strip()
     )
     if not disconfirming:
-        lines.append("- No disconfirming evidence returned.")
+        lines.append("- No disconfirming evidence was identified in this pass.")
 
-    lines.extend(["", "## Unresolved Risk And Valuation Sensitivities", ""])
-    questions = data.get("open_questions") if isinstance(data.get("open_questions"), list) else []
+    lines.extend(["", "## Evidence Limits And Valuation Treatment", ""])
+    questions = data.get("remaining_evidence_limits")
+    if not isinstance(questions, list):
+        questions = (
+            data.get("open_questions")
+            if isinstance(data.get("open_questions"), list)
+            else []
+        )
     lines.extend(f"- {str(item).strip()}" for item in questions if str(item).strip())
     if not questions:
-        lines.append("- No unresolved risk sensitivities returned.")
+        lines.append("- No material evidence limits were identified beyond the source base.")
 
-    lines.extend(["", "## Memo Uses", ""])
-    memo_uses = data.get("memo_uses") if isinstance(data.get("memo_uses"), list) else []
+    lines.extend(["", "## Investment Implications", ""])
+    memo_uses = data.get("investment_implications")
+    if not isinstance(memo_uses, list):
+        memo_uses = data.get("memo_uses") if isinstance(data.get("memo_uses"), list) else []
     lines.extend(f"- {str(item).strip()}" for item in memo_uses if str(item).strip())
     if not memo_uses:
-        lines.append("- No memo-use guidance returned.")
+        lines.append("- No incremental investment implication guidance was available.")
 
     lines.append("")
     return "\n".join(lines)
+
+
+def _normalize_private_analysis_artifact(content: str) -> str:
+    replacements = (
+        (r"(?im)^#\s*Pre-Mortem\s*$", "# Downside Scenario"),
+        (r"(?im)^#\s*Reverse IC\s*$", "# Countercase"),
+        (
+            r"(?im)^#\s*(Validation Log|Validation & Assumptions Log)\s*$",
+            "# Source Treatment And Assumptions",
+        ),
+    )
+    normalized = content
+    for pattern, replacement in replacements:
+        normalized = re.sub(pattern, replacement, normalized)
+    return normalized
 
 
 def _write_fast_pass_outputs(*, run_dir: Path, result: _FastMemoPassResult) -> None:
@@ -1910,18 +2012,39 @@ def _write_fast_synthesis_artifacts(run_dir: Path, artifacts: dict) -> None:
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(parents=True, exist_ok=True)
     mapping = (
-        ("claim_register_md", "claim_register.md", ()),
-        ("scenario_swim_lanes_md", "scenario_swim_lanes.md", ()),
-        ("pre_mortem_md", "pre_mortem.md", ()),
-        ("reverse_ic_md", "reverse_ic.md", ()),
-        ("validation_log_md", "validation_log.md", ()),
+        ("claim_register_md", "claim_register.md", (), "Claim Register"),
+        (
+            "scenario_swim_lanes_md",
+            "scenario_swim_lanes.md",
+            (),
+            "Scenario Swim Lanes",
+        ),
+        (
+            "downside_scenario_md",
+            "downside_scenario.md",
+            ("pre_mortem_md",),
+            "Downside Scenario",
+        ),
+        (
+            "countercase_md",
+            "countercase.md",
+            ("reverse_ic_md",),
+            "Countercase",
+        ),
+        (
+            "source_treatment_assumptions_md",
+            "source_treatment_assumptions.md",
+            ("validation_log_md",),
+            "Source Treatment And Assumptions",
+        ),
         (
             "risk_sensitivities_md",
             "risk_sensitivities.md",
             ("gating_questions_md",),
+            "Risk Sensitivities",
         ),
     )
-    for key, filename, aliases in mapping:
+    for key, filename, aliases, title in mapping:
         content = str(artifacts.get(key) or "").strip()
         if not content:
             for alias in aliases:
@@ -1929,8 +2052,11 @@ def _write_fast_synthesis_artifacts(run_dir: Path, artifacts: dict) -> None:
                 if content:
                     break
         if not content:
-            title = filename.rsplit(".", 1)[0].replace("_", " ").title()
-            content = f"# {title}\n\nNo content returned."
+            content = (
+                f"# {title}\n\n"
+                "No source-backed material was available for this private analysis artifact."
+            )
+        content = _normalize_private_analysis_artifact(content)
         (analysis_dir / filename).write_text(content.rstrip() + "\n", encoding="utf-8")
 
 

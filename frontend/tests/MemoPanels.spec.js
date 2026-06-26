@@ -117,13 +117,13 @@ describe("Memo panel components", () => {
           status: "graded",
           completed_report_id: "report-1",
           confidence: "medium",
-          lessons_for_future_memo_runs: ["Require source traces."],
+          lessons_for_future_memo_runs: ["Require source evidence."],
         },
       },
     });
 
     expect(wrapper.text()).toContain("Memo Grader");
-    expect(wrapper.text()).toContain("Require source traces.");
+    expect(wrapper.text()).toContain("Require source evidence.");
     await wrapper.find("select").setValue("report-1");
     await wrapper.find("button[title='Run Memo Grader']").trigger("click");
 
@@ -232,7 +232,7 @@ describe("Memo panel components", () => {
     expect(wrapper.emitted("toggle-task-source")[0]).toEqual([task, "source-1", true]);
   });
 
-  it("renders source brief claims, prompts, and source traces", () => {
+  it("renders source brief claims, operator notes, and source evidence", () => {
     const wrapper = mount(MemoSourceBriefPanel, {
       props: {
         sourceBrief: {
@@ -260,7 +260,7 @@ describe("Memo panel components", () => {
     expect(wrapper.text()).toContain("Choose overlay mode.");
   });
 
-  it("renders chart plans, reviewer prompts, and emits save", async () => {
+  it("renders chart plans, operator notes, and emits save", async () => {
     const wrapper = mount(MemoChartPlansPanel, {
       props: {
         chartSpecsDraft: [

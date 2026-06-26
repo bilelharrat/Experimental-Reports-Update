@@ -242,7 +242,7 @@ function fmtDate(value) {
             class="mt-3"
           >
             <div class="text-[11px] uppercase tracking-wide text-warning-ink">
-              Open questions
+              Evidence limits
             </div>
             <ul class="mt-1 space-y-1">
               <li

@@ -97,7 +97,7 @@ function promptStatus(prompt) {
           </div>
           <div v-if="listItems(sourceBrief.no_go_claims).length" class="mt-3">
             <div class="text-[11px] uppercase tracking-wide text-danger">
-              No-go claims
+              Unsupported visual claims
             </div>
             <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
               <li

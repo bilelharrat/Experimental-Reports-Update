@@ -48,13 +48,13 @@ def _package() -> dict:
                         "type": "paragraph",
                         "text": {
                             "en": (
-                                "Generalist should be treated as a conditional "
-                                "opportunity because deployment proof is visible "
-                                "but revenue depth still needs diligence."
+                                "We recommend evaluating Generalist through a "
+                                "deployment-depth investment case because production proof is "
+                                "visible while revenue disclosure remains limited."
                             ),
                             "zh": (
-                                "Generalist 应被视为有条件推进的机会，因为部署证据已经出现，"
-                                "但收入深度仍需尽调确认。"
+                                "我们建议以部署深度为核心情景承销 Generalist，"
+                                "因为生产环境证据已经出现，但收入披露仍然有限。"
                             ),
                         },
                     },
@@ -79,8 +79,8 @@ def _package() -> dict:
                             [
                                 {"en": "Customer depth", "zh": "客户深度"},
                                 {
-                                    "en": "Require repeatable production usage before supporting a step-up.",
-                                    "zh": "承销估值上调前，需要验证可重复的生产环境使用。",
+                                    "en": "Model a step-up only where repeatable production usage is visible.",
+                                    "zh": "只有在可重复生产环境使用可见时，才在模型中计入估值上调。",
                                 },
                             ],
                         ],
@@ -89,13 +89,13 @@ def _package() -> dict:
                         "type": "callout",
                         "tone": "warning",
                         "title": {
-                            "en": "Decision Gate",
-                            "zh": "决策关口",
+                            "en": "Valuation Sensitivity",
+                            "zh": "估值敏感性",
                         },
                         "items": [
                             {
-                                "en": "Confirm production deployments and margin path.",
-                                "zh": "确认生产部署和利润率路径。",
+                                "en": "Production deployment depth and margin path drive sizing.",
+                                "zh": "生产部署深度和利润率路径决定配置规模。",
                             },
                             {
                                 "en": "Separate contracted pilots from recognized revenue.",
@@ -131,8 +131,8 @@ def _package() -> dict:
                         "type": "bullets",
                         "items": [
                             {
-                                "en": "Customer proof creates a diligence path for BSH.",
-                                "zh": "客户验证为 BSH 提供了尽调路径。",
+                                "en": "Customer proof supports the BSH infrastructure-scarcity thesis.",
+                                "zh": "客户验证支持 BSH 的基础设施稀缺性判断。",
                             },
                             {
                                 "en": "The category can support expansion if deployments repeat.",
@@ -522,8 +522,8 @@ def _write_parity_docx(
         ],
     }
     bodies = {
-        "en": "The memo preserves structure, tables, risks, valuation, and diligence gates.",
-        "zh": "本备忘录保留相同结构、表格、风险、估值判断和尽调关口。",
+        "en": "The memo preserves structure, tables, risks, valuation, and sensitivity treatment.",
+        "zh": "本备忘录保留相同结构、表格、风险、估值判断和敏感性处理。",
     }
     for section_id, title in titles[locale]:
         if section_id == omit_section:

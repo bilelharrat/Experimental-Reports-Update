@@ -88,7 +88,7 @@ function reviewSeverityClass(severity) {
         <div class="mt-1 text-ink-primary">{{ summary.blockers }}</div>
       </div>
       <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-        <div class="uppercase tracking-wide text-ink-muted">Waivers</div>
+        <div class="uppercase tracking-wide text-ink-muted">Evidence Exceptions</div>
         <div class="mt-1 text-ink-primary">{{ summary.waivers }}</div>
       </div>
       <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
@@ -193,14 +193,14 @@ function reviewSeverityClass(severity) {
 
     <div class="mt-5">
       <div class="mb-2 flex items-center justify-between gap-3">
-        <h4 class="text-sm font-semibold text-ink-primary">Source Trace Drawer</h4>
+        <h4 class="text-sm font-semibold text-ink-primary">Source Evidence Drawer</h4>
         <span class="text-xs text-ink-muted">{{ sourceTraceRows.length }}</span>
       </div>
       <div
         v-if="sourceTraceRows.length === 0"
         class="rounded-lg border border-subtle bg-surface-muted px-3 py-3 text-sm text-ink-muted"
       >
-        No source traces captured.
+        No source evidence captured.
       </div>
       <div v-else class="overflow-x-auto rounded-lg border border-subtle">
         <table class="min-w-full text-sm">

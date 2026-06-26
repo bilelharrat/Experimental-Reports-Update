@@ -486,7 +486,7 @@ describe("MemoAnalysisDashboard", () => {
           completed_run_id: "memo-run-1",
           missing_diligence: ["Customer concentration needs proof."],
           rewrite_guidance: ["Tighten the risk framing."],
-          lessons_for_future_memo_runs: ["Require source traces for customer claims."],
+          lessons_for_future_memo_runs: ["Require source evidence for customer claims."],
           lessons_path: "data/serena_training/generalist/serena_memo_lessons.md",
           source_files_reviewed: ["memo-run-1.md"],
           confidence: "medium",
@@ -520,7 +520,7 @@ describe("MemoAnalysisDashboard", () => {
     expect(text).toContain("Memo Tools Toolbox");
     expect(text).toContain("Work Products");
     expect(text).toContain("Review Queue");
-    expect(text).toContain("Source Trace Drawer");
+    expect(text).toContain("Source Evidence Drawer");
     expect(text).toContain("Source And Evidence Boundaries");
     expect(text).toContain("analysis_session:session-1");
     expect(text).toContain("research_task:task-1");
@@ -529,7 +529,7 @@ describe("MemoAnalysisDashboard", () => {
     expect(text).toContain("Only pilots were confirmed.");
     expect(text).toContain("Contracted ARR by customer.");
     expect(text).toContain("Customer concentration needs proof.");
-    expect(text).toContain("Require source traces for customer claims.");
+    expect(text).toContain("Require source evidence for customer claims.");
     expect(text).toContain("data/uploads/generalist/");
     expect(text).toContain("data/stock_research/");
     expect(text).toContain("excluded");

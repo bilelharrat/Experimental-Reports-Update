@@ -158,9 +158,9 @@ def _assess_stage(company: dict) -> dict:
                 "classification": "early-stage",
                 "reason": (
                     f"Latest funding round '{round_raw}' is early-stage for the "
-                    f"{SKILL_NAME} memo workflow. Proceeding as a scope-warning "
-                    "exception; treat stage fit and thin late-stage diligence as "
-                    "explicit caveats in the memo."
+                    f"{SKILL_NAME} memo workflow. Proceeding with stage "
+                    "calibration; treat source depth, unit economics, and "
+                    "stage fit as valuation sensitivities."
                 ),
                 "signals": signals,
             }
@@ -184,9 +184,9 @@ def _assess_stage(company: dict) -> dict:
                 "classification": "early-stage",
                 "reason": (
                     f"Total funding (~${total/1_000_000:.1f}M) is below the "
-                    "late-stage floor. Proceeding as a scope-warning exception; "
-                    "treat stage fit and thin late-stage diligence as explicit "
-                    "caveats in the memo."
+                    "late-stage floor. Proceeding with stage calibration; "
+                    "treat source depth, unit economics, and stage fit as "
+                    "valuation sensitivities."
                 ),
                 "signals": signals,
             }

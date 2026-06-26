@@ -2333,9 +2333,9 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "distribution_notes.md": "Distribution / GTM",
     "replacement_vs_coexistence.md": "Replacement vs coexistence",
     "scenario_swim_lanes.md": "Scenario swim lanes",
-    "pre_mortem.md": "Pre-mortem",
-    "reverse_ic.md": "Reverse IC",
-    "validation_log.md": "Validation log",
+    "downside_scenario.md": "Downside scenario analysis",
+    "countercase.md": "Countercase analysis",
+    "source_treatment_assumptions.md": "Source treatment and assumptions",
     "risk_sensitivities.md": "Risk and valuation sensitivities",
 }
 
@@ -2412,9 +2412,9 @@ _MEMO_PARALLEL_ANALYSIS_FILES = {
 _MEMO_SYNTHESIS_FILES = {
     "claim_register.md",
     "scenario_swim_lanes.md",
-    "pre_mortem.md",
-    "reverse_ic.md",
-    "validation_log.md",
+    "downside_scenario.md",
+    "countercase.md",
+    "source_treatment_assumptions.md",
     "risk_sensitivities.md",
 }
 
@@ -2469,12 +2469,12 @@ MEMO_FAST_PASS_SCHEMA: dict[str, Any] = {
             "maxItems": 6,
             "items": {"type": "string"},
         },
-        "open_questions": {
+        "remaining_evidence_limits": {
             "type": "array",
             "maxItems": 5,
             "items": {"type": "string"},
         },
-        "memo_uses": {
+        "investment_implications": {
             "type": "array",
             "maxItems": 6,
             "items": {"type": "string"},
@@ -2485,8 +2485,8 @@ MEMO_FAST_PASS_SCHEMA: dict[str, Any] = {
         "key_findings",
         "supporting_evidence",
         "disconfirming_evidence",
-        "open_questions",
-        "memo_uses",
+        "remaining_evidence_limits",
+        "investment_implications",
     ],
 }
 
@@ -2500,17 +2500,17 @@ MEMO_FAST_ENGLISH_PACKAGE_SCHEMA: dict[str, Any] = {
             "properties": {
                 "claim_register_md": {"type": "string"},
                 "scenario_swim_lanes_md": {"type": "string"},
-                "pre_mortem_md": {"type": "string"},
-                "reverse_ic_md": {"type": "string"},
-                "validation_log_md": {"type": "string"},
+                "downside_scenario_md": {"type": "string"},
+                "countercase_md": {"type": "string"},
+                "source_treatment_assumptions_md": {"type": "string"},
                 "risk_sensitivities_md": {"type": "string"},
             },
             "required": [
                 "claim_register_md",
                 "scenario_swim_lanes_md",
-                "pre_mortem_md",
-                "reverse_ic_md",
-                "validation_log_md",
+                "downside_scenario_md",
+                "countercase_md",
+                "source_treatment_assumptions_md",
                 "risk_sensitivities_md",
             ],
         },
@@ -2553,8 +2553,8 @@ Final memo prose must:
   narrate what the memo/document/section/analysis does, and do not use
   writer-process language;
 - use first-person sponsor voice when stating our view, access, conviction,
-  and action: "we believe", "we are being offered", "we recommend",
-  "we recommend", and "we are participating through";
+  and action: "we believe", "we are being offered", "we recommend", and
+  "we are participating through";
 - never use detached third-person constructions for the investment call;
   recommendation, access, base case, and action sentences need a first-person
   sponsor subject or a direct investment-case subject;
@@ -2567,18 +2567,19 @@ Final memo prose must:
 - use source-class language in Sections I-V, with detailed source IDs only in
   a separate Sources, Source Classes, and Fact Reference Index;
 - convert disclosure gaps into risk factors, valuation sensitivities, Fermi
-  estimates, or closing diligence.
+  estimates, or deal-mechanics treatment.
 
 Sell-side investment memo posture:
 - Open from the sponsor thesis, not from a tombstone. Start with why we care
   about the category, why the timing matters, why this company is shaping the
-  layer or market that matters, and why we want exposure. Then explain the
-  technical proof, commercial proof, and SPV/round mechanics.
+  layer or market that matters, and why the opportunity fits BSH's mandate.
+  Then explain the technical proof, commercial proof, and SPV/round mechanics.
 - For Wisdom-sponsored opportunities, write in a Wisdom/BSH sponsor register:
-  "we invest", "we want to be in the room", "we are participating through the
-  SPV", and "we recommend participating...". Do not describe the sponsor or
-  investors from a detached third-person vantage point unless identifying a
-  legal counterparty.
+  use "BSH invests in..." for mandate-level category statements, and use
+  "we are being offered", "we are participating through the SPV", and
+  "we recommend participating..." for the transaction and recommendation. Do
+  not describe the sponsor or investors from a detached third-person vantage
+  point unless identifying a legal counterparty.
 - Do not write as if BSH is negotiating control terms in a private-equity
   process or exposing its internal intended position to LPs.
 - Do not default to "small/minimum" allocation because revenue, ARR, gross
@@ -2597,25 +2598,24 @@ Sell-side investment memo posture:
   sensitivity to the final instrument terms without turning the memo into a
   checklist.
 - The finished investment memo is an offer memo, not an internal approval note.
-  Do not use investment conditions, expected bars, confirmation bars, diligence
-  gates, proceed-if-confirmed language, or next-step checklists in final prose.
-  Convert those ideas into investment thesis, risk factors, valuation
+  Do not use closing-checklist language, expected-bar labels, funding-gate
+  language, or next-step checklists in final prose. Convert those ideas into
+  investment thesis, risk factors, valuation
   sensitivities, and deal-mechanics disclosure.
-- Do not use funding-gate or checklist phrasing in final prose: no "confirm
-  before funding", "before BSH funds", "before signing subscription
-  documents", "we still need", "need to confirm", "require the split", or
-  "diligence actions". Convert each item into risk or valuation language:
-  "The $500M+ figure blends signed contracts and MOUs, so valuation support is
-  strongest where binding contract value converts to recognized revenue."
-- Do not use confirmation-section headings in the finished memo. Ban "Closing
-  Confirmations", "Closing Confirmation Bars", "What Must Be Confirmed",
-  "Confirmation Items", and "Next Diligence Actions". Those are internal
-  workflow/checklist labels. Fold the same substance into the investment
-  thesis, risk factors, valuation sensitivity, or deal-mechanics disclosure.
+- Do not use funding-gate or checklist phrasing that tells the reader to
+  confirm, require, or wait for process items before funding or signing.
+  Convert each item into risk or valuation language: "The $500M+ figure blends
+  signed contracts and MOUs, so valuation support is strongest where binding
+  contract value converts to recognized revenue."
+- Do not use confirmation-section headings, expected-bar headings, investment
+  condition headings, revisit-condition headings, or next-step checklist
+  headings in the finished memo. Those are internal workflow labels. Fold the
+  same substance into the investment thesis, risk factors, valuation
+  sensitivity, or deal-mechanics disclosure.
 - Do not start final memo sentences, bullets, or table cells with imperative
-  "Confirm ...". That is internal-note/checklist voice. The final memo should
-  say, "A2 lead, final pre-money, and closing evidence match the disclosed
-  Series A2 economics."
+  evidence-request verbs. That is internal-note/checklist voice. The final memo
+  should state the disclosed fact, model treatment, and valuation sensitivity
+  directly.
 - Do not speculate about sponsor, company, investor, or counterparty
   capability to share, provide, produce, or confirm information. State the
   disclosed fact, the risk to the investment case, and the valuation
@@ -2624,34 +2624,42 @@ Sell-side investment memo posture:
   "memo language was", "the sponsor implies", "the sponsor frames", and
   "the sponsor itself flags". State the fact or risk directly, then say how it
   affects the investment case.
-- Do not use source-process narration as a substitute for investment judgment:
-  no "the sponsor acknowledges", "the sponsor discloses", "inside the memo",
-  "source material", "embedded in the registry", or "the registry". Write the
-  fact in plain form: "The $500M+ figure blends signed contracts and MOUs" or
-  "available evidence does not document revenue attribution."
+- Do not use source-process narration as a substitute for investment judgment.
+  Do not narrate what a sponsor note, registry, source packet, or memo artifact
+  says. Write the fact in plain form: "The $500M+ figure blends signed
+  contracts and MOUs" or "available evidence does not document revenue
+  attribution."
 - Do not write passive availability language about future process access or
   ease of confirmation. Those are guesses about process, not investment
   judgments.
 - Do not use legal-rights shorthand in operating tables. Translate it into
   economic meaning: "The SPV offers limited direct governance and reporting;
   the manager controls investor-level decisions as a single block."
-- Do not use buyer-side underwriting vocabulary in final prose or tables:
-  no "underwrite", "underwriting", "underwritten", "before underwriting",
-  "before we underwrite", or "right way to view the underwriting". Use
-  investment-case language instead: "we give credit to", "our base case
-  credits", "the investment case rests on", "the valuation is supported by",
-  or "the valuation is supported by."
+- Do not use buyer-side underwriting vocabulary in final prose or tables.
+  Use investment-case language instead: "we give credit to", "our base case
+  credits", "the investment case rests on", or "the valuation is supported by."
 - Do not use writer-process framing such as "we frame it as", "we frame the
   market", or "the framework". State the investment conclusion directly.
 - Do not write imperative diligence commands such as "Require X before
   underwriting". Use investment-case language: "The base case gives credit to
   X", "X supports the valuation", or "X remains the principal risk factor."
+- Do not use casual sponsor verbs or exposure-seeking idioms for mandate-level
+  statements. Write "BSH invests in..." for the mandate and "we recommend..."
+  for the action. Do not use buried or underside metaphors for infrastructure;
+  write "control layer for" or "infrastructure layer for".
+- Do not overload the opening paragraph with sponsor mission, technical claim,
+  investor roster, and founder resume in one block. Open with sponsor thesis
+  and company relevance, then move technical proof, backers, and team pedigree
+  into the next paragraph or Company Overview.
+- Do not use uniqueness claims such as "only scaled platform" unless the source
+  package independently supports both uniqueness and scale. Use precise
+  capability claims instead.
 
 Concrete positive writing patterns:
-- Opening: "We invest behind physical-world infrastructure that makes people
-  safer and more capable. ZaiNar matters because accurate network-side
-  positioning is becoming a control layer for defense, industrial automation,
-  logistics, and Physical AI."
+- Opening: "BSH invests in physical-world infrastructure that makes people
+  safer, healthier, and more capable. ZaiNar is compelling because precise
+  network-side positioning is becoming a control layer for defense PNT,
+  industrial automation, logistics, healthcare, and Physical AI."
 - Transaction: "We are being offered SPV exposure to a SAFE expected to convert
   into the A2 at an effective entry near $2.55B after the discount."
 - Recommendation: "We recommend participating in the SPV because the entry
@@ -2680,20 +2688,13 @@ Final memo body and operating tables must not contain:
 - internal artifact names such as `companies.yaml`, `memo_packet`,
   `source_trace`, `claim_register`, `research_tasks`, `reviewer_prompts`, or
   analysis file names;
-- source-process narration such as `memo language was`, `the sponsor implies`,
-  `the sponsor frames`, `the sponsor itself flags`, `the sponsor acknowledges`,
-  `the sponsor discloses`, `inside the memo`, `source material`,
-  `embedded in the registry`, `the registry`, or `we still need`;
-- scaffold headings or labels such as `Critical Reality Check`,
-  `present-state`, `upside-state`, `upside-only`,
-  `Strongest independent support`, `Strongest disconfirming facts`,
-  `Still unproven`, `Diligence Thresholds`, `Closing Confirmations`,
-  `Closing Confirmation Bars`, `What Must Be Confirmed`,
-  `Confirmation Items`, `Expected Bars`, `Investment Conditions`, or
-  `Next Diligence Actions`;
-- cute or fuzzy finance phrasing such as `soft instrument`, `hard IP wall`,
-  `moat narrows`, `no-rights SAFE`, `where nothing else works`, or
-  `least-proven part of the story`;
+- source-process narration about what a memo artifact, registry, source packet,
+  sponsor note, or reviewer prompt says;
+- scaffold headings or labels from analytical worksheets, evidence-state
+  tables, closing checklists, expected-bar lists, investment-condition lists,
+  revisit-condition lists, or internal question lists;
+- cute or fuzzy finance metaphors, no-rights legal shorthand, overclaimed
+  scarcity phrases, or shorthand that obscures the economic point;
 - deal-legal checklist terms such as `MFN`, `down-round protection`,
   `information rights`, `voting rights`, `named lead`, `named institutional
   lead`, or `governance at the LP level`; explain the investor economics in
@@ -2765,22 +2766,20 @@ Banned phrase / rewrite guidance:
 | Analysis-process narration | State the conclusion directly. |
 | Uncertainty apology | State the disclosed and undisclosed facts directly. |
 | Detached decision label | Investment Decision / We recommend... |
-| Question-form closing condition | State the deal economics, risk factor, or valuation sensitivity. |
+| Question-form closing checklist | State the deal economics, risk factor, or valuation sensitivity. |
 | Sponsor capability speculation | State the disclosed fact and investment implication directly. |
 | Passive availability language | Remove the process guess; state the risk or valuation sensitivity. |
-| confirm before funding / before BSH funds | State the risk or valuation sensitivity. |
-| Confirm [anything] | State the deal fact, support point, or risk sensitivity directly. |
-| Closing Confirmations / Closing Confirmation Bars / What Must Be Confirmed | Remove the section; fold the substance into recommendation, risk, valuation, or deal mechanics. |
-| before signing subscription documents | State the deal fact or valuation sensitivity directly. |
-| we still need / need to confirm | State what is disclosed, not disclosed, and why it matters. |
-| the sponsor implies / the sponsor frames | State the investment fact or risk directly. |
-| sponsor acknowledges / sponsor discloses | State the disclosed fact directly. |
-| memo language was | State the disclosed timing or term directly. |
-| source material / inside the memo / registry | available evidence / disclosed materials / omit the process frame |
-| Diligence Thresholds / Next Diligence Actions | Fold into recommendation, risk, valuation, or deal-mechanics prose. |
+| Funding-gate checklist phrase | State the risk or valuation sensitivity. |
+| Imperative evidence-request phrase | State the deal fact, support point, or risk sensitivity directly. |
+| Closing checklist headings | Remove the section; fold the substance into recommendation, risk, valuation, or deal mechanics. |
+| Signing-process checklist phrase | State the deal fact or valuation sensitivity directly. |
+| Open-item process phrase | State what is disclosed, not disclosed, and why it matters. |
+| Sponsor-process narration | State the investment fact or risk directly. |
+| Source-process narration | available evidence / disclosed materials / omit the process frame |
+| Diligence threshold or next-step checklist labels | Fold into recommendation, risk, valuation, or deal-mechanics prose. |
 | No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
 | underwrite / underwriting | give credit to / investment case / valuation support |
-| before we underwrite... | before we give full credit to... / once confirmed |
+| Pre-underwriting process language | our base case credits... where source support is strongest |
 | the right way to view the underwriting | the investment case rests on... |
 | We frame it as... | State the conclusion directly without writer-process narration. |
 | Require X before underwriting | X is a valuation-support factor / X remains a risk factor. |
@@ -2795,9 +2794,9 @@ Banned phrase / rewrite guidance:
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
 | The principal risk is that... | Key risk centers on... |
-| soft instrument | SPV interest whose economics depend on SAFE conversion. |
-| hard IP wall | patent estate and technical approach that still need claim-scope review. |
-| moat narrows | upside shifts from product margin to patent leverage and deployment relationships. |
+| Soft-instrument metaphor | SPV interest whose economics depend on SAFE conversion. |
+| Hard-IP metaphor | patent estate and technical approach that still need claim-scope review. |
+| Moat-compression shorthand | upside shifts from product margin to patent leverage and deployment relationships. |
 
 Before DOCX generation, run a final prose QA pass. Remove banned phrases,
 meta language, methodology leakage, over-explained risks, template-visible
@@ -2888,7 +2887,7 @@ def _build_investment_memo_prompt(
     if scope_check and scope_check.get("outcome") == "warn":
         warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
         scope_warning_block = f"""\
-## Scope-warning override from prep
+## Stage Calibration Context From Prep
 
 The pre-run scope check produced a **non-fatal warning**:
 
@@ -2898,11 +2897,11 @@ The pre-run scope check produced a **non-fatal warning**:
 {warning_lines if warning_lines else "- No additional warnings recorded."}
 
 Proceed with the memo anyway. Do **not** stop or decline solely because the
-company is early-stage or indeterminate. Instead, make the stage mismatch,
-thin late-stage diligence base, missing unit economics, and fit with the
-late-stage/pre-IPO memo framework explicit caveats in the memo. Preserve the
-late-stage analytical standard where possible, but label assumptions and
-confidence limits clearly.
+company is early-stage or indeterminate. Treat stage fit, source depth,
+missing unit economics, and late-stage/pre-IPO comparability as model
+treatment, allocation sensitivity, and valuation sensitivity. Preserve the
+late-stage analytical standard where possible, but state assumptions as
+investment-case treatment rather than apologetic caveats.
 
 """
 
@@ -2954,8 +2953,8 @@ infographic choices, selected operator narrative choices, source-brief
 warnings, intro stance, risk-section stance, and conclusion verdict come from
 this packet when they are supported by evidence. Treat selected
 openings, risk framings, and endings as operator HIL guidance, not copy-paste
-text. Do not convert draft status, source-brief no-go claims, missing
-evidence, unresolved readiness blockers, or reviewer prompts into factual
+text. Do not convert draft status, source-brief unsupported claims, missing
+evidence, unresolved readiness blockers, or operator prompts into factual
 memo claims.
 
 """
@@ -2993,7 +2992,7 @@ step. Sequential per-pass execution is wasteful — fan them out
 concurrently.
 
 The synthesis step (Claim Register reconciliation, Scenario Swim
-Lanes, valuation sensitivity, Pre-Mortem, Reverse IC), the memo
+Lanes, valuation sensitivity, downside scenario, countercase), the memo
 drafting step, the translation step, and the package-writing step
 remain sequential. Server-side `.docx` rendering happens after Claude exits.
 
@@ -3010,7 +3009,10 @@ Serena has stored lessons from prior completed memo runs for this company:
 
 Read this file before drafting. Use these lessons as memo-quality heuristics,
 not as facts. Current company evidence, current public data, and the approved
-analysis packet override stale or contradictory lessons.
+analysis packet override stale or contradictory lessons. Before applying any
+lesson, discard or rewrite stale internal labels, third-person recommendation
+voice, prompt labels, and process/checklist wording under the current voice
+contract.
 
 """
 
@@ -3032,10 +3034,17 @@ to audit a contradiction against another source.
 
     return f"""\
 You are running the **bsh-investment-memo-latestage-v1** skill (Serena's
-script) for one real run. The skill text is included verbatim below.
-**Follow it exactly.** The only deviations from the text are the non-fatal
-scope-warning override, the server-owned DOCX rendering handoff, and the
-phase-1 / parallel-passes execution discipline below.
+script) for one real run. The skill text is included below as the source
+standard, with the current voice and renderer contract taking precedence.
+
+Prompt precedence:
+1. The Human Executive Memo Voice Contract below governs all final prose.
+2. The fixed DOCX renderer contract governs package shape and bilingual output.
+3. Source-boundary rules and `data/uploads/` exclusion govern source use.
+4. The remediated final-output requirements below override any older wording
+   inside the included skill text.
+5. The skill text supplies the diligence standard and section expectations only
+   where it does not conflict with the current contract.
 
 ## Run-specific operational context
 
@@ -3124,7 +3133,7 @@ shape:
         {{"type": "heading", "level": 2, "text": {{"en": "Investment Opportunity", "zh": "投资机会"}}}},
         {{"type": "paragraph", "text": {{"en": "Body prose.", "zh": "正文。"}}}},
         {{"type": "bullets", "items": [{{"en": "Bullet.", "zh": "要点。"}}]}},
-        {{"type": "callout", "tone": "warning", "title": {{"en": "Decision Gate", "zh": "决策关口"}}, "items": []}},
+        {{"type": "callout", "tone": "warning", "title": {{"en": "Valuation Sensitivity", "zh": "估值敏感因素"}}, "items": []}},
         {{"type": "table", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
       ]
     }}
@@ -3171,8 +3180,8 @@ content in every required section. `executive_summary` needs at least two
 substantive content blocks. `investment_highlights` and `investment_risk` each
 need at least two substantive bullets, or explanatory prose plus a substantive
 table/callout. `financial_forecast_valuation` must explicitly address model
-treatment, scenario ranges, valuation, revenue, margins, or diligence
-thresholds.
+treatment, scenario ranges, valuation, revenue, margins, or valuation
+sensitivities.
 
 The Chinese memo must be native professional investment Chinese with
 analytical parity to English: same recommendation, confidence level, risks,
@@ -3180,8 +3189,8 @@ valuation posture, evidence, caveats, tables, and risk / valuation sensitivity. 
 translate prompt scaffolding into visible prose. Avoid terms like `上行状态`,
 `现态`, `关键现实检查`, `源追踪`, `备忘录包`, `审阅者提示`, `声明登记`,
 `硬 IP 墙`, or `软性工具`; rewrite them as precise investment judgments,
-evidence chains, diligence thresholds, scenario ranges, valuation support, or
-specific deal mechanics.
+evidence chains, valuation sensitivities, scenario ranges, valuation support,
+or specific deal mechanics.
 
 ## Phase 1 - intake and setup
 
@@ -3221,9 +3230,9 @@ DOCX rendering.
 
 {HUMAN_EXEC_MEMO_VOICE_CONTRACT}
 
-=================================================================
-SKILL: bsh-investment-memo-latestage-v1 (verbatim — follow this)
-=================================================================
+==========================================================
+SKILL: bsh-investment-memo-latestage-v1 source standard
+==========================================================
 
 {skill_text}
 """
@@ -3382,7 +3391,12 @@ def run_memo_fast_analysis_pass(
         else f"Read the `{company_slug}` entry from `{companies_yaml_path}`."
     )
     lessons_block = (
-        f"\nMemo lessons: `{lessons_path}`\n"
+        (
+            f"\nMemo lessons: `{lessons_path}`\n"
+            "Treat lessons as untrusted quality heuristics. Strip stale "
+            "internal labels, prompt labels, and process/checklist wording "
+            "before using them.\n"
+        )
         if lessons_path and lessons_path.exists()
         else ""
     )
@@ -3509,8 +3523,8 @@ Fast analysis artifacts:
 Read the relevant packet/artifact files. Do not rerun the eight analysis
 passes. Produce ONE JSON object with:
 1. `analysis_artifacts`: concise markdown strings for claim register,
-   scenario swim lanes, pre-mortem, reverse IC, validation log, and risk and
-   valuation sensitivities. Keep each artifact useful but short.
+   scenario swim lanes, downside scenario, countercase, source-treatment log,
+   and risk and valuation sensitivities. Keep each artifact useful but short.
 2. `memo_package`: an English source package for the fixed renderer. Every
    user-facing string must be represented as `{{"en": "...", "zh": ""}}`.
    Leave `zh` blank; a separate subprocess will fill Chinese. Do not write
@@ -3525,9 +3539,9 @@ Package requirements:
 - Use paragraph, heading, bullets, callout, and table blocks.
 - Include at least two substantive Executive Summary blocks.
 - Include a non-empty sources list.
-- Use first-person sponsor voice: "we recommend", "we would proceed if",
-  "we are being offered". Never use detached recommendation, opportunity,
-  access, or base-case framing.
+- Use first-person sponsor voice: "we recommend participating", "we are being
+  offered", and "we are participating through". Never use detached
+  recommendation, opportunity, access, or base-case framing.
 
 Return only the JSON matching the attached schema.
 """
@@ -3571,7 +3585,7 @@ Run id: {run_id}
 
 Task:
 - Read the English package.
-- Return `memo_package` with the exact same structure, same English strings,
+- Return `memo_package` with the same JSON schema, unchanged English values,
   same source list, same recommendation, same numbers, and same table rows.
 - Fill every blank `zh` user-facing string with native professional Simplified
   Chinese suitable for institutional investment readers.
@@ -3588,7 +3602,8 @@ Chinese style:
 - Use Chinese punctuation in Chinese sentences.
 - Keep a half-width space around Latin acronyms inside Chinese sentences.
 - Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
-  `源追踪`, `备忘录包`, `硬 IP 墙`, or `软性工具`.
+  source-trace labels, memo-package labels, reviewer-prompt labels,
+  decision-question labels, `硬 IP 墙`, or `软性工具`.
 """
     return _run_memo_local_json_artifact(
         prompt=prompt,
@@ -3967,16 +3982,17 @@ Read the files below before writing the package:
         prior_package_block = f"""\
 ## Prior package draft
 
-Use `{prior_package_path}` as the working draft. Preserve the structure and
-source treatment that already passed renderer validation, then make the
-smallest substantive edits needed to fix the quality-gate findings. Read
-analysis artifacts only when a changed claim needs support or clarification;
-do not reread every analysis artifact by default.
+Use `{prior_package_path}` as prior output evidence and structure context, not
+as authoritative prose. Preserve only the package structure and source
+treatment that still satisfies the current voice contract, then rewrite every
+quality-gate issue and any adjacent stale wording that carries the same
+problem. Read analysis artifacts whenever a changed claim needs support or
+clarification; do not lock in prior phrasing just because it rendered once.
 
 """
         analysis_instruction = f"""\
-The prior package draft is the primary source for this repair pass. Read the
-analysis files below only as needed to verify or support changed claims:
+The prior package is context for this repair pass. Read the analysis files
+below as needed to verify or support changed claims:
 
 {analysis_list}
 """
@@ -4023,7 +4039,8 @@ You may read only these exact supporting files:
 If a claim is not supported by these analysis artifacts, the company registry,
 settings, the memo analysis session, prior lessons, or the populated research
 folder, do not present it as fact. Convert uncertainty into source class,
-model treatment, scenario range, diligence threshold, or stop/revisit condition.
+model treatment, scenario range, risk factor, valuation sensitivity, or
+deal-mechanics disclosure.
 
 ## Fixed renderer contract
 
@@ -4053,7 +4070,7 @@ The package must be JSON with this shape:
         {{"type": "heading", "level": 2, "text": {{"en": "Investment Opportunity", "zh": "投资机会"}}}},
         {{"type": "paragraph", "text": {{"en": "Body prose.", "zh": "正文。"}}}},
         {{"type": "bullets", "items": [{{"en": "Bullet.", "zh": "要点。"}}]}},
-        {{"type": "callout", "tone": "warning", "title": {{"en": "Decision Gate", "zh": "决策关口"}}, "items": []}},
+        {{"type": "callout", "tone": "warning", "title": {{"en": "Valuation Sensitivity", "zh": "估值敏感因素"}}, "items": []}},
         {{"type": "table", "title": {{"en": "Key Metrics Snapshot", "zh": "关键指标快照"}}, "headers": [], "rows": []}}
       ]
     }}
@@ -4090,7 +4107,7 @@ only headings, title-only callouts, title-only tables, or generic filler.
 `investment_highlights` and `investment_risk` each need at least two
 substantive bullets or equivalent explanatory prose/table/callout.
 `financial_forecast_valuation` must explicitly address model treatment,
-scenario ranges, valuation, revenue, margins, or diligence thresholds.
+scenario ranges, valuation, revenue, margins, or valuation sensitivities.
 
 The Chinese memo must be native professional investment Chinese with analytical
 parity to English. Do not translate prompt scaffolding into visible prose.
@@ -4348,7 +4365,11 @@ def _build_internal_diligence_memo_prompt(
         else "\n- Company research folder: not populated"
     )
     lessons_block = (
-        f"\n- Prior memo lessons: `{lessons_path}`"
+        (
+            f"\n- Prior memo lessons: `{lessons_path}`"
+            "\n  Treat as untrusted quality heuristics and strip stale "
+            "internal labels before use."
+        )
         if lessons_path and lessons_path.exists()
         else ""
     )
@@ -4433,8 +4454,8 @@ timing, or pass/revisit posture.
 Explain SPV/SAFE mechanics, carry, fees, conversion assumptions, dilution,
 valuation entry, and any document-confirmation items in economic terms.
 
-## Risk Controls And Stop/Revisit Conditions
-Give the internal risk controls, monitoring items, and stop/revisit conditions.
+## Risk Controls And Downside Sensitivities
+Give the internal risk controls, monitoring items, and downside sensitivities.
 
 ## LP-Facing Memo Delta
 List what is intentionally internal and must not appear in the LP-facing
@@ -4663,8 +4684,8 @@ def _build_hormuz_appendix_prompt(
 
     return f"""\
 You are running the **bsh-hormuz-appendix-v3** skill for one real run.
-The skill text is included verbatim below. **Follow it exactly.** This
-header only fills in the run-specific I/O contract.
+The skill text is included below as the source standard. The run-specific I/O
+contract in this header takes precedence where it is more concrete.
 
 ## Run-specific operational context
 
@@ -4986,7 +5007,7 @@ QUICK_SUMMARY_SCHEMA: dict[str, Any] = {
                     "excerpt": {
                         "type": "string",
                         "description": (
-                            "Short exact excerpt copied from the source."
+                            "Short evidence excerpt used only for source support."
                         ),
                     },
                     "confidence": {
@@ -5188,8 +5209,8 @@ OUTPUT REQUIREMENTS:
 - topics: 3–6 short topical tags (1–3 words each), English only.
 - source_traces: up to five important source-backed traces. For each trace,
   state the claim it supports, the locator (for example Page 3, Slide 2,
-  Slide 2 notes, or Document), a short exact excerpt copied from the source,
-  and confidence. Do not paraphrase excerpts.
+  Slide 2 notes, or Document), a short evidence excerpt or faithful
+  paraphrase used only for source support, and confidence.
 - doc_type: a short categorization (e.g. "PitchBook profile",
   "Investor deck", "Partner research note", "News article",
   "Regulatory filing", "Internal memo", "Chart / diagram",
@@ -5460,8 +5481,8 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": (
                 "Direct memo-grade answer to the research task. Explain what "
-                "was found, what remains uncertain, and how it changes the "
-                "investment question."
+                "was found, what remains uncertain, and how it changes "
+                "valuation support or model treatment."
             ),
         },
         "supporting_evidence": {
@@ -5514,10 +5535,13 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
             },
             "description": "Evidence that contradicts or weakens the answer.",
         },
-        "open_questions": {
+        "remaining_evidence_limits": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Specific gaps Serena still needs to close before memo generation.",
+            "description": (
+                "Evidence limits stated with the investment implication, "
+                "source treatment, or valuation sensitivity they create."
+            ),
         },
         "sources_checked": {
             "type": "array",
@@ -5544,7 +5568,7 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
         "answer",
         "supporting_evidence",
         "contradicting_evidence",
-        "open_questions",
+        "remaining_evidence_limits",
         "sources_checked",
         "confidence",
     ],
@@ -5625,7 +5649,7 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
                         "type": "string",
                         "description": (
                             "present_state, upside_state, risk_adjusted, or "
-                            "diligence_needed."
+                            "source_limited."
                         ),
                     },
                     "source_trace": {
@@ -5670,10 +5694,11 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
         "recommendation_logic": {
             "type": "string",
             "description": (
-                "A direct recommendation stance or conditional logic for BSH."
+                "Direct recommendation rationale for BSH, including the "
+                "risk and valuation sensitivities that matter."
             ),
         },
-        "top_gating_questions": {
+        "risk_valuation_sensitivities": {
             "type": "array",
             "minItems": 3,
             "maxItems": 5,
@@ -5681,38 +5706,33 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "expected_bar": {
+                    "sensitivity": {
                         "type": "string",
                         "description": (
-                            "Measurable bar that supports the recommendation, "
-                            "written as a statement rather than a question."
+                            "Measurable risk or valuation variable that can "
+                            "strengthen or weaken the investment case."
                         ),
                     },
-                    "support_threshold": {
+                    "support_evidence": {
                         "type": "string",
                         "description": (
-                            "Specific threshold or evidence level that makes "
-                            "the recommendation defensible."
+                            "Specific source-backed evidence that supports "
+                            "the recommendation or base-case valuation."
                         ),
                     },
-                    "confirmation_evidence": {
+                    "evidence_context": {
                         "type": "array",
                         "items": {"type": "string"},
                     },
-                    "stop_or_revisit_if_missing": {"type": "string"},
-                    # Deprecated compatibility alias; do not use for new output.
-                    "question": {"type": "string"},
-                    "why_it_matters": {"type": "string"},
-                    "evidence_needed": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
+                    "downside_impact": {"type": "string"},
+                    "recommendation_sensitivity": {"type": "string"},
                 },
                 "required": [
-                    "expected_bar",
-                    "support_threshold",
-                    "confirmation_evidence",
-                    "stop_or_revisit_if_missing",
+                    "sensitivity",
+                    "support_evidence",
+                    "evidence_context",
+                    "downside_impact",
+                    "recommendation_sensitivity",
                 ],
             },
         },
@@ -5738,7 +5758,7 @@ SERENA_THESIS_SPINE_SCHEMA: dict[str, Any] = {
         "investment_highlights",
         "investment_risks",
         "recommendation_logic",
-        "top_gating_questions",
+        "risk_valuation_sensitivities",
         "bull_case_must_be_true",
         "pass_triggers",
         "source_basis",
@@ -6095,7 +6115,7 @@ SERENA_CHART_SPEC_SCHEMA: dict[str, Any] = {
                         "enum": [
                             "no_text_overlay",
                             "text_in_image",
-                            "needs_human_choice",
+                            "operator_choice_required",
                         ],
                     },
                     "text_overlay_plan": {
@@ -6222,13 +6242,13 @@ SERENA_CHART_SPEC_SCHEMA: dict[str, Any] = {
                         ],
                     },
                     "owner": {"type": "string"},
-                    "diligence_needed": {
+                    "source_limitations": {
                         "type": "array",
                         "items": {"type": "string"},
                     },
                     "memo_section_placement": {"type": "string"},
                     "include_in_final_memo": {"type": "boolean"},
-                    "final_memo_inclusion_state": {"type": "string"},
+                    "memo_inclusion_decision": {"type": "string"},
                     "reviewer_prompts": {
                         "type": "array",
                         "items": SERENA_REVIEWER_PROMPT_SCHEMA,
@@ -6255,10 +6275,10 @@ SERENA_CHART_SPEC_SCHEMA: dict[str, Any] = {
                     "data_payload",
                     "design_prompt",
                     "owner",
-                    "diligence_needed",
+                    "source_limitations",
                     "memo_section_placement",
                     "include_in_final_memo",
-                    "final_memo_inclusion_state",
+                    "memo_inclusion_decision",
                     "reviewer_prompts",
                     "status",
                     "confidence",
@@ -6391,7 +6411,7 @@ SERENA_MEMO_GRADER_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string"},
         },
-        "missing_diligence": {
+        "evidence_limits": {
             "type": "array",
             "items": {"type": "string"},
         },
@@ -6418,7 +6438,7 @@ SERENA_MEMO_GRADER_SCHEMA: dict[str, Any] = {
         "scores",
         "strongest_sections",
         "weakest_sections",
-        "missing_diligence",
+        "evidence_limits",
         "rewrite_guidance",
         "lessons_for_future_memo_runs",
         "source_files_reviewed",
@@ -6590,7 +6610,8 @@ Memo lessons:
 `{lessons_path}`
 
 Use these as quality heuristics only. Current company evidence and current
-Memo Studio artifacts override stale or contradictory lessons.
+Memo Studio artifacts override stale or contradictory lessons. Strip stale
+internal labels, prompt labels, and process/checklist wording before use.
 """
         extra_dirs.append(lessons_path.parent)
 
@@ -6619,23 +6640,23 @@ Instructions:
 - Build a compact, durable source brief for later infographic and narrative
   generation. Do not write final memo prose.
 - Use the current thesis spine, selected risks, research-task evidence,
-  evidence matrix-like contradictions, benchmark metrics, readiness waivers,
-  selected chart/narrative state, memo lessons, and selected research-folder
-  excerpts.
+  evidence matrix-like contradictions, benchmark metrics, evidence-readiness
+  notes, selected chart/narrative state, prior quality guidance, and selected
+  research-folder excerpts.
 - Narrative opportunities must explicitly identify the strongest available
-  source-backed material for three final memo moments: the intro stance, the
+  source-backed material for three final memo passages: the intro stance, the
   risk-section stance, and the conclusion/recommendation verdict.
 - Use the Serena research folder above for local company documents. Do NOT read
   from `data/uploads/` or the Document Library.
 - If local research files exist, inspect only the high-signal files needed for
-  source traces. Use WebSearch/WebFetch only for public current evidence that
+  source support. Use WebSearch/WebFetch only for public current evidence that
   affects a metric, contradiction, or visual claim.
 - Keep claims compact and mark missing, contradicted, source_needed, or
   prohibited_for_visuals when the evidence is not good enough for visuals.
 - Numeric metrics must include unit, period, denominator or calculation notes,
-  and source traces when available. Use null when unavailable.
+  and source evidence details when available. Use null when unavailable.
 - Put ambiguous tone, aggressiveness, visual mode, or claim-framing choices in
-  reviewer_prompts rather than silently resolving them.
+  operator review notes rather than silently resolving them.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -6724,18 +6745,18 @@ Available files in that folder:
 
 Instructions:
 - Use infographic_source_brief as the primary factual input. Inspect local
-  research files or web sources only when necessary to preserve or verify a
-  source trace. Do NOT read from `data/uploads/` or the Document Library.
+  research files or web sources only when necessary to preserve or verify
+  source support. Do NOT read from `data/uploads/` or the Document Library.
 - Plan high-quality memo infographics, not low-fidelity deterministic charts.
 - Support two production modes: no_text_overlay for image generation without
   text plus app-rendered typography, and text_in_image when fully generated
-  text is the better fit. Use needs_human_choice plus reviewer_prompts when
-  the choice is ambiguous.
+  text is the better fit. Use operator_choice_required plus operator review
+  notes when the choice is ambiguous.
 - For every plan, include title, purpose, visual format, overlay copy,
   required metrics, data payload, source availability, citations, information
-  gaps, image generation design prompt, prohibited claims, owner, diligence
-  needed, memo section placement, and final memo inclusion state.
-- Do not invent metrics, source traces, periods, denominators, or claims. Use
+  gaps, image generation composition brief, unsupported claims, owner, evidence
+  limits, memo section placement, and memo inclusion decision.
+- Do not invent metrics, source support, periods, denominators, or claims. Use
   null or information_gaps when evidence is missing.
 - Preserve selected/include intent from existing chart_specs when it remains
   semantically relevant.
@@ -6833,29 +6854,30 @@ Available files in that folder:
 Instructions:
 - Use infographic_source_brief, thesis_spine, selected risk priorities,
   completed research-task evidence, contradictions, benchmark dashboard, chart
-  plans, memo-grader lessons, and readiness waivers as the factual base. Do NOT
+  plans, memo-grader lessons, and reviewed source limits as the factual base. Do NOT
   read from `data/uploads/` or the Document Library.
-- Draft operator-selectable candidates for three final memo moments:
+- Draft operator-selectable candidates for three final memo passages:
   1. openings = intro stance: the first 2-4 sentences' judgment and proof burden;
   2. transitions = risk-section posture: lead risk and recommendation-moving
      evidence;
-  3. endings = conclusion/recommendation verdict: conviction, conditions,
-     failure modes, and next diligence.
+  3. endings = conclusion/recommendation verdict: conviction, valuation
+     sensitivities, failure modes, and deal mechanics.
 - Generate at least three distinct openings, at least two risk-posture
   transitions, and at least three endings when the evidence allows.
 - Candidate text must be IC-ready guidance or near-final memo language:
   specific, compressed, evidence-grounded, and free of meta phrases such as
   document-process framing, analysis-process framing, or section narration.
 - Endings and recommendation candidates must use first-person sponsor voice:
-  "we recommend participating", "we would hold", or "we would pass". Do not
-  write detached third-person recommendation,
-  opportunity, or base-case framing.
+  "we recommend participating", "we do not recommend participating", or
+  "we do not recommend participating unless..." only where the evidence
+  requires a conditional posture. Do not write detached third-person
+  recommendation, opportunity, or base-case framing.
 - Each candidate must include supported claims, evidence references, source
   traces where available, confidence, overclaiming risk, and suggested
   infographic pairings where useful.
 - Preserve selected opening/transition/ending ids when current choices remain
   semantically valid.
-- Use reviewer_prompts only for genuine operator HIL choices about intro
+- Use operator review notes only for genuine operator HIL choices about intro
   stance, risk posture, or conclusion posture that cannot be safely inferred
   from the evidence. Make them optional unless approval is unsafe without
   the operator's answer.
@@ -6945,7 +6967,8 @@ Serena memo lessons:
 `{lessons_path}`
 
 Read these lessons as quality heuristics. Current company evidence and current
-public data override stale or contradictory lessons.
+public data override stale or contradictory lessons. Strip stale internal
+labels, prompt labels, and process/checklist wording before using them.
 """
 
     prompt = f"""\
@@ -6972,9 +6995,9 @@ Instructions:
   deployment depth, revenue quality, market abstraction, moat durability,
   budget ownership, public-comp support, and disconfirming evidence.
 - For each risk, include the best bull answer, best bear answer, concrete
-  support threshold, and the source types that can confirm or break the bar.
+  support evidence, and the source types that strengthen or weaken the risk.
 - Prioritize risks that help an operator choose the final risk-section posture:
-  lead-risk, pass trigger, conditional-yes dependency, or monitoring item.
+  lead risk, downside trigger, valuation sensitivity, or monitoring item.
 - Use the Serena research folder above for local company documents. Do NOT
   read from `data/uploads/` or the Document Library.
 - If local research files exist, inspect the relevant files with Read/Bash.
@@ -7140,7 +7163,8 @@ Serena memo lessons:
 
 Read these lessons as quality heuristics. Current company evidence, current
 public data, and current Memo Studio artifacts override stale or contradictory
-lessons.
+lessons. Strip stale internal labels, prompt labels, and process/checklist
+wording before using them.
 """
 
     prompt = f"""\
@@ -7170,7 +7194,7 @@ Instructions:
   results, chart specs, and benchmark context above.
 - Build 3-5 investment highlights, 3-5 investment risks, direct
   recommendation logic, the top risk and valuation sensitivities for defending
-  the investment recommendation, bull-case requirements, and pass triggers.
+  the investment recommendation, bull-case drivers, and downside triggers.
 - Write every highlight and risk as final-memo raw material: concise,
   judgment-led, source-backed, and free of process language. Convert research
   task answers into conclusions instead of copying task labels or confidence
@@ -7179,9 +7203,9 @@ Instructions:
   generic operating risks. Each risk detail must carry the specific data,
   contradiction, or missing proof that makes the risk matter.
 - recommendation_logic must be usable as the conclusion spine: conviction,
-  dependencies, failure modes, and the operator's likely proceed / hold / pass
-  verdict. Write it as advocacy for the investment case, not as a passive
-  diligence checklist.
+  valuation sensitivities, failure modes, and the operator's likely proceed /
+  hold / pass verdict. Write it as advocacy for the investment case, not as a
+  passive diligence checklist.
 - Top sensitivities are not questions or conditions. For each sensitivity,
   state the measurable variable, the support evidence, and the downside impact
   if the fact pattern weakens. Use risk and valuation language, not
@@ -7282,13 +7306,13 @@ OUTPUT REQUIREMENTS:
         return None, f"claude output didn't parse as JSON: {final_text[:300]}"
     highlights = parsed.get("investment_highlights")
     memo_risks = parsed.get("investment_risks")
-    gates = parsed.get("top_gating_questions")
+    sensitivities = parsed.get("risk_valuation_sensitivities")
     if not isinstance(highlights, list) or not highlights:
         return None, "claude output missing investment_highlights"
     if not isinstance(memo_risks, list) or not memo_risks:
         return None, "claude output missing investment_risks"
-    if not isinstance(gates, list) or not gates:
-        return None, "claude output missing top_gating_questions"
+    if not isinstance(sensitivities, list) or not sensitivities:
+        return None, "claude output missing risk_valuation_sensitivities"
     if not str(parsed.get("recommendation_logic") or "").strip():
         return None, "claude output missing recommendation_logic"
     parsed["generated_at"] = datetime.now(timezone.utc).isoformat()
@@ -7382,11 +7406,13 @@ Instructions:
 - If local research files exist, inspect relevant files with Read/Bash.
 - Use WebSearch/WebFetch for public comp metrics and recent public evidence.
 - Set nullable metric fields to null when source-backed values are not found.
-- Source traces must identify titles, URLs or local locators, concise
-  excerpts, and confidence. Do not invent metrics or sources.
-- Benchmark gaps are the missing data that matters before memo use.
-- Must-prove claims must translate the benchmark work into private-company
-  proof points BSH needs before making the investment decision.
+- Source evidence notes must identify titles, URLs or local locators, concise
+  excerpts, and source reliability. Do not invent metrics or sources.
+- Benchmark evidence limits are source-quality or model-treatment limitations that matter
+  before memo use.
+- Private-company proof points must translate the benchmark work into private-company
+  proof points that would strengthen or weaken valuation support and the
+  recommendation.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -7506,7 +7532,7 @@ def run_serena_memo_grader(
 
     system_prompt = (
         "You are Serena's memo grader. Grade the completed late-stage BSH "
-        "investment memo as a reusable training artifact. Be direct, "
+        "investment memo for reusable final-prose quality lessons. Be direct, "
         "evidence-aware, and focused on improving future memo runs."
     )
     user_prompt = f"""\
@@ -7537,10 +7563,13 @@ Grade against:
 - Evidence quality and source provenance.
 - Chart/table clarity.
 - Opening and ending strength.
-- Missing evidence that would matter at IC.
+- Missing evidence, source-quality limits, unsupported-claim handling, or
+  model-treatment gaps that would change valuation support.
 - Specific lessons for future Serena memo runs.
 
-Current evidence overrides stale lessons. Do not reward unsupported claims.
+Current evidence overrides stale lessons. Do not reward unsupported claims, and
+do not preserve internal IC, diligence, prompt, artifact, or process labels as
+future generation guidance.
 """
     return run_structured_prompt(
         system_prompt=system_prompt,
@@ -7609,7 +7638,7 @@ def run_serena_research_task(
     files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
 
     prompt = f"""\
-You are running one selected research prompt for Serena's Memo Studio before
+You are running one selected evidence review for Serena's Memo Studio before
 an investment memo is drafted. Be factual, skeptical, and source-aware.
 
 Company:
@@ -7622,7 +7651,7 @@ Selected strategic risk:
 {risk_str}
 ```
 
-Research task:
+Evidence review task:
 ```json
 {task_str}
 ```
@@ -7650,9 +7679,10 @@ Instructions:
 - Separate verified evidence from inference. Do not invent source facts.
 - Preserve useful numbers, dates, names, and source titles.
 - If evidence is thin, state the limitation and list the next evidence targets.
-- Evidence entries must include file_id, filename, locator, exact excerpt, and
-  confidence when a local selected source supports them. Use null file_id /
-  filename only for web or source-category evidence.
+- Evidence entries must include file_id, filename, locator, a short evidence
+  excerpt or faithful paraphrase, and confidence when a local selected source
+  supports them. Use null file_id / filename only for web or source-category
+  evidence.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -7682,7 +7712,7 @@ OUTPUT REQUIREMENTS:
         progress.emit(
             "stage",
             stage="claude_starting",
-            message="Running selected research prompt with Claude",
+            message="Running selected evidence review with Claude",
             task_id=task.get("id"),
             risk_id=task.get("risk_id"),
         )

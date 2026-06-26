@@ -416,12 +416,13 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
                     "We recommend participating when deployment depth and "
                     "valuation support survive independent checks."
                 ),
-                "top_gating_questions": [
+                "risk_valuation_sensitivities": [
                     {
-                        "expected_bar": f"Claude sensitivity {i}.",
-                        "support_threshold": "The sensitivity supports recommendation quality.",
-                        "confirmation_evidence": ["Independent customer evidence"],
-                        "stop_or_revisit_if_missing": "Revisit if the sensitivity resolves below threshold.",
+                        "sensitivity": f"Claude sensitivity {i}.",
+                        "support_evidence": "The sensitivity supports recommendation quality.",
+                        "evidence_context": ["Independent customer evidence"],
+                        "downside_impact": "Downside value increases if the sensitivity weakens valuation support.",
+                        "recommendation_sensitivity": "Recommendation strength depends on this evidence.",
                     }
                     for i in range(1, 4)
                 ],
@@ -458,7 +459,7 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
     assert artifact["investment_highlights"][0]["id"] == "highlight-1"
     assert artifact["investment_highlights"][0]["claim"] == "Claude highlight 1"
     assert artifact["investment_risks"][0]["id"] == "memo-risk-1"
-    assert artifact["top_gating_questions"][0]["id"] == "gate-1"
+    assert artifact["risk_valuation_sensitivities"][0]["id"] == "sensitivity-1"
     assert artifact["source_basis"]["claude_sources_checked"] == [
         "memo studio artifacts"
     ]
@@ -674,11 +675,11 @@ def test_memo_analysis_benchmark_job_persists_claude_result_and_packet(
     packet = (
         serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
     ).read_text(encoding="utf-8")
-    assert "Private Benchmark Dashboard" in packet
+    assert "Benchmark Valuation Context" in packet
     assert "Rockwell Automation" in packet
     assert "18.5" in packet
     assert "Need private ARR scale" in packet
-    assert "Investors reward durable robotics revenue" in packet
+    assert "Private-company proof points" in packet
 
 
 def test_memo_analysis_benchmark_job_preserves_previous_artifact_on_error(
@@ -875,8 +876,8 @@ def test_memo_analysis_infographic_source_brief_job_persists_claude_result_and_p
     packet = (
         serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
     ).read_text(encoding="utf-8")
-    assert "Infographic Source Brief" in packet
-    assert "Only pilots were confirmed" in packet
+    assert "Visual Evidence Decisions" in packet
+    assert "Deployment evidence is limited to pilots" in packet
     assert "Do not visualize pilots as production adoption" in packet
 
 
@@ -1091,7 +1092,7 @@ def test_memo_analysis_chart_spec_job_preserves_manual_state_and_prompts(
     ).read_text(encoding="utf-8")
     assert "Growth quality still needs proof" not in packet
     assert "Deployment proof ladder" in packet
-    assert "Production adoption is not yet sourced" in packet
+    assert "Evidence gap remains" in packet
 
 
 def test_memo_analysis_narrative_job_preserves_selected_ids_and_packet(
@@ -1237,7 +1238,7 @@ def test_memo_analysis_narrative_fallback_creates_operator_choices(
     packet = (
         serena_analysis.session_dir("generalist", session["id"]) / "memo_packet.md"
     ).read_text(encoding="utf-8")
-    assert "Selected Operator Narrative Choices" in packet
+    assert "Selected Narrative Direction" in packet
     assert "Intro stance:" in packet
     assert "Risk-section posture:" in packet
     assert "Conclusion posture:" in packet
@@ -1419,11 +1420,11 @@ def test_analysis_session_tracks_readiness_and_approval(tmp_path, monkeypatch):
     assert memo_packet.exists()
     packet_text = memo_packet.read_text(encoding="utf-8")
     assert "Use this packet as evidence, not copy" in packet_text
-    assert "Never copy source labels" in packet_text
+    assert "Never copy internal source labels" in packet_text
     assert "Use first-person sponsor voice" in packet_text
-    assert "source-class and model-treatment language" in packet_text
+    assert "source-class and model-treatment" in packet_text
     assert "Memo Spine For Final Draft" in packet_text
-    assert "**stop_or_revisit:**" in packet_text
+    assert "**risk_sensitivity:**" in packet_text
     assert "Investment Highlights" in packet_text
 
 
@@ -1922,13 +1923,13 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
     assert session is not None
     thesis = session["artifacts"]["thesis_spine"]
     thesis["investment_highlights"][0]["claim"] = "Edited deployment wedge"
-    thesis["top_gating_questions"][0]["expected_bar"] = "Edited sensitivity."
+    thesis["risk_valuation_sensitivities"][0]["sensitivity"] = "Edited sensitivity."
 
     thesis_response = client.patch(
         "/api/companies/generalist/memo-analysis/artifacts/thesis_spine",
         json={
             "investment_highlights": thesis["investment_highlights"],
-            "top_gating_questions": thesis["top_gating_questions"],
+            "risk_valuation_sensitivities": thesis["risk_valuation_sensitivities"],
         },
     )
     assert thesis_response.status_code == 200
@@ -1936,7 +1937,7 @@ def test_memo_analysis_api_patches_editable_artifacts(tmp_path, monkeypatch):
     assert thesis_payload["investment_highlights"][0]["claim"] == (
         "Edited deployment wedge"
     )
-    assert thesis_payload["top_gating_questions"][0]["expected_bar"] == (
+    assert thesis_payload["risk_valuation_sensitivities"][0]["sensitivity"] == (
         "Edited sensitivity."
     )
 
@@ -2173,7 +2174,7 @@ def test_memo_analysis_research_task_results_persist_without_reordering_prioriti
         serena_analysis.session_dir("generalist", payload["id"]) / "memo_packet.md"
     )
     packet = packet_path.read_text(encoding="utf-8")
-    assert "Research Task Results" in packet
+    assert "Evidence Review Results" in packet
     assert "Manual review: deprioritized after source check." in packet
     assert tasks["task-2"]["result_summary"] in packet
 
@@ -2871,12 +2872,12 @@ def test_structured_research_results_feed_readiness_and_memo_packet(
     assert gates["research_task_results"]["status"] == "done"
     assert gates["research_task_evidence"]["status"] == "done"
     assert any(
-        area["id"].startswith("research-open-question-")
+        area["id"].startswith("research-evidence-limit-")
         and "Need production deployment count" in area["why_it_matters"]
         for area in decorated["additional_areas"]
     )
     assert any(
-        blocker["id"].startswith("research-open-question-")
+        blocker["id"].startswith("research-evidence-limit-")
         for blocker in decorated["readiness"]["approval_blockers"]
     )
     packet = (
@@ -3565,12 +3566,12 @@ def test_analysis_backed_prep_accepts_approved_session_with_reopened_blockers(
     session = _run_approval_required_tools(client, "generalist")
     approved = serena_analysis.approve("generalist")
     raw = serena_analysis._strip_decorations(copy.deepcopy(approved))
-    raw["artifacts"]["thesis_spine"]["top_gating_questions"] = []
+    raw["artifacts"]["thesis_spine"]["risk_valuation_sensitivities"] = []
     serena_analysis._refresh_memo_packet(raw)
     serena_analysis._write_session(raw)
     reopened = serena_analysis.get_current_session("generalist")
     assert any(
-        blocker["id"] == "gating_questions"
+        blocker["id"] == "risk_sensitivities"
         for blocker in reopened["readiness"]["approval_blockers"]
     )
     assert reopened["approved_for_memo"] is True

@@ -63,7 +63,7 @@ def test_linter_allows_source_ids_in_fact_index_and_source_class_in_tables(tmp_p
     document.add_paragraph(
         "ZaiNar is company-reported to have named commercial momentum. "
         "Revenue is not disclosed; model treatment uses a customer-count "
-        "proxy and funding diligence threshold."
+        "proxy and valuation sensitivity."
     )
     table = document.add_table(rows=3, cols=2)
     table.cell(0, 0).text = "Metric"
@@ -116,7 +116,7 @@ def test_linter_treats_disclosure_gap_via_sibling_note_cell(tmp_path):
         tables=[
             [
                 ["Metric", "Value", "Note"],
-                ["Gross margin / burn / NRR", "Not disclosed", "Confirmation items"],
+                ["Gross margin / burn / NRR", "Not disclosed", "Valuation sensitivity"],
                 ["Revenue at date", "Not disclosed", "Undefined (no denominator)"],
             ],
         ],
@@ -158,6 +158,7 @@ def test_linter_blocks_buyer_side_language_in_final_body(tmp_path):
         paragraphs=[
             "I. Executive Summary",
             "Recommendation: Conditional Yes at the minimum ticket.",
+            "We back infrastructure because this is why we want exposure.",
             "Top 3 Gating Questions (for BSH)",
             "What Is Not Yet Underwritten",
             "BSH target allocation: $5-10M.",
@@ -252,6 +253,26 @@ def test_linter_blocks_meta_process_language(tmp_path):
     assert "We discuss" in snippets
 
 
+def test_linter_blocks_meta_process_language_in_source_index(tmp_path):
+    path = tmp_path / "source-index-meta-process.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "We recommend participating where valuation support is visible.",
+            "VI. Sources, Source Classes, and Fact Reference Index",
+            "[S1] Company materials, used for this memo.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    snippets = " ".join(f.snippet for f in result.findings)
+
+    assert result.has_blocking_findings is True
+    assert any(f.code == "meta_process_language" for f in result.findings)
+    assert "this memo" in snippets
+
+
 def test_linter_blocks_internal_questionnaire_language(tmp_path):
     path = tmp_path / "gating-questions.docx"
     _save_docx(
@@ -271,6 +292,31 @@ def test_linter_blocks_internal_questionnaire_language(tmp_path):
 
     assert result.has_blocking_findings is True
     assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+
+
+def test_linter_blocks_copied_packet_process_labels(tmp_path):
+    path = tmp_path / "packet-labels.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "Prompt: Explain why the claim matters.",
+            "Design prompt: Use a ladder diagram.",
+            "Reviewer prompts:",
+            "Confidence: medium",
+            "Source traces:",
+            "Readiness Reviews And Waivers",
+            "Memo Uses",
+            "Pre-Mortem",
+            "Reverse IC",
+            "Validation & Assumptions Log",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert result.has_blocking_findings is True
+    assert any(f.code == "packet_process_label" for f in result.findings)
 
 
 def test_linter_blocks_confirmation_sections_and_conditions(tmp_path):

@@ -172,7 +172,7 @@ function promptStatus(prompt) {
         class="mt-4 rounded-lg border border-subtle bg-surface-muted p-3 text-xs text-ink-secondary"
       >
         <div class="text-[11px] uppercase tracking-wide text-ink-muted">
-          Reviewer prompts
+          Operator review notes
         </div>
         <div
           v-for="prompt in listItems(narrativeDraft.reviewer_prompts)"

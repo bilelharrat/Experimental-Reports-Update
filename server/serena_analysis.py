@@ -62,12 +62,15 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "priority_prompt_harness",
         "label": "Risk Prioritizer",
-        "description": "Rank the risks and convert selected ones into support-threshold checks.",
+        "description": (
+            "Rank the risks and convert selected ones into risk and valuation "
+            "sensitivity review."
+        ),
         "stage": "core",
         "critical": True,
-        "run_label": "Build diligence queue",
-        "ready_label": "Diligence queue ready for source selection",
-        "input_label": "Select sources and run only the threshold checks that matter.",
+        "run_label": "Build source review queue",
+        "ready_label": "Source review queue ready for selection",
+        "input_label": "Select sources and run only the sensitivity reviews that matter.",
         "depends_on": ["strategic_risk_mapper"],
         "produces": "research_tasks",
     },
@@ -177,6 +180,7 @@ _PRESERVED_TASK_FIELDS = {
     "answer",
     "supporting_evidence",
     "contradicting_evidence",
+    "remaining_evidence_limits",
     "open_questions",
     "sources_checked",
     "confidence",
@@ -1874,7 +1878,9 @@ def _coerce_memo_grader(value: Any, *, report: dict) -> dict:
         "scores": scores,
         "strongest_sections": _string_list(payload.get("strongest_sections"))[:10],
         "weakest_sections": _string_list(payload.get("weakest_sections"))[:10],
-        "missing_diligence": _string_list(payload.get("missing_diligence"))[:12],
+        "evidence_limits": _string_list(
+            payload.get("evidence_limits") or payload.get("missing_diligence")
+        )[:12],
         "rewrite_guidance": _string_list(payload.get("rewrite_guidance"))[:12],
         "lessons_for_future_memo_runs": _string_list(
             payload.get("lessons_for_future_memo_runs")
@@ -1899,7 +1905,7 @@ def _fallback_memo_grader(report: dict, *, error: str | None = None) -> dict:
         ],
         "strongest_sections": [],
         "weakest_sections": ["Manual grading required."],
-        "missing_diligence": ["Run Claude-backed memo grading when available."],
+        "evidence_limits": ["Run Claude-backed memo grading when available."],
         "rewrite_guidance": ["Use the completed memo and memo packet for manual review."],
         "lessons_for_future_memo_runs": [
             "Do not reuse this fallback as a quality signal; rerun memo grading with Claude."
@@ -1911,13 +1917,38 @@ def _fallback_memo_grader(report: dict, *, error: str | None = None) -> dict:
     }
 
 
+_LESSON_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bClosing Confirmations?\b", re.IGNORECASE), "Risk and valuation sensitivities"),
+    (re.compile(r"\bWe back\b", re.IGNORECASE), "Use first-person sponsor recommendation language for"),
+    (re.compile(r"\bWe invest behind\b", re.IGNORECASE), "BSH invests in"),
+    (re.compile(r"\bmatters? at IC\b", re.IGNORECASE), "changes valuation support"),
+    (re.compile(r"\bmissing diligence\b", re.IGNORECASE), "evidence limits"),
+    (re.compile(r"\breviewer prompts?\b", re.IGNORECASE), "operator review notes"),
+    (re.compile(r"\bsource traces?\b", re.IGNORECASE), "source-class evidence"),
+    (re.compile(r"\bmemo packet\b", re.IGNORECASE), "source brief"),
+    (re.compile(r"\bBSH should\b", re.IGNORECASE), "we recommend"),
+    (re.compile(r"\(for BSH\)", re.IGNORECASE), ""),
+)
+
+
+def _sanitize_memo_lesson(value: Any) -> str:
+    text = _clean_text(value, limit=900)
+    for pattern, replacement in _LESSON_REWRITES:
+        text = pattern.sub(replacement, text)
+    text = re.sub(r"\s{2,}", " ", text).strip(" -")
+    return text
+
+
 def _write_memo_lessons(company_id: str, grader: dict) -> Path:
     path = memo_lessons_path(company_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     lessons = [
-        str(item).strip()
-        for item in grader.get("lessons_for_future_memo_runs") or []
-        if str(item or "").strip()
+        lesson
+        for lesson in (
+            _sanitize_memo_lesson(item)
+            for item in grader.get("lessons_for_future_memo_runs") or []
+        )
+        if lesson
     ]
     lines = [
         f"# Serena Memo Lessons — {company_id}",
@@ -2446,7 +2477,7 @@ def _run_tool_impl(company: dict, artifacts: dict, tool_name: str) -> str:
                 "Chart clarity",
                 "Intro strength",
                 "Ending / recommendation strength",
-                "Missing diligence",
+                "Evidence gaps and model treatment",
             ],
             "next_step": "Run this after a completed memo exists.",
         }
@@ -2888,8 +2919,10 @@ def _normalize_research_task_result(
         result.get("contradicting_evidence"),
         fallback_confidence=confidence,
     )
-    open_questions = _normalize_question_list(
-        result.get("open_questions") or result.get("evidence_gaps")
+    remaining_limits = _normalize_question_list(
+        result.get("remaining_evidence_limits")
+        or result.get("open_questions")
+        or result.get("evidence_gaps")
     )
     sources_checked = _normalize_sources_checked(
         result.get("sources_checked"),
@@ -2899,7 +2932,9 @@ def _normalize_research_task_result(
         "answer": answer,
         "supporting_evidence": supporting,
         "contradicting_evidence": contradicting,
-        "open_questions": open_questions,
+        "remaining_evidence_limits": remaining_limits,
+        # Legacy UI alias; new Claude-facing schema writes the neutral field.
+        "open_questions": remaining_limits,
         "sources_checked": sources_checked,
         "confidence": confidence,
     }
@@ -2916,20 +2951,23 @@ def _fallback_research_task_result(
     source_manifest: list[dict],
 ) -> dict:
     answer = _deterministic_research_result(company, task, risk)
-    open_questions: list[str] = []
+    remaining_limits: list[str] = []
     if isinstance(risk, dict) and isinstance(risk.get("evidence_needed"), list):
-        open_questions = [
+        remaining_limits = [
             _clean_text(item, limit=500)
             for item in risk.get("evidence_needed") or []
             if _clean_text(item)
         ][:5]
-    if not open_questions:
-        open_questions = ["Independent support and disconfirming evidence still need review."]
+    if not remaining_limits:
+        remaining_limits = [
+            "Independent support and disconfirming evidence remain material source-treatment limits."
+        ]
     return {
         "answer": answer,
         "supporting_evidence": [],
         "contradicting_evidence": [],
-        "open_questions": open_questions,
+        "remaining_evidence_limits": remaining_limits,
+        "open_questions": remaining_limits,
         "sources_checked": _normalize_sources_checked(None, source_manifest),
         "confidence": "low",
     }
@@ -2942,7 +2980,8 @@ def _research_task_result_fields(structured: dict) -> dict:
         "answer": observed.get("answer"),
         "supporting_evidence": observed.get("supporting_evidence") or [],
         "contradicting_evidence": observed.get("contradicting_evidence") or [],
-        "open_questions": observed.get("open_questions") or [],
+        "remaining_evidence_limits": observed.get("remaining_evidence_limits") or observed.get("open_questions") or [],
+        "open_questions": observed.get("remaining_evidence_limits") or observed.get("open_questions") or [],
         "sources_checked": observed.get("sources_checked") or [],
         "confidence": _confidence(observed.get("confidence")),
         "analyst_review_score": observed.get("analyst_review_score"),
@@ -3076,6 +3115,14 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
     fallback = _thesis_spine(company, risks)
     payload = value if isinstance(value, dict) else {}
 
+    def sensitivity_rows(source: dict) -> list:
+        rows = source.get("risk_valuation_sensitivities")
+        if isinstance(rows, list):
+            return rows
+        # Legacy read alias for sessions created before the prompt-language audit.
+        rows = source.get("top_gating_questions")
+        return rows if isinstance(rows, list) else []
+
     def fill_minimum(
         items: list[dict[str, Any]],
         fallback_items: list[dict],
@@ -3085,14 +3132,22 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
         maximum: int,
     ) -> list[dict]:
         seen = {
-            str(item.get("claim") or item.get("question") or "").strip().lower()
+            str(
+                item.get("claim")
+                or item.get("sensitivity")
+                or item.get("question")
+                or ""
+            ).strip().lower()
             for item in items
         }
         for fallback_item in fallback_items:
             if len(items) >= minimum:
                 break
             key = str(
-                fallback_item.get("claim") or fallback_item.get("question") or ""
+                fallback_item.get("claim")
+                or fallback_item.get("sensitivity")
+                or fallback_item.get("question")
+                or ""
             ).strip().lower()
             if key and key in seen:
                 continue
@@ -3117,7 +3172,7 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
                 "id": f"highlight-{len(highlights) + 1}",
                 "claim": claim or detail[:140],
                 "detail": detail or claim,
-                "state": str(row.get("state") or "diligence_needed").strip(),
+                "state": str(row.get("state") or "source_limited").strip(),
                 "source_trace": _string_list(
                     row.get("source_trace"),
                     fallback=["claude_code"],
@@ -3170,56 +3225,62 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
         maximum=5,
     )
 
-    gates: list[dict[str, Any]] = []
-    gate_rows = payload.get("top_gating_questions")
-    if isinstance(gate_rows, list):
-        for row in gate_rows:
+    sensitivities: list[dict[str, Any]] = []
+    for row in sensitivity_rows(payload):
             if not isinstance(row, dict):
                 continue
-            expected_bar = str(
-                row.get("expected_bar")
+            sensitivity = str(
+                row.get("sensitivity")
+                or row.get("expected_bar")
                 or row.get("support_threshold")
                 or row.get("question")
                 or row.get("decision_question")
                 or ""
             ).strip()
-            support_threshold = str(
-                row.get("support_threshold")
+            support_evidence = str(
+                row.get("support_evidence")
+                or row.get("support_threshold")
                 or row.get("why_it_matters")
                 or row.get("rationale")
                 or ""
             ).strip()
-            stop_or_revisit = str(
-                row.get("stop_or_revisit_if_missing")
+            downside_impact = str(
+                row.get("downside_impact")
+                or row.get("stop_or_revisit_if_missing")
                 or row.get("stop_or_revisit")
                 or ""
             ).strip()
-            if not expected_bar:
+            recommendation_sensitivity = str(
+                row.get("recommendation_sensitivity")
+                or row.get("recommendation_impact")
+                or ""
+            ).strip()
+            if not sensitivity:
                 continue
-            confirmation_evidence = _string_list(
-                row.get("confirmation_evidence") or row.get("evidence_needed"),
+            evidence_context = _string_list(
+                row.get("evidence_context")
+                or row.get("confirmation_evidence")
+                or row.get("evidence_needed"),
                 fallback=["specific source support", "disconfirming evidence review"],
             )[:8]
-            gates.append({
-                "id": f"gate-{len(gates) + 1}",
-                "expected_bar": expected_bar,
-                "support_threshold": support_threshold or expected_bar,
-                "confirmation_evidence": confirmation_evidence,
-                "stop_or_revisit_if_missing": stop_or_revisit or (
-                    "Revisit the recommendation if this sensitivity resolves below threshold."
+            sensitivities.append({
+                "id": f"sensitivity-{len(sensitivities) + 1}",
+                "sensitivity": _question_to_sensitivity_statement(sensitivity),
+                "support_evidence": support_evidence or sensitivity,
+                "evidence_context": evidence_context,
+                "downside_impact": downside_impact or (
+                    "Downside value increases if this sensitivity weakens valuation support."
                 ),
-                # Compatibility fields for existing UI/tests. Values are
-                # sensitivity statements, not final-memo questions.
-                "question": expected_bar,
-                "why_it_matters": support_threshold or expected_bar,
-                "evidence_needed": confirmation_evidence,
+                "recommendation_sensitivity": recommendation_sensitivity or (
+                    "Recommendation strength depends on source-backed support for this sensitivity."
+                ),
             })
-            if len(gates) >= 5:
+            if len(sensitivities) >= 5:
                 break
-    gates = fill_minimum(
-        gates,
-        fallback.get("top_gating_questions") or [],
-        prefix="gate",
+    sensitivities = fill_minimum(
+        sensitivities,
+        sensitivity_rows(fallback),
+        prefix="sensitivity",
         minimum=3,
         maximum=5,
     )
@@ -3234,7 +3295,7 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
         "investment_highlights": highlights,
         "investment_risks": memo_risks,
         "recommendation_logic": recommendation,
-        "top_gating_questions": gates[:3],
+        "risk_valuation_sensitivities": sensitivities[:3],
         "bull_case_must_be_true": _string_list(
             payload.get("bull_case_must_be_true"),
             fallback=fallback.get("bull_case_must_be_true") or [],
@@ -3385,8 +3446,8 @@ def _strategic_risks(company: dict) -> list[dict]:
         "What are the strongest disconfirming facts, and are they severe enough to change the recommendation?",
         "A good memo must lead with the risk that can actually kill the deal.",
         [
-            "pre-mortem",
-            "reverse IC case",
+            "downside scenario",
+            "countercase",
             "top three risk or valuation sensitivities",
             "missingness penalties",
         ],
@@ -3449,8 +3510,8 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "id": "highlight-1",
             "claim": f"{name} gives BSH a focused way to invest in {sector}",
             "detail": (
-                f"{desc} The central investment question is whether the "
-                "operating proof is strong enough for a late-stage BSH entry."
+                f"{desc} Valuation support depends on visible operating "
+                "proof, source quality, and fit with a late-stage BSH entry."
             ),
             "state": "present_state",
             "source_trace": ["company_record"],
@@ -3473,8 +3534,8 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "claim": "Final view depends on deployment depth, revenue quality, and valuation support",
             "detail": (
                 "These are the proof points most likely to determine whether "
-                "we can recommend participating, recommend passing, or carry "
-                "a weaker risk-sensitive stance."
+                "we recommend participating or treat the opportunity as "
+                "valuation-sensitive."
             ),
             "state": "upside_state",
             "source_trace": ["strategic_risks", "risk_priorities", "chart_specs"],
@@ -3486,28 +3547,29 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
             "id": f"memo-risk-{i}",
             "claim": r["title"],
             "detail": (
-                f"{r['why_it_matters']} Treat this as a lead risk "
-                f"unless the evidence answers: {r['decision_question']}"
+                f"{r['why_it_matters']} Valuation support weakens where "
+                f"{_question_to_sensitivity_statement(r['decision_question']).lower()}"
             ),
             "source_trace": ["strategic_risks", "risk_priorities"],
             "needs_stronger_evidence": True,
         }
         for i, r in enumerate(top, start=1)
     ]
-    gates = [
+    sensitivities = [
         {
-            "id": f"gate-{i}",
-            "expected_bar": _question_to_sensitivity_statement(
+            "id": f"sensitivity-{i}",
+            "sensitivity": _question_to_sensitivity_statement(
                 r["decision_question"]
             ),
-            "support_threshold": r["why_it_matters"],
-            "confirmation_evidence": r.get("evidence_needed") or [],
-            "stop_or_revisit_if_missing": (
-                "Revisit the recommendation if this bar resolves below threshold."
+            "support_evidence": r["why_it_matters"],
+            "evidence_context": r.get("evidence_needed") or [],
+            "downside_impact": (
+                "Downside value increases if this sensitivity weakens valuation support."
             ),
-            "question": _question_to_sensitivity_statement(r["decision_question"]),
-            "why_it_matters": r["why_it_matters"],
-            "evidence_needed": r.get("evidence_needed") or [],
+            "recommendation_sensitivity": (
+                "Recommendation strength depends on source-backed support "
+                "for this sensitivity."
+            ),
         }
         for i, r in enumerate(top, start=1)
     ]
@@ -3519,10 +3581,10 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
         "recommendation_logic": (
             "State the recommendation directly. Support participation when the "
             "lead sensitivities have independent evidence and benchmark work "
-            "supports valuation; revisit or pass if the selected sensitivities "
-            "resolve below threshold."
+            "supports valuation; avoid participation where selected sensitivities "
+            "do not support valuation."
         ),
-        "top_gating_questions": gates[:3],
+        "risk_valuation_sensitivities": sensitivities[:3],
         "bull_case_must_be_true": [
             "Deployment depth is repeatable beyond early adopters.",
             "Revenue quality supports the proposed valuation.",
@@ -3584,12 +3646,52 @@ def _chart_specs(company: dict) -> dict:
     return {"updated_at": _now(), "specs": specs}
 
 
+def _thesis_sensitivity_rows(thesis: Any) -> list[dict]:
+    if not isinstance(thesis, dict):
+        return []
+    rows = thesis.get("risk_valuation_sensitivities")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    # Legacy read alias for sessions created before the prompt-language audit.
+    rows = thesis.get("top_gating_questions")
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _sensitivity_statement(item: dict) -> str:
+    raw = (
+        item.get("sensitivity")
+        or item.get("expected_bar")
+        or item.get("question")
+        or item.get("support_evidence")
+        or item.get("why_it_matters")
+    )
+    return _question_to_sensitivity_statement(raw)
+
+
+def _sensitivity_support(item: dict) -> str:
+    return _clean_text(
+        item.get("support_evidence")
+        or item.get("why_it_matters")
+        or item.get("support_threshold"),
+        limit=320,
+    )
+
+
+def _sensitivity_downside(item: dict) -> str:
+    return _clean_text(
+        item.get("downside_impact")
+        or item.get("recommendation_sensitivity")
+        or item.get("stop_or_revisit_if_missing"),
+        limit=320,
+    )
+
+
 def _narrative_hooks(company: dict, artifacts: dict) -> dict:
     name = company.get("name") or "the company"
     sector = company.get("sector") or company.get("industry") or "its category"
     desc = _clean_text(company.get("description"), limit=260)
     thesis = artifacts.get("thesis_spine") if isinstance(artifacts, dict) else None
-    gates = thesis.get("top_gating_questions") if isinstance(thesis, dict) else []
+    sensitivities = _thesis_sensitivity_rows(thesis)
     highlights = thesis.get("investment_highlights") if isinstance(thesis, dict) else []
     memo_risks = thesis.get("investment_risks") if isinstance(thesis, dict) else []
     recommendation_logic = (
@@ -3597,10 +3699,9 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         if isinstance(thesis, dict)
         else ""
     )
-    main_gate = (
-        gates[0].get("expected_bar")
-        or gates[0].get("question")
-        if gates and isinstance(gates[0], dict)
+    main_sensitivity = (
+        _sensitivity_statement(sensitivities[0])
+        if sensitivities
         else "current traction supports the entry valuation"
     )
     lead_highlight = (
@@ -3620,23 +3721,27 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             limit=220,
         )
     intro_fact = desc or f"{name} operates in {sector}."
-    gate_text = (
-        str(main_gate or "")
+    sensitivity_text = (
+        str(main_sensitivity or "")
         .removeprefix("Expected bar:")
         .removeprefix("Sensitivity:")
         .strip()
     )
-    gate_lc = gate_text[:1].lower() + gate_text[1:] if gate_text else gate_text
+    sensitivity_lc = (
+        sensitivity_text[:1].lower() + sensitivity_text[1:]
+        if sensitivity_text
+        else sensitivity_text
+    )
     openings = [
         {
             "id": "intro-operating-proof",
             "text": (
-                f"We recommend exposure to {name}; conviction is strongest where {gate_lc.rstrip('.')}."
+                f"We recommend participating in {name} where {sensitivity_lc.rstrip('.')}."
             ),
             "purpose": "intro stance",
             "tone": "proof_first",
-            "supported_claims": [lead_highlight, main_gate],
-            "evidence_references": ["thesis_spine", "top_gating_questions"],
+            "supported_claims": [lead_highlight, main_sensitivity],
+            "evidence_references": ["thesis_spine", "risk_valuation_sensitivities"],
             "source_traces": [],
             "confidence": "medium",
             "overclaiming_risk": "Use only if the memo can show the proof burden immediately.",
@@ -3703,8 +3808,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             ),
             "purpose": "risk framing",
             "tone": "recommendation_moving",
-            "supported_claims": [lead_risk, main_gate],
-            "evidence_references": ["strategic_risks", "top_gating_questions"],
+            "supported_claims": [lead_risk, main_sensitivity],
+            "evidence_references": ["strategic_risks", "risk_valuation_sensitivities"],
             "source_traces": [],
             "confidence": "medium",
             "overclaiming_risk": "Use only if the selected evidence gap is specific in the risk table.",
@@ -3739,8 +3844,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
             ),
             "purpose": "conclusion posture",
             "tone": "recommend_participating",
-            "supported_claims": [main_gate, recommendation_logic],
-            "evidence_references": ["top_gating_questions", "recommendation_logic"],
+            "supported_claims": [main_sensitivity, recommendation_logic],
+            "evidence_references": ["risk_valuation_sensitivities", "recommendation_logic"],
             "source_traces": [],
             "confidence": "medium",
             "overclaiming_risk": "Do not use if the evidence base does not support participation.",
@@ -3751,12 +3856,12 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-risk-sensitive",
             "text": (
-                f"The recommendation weakens if {gate_lc.rstrip('.')} remains below the support threshold."
+                f"The recommendation weakens if {sensitivity_lc.rstrip('.')} does not support the valuation case."
             ),
             "purpose": "conclusion posture",
             "tone": "risk_sensitive",
-            "supported_claims": [main_gate, lead_risk],
-            "evidence_references": ["top_gating_questions", "investment_risks"],
+            "supported_claims": [main_sensitivity, lead_risk],
+            "evidence_references": ["risk_valuation_sensitivities", "investment_risks"],
             "source_traces": [],
             "confidence": "medium",
             "overclaiming_risk": "Use if unresolved evidence is material enough to weaken the recommendation.",
@@ -3767,8 +3872,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-pass-discipline",
             "text": (
-                "If the missing proof does not arrive, we would pass rather "
-                "than force the BSH thesis around the deal."
+                "We do not recommend participating where material evidence remains insufficient "
+                "rather than force the BSH thesis around the deal."
             ),
             "purpose": "conclusion posture",
             "tone": "pass_discipline",
@@ -3815,6 +3920,7 @@ _IMAGE_GENERATION_MODES = {
     "no_text_overlay",
     "text_in_image",
     "needs_human_choice",
+    "operator_choice_required",
 }
 _SOURCE_AVAILABILITY_VALUES = {"available", "partial", "missing"}
 
@@ -3886,6 +3992,8 @@ def _coerce_image_generation_mode(value: Any) -> str:
         "human_choice": "needs_human_choice",
         "needs_choice": "needs_human_choice",
         "reviewer_choice": "needs_human_choice",
+        "operator_choice_required": "needs_human_choice",
+        "operator_review": "needs_human_choice",
     }
     lowered = aliases.get(lowered, lowered)
     return lowered if lowered in _IMAGE_GENERATION_MODES else "no_text_overlay"
@@ -4451,9 +4559,11 @@ def _manual_chart_fields(previous: dict | None, mode: str) -> dict:
     fields: dict[str, Any] = {}
     for key in (
         "include_in_final_memo",
+        "memo_inclusion_decision",
         "final_memo_inclusion_state",
         "owner",
         "memo_section_placement",
+        "source_limitations",
         "diligence_needed",
         "manual_notes",
         "reviewer_notes",
@@ -4525,6 +4635,14 @@ def _coerce_chart_specs(
         )
         if data_availability == "missing" and not information_gaps:
             information_gaps = _string_list(row.get("required_data"))[:8]
+        source_limitations = _string_list(
+            row.get("source_limitations") or row.get("diligence_needed")
+        )[:8]
+        inclusion_decision = _clean_text(
+            row.get("memo_inclusion_decision")
+            or row.get("final_memo_inclusion_state"),
+            limit=40,
+        ) or ("needs_review" if status == "needs_review" else "include")
         spec = {
             "id": row_id,
             "title": title,
@@ -4553,7 +4671,9 @@ def _coerce_chart_specs(
                 title=title,
             ),
             "owner": _clean_text(row.get("owner"), limit=120) or "Serena",
-            "diligence_needed": _string_list(row.get("diligence_needed"))[:8],
+            "source_limitations": source_limitations,
+            # Legacy UI alias; new Claude-facing schema writes source_limitations.
+            "diligence_needed": source_limitations,
             "memo_section_placement": _clean_text(
                 row.get("memo_section_placement") or row.get("memo_section"),
                 limit=120,
@@ -4563,11 +4683,9 @@ def _coerce_chart_specs(
                 row.get("include_in_final_memo"),
                 default=True,
             ),
-            "final_memo_inclusion_state": _clean_text(
-                row.get("final_memo_inclusion_state"),
-                limit=40,
-            )
-            or ("needs_review" if status == "needs_review" else "include"),
+            "memo_inclusion_decision": inclusion_decision,
+            # Legacy UI alias; new Claude-facing schema writes memo_inclusion_decision.
+            "final_memo_inclusion_state": inclusion_decision,
             "reviewer_prompts": reviewer_prompts,
             "status": status,
             "confidence": _confidence(row.get("confidence")),
@@ -4990,7 +5108,11 @@ def _memo_packet_evidence_summary(tasks: list[dict]) -> dict:
         ]
         questions = [
             str(item).strip()
-            for item in task.get("open_questions") or []
+            for item in (
+                task.get("remaining_evidence_limits")
+                or task.get("open_questions")
+                or []
+            )
             if str(item or "").strip()
         ]
         if supporting and contradicting:
@@ -5158,16 +5280,16 @@ def _refresh_memo_packet(session: dict) -> None:
         ),
         "",
         (
-            "Never copy source labels, reviewer prompts, artifact names, "
-            "bracketed source tokens, design prompts, methodology notes, "
-            "confidence scaffolding, no-go labels, or validation language into "
+            "Never copy internal source labels, operator prompts, artifact names, "
+            "bracketed source tokens, visual-design notes, methodology notes, "
+            "artifact metadata, or validation language into "
             "final body prose or operating tables."
         ),
         "",
         (
-            "Convert source traces into source-class and model-treatment language "
-            "in Sections I-V. Use detailed source traces only for the fact "
-            "reference index or a clearly separated validation appendix."
+            "Convert source evidence details into source-class and model-treatment "
+            "language in Sections I-V. Use detailed source references only for "
+            "the fact reference index or a clearly separated source-treatment appendix."
         ),
         "",
         "## Memo Spine For Final Draft",
@@ -5176,10 +5298,7 @@ def _refresh_memo_packet(session: dict) -> None:
         item for item in thesis.get("investment_highlights") or []
         if isinstance(item, dict)
     ]
-    gates = [
-        item for item in thesis.get("top_gating_questions") or []
-        if isinstance(item, dict)
-    ]
+    sensitivities = _thesis_sensitivity_rows(thesis)
     core_bet = "Final draft must state the core investment bet in the opening."
     if highlights:
         first = highlights[0]
@@ -5193,11 +5312,9 @@ def _refresh_memo_packet(session: dict) -> None:
         if str(item.get("claim") or "").strip()
     ]
     unproven = [
-        _question_to_sensitivity_statement(
-            item.get("expected_bar") or item.get("question")
-        )
-        for item in gates[:3]
-        if str(item.get("expected_bar") or item.get("question") or "").strip()
+        _sensitivity_statement(item)
+        for item in sensitivities[:3]
+        if _sensitivity_statement(item)
     ]
     pass_triggers = [
         str(item).strip()
@@ -5206,7 +5323,7 @@ def _refresh_memo_packet(session: dict) -> None:
     ][:3]
     recommendation_logic = str(
         thesis.get("recommendation_logic")
-        or "State the recommendation, confirmation items, conditions, and next diligence."
+        or "State the recommendation, valuation sensitivities, failure modes, and deal mechanics."
     ).strip()
     lines += [
         "",
@@ -5232,11 +5349,11 @@ def _refresh_memo_packet(session: dict) -> None:
             )
         ),
         (
-            "- **stop_or_revisit:** "
+            "- **risk_sensitivity:** "
             + (
                 "; ".join(pass_triggers)
                 if pass_triggers
-                else "Name the evidence that would make us hold, pass, or revisit."
+                else "Name the evidence that strengthens or weakens valuation support."
             )
         ),
         f"- **action:** {recommendation_logic}",
@@ -5249,28 +5366,32 @@ def _refresh_memo_packet(session: dict) -> None:
     for item in thesis.get("investment_risks") or []:
         lines.append(f"- **{item.get('claim')}** — {item.get('detail')}")
     lines += ["", "## Risk And Valuation Sensitivities"]
-    for item in thesis.get("top_gating_questions") or []:
-        action = _question_to_sensitivity_statement(
-            item.get("expected_bar") or item.get("question")
-        )
+    for item in sensitivities:
+        action = _sensitivity_statement(item)
         if action:
-            lines.append(f"- {action}")
+            support = _sensitivity_support(item)
+            downside = _sensitivity_downside(item)
+            line = f"- **{action}**"
+            details = [text for text in (support, downside) if text]
+            if details:
+                line += " — " + " ".join(details)
+            lines.append(line)
     lines += ["", "## Strategic Risks"]
     for item in risks.get("risks") or []:
-        lines.append(f"- **{item.get('title')}** — {item.get('decision_question')}")
+        statement = _question_to_sensitivity_statement(item.get("decision_question"))
+        detail = item.get("why_it_matters") or statement
+        lines.append(f"- **{item.get('title')}** — {detail}")
+        if statement and statement != detail:
+            lines.append(f"  - Valuation sensitivity: {statement}")
     if research_tasks.get("tasks"):
-        lines += ["", "## Research Task Results"]
+        lines += ["", "## Evidence Review Results"]
         for item in research_tasks.get("tasks") or []:
-            lines.append(
-                f"- **{item.get('title')}** [{item.get('status') or 'not_started'}]"
-            )
+            lines.append(f"- **{item.get('title')}**")
             if item.get("result_summary"):
                 lines.append(f"  - Result: {item.get('result_summary')}")
-                if item.get("confidence"):
-                    lines.append(f"  - Confidence: {item.get('confidence')}")
                 supporting = item.get("supporting_evidence") or []
                 if supporting:
-                    lines.append("  - Supporting evidence:")
+                    lines.append("  - Source support:")
                     for evidence in supporting[:3]:
                         locator = evidence.get("locator") or evidence.get("filename")
                         prefix = f"{locator}: " if locator else ""
@@ -5282,15 +5403,17 @@ def _refresh_memo_packet(session: dict) -> None:
                         locator = evidence.get("locator") or evidence.get("filename")
                         prefix = f"{locator}: " if locator else ""
                         lines.append(f"    - {prefix}{evidence.get('excerpt')}")
-                open_questions = item.get("open_questions") or []
+                open_questions = (
+                    item.get("remaining_evidence_limits")
+                    or item.get("open_questions")
+                    or []
+                )
                 if open_questions:
                     lines.append("  - Risk and valuation sensitivities:")
                     for question in open_questions[:3]:
                         action = _question_to_sensitivity_statement(question)
                         if action:
                             lines.append(f"    - {action}")
-            elif item.get("prompt"):
-                lines.append(f"  - Prompt: {item.get('prompt')}")
         evidence_summary = _memo_packet_evidence_summary(research_tasks.get("tasks") or [])
         if any(evidence_summary.values()):
             lines += ["", "## Evidence Matrix Summary"]
@@ -5318,27 +5441,17 @@ def _refresh_memo_packet(session: dict) -> None:
                         f"  - **{item['claim']}** — {locator}{item.get('excerpt')}{confidence}"
                     )
     if _infographic_source_brief_has_content(source_brief):
-        lines += ["", "## Infographic Source Brief"]
+        lines += ["", "## Visual Evidence Decisions"]
         if source_brief.get("summary"):
             lines.append(f"- Summary: {source_brief.get('summary')}")
         if source_brief.get("compact_claims"):
             lines.append("- Compact claims:")
             for claim in (source_brief.get("compact_claims") or [])[:8]:
-                warning = (
-                    " [do not visualize as fact]"
-                    if claim.get("prohibited_for_visuals")
-                    else ""
-                )
                 lines.append(
                     "  - "
-                    f"**{claim.get('claim')}** "
-                    f"[{claim.get('evidence_status') or 'needs_review'}; "
-                    f"{claim.get('confidence') or 'medium'}]{warning}"
+                    f"**{claim.get('claim')}** — "
+                    f"{claim.get('evidence_status') or 'source support needs review'}"
                 )
-                for trace in (claim.get("source_traces") or [])[:2]:
-                    locator = trace.get("locator") or trace.get("title") or trace.get("url")
-                    prefix = f"{locator}: " if locator else ""
-                    lines.append(f"    - {prefix}{trace.get('excerpt')}")
         if source_brief.get("numeric_metrics"):
             lines.append("- Numeric metrics:")
             for metric in (source_brief.get("numeric_metrics") or [])[:10]:
@@ -5346,19 +5459,18 @@ def _refresh_memo_packet(session: dict) -> None:
                 period = f" ({metric.get('period')})" if metric.get("period") else ""
                 lines.append(
                     "  - "
-                    f"{metric.get('label')}: {metric.get('value')}{unit}{period} "
-                    f"[{metric.get('confidence') or 'medium'}]"
+                    f"{metric.get('label')}: {metric.get('value')}{unit}{period}"
                 )
         if source_brief.get("contradictions"):
             lines.append("- Contradictions / mixed evidence:")
             for item in (source_brief.get("contradictions") or [])[:8]:
                 lines.append(f"  - {item}")
         if source_brief.get("missing_evidence"):
-            lines.append("- Missing evidence:")
+            lines.append("- Evidence limits:")
             for item in (source_brief.get("missing_evidence") or [])[:8]:
                 lines.append(f"  - {item}")
         if source_brief.get("no_go_claims"):
-            lines.append("- No-go / prohibited visual claims:")
+            lines.append("- Claims to treat as unsupported in visuals:")
             for item in (source_brief.get("no_go_claims") or [])[:8]:
                 lines.append(f"  - {item}")
         if source_brief.get("visual_opportunities"):
@@ -5371,21 +5483,14 @@ def _refresh_memo_packet(session: dict) -> None:
                 lines.append(
                     f"  - **{item.get('title')}** — {item.get('rationale')}"
                 )
-        source_traces = source_brief.get("source_traces") or []
-        if source_traces:
-            lines.append("- Source-trace notes:")
-            for trace in source_traces[:8]:
-                locator = trace.get("locator") or trace.get("title") or trace.get("url")
-                prefix = f"{locator}: " if locator else ""
-                lines.append(f"  - {prefix}{trace.get('excerpt')}")
     if benchmark.get("public_comps"):
-        lines += ["", "## Private Benchmark Dashboard"]
+        lines += ["", "## Benchmark Valuation Context"]
         if benchmark.get("summary"):
             lines.append(f"- Summary: {benchmark.get('summary')}")
         lines += [
             "",
-            "| Company | Ticker | Growth % | Gross Margin % | EV/Revenue | EV/EBITDA | FCF Margin % | Rule of 40 | Period | Confidence |",
-            "|---|---:|---:|---:|---:|---:|---:|---:|---|---|",
+            "| Company | Ticker | Growth % | Gross Margin % | EV/Revenue | EV/EBITDA | FCF Margin % | Rule of 40 | Period |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---|",
         ]
         for comp in benchmark.get("public_comps") or []:
             lines.append(
@@ -5398,56 +5503,28 @@ def _refresh_memo_packet(session: dict) -> None:
                 f"{comp.get('ev_ebitda') if comp.get('ev_ebitda') is not None else ''} | "
                 f"{comp.get('fcf_margin_pct') if comp.get('fcf_margin_pct') is not None else ''} | "
                 f"{comp.get('rule_of_40') if comp.get('rule_of_40') is not None else ''} | "
-                f"{comp.get('metric_period') or ''} | "
-                f"{comp.get('confidence') or ''} |"
+                f"{comp.get('metric_period') or ''} |"
             )
         if benchmark.get("benchmark_gaps"):
-            lines += ["", "- Benchmark gaps:"]
+            lines += ["", "- Benchmark evidence limits:"]
             for gap in benchmark.get("benchmark_gaps") or []:
                 lines.append(f"  - {gap}")
         if benchmark.get("must_prove"):
-            lines += ["", "- Must-prove claims:"]
+            lines += ["", "- Private-company proof points:"]
             for claim in benchmark.get("must_prove") or []:
                 lines.append(f"  - {claim}")
-        source_traces = list(benchmark.get("source_traces") or [])
-        for comp in benchmark.get("public_comps") or []:
-            source_traces.extend(comp.get("source_traces") or [])
-        if source_traces:
-            lines += ["", "- Source-trace notes:"]
-            for trace in source_traces[:8]:
-                locator = trace.get("locator") or trace.get("title") or trace.get("url")
-                prefix = f"{locator}: " if locator else ""
-                lines.append(f"  - {prefix}{trace.get('excerpt')}")
-    review_items = [
-        item for item in readiness_reviews.get("items") or []
-        if item.get("status") in {"reviewed", "waived"}
-    ]
-    if review_items:
-        lines += ["", "## Readiness Reviews And Waivers"]
-        for item in review_items:
-            lines.append(
-                f"- **{item.get('id')}** [{item.get('status')}] — "
-                f"{item.get('rationale') or 'No rationale recorded.'}"
-            )
-    lines += ["", "## Selected Infographic Plans"]
+    lines += ["", "## Selected Visual Decisions"]
     for item in chart_specs.get("specs") or []:
         if item.get("include_in_final_memo"):
-            mode = item.get("image_generation_mode") or "no_text_overlay"
             visual_format = item.get("recommended_visual_format") or "infographic"
-            status = item.get("status") or "draft"
-            lines.append(
-                f"- **{item.get('title')}** [{visual_format}; {mode}; {status}]"
-            )
+            lines.append(f"- **{item.get('title')}** — {visual_format}")
             if item.get("purpose") or item.get("takeaway"):
                 lines.append(
-                    f"  - Purpose: {item.get('purpose') or item.get('takeaway')}"
+                    f"  - Supported takeaway: {item.get('purpose') or item.get('takeaway')}"
                 )
             overlay = item.get("text_overlay_plan") or {}
             if overlay:
-                lines.append(
-                    "  - Overlay copy: "
-                    f"{overlay.get('headline') or item.get('title')}"
-                )
+                lines.append(f"  - Visual headline: {overlay.get('headline') or item.get('title')}")
                 for callout in (overlay.get("callouts") or [])[:4]:
                     lines.append(f"    - Callout: {callout}")
                 for footnote in (overlay.get("footnotes") or [])[:3]:
@@ -5455,7 +5532,7 @@ def _refresh_memo_packet(session: dict) -> None:
             if item.get("required_metrics"):
                 lines.append("  - Required metrics:")
                 for metric in (item.get("required_metrics") or [])[:6]:
-                    available = "available" if metric.get("source_available") else "source_needed"
+                    available = "sourced" if metric.get("source_available") else "not sourced"
                     value = metric.get("value")
                     value_text = f" = {value}" if value not in (None, "") else ""
                     unit = metric.get("unit") or ""
@@ -5463,32 +5540,13 @@ def _refresh_memo_packet(session: dict) -> None:
                         f"    - {metric.get('label')}{value_text}{unit} [{available}]"
                     )
             if item.get("information_gaps"):
-                lines.append("  - Information gaps:")
+                lines.append("  - Evidence limits:")
                 for gap in (item.get("information_gaps") or [])[:5]:
                     lines.append(f"    - {gap}")
-            design_prompt = item.get("design_prompt") or {}
-            if design_prompt.get("composition"):
-                lines.append(f"  - Design prompt: {design_prompt.get('composition')}")
-            for claim in (design_prompt.get("prohibited_claims") or [])[:5]:
-                lines.append(f"    - Prohibited claim: {claim}")
-            source_traces = list(item.get("source_traces") or [])
-            for metric in item.get("required_metrics") or []:
-                source_traces.extend(metric.get("source_traces") or [])
-            if source_traces:
-                lines.append("  - Source traces:")
-                for trace in source_traces[:5]:
-                    locator = trace.get("locator") or trace.get("title") or trace.get("url")
-                    prefix = f"{locator}: " if locator else ""
-                    lines.append(f"    - {prefix}{trace.get('excerpt')}")
-            if item.get("reviewer_prompts"):
-                lines.append("  - Reviewer prompts:")
-                for prompt in (item.get("reviewer_prompts") or [])[:4]:
-                    choice = prompt.get("resolved_choice") or "unresolved"
-                    lines.append(f"    - {prompt.get('prompt')} [{choice}]")
     if selected_opening or selected_transition or selected_ending:
         lines += [
             "",
-            "## Selected Operator Narrative Choices",
+            "## Selected Narrative Direction",
             "",
             (
                 "Use these operator-selected choices as final memo guidance "
@@ -5515,12 +5573,6 @@ def _refresh_memo_packet(session: dict) -> None:
                 lines.append(
                     f"  - Overclaiming risk: {selected_ending.get('overclaiming_risk')}"
                 )
-        narrative_prompts = hooks.get("reviewer_prompts") or []
-        if narrative_prompts:
-            lines.append("- Narrative reviewer prompts:")
-            for prompt in narrative_prompts[:5]:
-                choice = prompt.get("resolved_choice") or "unresolved"
-                lines.append(f"  - {prompt.get('prompt')} [{choice}]")
     artifacts["memo_packet"] = "\n".join(lines).strip() + "\n"
     session["memo_packet_source_fingerprint"] = _memo_packet_source_fingerprint(session)
 
@@ -5803,7 +5855,7 @@ def _memo_catalog_source_refs(value: Any, *, limit: int = 12) -> list[dict]:
             return
         seen.add(key)
         ref = {
-            "title": title or "Source trace",
+            "title": title or "Source evidence",
             "locator": locator,
             "excerpt": excerpt,
             "confidence": row.get("confidence"),
@@ -5874,6 +5926,7 @@ def _memo_catalog_review_state(session: dict, value: Any = None) -> str:
     if isinstance(value, dict):
         state = str(
             value.get("review_state")
+            or value.get("memo_inclusion_decision")
             or value.get("final_memo_inclusion_state")
             or ""
         ).strip()
@@ -6032,7 +6085,7 @@ def _memo_work_product_catalog(session: dict) -> dict:
         (
             "readiness_reviews",
             "readiness_reviews",
-            "Readiness Reviews And Waivers",
+            "Evidence Readiness Review",
             "readiness_reviews.yaml",
         ),
     ]
@@ -6595,11 +6648,8 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         + len(task.get("contradicting_evidence") or [])
         for task in completed_task_results
     )
-    task_open_question_count = sum(
-        len(task.get("open_questions") or [])
-        for task in completed_task_results
-    )
     reviews_by_id = _readiness_review_map(session)
+    sensitivity_rows = _thesis_sensitivity_rows(thesis)
 
     gates = [
         ("strategic_risks", "Strategic risks generated", bool(risks.get("risks"))),
@@ -6607,7 +6657,7 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         ("thesis_spine", "Thesis spine drafted", bool(thesis.get("investment_highlights"))),
         ("highlights", "3-5 Investment Highlights drafted", 3 <= len(thesis.get("investment_highlights") or []) <= 5),
         ("memo_risks", "3-5 Investment Risks drafted", 3 <= len(thesis.get("investment_risks") or []) <= 5),
-        ("gating_questions", "Top 3 risk sensitivities selected", len(thesis.get("top_gating_questions") or []) >= 3),
+        ("risk_sensitivities", "Top 3 risk sensitivities selected", len(sensitivity_rows) >= 3),
         ("approved", "Final memo generation approved", bool(session.get("approved_for_memo"))),
     ]
     if completed_task_results:
@@ -6635,7 +6685,7 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
             "label": label,
             "severity": (
                 "high"
-                if gid in {"strategic_risks", "thesis_spine", "gating_questions"}
+                if gid in {"strategic_risks", "thesis_spine", "risk_sensitivities"}
                 else "medium"
             ),
             "reason": "Complete this required readiness gate before approval.",
@@ -6652,7 +6702,7 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
     additional = [
         {
             "id": gid,
-            "severity": "high" if gid in {"strategic_risks", "thesis_spine", "gating_questions"} else "medium",
+            "severity": "high" if gid in {"strategic_risks", "thesis_spine", "risk_sensitivities"} else "medium",
             "area": label,
             "why_it_matters": "This must be addressed or explicitly waived before final memo generation.",
             "status": "open",
@@ -6674,11 +6724,16 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
                 ),
                 "status": "open",
             })
-        for index, question in enumerate(task.get("open_questions") or [], start=1):
+        evidence_limits = (
+            task.get("remaining_evidence_limits")
+            or task.get("open_questions")
+            or []
+        )
+        for index, question in enumerate(evidence_limits, start=1):
             additional.append({
-                "id": f"research-open-question-{task_id}-{index}",
+                "id": f"research-evidence-limit-{task_id}-{index}",
                 "severity": "high",
-                "area": f"Open research question: {title}",
+                "area": f"Research evidence limit: {title}",
                 "why_it_matters": str(question),
                 "status": "open",
             })

@@ -73,8 +73,8 @@ SECTION_TITLES = {
         "zh": "VI. 来源、来源类别与事实索引",
     },
     "validation_log": {
-        "en": "Appendix: Validation & Assumptions Log",
-        "zh": "附录：验证与假设日志",
+        "en": "Appendix: Source Treatment And Assumptions",
+        "zh": "附录：来源处理与假设",
     },
 }
 
@@ -122,9 +122,8 @@ VALUATION_CONTENT_TERMS = (
     "arr",
     "margin",
     "gross margin",
-    "diligence threshold",
-    "diligence",
-    "threshold",
+    "valuation sensitivity",
+    "sensitivity",
     "multiple",
     "forecast",
     "收入",
@@ -134,7 +133,7 @@ VALUATION_CONTENT_TERMS = (
     "毛利率",
     "利润率",
     "模型",
-    "尽调",
+    "敏感性",
 )
 GENERIC_CONTENT_PATTERNS = (
     re.compile(r"^more diligence is needed\.?$", re.IGNORECASE),
@@ -269,7 +268,7 @@ def _validate_section_content_floor(
     ):
         errors.append(
             "section financial_forecast_valuation must reference model treatment, "
-            "scenario ranges, valuation, revenue, margins, or diligence thresholds"
+            "scenario ranges, valuation, revenue, margins, or valuation sensitivities"
         )
 
 
