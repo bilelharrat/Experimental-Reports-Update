@@ -463,11 +463,23 @@ class CompanyOut(BaseModel):
     latest_funding: dict | None = None
     latest_earnings: dict | None = None
     total_funding_usd: str | None = None
+    positioning: dict | None = None
+    metrics: list[dict] = Field(default_factory=list)
+    team_profiles: list[dict] = Field(default_factory=list)
     products: list[dict] = Field(default_factory=list)
-    competitors: list[str] = Field(default_factory=list)
+    competitors: list[dict | str] = Field(default_factory=list)
+    competitor_cards: list[dict] = Field(default_factory=list)
     recent_news: list[dict] = Field(default_factory=list)
+    company_news: list[dict] = Field(default_factory=list)
     notable_contracts: list[dict] = Field(default_factory=list)
     notable_acquisitions: list[dict] = Field(default_factory=list)
+    board_investors: list[dict] = Field(default_factory=list)
+    cap_table_lineage: list[dict] = Field(default_factory=list)
+    industry_view: dict | None = None
+    expert_opinions: list[dict] = Field(default_factory=list)
+    disclosures: list[dict] = Field(default_factory=list)
+    memo_state: dict | None = None
+    audit_records: list[dict] = Field(default_factory=list)
     language: str | None = None
     translation: dict | None = None
     trader_snapshot: dict | None = None  # populated for public companies via /trader/refresh
@@ -5814,11 +5826,23 @@ def _company_view(c: dict) -> dict:
         "latest_funding": c.get("latest_funding"),
         "latest_earnings": c.get("latest_earnings"),
         "total_funding_usd": c.get("total_funding_usd"),
+        "positioning": c.get("positioning"),
+        "metrics": list(c.get("metrics") or []),
+        "team_profiles": list(c.get("team_profiles") or c.get("team") or []),
         "products": list(c.get("products") or []),
         "competitors": list(c.get("competitors") or []),
+        "competitor_cards": list(c.get("competitor_cards") or []),
         "recent_news": list(c.get("recent_news") or []),
+        "company_news": list(c.get("company_news") or []),
         "notable_contracts": list(c.get("notable_contracts") or []),
         "notable_acquisitions": list(c.get("notable_acquisitions") or []),
+        "board_investors": list(c.get("board_investors") or []),
+        "cap_table_lineage": list(c.get("cap_table_lineage") or []),
+        "industry_view": c.get("industry_view"),
+        "expert_opinions": list(c.get("expert_opinions") or []),
+        "disclosures": list(c.get("disclosures") or []),
+        "memo_state": c.get("memo_state"),
+        "audit_records": list(c.get("audit_records") or []),
         "language": c.get("language"),
         "translation": c.get("translation"),
         "trader_snapshot": c.get("trader_snapshot"),

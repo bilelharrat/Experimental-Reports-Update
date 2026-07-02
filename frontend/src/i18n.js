@@ -106,7 +106,7 @@ const messages = {
     "home.cache_minutes_ago": "{n}m ago",
     "home.cache_hours_ago": "{n}h ago",
     "home.cache_days_ago": "{n}d ago",
-    "home.hormuz_library": "Hormuz source library & V3 appendix →",
+    "home.hormuz_library": "Source library & appendix →",
     // Submit-link tool
     "submit_link.title": "Submit a link",
     "submit_link.subtitle":
@@ -129,7 +129,7 @@ const messages = {
     "upload_research.uploading": "Uploading…",
     "upload_research.upload": "Upload & analyze",
     // Hormuz-research tool
-    "hormuz.title": "Add Hormuz research",
+    "hormuz.title": "Add research",
     "hormuz.subtitle": "— internal research note (PDF optional)",
     "hormuz.placeholder_title": "Title",
     "hormuz.dropzone": "Drop a file here, or click to choose",
@@ -405,8 +405,11 @@ const messages = {
     // Research-view tab strip
     "research.tab_overview": "Overview",
     "research.tab_documents": "Documents",
+    "research.tab_memo": "Memo Studio",
     "research.tab_analysis": "Memo Studio",
-    "research.tab_console": "Console",
+    "research.tab_news": "Company News",
+    "research.tab_industry": "Industry Views",
+    "research.tab_console": "Co-Pilot",
     // Console
     "console.tab_label": "Console",
     "console.create_console": "Create console",
@@ -775,7 +778,7 @@ const messages = {
     "home.cache_minutes_ago": "{n} 分钟前",
     "home.cache_hours_ago": "{n} 小时前",
     "home.cache_days_ago": "{n} 天前",
-    "home.hormuz_library": "霍尔木兹来源库与 V3 附录 →",
+    "home.hormuz_library": "来源库与附录 →",
     // Submit-link tool
     "submit_link.title": "提交链接",
     "submit_link.subtitle": "— 粘贴新闻或网页，我们会存档并生成摘要",
@@ -796,8 +799,8 @@ const messages = {
     "upload_research.uploading": "上传中…",
     "upload_research.upload": "上传并分析",
     // Hormuz-research tool
-    "hormuz.title": "添加霍尔木兹研究",
-    "hormuz.subtitle": "— 添加内部研究笔记，可附 PDF",
+    "hormuz.title": "添加研究",
+    "hormuz.subtitle": "— 内部研究笔记，可附 PDF",
     "hormuz.placeholder_title": "标题",
     "hormuz.dropzone": "拖拽文件到此处，或点击选择",
     "hormuz.accepted_types": "PDF、DOCX、DOC、TXT — 可选",
@@ -1064,8 +1067,11 @@ const messages = {
     // Research-view tab strip
     "research.tab_overview": "概览",
     "research.tab_documents": "文档",
+    "research.tab_memo": "备忘录工作台",
     "research.tab_analysis": "备忘录工作台",
-    "research.tab_console": "控制台",
+    "research.tab_news": "公司新闻",
+    "research.tab_industry": "行业视图",
+    "research.tab_console": "Co-Pilot",
     // Console
     "console.tab_label": "控制台",
     "console.create_console": "创建控制台",

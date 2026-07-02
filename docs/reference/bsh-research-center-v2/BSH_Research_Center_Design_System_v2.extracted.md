@@ -1,0 +1,248 @@
+# BSH Research Center Design System v2 HTML - Extracted Text
+
+Source: `BSH_Research_Center_Design_System_v2.html`
+
+- BSH Research Center — Design System v2
+- Berkeley Summit House · Research Center
+- Design System v2
+- The visual and component language for the BSH Research Center — an AI-assisted investment-research and memo-drafting workspace for VC partners and analysts. This document is the single source of truth for engineering implementation.
+- 01
+- Design Philosophy — "Editorial Terminal"
+- The interface pairs the calm, breathable composure of an editorial layout with the precision of a financial terminal. Data is dense but never noisy: generous whitespace and hairline borders organize complex material, while a single restrained accent draws the eye only to what matters. The AI co-pilot is a peer in the workspace, not a chatbot bolted on.
+- Core Tenets
+- Breathable density. Whitespace and structural hairlines separate data points so partners can scan without fatigue.
+- Restrained color. A near-monochrome slate-and-pearl base. Tiffany accent (#0abab5) is used sparingly for interaction and positive signal; coral marks risk.
+- Numbers are monospaced. Every key figure uses a mono typeface so digits align and read as data.
+- Flat, diffused elevation. Soft low-opacity shadows and hairline borders imply structure without heavy drop-shadows or skeuomorphism.
+- 02
+- Color Palette
+- A cool, near-monochrome foundation grounded in Dark Navy, lifted by a pearl background. Functional color is applied with discipline: Tiffany for action and positive signal, Coral for risk and negatives, Amber for caution.
+- Base & Surface
+- Pearl / Background
+- #f8fafc
+- App canvas — softer than pure white, reduces eye strain.
+- Surface
+- #ffffff
+- Cards and panels — creates depth against the pearl base.
+- Surface Alt
+- #f1f5f9
+- Sub-boxes, quiet fills, AI response bubbles.
+- Ink / Dark Navy
+- #0f172a
+- Primary text and the grounding dark (user chat bubble, chart bars).
+- Text & Structure
+- Muted
+- #64748b
+- Secondary text, descriptions.
+- Muted 2
+- #94a3b8
+- Tertiary text, meta, placeholders.
+- Border
+- #e2e8f0
+- Default hairline dividers & card edges.
+- Border 2
+- #cbd5e1
+- Stronger borders, button outlines.
+- Accent & Functional
+- Tiffany (Accent)
+- #0abab5
+- Primary action, positive signal, selection, links. Use sparingly.
+- Tiffany Dark
+- #088f8f
+- Tiffany text on light, kickers, hovers.
+- Tiffany Light
+- #e6f7f6
+- Accent fills, highlight backgrounds, positive badges.
+- Coral (Alert)
+- #ef4444
+- Risk, negative metrics, active sub-tab indicator.
+- Coral Light
+- #fef2f2
+- Risk fills, caution badges.
+- Amber (Caution)
+- #f59e0b
+- Medium-severity risk accent, revenue-quality flags.
+- Mint
+- #5eead4
+- Gradient partner to Tiffany (logo, hero, decorative).
+- Signature Gradient — Sidebar & Logo
+- The left navigation carries a single continuous fade from solid Tiffany-teal behind the logo down to the pearl background. Reserve it for the primary rail — it is the product's signature. linear-gradient(180deg,#0aa8a3 0,#0aa8a3 46px,#f8fafc 520px)
+- 03
+- Typography
+- A single family — Inter — carries the entire interface, from display headings to body and tables. Numbers switch to a monospaced face so figures align and read unmistakably as data. Categorical labels use the uppercase "Vogue" treatment.
+- Display / Page title
+- ZaiNar, Inc.
+- Inter · 700 · size 34–46px · letter-spacing −0.02em
+- Section heading
+- Investment Thesis
+- Inter · 700 · size 18–26px · letter-spacing −0.02em
+- Card / component title
+- Software-only positioning on existing 5G / Wi-Fi
+- Inter · 700 · size 15–16px
+- Body
+- Sub-meter location over existing networks — the lowest-friction path to ubiquitous spatial sensing. Body copy runs at 13–14px with a 1.55–1.7 line height for comfortable reading.
+- Inter · 400/500 · size 13–14px · line-height 1.55–1.7
+- "Vogue" categorical label
+- Notable Voices
+- Inter · 700 · size 10.5–11px · uppercase · letter-spacing 0.15–0.16em · color Muted
+- Key numbers (monospaced)
+- $1.0B+ · +180% · ~$45B
+- SF Mono / Roboto Mono · 700 · letter-spacing −0.02 to −0.03em — used for all metrics, valuations, ranks, dates.
+- 04
+- Layout Tokens
+- Consistent radius, elevation, and structural rhythm. Elevation is flat and diffused; corners are generously rounded to feel modern and calm.
+- Radius
+- Chips / tags
+- 7px
+- Sub-boxes
+- 12px
+- List rows / intake
+- 14px
+- Panels / hl-cards
+- 18px
+- Glass card
+- 24px
+- Buttons / badges
+- 99px
+- Elevation
+- Default
+- 0 4px 12px /.04
+- Hover
+- 0 6px 16px /.07
+- Accent lift
+- tiffany /.30
+- Token
+- Value
+- Usage
+- Left rail width
+- 288px
+- Primary navigation sidebar
+- Co-pilot panel width
+- 372px
+- Slide-in AI panel (opens on demand)
+- Content max-width
+- 760–1080px
+- Centered reading column
+- Card padding
+- 20–24px
+- Interior spacing for cards & panels
+- Section rhythm
+- 22–34px
+- Vertical gap between major blocks
+- 05
+- Components
+- The building blocks of the Research Center, rendered live with the production styles.
+- Buttons
+- Export Memo
+- Regenerate
+- Rerun
+- Pill shape (99px). Primary = solid Tiffany. Secondary = white with Border-2 outline. All lift 1px on hover.
+- Tags, badges & stance chips
+- Series B
+- Physical AI
+- Done
+- Ready for input
+- Not started
+- Bullish
+- Neutral
+- Cautious
+- Metric strip
+- ARR
+- ~$24M
+- YoY Growth
+- +180%
+- Valuation
+- $1.0B+
+- TAM
+- ~$45B
+- Sub-tabs
+- Overview
+- Documents
+- Memo Studio
+- Company News
+- Industry Views
+- Highlight / Risk card — checkable, rankable, expandable
+- ✓
+- 1
+- Valuation Markup · Financials
+- Series B markup credibility: $3B → $15B in 9 months
+- Is the implied ~5× markup defensible in 2026 capital markets?
+- Risk: expected return depends on a near-term large mark.
+- Mitigation: gate on a signed lead and a cleared mark.
+- Left rail = include checkbox + rank up/down + mono index. Click the body to expand supporting bullets. Each bullet reveals Edit / Dive-deeper / Discuss actions on hover — no inline chat box (the co-pilot handles discussion). Left border color encodes severity: Tiffany (thesis), Coral, Amber, Indigo, Slate.
+- Appendix — collapsed by default
+- A1
+- Company Overview
+- Founded 2017, Belmont CA. Network-based RF positioning over existing 5G / Wi-Fi. Fact blocks stay collapsed until requested.
+- Quick Intake cards
+- Submit a Link
+- Archive & summarize
+- Upload Research
+- PDF, DOCX
+- Add Note
+- Internal research
+- AI Co-Pilot bubbles
+- Compare ZaiNar's revenue quality to NextNav.
+- On it — scoping booked ARR versus MOUs against independent sources. I'll surface disconfirming evidence first.
+- Research task
+- Confirm GAAP-recognizable revenue before underwriting the mark.
+- User bubbles are Dark Navy, right-aligned, with a clipped top-right corner. AI replies are Surface-Alt, left-aligned. Research tasks are Tiffany-tinted.
+- 06
+- Copy-Ready Tokens
+- Drop this :root block into the app stylesheet. Every component above references these variables.
+- /* BSH Research Center - design tokens */
+- :root
+- {
+- /* base & surface */
+- --bg-base
+- :
+- ;
+- --surface
+- --surface-alt
+- /* text */
+- --ink
+- --muted
+- --muted-2
+- /* accent - Tiffany */
+- --tiffany
+- --tiffany-dark
+- --tiffany-light
+- --mint
+- /* functional */
+- --coral
+- --coral-light
+- --amber
+- /* structure */
+- --border
+- --border-2
+- /* elevation */
+- --shadow
+- 0 4px 12px rgba(15,23,42,.04)
+- --shadow-hover
+- 0 6px 16px rgba(15,23,42,.07)
+- /* type */
+- --font-sans
+- 'Inter', sans-serif
+- --font-mono
+- 'SF Mono','Roboto Mono', ui-monospace, Menlo, monospace
+- /* signature gradient */
+- --rail-grad
+- linear-gradient(180deg,#0aa8a3 0,#0aa8a3 46px,#f8fafc 520px)
+- ; }
+- 07
+- Usage Principles
+- Do
+- Reserve Tiffany for interaction, selection, and positive signal — one accent per view.
+- Set every metric, valuation, rank, and date in the mono face.
+- Separate data with whitespace and hairline borders before reaching for color.
+- Use Coral only for genuine risk / negative values; Amber for medium severity.
+- Keep headings Inter 700 with tight (−0.02em) letter-spacing.
+- Let the co-pilot own discussion; keep inline UI to Edit / Dive-deeper actions.
+- Don't
+- Flood a view with accent color or use multiple bright hues at once.
+- Introduce serif display type — the system is all-Inter.
+- Add heavy or high-opacity drop shadows; elevation stays flat and diffused.
+- Set numbers in the sans face where they should read as data.
+- Nest chat boxes inside every card — route discussion to the co-pilot panel.
+- Use the signature gradient anywhere but the primary rail / logo.
+- Berkeley Summit House · Research Center · Design System v2 · derived from the current interactive prototype

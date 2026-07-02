@@ -224,10 +224,34 @@ REQUIRED_MEMO_COMPONENTS = (
         ),
     },
     {
+        "id": "evidence_thresholds",
+        "label": "Evidence thresholds / step-up support treatment",
+        "block_types": {"paragraph", "bullets", "callout", "table"},
+        "patterns": (
+            r"\bevidence thresholds?\b",
+            r"\bstep-up evidence\b",
+            r"\bstep-up case\b",
+            r"\bevidence required\b",
+            r"\bdiligence priorit(?:y|ies)\b",
+        ),
+    },
+    {
         "id": "source_index",
         "label": "Sources, Source Classes, and Fact Reference Index",
         "block_types": {"table"},
         "patterns": (r"\bsource index\b", r"\bfact reference index\b"),
+    },
+    {
+        "id": "disclosures",
+        "label": "Legal / offering disclosures",
+        "block_types": {"paragraph", "callout", "table"},
+        "patterns": (
+            r"\bdisclosures?\b",
+            r"\bnot an offer to sell securities\b",
+            r"\bdefinitive subscription documents\b",
+            r"\baccredited investors\b",
+            r"\bpartial or total loss\b",
+        ),
     },
 )
 SUPPORTED_BLOCK_TYPES = {

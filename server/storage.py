@@ -317,6 +317,12 @@ def upsert_company_from_match(match: dict) -> dict:
             existing = companies[found_idx]
             for k, v in enrichment.items():
                 if v not in (None, [], ""):
+                    if (
+                        k == "competitors"
+                        and any(isinstance(item, dict) for item in existing.get(k) or [])
+                        and not any(isinstance(item, dict) for item in v)
+                    ):
+                        continue
                     existing[k] = v
             if not existing.get("description") and match.get("description"):
                 existing["description"] = match["description"]

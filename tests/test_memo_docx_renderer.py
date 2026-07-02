@@ -447,6 +447,43 @@ def _package() -> dict:
                             ),
                         },
                     },
+                    {
+                        "type": "table",
+                        "component": "evidence_thresholds",
+                        "title": {
+                            "en": "Evidence Thresholds For Step-Up Support",
+                            "zh": "支持估值上调的证据阈值",
+                        },
+                        "headers": [
+                            {"en": "Evidence threshold", "zh": "证据阈值"},
+                            {"en": "Valuation treatment", "zh": "估值处理"},
+                        ],
+                        "rows": [
+                            [
+                                {"en": "Repeatable production usage", "zh": "可重复生产使用"},
+                                {
+                                    "en": "Supports a stronger step-up only when visible across multiple customers.",
+                                    "zh": "只有在多个客户中可见时，才支持更强的估值上调。",
+                                },
+                            ]
+                        ],
+                    },
+                    {
+                        "type": "paragraph",
+                        "component": "disclosures",
+                        "text": {
+                            "en": (
+                                "Disclosure: distributed only to the named recipients; "
+                                "not an offer to sell securities. Any investment is governed "
+                                "by definitive subscription documents and may result in "
+                                "partial or total loss."
+                            ),
+                            "zh": (
+                                "披露：本备忘录仅供指定接收方使用，并非证券出售要约。"
+                                "任何投资均以最终认购文件为准，并可能产生部分或全部损失。"
+                            ),
+                        },
+                    },
                 ],
             },
         ],
@@ -510,6 +547,8 @@ def test_parameterized_renderer_writes_bilingual_docx_and_logs(tmp_path):
     assert "## Content Coverage" in validation_text
     assert "- risk_register: present" in validation_text
     assert "- growth_bridge: present" in validation_text
+    assert "- evidence_thresholds: present" in validation_text
+    assert "- disclosures: present" in validation_text
 
     lint_result = memo_quality_lint.lint_memo_docx(out_en)
     assert lint_result.has_blocking_findings is False

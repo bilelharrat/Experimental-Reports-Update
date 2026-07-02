@@ -1195,6 +1195,17 @@ company. Do not let a memo become a short executive summary merely because the
 language is cleaner. If a figure is unavailable, keep the relevant component
 and state the source class, model treatment, and valuation sensitivity.
 
+Source-to-final fidelity is part of this contract. When the source set,
+research folder, prior memo versions, Memo Studio packet, or analysis artifacts
+contain material investment facts, preserve them in the final package with
+source treatment instead of dropping them for brevity. This includes
+management-reported commercial velocity signals, transaction-size or growth
+expectations, profitability claims, ecosystem/logo rosters, technical
+performance claims, standards or commoditization context, third-party industry
+validation, resilient-infrastructure market context, and legal/offering
+disclosures. Caveated facts should be included as caveated facts, not promoted
+to revenue, margin, or valuation proof.
+
 Every successful package must include the reusable component slugs below on
 the corresponding block as `component: "<slug>"`. The fixed renderer validates
 these slugs and writes content coverage into `logs/validation.txt`.
@@ -1213,7 +1224,11 @@ these slugs and writes content coverage into `logs/validation.txt`.
 - `growth_bridge`: growth bridge table.
 - `scenario_analysis`: bear/base/bull or equivalent scenario table.
 - `investment_decision`: final Investment Decision / Closing View.
+- `evidence_thresholds`: evidence thresholds that would materially support
+  the next valuation step-up, written as valuation sensitivities rather than
+  buyer-side gating commands.
 - `source_index`: source/fact index through the `sources` list or a sources section.
+- `disclosures`: concise legal/offering disclosure language.
 
 If you add any section id beyond the renderer-supported core ids, provide a
 bilingual section `title`. Unknown ids without titles lose visible structure

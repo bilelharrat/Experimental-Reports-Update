@@ -8,26 +8,33 @@ const RouterLinkStub = {
 };
 
 describe("Sidebar", () => {
-  it("does not render recent-report links without a company_id", () => {
+  it("renders PRD rail buckets from companies instead of report links", () => {
     const wrapper = mount(Sidebar, {
       props: {
         loading: false,
         reports: [
           {
-            id: "routeable",
-            company_id: "acme-inc",
-            company_name: "Acme Inc.",
-            report_type: "Investment Memo",
-            audience: "IC",
-            status: "complete",
-          },
-          {
             id: "unrouteable",
             company_id: null,
             company_name: "Hormuz Appendix",
             report_type: "Daily Appendix",
-            audience: null,
             status: "complete",
+          },
+        ],
+        companies: [
+          {
+            id: "acme-inc",
+            name: "Acme Inc.",
+            company_type: "private",
+            status: "private",
+            industry: "Industrial AI",
+          },
+          {
+            id: "nvda",
+            name: "NVIDIA",
+            company_type: "public",
+            status: "public",
+            sector: "Semis / AI Infra",
           },
         ],
       },
@@ -38,7 +45,17 @@ describe("Sidebar", () => {
       },
     });
 
+    expect(wrapper.text()).toContain("Quick Intake");
+    expect(wrapper.text()).toContain("Portfolio");
+    expect(wrapper.text()).toContain("Top Players");
     expect(wrapper.text()).toContain("Acme Inc.");
+    expect(wrapper.text()).toContain("NVIDIA");
+    expect(wrapper.text()).toContain("Market Radar");
+    expect(wrapper.text()).toContain("Stock");
+    expect(wrapper.text()).toContain("Innovation Lab");
+    expect(wrapper.text()).toContain("Settings");
+    expect(wrapper.text()).toContain("Profile");
     expect(wrapper.text()).not.toContain("Hormuz Appendix");
+    expect(wrapper.text()).not.toContain("Hormuz Research");
   });
 });

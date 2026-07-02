@@ -765,6 +765,12 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "content coverage against the reusable" in prompt
     assert "`risk_register`" in prompt
     assert "`scenario_analysis`" in prompt
+    assert "Source-to-final fidelity is part of this contract" in prompt
+    assert "prior memo versions" in prompt
+    assert "management-reported commercial velocity signals" in prompt
+    assert "ecosystem/logo rosters" in prompt
+    assert "performance claims" in prompt
+    assert "standards or commoditization context" in prompt
     assert "founder demographic traits" in prompt
     assert "thesis-fit exception labels" in prompt
     assert captured["silence_timeout_sec"] == 600
@@ -809,6 +815,15 @@ def test_investment_memo_prompt_uses_fixed_docx_renderer(tmp_path):
     assert "Memo Content Parity Contract" in prompt
     assert "`board`" in prompt
     assert "`growth_bridge`" in prompt
+    assert "`evidence_thresholds`" in prompt
+    assert "`disclosures`" in prompt
+    assert "Source-to-final fidelity is part of this contract" in prompt
+    assert "prior memo versions" in prompt
+    assert "management-reported commercial velocity signals" in prompt
+    assert "ecosystem/logo rosters" in prompt
+    assert "performance claims" in prompt
+    assert "standards or commoditization context" in prompt
+    assert "Caveated facts should be included as caveated facts" in prompt
 
 
 def test_investment_memo_prompt_bans_source_tokens_and_scaffold_labels(tmp_path):

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<!-- saved from url=(0088)file:///Users/apple/Documents/Claude/Projects/AI%20Agent%20design/BSH_Design_System.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BSH Research Center — Design System v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com/">
+<link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
+<link href="./BSH Research Center — Design System v2_files/css2" rel="stylesheet">
+<style>
+:root{
+  --bg-base:#f8fafc; --surface:#ffffff; --surface-alt:#f1f5f9;
+  --ink:#0f172a; --muted:#64748b; --muted-2:#94a3b8;
+  --coral:#ef4444; --coral-light:#fef2f2; --amber:#f59e0b;
+  --tiffany:#0abab5; --tiffany-dark:#088f8f; --tiffany-light:#e6f7f6;
+  --border:#e2e8f0; --border-2:#cbd5e1;
+  --shadow:0 4px 12px rgba(15,23,42,.04);
+  --shadow-hover:0 6px 16px rgba(15,23,42,.07);
+  --mono:'SF Mono','SFMono-Regular','Roboto Mono',ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg-base);color:var(--ink);font-family:'Inter',sans-serif;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+h1,h2,h3,h4{font-family:'Inter',sans-serif;font-weight:700;letter-spacing:-.02em;margin:0;}
+code{font-family:var(--mono);font-size:12px;background:var(--surface-alt);padding:2px 6px;border-radius:6px;color:var(--ink);}
+.wrap{max-width:1080px;margin:0 auto;padding:0 32px 100px;}
+
+.hero{background:linear-gradient(135deg,#0aa8a3 0%,#0abab5 45%,#5eead4 100%);color:#fff;padding:56px 32px 48px;margin-bottom:44px;position:relative;overflow:hidden;}
+.hero::after{content:"";position:absolute;right:40px;bottom:-40px;width:220px;height:220px;background:rgba(255,255,255,.10);clip-path:polygon(50% 0,100% 100%,0 100%);}
+.hero::before{content:"";position:absolute;right:150px;bottom:-60px;width:150px;height:150px;background:rgba(255,255,255,.08);clip-path:polygon(50% 0,100% 100%,0 100%);}
+.hero-in{max-width:1080px;margin:0 auto;position:relative;z-index:2;}
+.hero .kick{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.2em;opacity:.85;margin-bottom:14px;}
+.hero h1{font-size:40px;line-height:1.08;margin-bottom:14px;}
+.hero p{font-size:15.5px;line-height:1.6;max-width:640px;opacity:.94;margin:0;}
+
+.sec{margin-bottom:52px;}
+.sec-num{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--tiffany-dark);}
+.sec h2{font-size:26px;margin:6px 0 6px;}
+.sec .lede{color:var(--muted);font-size:14.5px;max-width:720px;margin:0 0 24px;line-height:1.6;}
+.vogue{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:var(--muted);margin-bottom:14px;}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:24px;box-shadow:var(--shadow);}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:22px 24px;box-shadow:var(--shadow);margin-bottom:16px;}
+
+.swatch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;}
+.sw{border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow);}
+.sw .chip{height:78px;}
+.sw .meta{padding:11px 13px;}
+.sw .nm{font-size:12.5px;font-weight:700;}
+.sw .hx{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px;}
+.sw .role{font-size:10.5px;color:var(--muted-2);margin-top:5px;line-height:1.4;}
+
+.spec{border:1px solid var(--border);border-radius:16px;padding:20px 22px;background:var(--surface);margin-bottom:12px;box-shadow:var(--shadow);}
+.spec .lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted-2);margin-bottom:10px;}
+.spec .demo{margin:0;}
+.spec .note{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:9px;}
+.num-mono{font-family:var(--mono);font-weight:700;letter-spacing:-.02em;}
+
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);}
+th,td{text-align:left;padding:12px 16px;font-size:13px;border-bottom:1px solid var(--border);}
+th{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted-2);background:var(--surface-alt);}
+tr:last-child td{border-bottom:none;}
+td code{font-size:11.5px;}
+
+.demo-col{display:block;padding:22px;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:var(--shadow);margin-bottom:14px;}
+.demo-lbl{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted-2);margin-bottom:16px;}
+
+.btn{font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;border-radius:99px;padding:9px 16px;cursor:pointer;border:1px solid var(--border-2);background:var(--surface);color:var(--ink);display:inline-flex;align-items:center;gap:7px;transition:.18s;box-shadow:0 1px 2px rgba(15,23,42,.03);}
+.btn:hover{border-color:#cbd5e1;transform:translateY(-1px);box-shadow:var(--shadow-hover);}
+.btn svg{width:15px;height:15px;stroke:currentColor;fill:none;}
+.btn-sm{padding:6px 12px;font-size:11.5px;}
+.btn-primary{background:var(--tiffany);color:#fff;border:none;}
+.btn-primary:hover{box-shadow:0 10px 22px rgba(10,186,181,.3);}
+
+.tag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:3px 9px;border-radius:7px;}
+.tag.lav{background:var(--tiffany-light);color:#088f8f;border:1px solid #bfe9e6;}
+.tag.outline{background:#fff;color:var(--muted);border:1px solid var(--border-2);}
+.badge{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:20px;}
+.badge.done{background:#eef2f7;color:#0f172a;}
+.badge.ready{background:#e6f7f6;color:#0abab5;}
+.badge.ns{background:#f1f5f9;color:#94a3b8;}
+.stance{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:3px 9px;border-radius:20px;}
+.stance.bull{background:var(--tiffany-light);color:var(--tiffany-dark);}
+.stance.caution{background:var(--coral-light);color:#b91c1c;}
+.stance.neutral{background:var(--surface-alt);color:var(--muted);}
+
+.metric-strip{display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;}
+.ms-cell{padding:17px 20px;border-right:1px solid var(--border);}
+.ms-cell:last-child{border-right:none;}
+.ms-l{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted-2);margin-bottom:7px;}
+.ms-v{font-family:var(--mono);font-size:24px;font-weight:700;letter-spacing:-.03em;line-height:1;}
+
+.hl-card{border:1px solid var(--border);border-radius:18px;background:var(--surface);box-shadow:var(--shadow);border-left:4px solid var(--tiffany);overflow:hidden;}
+.hl-card.coral{border-left-color:var(--coral);}
+.hl-main{display:flex;gap:14px;padding:16px 20px;}
+.hl-rail{display:flex;flex-direction:column;align-items:center;gap:5px;flex-shrink:0;}
+.hl-chk{width:20px;height:20px;border-radius:6px;border:1.5px solid var(--border-2);display:flex;align-items:center;justify-content:center;color:transparent;font-size:12px;font-weight:800;background:var(--surface);}
+.hl-chk.on{background:var(--tiffany);border-color:var(--tiffany);color:#fff;}
+.rank-arrow{width:22px;height:17px;border:none;background:none;color:var(--muted-2);display:flex;align-items:center;justify-content:center;}
+.rank-arrow svg{width:13px;height:13px;stroke:currentColor;fill:none;}
+.rank-num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--muted);}
+.hl-body{flex:1;min-width:0;}
+.hl-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.hl-kick{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--tiffany-dark);margin-bottom:4px;}
+.hl-card.coral .hl-kick{color:var(--coral);}
+.hl-title{font-size:15.5px;font-weight:700;line-height:1.32;color:var(--ink);}
+.hl-caret svg{width:18px;height:18px;stroke:var(--muted-2);fill:none;}
+.hl-desc{font-size:13px;color:#334155;line-height:1.6;margin-top:7px;}
+.hl-drop{margin-top:13px;border-top:1px solid var(--border);}
+.bp{display:flex;gap:10px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--border);}
+.bp:last-child{border-bottom:none;}
+.bp-dot{width:6px;height:6px;border-radius:50%;background:var(--tiffany);margin-top:7px;flex-shrink:0;}
+.bp-txt{flex:1;font-size:12.8px;line-height:1.6;color:#334155;}
+.bp-acts{display:flex;gap:5px;flex-shrink:0;}
+.bp-btn{width:27px;height:27px;border:1px solid var(--border);background:var(--surface);border-radius:7px;color:var(--muted);display:flex;align-items:center;justify-content:center;}
+.bp-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;}
+
+.apx{border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden;box-shadow:var(--shadow);}
+.apx summary{list-style:none;cursor:pointer;padding:14px 18px;font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:12px;}
+.apx summary::-webkit-details-marker{display:none;}
+.apx .apx-no{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--muted-2);}
+.apx .apx-car{margin-left:auto;width:9px;height:9px;border-right:2px solid var(--muted-2);border-bottom:2px solid var(--muted-2);transform:rotate(45deg);transition:.2s;}
+.apx[open] .apx-car{transform:rotate(-135deg);}
+.apx[open] summary{border-bottom:1px solid var(--border);}
+.apx-body{padding:14px 18px;font-size:12.8px;color:#334155;line-height:1.7;}
+
+.intake-card{display:flex;align-items:center;gap:11px;padding:12px 14px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);}
+.intake-ic{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.intake-ic svg{width:19px;height:19px;stroke:currentColor;fill:none;}
+.intake-ic.lav{background:var(--tiffany-light);color:var(--tiffany-dark);}
+.intake-ic.teal{background:#eef2f7;color:var(--ink);}
+.intake-ic.coral{background:var(--coral-light);color:var(--coral);}
+.intake-t{font-size:13px;font-weight:600;}
+.intake-s{font-size:10.5px;color:var(--muted-2);margin-top:1px;}
+
+.subtabs{display:flex;gap:4px;border-bottom:1px solid var(--border-2);}
+.subtab{font-family:'Inter',sans-serif;font-size:13px;font-weight:600;color:var(--muted);background:none;border:none;padding:11px 16px;position:relative;}
+.subtab.active{color:var(--ink);}
+.subtab.active::after{content:"";position:absolute;bottom:-1px;left:12px;right:12px;height:2px;border-radius:2px;background:var(--coral);}
+
+.cm-ai{background:var(--surface-alt);border-radius:16px;padding:14px 16px;font-size:12.5px;line-height:1.6;color:#334155;max-width:88%;}
+.cm-user{align-self:flex-end;background:var(--ink);color:#fff;border-radius:16px;border-top-right-radius:5px;padding:11px 14px;font-size:12.5px;line-height:1.5;max-width:80%;box-shadow:0 4px 12px rgba(15,23,42,.1);}
+.cm-task{background:var(--tiffany-light);border-radius:16px;padding:14px 16px;}
+.cm-task .tt{display:flex;align-items:center;gap:6px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--tiffany-dark);margin-bottom:5px;}
+.cm-task .tq{font-size:13px;font-weight:700;color:var(--ink);}
+
+.token-demo{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px;}
+.rd{background:var(--surface);border:1px solid var(--border);padding:14px;text-align:center;box-shadow:var(--shadow);border-radius:12px;}
+.rd .box{height:56px;background:var(--tiffany-light);border:1px solid #bfe9e6;margin-bottom:9px;}
+.rd .t{font-size:11.5px;font-weight:700;}
+.rd .v{font-family:var(--mono);font-size:10.5px;color:var(--muted);}
+
+pre{background:var(--ink);color:#e2e8f0;border-radius:16px;padding:22px 24px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.7;box-shadow:var(--shadow);}
+pre .c{color:#64748b;}
+pre .p{color:#5eead4;}
+pre .v{color:#f8fafc;}
+
+.dd{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.dd .col{border:1px solid var(--border);border-radius:16px;padding:18px 20px;background:var(--surface);box-shadow:var(--shadow);}
+.dd .h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px;}
+.dd .do .h{color:var(--tiffany-dark);}
+.dd .dont .h{color:var(--coral);}
+.dd ul{margin:0;padding-left:18px;}
+.dd li{font-size:12.8px;line-height:1.7;color:#334155;margin-bottom:6px;}
+@media(max-width:720px){.dd{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-in">
+    <div class="kick">Berkeley Summit House · Research Center</div>
+    <h1>Design System v2</h1>
+    <p>The visual and component language for the BSH Research Center — an AI-assisted investment-research and memo-drafting workspace for VC partners and analysts. This document is the single source of truth for engineering implementation.</p>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="sec">
+    <div class="sec-num">01</div>
+    <h2>Design Philosophy — "Editorial Terminal"</h2>
+    <p class="lede">The interface pairs the calm, breathable composure of an editorial layout with the precision of a financial terminal. Data is dense but never noisy: generous whitespace and hairline borders organize complex material, while a single restrained accent draws the eye only to what matters. The AI co-pilot is a peer in the workspace, not a chatbot bolted on.</p>
+    <div class="panel">
+      <div class="vogue">Core Tenets</div>
+      <p style="margin:0 0 10px;color:#334155;line-height:1.7;"><b>Breathable density.</b> Whitespace and structural hairlines separate data points so partners can scan without fatigue.</p>
+      <p style="margin:0 0 10px;color:#334155;line-height:1.7;"><b>Restrained color.</b> A near-monochrome slate-and-pearl base. Tiffany accent (#0abab5) is used sparingly for interaction and positive signal; coral marks risk.</p>
+      <p style="margin:0 0 10px;color:#334155;line-height:1.7;"><b>Numbers are monospaced.</b> Every key figure uses a mono typeface so digits align and read as data.</p>
+      <p style="margin:0;color:#334155;line-height:1.7;"><b>Flat, diffused elevation.</b> Soft low-opacity shadows and hairline borders imply structure without heavy drop-shadows or skeuomorphism.</p>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-num">02</div>
+    <h2>Color Palette</h2>
+    <p class="lede">A cool, near-monochrome foundation grounded in Dark Navy, lifted by a pearl background. Functional color is applied with discipline: Tiffany for action and positive signal, Coral for risk and negatives, Amber for caution.</p>
+
+    <div class="vogue">Base &amp; Surface</div>
+    <div class="swatch-grid" style="margin-bottom:26px;">
+      <div class="sw"><div class="chip" style="background:#f8fafc;border-bottom:1px solid var(--border);"></div><div class="meta"><div class="nm">Pearl / Background</div><div class="hx">#f8fafc</div><div class="role">App canvas — softer than pure white, reduces eye strain.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#ffffff;border-bottom:1px solid var(--border);"></div><div class="meta"><div class="nm">Surface</div><div class="hx">#ffffff</div><div class="role">Cards and panels — creates depth against the pearl base.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#f1f5f9;"></div><div class="meta"><div class="nm">Surface Alt</div><div class="hx">#f1f5f9</div><div class="role">Sub-boxes, quiet fills, AI response bubbles.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#0f172a;"></div><div class="meta"><div class="nm">Ink / Dark Navy</div><div class="hx">#0f172a</div><div class="role">Primary text and the grounding dark (user chat bubble, chart bars).</div></div></div>
+    </div>
+
+    <div class="vogue">Text &amp; Structure</div>
+    <div class="swatch-grid" style="margin-bottom:26px;">
+      <div class="sw"><div class="chip" style="background:#64748b;"></div><div class="meta"><div class="nm">Muted</div><div class="hx">#64748b</div><div class="role">Secondary text, descriptions.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#94a3b8;"></div><div class="meta"><div class="nm">Muted 2</div><div class="hx">#94a3b8</div><div class="role">Tertiary text, meta, placeholders.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#e2e8f0;"></div><div class="meta"><div class="nm">Border</div><div class="hx">#e2e8f0</div><div class="role">Default hairline dividers &amp; card edges.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#cbd5e1;"></div><div class="meta"><div class="nm">Border 2</div><div class="hx">#cbd5e1</div><div class="role">Stronger borders, button outlines.</div></div></div>
+    </div>
+
+    <div class="vogue">Accent &amp; Functional</div>
+    <div class="swatch-grid" style="margin-bottom:26px;">
+      <div class="sw"><div class="chip" style="background:#0abab5;"></div><div class="meta"><div class="nm">Tiffany (Accent)</div><div class="hx">#0abab5</div><div class="role">Primary action, positive signal, selection, links. Use sparingly.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#088f8f;"></div><div class="meta"><div class="nm">Tiffany Dark</div><div class="hx">#088f8f</div><div class="role">Tiffany text on light, kickers, hovers.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#e6f7f6;border-bottom:1px solid #bfe9e6;"></div><div class="meta"><div class="nm">Tiffany Light</div><div class="hx">#e6f7f6</div><div class="role">Accent fills, highlight backgrounds, positive badges.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#ef4444;"></div><div class="meta"><div class="nm">Coral (Alert)</div><div class="hx">#ef4444</div><div class="role">Risk, negative metrics, active sub-tab indicator.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#fef2f2;border-bottom:1px solid #fecaca;"></div><div class="meta"><div class="nm">Coral Light</div><div class="hx">#fef2f2</div><div class="role">Risk fills, caution badges.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#f59e0b;"></div><div class="meta"><div class="nm">Amber (Caution)</div><div class="hx">#f59e0b</div><div class="role">Medium-severity risk accent, revenue-quality flags.</div></div></div>
+      <div class="sw"><div class="chip" style="background:#5eead4;"></div><div class="meta"><div class="nm">Mint</div><div class="hx">#5eead4</div><div class="role">Gradient partner to Tiffany (logo, hero, decorative).</div></div></div>
+    </div>
+
+    <div class="vogue">Signature Gradient — Sidebar &amp; Logo</div>
+    <div class="panel" style="padding:0;overflow:hidden;">
+      <div style="height:110px;background:linear-gradient(180deg,#0aa8a3 0,#0aa8a3 46px,#f8fafc 100%);"></div>
+      <div style="padding:16px 22px;"><p style="margin:0;color:#334155;line-height:1.7;">The left navigation carries a single continuous fade from solid Tiffany-teal behind the logo down to the pearl background. Reserve it for the primary rail — it is the product's signature. <code>linear-gradient(180deg,#0aa8a3 0,#0aa8a3 46px,#f8fafc 520px)</code></p></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-num">03</div>
+    <h2>Typography</h2>
+    <p class="lede">A single family — <b>Inter</b> — carries the entire interface, from display headings to body and tables. Numbers switch to a monospaced face so figures align and read unmistakably as data. Categorical labels use the uppercase "Vogue" treatment.</p>
+
+    <div class="spec"><div class="lbl">Display / Page title</div><h1 class="demo" style="font-size:40px;">ZaiNar, Inc.</h1><div class="note">Inter · 700 · size 34–46px · letter-spacing −0.02em</div></div>
+    <div class="spec"><div class="lbl">Section heading</div><h2 class="demo" style="font-size:22px;">Investment Thesis</h2><div class="note">Inter · 700 · size 18–26px · letter-spacing −0.02em</div></div>
+    <div class="spec"><div class="lbl">Card / component title</div><h3 class="demo" style="font-size:15.5px;">Software-only positioning on existing 5G / Wi-Fi</h3><div class="note">Inter · 700 · size 15–16px</div></div>
+    <div class="spec"><div class="lbl">Body</div><p class="demo" style="font-size:14px;color:#334155;">Sub-meter location over existing networks — the lowest-friction path to ubiquitous spatial sensing. Body copy runs at 13–14px with a 1.55–1.7 line height for comfortable reading.</p><div class="note">Inter · 400/500 · size 13–14px · line-height 1.55–1.7</div></div>
+    <div class="spec"><div class="lbl">"Vogue" categorical label</div><p class="demo vogue" style="margin:0;">Notable Voices</p><div class="note">Inter · 700 · size 10.5–11px · uppercase · letter-spacing 0.15–0.16em · color Muted</div></div>
+    <div class="spec"><div class="lbl">Key numbers (monospaced)</div><p class="demo num-mono" style="font-size:26px;">$1.0B+ · +180% · ~$45B</p><div class="note">SF Mono / Roboto Mono · 700 · letter-spacing −0.02 to −0.03em — used for all metrics, valuations, ranks, dates.</div></div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-num">04</div>
+    <h2>Layout Tokens</h2>
+    <p class="lede">Consistent radius, elevation, and structural rhythm. Elevation is flat and diffused; corners are generously rounded to feel modern and calm.</p>
+
+    <div class="vogue">Radius</div>
+    <div class="token-demo" style="margin-bottom:26px;">
+      <div class="rd"><div class="box" style="border-radius:7px;"></div><div class="t">Chips / tags</div><div class="v">7px</div></div>
+      <div class="rd"><div class="box" style="border-radius:12px;"></div><div class="t">Sub-boxes</div><div class="v">12px</div></div>
+      <div class="rd"><div class="box" style="border-radius:14px;"></div><div class="t">List rows / intake</div><div class="v">14px</div></div>
+      <div class="rd"><div class="box" style="border-radius:18px;"></div><div class="t">Panels / hl-cards</div><div class="v">18px</div></div>
+      <div class="rd"><div class="box" style="border-radius:24px;"></div><div class="t">Glass card</div><div class="v">24px</div></div>
+      <div class="rd"><div class="box" style="border-radius:99px;"></div><div class="t">Buttons / badges</div><div class="v">99px</div></div>
+    </div>
+
+    <div class="vogue">Elevation</div>
+    <div class="token-demo" style="margin-bottom:26px;">
+      <div class="rd" style="box-shadow:var(--shadow);"><div class="box" style="background:#fff;border:1px solid var(--border);box-shadow:var(--shadow);"></div><div class="t">Default</div><div class="v">0 4px 12px /.04</div></div>
+      <div class="rd" style="box-shadow:var(--shadow-hover);"><div class="box" style="background:#fff;border:1px solid var(--border);box-shadow:var(--shadow-hover);"></div><div class="t">Hover</div><div class="v">0 6px 16px /.07</div></div>
+      <div class="rd"><div class="box" style="background:#fff;border:1px solid var(--border);box-shadow:0 8px 20px rgba(10,186,181,.30);"></div><div class="t">Accent lift</div><div class="v">tiffany /.30</div></div>
+    </div>
+
+    <table>
+      <tbody><tr><th>Token</th><th>Value</th><th>Usage</th></tr>
+      <tr><td>Left rail width</td><td><code>288px</code></td><td>Primary navigation sidebar</td></tr>
+      <tr><td>Co-pilot panel width</td><td><code>372px</code></td><td>Slide-in AI panel (opens on demand)</td></tr>
+      <tr><td>Content max-width</td><td><code>760–1080px</code></td><td>Centered reading column</td></tr>
+      <tr><td>Card padding</td><td><code>20–24px</code></td><td>Interior spacing for cards &amp; panels</td></tr>
+      <tr><td>Section rhythm</td><td><code>22–34px</code></td><td>Vertical gap between major blocks</td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="sec">
+    <div class="sec-num">05</div>
+    <h2>Components</h2>
+    <p class="lede">The building blocks of the Research Center, rendered live with the production styles.</p>
+
+    <div class="demo-col">
+      <div class="demo-lbl">Buttons</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-primary">Export Memo</button>
+        <button class="btn">Regenerate</button>
+        <button class="btn btn-sm">Rerun</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:14px 0 0;">Pill shape (99px). Primary = solid Tiffany. Secondary = white with Border-2 outline. All lift 1px on hover.</p>
+    </div>
+
+    <div class="demo-col">
+      <div class="demo-lbl">Tags, badges &amp; stance chips</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <span class="tag lav">Series B</span>
+        <span class="tag outline">Physical AI</span>
+        <span class="badge done">Done</span>
+        <span class="badge ready">Ready for input</span>
+        <span class="badge ns">Not started</span>
+        <span class="stance bull">Bullish</span>
+        <span class="stance neutral">Neutral</span>
+        <span class="stance caution">Cautious</span>
+      </div>
+    </div>
+
+    <div class="demo-col">
+      <div class="demo-lbl">Metric strip</div>
+      <div class="metric-strip">
+        <div class="ms-cell"><div class="ms-l">ARR</div><div class="ms-v">~$24M</div></div>
+        <div class="ms-cell"><div class="ms-l">YoY Growth</div><div class="ms-v">+180%</div></div>
+        <div class="ms-cell"><div class="ms-l">Valuation</div><div class="ms-v">$1.0B+</div></div>
+        <div class="ms-cell"><div class="ms-l">TAM</div><div class="ms-v">~$45B</div></div>
+      </div>
+    </div>
+
+    <div class="demo-col">
+      <div class="demo-lbl">Sub-tabs</div>
+      <div class="subtabs">
+        <button class="subtab active">Overview</button>
+        <button class="subtab">Documents</button>
+        <button class="subtab">Memo Studio</button>
+        <button class="subtab">Company News</button>
+        <button class="subtab">Industry Views</button>
+      </div>
+    </div>
+
+    <div class="demo-col">
+      <div class="demo-lbl">Highlight / Risk card — checkable, rankable, expandable</div>
+      <div class="hl-card coral">
+        <div class="hl-main">
+          <div class="hl-rail">
+            <span class="hl-chk on">✓</span>
+            <span class="rank-arrow"><svg viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"></path></svg></span>
+            <span class="rank-num">1</span>
+            <span class="rank-arrow"><svg viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"></path></svg></span>
+          </div>
+          <div class="hl-body">
+            <div class="hl-head-row">
+              <div><div class="hl-kick">Valuation Markup · Financials</div><div class="hl-title">Series B markup credibility: $3B → $15B in 9 months</div></div>
+              <span class="hl-caret"><svg viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"></path></svg></span>
+            </div>
+            <div class="hl-desc">Is the implied ~5× markup defensible in 2026 capital markets?</div>
+            <div class="hl-drop">
+              <div class="bp"><span class="bp-dot"></span><div class="bp-txt"><b>Risk:</b> expected return depends on a near-term large mark.</div><div class="bp-acts"><span class="bp-btn"><svg viewBox="0 0 24 24" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897z"></path></svg></span><span class="bp-btn"><svg viewBox="0 0 24 24" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 5.25l-7.5 7.5-7.5-7.5m15 6l-7.5 7.5-7.5-7.5"></path></svg></span></div></div>
+              <div class="bp"><span class="bp-dot"></span><div class="bp-txt"><b>Mitigation:</b> gate on a signed lead and a cleared mark.</div><div class="bp-acts"><span class="bp-btn"><svg viewBox="0 0 24 24" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897z"></path></svg></span><span class="bp-btn"><svg viewBox="0 0 24 24" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 5.25l-7.5 7.5-7.5-7.5m15 6l-7.5 7.5-7.5-7.5"></path></svg></span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:14px 0 0;">Left rail = include checkbox + rank up/down + mono index. Click the body to expand supporting bullets. Each bullet reveals Edit / Dive-deeper / Discuss actions on hover — no inline chat box (the co-pilot handles discussion). Left border color encodes severity: Tiffany (thesis), Coral, Amber, Indigo, Slate.</p>
+    </div>
+
+    <div class="demo-col">
+      <div class="demo-lbl">Appendix — collapsed by default</div>
+      <details class="apx"><summary><span class="apx-no">A1</span>Company Overview<span class="apx-car"></span></summary><div class="apx-body">Founded 2017, Belmont CA. Network-based RF positioning over existing 5G / Wi-Fi. Fact blocks stay collapsed until requested.</div></details>
+    </div>
+
+    <div class="demo-col">
+      <div class="demo-lbl">Quick Intake cards</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div class="intake-card"><div class="intake-ic lav"><svg viewBox="0 0 24 24" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"></path></svg></div><div><div class="intake-t">Submit a Link</div><div class="intake-s">Archive &amp; summarize</div></div></div>
+        <div class="intake-card"><div class="intake-ic teal"><svg viewBox="0 0 24 24" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"></path></svg></div><div><div class="intake-t">Upload Research</div><div class="intake-s">PDF, DOCX</div></div></div>
+        <div class="intake-card"><div class="intake-ic coral"><svg viewBox="0 0 24 24" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897z"></path></svg></div><div><div class="intake-t">Add Note</div><div class="intake-s">Internal research</div></div></div>
+      </div>
+    </div>
+
+    <div class="demo-col">
+      <div class="demo-lbl">AI Co-Pilot bubbles</div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div class="cm-user">Compare ZaiNar's revenue quality to NextNav.</div>
+        <div class="cm-ai">On it — scoping booked ARR versus MOUs against independent sources. I'll surface disconfirming evidence first.</div>
+        <div class="cm-task"><div class="tt">Research task</div><div class="tq">Confirm GAAP-recognizable revenue before underwriting the mark.</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:14px 0 0;">User bubbles are Dark Navy, right-aligned, with a clipped top-right corner. AI replies are Surface-Alt, left-aligned. Research tasks are Tiffany-tinted.</p>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-num">06</div>
+    <h2>Copy-Ready Tokens</h2>
+    <p class="lede">Drop this <code>:root</code> block into the app stylesheet. Every component above references these variables.</p>
+<pre><span class="c">/* BSH Research Center - design tokens */</span>
+<span class="p">:root</span> {
+  <span class="c">/* base &amp; surface */</span>
+  <span class="p">--bg-base</span>: <span class="v">#f8fafc</span>;   <span class="p">--surface</span>: <span class="v">#ffffff</span>;   <span class="p">--surface-alt</span>: <span class="v">#f1f5f9</span>;
+
+  <span class="c">/* text */</span>
+  <span class="p">--ink</span>: <span class="v">#0f172a</span>;       <span class="p">--muted</span>: <span class="v">#64748b</span>;    <span class="p">--muted-2</span>: <span class="v">#94a3b8</span>;
+
+  <span class="c">/* accent - Tiffany */</span>
+  <span class="p">--tiffany</span>: <span class="v">#0abab5</span>;   <span class="p">--tiffany-dark</span>: <span class="v">#088f8f</span>;  <span class="p">--tiffany-light</span>: <span class="v">#e6f7f6</span>;
+  <span class="p">--mint</span>: <span class="v">#5eead4</span>;
+
+  <span class="c">/* functional */</span>
+  <span class="p">--coral</span>: <span class="v">#ef4444</span>;     <span class="p">--coral-light</span>: <span class="v">#fef2f2</span>;   <span class="p">--amber</span>: <span class="v">#f59e0b</span>;
+
+  <span class="c">/* structure */</span>
+  <span class="p">--border</span>: <span class="v">#e2e8f0</span>;    <span class="p">--border-2</span>: <span class="v">#cbd5e1</span>;
+
+  <span class="c">/* elevation */</span>
+  <span class="p">--shadow</span>: <span class="v">0 4px 12px rgba(15,23,42,.04)</span>;
+  <span class="p">--shadow-hover</span>: <span class="v">0 6px 16px rgba(15,23,42,.07)</span>;
+
+  <span class="c">/* type */</span>
+  <span class="p">--font-sans</span>: <span class="v">'Inter', sans-serif</span>;
+  <span class="p">--font-mono</span>: <span class="v">'SF Mono','Roboto Mono', ui-monospace, Menlo, monospace</span>;
+
+  <span class="c">/* signature gradient */</span>
+  <span class="p">--rail-grad</span>: <span class="v">linear-gradient(180deg,#0aa8a3 0,#0aa8a3 46px,#f8fafc 520px)</span>;
+}</pre>
+  </div>
+
+  <div class="sec">
+    <div class="sec-num">07</div>
+    <h2>Usage Principles</h2>
+    <div class="dd">
+      <div class="col do">
+        <div class="h">Do</div>
+        <ul>
+          <li>Reserve Tiffany for interaction, selection, and positive signal — one accent per view.</li>
+          <li>Set every metric, valuation, rank, and date in the mono face.</li>
+          <li>Separate data with whitespace and hairline borders before reaching for color.</li>
+          <li>Use Coral only for genuine risk / negative values; Amber for medium severity.</li>
+          <li>Keep headings Inter 700 with tight (−0.02em) letter-spacing.</li>
+          <li>Let the co-pilot own discussion; keep inline UI to Edit / Dive-deeper actions.</li>
+        </ul>
+      </div>
+      <div class="col dont">
+        <div class="h">Don't</div>
+        <ul>
+          <li>Flood a view with accent color or use multiple bright hues at once.</li>
+          <li>Introduce serif display type — the system is all-Inter.</li>
+          <li>Add heavy or high-opacity drop shadows; elevation stays flat and diffused.</li>
+          <li>Set numbers in the sans face where they should read as data.</li>
+          <li>Nest chat boxes inside every card — route discussion to the co-pilot panel.</li>
+          <li>Use the signature gradient anywhere but the primary rail / logo.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <p style="text-align:center;color:var(--muted-2);font-size:11.5px;margin-top:40px;">Berkeley Summit House · Research Center · Design System v2 · derived from the current interactive prototype</p>
+
+</div>
+
+
+</body></html>

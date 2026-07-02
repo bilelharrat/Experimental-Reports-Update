@@ -3,6 +3,10 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { createMemoryHistory, createRouter, RouterView } from "vue-router";
 import StockResearchView from "../src/views/StockResearchView.vue";
 import ResearchView from "../src/views/ResearchView.vue";
+import InnovationLabView from "../src/views/InnovationLabView.vue";
+import SettingsView from "../src/views/SettingsView.vue";
+import UserCenterView from "../src/views/UserCenterView.vue";
+import SourceLibraryView from "../src/views/SourceLibraryView.vue";
 import { api } from "../src/api.js";
 
 vi.mock("../src/api.js", () => ({
@@ -126,6 +130,14 @@ async function mountRouteWithRouter(path) {
     history: createMemoryHistory(),
     routes: [
       { path: "/stock-research", name: "stock-research", component: StockResearchView },
+      { path: "/innovation-lab", name: "innovation-lab", component: InnovationLabView },
+      { path: "/settings", name: "settings", component: SettingsView },
+      { path: "/user", name: "user-center", component: UserCenterView },
+      { path: "/source-library", name: "source-library", component: SourceLibraryView },
+      { path: "/innovation-lab/hormuz", name: "hormuz-library", component: { template: "<div />" } },
+      { path: "/innovation-lab/market-pulse", name: "research-page-market-pulse", component: { template: "<div />" } },
+      { path: "/innovation-lab/evidence-matrix", name: "research-page-evidence-matrix", component: { template: "<div />" } },
+      { path: "/innovation-lab/hypothesis-lab", name: "research-page-hypothesis-lab", component: { template: "<div />" } },
       {
         path: "/:companyId",
         name: "research",
@@ -185,6 +197,11 @@ describe("route smoke tests", () => {
     const wrapper = await mountRoute("/research/generalist?tab=analysis");
 
     expect(wrapper.text()).toContain("Generalist");
+    expect(wrapper.text()).toContain("Overview");
+    expect(wrapper.text()).toContain("Documents");
+    expect(wrapper.text()).toContain("Memo Studio");
+    expect(wrapper.text()).toContain("Company News");
+    expect(wrapper.text()).toContain("Industry Views");
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
   });
@@ -194,6 +211,27 @@ describe("route smoke tests", () => {
 
     expect(wrapper.text()).toContain("Generalist");
     expect(wrapper.text()).toContain("Core Memo Workflow");
+  });
+
+  it("renders new PRD foundation top-level routes", async () => {
+    let wrapper = await mountRoute("/innovation-lab");
+    expect(wrapper.text()).toContain("Innovation Lab");
+    expect(wrapper.text()).toContain("Hormuz Source Library");
+    wrapper.unmount();
+
+    wrapper = await mountRoute("/settings");
+    expect(wrapper.text()).toContain("Settings");
+    expect(wrapper.text()).toContain("System Status");
+    wrapper.unmount();
+
+    wrapper = await mountRoute("/user");
+    expect(wrapper.text()).toContain("User Center");
+    wrapper.unmount();
+
+    wrapper = await mountRoute("/source-library");
+    expect(wrapper.text()).toContain("Source Library & Appendix");
+    expect(wrapper.text()).toContain("intentionally separate");
+    wrapper.unmount();
   });
 
   it("shows partial memo analysis artifacts for failed reports", async () => {
@@ -297,7 +335,7 @@ describe("route smoke tests", () => {
       ],
     });
 
-    const wrapper = await mountRoute("/research/generalist");
+    const wrapper = await mountRoute("/research/generalist?tab=analysis");
 
     expect(api.listCompanyReports).toHaveBeenCalledWith("generalist");
     expect(api.getReport).toHaveBeenCalledWith("report-1");
@@ -445,6 +483,13 @@ describe("route smoke tests", () => {
     api.generateReport.mockRejectedValue(err);
 
     const wrapper = await mountRoute("/research/generalist");
+    const memoTab = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Memo Studio"));
+    expect(memoTab).toBeTruthy();
+    await memoTab.trigger("click");
+    await flushPromises();
+
     const generateButton = wrapper
       .findAll("button")
       .find((button) => button.text().includes("Generate report"));

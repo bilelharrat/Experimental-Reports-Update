@@ -10,8 +10,9 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        display: ["Space Grotesk", "ui-sans-serif", "system-ui"],
-        body: ["IBM Plex Sans", "ui-sans-serif", "system-ui"],
+        display: ["Inter", "ui-sans-serif", "system-ui"],
+        body: ["Inter", "ui-sans-serif", "system-ui"],
+        mono: ["SF Mono", "Roboto Mono", "ui-monospace", "Menlo", "monospace"],
       },
       colors: {
         canvas: "rgb(var(--color-canvas) / <alpha-value>)",
@@ -47,12 +48,16 @@ module.exports = {
         },
       },
       borderRadius: {
-        card: "0.875rem",
+        chip: "7px",
+        subbox: "12px",
+        row: "14px",
+        card: "18px",
+        glass: "24px",
+        pill: "99px",
       },
       boxShadow: {
-        card: "0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.06)",
-        "card-raised":
-          "0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04)",
+        card: "var(--shadow)",
+        "card-raised": "var(--shadow-hover)",
       },
     },
   },

@@ -155,6 +155,7 @@ export const api = {
     request("/api/auth/logout", { method: "POST" }),
 
   options: () => request("/api/options"),
+  listCompanies: () => request("/api/companies"),
   listReports: () => request("/api/reports"),
   getReport: (id) => request(`/api/reports/${id}`),
   autocompleteCompanies: (q) =>

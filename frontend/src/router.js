@@ -15,6 +15,10 @@ const StockResearchView = () => import("./views/StockResearchView.vue");
 const MarketPulseView = () => import("./views/MarketPulseView.vue");
 const EvidenceMatrixView = () => import("./views/EvidenceMatrixView.vue");
 const HypothesisLabView = () => import("./views/HypothesisLabView.vue");
+const InnovationLabView = () => import("./views/InnovationLabView.vue");
+const SettingsView = () => import("./views/SettingsView.vue");
+const UserCenterView = () => import("./views/UserCenterView.vue");
+const SourceLibraryView = () => import("./views/SourceLibraryView.vue");
 
 function routerHistoryBase() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -64,19 +68,43 @@ export const router = createRouter({
       component: StockResearchView,
     },
     {
-      path: "/research-pages/market-pulse",
+      path: "/source-library",
+      name: "source-library",
+      component: SourceLibraryView,
+    },
+    {
+      path: "/settings",
+      name: "settings",
+      component: SettingsView,
+    },
+    {
+      path: "/user",
+      name: "user-center",
+      component: UserCenterView,
+      alias: "/profile",
+    },
+    {
+      path: "/innovation-lab",
+      name: "innovation-lab",
+      component: InnovationLabView,
+    },
+    {
+      path: "/innovation-lab/market-pulse",
       name: "research-page-market-pulse",
       component: MarketPulseView,
+      alias: "/research-pages/market-pulse",
     },
     {
-      path: "/research-pages/evidence-matrix",
+      path: "/innovation-lab/evidence-matrix",
       name: "research-page-evidence-matrix",
       component: EvidenceMatrixView,
+      alias: "/research-pages/evidence-matrix",
     },
     {
-      path: "/research-pages/hypothesis-lab",
+      path: "/innovation-lab/hypothesis-lab",
       name: "research-page-hypothesis-lab",
       component: HypothesisLabView,
+      alias: "/research-pages/hypothesis-lab",
     },
     {
       path: "/:companyId",
@@ -98,15 +126,17 @@ export const router = createRouter({
       props: true,
     },
     {
-      path: "/hormuz",
+      path: "/innovation-lab/hormuz",
       name: "hormuz-library",
       component: HormuzLibraryView,
+      alias: "/hormuz",
     },
     {
-      path: "/hormuz/:id",
+      path: "/innovation-lab/hormuz/:id",
       name: "hormuz-research",
       component: HormuzResearchView,
       props: true,
+      alias: "/hormuz/:id",
     },
   ],
 });

@@ -363,102 +363,18 @@ function onBlur() {
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto px-8 py-12">
-    <header class="mb-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-      <div class="min-w-0">
-        <div class="text-xs uppercase tracking-wider text-ink-muted mb-2">
-          {{ t("home.eyebrow") }}
-        </div>
-        <h1 class="font-display text-3xl font-semibold text-ink-primary">
-          {{ t("home.title") }}
-        </h1>
-        <p class="mt-2 text-ink-secondary">
-          {{ t("home.subtitle") }}
-        </p>
-      </div>
-      <div class="w-full shrink-0 flex flex-col items-stretch gap-2 sm:w-auto sm:items-end">
-        <div class="flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pb-0">
-          <router-link
-            :to="{ name: 'weekly-summary' }"
-            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted focus-ring"
-          >
-            <Flame class="h-4 w-4 text-accent" />
-            {{ t("home.weekly_summary") }}
-          </router-link>
-          <router-link
-            :to="{ name: 'trader-stats' }"
-            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted focus-ring"
-          >
-            <BarChart3 class="h-4 w-4 text-accent" />
-            {{ t("home.trader_stats") }}
-          </router-link>
-          <button
-            type="button"
-            :disabled="regeneratingAll"
-            @click="regenAllCompanies"
-            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted disabled:opacity-60 focus-ring"
-          >
-            <Loader2
-              v-if="regeneratingAll"
-              class="h-4 w-4 animate-spin text-accent"
-            />
-            <Sparkles v-else class="h-4 w-4 text-accent" />
-            <span>
-              {{
-                regeneratingAll
-                  ? t("home.regenerating_all")
-                  : t("home.regen_all")
-              }}
-            </span>
-          </button>
-          <button
-            type="button"
-            :disabled="refreshingStockViews"
-            @click="refreshAllStockViews"
-            class="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted disabled:opacity-60 focus-ring"
-          >
-            <Loader2
-              v-if="refreshingStockViews"
-              class="h-4 w-4 animate-spin text-accent"
-            />
-            <RefreshCw v-else class="h-4 w-4 text-accent" />
-            <span>
-              {{
-                refreshingStockViews
-                  ? t("home.refreshing_stock_views")
-                  : t("home.refresh_stock_views")
-              }}
-            </span>
-          </button>
-        </div>
-        <p
-          v-if="stockRefreshMessage"
-          class="text-xs text-ink-muted sm:max-w-xs sm:text-right"
-        >
-          {{ stockRefreshMessage }}
-        </p>
-        <p
-          v-if="stockRefreshError"
-          class="text-xs text-danger sm:max-w-xs sm:text-right"
-        >
-          {{ stockRefreshError }}
-        </p>
-        <p
-          v-if="regenAllMessage"
-          class="text-xs text-ink-muted sm:max-w-xs sm:text-right"
-        >
-          {{ regenAllMessage }}
-        </p>
-        <p
-          v-if="regenAllError"
-          class="text-xs text-danger sm:max-w-xs sm:text-right"
-        >
-          {{ regenAllError }}
-        </p>
-      </div>
-    </header>
+  <div class="mx-auto max-w-5xl px-6 py-10 md:px-8">
+    <section class="mx-auto max-w-3xl py-8 text-center md:py-14">
+      <div class="vogue-label justify-center">{{ t("home.eyebrow") }}</div>
+      <h1 class="mt-3 font-display text-4xl font-bold text-ink-primary md:text-5xl">
+        {{ t("home.title") }}
+      </h1>
+      <p class="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary md:text-base">
+        {{ t("home.subtitle") }}
+      </p>
+    </section>
 
-    <form @submit.prevent="runDeepSearch" class="relative">
+    <form @submit.prevent="runDeepSearch" class="relative mx-auto max-w-3xl">
       <Search
         class="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-ink-muted"
       />
@@ -524,6 +440,24 @@ function onBlur() {
         </button>
       </div>
     </form>
+
+    <div class="mx-auto mt-5 max-w-3xl">
+      <div class="mb-2 flex items-center justify-between px-1">
+        <h2 class="vogue-label">{{ t("home.quick_add") }}</h2>
+        <router-link
+          :to="{ name: 'source-library' }"
+          class="inline-flex items-center gap-1 text-xs font-semibold text-accent-ink hover:text-ink-primary focus-ring rounded"
+        >
+          Source library &amp; appendix
+          <ArrowRight class="h-3.5 w-3.5" />
+        </router-link>
+      </div>
+      <div class="grid gap-3">
+        <SubmitLinkTool />
+        <UploadResearchTool />
+        <AddHormuzResearchTool />
+      </div>
+    </div>
 
     <div v-if="error" class="mt-4 text-sm text-danger">{{ error }}</div>
 
@@ -656,21 +590,83 @@ function onBlur() {
       />
     </div>
 
-    <div class="mt-12 space-y-3">
-      <h2
-        class="text-xs font-semibold uppercase tracking-wide text-ink-muted px-1"
-      >
-        {{ t("home.quick_add") }}
-      </h2>
-      <SubmitLinkTool />
-      <UploadResearchTool />
-      <AddHormuzResearchTool />
-      <router-link
-        :to="{ name: 'hormuz-library' }"
-        class="block w-full text-left px-3 py-2 rounded-card border border-subtle bg-surface hover:bg-surface-muted text-sm text-ink-primary focus-ring"
-      >
-        {{ t("home.hormuz_library") }}
-      </router-link>
-    </div>
+    <section class="mt-12 rounded-card border border-subtle bg-surface p-5 shadow-card">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div class="vogue-label">Operations</div>
+          <p class="mt-1 text-sm text-ink-muted">
+            Administrative refresh actions stay available without competing with search.
+          </p>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <router-link
+          :to="{ name: 'weekly-summary' }"
+          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted focus-ring"
+        >
+          <Flame class="h-4 w-4 text-accent" />
+          {{ t("home.weekly_summary") }}
+        </router-link>
+        <router-link
+          :to="{ name: 'trader-stats' }"
+          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted focus-ring"
+        >
+          <BarChart3 class="h-4 w-4 text-accent" />
+          {{ t("home.trader_stats") }}
+        </router-link>
+        <button
+          type="button"
+          :disabled="regeneratingAll"
+          @click="regenAllCompanies"
+          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+        >
+          <Loader2
+            v-if="regeneratingAll"
+            class="h-4 w-4 animate-spin text-accent"
+          />
+          <Sparkles v-else class="h-4 w-4 text-accent" />
+          <span>
+            {{
+              regeneratingAll
+                ? t("home.regenerating_all")
+                : t("home.regen_all")
+            }}
+          </span>
+        </button>
+        <button
+          type="button"
+          :disabled="refreshingStockViews"
+          @click="refreshAllStockViews"
+          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+        >
+          <Loader2
+            v-if="refreshingStockViews"
+            class="h-4 w-4 animate-spin text-accent"
+          />
+          <RefreshCw v-else class="h-4 w-4 text-accent" />
+          <span>
+            {{
+              refreshingStockViews
+                ? t("home.refreshing_stock_views")
+                : t("home.refresh_stock_views")
+            }}
+          </span>
+        </button>
+      </div>
+      <div class="mt-3 space-y-1 text-xs">
+        <p v-if="stockRefreshMessage" class="text-ink-muted">
+          {{ stockRefreshMessage }}
+        </p>
+        <p v-if="stockRefreshError" class="text-danger">
+          {{ stockRefreshError }}
+        </p>
+        <p v-if="regenAllMessage" class="text-ink-muted">
+          {{ regenAllMessage }}
+        </p>
+        <p v-if="regenAllError" class="text-danger">
+          {{ regenAllError }}
+        </p>
+      </div>
+    </section>
   </div>
 </template>

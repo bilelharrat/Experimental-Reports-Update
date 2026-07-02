@@ -4,29 +4,51 @@
 
 :root {
   color-scheme: light;
-  --color-canvas: 247 248 250;
+  /* BSH Research Center v2 design tokens */
+  --bg-base: #f8fafc;
+  --surface: #ffffff;
+  --surface-alt: #f1f5f9;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --muted-2: #94a3b8;
+  --border: #e2e8f0;
+  --border-2: #cbd5e1;
+  --tiffany: #0abab5;
+  --tiffany-dark: #088f8f;
+  --tiffany-light: #e6f7f6;
+  --coral: #ef4444;
+  --coral-light: #fef2f2;
+  --amber: #f59e0b;
+  --mint: #5eead4;
+  --shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  --shadow-hover: 0 6px 16px rgba(15, 23, 42, 0.07);
+  --rail-grad: linear-gradient(180deg, #0aa8a3 0, #0aa8a3 46px, #f8fafc 520px);
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
+
+  --color-canvas: 248 250 252;
   --color-surface: 255 255 255;
-  --color-surface-muted: 241 243 246;
+  --color-surface-muted: 241 245 249;
   --color-surface-raised: 255 255 255;
-  --color-border-subtle: 229 231 235;
-  --color-border-strong: 209 213 219;
-  --color-text-primary: 17 24 39;
-  --color-text-secondary: 55 65 81;
-  --color-text-muted: 107 114 128;
-  --color-text-subtle: 156 163 175;
-  --color-accent: 2 132 199;
-  --color-accent-hover: 3 105 161;
-  --color-accent-soft: 224 242 254;
-  --color-accent-ink: 7 89 133;
-  --color-success: 5 150 105;
-  --color-success-soft: 209 250 229;
-  --color-success-ink: 6 95 70;
-  --color-warning: 217 119 6;
-  --color-warning-soft: 254 243 199;
+  --color-border-subtle: 226 232 240;
+  --color-border-strong: 203 213 225;
+  --color-text-primary: 15 23 42;
+  --color-text-secondary: 51 65 85;
+  --color-text-muted: 100 116 139;
+  --color-text-subtle: 148 163 184;
+  --color-accent: 10 186 181;
+  --color-accent-hover: 8 143 143;
+  --color-accent-soft: 230 247 246;
+  --color-accent-ink: 8 143 143;
+  --color-success: 10 186 181;
+  --color-success-soft: 230 247 246;
+  --color-success-ink: 8 143 143;
+  --color-warning: 245 158 11;
+  --color-warning-soft: 255 247 237;
   --color-warning-ink: 146 64 14;
-  --color-danger: 220 38 38;
-  --color-danger-soft: 254 226 226;
-  --color-danger-ink: 153 27 27;
+  --color-danger: 239 68 68;
+  --color-danger-soft: 254 242 242;
+  --color-danger-ink: 185 28 28;
 }
 
 .dark {
@@ -65,6 +87,23 @@ body {
   @apply font-body;
   background-color: rgb(var(--color-canvas));
   color: rgb(var(--color-text-primary));
+}
+
+.vogue-label {
+  @apply text-[11px] font-bold uppercase tracking-[0.16em] text-ink-muted;
+}
+
+.mono-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-gradient {
+  background: var(--rail-grad);
+}
+
+.pill-button {
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition;
 }
 
 .focus-ring {

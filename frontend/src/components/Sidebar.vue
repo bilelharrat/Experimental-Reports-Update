@@ -3,23 +3,38 @@ import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
   Activity,
-  FileText,
-  Loader2,
+  Bell,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  FlaskConical,
   Home,
-  Globe,
+  Link as LinkIcon,
   LogOut,
   Newspaper,
   ScrollText,
-  ClipboardList,
-  FlaskConical,
-  Table2,
+  Settings,
+  UploadCloud,
   User,
 } from "lucide-vue-next";
-import { appLanguage, setAppLanguage } from "../state.js";
 import { sessionEmail, signOut } from "../auth.js";
 import { useT } from "../i18n.js";
 
+const t = useT();
+
+const props = defineProps({
+  reports: { type: Array, default: () => [] },
+  news: { type: Array, default: () => [] },
+  externalResearch: { type: Array, default: () => [] },
+  hormuz: { type: Array, default: () => [] },
+  companies: { type: Array, default: () => [] },
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: null },
+});
+
 const signingOut = ref(false);
+const expandedBuckets = ref(new Set());
+
 async function onSignOut() {
   if (signingOut.value) return;
   signingOut.value = true;
@@ -30,16 +45,15 @@ async function onSignOut() {
   }
 }
 
-const t = useT();
-
-const props = defineProps({
-  reports: { type: Array, default: () => [] },
-  news: { type: Array, default: () => [] },
-  externalResearch: { type: Array, default: () => [] },
-  hormuz: { type: Array, default: () => [] },
-  loading: { type: Boolean, default: false },
-  error: { type: String, default: null },
-});
+function monogram(name) {
+  return String(name || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
 
 function fmtAge(iso) {
   if (!iso) return "";
@@ -52,408 +66,272 @@ function fmtAge(iso) {
   return t("sidebar.age_days", { n: Math.round(sec / 86400) });
 }
 
-function reportTypeLabel(type) {
-  if (appLanguage.value !== "zh") return type;
-  if (type === "Investment Memo (Late-Stage)") {
-    return t("research.report_type.investment_memo_late_stage");
+function bucketFor(company) {
+  const explicit = String(
+    company.investment_bucket || company.bucket || company.pipeline_stage || "",
+  ).toLowerCase();
+  if (explicit.includes("pipeline") || explicit.includes("review")) return "pipeline";
+  if (explicit.includes("watch") || explicit.includes("top")) return "watchlist";
+  if (explicit.includes("portfolio")) return "portfolio";
+  if (company.company_type === "public" || company.status === "public") return "watchlist";
+  return "portfolio";
+}
+
+const companyBuckets = computed(() => {
+  const buckets = {
+    portfolio: [],
+    pipeline: [],
+    watchlist: [],
+  };
+  for (const company of props.companies || []) {
+    if (!company?.id) continue;
+    const key = bucketFor(company);
+    buckets[key].push(company);
   }
-  return type;
+  for (const key of Object.keys(buckets)) {
+    buckets[key].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  }
+  return [
+    { id: "portfolio", label: "Portfolio", items: buckets.portfolio },
+    { id: "pipeline", label: "Pipeline", items: buckets.pipeline },
+    { id: "watchlist", label: "Top Players", items: buckets.watchlist },
+  ];
+});
+
+function visibleCompanies(bucket) {
+  if (expandedBuckets.value.has(bucket.id)) return bucket.items;
+  return bucket.items.slice(0, 4);
 }
 
-function audienceLabel(audience) {
-  if (appLanguage.value !== "zh") return audience;
-  if (audience === "Internal") return t("research.audience.internal");
-  if (audience === "External") return t("research.audience.external");
-  return audience;
+function toggleBucket(id) {
+  const next = new Set(expandedBuckets.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedBuckets.value = next;
 }
 
-function routeFor(item) {
-  if (item.kind === "news") return { name: "external-news", params: { id: item.id } };
-  if (item.kind === "external_research")
+const marketRadar = computed(() => {
+  const rows = [...props.news, ...props.externalResearch]
+    .filter((item) => item?.id)
+    .sort((a, b) => String(b.captured_at || "").localeCompare(String(a.captured_at || "")));
+  return rows.slice(0, 5);
+});
+
+function radarRoute(item) {
+  if (item.kind === "external_research") {
     return { name: "external-research", params: { id: item.id } };
-  if (item.kind === "hormuz_research")
-    return { name: "hormuz-research", params: { id: item.id } };
-  return { name: "home" };
+  }
+  return { name: "external-news", params: { id: item.id } };
 }
-
-// /api/reports can include non-company reports, but this sidebar section
-// links into /research/:companyId. Keep those unrouteable records out of the
-// RouterLink render path so a null company_id cannot crash Vue Router.
-const reports = computed(() => props.reports.filter((r) => r?.company_id));
 </script>
 
 <template>
   <aside
-    class="w-full shrink-0 border-b border-subtle bg-surface flex max-h-[24rem] flex-col overflow-hidden lg:sticky lg:top-0 lg:h-screen lg:max-h-none lg:w-72 lg:border-b-0 lg:border-r"
+    class="rail-gradient flex max-h-[26rem] w-full shrink-0 flex-col overflow-hidden border-b border-subtle lg:sticky lg:top-0 lg:h-screen lg:max-h-none lg:w-[288px] lg:border-b-0 lg:border-r"
   >
-    <div class="px-5 py-3 border-b border-subtle">
+    <div class="px-5 pb-4 pt-3">
       <RouterLink
         to="/"
-        class="flex items-center gap-3 text-ink-primary font-display text-base font-semibold focus-ring rounded"
+        class="flex items-center gap-3 rounded focus-ring"
       >
         <img
           src="/app-icon.png"
           alt="BSH"
-          class="h-12 w-12 rounded-lg object-cover shrink-0"
+          class="h-12 w-12 shrink-0 rounded-glass object-cover shadow-card"
         />
-        <span class="leading-tight">{{ t("nav.research_center") }}</span>
+        <span class="leading-tight">
+          <span class="block text-sm font-bold text-white">Berkeley Summit House</span>
+          <span class="block text-xs font-medium text-white/80">Research Center</span>
+        </span>
       </RouterLink>
     </div>
 
-    <div class="mx-3 mt-3 flex items-center gap-2">
+    <div class="flex-1 overflow-y-auto px-3 pb-4">
       <RouterLink
-        to="/"
-        class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
+        :to="{ name: 'home' }"
+        class="mb-3 flex items-center gap-2 rounded-row border border-white/40 bg-white/80 px-3 py-2 text-sm font-semibold text-ink-primary shadow-card hover:bg-white focus-ring"
       >
-        <Home class="h-4 w-4" />
-        <span class="truncate">{{ t("nav.home") }}</span>
+        <Home class="h-4 w-4 text-accent-ink" />
+        <span>{{ t("nav.home") }}</span>
       </RouterLink>
-      <RouterLink
-        to="/stock-research"
-        class="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
-      >
-        <Activity class="h-4 w-4" />
-        <span class="truncate">Stock Research</span>
-      </RouterLink>
-      <div
-        class="shrink-0 inline-flex rounded-md border border-subtle overflow-hidden text-xs"
-        role="group"
-        :aria-label="t('lang.app_language')"
-      >
-        <button
-          type="button"
-          @click="setAppLanguage('en')"
-          :class="[
-            'px-2 py-1 focus-ring transition-colors',
-            appLanguage === 'en'
-              ? 'bg-accent text-white'
-              : 'text-ink-secondary hover:bg-surface-muted',
-          ]"
-          :aria-pressed="appLanguage === 'en'"
-        >
-          EN
-        </button>
-        <button
-          type="button"
-          @click="setAppLanguage('zh')"
-          :class="[
-            'px-2 py-1 focus-ring transition-colors border-l border-subtle',
-            appLanguage === 'zh'
-              ? 'bg-accent text-white'
-              : 'text-ink-secondary hover:bg-surface-muted',
-          ]"
-          :aria-pressed="appLanguage === 'zh'"
-        >
-          中
-        </button>
-      </div>
-    </div>
 
-    <div class="flex-1 overflow-y-auto px-2 pb-4">
-      <!-- Research Pages -->
-      <div
-        class="px-3 pt-5 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
-      >
-        <Activity class="h-3 w-3" />
-        Research Pages
-      </div>
-      <div class="space-y-1">
-        <RouterLink
-          to="/research-pages/market-pulse"
-          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
-        >
-          <Activity class="h-4 w-4 text-ink-muted" />
-          <span class="truncate">Market Pulse</span>
-        </RouterLink>
-        <RouterLink
-          to="/research-pages/evidence-matrix"
-          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
-        >
-          <Table2 class="h-4 w-4 text-ink-muted" />
-          <span class="truncate">Evidence Matrix</span>
-        </RouterLink>
-        <RouterLink
-          to="/research-pages/hypothesis-lab"
-          class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
-        >
-          <FlaskConical class="h-4 w-4 text-ink-muted" />
-          <span class="truncate">Hypothesis Lab</span>
-        </RouterLink>
-      </div>
+      <section class="rounded-row border border-subtle bg-white/[0.88] p-3 shadow-card">
+        <div class="vogue-label mb-2">Quick Intake</div>
+        <div class="grid gap-2">
+          <RouterLink
+            :to="{ name: 'home', query: { intake: 'link' } }"
+            class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
+          >
+            <LinkIcon class="h-4 w-4 text-accent" />
+            <span>Submit Link</span>
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'home', query: { intake: 'upload' } }"
+            class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
+          >
+            <UploadCloud class="h-4 w-4 text-accent" />
+            <span>Upload Research</span>
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'home', query: { intake: 'note' } }"
+            class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
+          >
+            <ScrollText class="h-4 w-4 text-accent" />
+            <span>Add Internal Note</span>
+          </RouterLink>
+        </div>
+      </section>
 
-      <!-- Recent Reports -->
-      <div
-        class="px-3 pt-5 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
-      >
-        <ClipboardList class="h-3 w-3" />
-        {{ t("section.recent_reports") }}
-      </div>
-      <div class="space-y-1">
-        <div
-          v-if="loading && reports.length === 0"
-          class="px-3 py-2 text-sm text-ink-muted flex items-center gap-2"
-        >
-          <Loader2 class="h-4 w-4 animate-spin" /> {{ t("common.loading") }}
+      <section class="mt-5">
+        <div class="mb-2 flex items-center justify-between px-1">
+          <div class="vogue-label">Companies</div>
+          <span class="mono-data text-[11px] text-ink-muted">{{ companies.length }}</span>
+        </div>
+        <div v-if="loading && companies.length === 0" class="px-3 py-2 text-sm text-ink-muted">
+          {{ t("common.loading") }}
         </div>
         <div v-else-if="error" class="px-3 py-2 text-sm text-danger">
           {{ error }}
         </div>
-        <div
-          v-else-if="reports.length === 0"
-          class="px-3 py-2 text-xs text-ink-subtle"
-        >
-          {{ t("empty.no_reports") }}
-        </div>
-        <RouterLink
-          v-for="r in reports"
-          :key="r.id"
-          :to="{
-            name: 'research',
-            params: { companyId: r.company_id },
-            query: { report: r.id },
-          }"
-          class="block px-3 py-2 rounded-lg hover:bg-surface-muted focus-ring"
-        >
-          <div class="flex items-start gap-2">
-            <FileText class="h-4 w-4 mt-0.5 text-ink-muted shrink-0" />
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium text-ink-primary truncate">
-                {{ r.company_name || r.company_id }}
-              </div>
-              <div class="text-xs text-ink-muted truncate">
-                {{ reportTypeLabel(r.report_type) }} · {{ audienceLabel(r.audience) }}
-              </div>
-              <div class="mt-1 flex items-center gap-2 text-xs">
-                <span
-                  v-if="r.status === 'complete'"
-                  class="px-1.5 py-0.5 rounded bg-success-soft text-success-ink"
-                  >{{ t("status.done") }}</span
-                >
-                <span
-                  v-else-if="r.status === 'running'"
-                  class="px-1.5 py-0.5 rounded bg-warning-soft text-warning-ink"
-                  >{{ r.progress }}%</span
-                >
-                <span
-                  v-else
-                  class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-muted"
-                  >{{ r.status }}</span
-                >
-              </div>
+        <div v-else class="space-y-4">
+          <div v-for="bucket in companyBuckets" :key="bucket.id">
+            <div class="mb-1 flex items-center justify-between px-1">
+              <div class="text-xs font-semibold text-ink-primary">{{ bucket.label }}</div>
+              <span class="mono-data rounded-full bg-white/[0.70] px-2 py-0.5 text-[10px] text-ink-muted">
+                {{ bucket.items.length }}
+              </span>
             </div>
-          </div>
-        </RouterLink>
-      </div>
-
-      <!-- News -->
-      <div
-        class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
-      >
-        <Newspaper class="h-3 w-3" />
-        {{ t("section.news") }}
-      </div>
-      <div class="max-h-[26rem] overflow-y-auto pr-1 space-y-1">
-        <div
-          v-if="news.length === 0"
-          class="px-3 py-2 text-xs text-ink-subtle"
-        >
-          {{ t("empty.no_news") }}
-        </div>
-        <RouterLink
-          v-for="item in news"
-          :key="item.id"
-          :to="routeFor(item)"
-          class="block px-3 py-2 rounded-lg hover:bg-surface-muted focus-ring"
-        >
-          <div class="flex items-start gap-2">
-            <Globe
-              class="h-4 w-4 mt-0.5 text-ink-muted shrink-0"
-            />
-            <div class="min-w-0 flex-1">
-              <div class="text-[15px] font-semibold leading-snug text-ink-primary line-clamp-2">
-                {{ item.title || item.source_url || t("sidebar.untitled") }}
-              </div>
-              <div class="mt-0.5 text-[11px] text-ink-muted truncate">
-                <span>{{ item.domain || item.site_name || t("news.link") }}</span>
-                <span class="text-ink-subtle">
-                  · {{ fmtAge(item.captured_at) }}</span
-                >
-                <span v-if="item.language" class="text-ink-subtle"> · </span>
-                <span
-                  v-if="item.language"
-                  class="px-1 py-0.5 rounded bg-surface-muted text-ink-muted font-mono text-[10px] uppercase"
-                  >{{ item.language }}</span
-                >
-              </div>
-              <div
-                v-if="item.summary"
-                class="mt-0.5 text-[11px] text-ink-secondary line-clamp-2"
-              >
-                {{ item.summary }}
-              </div>
-              <div
-                v-if="
-                  item.status &&
-                  item.status !== 'ready' &&
-                  item.status !== 'complete'
-                "
-                class="mt-1 flex items-center gap-1"
+            <div
+              v-if="bucket.items.length === 0"
+              class="rounded-row border border-dashed border-subtle bg-white/50 px-3 py-2 text-xs text-ink-muted"
+            >
+              No companies yet.
+            </div>
+            <div v-else class="space-y-1">
+              <RouterLink
+                v-for="company in visibleCompanies(bucket)"
+                :key="company.id"
+                :to="{ name: 'research', params: { companyId: company.id } }"
+                class="flex min-w-0 items-center gap-2 rounded-row px-2 py-2 text-sm text-ink-secondary hover:bg-white/[0.78] hover:text-ink-primary focus-ring"
               >
                 <span
-                  v-if="
-                    item.status === 'analyzing' ||
-                    item.status === 'fetching' ||
-                    item.status === 'extracting' ||
-                    item.status === 'queued'
-                  "
-                  class="px-1 py-0.5 rounded bg-warning-soft text-warning-ink text-[10px] inline-flex items-center gap-0.5"
+                  class="mono-data grid h-7 w-7 shrink-0 place-items-center rounded-chip bg-surface text-[11px] font-bold text-accent-ink ring-1 ring-subtle"
                 >
-                  <Loader2 class="h-2.5 w-2.5 animate-spin" />
-                  {{ item.status }}
+                  {{ monogram(company.name) }}
                 </span>
-                <span
-                  v-else-if="item.status === 'failed'"
-                  class="px-1 py-0.5 rounded bg-danger-soft text-danger-ink text-[10px]"
-                  >{{ t("news.failed") }}</span
-                >
-              </div>
-            </div>
-          </div>
-        </RouterLink>
-      </div>
-
-      <!-- External Research -->
-      <div
-        class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
-      >
-        <Globe class="h-3 w-3" />
-        {{ t("section.external_research") }}
-      </div>
-      <div class="max-h-[26rem] overflow-y-auto pr-1 space-y-1">
-        <div
-          v-if="externalResearch.length === 0"
-          class="px-3 py-2 text-xs text-ink-subtle"
-        >
-          {{ t("empty.no_external_research") }}
-        </div>
-        <RouterLink
-          v-for="item in externalResearch"
-          :key="item.id"
-          :to="routeFor(item)"
-          class="block px-3 py-2 rounded-lg hover:bg-surface-muted focus-ring"
-        >
-          <div class="flex items-start gap-2">
-            <FileText class="h-4 w-4 mt-0.5 text-ink-muted shrink-0" />
-            <div class="min-w-0 flex-1">
-              <div class="text-[15px] font-semibold leading-snug text-ink-primary line-clamp-2">
-                {{ item.title || t("sidebar.untitled") }}
-              </div>
-              <div class="mt-0.5 text-[11px] text-ink-muted truncate">
-                <span>{{ item.source_company || t("sidebar.external_source") }}</span>
-                <span class="text-ink-subtle">
-                  · {{ fmtAge(item.captured_at) }}</span
-                >
-                <span v-if="item.language" class="text-ink-subtle"> · </span>
-                <span
-                  v-if="item.language"
-                  class="px-1 py-0.5 rounded bg-surface-muted text-ink-muted font-mono text-[10px] uppercase"
-                  >{{ item.language }}</span
-                >
-              </div>
-              <div
-                v-if="item.summary"
-                class="mt-0.5 text-[11px] text-ink-secondary line-clamp-2"
-              >
-                {{ item.summary }}
-              </div>
-              <div
-                v-if="
-                  item.status &&
-                  item.status !== 'ready' &&
-                  item.status !== 'complete'
-                "
-                class="mt-1 flex items-center gap-1"
-              >
-                <span
-                  v-if="
-                    item.status === 'analyzing' ||
-                    item.status === 'extracting' ||
-                    item.status === 'queued'
-                  "
-                  class="px-1 py-0.5 rounded bg-warning-soft text-warning-ink text-[10px] inline-flex items-center gap-0.5"
-                >
-                  <Loader2 class="h-2.5 w-2.5 animate-spin" />
-                  {{ item.status }}
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate font-semibold">{{ company.name }}</span>
+                  <span class="block truncate text-[11px] text-ink-muted">
+                    {{ company.industry || company.sector || company.status || "Tracked" }}
+                  </span>
                 </span>
-                <span
-                  v-else-if="item.status === 'failed'"
-                  class="px-1 py-0.5 rounded bg-danger-soft text-danger-ink text-[10px]"
-                  >{{ t("news.failed") }}</span
-                >
-              </div>
+              </RouterLink>
+              <button
+                v-if="bucket.items.length > 4"
+                type="button"
+                @click="toggleBucket(bucket.id)"
+                class="ml-1 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-muted hover:bg-white/[0.70] hover:text-ink-primary focus-ring"
+              >
+                <ChevronDown v-if="expandedBuckets.has(bucket.id)" class="h-3 w-3" />
+                <ChevronRight v-else class="h-3 w-3" />
+                <span>
+                  {{
+                    expandedBuckets.has(bucket.id)
+                      ? "Show less"
+                      : `Show all ${bucket.items.length}`
+                  }}
+                </span>
+              </button>
             </div>
           </div>
-        </RouterLink>
-      </div>
-
-      <!-- Hormuz Research -->
-      <div
-        class="px-3 pt-6 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted flex items-center gap-1.5"
-      >
-        <ScrollText class="h-3 w-3" />
-        {{ t("section.hormuz_research") }}
-      </div>
-      <div class="space-y-1 pb-2">
-        <div
-          v-if="hormuz.length === 0"
-          class="px-3 py-2 text-xs text-ink-subtle"
-        >
-          {{ t("empty.no_hormuz") }}
         </div>
-        <RouterLink
-          v-for="item in hormuz"
-          :key="item.id"
-          :to="routeFor(item)"
-          class="block px-3 py-2 rounded-lg hover:bg-surface-muted focus-ring"
-        >
-          <div class="flex items-start gap-2">
-            <ScrollText class="h-4 w-4 mt-0.5 text-ink-muted shrink-0" />
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium text-ink-primary truncate">
-                {{ item.title }}
-              </div>
-              <div class="text-xs text-ink-muted truncate">
-                {{ fmtAge(item.captured_at) }}
-              </div>
-            </div>
+      </section>
+
+      <section class="mt-5">
+        <div class="mb-2 flex items-center gap-1.5 px-1">
+          <Bell class="h-3.5 w-3.5 text-ink-muted" />
+          <div class="vogue-label">Market Radar</div>
+        </div>
+        <div class="space-y-1">
+          <div
+            v-if="marketRadar.length === 0"
+            class="rounded-row border border-dashed border-subtle bg-white/50 px-3 py-2 text-xs text-ink-muted"
+          >
+            {{ t("empty.no_news") }}
           </div>
+          <RouterLink
+            v-for="item in marketRadar"
+            :key="item.id"
+            :to="radarRoute(item)"
+            class="block rounded-row px-3 py-2 hover:bg-white/[0.78] focus-ring"
+          >
+            <div class="line-clamp-2 text-sm font-semibold leading-snug text-ink-primary">
+              {{ item.title || item.source_url || "Untitled signal" }}
+            </div>
+            <div class="mt-0.5 flex items-center gap-1 text-[11px] text-ink-muted">
+              <Newspaper class="h-3 w-3" />
+              <span>{{ item.domain || item.source_company || "Market signal" }}</span>
+              <span>· {{ fmtAge(item.captured_at) }}</span>
+            </div>
+          </RouterLink>
+        </div>
+      </section>
+
+      <section class="mt-5 space-y-1">
+        <RouterLink
+          :to="{ name: 'stock-research' }"
+          class="flex items-center gap-2 rounded-row px-3 py-2 text-sm font-semibold text-ink-primary hover:bg-white/[0.78] focus-ring"
+        >
+          <Activity class="h-4 w-4 text-accent" />
+          <span>Stock</span>
+          <span class="ml-auto text-[11px] font-normal text-ink-muted">Public market research</span>
         </RouterLink>
-      </div>
+        <RouterLink
+          :to="{ name: 'innovation-lab' }"
+          class="flex items-center gap-2 rounded-row px-3 py-2 text-sm font-semibold text-ink-primary hover:bg-white/[0.78] focus-ring"
+        >
+          <FlaskConical class="h-4 w-4 text-accent" />
+          <span>Innovation Lab</span>
+        </RouterLink>
+      </section>
     </div>
 
-    <div
-      v-if="sessionEmail"
-      class="border-t border-subtle px-3 py-3 flex items-center gap-2"
-    >
-      <User class="h-4 w-4 text-ink-muted shrink-0" />
-      <div class="min-w-0 flex-1">
-        <div class="text-[10px] uppercase tracking-wide text-ink-muted">
-          {{ t("auth.signed_in_as") }}
-        </div>
-        <div class="text-xs text-ink-secondary truncate" :title="sessionEmail">
-          {{ sessionEmail }}
-        </div>
+    <div class="border-t border-subtle bg-white/[0.65] px-3 py-3">
+      <div class="mb-2 grid grid-cols-2 gap-2">
+        <RouterLink
+          :to="{ name: 'settings' }"
+          class="inline-flex items-center justify-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-2 text-xs font-semibold text-ink-secondary hover:text-ink-primary focus-ring"
+        >
+          <Settings class="h-3.5 w-3.5" />
+          Settings
+        </RouterLink>
+        <RouterLink
+          :to="{ name: 'user-center' }"
+          class="inline-flex items-center justify-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-2 text-xs font-semibold text-ink-secondary hover:text-ink-primary focus-ring"
+        >
+          <User class="h-3.5 w-3.5" />
+          Profile
+        </RouterLink>
       </div>
-      <button
-        type="button"
-        @click="onSignOut"
-        :disabled="signingOut"
-        class="p-1.5 rounded hover:bg-surface-muted text-ink-muted hover:text-ink-primary focus-ring disabled:opacity-50"
-        :title="t('auth.sign_out')"
-        :aria-label="t('auth.sign_out')"
-      >
-        <LogOut class="h-4 w-4" />
-      </button>
+      <div v-if="sessionEmail" class="flex items-center gap-2">
+        <User class="h-4 w-4 shrink-0 text-ink-muted" />
+        <div class="min-w-0 flex-1">
+          <div class="vogue-label text-[9px]">{{ t("auth.signed_in_as") }}</div>
+          <div class="truncate text-xs text-ink-secondary" :title="sessionEmail">
+            {{ sessionEmail }}
+          </div>
+        </div>
+        <button
+          type="button"
+          @click="onSignOut"
+          :disabled="signingOut"
+          class="rounded-full p-1.5 text-ink-muted hover:bg-surface hover:text-ink-primary focus-ring disabled:opacity-50"
+          :title="t('auth.sign_out')"
+          :aria-label="t('auth.sign_out')"
+        >
+          <LogOut class="h-4 w-4" />
+        </button>
+      </div>
     </div>
   </aside>
 </template>
