@@ -46,10 +46,10 @@ from fastapi.responses import FileResponse, HTMLResponse  # noqa: E402
 import mimetypes  # noqa: E402
 
 from . import (  # noqa: E402
-    auth_store,
     claude_runner,
     companies_ai_public,
     console_session,
+    local_generation,
     memo_analysis,
 )
 from .api import (  # noqa: E402
@@ -61,7 +61,6 @@ from .api import (  # noqa: E402
 )
 from .company_translate import translate_company  # noqa: E402
 from .storage import (  # noqa: E402
-    bootstrap_seed_data,
     list_companies,
     migrate_trader_snapshots,
     update_company,
@@ -118,8 +117,16 @@ app.include_router(api_router)
 
 @app.on_event("startup")
 def _startup() -> None:
-    bootstrap_seed_data()
-    auth_store.bootstrap_seed_users()
+    try:
+        summary = local_generation.generate_local_runtime_state()
+        logger.info(
+            "Local runtime state ready: companies=%s materialized=%s stock_trackers=%s.",
+            summary.get("company_count"),
+            summary.get("company_records_materialized"),
+            summary.get("stock_research_tracker_count"),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Local runtime state generation failed")
     if claude_runner.is_available():
         logger.info("Claude Code CLI available — analysis paths enabled.")
     else:

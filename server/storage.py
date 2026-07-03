@@ -5,6 +5,7 @@ the data directory so a human can inspect/edit them without running the app.
 """
 from __future__ import annotations
 
+import copy
 import re
 import threading
 import uuid
@@ -18,6 +19,19 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 COMPANIES_FILE = DATA_DIR / "companies.yaml"
 REPORTS_DIR = DATA_DIR / "reports"
 THREADS_DIR = DATA_DIR / "threads"
+COMPANY_SEED_FILE = (
+    Path(__file__).resolve().parent / "seed_data" / "company_records.yaml"
+)
+COMPANY_FIXTURE_FILE = (
+    Path(__file__).resolve().parent / "seed_data" / "company_fixtures.yaml"
+)
+
+_LOCAL_GENERATED_COMPANY_FIELDS: frozenset[str] = frozenset({
+    "audit_records",
+    "memo_state",
+    "trader_snapshot",
+    "translation",
+})
 
 _LOCK = threading.RLock()
 
@@ -46,6 +60,10 @@ def _write_yaml(path: Path, data: Any) -> None:
     with tmp.open("w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
     tmp.replace(path)
+
+
+def _has_value(value: Any) -> bool:
+    return value not in (None, "", [], {})
 
 
 # ---------- Companies ----------
@@ -561,6 +579,125 @@ def bootstrap_seed_data() -> None:
         if not COMPANIES_FILE.exists():
             _write_yaml(COMPANIES_FILE, _SEED_COMPANIES)
         _backfill_company_types()
+
+
+def _load_company_seed_records(seed_file: Path = COMPANY_SEED_FILE) -> list[dict]:
+    if not seed_file.exists():
+        return []
+    data = _read_yaml(seed_file, [])
+    if not isinstance(data, list):
+        raise ValueError(f"Company seed file must contain a list: {seed_file}")
+    records: list[dict] = []
+    seen: set[str] = set()
+    for idx, record in enumerate(data, start=1):
+        if not isinstance(record, dict):
+            raise ValueError(
+                f"Company seed record #{idx} must be a mapping: {seed_file}",
+            )
+        company_id = str(record.get("id") or "").strip()
+        name = str(record.get("name") or "").strip()
+        if not company_id or not name:
+            raise ValueError(
+                f"Company seed record #{idx} is missing id/name: {seed_file}",
+            )
+        if company_id in seen:
+            raise ValueError(
+                f"Duplicate company seed id {company_id!r}: {seed_file}",
+            )
+        seen.add(company_id)
+        records.append(copy.deepcopy(record))
+    return records
+
+
+def _merge_company_seed_records(
+    companies: list[dict],
+    seed_records: list[dict],
+) -> tuple[list[dict], int]:
+    """Merge Git-tracked curated company records into runtime storage.
+
+    ``data/companies.yaml`` is intentionally ignored because it contains local
+    state. Seed fields should travel through Git, while locally generated fields
+    stay local once they have a value.
+    """
+    normalized = [copy.deepcopy(c) for c in companies if isinstance(c, dict)]
+    by_id = {
+        str(c.get("id")): i
+        for i, c in enumerate(normalized)
+        if c.get("id") is not None
+    }
+    changed_records = 0
+
+    for seed in seed_records:
+        company_id = str(seed["id"])
+        existing_idx = by_id.get(company_id)
+        if existing_idx is None:
+            normalized.append(copy.deepcopy(seed))
+            by_id[company_id] = len(normalized) - 1
+            changed_records += 1
+            continue
+
+        existing = normalized[existing_idx]
+        fixture_seed = seed.get("seed_kind") == "fixture" or seed.get("fixture") is True
+        fixture_existing = (
+            existing.get("seed_kind") == "fixture"
+            or existing.get("fixture") is True
+        )
+        if fixture_seed and not fixture_existing:
+            continue
+
+        record_changed = False
+        for key, seed_value in seed.items():
+            if key == "id":
+                continue
+            if (
+                key in _LOCAL_GENERATED_COMPANY_FIELDS
+                and _has_value(existing.get(key))
+            ):
+                continue
+            if existing.get(key) != seed_value:
+                existing[key] = copy.deepcopy(seed_value)
+                record_changed = True
+        if record_changed:
+            changed_records += 1
+
+    return normalized, changed_records
+
+
+def materialize_seed_company_records(
+    seed_file: Path = COMPANY_SEED_FILE,
+    *,
+    include_fixtures: bool = False,
+    fixture_file: Path = COMPANY_FIXTURE_FILE,
+) -> int:
+    """Apply tracked company seed records to ``data/companies.yaml``.
+
+    Returns the number of company records created or updated. This is designed
+    for startup/server-local generation: generated runtime fields stay in the
+    ignored ``data`` directory, but curated records such as the ZaiNar PRD
+    overview can persist through Git and be re-materialized after deploy.
+    """
+    seed_records = _load_company_seed_records(seed_file)
+    if include_fixtures:
+        seen = {str(record.get("id")) for record in seed_records}
+        for record in _load_company_seed_records(fixture_file):
+            company_id = str(record.get("id"))
+            if company_id in seen:
+                raise ValueError(f"Duplicate company seed id {company_id!r}")
+            seen.add(company_id)
+            seed_records.append(record)
+    if not seed_records:
+        return 0
+
+    with _LOCK:
+        _ensure_dirs()
+        current = _read_yaml(COMPANIES_FILE, [])
+        if not isinstance(current, list):
+            current = []
+        merged, changed_records = _merge_company_seed_records(current, seed_records)
+        if changed_records:
+            _write_yaml(COMPANIES_FILE, merged)
+        _backfill_company_types()
+        return changed_records
 
 
 def _backfill_company_types() -> None:

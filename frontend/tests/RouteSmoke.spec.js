@@ -7,6 +7,7 @@ import InnovationLabView from "../src/views/InnovationLabView.vue";
 import SettingsView from "../src/views/SettingsView.vue";
 import UserCenterView from "../src/views/UserCenterView.vue";
 import SourceLibraryView from "../src/views/SourceLibraryView.vue";
+import CompetitorDetailView from "../src/views/CompetitorDetailView.vue";
 import { api } from "../src/api.js";
 
 vi.mock("../src/api.js", () => ({
@@ -36,12 +37,25 @@ vi.mock("../src/api.js", () => ({
       reviewKnowledgeUpdate: vi.fn(),
     },
     getCompany: vi.fn(),
+    getCompanyNewsFeed: vi.fn(),
+    getCompanyIndustryView: vi.fn(),
+    getCompetitorDetail: vi.fn(),
+    workspaceSettings: vi.fn(),
+    updateWorkspaceSettings: vi.fn(),
+    userCenter: vi.fn(),
+    analyticsSummary: vi.fn(),
     options: vi.fn(),
     listThreads: vi.fn(),
     listFiles: vi.fn(),
+    listCompanyDocuments: vi.fn(),
+    updateDocumentMetadata: vi.fn(),
     uploadFile: vi.fn(),
     deleteFile: vi.fn(),
     fileUrl: vi.fn((companyId, fileId) => `/api/companies/${companyId}/files/${fileId}`),
+    researchFileUrl: vi.fn((companyId, fileId) => `/api/companies/${companyId}/research-files/${fileId}`),
+    uploadResearchFile: vi.fn(),
+    deleteResearchFile: vi.fn(),
+    generateResearchFileSummary: vi.fn(),
     listResearchFiles: vi.fn(),
     listCompanyReports: vi.fn(),
     getReport: vi.fn(),
@@ -59,6 +73,20 @@ vi.mock("../src/api.js", () => ({
       patchTask: vi.fn(),
       approve: vi.fn(),
       streamUrl: vi.fn(() => "/stream"),
+    },
+    memoEditor: {
+      get: vi.fn(),
+      patchCard: vi.fn(),
+      moveCard: vi.fn(),
+      patchBullet: vi.fn(),
+      diveDeeper: vi.fn(),
+      selectConclusion: vi.fn(),
+      rerunSection: vi.fn(),
+      patchAppendixBlock: vi.fn(),
+      exportProjection: vi.fn(),
+      history: vi.fn(),
+      createTask: vi.fn(),
+      updateTask: vi.fn(),
     },
   },
 }));
@@ -134,6 +162,7 @@ async function mountRouteWithRouter(path) {
       { path: "/settings", name: "settings", component: SettingsView },
       { path: "/user", name: "user-center", component: UserCenterView },
       { path: "/source-library", name: "source-library", component: SourceLibraryView },
+      { path: "/companies/:companyId/competitors/:competitorId", name: "competitor-detail", component: CompetitorDetailView, props: true },
       { path: "/innovation-lab/hormuz", name: "hormuz-library", component: { template: "<div />" } },
       { path: "/innovation-lab/market-pulse", name: "research-page-market-pulse", component: { template: "<div />" } },
       { path: "/innovation-lab/evidence-matrix", name: "research-page-evidence-matrix", component: { template: "<div />" } },
@@ -170,6 +199,109 @@ describe("route smoke tests", () => {
       name: "Generalist",
       files: [],
       report_type: "Investment Memo (Late-Stage)",
+      company_type: "private",
+    });
+    api.getCompanyNewsFeed.mockResolvedValue({
+      rows: [
+        {
+          id: "news-1",
+          title: "Generalist source update",
+          summary: "Source-backed update.",
+          published_at: "2026-07-03",
+          category: "press",
+          source_class: "third-party market data",
+          tags: ["press"],
+        },
+      ],
+      filters: { categories: ["press"], tags: ["press"] },
+      empty_state: "",
+    });
+    api.getCompanyIndustryView.mockResolvedValue({
+      title: "Generalist sector context",
+      summary: "Sector context.",
+      metrics: [{ label: "Sector TAM", value: "$45B", source_class: "third-party market data" }],
+      expert_opinions: [],
+      public_comps: [
+        {
+          id: "nextnav",
+          name: "NextNav",
+          ticker: "NN",
+          exchange: "NASDAQ",
+          change: "+2.4%",
+          note: "Public comp.",
+          sparkline: [1, 2, 3],
+          source_class: "public filing",
+        },
+      ],
+      sector_signals: [{ id: "signal-1", category: "demand", signal: "Demand signal", implication: "Supports thesis." }],
+    });
+    api.getCompetitorDetail.mockResolvedValue({
+      company: { id: "generalist", name: "Generalist", category: "AI" },
+      competitor: {
+        id: "nextnav",
+        name: "NextNav",
+        status: "Public",
+        ticker: "NN",
+        exchange: "NASDAQ",
+        category: "Terrestrial PNT",
+        description: "Public comp.",
+        metrics: [{ label: "Market cap", value: "Public market", source_class: "public filing" }],
+        source_refs: [{ title: "Public comp set", source_class: "public filing" }],
+      },
+      head_to_head: [{ label: "Positioning", company: "Company", competitor: "Competitor" }],
+      placeholders: [{ id: "benchmark", title: "Benchmark", status: "placeholder adapter", body: "Pending." }],
+    });
+    api.workspaceSettings.mockResolvedValue({
+      account: {
+        email: "shared-token session",
+        role: "admin",
+        plan: "Enterprise workspace adapter",
+        permissions: ["admin:read", "settings:update"],
+      },
+      preferences: {
+        weekly_summary: true,
+        stock_auto_refresh: true,
+        agent_alerts: true,
+        compact_density: false,
+        language: "en",
+      },
+      adapter_scope: "local workspace preferences adapter",
+    });
+    api.updateWorkspaceSettings.mockImplementation((patch) =>
+      Promise.resolve({
+        account: {
+          email: "shared-token session",
+          role: "admin",
+          plan: "Enterprise workspace adapter",
+          permissions: ["admin:read", "settings:update"],
+        },
+        preferences: {
+          weekly_summary: true,
+          stock_auto_refresh: true,
+          agent_alerts: true,
+          compact_density: Boolean(patch.compact_density),
+          language: patch.language || "en",
+        },
+        adapter_scope: "local workspace preferences adapter",
+      }),
+    );
+    api.userCenter.mockResolvedValue({
+      account: {
+        name: "Shared Workspace",
+        email: "shared-token session",
+        workspace: "Berkeley Summit House Research Center",
+        role: "admin",
+        plan: "Enterprise workspace adapter",
+        permissions: ["admin:read"],
+      },
+      team: { licensed_seats: 1, active_users: 1, members: [] },
+      status: { research_engine: "ready", memo_generation: "ready", document_index: "ready" },
+      usage: { analytics_events: 2, company_count: 1, report_count: 0 },
+      analytics: {
+        copilot_task_acceptance: { acceptance_rate: 1 },
+        source_coverage: { coverage: 1 },
+        time_to_first_memo: { median_minutes: null },
+      },
     });
     api.options.mockResolvedValue({
       report_types: ["Investment Memo (Late-Stage)"],
@@ -178,11 +310,52 @@ describe("route smoke tests", () => {
     });
     api.listThreads.mockResolvedValue([]);
     api.listFiles.mockResolvedValue([]);
+    api.listCompanyDocuments.mockResolvedValue({
+      rows: [],
+      groups: [],
+      categories: [],
+      source_classes: [],
+      filters: { languages: [], statuses: [] },
+      unresolved_intake_count: 0,
+    });
     api.listResearchFiles.mockResolvedValue([]);
     api.listCompanyReports.mockResolvedValue([]);
     api.memoAnalysis.get.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
     api.memoAnalysis.runLedger.mockResolvedValue([]);
+    api.memoEditor.get.mockResolvedValue({
+      company_id: "generalist",
+      company_name: "Generalist",
+      version_id: "v1",
+      status: "draft",
+      sections: {
+        executive_summary: {
+          title: "Executive Summary",
+          status: "ready_for_input",
+          body: "Summary",
+          recommendation: "Conditional",
+          round: "Pending",
+          top_gate: "Validate sources",
+          source_class: "BSH primary diligence",
+        },
+        investment_thesis: { title: "Investment Thesis", status: "ready_for_input", cards: [] },
+        risks_mitigations: { title: "Risks and Mitigations", status: "ready_for_input", cards: [] },
+        conclusion: {
+          title: "Conclusion",
+          status: "ready_for_input",
+          selected_option_id: "conditional",
+          options: [],
+        },
+        appendix: { title: "Appendix", status: "ready_for_input", blocks: [] },
+      },
+    });
+    api.memoEditor.history.mockResolvedValue({
+      versions: [],
+      audit_records: [],
+      memo_tasks: [],
+    });
+    api.memoEditor.createTask.mockResolvedValue({ id: "task-1", status: "proposed" });
+    api.memoEditor.updateTask.mockResolvedValue({ id: "task-1", status: "accepted" });
   });
 
   it("renders the Stock Research route shell", async () => {
@@ -231,6 +404,11 @@ describe("route smoke tests", () => {
     wrapper = await mountRoute("/source-library");
     expect(wrapper.text()).toContain("Source Library & Appendix");
     expect(wrapper.text()).toContain("intentionally separate");
+    wrapper.unmount();
+
+    wrapper = await mountRoute("/companies/generalist/competitors/nextnav");
+    expect(wrapper.text()).toContain("Generalist vs NextNav");
+    expect(wrapper.text()).toContain("Head-to-head");
     wrapper.unmount();
   });
 
@@ -392,31 +570,97 @@ describe("route smoke tests", () => {
   });
 
   it("shows generated memo download links in the documents library", async () => {
-    api.listCompanyReports.mockResolvedValue([
-      {
-        id: "report-1",
-        company_id: "generalist",
-        company_name: "Generalist",
-        report_type: "Investment Memo (Late-Stage)",
-        audience: "Internal",
-        language: "en",
-        kind: "investment_memo_latestage",
-        status: "failed_quality_gate",
-        progress: 98,
-        stage: "Memo failed quality gate",
-        created_at: "2026-06-23T11:14:02Z",
-        updated_at: "2026-06-23T11:14:02Z",
-        download_urls: {
-          en: "/api/reports/report-1/download?language=en",
-          zh: "/api/reports/report-1/download?language=zh",
-        },
+    const report = {
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "failed_quality_gate",
+      progress: 98,
+      stage: "Memo failed quality gate",
+      created_at: "2026-06-23T11:14:02Z",
+      updated_at: "2026-06-23T11:14:02Z",
+      download_urls: {
+        en: "/api/reports/report-1/download?language=en",
+        zh: "/api/reports/report-1/download?language=zh",
       },
-    ]);
+    };
+    api.listCompanyReports.mockResolvedValue([report]);
+    api.listCompanyDocuments.mockResolvedValue({
+      rows: [
+        {
+          id: "generated_report:report-1",
+          backend: "generated_report",
+          backend_label: "Generated Reports",
+          record_id: "report-1",
+          title: "Investment Memo (Late-Stage)",
+          filename: "Investment Memo (Late-Stage).memo",
+          kind: "memo",
+          type_badge: "MEMO",
+          category: "memos",
+          category_label: "Memos",
+          source_class: "generated memo",
+          source_class_label: "generated memo",
+          language: "en",
+          status: "failed_quality_gate",
+          captured_at: "2026-06-23T11:14:02Z",
+          provenance: { origin: "Generated memo", source_class: "generated memo" },
+          source_refs: [{ title: "Generated memo", source_class: "generated memo" }],
+          source_traces: [],
+          source_trace_count: 0,
+          editable_metadata: false,
+          report,
+          download_urls: report.download_urls,
+          record: { id: "report-1" },
+        },
+      ],
+      groups: [
+        {
+          id: "memos",
+          label: "Memos",
+          count: 1,
+          rows: [
+            {
+              id: "generated_report:report-1",
+              backend: "generated_report",
+              backend_label: "Generated Reports",
+              record_id: "report-1",
+              title: "Investment Memo (Late-Stage)",
+              filename: "Investment Memo (Late-Stage).memo",
+              kind: "memo",
+              type_badge: "MEMO",
+              category: "memos",
+              category_label: "Memos",
+              source_class: "generated memo",
+              source_class_label: "generated memo",
+              language: "en",
+              status: "failed_quality_gate",
+              captured_at: "2026-06-23T11:14:02Z",
+              provenance: { origin: "Generated memo", source_class: "generated memo" },
+              source_refs: [{ title: "Generated memo", source_class: "generated memo" }],
+              source_traces: [],
+              source_trace_count: 0,
+              editable_metadata: false,
+              report,
+              download_urls: report.download_urls,
+              record: { id: "report-1" },
+            },
+          ],
+        },
+      ],
+      categories: [{ id: "memos", label: "Memos" }],
+      source_classes: ["generated memo"],
+      filters: { languages: ["en"], statuses: ["failed_quality_gate"] },
+      unresolved_intake_count: 0,
+    });
 
     const wrapper = await mountRoute("/research/generalist?tab=documents");
     const hrefs = wrapper.findAll("a").map((a) => a.attributes("href"));
 
-    expect(wrapper.text()).toContain("Generated reports");
+    expect(wrapper.text()).toContain("Generated Reports");
     expect(wrapper.text()).toContain("EN");
     expect(wrapper.text()).toContain("ZH");
     expect(hrefs).toContain("/api/reports/report-1/download?language=en");

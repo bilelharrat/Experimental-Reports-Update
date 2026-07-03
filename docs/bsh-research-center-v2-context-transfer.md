@@ -1,6 +1,6 @@
 # BSH Research Center v2 Context Transfer
 
-Status date: 2026-07-02
+Status date: 2026-07-03
 
 Use this document to start a fresh, purpose-built implementation context for
 the BSH Research Center v2 PRD work. It summarizes what was reviewed, where the
@@ -83,6 +83,27 @@ Do not depend on `/Users/rparker/Downloads` in future contexts.
   - Disconfirming-signal treatment.
 - Re-checked the handoff for IA gaps and added the user decision that Hormuz
   and other incubated workflows move under an `Innovation Lab` section.
+- Implemented and validated the M1 foundation slice:
+  - Design System v2 token/theme foundation.
+  - Authenticated global shell with header, PRD left rail, active jobs, and
+    co-pilot drawer frame.
+  - Home search-first layout with Quick Add directly under search.
+  - Innovation Lab entry for Hormuz and research-page experiments, while
+    preserving legacy `/hormuz` and `/research-pages/*` routes.
+  - Company schema/API extensions for PRD Overview fields.
+  - ZaiNar Overview rendered from real company data rather than hardcoded Vue
+    mock literals.
+  - PRD five-tab company workspace with Company News and Industry Views
+    placeholders.
+  - Focused route/sidebar/i18n/schema tests plus frontend build and manual
+    browser screenshot QA.
+- Added Git-persistent company data and server-local materialization:
+  - `server/seed_data/company_records.yaml` carries curated product seed
+    records, including ZaiNar.
+  - `server/seed_data/company_fixtures.yaml` carries opt-in QA fixtures for
+    Databricks, Stripe, NextNav, and empty-state testing.
+  - `server.local_generation` materializes tracked seed data into ignored
+    `data/` runtime files and is used by startup.
 
 ## Current App Snapshot
 
@@ -93,11 +114,12 @@ The app is not a blank slate. It already has:
 - Login/session auth.
 - Company search/autocomplete and deep AI search.
 - Per-company route at `/:companyId`.
-- Existing company tabs:
+- PRD company tabs:
   - `Overview`
   - `Documents`
   - `Memo Studio`
-  - `Console`
+  - `Company News`
+  - `Industry Views`
 - Existing document flows:
   - Per-company Document Library under `data/uploads/<company>`.
   - Memo-input Background Documents under `data/research/<company>`.
@@ -107,8 +129,7 @@ The app is not a blank slate. It already has:
 - Existing incubated workflow surfaces:
   - Hormuz source library and detail routes.
   - Research pages: Market Pulse, Evidence Matrix, Hypothesis Lab.
-  - These should be gathered under `Innovation Lab` rather than remaining
-    standalone primary-rail sections.
+  - These are now gathered under `Innovation Lab`; legacy routes are preserved.
 - Existing memo flows:
   - Final memo generation.
   - Memo analysis sessions.
@@ -119,37 +140,41 @@ The app is not a blank slate. It already has:
 - Existing public-market flows:
   - Stock Research dashboard.
   - Trader snapshots and stats.
-- Existing global language state for EN/ZH, with incomplete coverage.
+- Existing global language state for EN/ZH, with incomplete coverage on later
+  PRD surfaces.
+- Tracked company seed data under `server/seed_data/`, materialized into
+  ignored `data/companies.yaml` on startup or via:
 
-## Core Gap
+```bash
+python -m server.local_generation
+```
 
-The PRD v2 asks for a more opinionated product shell and a simpler
-investor-facing Memo Studio than the current app exposes.
+## Remaining Core Gap
 
-The current app has substantial underlying systems, but the PRD needs:
+The M1 shell/data foundation is in place, and the needed M2 Memo Studio
+foundation now exists. The remaining PRD gap is turning the foundation into a
+complete investor workflow:
 
-- Three-zone global shell:
-  left rail, central content, global co-pilot drawer.
-- PRD left rail:
-  Quick Intake, company buckets, Market Radar, Stock entry, account/settings.
-- PRD Home:
-  search-first plus Quick Add.
-- PRD company workspace tabs:
-  Overview, Documents, Memo Studio, Company News, Industry Views.
-- PRD Overview:
-  monogram, tags, funding line, positioning frame, metric strip, team,
-  products, competitors, investors/cap table.
-- PRD Memo Studio:
-  five visible memo sections, check/rank/expand cards, bullet edit,
-  recursive Dive Deeper, Discuss to co-pilot, collapsed appendix, export
-  respecting current state.
-- PRD co-pilot:
-  global slide-in panel, not a company tab.
+- PRD Memo Studio integration:
+  durable editor state, five visible sections, check/rank/expand cards, bullet
+  edit, recursive Dive Deeper, Discuss to co-pilot, collapsed appendix, and
+  guarded export projection exist under `data/memo_editor/<company_id>/`.
+  The remaining M2 integration gap is final DOCX/PDF memo-run consumption of
+  the PRD editor projection.
+- PRD co-pilot actioning:
+  the drawer frame exists; it still needs context injection from memo
+  sections/cards/bullets and task acceptance back into Memo Studio.
 - PRD evidence/provenance:
   every key figure source-linked or source-classed before export.
-- BSH-specific incubated workflow home:
-  `Innovation Lab` for Hormuz and experimental research tools, kept distinct
-  from PRD core navigation, Source Library, and Memo Appendix.
+- PRD Documents:
+  one user-facing grouped Documents tab with provenance/source classes, while
+  preserving the backend split between Document Library and Background
+  Documents.
+- PRD Company News, Industry Views, and Competitor detail:
+  placeholders/data fields exist; full aggregation, filters, comps, signals,
+  and detail routes remain to build.
+- Settings/User Center:
+  routes/placeholders exist; real preference/account/usage backing remains.
 
 ## Multi-Pass Audit Results
 
@@ -167,44 +192,33 @@ Pass 1 - PRD and design coverage:
 
 Pass 2 - current frontend contracts:
 
-- `frontend/src/App.vue` is the current authenticated chrome. It polls
-  `api.listReports()`, `api.externalFeed()`, and `api.listHormuz()` every 4s
-  only while authenticated, passes those rows into `Sidebar.vue`, and owns
-  `ActiveJobsRail` plus `DeckSummaryModal`.
-- Any `GlobalShell` refactor must preserve that auth-gated polling behavior.
-  The login route should not start sidebar/feed polling or call protected
-  `/api/*` endpoints.
-- `frontend/src/router.js` currently defines `/`, `/login`, weekly/trader/stock
-  routes, research-page routes, `/:companyId` with alias
-  `/research/:companyId`, news/external-research/Hormuz routes, and no Settings
-  or User Center routes.
-- `frontend/src/views/ResearchView.vue` stores workspace tab state in
-  `route.query.tab`; current values are `overview`, `documents`, `analysis`,
-  and `console`. The PRD tabs should migrate this URL contract deliberately.
-  Preserve `route.query.report`, which deep-links the active generated report.
-- `frontend/src/views/HomeView.vue` already has autocomplete, AI deep-search
-  SSE progress, Quick Add tools, stock refresh, trader stats, and full company
-  regeneration controls. M1 should move non-PRD admin controls out of the first
-  viewport without deleting working operations.
-- The current Quick Add `Source Library & Appendix` link is the Hormuz source
-  library, not the PRD company/memo Source Library and Appendix. Do not treat it
-  as the final PRD destination without a deliberate rename or new route.
+- `frontend/src/App.vue` now owns the authenticated shell, header/breadcrumbs,
+  left rail, active jobs, modal layer, and co-pilot drawer frame. It must keep
+  auth-gated polling and keep `/login` chrome-free.
+- `frontend/src/router.js` now includes Settings/User Center, Source Library,
+  Innovation Lab, Innovation Lab research-page routes, and legacy aliases for
+  Hormuz/research-page deep links.
+- `frontend/src/views/ResearchView.vue` exposes PRD tabs:
+  `Overview`, `Documents`, `Memo Studio`, `Company News`, and `Industry Views`.
+  It maps legacy `?tab=analysis` to Memo Studio and uses the co-pilot drawer
+  path for legacy console intent. Preserve `?report=<id>` deep links.
+- `frontend/src/views/HomeView.vue` is search-first with Quick Add under the
+  search box. Operations/admin controls live below the first viewport.
+- The current `Source Library & Appendix` destination is a placeholder route,
+  not the finished PRD Memo Appendix or evidence source model.
 
 Pass 3 - current backend and data contracts:
 
-- `server/api.py` exposes `CompanyOut` with basic company fields, products,
-  `competitors` as `list[str]`, recent news, translation, and optional public
-  `trader_snapshot`.
-- `_company_view()` must be kept in sync with any new `CompanyOut` fields.
-  Adding fields only to `data/companies.yaml` is not enough.
-- `data/companies.yaml` already contains `zainar-inc`, but it is still shaped
-  like the current app: basic people/products/news plus string competitors.
-  It does not yet have typed metric cards, board/cap table records, cap-table
-  lineage, typed competitors, expert opinions, source refs, disclosures, or
-  memo editor state.
-- `server/storage.py` is YAML-backed and has merge/upsert behavior for company
-  search results. Schema extension should be backward-compatible and should not
-  discard fields produced by AI search refreshes.
+- `server/api.py` `CompanyOut` and `_company_view()` now expose PRD Overview
+  fields: positioning, metrics, team profiles, typed-or-legacy competitors,
+  board/investors, cap-table lineage, company news, industry view, expert
+  opinions, disclosures, memo state, and audit records.
+- `server/storage.py` now preserves typed competitor records during search
+  refreshes and materializes Git-tracked company seed data into local runtime
+  storage without overwriting populated generated fields such as translation,
+  trader snapshots, memo state, or audit records.
+- `data/companies.yaml` remains ignored runtime data. Curated company records
+  that must persist through Git belong under `server/seed_data/`.
 - Current report artifacts are versioned under `data/reports` and memo run
   output under `data/memos/<slug>/<run_id>__<slug>__memo-run/memo/`. The PRD
   memo editor state needs its own persisted state model instead of being
@@ -231,27 +245,24 @@ Pass 5 - QA and acceptance coverage:
 
 - The tracker already calls for frontend tests, backend tests, build, visual QA,
   browser coverage, persona paths, analytics, accessibility, and performance.
-- The first implementation slice should add or update focused tests for shell
-  routing, sidebar buckets, Home Quick Add, tab query migration, company schema
-  rendering, and ZaiNar Overview partial-data fallbacks.
-- Do not wait until M5 for source/provenance verification on M1 data surfaces:
-  every new metric/source-class field added for Overview should render with an
-  explicit source or a visibly incomplete/unknown state.
+- The next implementation slice should add durable backend tests for memo
+  editor state, ranking, edits, nested Dive Deeper children, Discuss context,
+  and export projection. Add focused frontend tests for the PRD Memo Studio
+  editor once the component surface exists.
+- Do not wait until M5 for source/provenance verification on memo data
+  surfaces: every key figure in Memo Studio and export should render with an
+  explicit source/source class, or export should block with a clear reason.
 
-Pass 6 - Innovation Lab IA gap:
+Pass 6 - Innovation Lab IA:
 
-- The previous handoff correctly warned that the current Hormuz source library
-  is not the PRD Source Library or Memo Appendix, but it did not say where
-  Hormuz should live after the PRD rail is simplified.
-- User decision: create an `Innovation Lab` section for incubated workflows.
-- Move Hormuz/internal-note views and current experimental research pages
-  (`Market Pulse`, `Evidence Matrix`, `Hypothesis Lab`) under Innovation Lab
-  unless a workflow is explicitly promoted into PRD core IA.
-- Preserve existing `/hormuz`, `/hormuz/:id`, and `/research-pages/*` routes as
-  aliases or redirects during migration so existing links keep working.
-- Innovation Lab is an organizing shell for experiments; it must not redefine
-  the PRD Evidence/Appendix source model or couple `data/uploads` into memo
-  generation.
+- User decision is implemented: Hormuz and current experimental research pages
+  (`Market Pulse`, `Evidence Matrix`, `Hypothesis Lab`) live under Innovation
+  Lab.
+- Existing `/hormuz`, `/hormuz/:id`, and `/research-pages/*` routes are
+  preserved as aliases during migration so existing links keep working.
+- Innovation Lab remains an organizing shell for experiments; it must not
+  redefine the PRD Evidence/Appendix source model or couple `data/uploads` into
+  memo generation.
 
 ## Architectural Cautions
 
@@ -275,110 +286,65 @@ Pass 6 - Innovation Lab IA gap:
 
 ## Recommended Fresh-Context Goal
 
-Start with milestone M1 from the tracker:
+Start with M3 Evidence. M1 is complete enough to stop spending new work on
+shell/IA foundations unless a regression is found, and M2 now has the durable
+editor/export-projection foundation needed for evidence work.
 
-1. Design System v2 tokens and shell.
-2. PRD left rail and Home Quick Add.
-3. Innovation Lab destination for Hormuz and incubated research-page tools.
-4. Company schema extension/backfill.
-5. PRD Overview for ZaiNar.
-6. Tab restructure with empty Company News and Industry Views placeholders.
+## Remaining Implementation Plan
 
-The first fresh context should not try to build the full Memo Studio. It should
-make the product shape match the PRD while preserving existing search,
-documents, memo-generation, console, and stock-research behavior.
+1. M3 Evidence and Documents:
+   build one grouped Documents tab over the existing two backend stores; add
+   source classes, provenance badges, category editing, source trace drawer,
+   intake assignment, unresolved queue, and key-figure source enforcement.
+2. M4 Context:
+   complete Company News aggregation/filtering, Industry Views with expert
+   opinions/comps/signals, competitor detail routes, and public-market comp
+   integration.
+3. M5 Productization:
+   back Settings/User Center with real or clearly scoped placeholder adapters;
+   add role/permission checks, audit/version replay, product analytics,
+   accessibility, responsive QA, performance checks, and visual regression.
 
-## Suggested First Implementation Slice
+Recommended immediate next slice:
 
-Scope:
+- Implement M3 Evidence foundations on top of `server/memo_editor_store.py` and
+  the PRD-facing Memo Studio editor.
+- Build one grouped Documents tab while preserving `data/uploads/<company>` /
+  `server/files_store.py` and `data/research/<company>` /
+  `server/research_store.py` separation.
+- Add source-class/provenance editing, source trace drawer, intake assignment,
+  unresolved queue, dedupe, and document-backed source guardrails.
+- Keep existing memo generation/DOCX/PDF paths intact until the PRD editor
+  projection is deliberately wired into memo-run input.
 
-- Add/adjust design tokens in `frontend/src/style.css` and
-  `frontend/tailwind.config.cjs`.
-- Replace current Space Grotesk / IBM Plex font aliases with the PRD Inter
-  family and a mono alias for metrics, while keeping existing utility names
-  such as `font-display`, `font-body`, `text-accent`, and `bg-surface`
-  backwards-compatible where possible.
-- Introduce a shell-level co-pilot drawer placeholder and floating button.
-- Refactor the authenticated chrome into a shell component only if it preserves
-  the current `App.vue` responsibilities: auth-gated polling, `RouterView`
-  rendering, `ActiveJobsRail`, and `DeckSummaryModal`.
-- Refactor `Sidebar.vue` toward PRD left rail structure:
-  Quick Intake, company buckets, Market Radar, Stock, Settings/Profile.
-- Add a frontend API wrapper for `GET /api/companies` if company buckets need
-  the real company list. Do not infer Portfolio/Pipeline/Watchlist solely from
-  recent report rows.
-- Add an `Innovation Lab` rail entry or route destination for incubated works.
-  Move Hormuz and existing research-page experiments there instead of keeping
-  them as standalone primary sections.
-- Refactor `HomeView.vue` to search-first plus Quick Add.
-- Keep the working autocomplete, exact company selection, deep-search SSE
-  progress, and result-card refresh behavior intact.
-- Add route placeholders for Settings/User Center if needed.
-- Declare new static routes in `frontend/src/router.js` so they cannot be
-  confused with company ids in `/:companyId`.
-- Add route/tab placeholders for Company News and Industry Views.
-- Migrate `ResearchView.vue` tab query values intentionally. Preserve
-  `?report=<id>` deep links and public-company behavior where Memo Studio is
-  hidden or redirected.
-- Keep existing `CompanyConsole` and `MemoAnalysisDashboard` functioning
-  during the transition.
-- Extend `CompanyOut`, `_company_view()`, `data/companies.yaml`, and tests
-  together. ZaiNar Overview must render from real fixture fields, not HTML mock
-  literals embedded in Vue components.
-
-Likely files:
-
-- `frontend/src/App.vue`
-- `frontend/src/router.js`
-- `frontend/src/style.css`
-- `frontend/tailwind.config.cjs`
-- `frontend/src/components/Sidebar.vue`
-- `frontend/src/views/HomeView.vue`
-- `frontend/src/views/ResearchView.vue`
-- `frontend/src/views/HormuzLibraryView.vue`
-- `frontend/src/views/HormuzResearchView.vue`
-- `frontend/src/views/MarketPulseView.vue`
-- `frontend/src/views/EvidenceMatrixView.vue`
-- `frontend/src/views/HypothesisLabView.vue`
-- `frontend/src/components/AddHormuzResearchTool.vue`
-- New shell/co-pilot/settings/profile components as needed.
-- `frontend/src/i18n.js`
-- Relevant frontend tests under `frontend/tests/`.
-
-Verification for first slice:
+Required validation for the next slice:
 
 ```bash
-npm --prefix frontend test -- RouteSmoke.spec.js Sidebar.spec.js i18n.spec.js
+python -m pytest tests/test_memo_editor_store.py tests/test_memo_analysis.py
+npm --prefix frontend test -- MemoStudioEditor.spec.js RouteSmoke.spec.js i18n.spec.js
 npm --prefix frontend run build
 git diff --check
 ```
 
-Add broader tests as soon as new behavior stabilizes.
-
 ## Current Dirty Worktree Notes
 
-Before this planning work, these files were already modified:
+As of 2026-07-03, the active uncommitted work is the seed/local-generation and
+documentation slice:
 
-- `server/claude_runner.py`
-- `server/memo_docx_renderer.py`
-- `server/skills/bsh_investment_memo_latestage.md`
-- `tests/test_memo_analysis.py`
-- `tests/test_memo_docx_renderer.py`
-- `tests/test_memo_prep.py`
-
-This planning context did not modify those files.
-
-New/modified planning/reference files from this context:
-
+- `README.md`
+- `docs/architecture.md`
 - `docs/bsh-research-center-v2-prd-development-plan.md`
 - `docs/bsh-research-center-v2-context-transfer.md`
-- `docs/reference/bsh-research-center-v2/README.md`
-- `docs/reference/bsh-research-center-v2/BSH_Research_Center_PRD_by_SS.docx`
-- `docs/reference/bsh-research-center-v2/BSH_Research_Center_PRD_by_SS.extracted.md`
-- `docs/reference/bsh-research-center-v2/BSH_Research_Center_Home.html`
-- `docs/reference/bsh-research-center-v2/BSH_Research_Center_Home.extracted.md`
-- `docs/reference/bsh-research-center-v2/BSH_Research_Center_Design_System_v2.html`
-- `docs/reference/bsh-research-center-v2/BSH_Research_Center_Design_System_v2.extracted.md`
+- `frontend/src/i18n.js`
+- `server/main.py`
+- `server/storage.py`
+- `frontend/tests/AppShell.spec.js`
+- `frontend/tests/HomeView.spec.js`
+- `server/local_generation.py`
+- `server/seed_data/company_records.yaml`
+- `server/seed_data/company_fixtures.yaml`
+- `tests/test_company_seed_data.py`
+- `tests/test_local_generation.py`
 
 ## Commands Already Run
 
@@ -390,14 +356,19 @@ find docs/reference/bsh-research-center-v2 -maxdepth 1 -type f -print | sort
 shasum -a 256 docs/reference/bsh-research-center-v2/* | sort
 ```
 
-The diff-check passed after adding the plan and reference pack.
-
-Current review note: these planning/reference files are still untracked, so
-plain `git diff --check` does not show a useful tracked-file patch for every
-new file. Use direct whitespace checks such as:
+M1 and local-generation validation:
 
 ```bash
-rg -n "[ \t]+$" docs/bsh-research-center-v2-context-transfer.md docs/bsh-research-center-v2-prd-development-plan.md
+python -m pytest tests/test_local_generation.py tests/test_company_seed_data.py tests/test_company_schema_v2.py tests/test_storage_company_type.py
+npm --prefix frontend test -- RouteSmoke.spec.js Sidebar.spec.js i18n.spec.js
+npm --prefix frontend run build
+git diff --check
+```
+
+Direct whitespace checks for planning docs and seed files:
+
+```bash
+rg -n "[ \t]+$" README.md docs/architecture.md docs/bsh-research-center-v2-context-transfer.md docs/bsh-research-center-v2-prd-development-plan.md server/seed_data/company_records.yaml server/seed_data/company_fixtures.yaml
 ```
 
 ## Resolved IA Decision
@@ -428,20 +399,8 @@ likely to affect early implementation are:
 - Whether Settings/User Center should be real for launch or initially backed
   by placeholder Enterprise account data.
 
-## Definition Of Done For M1
+## M1 Status
 
-M1 is complete when:
-
-- The app shell visually and structurally matches the PRD:
-  left rail, central content, header, co-pilot drawer frame.
-- Home is search-first with Quick Add directly under the search box.
-- The left rail uses PRD company buckets and Quick Intake.
-- The company workspace has the PRD five-tab structure.
-- Existing Hormuz and research-page experiments remain reachable through
-  Innovation Lab, with legacy routes preserved during migration.
-- ZaiNar Overview can render from real app data with no hardcoded mock-only
-  sections.
-- Existing search, documents, memo generation, console, stock research, auth,
-  and active-jobs behavior still work.
-- Focused frontend tests and build pass.
-- `git diff --check` passes.
+M1 is complete and validated. Use the remaining milestones above as the working
+plan unless a regression is found in shell, Home, left rail, Innovation Lab,
+company schema, ZaiNar Overview, or route compatibility.

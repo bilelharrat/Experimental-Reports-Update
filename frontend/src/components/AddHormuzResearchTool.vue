@@ -26,6 +26,7 @@ const dragOver = ref(false);
 const submitting = ref(false);
 const error = ref(null);
 const fileInput = ref(null);
+const savedItem = ref(null);
 
 const ACCEPT =
   ".pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain";
@@ -61,6 +62,18 @@ function clearFile(e) {
   if (fileInput.value) fileInput.value.value = "";
 }
 
+function assignmentSummary(item) {
+  const assignment = item?.intake_assignment;
+  if (!assignment) return "";
+  if (item.dedupe_status === "duplicate") {
+    return "Duplicate intake found; using the existing internal note.";
+  }
+  if (assignment.status === "assigned") {
+    return `Filed to ${assignment.company_name} · ${assignment.category_label}`;
+  }
+  return `Needs assignment review · ${assignment.category_label}`;
+}
+
 async function submit() {
   if (!title.value.trim()) return;
   submitting.value = true;
@@ -72,7 +85,7 @@ async function submit() {
       file: file.value,
     });
     emit("created");
-    router.push({ name: "hormuz-research", params: { id: item.id } });
+    savedItem.value = item;
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -155,6 +168,25 @@ async function submit() {
       ></textarea>
 
       <div v-if="error" class="text-sm text-danger">{{ error }}</div>
+
+      <div
+        v-if="savedItem"
+        class="rounded-card border border-subtle bg-surface-muted p-3 text-sm"
+      >
+        <div class="font-semibold text-ink-primary">
+          {{ assignmentSummary(savedItem) }}
+        </div>
+        <p class="mt-1 text-xs text-ink-muted">
+          {{ savedItem.intake_assignment?.company_reason || "Assignment metadata recorded for Innovation Lab." }}
+        </p>
+        <button
+          type="button"
+          @click="router.push({ name: 'hormuz-research', params: { id: savedItem.id } })"
+          class="mt-2 inline-flex items-center gap-1 rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+        >
+          Open note
+        </button>
+      </div>
 
       <div class="flex justify-end">
         <button

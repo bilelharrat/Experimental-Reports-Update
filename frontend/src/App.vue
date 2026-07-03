@@ -108,6 +108,13 @@ const breadcrumbs = computed(() => {
   if (name === "source-library") {
     return ["Research Center", "Source Library & Appendix"];
   }
+  if (name === "competitor-detail") {
+    return [
+      "Research Center",
+      currentCompany.value?.name || route.params?.companyId || "Company",
+      "Competitor Detail",
+    ];
+  }
   if (name === "innovation-lab") return ["Research Center", "Innovation Lab"];
   if (name.startsWith("research-page-") || name.startsWith("innovation-")) {
     return ["Research Center", "Innovation Lab"];
@@ -166,8 +173,11 @@ watch(
         class="sticky top-0 z-30 border-b border-subtle bg-canvas/90 px-4 py-3 backdrop-blur md:px-8"
       >
         <div class="flex flex-wrap items-center gap-3">
-          <nav class="min-w-0 flex-1 text-xs text-ink-muted" aria-label="Breadcrumb">
-            <ol class="flex min-w-0 items-center gap-1.5">
+          <nav
+            class="min-w-0 basis-full text-xs text-ink-muted sm:flex-1 sm:basis-auto"
+            aria-label="Breadcrumb"
+          >
+            <ol class="hidden min-w-0 items-center gap-1.5 sm:flex">
               <li
                 v-for="(crumb, index) in breadcrumbs"
                 :key="`${crumb}-${index}`"
@@ -187,6 +197,9 @@ watch(
                 </span>
               </li>
             </ol>
+            <div class="truncate font-medium text-ink-primary sm:hidden">
+              {{ breadcrumbs[breadcrumbs.length - 1] || "Research Center" }}
+            </div>
           </nav>
 
           <div
@@ -253,10 +266,11 @@ watch(
       v-if="!copilotOpen"
       type="button"
       @click="copilotOpen = true"
-      class="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full bg-ink-primary px-4 py-3 text-sm font-semibold text-white shadow-card-raised hover:-translate-y-0.5 focus-ring"
+      class="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-ink-primary p-3 text-sm font-semibold text-white shadow-card-raised hover:-translate-y-0.5 focus-ring sm:bottom-5 sm:right-5 sm:px-4"
+      aria-label="Ask Co-Pilot"
     >
       <Bot class="h-4 w-4 text-accent-soft" />
-      Ask Co-Pilot
+      <span class="hidden sm:inline">Ask Co-Pilot</span>
     </button>
 
     <Teleport to="body">

@@ -1,0 +1,331 @@
+- id: databricks
+  seed_kind: fixture
+  name: Databricks
+  ticker: null
+  aliases:
+    - Databricks, Inc.
+  description: Databricks provides a data and AI platform centered on the
+    lakehouse architecture, helping enterprises build analytics, data
+    engineering, governance, machine-learning, and AI-agent workflows on their
+    own data.
+  sector: Technology
+  exchange: null
+  status: private
+  company_type: private
+  industry: Data and AI Infrastructure
+  hq: San Francisco, California, USA
+  founded_year: 2013
+  website: https://www.databricks.com
+  logo_domain: databricks.com
+  employee_band: 7,000+
+  source_refs:
+    - label: Databricks Series K press release
+      source_class: company
+      url: https://www.databricks.com/company/newsroom/press-releases/databricks-raising-series-k-investment-100-billion-valuation
+      as_of: "2025-08-19"
+  key_people:
+    - name: Ali Ghodsi
+      role: Co-founder & CEO
+    - name: Matei Zaharia
+      role: Co-founder & Chief Technologist
+  highlight_2026:
+    headline: Databricks announced a Series K investment at a valuation above
+      $100B while expanding its AI platform with Agent Bricks and Lakebase.
+    date: "2025-08-19"
+  latest_funding:
+    round: Series K
+    amount_usd: null
+    date: "2025-08-19"
+    lead_investor: null
+    post_money_usd: $100B+
+  positioning:
+    category: enterprise data and AI platform
+    customers: enterprises building analytics, AI, and data products
+    need: need governed, production-ready AI and analytics on proprietary data
+    benefit: unifies data engineering, warehousing, governance, and AI workloads
+    alternative: fragmented data warehouses, lake tools, and ML platforms
+    differentiator: combines lakehouse architecture, open-source roots, and AI
+      tooling across a large enterprise data estate
+  metrics:
+    - label: Valuation
+      value: $100B+
+      unit: USD
+      as_of: "2025-08-19"
+      confidence: high
+      source_class: company
+    - label: Fixture Completeness
+      value: Partial
+      as_of: "2026-07-02"
+      confidence: high
+      source_class: fixture
+  products:
+    - name: Databricks Data Intelligence Platform
+      description: Unified platform for lakehouse data management, analytics,
+        governance, machine learning, and AI applications.
+    - name: Agent Bricks
+      description: Product for building production AI agents optimized on
+        enterprise data.
+    - name: Lakebase
+      description: Operational database built on open source Postgres and
+        optimized for AI-agent applications.
+  competitors:
+    - Snowflake
+    - Google BigQuery
+    - Amazon Redshift
+    - Microsoft Fabric
+  recent_news:
+    - headline: Databricks announced Series K financing at a valuation above
+        $100B
+      date: "2025-08-19"
+      summary: The company said the financing would accelerate AI strategy,
+        Agent Bricks, Lakebase, and global growth.
+  company_news:
+    - title: Databricks announced Series K financing at a valuation above $100B
+      published_at: "2025-08-19"
+      category: fundraising
+      source: company announcement
+      url: https://www.databricks.com/company/newsroom/press-releases/databricks-raising-series-k-investment-100-billion-valuation
+      summary: The company said the financing would accelerate AI strategy,
+        Agent Bricks, Lakebase, and global growth.
+  industry_view:
+    metrics:
+      - label: Fixture Sector
+        value: Data and AI Infrastructure
+        source_class: fixture
+        as_of: "2026-07-02"
+    sector_signals:
+      - category: demand
+        signal: Enterprise AI adoption increases pressure for governed access
+          to proprietary data.
+        implication: Supports platform demand, but spend consolidation remains
+          a key diligence question.
+  disclosures:
+    - label: Fixture record
+      body: Deterministic QA fixture. Do not treat as complete investment
+        diligence.
+      source_class: fixture
+
+- id: stripe-inc
+  seed_kind: fixture
+  name: Stripe, Inc.
+  ticker: null
+  aliases:
+    - Stripe
+  description: Stripe builds internet payments and financial infrastructure
+    used by businesses to accept payments, issue cards, run marketplaces,
+    manage billing, and embed financial services.
+  sector: Financial Services
+  exchange: null
+  status: private
+  company_type: private
+  industry: Payments / Financial Infrastructure
+  hq: South San Francisco, California, USA / Dublin, Ireland
+  founded_year: 2010
+  website: https://stripe.com
+  logo_domain: stripe.com
+  employee_band: 8,000-10,000
+  source_refs:
+    - label: Stripe 2025 annual letter update
+      source_class: company
+      url: https://stripe.com/newsroom/news/stripe-2025-update
+      as_of: "2026-02-24"
+  key_people:
+    - name: Patrick Collison
+      role: Co-founder & CEO
+    - name: John Collison
+      role: Co-founder & President
+  highlight_2026:
+    headline: Stripe said businesses running on Stripe generated $1.9T in 2025
+      payment volume, up 34% from 2024.
+    date: "2026-02-24"
+  latest_funding:
+    round: Tender offer
+    amount_usd: null
+    date: "2026-02-24"
+    lead_investor: null
+    post_money_usd: null
+  positioning:
+    category: internet financial infrastructure
+    customers: digital businesses, marketplaces, platforms, and enterprises
+    need: need programmable payments, billing, fraud, and financial workflows
+    benefit: lets companies launch and scale financial flows through APIs
+    alternative: legacy merchant acquirers, bank integrations, and point tools
+    differentiator: broad developer-first platform spanning payments, revenue,
+      fraud, issuing, tax, and embedded finance
+  metrics:
+    - label: Payment Volume
+      value: $1.9T
+      unit: USD
+      as_of: "2025"
+      confidence: high
+      source_class: company
+    - label: Volume Growth
+      value: +34%
+      as_of: "2025"
+      confidence: high
+      source_class: company
+  products:
+    - name: Stripe Payments
+      description: Online and in-person payment processing APIs supporting many
+        global payment methods.
+    - name: Stripe Connect
+      description: Multiparty payments platform for marketplaces and SaaS
+        platforms.
+    - name: Stripe Billing
+      description: Recurring billing and subscription-management suite.
+    - name: Stripe Radar
+      description: Machine-learning fraud prevention product.
+  competitors:
+    - Adyen
+    - PayPal / Braintree
+    - Block / Square
+    - Worldpay
+    - Shopify Payments
+  recent_news:
+    - headline: Stripe published its 2025 annual letter and announced a tender
+        offer
+      date: "2026-02-24"
+      summary: Stripe reported that businesses running on Stripe generated $1.9T
+        of payment volume in 2025, up 34% from 2024.
+  company_news:
+    - title: Stripe published its 2025 annual letter and announced a tender offer
+      published_at: "2026-02-24"
+      category: company update
+      source: company announcement
+      url: https://stripe.com/newsroom/news/stripe-2025-update
+      summary: Stripe reported that businesses running on Stripe generated $1.9T
+        of payment volume in 2025, up 34% from 2024.
+  industry_view:
+    metrics:
+      - label: Fixture Sector
+        value: Payments Infrastructure
+        source_class: fixture
+        as_of: "2026-07-02"
+    sector_signals:
+      - category: demand
+        signal: AI, marketplaces, and cross-border digital commerce increase
+          demand for programmable payment infrastructure.
+        implication: Supports platform breadth, while take-rate pressure and
+          enterprise competition remain diligence items.
+  disclosures:
+    - label: Fixture record
+      body: Deterministic QA fixture. Do not treat as complete investment
+        diligence.
+      source_class: fixture
+
+- id: nextnav
+  seed_kind: fixture
+  name: NextNav Inc.
+  ticker: NN
+  aliases:
+    - NextNav
+  description: NextNav develops next-generation 3D Positioning, Navigation, and
+    Timing solutions, including terrestrial complements and backups to GPS.
+  sector: Technology
+  exchange: NASDAQ
+  status: public
+  company_type: public
+  industry: Positioning, Navigation, and Timing
+  hq: Reston, Virginia, USA
+  website: https://nextnav.com
+  logo_domain: nextnav.com
+  source_refs:
+    - label: NextNav investor relations
+      source_class: company
+      url: https://ir.nextnav.com/overview/default.aspx
+      as_of: "2026-07-02"
+  positioning:
+    category: terrestrial PNT and 3D geolocation platform
+    customers: public safety, telecom, government, and enterprise users
+    need: need resilient location and timing where GPS is unavailable or weak
+    benefit: provides 3D positioning and terrestrial GPS backup capabilities
+    alternative: GPS-only positioning or specialized indoor-positioning systems
+    differentiator: public pure-play PNT company with spectrum assets and
+      deployed altitude/location products
+  metrics:
+    - label: Public Ticker
+      value: NN
+      as_of: "2026-07-02"
+      confidence: high
+      source_class: public
+    - label: Fixture Completeness
+      value: Partial
+      as_of: "2026-07-02"
+      confidence: high
+      source_class: fixture
+  products:
+    - name: TerraPoiNT
+      description: Terrestrial 3D PNT system designed as a complement and backup
+        to GPS.
+    - name: Pinnacle
+      description: Accurate altitude service for public-safety and mobile use
+        cases.
+  competitors:
+    - ZaiNar
+    - Skyhook
+    - Ubisense
+    - HERE
+  recent_news:
+    - headline: NextNav describes itself as a leader in next-generation 3D PNT
+        solutions
+      date: "2026-07-02"
+      summary: Investor relations materials identify NextNav as Nasdaq-listed
+        under NN and focused on terrestrial complements and backups to GPS.
+  company_news:
+    - title: NextNav investor relations overview
+      published_at: "2026-07-02"
+      category: company profile
+      source: company investor relations
+      url: https://ir.nextnav.com/overview/default.aspx
+      summary: NextNav identifies itself as a Nasdaq-listed PNT company focused
+        on 3D positioning and terrestrial GPS backup.
+  industry_view:
+    metrics:
+      - label: Fixture Sector
+        value: Positioning, Navigation, and Timing
+        source_class: fixture
+        as_of: "2026-07-02"
+    sector_signals:
+      - category: resilience
+        signal: GPS resiliency and indoor/urban positioning needs create demand
+          for terrestrial alternatives.
+        implication: Useful public comp for ZaiNar, with public-market volatility
+          separated from private-company diligence.
+  disclosures:
+    - label: Fixture record
+      body: Deterministic QA fixture. Do not treat as complete investment
+        diligence.
+      source_class: fixture
+
+- id: fixture-empty-company
+  seed_kind: fixture
+  name: Empty Fixture Company
+  ticker: null
+  aliases: []
+  description: Minimal company fixture used to verify empty states across the
+    company workspace.
+  sector: Unknown
+  exchange: null
+  status: private
+  company_type: private
+  industry: Unknown
+  hq: Unknown
+  founded_year: null
+  website: null
+  logo_domain: null
+  employee_band: Unknown
+  key_people: []
+  products: []
+  competitors: []
+  recent_news: []
+  company_news: []
+  metrics: []
+  team_profiles: []
+  board_investors: []
+  cap_table_lineage: []
+  industry_view: null
+  expert_opinions: []
+  disclosures:
+    - label: Fixture record
+      body: Deterministic empty-state fixture. Do not treat as a real company.
+      source_class: fixture

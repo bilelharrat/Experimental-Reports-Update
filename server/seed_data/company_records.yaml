@@ -1,0 +1,292 @@
+- id: zainar-inc
+  name: ZaiNar, Inc.
+  ticker: null
+  aliases: []
+  description: ZaiNar builds a Positioning, Navigation, and Timing (PNT)
+    platform that turns existing 5G and Wi-Fi networks into a continuous
+    spatial-sensing layer, monetizing through enterprise software licenses and
+    infrastructure deployments for healthcare, construction, smart-city, and
+    industrial customers.
+  sector: Technology
+  exchange: null
+  status: private
+  company_type: private
+  industry: Wireless Positioning / Physical AI Infrastructure
+  hq: Belmont, California, USA
+  founded_year: 2017
+  website: https://zainartech.com
+  logo_domain: zainartech.com
+  employee_band: 50-200
+  parent_company: null
+  key_people:
+    - name: Daniel Jacker
+      role: Co-founder & CEO
+    - name: Philip Kratz
+      role: Co-founder & CTO
+    - name: Steve Jurvetson
+      role: Board Member (Future Ventures; also SpaceX board)
+    - name: Andreas Weigend
+      role: Advisor (former Chief Scientist, Amazon)
+  highlight_2026:
+    headline: ZaiNar emerges from 9 years of stealth with $100M+ at a $1B+
+      valuation, positioning itself as the foundation layer for Physical AI as
+      a GPS alternative
+    date: "2026-02-19"
+  latest_funding:
+    round: Growth / stealth-exit round
+    amount_usd: $100,000,000+
+    date: "2026-02-19"
+    lead_investor: null
+    post_money_usd: $1,000,000,000+
+  latest_earnings: null
+  total_funding_usd: $100,000,000+
+  positioning:
+    category: network-based positioning platform
+    customers: healthcare, construction, and industrial enterprises
+    need: need precise location indoors and where GPS fails
+    benefit: locates any device to sub-meter accuracy in real time
+    alternative: GPS or dedicated UWB / RTLS hardware
+    differentiator: leverages existing 5G and Wi-Fi networks as a software
+      sensing layer to deliver it with no new hardware
+    source_refs:
+      - label: ZaiNar company record
+        source_class: company
+        as_of: "2026-02-19"
+  metrics:
+    - label: ARR
+      value: ~$24M
+      unit: USD
+      as_of: "2026-06-13"
+      confidence: medium
+      source_class: BSH diligence
+      source_refs:
+        - label: BSH PRD reference package
+          source_class: BSH primary diligence
+    - label: YoY Growth
+      value: +180%
+      as_of: "2026-06-13"
+      confidence: medium
+      source_class: BSH diligence
+      source_refs:
+        - label: BSH PRD reference package
+          source_class: BSH primary diligence
+    - label: Valuation
+      value: $1.0B+
+      unit: USD
+      as_of: "2026-02-19"
+      confidence: high
+      source_class: company
+      source_refs:
+        - label: Stealth-exit funding disclosure
+          source_class: company
+    - label: TAM
+      value: ~$45B
+      unit: USD
+      as_of: "2030"
+      confidence: medium
+      source_class: third-party market data
+      source_refs:
+        - label: BSH market model reference
+          source_class: third-party market data
+  team_profiles:
+    - name: Daniel Jacker
+      role: Co-founder / CEO
+      bio: Leads PNT architecture, product, and capital strategy.
+      linkedin_url: https://www.linkedin.com/search/results/people/?keywords=Daniel%20Jacker%20ZaiNar
+      profile_url: https://zainartech.com
+    - name: Philip Kratz
+      role: Co-founder / CTO
+      bio: Wireless systems lead and inventor on the core positioning patents.
+      linkedin_url: https://www.linkedin.com/search/results/people/?keywords=Philip%20Kratz%20ZaiNar
+      profile_url: https://zainartech.com
+    - name: Andreas Weigend
+      role: Advisor
+      bio: Former Chief Scientist, Amazon. Data strategy advisor.
+      linkedin_url: https://www.linkedin.com/search/results/people/?keywords=Andreas%20Weigend
+      profile_url: https://aweigend.com
+  products:
+    - name: ZaiNar Physical AI Platform
+      description: Software layer that synchronizes wireless networks to
+        sub-nanosecond precision and computes sub-meter 3D location of any
+        radio-emitting device without GPS or new hardware.
+    - name: Healthcare Asset & Device Tracking
+      description: Real-time location of medical equipment and staff in
+        hospitals to cut the 20-30% of clinician time spent searching for
+        devices.
+    - name: Construction Safety & Progress Monitoring
+      description: Live tracking of workers and equipment with dynamic safety
+        geofencing and automated build-progress capture on active job sites.
+    - name: Smart City & GX Solutions
+      description: Urban spatial-awareness deployments anchored by ZaiNar's
+        Tokyo Metropolitan Government GX Innovation Program engagement.
+    - name: Industrial IoT Positioning
+      description: Sub-meter indoor/outdoor tracking for factories, logistics
+        yards, and autonomous-vehicle coordination over existing Wi-Fi and 5G.
+    - name: Terrestrial GPS Backup / PNT
+      description: Network-computed Positioning, Navigation, and Timing that
+        functions indoors, through walls, and in GPS-denied environments.
+  competitors:
+    - id: nextnav
+      name: NextNav
+      status: Public
+      ticker: NN
+      exchange: NASDAQ
+      note: Closest listed terrestrial-PNT pure-play; primary public comp.
+      source_refs:
+        - label: Public market comp set
+          source_class: public
+    - id: skyhook
+      name: Skyhook
+      status: Public
+      parent: Qualcomm
+      note: Wi-Fi positioning under Qualcomm with broad device-level reach.
+      source_refs:
+        - label: Competitive landscape record
+          source_class: third-party market data
+    - id: ubisense
+      name: Ubisense
+      status: Private
+      note: UWB real-time location for industrial and manufacturing.
+      source_refs:
+        - label: Competitive landscape record
+          source_class: third-party market data
+    - id: gxc
+      name: GXC
+      status: Private
+      note: Private-5G networking with integrated sensing heritage.
+      source_refs:
+        - label: Competitive landscape record
+          source_class: third-party market data
+    - id: here
+      name: HERE
+      status: Private
+      note: Mapping and location platform for automotive and enterprise.
+      source_refs:
+        - label: Competitive landscape record
+          source_class: third-party market data
+  board_investors:
+    - name: Steve Jurvetson
+      role: Board / Future Ventures lead; SpaceX board
+      profile_url: https://future.ventures/team/
+    - name: Koch Disruptive Technologies
+      role: Observer seat / largest institutional holder
+      profile_url: https://www.kochdisruptivetechnologies.com
+    - name: Foundation Capital
+      role: Series A lead investor
+      profile_url: https://foundationcapital.com
+  cap_table_lineage:
+    - name: Koch Disruptive Technologies
+      ownership: 18.5%
+      source_class: BSH primary diligence
+    - name: Foundation Capital
+      ownership: 12.0%
+      source_class: BSH primary diligence
+    - name: Founders
+      ownership: 65.0%
+      source_class: BSH primary diligence
+  recent_news:
+    - headline: ZaiNar opens Tokyo office and is selected by the Tokyo
+        Metropolitan Government for the GX Innovation Program
+      date: "2026-04-20"
+      summary: Chosen from applicants across 22 countries, ZaiNar's new Tokyo
+        office becomes its APAC hub for smart city and green-transformation
+        deployments.
+    - headline: ZaiNar emerges from stealth with $100M+ at a $1B+ valuation
+      date: "2026-02-19"
+      summary: After nine years of stealth, ZaiNar unveils its Physical AI
+        platform and discloses backing from Steve Jurvetson, Jerry Yang, Tom
+        Gruber, Jaan Tallinn, and Nicholas Pritzker.
+    - headline: ZaiNar discloses $450M+ in customer contracts and MOUs at launch
+      date: "2026-02-19"
+      summary: Coming out of stealth, the company says it has secured over
+        $450M in commercial contracts and memoranda of understanding across
+        healthcare, construction, smart city, and industrial deployments.
+    - headline: Patent portfolio crosses 100 filings, 90+ issued with zero rejections
+      date: "2026-02-19"
+      summary: ZaiNar highlights its IP moat in phase-based time
+        synchronization and network-computed positioning, with 90+ granted
+        patents at the time of its public launch.
+    - headline: Reported $5B deal pipeline target for GPS-alternative technology
+      date: "2026-02-20"
+      summary: The Information reports ZaiNar is targeting roughly $5 billion
+        in pipeline deals for its GPS-alternative platform as it scales
+        post-stealth.
+  notable_contracts:
+    - customer: Tokyo Metropolitan Government
+      scope: Selected for the GX-Related Foreign Company Market Entry Support
+        Program to deploy spatial-awareness and green-transformation technology
+        in Tokyo
+      value_usd: null
+      date: "2026-04-20"
+  notable_acquisitions: []
+  company_news:
+    - title: ZaiNar opens Tokyo office and is selected by the Tokyo Metropolitan
+        Government for the GX Innovation Program
+      published_at: "2026-04-20"
+      category: partnership
+      source: company announcement
+      summary: Chosen from applicants across 22 countries, ZaiNar's new Tokyo
+        office becomes its APAC hub for smart city and green-transformation
+        deployments.
+    - title: ZaiNar emerges from stealth with $100M+ at a $1B+ valuation
+      published_at: "2026-02-19"
+      category: fundraising
+      source: company announcement
+      summary: After nine years of stealth, ZaiNar unveils its Physical AI
+        platform and discloses backing from Steve Jurvetson, Jerry Yang, Tom
+        Gruber, Jaan Tallinn, and Nicholas Pritzker.
+    - title: ZaiNar discloses $450M+ in customer contracts and MOUs at launch
+      published_at: "2026-02-19"
+      category: commercial
+      source: company announcement
+      summary: The company says it has secured over $450M in commercial
+        contracts and memoranda of understanding across healthcare,
+        construction, smart city, and industrial deployments.
+  industry_view:
+    metrics:
+      - label: Sector TAM
+        value: ~$45B
+        source_class: third-party market data
+        as_of: "2030"
+      - label: 5-year CAGR
+        value: ~24%
+        source_class: third-party market data
+        as_of: "2026"
+      - label: Tracked comps
+        value: "5"
+        source_class: BSH comp set
+        as_of: "2026-06-13"
+      - label: Median EV/NTM revenue
+        value: ~12x
+        source_class: public comps
+        as_of: "2026-06-13"
+    sector_signals:
+      - category: demand
+        signal: Indoor logistics and healthcare asset tracking remain near-term
+          enterprise demand pools.
+        implication: Supports a software-first GTM before carrier API adoption.
+      - category: standardization
+        signal: 3GPP Releases 18 and 19 could absorb phase-based positioning
+          natively.
+        implication: Patent claim-chart diligence remains required before
+          underwriting moat durability.
+  expert_opinions:
+    - speaker: BSH Research
+      affiliation: Internal diligence
+      stance: Bullish
+      date: "2026-06-13"
+      summary: Software-only deployment over existing 5G and Wi-Fi networks is
+        the lowest-friction path to broad spatial sensing adoption.
+      source_class: BSH primary diligence
+    - speaker: BSH Research
+      affiliation: Internal diligence
+      stance: Cautious
+      date: "2026-06-13"
+      summary: Revenue quality and markup credibility require independent
+        evidence before relying on the $1B+ post-money mark.
+      source_class: BSH primary diligence
+  disclosures:
+    - label: BSH position disclosure
+      body: BSH may hold or seek a position in the company.
+      source_class: disclosure
+  language: en

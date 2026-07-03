@@ -59,7 +59,7 @@ function trArray(field) {
 
 function monogram(name) {
   return String(name || "?")
-    .replace(/[,\.]/g, " ")
+    .replace(/[,.]/g, " ")
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -359,12 +359,18 @@ function metricSource(metric) {
               <p class="mt-2 text-sm leading-relaxed text-ink-secondary">
                 {{ competitor.note || competitor.description || "Comparison profile pending." }}
               </p>
-              <a
-                href="#"
+              <RouterLink
+                :to="{
+                  name: 'competitor-detail',
+                  params: {
+                    companyId: company.id,
+                    competitorId: competitor.id || competitor.name?.toLowerCase().replace(/[^\w]+/g, '-'),
+                  },
+                }"
                 class="mt-3 inline-flex text-xs font-semibold text-accent-ink hover:text-ink-primary focus-ring rounded"
               >
                 View profile &amp; compare →
-              </a>
+              </RouterLink>
             </div>
           </div>
         </article>

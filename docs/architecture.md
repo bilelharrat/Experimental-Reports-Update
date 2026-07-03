@@ -66,6 +66,38 @@ The quick summary is a UI affordance for the analyst, not a memo input.
 Re-reading the raw file keeps the memo faithful to the source instead of
 summary-of-a-summary.
 
+## Tracked seed data vs server-local generated data
+
+The repository keeps runtime state under ignored `data/` paths, but curated
+company records that must survive a GitHub checkout live in tracked seed files:
+
+| Path | Owned by | Purpose |
+|---|---|---|
+| `server/seed_data/company_records.yaml` | Git-tracked product data | Curated company profile and PRD overview fields, including the ZaiNar v2 demo record. |
+| `server/seed_data/company_fixtures.yaml` | Git-tracked QA data | Opt-in deterministic fixtures for Databricks, Stripe, NextNav, and empty company states. |
+| `data/companies.yaml` | Server-local runtime data | Materialized company registry consumed by the API, memo generation, translations, trader snapshots, and local edits. |
+
+Startup runs `local_generation.generate_local_runtime_state()`, which calls
+`storage.bootstrap_seed_data()` and
+`storage.materialize_seed_company_records()`. The materializer merges tracked
+seed fields into `data/companies.yaml` so GitHub carries curated records while
+the server still owns local generation.
+
+The same startup path is available as an explicit local-generation command:
+
+```sh
+python -m server.local_generation
+```
+
+Use `python -m server.local_generation --include-fixture-companies` for QA
+runs that need the fixture-company pack. Startup does not include fixture
+companies by default.
+
+The materializer may update seeded profile fields such as positioning, metrics,
+team profiles, competitors, company news, industry view, disclosures, and other
+PRD facts. It must preserve populated local generated fields including
+`translation`, `trader_snapshot`, `memo_state`, and `audit_records`.
+
 ## Cross-feature checks the code must keep enforcing
 
 - `server/memo_prep.py` must never import from or reference

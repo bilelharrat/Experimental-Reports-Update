@@ -34,6 +34,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import (
+    analytics_store,
     auth_store,
     cache,
     browser_archive,
@@ -44,7 +45,9 @@ from . import (
     company_translate,
     console_session,
     console_store,
+    context_store,
     deck_summary,
+    evidence_store,
     evidence_matrix,
     external_store,
     external_translate,
@@ -59,8 +62,10 @@ from . import (
     job_progress,
     link_preview as link_preview_mod,
     memo_analysis,
+    memo_editor_store,
     memo_prep,
     news_archive,
+    product_store,
     research_eval,
     research_pages,
     research_store,
@@ -410,10 +415,31 @@ def auth_me(request: Request) -> dict:
     Returns ``{email, auth: 'session' | 'shared'}``.
     """
     email = getattr(request.state, "session_email", None)
+    role = product_store.role_for_email(email, shared_auth=email is None)
     return {
         "email": email,
         "auth": "session" if email else "shared",
+        "role": role,
+        "permissions": product_store.permissions_for_role(role),
     }
+
+
+def _caller_email(request: Request) -> str | None:
+    return getattr(request.state, "session_email", None)
+
+
+def _caller_role(request: Request) -> str:
+    email = _caller_email(request)
+    return product_store.role_for_email(email, shared_auth=email is None)
+
+
+def _require_permission(request: Request, permission: str) -> None:
+    role = _caller_role(request)
+    if not product_store.has_permission(role, permission):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied: {permission}",
+        )
 
 
 @router.post("/auth/logout", status_code=204)
@@ -548,6 +574,73 @@ class MemoPrepRequest(BaseModel):
     input staging) before the long-running analysis composite job."""
     company_id: str
     analysis_session_id: str | None = None
+
+
+class MemoEditorCardPatch(BaseModel):
+    included: bool | None = None
+    expanded: bool | None = None
+    title: str | None = None
+    category: str | None = None
+    severity: str | None = None
+    confidence: str | None = None
+    source_class: str | None = None
+    source_refs: list[dict[str, Any]] | None = None
+
+
+class MemoEditorMoveRequest(BaseModel):
+    direction: str
+
+
+class MemoEditorBulletPatch(BaseModel):
+    text: str | None = None
+    source_class: str | None = None
+    source_refs: list[dict[str, Any]] | None = None
+
+
+class MemoEditorDiveRequest(BaseModel):
+    text: str | None = None
+
+
+class MemoEditorConclusionRequest(BaseModel):
+    conclusion_id: str
+
+
+class MemoEditorAppendixPatch(BaseModel):
+    expanded: bool | None = None
+    source_class: str | None = None
+    source_refs: list[dict[str, Any]] | None = None
+
+
+class MemoEditorTaskCreate(BaseModel):
+    action_type: str = "discuss"
+    title: str
+    description: str = ""
+    context: dict[str, Any] = Field(default_factory=dict)
+    status: str = "proposed"
+    created_by: str = "co-pilot"
+
+
+class MemoEditorTaskPatch(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    context: dict[str, Any] | None = None
+    status: str | None = None
+
+
+class DocumentMetadataPatch(BaseModel):
+    category: str | None = None
+    source_class: str | None = None
+    status: str | None = None
+    confidence: str | None = None
+    provenance: dict[str, Any] | None = None
+
+
+class WorkspacePreferencePatch(BaseModel):
+    weekly_summary: bool | None = None
+    stock_auto_refresh: bool | None = None
+    agent_alerts: bool | None = None
+    compact_density: bool | None = None
+    language: str | None = None
 
 
 class ThreadIn(BaseModel):
@@ -749,6 +842,62 @@ def get_options() -> dict:
     }
 
 
+@router.get("/workspace/settings")
+def get_workspace_settings(request: Request) -> dict:
+    return {
+        "account": product_store.workspace_profile(
+            _caller_email(request),
+            shared_auth=_caller_email(request) is None,
+        )["account"],
+        **product_store.get_preferences(_caller_email(request)),
+    }
+
+
+@router.patch("/workspace/settings")
+def patch_workspace_settings(
+    patch: WorkspacePreferencePatch,
+    request: Request,
+) -> dict:
+    _require_permission(request, "settings:update")
+    try:
+        return {
+            "account": product_store.workspace_profile(
+                _caller_email(request),
+                shared_auth=_caller_email(request) is None,
+            )["account"],
+            **product_store.update_preferences(
+                _caller_email(request),
+                patch.model_dump(exclude_none=True),
+            ),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/workspace/user-center")
+def get_workspace_user_center(request: Request) -> dict:
+    return product_store.workspace_profile(
+        _caller_email(request),
+        shared_auth=_caller_email(request) is None,
+    )
+
+
+@router.get("/analytics/summary")
+def get_analytics_summary(request: Request) -> dict:
+    _require_permission(request, "admin:read")
+    return analytics_store.summary()
+
+
+@router.get("/analytics/events")
+def get_analytics_events(
+    request: Request,
+    limit: int = 100,
+    event: str | None = None,
+) -> list[dict]:
+    _require_permission(request, "admin:read")
+    return analytics_store.list_events(limit=limit, event=event)
+
+
 @router.get("/diagnostics/claude")
 def diagnose_claude() -> dict:
     """Health-check the local Claude Code CLI.
@@ -779,6 +928,7 @@ def companies_search(q: str = "", refresh: bool = False) -> dict:
     re-query and overwrite. For a live progress feed during the
     underlying LLM call, use POST /companies/search/start instead.
     """
+    analytics_store.record_event("search_started", query=(q or "").strip(), refresh=refresh)
     return companies_ai.deep_search(q, force_refresh=refresh)
 
 
@@ -843,6 +993,7 @@ def post_companies_search_start(q: str = "", refresh: bool = False) -> dict:
     query = (q or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
+    analytics_store.record_event("search_started", query=query, refresh=refresh)
 
     if not refresh:
         cached = cache.get("companies_ai", query.lower())
@@ -1586,6 +1737,12 @@ def companies_select(payload: SelectMatch) -> dict:
         raise HTTPException(status_code=400, detail="name is required")
     company = storage.upsert_company_from_match(payload.model_dump())
     _ensure_company_translation(company.get("id"))
+    analytics_store.record_event(
+        "workspace_opened",
+        company_id=company.get("id"),
+        company_name=company.get("name"),
+        source="company_select",
+    )
     return storage.get_company(company.get("id")) or company
 
 
@@ -1662,6 +1819,12 @@ def get_company(company_id: str) -> CompanyOut:
     company = storage.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
+    analytics_store.record_event(
+        "workspace_opened",
+        company_id=company_id,
+        company_name=company.get("name"),
+        source="company_get",
+    )
     return CompanyOut(**_company_view(company))
 
 
@@ -1749,6 +1912,7 @@ def post_report(payload: GenerateRequest) -> ReportDetail:
         "analysis_session_id": payload.analysis_session_id,
     }
     _record_report_generation_event("request_received", **base_event)
+    analytics_store.record_event("memo_generate_started", **base_event)
     if payload.report_type not in REPORT_TYPES:
         _record_report_generation_event(
             "request_rejected",
@@ -2517,6 +2681,301 @@ def approve_memo_analysis(company_id: str) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/companies/{company_id}/memo-editor")
+def get_memo_editor(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        state = memo_editor_store.get_state(company_id, create=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if state is None:
+        raise HTTPException(status_code=404, detail="Memo editor not found")
+    return state
+
+
+@router.patch("/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}")
+def patch_memo_editor_card(
+    company_id: str,
+    section_id: str,
+    card_id: str,
+    patch: MemoEditorCardPatch,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.patch_card(
+            company_id,
+            section_id,
+            card_id,
+            patch.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}/move")
+def move_memo_editor_card(
+    company_id: str,
+    section_id: str,
+    card_id: str,
+    payload: MemoEditorMoveRequest,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.move_card(
+            company_id,
+            section_id,
+            card_id,
+            payload.direction,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}/bullets/{bullet_id}"
+)
+def patch_memo_editor_bullet(
+    company_id: str,
+    section_id: str,
+    card_id: str,
+    bullet_id: str,
+    patch: MemoEditorBulletPatch,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.patch_bullet(
+            company_id,
+            section_id,
+            card_id,
+            bullet_id,
+            patch.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}/bullets/{bullet_id}/dive-deeper"
+)
+def add_memo_editor_dive_deeper(
+    company_id: str,
+    section_id: str,
+    card_id: str,
+    bullet_id: str,
+    payload: MemoEditorDiveRequest,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.add_dive_deeper(
+            company_id,
+            section_id,
+            card_id,
+            bullet_id,
+            text=payload.text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-editor/conclusion/select")
+def select_memo_editor_conclusion(
+    company_id: str,
+    payload: MemoEditorConclusionRequest,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.select_conclusion(company_id, payload.conclusion_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-editor/sections/{section_id}/rerun")
+def request_memo_editor_section_rerun(company_id: str, section_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.request_section_rerun(company_id, section_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/companies/{company_id}/memo-editor/appendix/{block_id}")
+def patch_memo_editor_appendix_block(
+    company_id: str,
+    block_id: str,
+    patch: MemoEditorAppendixPatch,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.patch_appendix_block(
+            company_id,
+            block_id,
+            patch.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/memo-editor/export-projection")
+def get_memo_editor_export_projection(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.export_projection(company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-editor/export-projection")
+def post_memo_editor_export_projection(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.export_projection(company_id, record_attempt=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/memo-editor/history")
+def get_memo_editor_history(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.history(company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/memo-editor/history/{revision_id}")
+def get_memo_editor_revision(company_id: str, revision_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.get_revision(company_id, revision_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-editor/tasks", status_code=201)
+def create_memo_editor_task(
+    company_id: str,
+    payload: MemoEditorTaskCreate,
+    request: Request,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    try:
+        return memo_editor_store.create_task(
+            company_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/companies/{company_id}/memo-editor/tasks/{task_id}")
+def patch_memo_editor_task(
+    company_id: str,
+    task_id: str,
+    patch: MemoEditorTaskPatch,
+    request: Request,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    try:
+        return memo_editor_store.update_task(
+            company_id,
+            task_id,
+            patch.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        code = 404 if "unknown memo task" in detail.lower() else 400
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+
+@router.get("/companies/{company_id}/news-feed")
+def get_company_news_feed(
+    company_id: str,
+    category: str | None = None,
+    tag: str | None = None,
+    search: str | None = None,
+) -> dict:
+    try:
+        return context_store.company_news(
+            company_id,
+            category=category,
+            tag=tag,
+            search=search,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/industry-view")
+def get_company_industry_view(company_id: str) -> dict:
+    try:
+        return context_store.industry_view(company_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/competitors/{competitor_id}")
+def get_company_competitor_detail(company_id: str, competitor_id: str) -> dict:
+    try:
+        return context_store.competitor_detail(company_id, competitor_id)
+    except ValueError as exc:
+        detail = str(exc)
+        code = 404 if "unknown" in detail.lower() else 400
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+
+@router.get("/companies/{company_id}/documents")
+def get_company_documents(company_id: str) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    reports = [_report_summary(r) for r in storage.list_reports()]
+    return evidence_store.list_documents(company_id, reports=reports)
+
+
+@router.patch("/companies/{company_id}/documents/{backend}/{document_id}")
+def patch_company_document_metadata(
+    company_id: str,
+    backend: str,
+    document_id: str,
+    patch: DocumentMetadataPatch,
+    request: Request,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "sources:edit")
+    try:
+        return evidence_store.update_document_metadata(
+            company_id,
+            backend,
+            document_id,
+            patch.model_dump(exclude_none=True),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+
+@router.get("/intake/unresolved")
+def get_unresolved_intake(company_id: str | None = None) -> list[dict]:
+    return evidence_store.list_unresolved_intake(company_id=company_id)
+
+
 @router.get("/companies/{company_id}/files")
 def get_files(company_id: str) -> list[dict]:
     if storage.get_company(company_id) is None:
@@ -2535,7 +2994,7 @@ async def post_file(
         raise HTTPException(status_code=404, detail="Company not found")
     data = await file.read()
     try:
-        return files_store.upload_file(
+        record = files_store.upload_file(
             company_id,
             filename=file.filename or "upload",
             content_type=file.content_type,
@@ -2543,6 +3002,30 @@ async def post_file(
             label=label,
             language=language,
         )
+        category = evidence_store.normalize_document_category(
+            None,
+            filename=record.get("filename"),
+            kind=record.get("kind"),
+            backend="document_library",
+        )
+        updated = files_store.update_record(
+            company_id,
+            record["id"],
+            document_category=category,
+            source_class="unknown/pending",
+            assignment_status="assigned",
+            assignment_confidence="high",
+            provenance={
+                "title": label or record.get("filename"),
+                "file": record.get("stored_name"),
+                "uploaded_at": record.get("uploaded_at"),
+                "language": language,
+                "source_class": "unknown/pending",
+                "confidence": "pending",
+                "status": "pending",
+            },
+        )
+        return updated or record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2621,9 +3104,10 @@ def get_file(
 
 
 @router.delete("/companies/{company_id}/files/{file_id}", status_code=204)
-def delete_file(company_id: str, file_id: str) -> None:
+def delete_file(company_id: str, file_id: str, request: Request) -> None:
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "documents:delete")
     if not files_store.delete_file(company_id, file_id):
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -2661,13 +3145,36 @@ async def post_research_file(
         max_bytes=research_store.MAX_FILE_BYTES,
     )
     try:
-        return research_store.upload_file(
+        record = research_store.upload_file(
             company_id,
             filename=file.filename or "upload",
             content_type=file.content_type,
             data=data,
             label=label,
         )
+        category = evidence_store.normalize_document_category(
+            None,
+            filename=record.get("filename"),
+            kind=record.get("kind"),
+            backend="background_documents",
+        )
+        updated = research_store.update_record(
+            company_id,
+            record["id"],
+            document_category=category,
+            source_class="unknown/pending",
+            assignment_status="assigned",
+            assignment_confidence="high",
+            provenance={
+                "title": label or record.get("filename"),
+                "file": record.get("stored_name"),
+                "uploaded_at": record.get("uploaded_at"),
+                "source_class": "unknown/pending",
+                "confidence": "pending",
+                "status": "pending",
+            },
+        )
+        return updated or record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2697,9 +3204,10 @@ def get_research_file(
 
 @router.delete("/companies/{company_id}/research-files/{file_id}",
                status_code=204)
-def delete_research_file(company_id: str, file_id: str) -> None:
+def delete_research_file(company_id: str, file_id: str, request: Request) -> None:
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "documents:delete")
     if not research_store.delete_file(company_id, file_id):
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -4336,7 +4844,24 @@ def post_news(payload: NewsCreateIn) -> dict:
         raise HTTPException(status_code=400, detail="URL is required")
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
+    dedupe_key = evidence_store.dedupe_key("news", {"url": url})
+    duplicate = evidence_store.find_duplicate_intake(
+        "news",
+        dedupe_key,
+        url=url,
+    )
+    if duplicate is not None:
+        return {
+            **_external_item_response(duplicate),
+            "dedupe_status": "duplicate",
+            "idempotent": True,
+        }
     item_id = external_store.new_id()
+    annotation = evidence_store.annotate_intake_record(
+        kind="news",
+        item_id=item_id,
+        payload={"url": url, "title": url},
+    )
     item = external_store.write_item(
         "news",
         {
@@ -4345,6 +4870,7 @@ def post_news(payload: NewsCreateIn) -> dict:
             "status": "queued",
             "source_url": url,
             "title": url,
+            **annotation,
         },
     )
     threading.Thread(
@@ -4407,7 +4933,8 @@ def get_news_archive_asset(item_id: str, filename: str) -> FileResponse:
 
 
 @router.delete("/external/news/{item_id}", status_code=204)
-def delete_news(item_id: str) -> None:
+def delete_news(item_id: str, request: Request) -> None:
+    _require_permission(request, "documents:delete")
     if not external_store.delete_item("news", item_id):
         raise HTTPException(status_code=404, detail="News item not found")
 
@@ -5004,12 +5531,36 @@ async def post_external_research(
     )
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
+    safe_name = files_store._sanitize_filename(file.filename)
+    content_hash = evidence_store.sha256_bytes(data)
+    intake_payload = {
+        "title": (title or "").strip() or safe_name,
+        "filename": safe_name,
+        "source_company": (source_company or "").strip(),
+        "notes": (notes or "").strip(),
+    }
+    dedupe_key = evidence_store.dedupe_key(
+        "external_research",
+        intake_payload,
+        content_hash=content_hash,
+    )
+    duplicate = evidence_store.find_duplicate_intake(
+        "external_research",
+        dedupe_key,
+    )
+    if duplicate is not None:
+        return {**duplicate, "dedupe_status": "duplicate", "idempotent": True}
     item_id = external_store.new_id()
+    annotation = evidence_store.annotate_intake_record(
+        kind="external_research",
+        item_id=item_id,
+        payload=intake_payload,
+        content_hash=content_hash,
+    )
 
     # Stage the file under data/external/external_research/files/<id>__<name>
     files_dir = external_store._kind_dir("external_research") / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = files_store._sanitize_filename(file.filename)
     stored_name = f"{item_id}__{safe_name}"
     stored_path = files_dir / stored_name
     tmp = stored_path.with_suffix(stored_path.suffix + ".tmp")
@@ -5026,11 +5577,13 @@ async def post_external_research(
             "filename": safe_name,
             "stored_name": stored_name,
             "size_bytes": len(data),
+            "sha256": content_hash,
             "content_type": file.content_type or "",
             "source_company": (source_company or "").strip() or None,
             "contact_name": (contact_name or "").strip() or None,
             "contact_email": (contact_email or "").strip() or None,
             "notes": (notes or "").strip() or None,
+            **annotation,
         },
     )
     cancel_key = _research_cancel_key("external_research", item_id)
@@ -5240,6 +5793,7 @@ def promote_external_research(
         "source_chunks": item.get("source_chunks") or [],
         "source_traces": item.get("source_traces") or [],
     }
+    assignment = item.get("intake_assignment") if isinstance(item.get("intake_assignment"), dict) else {}
     updated = research_store.update_record(
         company_id,
         record["id"],
@@ -5254,12 +5808,27 @@ def promote_external_research(
         source_chunk_count=len(item.get("source_chunks") or []),
         source_traces=item.get("source_traces") or [],
         source_trace_count=len(item.get("source_traces") or []),
+        document_category=assignment.get("document_category") or item.get("document_category"),
+        source_class=assignment.get("source_class") or item.get("source_class"),
+        assignment_status=assignment.get("status"),
+        assignment_confidence=assignment.get("company_confidence"),
+        provenance={
+            "title": item.get("title") or item.get("filename"),
+            "origin": item.get("source_company") or item.get("contact_name"),
+            "file": record.get("stored_name"),
+            "uploaded_at": record.get("uploaded_at"),
+            "language": item.get("language"),
+            "source_class": assignment.get("source_class") or item.get("source_class"),
+            "confidence": str(assignment.get("company_confidence") or "pending"),
+            "status": item.get("status") or "pending",
+        },
     )
     return updated or record
 
 
 @router.delete("/external/research/{item_id}", status_code=204)
-def delete_external_research(item_id: str) -> None:
+def delete_external_research(item_id: str, request: Request) -> None:
+    _require_permission(request, "documents:delete")
     item = external_store.get_item("external_research", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Research item not found")
@@ -5563,33 +6132,65 @@ async def post_hormuz(
     title = (title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
-    item_id = external_store.new_id()
+    file_data: bytes | None = None
+    safe_name: str | None = None
+    content_type = ""
+    if file is not None and file.filename:
+        data = await file.read()
+        if data:
+            file_data = data
+            safe_name = files_store._sanitize_filename(file.filename)
+            content_type = file.content_type or ""
+    hash_source = (title + "\n" + (body or "")).encode("utf-8") + (file_data or b"")
+    content_hash = evidence_store.sha256_bytes(hash_source)
+    intake_payload = {
+        "title": title,
+        "body": body or "",
+        "filename": safe_name or "",
+    }
+    dedupe_key = evidence_store.dedupe_key(
+        "hormuz_research",
+        intake_payload,
+        content_hash=content_hash,
+    )
+    duplicate = evidence_store.find_duplicate_intake(
+        "hormuz_research",
+        dedupe_key,
+    )
+    if duplicate is not None:
+        return {**duplicate, "dedupe_status": "duplicate", "idempotent": True}
 
+    item_id = external_store.new_id()
+    annotation = evidence_store.annotate_intake_record(
+        kind="hormuz_research",
+        item_id=item_id,
+        payload=intake_payload,
+        content_hash=content_hash,
+    )
     record: dict = {
         "id": item_id,
         "kind": "hormuz_research",
         "status": "ready",
         "title": title,
         "body": (body or "").strip(),
+        "sha256": content_hash,
+        **annotation,
     }
 
-    if file is not None and file.filename:
-        data = await file.read()
-        if data:
-            files_dir = external_store._kind_dir("hormuz_research") / "files"
-            files_dir.mkdir(parents=True, exist_ok=True)
-            safe_name = files_store._sanitize_filename(file.filename)
-            stored_name = f"{item_id}__{safe_name}"
-            stored_path = files_dir / stored_name
-            tmp = stored_path.with_suffix(stored_path.suffix + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(stored_path)
-            record.update(
-                filename=safe_name,
-                stored_name=stored_name,
-                size_bytes=len(data),
-                content_type=file.content_type or "",
-            )
+    if file_data and safe_name:
+        files_dir = external_store._kind_dir("hormuz_research") / "files"
+        files_dir.mkdir(parents=True, exist_ok=True)
+        stored_name = f"{item_id}__{safe_name}"
+        stored_path = files_dir / stored_name
+        tmp = stored_path.with_suffix(stored_path.suffix + ".tmp")
+        tmp.write_bytes(file_data)
+        tmp.replace(stored_path)
+        record.update(
+            filename=safe_name,
+            stored_name=stored_name,
+            size_bytes=len(file_data),
+            content_type=content_type,
+        )
 
     return external_store.write_item("hormuz_research", record)
 
@@ -5788,7 +6389,8 @@ def get_hormuz_file(item_id: str) -> FileResponse:
 
 
 @router.delete("/external/hormuz/{item_id}", status_code=204)
-def delete_hormuz(item_id: str) -> None:
+def delete_hormuz(item_id: str, request: Request) -> None:
+    _require_permission(request, "documents:delete")
     item = external_store.get_item("hormuz_research", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Hormuz item not found")
@@ -6374,7 +6976,8 @@ def archive_console_session(company_id: str, sid: str) -> dict:
 @router.delete(
     "/companies/{company_id}/console/sessions/{sid}", status_code=204
 )
-def delete_console_session(company_id: str, sid: str) -> Response:
+def delete_console_session(company_id: str, sid: str, request: Request) -> Response:
+    _require_permission(request, "documents:delete")
     ok = console_store.hard_delete_session(company_id, sid)
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")

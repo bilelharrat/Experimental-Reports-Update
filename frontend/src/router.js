@@ -19,6 +19,7 @@ const InnovationLabView = () => import("./views/InnovationLabView.vue");
 const SettingsView = () => import("./views/SettingsView.vue");
 const UserCenterView = () => import("./views/UserCenterView.vue");
 const SourceLibraryView = () => import("./views/SourceLibraryView.vue");
+const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 
 function routerHistoryBase() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -105,6 +106,12 @@ export const router = createRouter({
       name: "research-page-hypothesis-lab",
       component: HypothesisLabView,
       alias: "/research-pages/hypothesis-lab",
+    },
+    {
+      path: "/companies/:companyId/competitors/:competitorId",
+      name: "competitor-detail",
+      component: CompetitorDetailView,
+      props: true,
     },
     {
       path: "/:companyId",

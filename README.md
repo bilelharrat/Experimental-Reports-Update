@@ -57,10 +57,23 @@ and Markdown files can be opened in-browser, all files can be downloaded.
 
 ## Data
 
-- `data/companies.yaml` — company list
+- `server/seed_data/company_records.yaml` — Git-tracked curated company seed
+  records, including PRD/demo company profile fields
+- `server/seed_data/company_fixtures.yaml` — opt-in deterministic QA fixture
+  companies
+- `data/companies.yaml` — local materialized company list
 - `data/reports/<id>.yaml` — generated reports (one per run; full history)
 - `data/threads/<company>.yaml` — knowledge-base Q&A threads
 - `data/uploads/<company>/` — uploaded PDFs, PPT/PPTX, and MD files with an `index.yaml`
 - `data/cache/companies_ai/` — persisted deep-search results (no auto-expiry)
 
-The whole `data/` directory is gitignored.
+The whole `data/` directory is gitignored. Server startup generates local
+runtime state from tracked seeds. To run that materialization explicitly:
+
+```sh
+python -m server.local_generation
+```
+
+Use `python -m server.local_generation --json` for a machine-readable summary.
+Use `python -m server.local_generation --include-fixture-companies` when a QA
+run needs the Databricks, Stripe, NextNav, and empty-state fixtures.

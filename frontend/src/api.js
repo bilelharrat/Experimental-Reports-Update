@@ -181,6 +181,28 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getCompany: (id) => request(`/api/companies/${id}`),
+  getCompanyNewsFeed: (id, filters = {}) => {
+    const qs = new URLSearchParams();
+    if (filters.category) qs.set("category", filters.category);
+    if (filters.tag) qs.set("tag", filters.tag);
+    if (filters.search) qs.set("search", filters.search);
+    const query = qs.toString();
+    return request(`/api/companies/${id}/news-feed${query ? `?${query}` : ""}`);
+  },
+  getCompanyIndustryView: (id) =>
+    request(`/api/companies/${id}/industry-view`),
+  getCompetitorDetail: (companyId, competitorId) =>
+    request(
+      `/api/companies/${companyId}/competitors/${encodeURIComponent(competitorId)}`,
+    ),
+  workspaceSettings: () => request("/api/workspace/settings"),
+  updateWorkspaceSettings: (patch) =>
+    request("/api/workspace/settings", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  userCenter: () => request("/api/workspace/user-center"),
+  analyticsSummary: () => request("/api/analytics/summary"),
   refreshCompany: (id) =>
     request(`/api/companies/${id}/refresh`, { method: "POST" }),
   regenAllCompanies: ({ force = false } = {}) => {
@@ -205,6 +227,17 @@ export const api = {
     }),
   listCompanyReports: (companyId) =>
     request(`/api/companies/${companyId}/reports`),
+  listCompanyDocuments: (companyId) =>
+    request(`/api/companies/${companyId}/documents`),
+  updateDocumentMetadata: (companyId, backend, documentId, patch) =>
+    request(
+      `/api/companies/${companyId}/documents/${encodeURIComponent(backend)}/${encodeURIComponent(documentId)}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    ),
+  listUnresolvedIntake: (companyId = null) =>
+    request(
+      `/api/intake/unresolved${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ""}`,
+    ),
   listFiles: (companyId) => request(`/api/companies/${companyId}/files`),
   uploadFile: async (companyId, file, label, language) => {
     const fd = new FormData();
@@ -343,6 +376,66 @@ export const api = {
       request(`/api/companies/${companyId}/memo-analysis/approve`, {
         method: "POST",
       }),
+  },
+
+  memoEditor: {
+    get: (companyId) =>
+      request(`/api/companies/${companyId}/memo-editor`),
+    patchCard: (companyId, sectionId, cardId, patch) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    moveCard: (companyId, sectionId, cardId, direction) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}/move`,
+        { method: "POST", body: JSON.stringify({ direction }) },
+      ),
+    patchBullet: (companyId, sectionId, cardId, bulletId, patch) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}/bullets/${encodeURIComponent(bulletId)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    diveDeeper: (companyId, sectionId, cardId, bulletId, text = null) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}/bullets/${encodeURIComponent(bulletId)}/dive-deeper`,
+        { method: "POST", body: JSON.stringify({ text }) },
+      ),
+    selectConclusion: (companyId, conclusionId) =>
+      request(`/api/companies/${companyId}/memo-editor/conclusion/select`, {
+        method: "POST",
+        body: JSON.stringify({ conclusion_id: conclusionId }),
+      }),
+    rerunSection: (companyId, sectionId) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/rerun`,
+        { method: "POST" },
+      ),
+    patchAppendixBlock: (companyId, blockId, patch) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/appendix/${encodeURIComponent(blockId)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    exportProjection: (companyId, { record = false } = {}) =>
+      request(`/api/companies/${companyId}/memo-editor/export-projection`, {
+        method: record ? "POST" : "GET",
+      }),
+    history: (companyId) =>
+      request(`/api/companies/${companyId}/memo-editor/history`),
+    revision: (companyId, revisionId) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/history/${encodeURIComponent(revisionId)}`,
+      ),
+    createTask: (companyId, payload) =>
+      request(`/api/companies/${companyId}/memo-editor/tasks`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    updateTask: (companyId, taskId, patch) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/tasks/${encodeURIComponent(taskId)}`,
+        { method: "PATCH", body: JSON.stringify(patch) },
+      ),
   },
 
   // External news, research, and Hormuz

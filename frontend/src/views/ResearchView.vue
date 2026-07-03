@@ -14,11 +14,11 @@ import {
 import { api, withApiToken } from "../api.js";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
-import CompanyLibrary from "../components/CompanyLibrary.vue";
-import ResearchUploads from "../components/ResearchUploads.vue";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import MemoAnalysisDashboard from "../components/MemoAnalysisDashboard.vue";
+import MemoStudioEditor from "../components/MemoStudioEditor.vue";
+import UnifiedDocumentsView from "../components/UnifiedDocumentsView.vue";
 
 const tr = useT();
 
@@ -51,6 +51,15 @@ const router = useRouter();
 const company = ref(null);
 const companyError = ref(null);
 const options = ref({ report_types: [], audiences: [], languages: [] });
+const newsFeed = ref({ rows: [], filters: { categories: [], tags: [] }, empty_state: "" });
+const newsLoading = ref(false);
+const newsError = ref("");
+const newsCategory = ref("");
+const newsTag = ref("");
+const newsSearch = ref("");
+const industryView = ref(null);
+const industryLoading = ref(false);
+const industryError = ref("");
 
 const isPublicCompany = computed(() => {
   const c = company.value;
@@ -304,9 +313,11 @@ const workspaceTabs = computed(() => [
 
 const companyNews = computed(() => {
   const c = company.value || {};
-  const rows = Array.isArray(c.company_news) && c.company_news.length
-    ? c.company_news
-    : c.recent_news || [];
+  const rows = Array.isArray(newsFeed.value?.rows) && newsFeed.value.rows.length
+    ? newsFeed.value.rows
+    : Array.isArray(c.company_news) && c.company_news.length
+      ? c.company_news
+      : c.recent_news || [];
   return [...rows].sort((a, b) =>
     String(b.published_at || b.date || "").localeCompare(
       String(a.published_at || a.date || ""),
@@ -314,14 +325,26 @@ const companyNews = computed(() => {
   );
 });
 
+const newsFilters = computed(() => newsFeed.value?.filters || { categories: [], tags: [] });
+
 const industryMetrics = computed(() => {
-  const metrics = company.value?.industry_view?.metrics;
+  const metrics = industryView.value?.metrics || company.value?.industry_view?.metrics;
   return Array.isArray(metrics) ? metrics : [];
 });
 
 const expertOpinions = computed(() => {
-  const opinions = company.value?.expert_opinions;
+  const opinions = industryView.value?.expert_opinions || company.value?.expert_opinions;
   return Array.isArray(opinions) ? opinions : [];
+});
+
+const publicComps = computed(() => {
+  const rows = industryView.value?.public_comps;
+  return Array.isArray(rows) ? rows : [];
+});
+
+const sectorSignals = computed(() => {
+  const rows = industryView.value?.sector_signals || company.value?.industry_view?.sector_signals;
+  return Array.isArray(rows) ? rows : [];
 });
 
 let pollId = null;
@@ -364,6 +387,7 @@ async function loadCompany() {
   companyError.value = null;
   try {
     company.value = await api.getCompany(props.companyId);
+    await Promise.allSettled([loadNewsFeed(), loadIndustryView()]);
   } catch (e) {
     // Keep the HTTP status on the error object so the template can
     // tell "company genuinely missing" from "your session expired" /
@@ -376,6 +400,49 @@ async function loadCompany() {
     };
   }
 }
+
+async function loadNewsFeed() {
+  if (!props.companyId) return;
+  newsLoading.value = true;
+  newsError.value = "";
+  try {
+    newsFeed.value = await api.getCompanyNewsFeed(props.companyId, {
+      category: newsCategory.value,
+      tag: newsTag.value,
+      search: newsSearch.value,
+    });
+  } catch (e) {
+    newsError.value = e?.message || String(e);
+    newsFeed.value = { rows: [], filters: { categories: [], tags: [] }, empty_state: "" };
+  } finally {
+    newsLoading.value = false;
+  }
+}
+
+async function loadIndustryView() {
+  if (!props.companyId) return;
+  industryLoading.value = true;
+  industryError.value = "";
+  try {
+    industryView.value = await api.getCompanyIndustryView(props.companyId);
+  } catch (e) {
+    industryError.value = e?.message || String(e);
+    industryView.value = null;
+  } finally {
+    industryLoading.value = false;
+  }
+}
+
+function resetNewsFilters() {
+  newsCategory.value = "";
+  newsTag.value = "";
+  newsSearch.value = "";
+  loadNewsFeed();
+}
+
+watch([newsCategory, newsTag], () => {
+  if (company.value) loadNewsFeed();
+});
 
 async function loadOptions() {
   try {
@@ -481,6 +548,14 @@ async function generate(analysisSessionId = null, options = {}) {
   } finally {
     startingFresh.value = false;
   }
+}
+
+function openMemoEditorDiscuss() {
+  emit("open-copilot");
+}
+
+function handleDocumentsChanged() {
+  libraryRefresh.value += 1;
 }
 
 async function resumeReport() {
@@ -669,13 +744,16 @@ onUnmounted(stopPolling);
     <div v-else class="text-sm text-ink-muted">{{ tr("common.loading") }}</div>
 
     <!-- PRD workspace tabs. Legacy tab=analysis maps to Memo Studio. -->
-    <div v-if="company" class="flex items-center gap-1 border-b border-subtle">
+    <div
+      v-if="company"
+      class="flex max-w-full flex-wrap items-center gap-x-1 gap-y-2 border-b border-subtle pb-px"
+    >
       <button
         v-for="tab in workspaceTabs.filter((item) => item.show)"
         :key="tab.id"
         @click="switchTab(tab.id)"
         :class="[
-          'rounded-t-lg px-4 py-2 text-sm font-medium focus-ring',
+          'rounded-t-lg px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm',
           activeTab === tab.id
             ? 'text-ink-primary border-b-2 border-accent -mb-px'
             : 'text-ink-muted hover:text-ink-primary',
@@ -1122,21 +1200,23 @@ onUnmounted(stopPolling);
       </div>
     </section>
 
-    <ResearchUploads
-      v-if="company && activeTab === 'documents'"
-      :company-id="companyId"
-    />
-
-    <CompanyLibrary
+    <UnifiedDocumentsView
       v-if="company && activeTab === 'documents'"
       :company-id="companyId"
       :refresh-key="libraryRefresh"
       @open-report="openReportFromLibrary"
+      @files-changed="handleDocumentsChanged"
+    />
+
+    <MemoStudioEditor
+      v-if="canShowMemoStudio && activeTab === 'memo'"
+      :company-id="companyId"
+      @discuss="openMemoEditorDiscuss"
     />
 
     <section
       v-if="canShowMemoStudio && activeTab === 'memo'"
-      class="bg-surface border border-subtle rounded-card shadow-card p-6"
+      class="mt-6 bg-surface border border-subtle rounded-card shadow-card p-6"
     >
       <details open>
         <summary class="cursor-pointer text-sm font-semibold text-ink-primary focus-ring rounded">
@@ -1208,19 +1288,81 @@ onUnmounted(stopPolling);
       v-if="company && activeTab === 'news'"
       class="bg-surface border border-subtle rounded-card shadow-card p-6"
     >
-      <div class="mb-4 flex items-center justify-between gap-3">
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div class="vogue-label">Company News</div>
           <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
             Reverse-chronological feed
           </h2>
+          <p class="mt-1 text-sm text-ink-muted">
+            Source-attributed company record, archive, and feed items.
+          </p>
         </div>
-        <button class="pill-button border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring">
+        <button
+          type="button"
+          class="pill-button border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          @click="$emit('open-copilot')"
+        >
           Submit Link
         </button>
       </div>
-      <div v-if="companyNews.length === 0" class="text-sm text-ink-muted">
-        No company-specific news yet.
+
+      <form
+        class="mb-4 grid gap-3 md:grid-cols-[1fr_auto_auto_auto]"
+        @submit.prevent="loadNewsFeed"
+      >
+        <input
+          v-model="newsSearch"
+          type="search"
+          placeholder="Search news, sources, summaries"
+          class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary placeholder:text-ink-subtle focus-ring"
+        />
+        <select
+          v-model="newsCategory"
+          class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary focus-ring"
+          aria-label="Filter news category"
+        >
+          <option value="">All categories</option>
+          <option v-for="category in newsFilters.categories" :key="category" :value="category">
+            {{ category }}
+          </option>
+        </select>
+        <select
+          v-model="newsTag"
+          class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary focus-ring"
+          aria-label="Filter news tag"
+        >
+          <option value="">All tags</option>
+          <option v-for="tag in newsFilters.tags" :key="tag" :value="tag">
+            {{ tag }}
+          </option>
+        </select>
+        <div class="flex gap-2">
+          <button
+            type="submit"
+            class="rounded-full bg-ink-primary px-3 py-2 text-xs font-semibold text-white focus-ring"
+          >
+            Filter
+          </button>
+          <button
+            type="button"
+            @click="resetNewsFilters"
+            class="rounded-full border border-subtle px-3 py-2 text-xs font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
+          >
+            Reset
+          </button>
+        </div>
+      </form>
+
+      <div v-if="newsLoading" class="flex items-center gap-2 text-sm text-ink-muted">
+        <Loader2 class="h-4 w-4 animate-spin" />
+        Loading source-attributed news…
+      </div>
+      <div v-else-if="newsError" class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+        {{ newsError }}
+      </div>
+      <div v-else-if="companyNews.length === 0" class="rounded-row border border-subtle bg-surface-muted p-4 text-sm text-ink-muted">
+        {{ newsFeed.empty_state || "No company-specific news yet. Submit a link to archive the first source." }}
       </div>
       <ul v-else class="space-y-3">
         <li
@@ -1234,6 +1376,9 @@ onUnmounted(stopPolling);
             <span v-if="item.published_at || item.date" class="mono-data">
               {{ item.published_at || item.date }}
             </span>
+            <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 uppercase tracking-wide">
+              {{ item.source_class || item.provenance?.source_class || "source pending" }}
+            </span>
           </div>
           <div class="mt-1 text-sm font-semibold text-ink-primary">
             {{ item.title || item.headline }}
@@ -1242,14 +1387,23 @@ onUnmounted(stopPolling);
             {{ item.summary }}
           </p>
           <a
-            v-if="item.url"
-            :href="item.url"
+            v-if="item.url || item.archive_url"
+            :href="item.url || item.archive_url"
             target="_blank"
             rel="noopener"
             class="mt-2 inline-flex text-xs font-semibold text-accent-ink hover:text-ink-primary focus-ring rounded"
           >
             Open source
           </a>
+          <div v-if="item.tags?.length" class="mt-3 flex flex-wrap gap-1.5">
+            <span
+              v-for="tag in item.tags"
+              :key="`${item.id}-${tag}`"
+              class="rounded-full bg-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted"
+            >
+              {{ tag }}
+            </span>
+          </div>
         </li>
       </ul>
     </section>
@@ -1261,8 +1415,18 @@ onUnmounted(stopPolling);
       <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
         <div class="vogue-label">Industry Views</div>
         <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
-          {{ company.industry || company.sector || "Sector context" }}
+          {{ industryView?.title || company.industry || company.sector || "Sector context" }}
         </h2>
+        <p class="mt-1 max-w-3xl text-sm text-ink-muted">
+          {{ industryView?.summary || "Sector metrics, public comps, and signals will appear as source-backed context." }}
+        </p>
+        <div v-if="industryLoading" class="mt-4 flex items-center gap-2 text-sm text-ink-muted">
+          <Loader2 class="h-4 w-4 animate-spin" />
+          Loading sector context…
+        </div>
+        <div v-if="industryError" class="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+          {{ industryError }}
+        </div>
         <div
           v-if="industryMetrics.length"
           class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
@@ -1318,7 +1482,85 @@ onUnmounted(stopPolling);
               {{ opinion.speaker }}
               <span class="font-normal text-ink-muted">· {{ opinion.affiliation }}</span>
             </div>
+            <div class="mt-1 text-[11px] text-ink-muted">
+              {{ opinion.source_class || "source pending" }}
+              <span v-if="opinion.source_refs?.[0]?.title">· {{ opinion.source_refs[0].title }}</span>
+            </div>
           </article>
+        </div>
+      </div>
+
+      <div class="grid gap-5 lg:grid-cols-2">
+        <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
+          <div class="vogue-label">Public Comps</div>
+          <div v-if="publicComps.length === 0" class="mt-3 text-sm text-ink-muted">
+            Public comp cards will populate from competitor records and Stock Research snapshots.
+          </div>
+          <div v-else class="mt-4 space-y-3">
+            <article
+              v-for="comp in publicComps"
+              :key="comp.id || comp.ticker"
+              class="rounded-row border border-subtle bg-surface-muted p-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="font-semibold text-ink-primary">{{ comp.name }}</div>
+                  <div class="mono-data mt-0.5 text-xs text-ink-muted">
+                    {{ comp.exchange ? `${comp.exchange}:` : "" }}{{ comp.ticker || "N/A" }}
+                  </div>
+                </div>
+                <span
+                  class="mono-data rounded-full px-2 py-0.5 text-xs font-semibold"
+                  :class="String(comp.change || '').startsWith('-') ? 'bg-danger-soft text-danger-ink' : 'bg-accent-soft text-accent-ink'"
+                >
+                  {{ comp.change || "flat" }}
+                </span>
+              </div>
+              <p class="mt-2 text-sm leading-relaxed text-ink-secondary">
+                {{ comp.note || "Public market read-through pending." }}
+              </p>
+              <div class="mt-3 flex h-8 items-end gap-1" aria-hidden="true">
+                <span
+                  v-for="(point, index) in comp.sparkline || []"
+                  :key="`${comp.id}-${index}`"
+                  class="w-2 rounded-t bg-accent/70"
+                  :style="{ height: `${Math.max(8, Number(point || 1) * 4)}px` }"
+                ></span>
+              </div>
+              <div class="mt-2 text-[11px] text-ink-muted">
+                {{ comp.source_class || "source pending" }}
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
+          <div class="vogue-label">Sector Signals</div>
+          <div v-if="sectorSignals.length === 0" class="mt-3 text-sm text-ink-muted">
+            Sector signals are pending source enrichment.
+          </div>
+          <div v-else class="mt-4 space-y-3">
+            <article
+              v-for="signal in sectorSignals"
+              :key="signal.id || signal.signal"
+              class="rounded-row border border-subtle bg-surface-muted p-4"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-ink">
+                  {{ signal.category || "sector" }}
+                </span>
+                <span class="text-[11px] text-ink-muted">
+                  {{ signal.source_class || "third-party market data" }}
+                </span>
+              </div>
+              <div class="mt-2 text-sm font-semibold text-ink-primary">
+                {{ signal.signal }}
+              </div>
+              <p class="mt-1 text-sm leading-relaxed text-ink-secondary">
+                {{ signal.implication }}
+              </p>
+            </article>
+          </div>
         </div>
       </div>
     </section>

@@ -98,7 +98,7 @@ const messages = {
       "Full regeneration is waiting for the usage-limit reset and will resume automatically.",
     "home.regen_all_none": "No tracked companies to regenerate.",
     "home.regen_all_failed": "Full regeneration failed.",
-    "home.quick_add": "Quick add",
+    "home.quick_add": "Quick Add",
     "home.progress_web_search": "Web search",
     "home.progress_fetch": "Fetch",
     "home.progress_done": "Done",

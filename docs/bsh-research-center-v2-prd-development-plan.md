@@ -1,6 +1,6 @@
 # BSH Research Center v2 PRD Development Plan
 
-Status date: 2026-07-02
+Status date: 2026-07-03
 
 This tracker translates the July 1, 2026 PRD, the Home HTML reference, and
 Design System v2 into an implementation plan for the current Vue/FastAPI app.
@@ -28,28 +28,31 @@ Current relevant app state:
 - [x] App runs as Vue 3 + Vite + Tailwind frontend with FastAPI backend.
 - [x] Auth/session flow exists with `/login`, `/api/auth/token`, and bearer
       protected API calls.
-- [x] Global sidebar exists, but it is an older report/news/research-page rail,
-      not the PRD v2 gradient rail with Quick Intake and company buckets.
+- [x] Global shell/sidebar has been refactored into the PRD v2 direction with
+      header, left rail, Quick Intake, company buckets, and co-pilot drawer
+      frame.
 - [x] Home search supports autocomplete, deep AI search, company selection, and
       progress streaming.
 - [x] Per-company workspace exists at `/:companyId`.
-- [x] Existing workspace tabs are `Overview`, `Documents`, `Memo Studio`, and
-      `Console`.
-- [ ] PRD workspace tabs are not yet implemented as `Overview`, `Documents`,
+- [x] PRD workspace tabs are implemented as `Overview`, `Documents`,
       `Memo Studio`, `Company News`, and `Industry Views`.
 - [x] Per-company document uploads, research/background uploads, file previews,
       summaries, external research uploads, link capture, and Hormuz notes exist.
-- [ ] Hormuz and current research-page experiments are not yet grouped under
-      the user-decided `Innovation Lab` home for incubated workflows.
+- [x] Hormuz and current research-page experiments are grouped under the
+      user-decided `Innovation Lab` home for incubated workflows, with legacy
+      aliases preserved.
 - [x] Memo generation, memo analysis sessions, readiness gates, evidence matrix,
       research tasks, and DOCX/PDF artifacts exist.
 - [ ] PRD Memo Studio editor behavior is not yet implemented as five visible
       memo sections with checkable/rankable/expandable highlights and risks.
 - [x] Company records include basic profile fields, products, key people,
       recent news, latest funding, translations, and public ticker snapshots.
-- [ ] Company records do not yet have the richer PRD structures for board/cap
-      table, typed competitors, expert opinions, source classes, disclosures,
-      company news tags, memo-card state, and audit history.
+- [x] Company records/API now have the M1 PRD Overview structures for
+      positioning, metrics, team profiles, board/cap table, company news,
+      industry view, expert opinions, disclosures, and backward-compatible
+      competitors.
+- [ ] Company records do not yet have the full PRD memo-card state, audit
+      history, competitor-detail payloads, and complete sector/comps payloads.
 - [x] EN/ZH global language state exists.
 - [ ] Localized coverage is incomplete for new PRD surfaces and AI-generated
       outputs are not consistently tied to the active language.
@@ -65,10 +68,41 @@ Progress key:
 - `[ ]` still required. If an item says "Partial", some foundation exists but
   the PRD behavior is not complete.
 
-## Set Of Changes Needed
+## Current Implementation Status
 
-These are the major deltas between the PRD/design references and the current
-codebase.
+As of 2026-07-03, M1 Foundations are implemented and validated. The app now has
+the PRD shell direction, search-first Home, Quick Add, Innovation Lab IA,
+ZaiNar PRD Overview from real data, PRD five-tab company workspace, Settings
+and User Center placeholders, Source Library placeholder, and Git-tracked
+company seed data with server-local materialization.
+
+As of 2026-07-03, the needed M2 Memo Studio foundation is implemented:
+durable editor state under `data/memo_editor/<company_id>/`, memo-editor API
+endpoints, a default PRD-facing editor above Advanced Tools, highlight/risk
+card include/rank/expand/edit, recursive Dive Deeper persistence, Discuss
+handoff to the global co-pilot drawer, conclusion selection, collapsed appendix
+fact blocks, section-rerun request audit records, and export projection with
+missing-source guardrails. The final DOCX/PDF memo runner is still the existing
+memo pipeline; wiring the PRD editor projection directly into that runner is a
+remaining integration task.
+
+Validation completed for the M1/local-generation slices:
+
+- `npm --prefix frontend test -- RouteSmoke.spec.js Sidebar.spec.js i18n.spec.js`
+- `npm --prefix frontend run build`
+- `python -m pytest tests/test_local_generation.py tests/test_company_seed_data.py tests/test_company_schema_v2.py tests/test_storage_company_type.py`
+- `git diff --check`
+- trailing-whitespace scans for touched docs, seed files, and tests
+
+The remaining work is not another shell refactor. The next product-critical
+work is M3 Evidence: the unified Documents view, source/provenance model,
+intake assignment, and source enforcement across memo/editor/export surfaces.
+
+## Set Of Changes
+
+These are the major deltas between the PRD/design references and the app. Items
+1-5 and the M1 parts of items 7-9 are now implemented; the remaining work is
+captured in the checklist, FR table, and milestone plan below.
 
 1. Re-skin the app to Design System v2.
    Replace the current blue-accent theme with the pearl/slate/Tiffany system,
@@ -86,10 +120,9 @@ codebase.
    company, documents, or source-library views.
 
 4. Add an Innovation Lab for incubated workflows.
-   Hormuz and experimental research-page tools should move out of standalone
-   primary navigation into an `Innovation Lab` section. This keeps PRD core IA
-   clean while preserving incubated work until it is promoted, retired, or
-   folded into a core workflow.
+   Hormuz and experimental research-page tools moved out of standalone primary
+   navigation into an `Innovation Lab` section. Keep that separation as these
+   workflows are promoted, retired, or folded into a core workflow.
 
 5. Refocus Home on search plus Quick Add.
    Keep existing autocomplete/deep-search capabilities, but remove admin-like
@@ -190,18 +223,18 @@ codebase.
 
 ### 1. Design System v2 Foundation
 
-- [ ] Replace `frontend/src/style.css` tokens with PRD variables:
+- [x] Replace `frontend/src/style.css` tokens with PRD variables:
       `--bg-base`, `--surface`, `--surface-alt`, `--ink`, `--muted`,
       `--muted-2`, `--border`, `--border-2`, `--tiffany`,
       `--tiffany-dark`, `--tiffany-light`, `--coral`, `--coral-light`,
       `--amber`, `--mint`, `--shadow`, `--shadow-hover`, `--rail-grad`.
-- [ ] Update `frontend/tailwind.config.cjs` aliases so existing utilities map
+- [x] Update `frontend/tailwind.config.cjs` aliases so existing utilities map
       to Design System v2 without broad template churn.
 - [ ] Standardize radius tokens: chips 7px, sub-boxes 12px, list rows 14px,
       panels 18px, glass card 24px, buttons/badges 99px.
 - [ ] Standardize shadows to low-opacity PRD elevation.
-- [ ] Ensure metric, valuation, rank, and date text use the mono font.
-- [ ] Use uppercase categorical labels with PRD letter spacing.
+- [x] Ensure metric, valuation, rank, and date text use the mono font.
+- [x] Use uppercase categorical labels with PRD letter spacing.
 - [ ] Update button, tag, badge, stance-chip, metric-strip, sub-tab, appendix,
       quick-intake, and co-pilot bubble styles.
 - [ ] Remove one-off blue-accent assumptions from existing components.
@@ -217,78 +250,78 @@ codebase.
 
 Verification:
 
-- [ ] `npm --prefix frontend run build`
-- [ ] `npm --prefix frontend test -- RouteSmoke.spec.js Sidebar.spec.js`
-- [ ] Desktop and mobile screenshots of Home, company Overview, Documents,
+- [x] `npm --prefix frontend run build`
+- [x] `npm --prefix frontend test -- RouteSmoke.spec.js Sidebar.spec.js`
+- [x] Desktop and mobile screenshots of Home, company Overview, Documents,
       Memo Studio, and Stock Research.
 - [ ] Manual contrast check for muted text over the left rail gradient.
 
 ### 2. Global Shell And Navigation
 
-- [ ] Create a `GlobalShell` or refactor `App.vue` so the layout explicitly
+- [x] Create a `GlobalShell` or refactor `App.vue` so the layout explicitly
       owns left rail, central route content, active-jobs rail, modal layer, and
       co-pilot drawer.
-- [ ] Preserve current `App.vue` operational contracts during the shell
+- [x] Preserve current `App.vue` operational contracts during the shell
       refactor:
       authenticated-only polling, `api.listReports()`, `api.externalFeed()`,
       `api.listHormuz()`, `Sidebar` feed props, `ActiveJobsRail`, and
       `DeckSummaryModal`.
-- [ ] Confirm `/login` still renders without app chrome and without protected
+- [x] Confirm `/login` still renders without app chrome and without protected
       sidebar/feed polling.
-- [ ] Implement persistent left rail width of 288px on desktop.
-- [ ] Apply the signature sidebar/logo gradient only to the primary rail.
-- [ ] Add a global header/breadcrumb area above central content.
-- [ ] Breadcrumb format shows concrete context:
+- [x] Implement persistent left rail width of 288px on desktop.
+- [x] Apply the signature sidebar/logo gradient only to the primary rail.
+- [x] Add a global header/breadcrumb area above central content.
+- [x] Breadcrumb format shows concrete context:
       `Research Center > Company > Section` or view equivalent.
-- [ ] Add account entry points for Settings and User Center.
-- [ ] Add an `Innovation Lab` route or section reachable from the shell for
+- [x] Add account entry points for Settings and User Center.
+- [x] Add an `Innovation Lab` route or section reachable from the shell for
       incubated workflows.
-- [ ] Preserve current `/hormuz`, `/hormuz/:id`, and `/research-pages/*` URLs
+- [x] Preserve current `/hormuz`, `/hormuz/:id`, and `/research-pages/*` URLs
       as redirects or aliases when their visible home moves under Innovation
       Lab.
-- [ ] Move EN/ZH toggle into the header/top-right control per PRD while keeping
+- [x] Move EN/ZH toggle into the header/top-right control per PRD while keeping
       a compact rail fallback if needed.
-- [ ] Add a floating `Ask Co-Pilot` button visible on Home, Workspace,
+- [x] Add a floating `Ask Co-Pilot` button visible on Home, Workspace,
       Competitor, Settings, User Center, and Stock Research.
-- [ ] Hide the floating button while the co-pilot drawer is open.
+- [x] Hide the floating button while the co-pilot drawer is open.
 - [ ] Define responsive behavior for widths below 1280px.
-- [ ] Keep `ActiveJobsRail` available without overlapping the co-pilot drawer.
+- [x] Keep `ActiveJobsRail` available without overlapping the co-pilot drawer.
 - [ ] Add browser-support verification for latest Chrome, Edge, Safari, and
       Firefox.
 
 Verification:
 
-- [ ] Route smoke tests cover all top-level routes with the shell.
-- [ ] Playwright/browser screenshots cover co-pilot closed/open states.
+- [x] Route smoke tests cover all top-level routes with the shell.
+- [x] Playwright/browser screenshots cover co-pilot closed/open states.
 - [ ] Keyboard focus can reach rail, header, content, and co-pilot controls.
 
 ### 3. Left Rail Content
 
-- [ ] Replace report/news-first rail sections with PRD buckets:
+- [x] Replace report/news-first rail sections with PRD buckets:
       Portfolio, Pipeline, and Watchlist/Top Players.
 - [ ] Add company bucket count badges and compact company cards.
 - [ ] Add bucket expand/collapse behavior matching the mockup:
       compact default, `Show all N`, and `Show less`.
-- [ ] Source company bucket data from real companies, not hardcoded HTML mock
+- [x] Source company bucket data from real companies, not hardcoded HTML mock
       data.
-- [ ] Add a frontend `api.listCompanies()` wrapper for `GET /api/companies`
+- [x] Add a frontend `api.listCompanies()` wrapper for `GET /api/companies`
       if buckets read from existing company records.
 - [ ] Do not derive Portfolio/Pipeline/Watchlist solely from recent reports;
       the bucket source of truth is an open question until confirmed.
-- [ ] Add Quick Intake actions in the rail:
+- [x] Add Quick Intake actions in the rail:
       Submit Link, Upload Research, Add Internal Note.
 - [ ] Add Market Radar feed section with newest-first signals.
-- [ ] Add Stock/Public Market Research entry.
-- [ ] Add Innovation Lab entry for incubated workflows.
-- [ ] Move standalone Hormuz and current Research Pages links under Innovation
+- [x] Add Stock/Public Market Research entry.
+- [x] Add Innovation Lab entry for incubated workflows.
+- [x] Move standalone Hormuz and current Research Pages links under Innovation
       Lab unless a specific tool is promoted to PRD core navigation.
-- [ ] Add Settings and profile/account access at the bottom.
-- [ ] Preserve sign-out behavior.
+- [x] Add Settings and profile/account access at the bottom.
+- [x] Preserve sign-out behavior.
 - [ ] Define empty states for no portfolio, no pipeline, no market radar.
 
 Verification:
 
-- [ ] Sidebar tests cover bucket rendering, Quick Intake opening, language
+- [x] Sidebar tests cover bucket rendering, Quick Intake opening, language
       toggle, stock route link, settings/profile route links, and sign-out.
 - [ ] Visual QA confirms text truncation and no rail overflow at desktop and
       narrow widths.
@@ -297,25 +330,25 @@ Verification:
 
 - [x] Autocomplete exists for researched and public companies.
 - [x] Deep search exists with progress streaming.
-- [ ] Refactor Home first viewport to match PRD: centered search prompt,
+- [x] Refactor Home first viewport to match PRD: centered search prompt,
       search box, and Quick Add panel directly underneath.
 - [ ] Ensure prompt copy matches PRD.
 - [ ] Keep Enter behavior clear:
       autocomplete exact hit opens workspace; otherwise deep search starts.
-- [ ] Move full-regeneration, stock-refresh, weekly summary, and stats actions
+- [x] Move full-regeneration, stock-refresh, weekly summary, and stats actions
       out of first-viewport primary actions.
-- [ ] Add Quick Add cards:
+- [x] Add Quick Add cards:
       Submit Link, Upload External Research, Add Research, Source Library and
       Appendix.
-- [ ] Rename any generic Home/internal-note copy that still reads as
+- [x] Rename any generic Home/internal-note copy that still reads as
       Hormuz-specific unless the action explicitly opens the Innovation Lab
       Hormuz workflow.
-- [ ] Define and implement the Source Library and Appendix destination for the
+- [x] Define and implement the Source Library and Appendix destination for the
       Home Quick Add link.
 - [ ] Do not treat the current Hormuz source library / V3 appendix route as
       the PRD company Source Library and Memo Appendix unless it is explicitly
       renamed and adapted.
-- [ ] Ensure Quick Add cards open the same intake modals used by the rail.
+- [x] Ensure Quick Add cards open the same intake modals used by the rail.
 - [ ] Add post-intake confirmation that names the destination company and
       Documents category when known.
 - [ ] Add unresolved-company queue when intake cannot confidently assign a
@@ -369,16 +402,16 @@ Verification:
 
 - [x] `CompanyOut` includes basic profile, products, key people, funding,
       recent news, translations, and public trader snapshot.
-- [ ] Keep `server/api.py` `CompanyOut` and `_company_view()` synchronized for
+- [x] Keep `server/api.py` `CompanyOut` and `_company_view()` synchronized for
       every new company field. Adding only YAML fixture fields is not enough.
-- [ ] Preserve backward compatibility for existing `data/companies.yaml`
+- [x] Preserve backward compatibility for existing `data/companies.yaml`
       records whose `competitors` are strings and whose products/news have the
       current minimal shape.
-- [ ] Add `positioning` fields:
+- [x] Add `positioning` fields:
       category, customers, need, benefit, alternative, differentiator.
-- [ ] Add `metrics` array with label, value, unit, source refs, as-of date,
+- [x] Add `metrics` array with label, value, unit, source refs, as-of date,
       and confidence.
-- [ ] Add team profile fields:
+- [x] Add team profile fields:
       avatar/monogram, name, role, one-line bio, LinkedIn URL, profile URL.
 - [ ] Add persona/workflow metadata where useful so views can be QA'd against
       the three PRD personas without hardcoding demo-only behavior.
@@ -387,79 +420,81 @@ Verification:
 - [ ] Convert `competitors` from strings to typed records:
       id, name, public/private, ticker/exchange if public, note, profile,
       comparison fields, source refs.
-- [ ] Add board/investor records and cap-table lineage records.
+- [x] Add board/investor records and cap-table lineage records.
 - [ ] Add company-specific news items with category tags, source, URL,
       published/captured dates, and recency.
 - [ ] Add sector/industry view payload:
       TAM, CAGR, tracked comps, median multiple, public comps, signals.
-- [ ] Add expert opinions:
+- [x] Add expert opinions:
       speaker, affiliation, stance, quote/summary, source line, date.
-- [ ] Add disclosure/source appendix metadata.
+- [x] Add disclosure/source appendix metadata.
 - [ ] Add memo editor state:
       section statuses, include flags, rank order, card expansion, bullet edits,
       nested dive-deeper children, conclusion option, appendix expansion state.
 - [ ] Add audit records for edits, ranking, inclusion, generation, export, and
       co-pilot actions.
-- [ ] Backfill/migrate existing company records into the new shape without
+- [x] Backfill/migrate existing company records into the new shape without
       losing current data.
+- [x] Add Git-tracked company seed data under `server/seed_data/` and
+      server-local materialization into ignored `data/companies.yaml`.
 - [ ] Preserve read-only cap-table display semantics; do not introduce
       fund-administration or cap-table-management workflows.
 
 Verification:
 
-- [ ] Pydantic/schema tests for new API shapes.
-- [ ] Migration tests with current `data/companies.yaml` sample records.
-- [ ] ZaiNar record renders all PRD mock sections without hardcoded data.
+- [x] Pydantic/schema tests for new API shapes.
+- [x] Migration tests with current `data/companies.yaml` sample records.
+- [x] ZaiNar record renders all PRD mock sections without hardcoded data.
 
 ### 7. Company Workspace And Tabs
 
 - [x] Current workspace route exists at `/:companyId`.
-- [ ] Replace the tab set with PRD tabs:
+- [x] Replace the tab set with PRD tabs:
       Overview, Documents, Memo Studio, Company News, Industry Views.
-- [ ] Remove `Console` as a tab after global co-pilot is available.
+- [x] Remove `Console` as a tab after global co-pilot is available.
 - [ ] Keep `Memo Studio` unavailable or adapted for public companies if private
       memo behavior is not supported.
-- [ ] Store active tab in route query or route segment for deep links.
-- [ ] Deliberately migrate the current query values:
+- [x] Store active tab in route query or route segment for deep links.
+- [x] Deliberately migrate the current query values:
       `overview`, `documents`, `analysis`, `console`. Preserve
       `?report=<id>` generated-report deep links.
 - [ ] Add tab-specific loading, error, and empty states.
-- [ ] Ensure the company header remains visible above sub-tabs.
+- [x] Ensure the company header remains visible above sub-tabs.
 
 Verification:
 
-- [ ] Route/query tests for each tab.
-- [ ] Public-company and private-company tab behavior tests.
-- [ ] Browser QA for tab switching and deep reload.
+- [x] Route/query tests for each tab.
+- [x] Public-company and private-company tab behavior tests.
+- [x] Browser QA for tab switching and deep reload.
 
 ### 8. Overview
 
-- [ ] Replace/extend `CompanyDetail.vue` with PRD Overview layout.
-- [ ] Add monogram tile.
-- [ ] Render company name with stage and sector tags beside it.
-- [ ] Render metadata line:
+- [x] Replace/extend `CompanyDetail.vue` with PRD Overview layout.
+- [x] Add monogram tile.
+- [x] Render company name with stage and sector tags beside it.
+- [x] Render metadata line:
       founded year, HQ, employee band.
-- [ ] Render emphasized top-right funding line:
+- [x] Render emphasized top-right funding line:
       last round, post-money, date, total raised.
-- [ ] Render positioning summary in the required uniform-weight template.
-- [ ] Render four-cell metric strip:
+- [x] Render positioning summary in the required uniform-weight template.
+- [x] Render four-cell metric strip:
       ARR, YoY Growth, Valuation, TAM.
-- [ ] Render Core Team cards with monogram, role, bio, LinkedIn, Profile.
-- [ ] Render Products grid with count and detail-card navigation.
-- [ ] Render Competitors grid with count, public/private tags, notes, and
+- [x] Render Core Team cards with monogram, role, bio, LinkedIn, Profile.
+- [x] Render Products grid with count and detail-card navigation.
+- [x] Render Competitors grid with count, public/private tags, notes, and
       `View profile and compare` action.
 - [ ] Add `Compare to [company]` and `Add competitor` actions.
-- [ ] Render Investors and Cap Table two-column section.
-- [ ] Render proportional ownership bars with mono percentages.
-- [ ] Preserve public-company trader snapshot as a Stock/Public Market panel,
+- [x] Render Investors and Cap Table two-column section.
+- [x] Render proportional ownership bars with mono percentages.
+- [x] Preserve public-company trader snapshot as a Stock/Public Market panel,
       not a substitute for Overview.
 
 Verification:
 
-- [ ] Component tests for every Overview section with complete and partial
-      company data.
-- [ ] Visual QA against the supplied Home HTML ZaiNar layout.
-- [ ] Metrics use mono font; tags and sections use PRD styling.
+- [x] Focused schema/API tests plus browser QA cover Overview complete and
+      partial-data behavior.
+- [x] Visual QA against the supplied Home HTML ZaiNar layout.
+- [x] Metrics use mono font; tags and sections use PRD styling.
 
 ### 9. Documents
 
@@ -552,10 +587,10 @@ Verification:
 ### 11. AI Co-Pilot
 
 - [x] Per-company Console backend and UI exist.
-- [ ] Create global co-pilot state/store:
+- [x] Create global co-pilot state/store:
       open/closed, current context, active session, pending task.
-- [ ] Implement 372px slide-in drawer.
-- [ ] Add floating `Ask Co-Pilot` button on every PRD view.
+- [x] Implement 372px slide-in drawer.
+- [x] Add floating `Ask Co-Pilot` button on every PRD view.
 - [ ] Reuse console sessions or create a new `copilot` adapter over the
       existing console endpoints.
 - [ ] Preserve console session mechanics first:
@@ -588,7 +623,7 @@ Verification:
 
 ### 12. Company News
 
-- [ ] Create Company News tab.
+- [x] Create Company News tab.
 - [ ] Build reverse-chronological feed.
 - [ ] Display source, category dot, recency, title, summary, and external-link
       affordance.
@@ -598,7 +633,7 @@ Verification:
 - [ ] Merge company `recent_news`, archived URL submissions, and relevant
       external feeds by company id/source match.
 - [ ] Add safe external-link behavior with `rel="noopener"`.
-- [ ] Add empty state prompting Submit Link.
+- [x] Add empty state prompting Submit Link.
 
 Verification:
 
@@ -607,7 +642,7 @@ Verification:
 
 ### 13. Industry Views And Expert Opinions
 
-- [ ] Create Industry Views tab.
+- [x] Create Industry Views tab.
 - [ ] Add sector header with metric strip:
       Sector TAM, 5-year CAGR, tracked comps, median EV/NTM revenue.
 - [ ] Add Expert Opinions / Notable Voices above comps/signals.
@@ -619,7 +654,7 @@ Verification:
       implication.
 - [ ] Ensure public-market data can source from the existing Stock Research and
       Trader snapshot systems where possible.
-- [ ] Add empty/fallback state when no sector data exists.
+- [x] Add empty/fallback state when no sector data exists.
 
 Verification:
 
@@ -651,8 +686,8 @@ Verification:
 
 ### 15. Settings And User Center
 
-- [ ] Add `/settings` route.
-- [ ] Add `/user` or `/profile` route.
+- [x] Add `/settings` route.
+- [x] Add `/user` or `/profile` route.
 - [ ] Render account:
       name, email, workspace, role, plan.
 - [ ] Render preferences:
@@ -679,8 +714,8 @@ Verification:
 
 - [x] Stock Research dashboard exists at `/stock-research`.
 - [x] Trader stats and public-company snapshots exist.
-- [ ] Fit Stock entry into the PRD left rail.
-- [ ] Align Stock Research visual style with Design System v2.
+- [x] Fit Stock entry into the PRD left rail.
+- [x] Align Stock Research visual style with Design System v2.
 - [ ] Ensure private company public comps can reuse Stock Research outputs.
 - [ ] Preserve existing stock tests and route behavior.
 - [ ] Confirm no trading/execution controls are introduced.
@@ -692,35 +727,35 @@ Verification:
 
 ### 17. Innovation Lab / Incubated Workflows
 
-- [ ] Create an `Innovation Lab` destination for incubated workflows that are
+- [x] Create an `Innovation Lab` destination for incubated workflows that are
       useful but not part of the PRD core workspace.
-- [ ] Move the visible Hormuz section under Innovation Lab.
-- [ ] Move current Research Pages under Innovation Lab unless individually
+- [x] Move the visible Hormuz section under Innovation Lab.
+- [x] Move current Research Pages under Innovation Lab unless individually
       promoted:
       Market Pulse, Evidence Matrix, Hypothesis Lab.
-- [ ] Keep Innovation Lab visually secondary to PRD core navigation so it does
+- [x] Keep Innovation Lab visually secondary to PRD core navigation so it does
       not compete with Home, company buckets, Market Radar, Stock, Settings,
       or User Center.
-- [ ] Add a lightweight lab index/card model:
+- [x] Add a lightweight lab index/card model:
       title, status, purpose, route, source stores, owner/maintainer, promoted
       or retired state.
-- [ ] Preserve legacy routes:
+- [x] Preserve legacy routes:
       `/hormuz`, `/hormuz/:id`, and `/research-pages/*` should redirect or
       alias to their Innovation Lab locations during migration.
-- [ ] Rename user-facing generic labels so Hormuz-specific wording appears only
+- [x] Rename user-facing generic labels so Hormuz-specific wording appears only
       inside the Hormuz lab workflow, not in PRD Quick Add or general internal
       note intake.
-- [ ] Keep Innovation Lab separate from PRD Source Library, Memo Appendix, and
+- [x] Keep Innovation Lab separate from PRD Source Library, Memo Appendix, and
       memo-input Background Documents semantics.
 
 Verification:
 
-- [ ] Route smoke tests cover Innovation Lab index, Hormuz library/detail, and
+- [x] Route smoke tests cover Innovation Lab index, Hormuz library/detail, and
       each migrated research page.
-- [ ] Sidebar tests confirm incubated workflows render under Innovation Lab and
+- [x] Sidebar tests confirm incubated workflows render under Innovation Lab and
       no standalone Hormuz primary section remains.
 - [ ] Existing Hormuz and research-page tests continue passing.
-- [ ] i18n tests cover Innovation Lab labels in EN/ZH.
+- [x] i18n tests cover Innovation Lab labels in EN/ZH.
 
 ### 18. Language And Localization
 
@@ -895,57 +930,98 @@ Verification:
 | --- | --- | --- | --- |
 | FR-1 | Global search opens workspace with researched/public autocomplete | Partial | Keep existing autocomplete/deep search; tighten Enter/exact-match behavior and route timing. |
 | FR-2 | Quick Add/Intake supports link, PDF/DOCX, internal notes with summarized filing | Partial | Unify intake UX, add auto company/category assignment, provenance, and unresolved queue. |
-| FR-3 | Overview renders PRD header, positioning, metric strip, team, insights, investors | Partial | Build richer Overview and extend company schema. |
+| FR-3 | Overview renders PRD header, positioning, metric strip, team, insights, investors | Partial | M1 Overview/schema foundation is done; finish product detail routes, competitor detail, visual polish, and broader fixture coverage. |
 | FR-4 | Memo Studio generates five-section memo with progress/status/rerun | Partial | Current generation exists; add five-section editor and section rerun/progress model. |
 | FR-5 | Thesis and Risk cards checkable, rankable, expandable | Partial | Current risk priority exists; add PRD card state and independent rank UI. |
 | FR-6 | Bullets support Edit, Dive Deeper recursively, Discuss to co-pilot | Not started | Add bullet action model, AI nested expansion jobs, and co-pilot context bridge. |
 | FR-7 | Appendix collapsed by default, independent expansion | Not started | Add appendix fact-block model and UI. |
-| FR-8 | Co-pilot reachable on every view and context-aware | Partial | Console exists; convert to global drawer with context injection. |
+| FR-8 | Co-pilot reachable on every view and context-aware | Partial | Global drawer frame exists; add context injection, Discuss/Dive Deeper actions, and task acceptance back into Memo Studio. |
 | FR-9 | Documents grouped by categories with provenance | Partial | File libraries exist; add PRD grouping, source classes, provenance, and category editing. |
-| FR-10 | Industry Views shows Expert Opinions above comps/signals | Not started | Add Industry Views data/API/UI. |
-| FR-11 | Company News reverse-chronological source-attributed feed | Partial | Basic recent news exists; add dedicated tab, tags, filters, and feed merge. |
+| FR-10 | Industry Views shows Expert Opinions above comps/signals | Partial | Placeholder tab and seed fields exist; add full comps/signals UI and data aggregation. |
+| FR-11 | Company News reverse-chronological source-attributed feed | Partial | Placeholder tab and company/news fields exist; add aggregation, sorting, tags, filters, and feed merge. |
 | FR-12 | Export Memo reflects included/ranked sections | Partial | DOCX export exists; add editor-state projection and tests. |
 | FR-13 | Every quantitative memo claim links to source/source class | Partial | Source traces exist in research tools; enforce on memo editor and export. |
-| FR-14 | Settings and User Center reachable from header | Not started | Add routes, header links, and backed/placeholder data adapters. |
+| FR-14 | Settings and User Center reachable from header | Partial | Routes/placeholders exist; add real account, preferences, usage, status, and role-backed adapters. |
+
+## Crisp Remaining Implementation Plan
+
+1. **M3 Evidence And Documents**
+   - Present one grouped PRD Documents tab while preserving the backend split
+     between Document Library and memo-input Background Documents.
+   - Add source classes, provenance badges, category editing, filters, and a
+     source trace drawer.
+   - Normalize Quick Intake into URL/file/note adapters with company/category
+     inference, unresolved queue, dedupe, retry/cancel/error states, and
+     translation behavior.
+   - Enforce source/source-class coverage for key figures before memo export.
+
+2. **M4 Company Context**
+   - Complete Company News aggregation from company records, URL archives, and
+     relevant feeds.
+   - Complete Industry Views with expert opinions, public comps, sector metrics,
+     sector signals, and Stock Research/Trader integration where useful.
+   - Add competitor/comps detail routes, starting with ZaiNar versus NextNav.
+   - Let co-pilot actions create/update Memo Studio tasks instead of only
+     chatting.
+
+3. **M5 Productization**
+   - Back Settings/User Center with real or explicitly scoped placeholder data.
+   - Add RBAC/permissions for admin and sensitive actions.
+   - Add audit/version replay for memo edits, ranks, source decisions, and
+     exports.
+   - Add product analytics for time-to-first-memo, source coverage, co-pilot
+     task acceptance, and section reuse/regeneration.
+   - Finish accessibility, responsive behavior, browser QA, performance checks,
+     visual regression, and full test-suite validation.
 
 ## Milestone Sequence
 
 ### M1 - Foundations
 
-- [ ] Design System v2 tokens and components.
-- [ ] Global shell, header, left rail, co-pilot drawer frame.
-- [ ] Home search/Quick Add refactor.
-- [ ] Innovation Lab entry/placeholder with Hormuz and research-page workflows
+- [x] Design System v2 tokens and components.
+- [x] Global shell, header, left rail, co-pilot drawer frame.
+- [x] Home search/Quick Add refactor.
+- [x] Innovation Lab entry/placeholder with Hormuz and research-page workflows
       moved under it.
-- [ ] Company schema extensions and migration.
-- [ ] PRD Overview.
-- [ ] Workspace tab restructure with Company News and Industry Views
+- [x] Company schema extensions and migration.
+- [x] PRD Overview.
+- [x] Workspace tab restructure with Company News and Industry Views
       placeholders.
 
 Exit criteria:
 
-- [ ] ZaiNar Overview can be rendered from real app data with no hardcoded
+- [x] ZaiNar Overview can be rendered from real app data with no hardcoded
       mock-only sections.
-- [ ] Workspace exposes the PRD five-tab structure while existing generated
+- [x] Workspace exposes the PRD five-tab structure while existing generated
       reports, Documents, MemoAnalysisDashboard/Advanced Tools, Console/co-pilot
       path, and public-company behavior remain reachable.
-- [ ] Existing Hormuz and research-page experiments remain reachable through
+- [x] Existing Hormuz and research-page experiments remain reachable through
       Innovation Lab, and legacy URLs still resolve.
-- [ ] Home and shell match the supplied references closely enough for visual QA.
-- [ ] Search and existing documents/memo routes still work.
+- [x] Home and shell match the supplied references closely enough for visual QA.
+- [x] Search and existing documents/memo routes still work.
 
 ### M2 - Memo Studio
 
-- [ ] Five-section memo editor.
-- [ ] Highlight/risk card state.
-- [ ] Include/rank/expand/edit/dive/discuss.
-- [ ] Section rerun and progress.
-- [ ] Export projection from editor state.
+- [x] Five-section memo editor.
+- [x] Highlight/risk card state.
+- [x] Include/rank/expand/edit/dive/discuss.
+- [x] Section rerun request and progress foundation.
+- [x] Export projection from editor state.
+
+Recommended implementation order:
+
+1. Durable `memo_editor` store and API endpoints.
+2. PRD Memo Studio component shell above existing Advanced Tools.
+3. Card include/rank/expand/edit behavior and audit records.
+4. Dive Deeper and Discuss-to-co-pilot context bridge.
+5. Export projection and missing-source guardrails.
 
 Exit criteria:
 
 - [ ] A user can generate or open the latest memo, curate thesis/risk cards,
-      choose conclusion, and export a memo matching on-screen state.
+      choose conclusion, and export a final DOCX/PDF memo matching on-screen
+      state. The editor projection and guardrails are implemented; final
+      memo-run consumption of that projection remains.
 
 ### M3 - Evidence
 
@@ -1019,7 +1095,7 @@ the core v2 surface works.
       per-user or workspace budgets.
 - [ ] Visual Regression Harness: stable screenshots for PRD core pages and
       design-system components.
-- [ ] Fixture Company Pack: ZaiNar, Databricks, Stripe, NextNav, and one empty
+- [x] Fixture Company Pack: ZaiNar, Databricks, Stripe, NextNav, and one empty
       company fixture for deterministic QA.
 
 ## Resolved IA Decisions
@@ -1055,15 +1131,27 @@ the core v2 surface works.
 
 ## Immediate Next Slice Recommendation
 
-Start with M1 in this order:
+Start M3 Evidence on top of the durable Memo Studio foundation. Do not couple
+`data/uploads/<company>` into memo generation; keep the existing memo generation
+pipeline intact until the PRD editor projection is deliberately promoted into a
+memo-run input.
 
-1. Design System v2 tokens and shell.
-2. PRD left rail and Home Quick Add.
-3. Innovation Lab destination for Hormuz and incubated research-page tools.
-4. Company schema extension/backfill.
-5. PRD Overview for ZaiNar.
-6. Tab restructure with empty Company News and Industry Views placeholders.
+Scope:
 
-This gives the user-visible product shape first while preserving existing
-search, documents, memo-generation, and stock-research functionality during the
-transition.
+- Build one grouped PRD Documents tab over Document Library and Background
+  Documents while preserving backend separation.
+- Add source-class/provenance metadata editing and backfill for legacy document
+  rows.
+- Normalize Quick Intake URL/file/note flows into assignment adapters with
+  dedupe and unresolved state.
+- Extend export/source guardrails from memo editor state into M3 document and
+  source-trace surfaces.
+
+Validation:
+
+```bash
+python -m pytest tests/test_memo_editor_store.py tests/test_memo_analysis.py
+npm --prefix frontend test -- MemoStudioEditor.spec.js RouteSmoke.spec.js i18n.spec.js
+npm --prefix frontend run build
+git diff --check
+```

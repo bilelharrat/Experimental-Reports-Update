@@ -23,6 +23,19 @@ const previewing = ref(false);
 const preview = ref(null);
 const error = ref(null);
 const submitting = ref(false);
+const savedItem = ref(null);
+
+function assignmentSummary(item) {
+  const assignment = item?.intake_assignment;
+  if (!assignment) return "";
+  if (item.dedupe_status === "duplicate") {
+    return "Duplicate intake found; using the existing archived item.";
+  }
+  if (assignment.status === "assigned") {
+    return `Filed to ${assignment.company_name} · ${assignment.category_label}`;
+  }
+  return `Needs assignment review · ${assignment.category_label}`;
+}
 
 async function runPreview() {
   error.value = null;
@@ -45,8 +58,7 @@ async function accept() {
   try {
     const item = await api.createNews(url.value.trim());
     emit("created");
-    // Take user straight to the detail page so they see analysis progress.
-    router.push({ name: "external-news", params: { id: item.id } });
+    savedItem.value = item;
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -57,6 +69,7 @@ async function accept() {
 function cancel() {
   preview.value = null;
   url.value = "";
+  savedItem.value = null;
 }
 </script>
 
@@ -158,6 +171,26 @@ function cancel() {
             {{ t("common.cancel") }}
           </button>
         </div>
+      </div>
+
+      <div
+        v-if="savedItem"
+        class="rounded-card border border-subtle bg-surface-muted p-3 text-sm"
+      >
+        <div class="font-semibold text-ink-primary">
+          {{ assignmentSummary(savedItem) }}
+        </div>
+        <p class="mt-1 text-xs text-ink-muted">
+          {{ savedItem.intake_assignment?.company_reason || "Assignment metadata recorded." }}
+        </p>
+        <button
+          type="button"
+          @click="router.push({ name: 'external-news', params: { id: savedItem.id } })"
+          class="mt-2 inline-flex items-center gap-1 rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+        >
+          <ExternalLink class="h-3 w-3" />
+          Open analysis
+        </button>
       </div>
     </div>
   </section>
