@@ -48,6 +48,7 @@ import mimetypes  # noqa: E402
 from . import (  # noqa: E402
     claude_runner,
     companies_ai_public,
+    companies_autocomplete,
     console_session,
     local_generation,
     memo_analysis,
@@ -57,10 +58,13 @@ from .api import (  # noqa: E402
     router as api_router,
     require_api_token,
     _expected_token,
+    resume_interrupted_memo_runs,
     resume_regen_all_if_needed,
+    start_stale_job_recovery,
 )
 from .company_translate import translate_company  # noqa: E402
 from .storage import (  # noqa: E402
+    get_company_ext,
     list_companies,
     migrate_trader_snapshots,
     update_company,
@@ -148,11 +152,35 @@ def _startup() -> None:
             logger.info("Recovered %d stale memo report(s).", n)
     except Exception:  # noqa: BLE001
         logger.exception("Memo recovery sweep failed")
+    # A restart interrupts daemon-thread memo workers; the sweep above
+    # (plus the shutdown hook) marks them failed_during_analysis with
+    # failure_phase shutdown/orphaned. Resume those automatically so a
+    # restart resumes rather than orphans runs (BSH_MEMO_AUTO_RESUME=0
+    # disables).
+    try:
+        n = resume_interrupted_memo_runs()
+        if n:
+            logger.info("Auto-resumed %d restart-interrupted memo run(s).", n)
+    except Exception:  # noqa: BLE001
+        logger.exception("Memo auto-resume failed")
     try:
         if resume_regen_all_if_needed():
             logger.info("Resumed all-company regeneration from checkpoint.")
     except Exception:  # noqa: BLE001
         logger.exception("All-company regeneration recovery failed")
+    # Stale-job recovery used to run inline on every /api/jobs/active poll,
+    # overloading the endpoint. Do it once now, then periodically in the
+    # background — off the request path.
+    try:
+        start_stale_job_recovery()
+    except Exception:  # noqa: BLE001
+        logger.exception("Stale-job recovery startup failed")
+    # Warm the autocomplete indexes (SEC EDGAR fetch + deep-search cache scan)
+    # off the request path so the first keystrokes aren't slow.
+    try:
+        companies_autocomplete.prewarm_indexes()
+    except Exception:  # noqa: BLE001
+        logger.exception("Autocomplete prewarm failed")
     # Strip any pre-v2 heat_card blocks so iOS / web don't try to read
     # the legacy shape through the new code. Idempotent on subsequent
     # restarts. See docs/heat-card-v2.md §6.
@@ -195,7 +223,17 @@ def _needs_translation(company: dict) -> bool:
 
 def _run_translation_backfill_once() -> None:
     try:
-        companies = list_companies()
+        # list_companies() is slim — translation lives in per-company
+        # sidecar files — so hydrate that one field before deciding who
+        # still needs a translation pass.
+        companies = []
+        for c in list_companies():
+            cid = c.get("id")
+            if cid and "translation" not in c:
+                ext = get_company_ext(cid)
+                if "translation" in ext:
+                    c = {**c, "translation": ext["translation"]}
+            companies.append(c)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Translation backfill: list_companies failed: %s", exc)
         return
@@ -285,19 +323,17 @@ def diagnostics() -> dict:
 def _serve_index() -> HTMLResponse:
     """Serve the SPA shell.
 
-    Two ``<meta>`` tags are spliced into ``<head>`` for the in-browser app:
+    One ``<meta>`` tag is spliced into ``<head>`` for the in-browser app:
 
-    - ``bsh-research-api-token`` (when ``BSH_RESEARCH_API_TOKEN`` is set):
-      the legacy shared token, forwarded as the Bearer header.
     - ``bsh-research-api-base``: the prefix the app is mounted under
       (``root_path``). The SPA prepends it to every fetched URL so that
       a non-stripping nginx upstream sees the full ``/research/...`` path
       and Starlette's routing matches correctly. Empty when the app is
       served at the root.
 
-    The page itself is intentionally NOT gated — clients need to load
-    it before they can authenticate, and anyone who can already load
-    the HTML can also call the API.
+    The page itself is NOT gated (it must load before the user can log
+    in), but it no longer carries any credential — the API token is not
+    injected. ``/api/*`` routes enforce auth via ``require_api_token``.
     """
     index_path = DIST_DIR / "index.html"
     if not index_path.exists():
@@ -306,13 +342,12 @@ def _serve_index() -> HTMLResponse:
             detail="Frontend build missing. Run `npm install && npm run build` in frontend/.",
         )
     html_text = index_path.read_text(encoding="utf-8")
+    # NOTE: the API token is deliberately NOT injected here. It used to be
+    # served as <meta name="bsh-research-api-token"> so any visitor could
+    # read a fully-privileged credential from View Source. Clients now
+    # authenticate via the login flow (session token + httponly cookie).
+    # Only the mount-path hint is injected.
     metas: list[str] = []
-    token = _expected_token()
-    if token:
-        metas.append(
-            f'<meta name="bsh-research-api-token" '
-            f'content="{_html.escape(token, quote=True)}">'
-        )
     metas.append(
         f'<meta name="bsh-research-api-base" '
         f'content="{_html.escape(app.root_path or "", quote=True)}">'

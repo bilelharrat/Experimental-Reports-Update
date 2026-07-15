@@ -91,10 +91,12 @@ const companyBuckets = computed(() => {
   for (const key of Object.keys(buckets)) {
     buckets[key].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
   }
+  // Labels resolved inside the computed (not a module constant) so they
+  // stay reactive when the app language changes.
   return [
-    { id: "portfolio", label: "Portfolio", items: buckets.portfolio },
-    { id: "pipeline", label: "Pipeline", items: buckets.pipeline },
-    { id: "watchlist", label: "Top Players", items: buckets.watchlist },
+    { id: "portfolio", label: t("sidebar.bucket_portfolio"), items: buckets.portfolio },
+    { id: "pipeline", label: t("sidebar.bucket_pipeline"), items: buckets.pipeline },
+    { id: "watchlist", label: t("sidebar.bucket_top_players"), items: buckets.watchlist },
   ];
 });
 
@@ -156,36 +158,38 @@ function radarRoute(item) {
       </RouterLink>
 
       <section class="rounded-row border border-subtle bg-white/[0.88] p-3 shadow-card">
-        <div class="vogue-label mb-2">Quick Intake</div>
+        <div class="vogue-label mb-2">{{ t("sidebar.quick_intake") }}</div>
         <div class="grid gap-2">
           <RouterLink
             :to="{ name: 'home', query: { intake: 'link' } }"
             class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
           >
             <LinkIcon class="h-4 w-4 text-accent" />
-            <span>Submit Link</span>
+            <span>{{ t("sidebar.submit_link") }}</span>
           </RouterLink>
           <RouterLink
             :to="{ name: 'home', query: { intake: 'upload' } }"
             class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
           >
             <UploadCloud class="h-4 w-4 text-accent" />
-            <span>Upload Research</span>
+            <span>{{ t("sidebar.upload_research") }}</span>
           </RouterLink>
           <RouterLink
             :to="{ name: 'home', query: { intake: 'note' } }"
             class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
           >
             <ScrollText class="h-4 w-4 text-accent" />
-            <span>Add Internal Note</span>
+            <span>{{ t("sidebar.add_internal_note") }}</span>
           </RouterLink>
         </div>
       </section>
 
       <section class="mt-5">
         <div class="mb-2 flex items-center justify-between px-1">
-          <div class="vogue-label">Companies</div>
-          <span class="mono-data text-[11px] text-ink-muted">{{ companies.length }}</span>
+          <div class="vogue-label">{{ t("sidebar.companies") }}</div>
+          <span class="mono-data text-[11px] text-ink-muted">{{
+            loading && companies.length === 0 ? "—" : companies.length
+          }}</span>
         </div>
         <div v-if="loading && companies.length === 0" class="px-3 py-2 text-sm text-ink-muted">
           {{ t("common.loading") }}
@@ -205,7 +209,7 @@ function radarRoute(item) {
               v-if="bucket.items.length === 0"
               class="rounded-row border border-dashed border-subtle bg-white/50 px-3 py-2 text-xs text-ink-muted"
             >
-              No companies yet.
+              {{ t("sidebar.no_companies") }}
             </div>
             <div v-else class="space-y-1">
               <RouterLink
@@ -222,7 +226,7 @@ function radarRoute(item) {
                 <span class="min-w-0 flex-1">
                   <span class="block truncate font-semibold">{{ company.name }}</span>
                   <span class="block truncate text-[11px] text-ink-muted">
-                    {{ company.industry || company.sector || company.status || "Tracked" }}
+                    {{ company.category || company.status || t("home.tag_tracked") }}
                   </span>
                 </span>
               </RouterLink>
@@ -237,8 +241,8 @@ function radarRoute(item) {
                 <span>
                   {{
                     expandedBuckets.has(bucket.id)
-                      ? "Show less"
-                      : `Show all ${bucket.items.length}`
+                      ? t("sidebar.show_less")
+                      : t("sidebar.show_all", { n: bucket.items.length })
                   }}
                 </span>
               </button>
@@ -250,7 +254,7 @@ function radarRoute(item) {
       <section class="mt-5">
         <div class="mb-2 flex items-center gap-1.5 px-1">
           <Bell class="h-3.5 w-3.5 text-ink-muted" />
-          <div class="vogue-label">Market Radar</div>
+          <div class="vogue-label">{{ t("sidebar.market_radar") }}</div>
         </div>
         <div class="space-y-1">
           <div
@@ -266,11 +270,11 @@ function radarRoute(item) {
             class="block rounded-row px-3 py-2 hover:bg-white/[0.78] focus-ring"
           >
             <div class="line-clamp-2 text-sm font-semibold leading-snug text-ink-primary">
-              {{ item.title || item.source_url || "Untitled signal" }}
+              {{ item.title || item.source_url || t("sidebar.untitled_signal") }}
             </div>
             <div class="mt-0.5 flex items-center gap-1 text-[11px] text-ink-muted">
               <Newspaper class="h-3 w-3" />
-              <span>{{ item.domain || item.source_company || "Market signal" }}</span>
+              <span>{{ item.domain || item.source_company || t("sidebar.market_signal") }}</span>
               <span>· {{ fmtAge(item.captured_at) }}</span>
             </div>
           </RouterLink>
@@ -283,15 +287,15 @@ function radarRoute(item) {
           class="flex items-center gap-2 rounded-row px-3 py-2 text-sm font-semibold text-ink-primary hover:bg-white/[0.78] focus-ring"
         >
           <Activity class="h-4 w-4 text-accent" />
-          <span>Stock</span>
-          <span class="ml-auto text-[11px] font-normal text-ink-muted">Public market research</span>
+          <span>{{ t("sidebar.stock") }}</span>
+          <span class="ml-auto text-[11px] font-normal text-ink-muted">{{ t("sidebar.stock_hint") }}</span>
         </RouterLink>
         <RouterLink
           :to="{ name: 'innovation-lab' }"
           class="flex items-center gap-2 rounded-row px-3 py-2 text-sm font-semibold text-ink-primary hover:bg-white/[0.78] focus-ring"
         >
           <FlaskConical class="h-4 w-4 text-accent" />
-          <span>Innovation Lab</span>
+          <span>{{ t("sidebar.innovation_lab") }}</span>
         </RouterLink>
       </section>
     </div>
@@ -303,14 +307,14 @@ function radarRoute(item) {
           class="inline-flex items-center justify-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-2 text-xs font-semibold text-ink-secondary hover:text-ink-primary focus-ring"
         >
           <Settings class="h-3.5 w-3.5" />
-          Settings
+          {{ t("sidebar.settings") }}
         </RouterLink>
         <RouterLink
           :to="{ name: 'user-center' }"
           class="inline-flex items-center justify-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-2 text-xs font-semibold text-ink-secondary hover:text-ink-primary focus-ring"
         >
           <User class="h-3.5 w-3.5" />
-          Profile
+          {{ t("sidebar.profile") }}
         </RouterLink>
       </div>
       <div v-if="sessionEmail" class="flex items-center gap-2">

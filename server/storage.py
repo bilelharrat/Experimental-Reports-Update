@@ -33,6 +33,15 @@ _LOCAL_GENERATED_COMPANY_FIELDS: frozenset[str] = frozenset({
     "translation",
 })
 
+# Bulk locally-generated fields stored OUTSIDE companies.yaml, in per-company
+# sidecar files (data/company_ext/<id>.yaml). Inline, these two fields were
+# 96% of a 1.24 MB companies.yaml — every index read paid for them.
+# ``get_company`` merges them back in; ``list_companies`` stays slim.
+COMPANY_EXT_FIELDS: frozenset[str] = frozenset({
+    "trader_snapshot",
+    "translation",
+})
+
 _LOCK = threading.RLock()
 
 
@@ -67,19 +76,70 @@ def _has_value(value: Any) -> bool:
 
 
 # ---------- Companies ----------
+#
+# ``companies.yaml`` is large (~1.2 MB) and re-parsing it with PyYAML on every
+# call cost ~1.25 s — the root cause of slow autocomplete, starved /api/reports,
+# and the sidebar's loading flash. We memoize the parsed structure keyed on the
+# file's ``(mtime_ns, size)``: any write (all go through ``_write_yaml`` +
+# ``tmp.replace``, which bumps mtime) is picked up automatically on the next
+# read, so there is no separate invalidation to keep in sync. The cached objects
+# are shared, so every public accessor deepcopies what it hands out.
+
+_companies_cache_key: tuple[int, int] | None = None
+_companies_cache_list: list[dict] = []
+_companies_cache_index: dict[str, dict] = {}
+
+
+def _companies_stat_key() -> tuple[int, int] | None:
+    try:
+        st = COMPANIES_FILE.stat()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _load_companies_locked() -> tuple[list[dict], dict[str, dict]]:
+    """Return the shared cached ``(list, id_index)``, rebuilding only when
+    ``companies.yaml`` has changed on disk. Caller must hold ``_LOCK`` and must
+    NOT mutate or leak the returned structures — deepcopy before handing out.
+    """
+    global _companies_cache_key, _companies_cache_list, _companies_cache_index
+    key = _companies_stat_key()
+    if key is None:
+        _companies_cache_key = None
+        _companies_cache_list = []
+        _companies_cache_index = {}
+        return _companies_cache_list, _companies_cache_index
+    if key != _companies_cache_key:
+        data = list(_read_yaml(COMPANIES_FILE, []))
+        _companies_cache_key = key
+        _companies_cache_list = data
+        _companies_cache_index = {
+            c.get("id"): c for c in data if isinstance(c, dict) and c.get("id")
+        }
+    return _companies_cache_list, _companies_cache_index
+
 
 def list_companies() -> list[dict]:
     with _LOCK:
         _ensure_dirs()
-        return list(_read_yaml(COMPANIES_FILE, []))
+        data, _ = _load_companies_locked()
+        return copy.deepcopy(data)
 
 
 def search_companies(query: str, limit: int = 8) -> list[dict]:
     q = (query or "").strip().lower()
     if not q:
         return []
+    with _LOCK:
+        _ensure_dirs()
+        data, _ = _load_companies_locked()
+        return _search_companies_scored(data, q, limit)
+
+
+def _search_companies_scored(data: list[dict], q: str, limit: int) -> list[dict]:
     scored: list[tuple[int, dict]] = []
-    for c in list_companies():
+    for c in data:
         name = str(c.get("name", "")).lower()
         ticker = str(c.get("ticker", "")).lower()
         aliases = [str(a).lower() for a in c.get("aliases", []) or []]
@@ -97,14 +157,82 @@ def search_companies(query: str, limit: int = 8) -> list[dict]:
         if score:
             scored.append((score, c))
     scored.sort(key=lambda t: -t[0])
-    return [c for _, c in scored[:limit]]
+    return [copy.deepcopy(c) for _, c in scored[:limit]]
+
+
+# ---------- Company ext sidecars (trader_snapshot / translation) ----------
+
+# {path: ((mtime_ns, size), parsed_dict)} — same mtime-keyed pattern as the
+# companies cache; writes bump mtime and self-invalidate.
+_company_ext_cache: dict[str, tuple[tuple[int, int], dict]] = {}
+
+
+def _company_ext_path(company_id: str) -> Path:
+    # Derived per call: tests monkeypatch ``storage.DATA_DIR``.
+    return DATA_DIR / "company_ext" / f"{company_id}.yaml"
+
+
+def get_company_ext(company_id: str) -> dict:
+    """Bulk locally-generated fields for one company from its sidecar file.
+
+    Returns ``{}`` when no sidecar exists. Deepcopied — safe to mutate.
+    """
+    path = _company_ext_path(company_id)
+    cache_key = str(path)
+    with _LOCK:
+        try:
+            st = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            _company_ext_cache.pop(cache_key, None)
+            return {}
+        key = (st.st_mtime_ns, st.st_size)
+        cached = _company_ext_cache.get(cache_key)
+        if cached is None or cached[0] != key:
+            data = _read_yaml(path, {})
+            cached = (key, data if isinstance(data, dict) else {})
+            _company_ext_cache[cache_key] = cached
+        return copy.deepcopy(cached[1])
+
+
+def set_company_ext(company_id: str, field: str, value: Any) -> None:
+    if field not in COMPANY_EXT_FIELDS:
+        raise ValueError(f"not a company ext field: {field!r}")
+    with _LOCK:
+        ext = get_company_ext(company_id)
+        ext[field] = value
+        _write_yaml(_company_ext_path(company_id), ext)
 
 
 def get_company(company_id: str) -> dict | None:
-    for c in list_companies():
-        if c.get("id") == company_id:
-            return c
-    return None
+    """Full company record: the slim companies.yaml entry with sidecar ext
+    fields (trader_snapshot / translation) merged in. Detail paths use this;
+    list paths use ``list_companies`` and stay slim."""
+    with _LOCK:
+        _ensure_dirs()
+        _, index = _load_companies_locked()
+        record = index.get(company_id)
+        if record is None:
+            return None
+        record = copy.deepcopy(record)
+        ext = get_company_ext(company_id)
+        for field in COMPANY_EXT_FIELDS:
+            if field in ext:
+                record[field] = ext[field]
+        return record
+
+
+def company_names() -> dict[str, str]:
+    """Cheap ``{id: name}`` map from the companies cache. Returns immutable
+    string values (no per-record deepcopy), so callers that only need to label
+    a record by id can build this once instead of calling ``get_company`` in a
+    loop."""
+    with _LOCK:
+        _ensure_dirs()
+        _, index = _load_companies_locked()
+        return {
+            cid: (rec.get("name") or cid)
+            for cid, rec in index.items()
+        }
 
 
 def _valid_company_type(value: Any) -> str | None:
@@ -123,26 +251,39 @@ def _remember_company_type(record: dict, *, force: bool = False) -> None:
 
 def update_company(company_id: str, **patch: Any) -> dict | None:
     """Merge `patch` into the existing company record. Returns the updated
-    record or None if the company isn't found.
+    record (with ext fields merged) or None if the company isn't found.
+
+    Ext fields (``trader_snapshot``/``translation``) are routed to the
+    company's sidecar file so the hot companies.yaml stays slim; everything
+    else lands on the main record as before.
     """
+    ext_patch = {k: v for k, v in patch.items() if k in COMPANY_EXT_FIELDS}
+    core_patch = {k: v for k, v in patch.items() if k not in COMPANY_EXT_FIELDS}
     with _LOCK:
         _ensure_dirs()
         companies = list_companies()
+        found = False
         for i, c in enumerate(companies):
             if c.get("id") == company_id:
-                c.update(patch)
-                if "company_type" in patch:
-                    explicit_type = _valid_company_type(patch.get("company_type"))
+                found = True
+                c.update(core_patch)
+                if "company_type" in core_patch:
+                    explicit_type = _valid_company_type(core_patch.get("company_type"))
                     if explicit_type:
                         c["company_type"] = explicit_type
                     else:
                         _remember_company_type(c, force=True)
-                elif "ticker" in patch or "status" in patch:
+                elif "ticker" in core_patch or "status" in core_patch:
                     _remember_company_type(c, force=True)
                 companies[i] = c
-                _write_yaml(COMPANIES_FILE, companies)
-                return c
-    return None
+                if core_patch:
+                    _write_yaml(COMPANIES_FILE, companies)
+                break
+        if not found:
+            return None
+        for k, v in ext_patch.items():
+            set_company_ext(company_id, k, v)
+        return get_company(company_id)
 
 
 def update_company_snapshot(
@@ -167,19 +308,16 @@ _HEAT_CARD_V1_MARKERS: frozenset[str] = frozenset({
 })
 
 
-def migrate_trader_snapshots(target_schema_version: int) -> int:
-    """One-shot sweep at server startup. For every company whose
-    ``trader_snapshot`` is older than ``target_schema_version`` (or
-    still carries v1-only heat_card keys), strip the ``heat_card``
-    block and bump ``schema_version`` so the iOS / web clients render
-    the empty-state until the user clicks Refresh.
+def migrate_company_ext() -> int:
+    """Hoist inline ``trader_snapshot``/``translation`` blocks out of
+    companies.yaml into per-company sidecar files. Idempotent — once the
+    index file is slim, a second call returns 0.
 
-    Returns the number of company records mutated. Idempotent — a
-    second call returns 0.
-
-    See docs/heat-card-v2.md §6 (Schema versioning + legacy migration).
+    Inline values win over any existing sidecar content (they were written
+    by the legacy in-file writers and are therefore the freshest copy).
+    Returns the number of company records slimmed.
     """
-    mutated = 0
+    moved = 0
     with _LOCK:
         _ensure_dirs()
         if not COMPANIES_FILE.exists():
@@ -187,7 +325,49 @@ def migrate_trader_snapshots(target_schema_version: int) -> int:
         companies = list(_read_yaml(COMPANIES_FILE, []))
         changed = False
         for c in companies:
-            snap = c.get("trader_snapshot")
+            if not isinstance(c, dict):
+                continue
+            company_id = c.get("id")
+            inline = {k: c.pop(k) for k in list(c) if k in COMPANY_EXT_FIELDS}
+            if not inline:
+                continue
+            changed = True
+            valued = {k: v for k, v in inline.items() if _has_value(v)}
+            if company_id and valued:
+                ext = get_company_ext(company_id)
+                ext.update(valued)
+                _write_yaml(_company_ext_path(company_id), ext)
+                moved += 1
+        if changed:
+            _write_yaml(COMPANIES_FILE, companies)
+    return moved
+
+
+def migrate_trader_snapshots(target_schema_version: int) -> int:
+    """One-shot sweep at server startup. For every company whose
+    ``trader_snapshot`` is older than ``target_schema_version`` (or
+    still carries v1-only heat_card keys), strip the ``heat_card``
+    block and bump ``schema_version`` so the iOS / web clients render
+    the empty-state until the user clicks Refresh.
+
+    Returns the number of snapshots mutated. Idempotent — a second call
+    returns 0. Runs the companies.yaml → sidecar migration first so it
+    only ever has to look at sidecar files.
+
+    See docs/heat-card-v2.md §6 (Schema versioning + legacy migration).
+    """
+    mutated = 0
+    with _LOCK:
+        _ensure_dirs()
+        migrate_company_ext()
+        ext_dir = DATA_DIR / "company_ext"
+        if not ext_dir.is_dir():
+            return 0
+        for path in sorted(ext_dir.glob("*.yaml")):
+            data = _read_yaml(path, {})
+            if not isinstance(data, dict):
+                continue
+            snap = data.get("trader_snapshot")
             if not isinstance(snap, dict):
                 continue
             current = snap.get("schema_version")
@@ -209,10 +389,8 @@ def migrate_trader_snapshots(target_schema_version: int) -> int:
             if "heat_card" in snap:
                 snap["heat_card"] = None
             snap["schema_version"] = target_schema_version
-            changed = True
+            _write_yaml(path, data)
             mutated += 1
-        if changed:
-            _write_yaml(COMPANIES_FILE, companies)
     return mutated
 
 
@@ -259,15 +437,23 @@ def infer_company_type(record: dict) -> str:
     return "public" if ticker else "private"
 
 
+_PARENTHETICAL_RE = re.compile(r"\(([^)]*)\)")
+
+
 def _normalize_company_name(name: str) -> str:
     """Lowercase + strip punctuation + drop trailing legal suffixes.
 
     Used so 'Anduril Industries, Inc.', 'Anduril Industries Inc',
     'Anduril Industries' all collapse to the same comparison key.
+    Parenthetical segments are disambiguators/aliases, not identity —
+    'Advanced Machine Intelligence, Inc. (AMI Labs)' must normalize the
+    same as 'Advanced Machine Intelligence, Inc.' (the trailing
+    parenthetical otherwise defeats the $-anchored suffix regex).
     """
     if not name:
         return ""
     n = name.strip().lower()
+    n = _PARENTHETICAL_RE.sub(" ", n)
     # Drop punctuation we don't care about for identity.
     n = re.sub(r"[^\w\s]", " ", n)
     n = re.sub(r"\s+", " ", n).strip()
@@ -279,36 +465,154 @@ def _normalize_company_name(name: str) -> str:
     return n
 
 
+def _company_name_aliases(name: str) -> list[str]:
+    """Extract parenthetical segments of a name as aliases.
+
+    'Advanced Machine Intelligence Labs (AMI Labs)' → ['AMI Labs'].
+    """
+    aliases: list[str] = []
+    for seg in _PARENTHETICAL_RE.findall(name or ""):
+        seg = seg.strip()
+        if seg and _normalize_company_name(seg):
+            aliases.append(seg)
+    return aliases
+
+
+def _normalize_host(value) -> str:
+    """Normalize a website URL or bare domain to a comparable host.
+
+    Strips scheme, path/query/fragment, credentials, port and a leading
+    'www.'. Returns '' for empty input.
+    """
+    if not value:
+        return ""
+    v = str(value).strip().lower()
+    v = re.sub(r"^[a-z][a-z0-9+.\-]*://", "", v)
+    v = v.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    v = v.rsplit("@", 1)[-1].split(":", 1)[0]
+    if v.startswith("www."):
+        v = v[4:]
+    return v
+
+
+def _company_hosts(record: dict) -> set[str]:
+    return {
+        h
+        for h in (
+            _normalize_host(record.get("website")),
+            _normalize_host(record.get("logo_domain")),
+        )
+        if h
+    }
+
+
+def _company_name_keys(record: dict) -> set[str]:
+    keys = {
+        _normalize_company_name(record.get("name") or ""),
+        _normalize_company_name(record.get("legal_name") or ""),
+    }
+    for alias in record.get("aliases") or []:
+        keys.add(_normalize_company_name(alias))
+    keys.discard("")
+    return keys
+
+
+def _find_company_match_index(companies: list[dict], match: dict) -> int | None:
+    """Return the index in ``companies`` that ``match`` identifies, or None.
+
+    Evidence priority: ticker equality → website/logo host equality →
+    name/alias equality (gated on same standing + no host contradiction).
+    """
+    ticker = (match.get("ticker") or "").strip().upper() or None
+    name = (match.get("name") or "").strip()
+    cand_hosts = _company_hosts(match)
+    cand_names = _company_name_keys(match) | {
+        _normalize_company_name(a) for a in _company_name_aliases(name)
+    }
+    cand_names.discard("")
+
+    # 1. Ticker equality — unambiguous for public companies.
+    for i, c in enumerate(companies):
+        c_ticker = (c.get("ticker") or "").strip().upper() or None
+        if ticker and c_ticker and ticker == c_ticker:
+            return i
+
+    # 2. Website/logo host equality — stable key independent of the
+    #    LLM-generated name string.
+    if cand_hosts:
+        for i, c in enumerate(companies):
+            if cand_hosts & _company_hosts(c):
+                return i
+
+    # 3. Name/alias equality, gated on corroborating identity.
+    if cand_names:
+        for i, c in enumerate(companies):
+            c_ticker = (c.get("ticker") or "").strip().upper() or None
+            # A tickerless candidate must never merge into a tickered
+            # record on name alone (a private company must not absorb a
+            # public one — the goog guard). The inverse is allowed: a
+            # tickered candidate may enrich a tickerless record (IPO).
+            if c_ticker and not ticker:
+                continue
+            # Both tickered but different tickers (pass 1 already
+            # failed): different public companies sharing a name.
+            if ticker and c_ticker:
+                continue
+            if not (cand_names & _company_name_keys(c)):
+                continue
+            # Both sides claim a web identity and they disagree →
+            # a different company that happens to share the name.
+            c_hosts = _company_hosts(c)
+            if cand_hosts and c_hosts and not (cand_hosts & c_hosts):
+                continue
+            return i
+    return None
+
+
+def resolve_company_match(match: dict) -> str | None:
+    """Read-only: return the local company id ``match`` identifies, or None.
+
+    Same evidence rules as ``upsert_company_from_match``, with no writes —
+    used by refresh flows to decide which returned match belongs to the
+    record being refreshed before persisting anything.
+    """
+    with _LOCK:
+        companies = list_companies()
+        idx = _find_company_match_index(companies, match)
+        return companies[idx].get("id") if idx is not None else None
+
+
 def upsert_company_from_match(match: dict) -> dict:
     """Reconcile an AI search hit with the local company list.
 
-    Match by ticker first, then by exact (case-insensitive) name. If found,
-    merge any newly-discovered fields and return the local entry; if not,
-    mint a fresh id and append. Always returns a dict that includes the local
-    `id` plus all enrichment fields the caller passed in.
+    Identity is established on evidence, in priority order:
+
+      1. ticker equality (both sides non-null);
+      2. website / logo_domain host equality — the strongest stable key
+         for private companies;
+      3. normalized name or alias equality, but only between records of
+         the same public/private standing (a tickerless candidate must
+         never merge into a tickered record — that is the guard that
+         keeps 'Alphabet Inc.' the signage company from overwriting
+         ``goog``), and never when both sides carry hosts that disagree.
+
+    If found, merge any newly-discovered fields and return the local
+    entry; if not, mint a fresh id and append. Always returns a dict that
+    includes the local `id` plus all enrichment fields the caller passed in.
     """
     ticker = (match.get("ticker") or "").strip().upper() or None
     name = (match.get("name") or "").strip()
     if not name:
         raise ValueError("match missing name")
 
-    norm_name = _normalize_company_name(name)
-
     with _LOCK:
         _ensure_dirs()
         companies = list_companies()
-        found_idx: int | None = None
-        for i, c in enumerate(companies):
-            c_ticker = (c.get("ticker") or "").strip().upper() or None
-            c_name_norm = _normalize_company_name(c.get("name") or "")
-            if ticker and c_ticker and ticker == c_ticker:
-                found_idx = i
-                break
-            if norm_name and norm_name == c_name_norm:
-                found_idx = i
-                break
+        found_idx = _find_company_match_index(companies, match)
 
         enrichment = {
+            "legal_name": match.get("legal_name"),
+            "disambiguator": match.get("disambiguator"),
             "exchange": match.get("exchange"),
             "status": match.get("status"),
             "company_type": _valid_company_type(match.get("company_type")),
@@ -333,6 +637,16 @@ def upsert_company_from_match(match: dict) -> dict:
 
         if found_idx is not None:
             existing = companies[found_idx]
+            # Remember name variants we merged so future variants keep
+            # matching (pass 3 checks aliases too).
+            existing_keys = _company_name_keys(existing)
+            new_aliases = list(existing.get("aliases") or [])
+            for alias in [name, *_company_name_aliases(name)]:
+                norm = _normalize_company_name(alias)
+                if norm and norm not in existing_keys:
+                    new_aliases.append(alias)
+                    existing_keys.add(norm)
+            existing["aliases"] = new_aliases
             for k, v in enrichment.items():
                 if v not in (None, [], ""):
                     if (
@@ -354,7 +668,11 @@ def upsert_company_from_match(match: dict) -> dict:
             _write_yaml(COMPANIES_FILE, companies)
             return {**existing}
 
-        base = ticker.lower() if ticker else _slugify(name)
+        # Slug from the legal name when the model provided one — it is the
+        # most stable string across repeat searches (the display name is a
+        # non-deterministic LLM judgment).
+        legal_name = (match.get("legal_name") or "").strip()
+        base = ticker.lower() if ticker else _slugify(legal_name or name)
         existing_ids = {c.get("id") for c in companies}
         company_id = base
         suffix = 2
@@ -366,7 +684,7 @@ def upsert_company_from_match(match: dict) -> dict:
             "id": company_id,
             "name": name,
             "ticker": ticker,
-            "aliases": [],
+            "aliases": _company_name_aliases(name),
             "description": match.get("description"),
             "sector": match.get("sector"),
             **enrichment,
@@ -383,17 +701,42 @@ def _report_path(report_id: str) -> Path:
     return REPORTS_DIR / f"{report_id}.yaml"
 
 
+# Per-file parse cache for reports: {path: ((mtime_ns, size), parsed_dict)}.
+# list_reports re-globs every call (cheap — dir stat), but only re-parses the
+# report files whose (mtime_ns, size) changed, so the common "nothing changed"
+# poll costs a directory scan instead of parsing every report YAML.
+_reports_cache: dict[str, tuple[tuple[int, int], dict]] = {}
+
+
 def list_reports() -> list[dict]:
     """All reports, newest first. Used for the sidebar."""
     with _LOCK:
         _ensure_dirs()
         out: list[dict] = []
+        seen: set[str] = set()
         for p in REPORTS_DIR.glob("*.yaml"):
+            path_key = str(p)
+            seen.add(path_key)
+            try:
+                st = p.stat()
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            stat_key = (st.st_mtime_ns, st.st_size)
+            cached = _reports_cache.get(path_key)
+            if cached is not None and cached[0] == stat_key:
+                out.append(cached[1])
+                continue
             data = _read_yaml(p, None)
             if isinstance(data, dict):
+                _reports_cache[path_key] = (stat_key, data)
                 out.append(data)
+            else:
+                _reports_cache.pop(path_key, None)
+        # Drop cache entries for deleted report files.
+        for stale in [k for k in _reports_cache if k not in seen]:
+            _reports_cache.pop(stale, None)
         out.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
-        return out
+        return copy.deepcopy(out)
 
 
 def get_report(report_id: str) -> dict | None:

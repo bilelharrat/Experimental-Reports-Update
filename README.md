@@ -23,6 +23,59 @@ Force a frontend rebuild:
 REBUILD_FRONTEND=1 ./run.sh
 ```
 
+## Authentication & access control
+
+Every `/api/*` route is gated by `require_api_token` (`server/api.py`),
+which **fails closed**: with no credentials it returns 401.
+
+Accepted credentials, in order:
+
+1. **Session token** (primary). `POST /api/auth/token` with `{email, password}`
+   returns a 30-day token and sets an httponly `bsh_session` cookie. The SPA
+   sends the token as `Authorization: Bearer <token>` on API fetches; browser
+   downloads (`<a href>`) and SSE (`EventSource`) rely on the cookie. There is
+   no `?token=` query-parameter channel — it leaked credentials into logs and
+   history.
+2. **Shared token** (machine/tooling only). `Authorization: Bearer $BSH_RESEARCH_API_TOKEN`.
+   Resolves to the read-only **`service`** role — it can read but cannot perform
+   any permission-gated mutation (e.g. "Regenerate all"). It is **never** admin
+   and is **never** injected into the served HTML.
+
+Cookie-authenticated mutations require an `X-BSH-Client` header (CSRF guard);
+`SameSite=Lax` provides the primary protection. Bearer-authenticated requests
+are CSRF-immune and skip the check.
+
+### Local development
+
+Running without any credentials is off by default. To allow it locally, set
+`BSH_ALLOW_ANON_DEV=1` (grants **admin** — local, full-access escape hatch).
+**Never set this in production.** For plain-http local dev also set
+`BSH_COOKIE_SECURE=0` so the session cookie is accepted. Both are in the
+sample `.env`.
+
+### Account management (operator CLI)
+
+No passwords ship in source. Seed accounts are created with `must_reset` and an
+unusable random password (or `BSH_BOOTSTRAP_PASSWORD` if set). Manage accounts:
+
+```sh
+python -m server.auth_store set-password <email>   # prompts, no echo
+python -m server.auth_store create-user <email>
+python -m server.auth_store list
+python -m server.auth_store revoke <email>          # log out one user
+python -m server.auth_store revoke-all              # after a compromise
+```
+
+Users can self-serve via `POST /api/auth/change-password`.
+
+### Production checklist
+
+- Rotate `BSH_RESEARCH_API_TOKEN` to a long random secret (the old
+  `BSH-8688` was leaked and is burned), or leave it unset.
+- Ensure `BSH_ALLOW_ANON_DEV` is unset.
+- Set a real password for every seed account and run `revoke-all` once.
+- Cookies are `Secure` automatically behind TLS (`X-Forwarded-Proto: https`).
+
 ## Frontend dev
 
 ```sh

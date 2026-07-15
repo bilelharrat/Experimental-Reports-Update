@@ -861,10 +861,14 @@ def test_regen_all_refreshes_summaries_and_public_trader_views(
         },
     ])
 
-    def fake_deep_search(query, *, force_refresh=False, progress=None):
+    def fake_deep_search(
+        query, *, force_refresh=False, progress=None, only_company_id=None
+    ):
         assert force_refresh is True
+        assert only_company_id is not None
         company = next(
-            c for c in storage.list_companies() if c.get("name") == query
+            c for c in storage.list_companies()
+            if c.get("id") == only_company_id
         )
         updated = storage.update_company(
             company["id"],
@@ -929,13 +933,13 @@ def test_regen_all_refreshes_summaries_and_public_trader_views(
     amd = storage.get_company(COMPANY_ID)
     anduril = storage.get_company("anduril")
     nvda = storage.get_company("nvda")
-    assert amd["description"] == "Fresh summary for Advanced Micro Devices, Inc.."
+    assert amd["description"] == "Fresh summary for AMD."
     assert amd["translation"]["description"].startswith("ZH Fresh summary")
     assert amd["trader_snapshot"]["available_languages"] == ["en", "zh"]
     assert anduril["description"] == "Fresh summary for Anduril Industries."
     assert anduril["translation"]["description"].startswith("ZH Fresh summary")
     assert anduril.get("trader_snapshot") is None
-    assert nvda["description"] == "Fresh summary for NVIDIA Corporation."
+    assert nvda["description"] == "Fresh summary for NVDA."
     assert nvda["translation"]["description"].startswith("ZH Fresh summary")
     assert nvda["trader_snapshot"]["available_languages"] == ["en", "zh"]
 
@@ -955,7 +959,9 @@ def test_regen_all_backs_off_until_reset_then_retries(
     monkeypatch.setenv("BSH_REGEN_BACKOFF_MAX_SLEEP_SECONDS", "0")
     calls = {"count": 0}
 
-    def fake_deep_search(query, *, force_refresh=False, progress=None):
+    def fake_deep_search(
+        query, *, force_refresh=False, progress=None, only_company_id=None
+    ):
         assert query == "Anduril Industries"
         assert force_refresh is True
         calls["count"] += 1
@@ -1084,18 +1090,29 @@ def test_regen_all_proactively_backs_off_at_usage_window_guard(
             "description": "Old Stripe summary.",
         },
     ])
-    monkeypatch.setenv("BSH_REGEN_USAGE_WINDOW_SECONDS", "1")
-    monkeypatch.setenv("BSH_REGEN_USAGE_WINDOW_PAUSE_FRACTION", "0.01")
+    # Timing contract (this test was flaky with a 1s window: processing ONE
+    # company through the checkpoint-heavy loop can take >1s, which blows
+    # past reset_at — the guard then legitimately restarts the window and
+    # never emits a backoff). Make the window generous and force company 1
+    # to definitely cross the threshold:
+    #   threshold = 20s * 0.05 = 1s  <  company-1 time (sleep 1.2s)  <  reset 20s
+    # so the guard MUST fire before company 2. The backoff sleep itself is
+    # clamped to 0 and _clear_regen_backoff restarts the window after it.
+    monkeypatch.setenv("BSH_REGEN_USAGE_WINDOW_SECONDS", "20")
+    monkeypatch.setenv("BSH_REGEN_USAGE_WINDOW_PAUSE_FRACTION", "0.05")
     monkeypatch.setenv("BSH_REGEN_BACKOFF_MAX_SLEEP_SECONDS", "0")
     calls: list[str] = []
 
-    def fake_deep_search(query, *, force_refresh=False, progress=None):
+    def fake_deep_search(
+        query, *, force_refresh=False, progress=None, only_company_id=None
+    ):
         assert force_refresh is True
         calls.append(query)
         if len(calls) == 1:
-            time.sleep(0.03)
+            time.sleep(1.2)
         company = next(
-            c for c in storage.list_companies() if c.get("name") == query
+            c for c in storage.list_companies()
+            if c.get("id") == only_company_id
         )
         updated = storage.update_company(
             company["id"],
@@ -1149,8 +1166,8 @@ def test_regen_all_proactively_backs_off_at_usage_window_guard(
         .read_text()
     )
     assert state["status"] == "done"
-    assert state["usage_window_seconds"] == 1.0
-    assert state["usage_window_pause_fraction"] == 0.01
+    assert state["usage_window_seconds"] == 20.0
+    assert state["usage_window_pause_fraction"] == 0.05
 
 
 def test_regen_all_backs_off_when_trader_progress_reports_session_limit(
@@ -1170,7 +1187,9 @@ def test_regen_all_backs_off_when_trader_progress_reports_session_limit(
     monkeypatch.setenv("BSH_REGEN_BACKOFF_MAX_SLEEP_SECONDS", "0")
     generate_calls = {"count": 0}
 
-    def fake_deep_search(query, *, force_refresh=False, progress=None):
+    def fake_deep_search(
+        query, *, force_refresh=False, progress=None, only_company_id=None
+    ):
         updated = storage.update_company(
             COMPANY_ID,
             description=f"Fresh summary for {query}.",
@@ -1318,10 +1337,14 @@ def test_regen_all_resume_preserves_done_and_retries_recoverable_checkpoint(
     })
     calls: list[str] = []
 
-    def fake_deep_search(query, *, force_refresh=False, progress=None):
+    def fake_deep_search(
+        query, *, force_refresh=False, progress=None, only_company_id=None
+    ):
         assert force_refresh is True
         calls.append(query)
-        assert query == "Apple Inc."
+        # Refresh queries by the stable key (ticker), not the AI name.
+        assert query == "AAPL"
+        assert only_company_id == "aapl"
         updated = storage.update_company(
             "aapl",
             description="Fresh Apple summary after resume.",
@@ -1353,7 +1376,7 @@ def test_regen_all_resume_preserves_done_and_retries_recoverable_checkpoint(
     )
     assert done["type"] == "done"
     assert done["failed_count"] == 0
-    assert calls == ["Apple Inc."]
+    assert calls == ["AAPL"]
 
     import json
 
@@ -1428,8 +1451,11 @@ def test_regen_all_startup_resume_uses_checkpoint(
         },
     })
 
-    def fake_deep_search(query, *, force_refresh=False, progress=None):
+    def fake_deep_search(
+        query, *, force_refresh=False, progress=None, only_company_id=None
+    ):
         assert query == "Anduril Industries"
+        assert only_company_id == "anduril"
         updated = storage.update_company(
             "anduril",
             description="Fresh Anduril summary from startup resume.",

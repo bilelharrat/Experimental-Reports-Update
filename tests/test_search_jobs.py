@@ -59,7 +59,7 @@ def test_company_search_start_supersedes_stale_progress(tmp_path, monkeypatch):
         seconds_old=api.SEARCH_JOB_MAX_IDLE_SECONDS + 1,
     )
 
-    result = api.post_companies_search_start(q=query, refresh=False)
+    result = api.post_companies_search_start(request=_admin_request(), q=query, refresh=False)
 
     assert result["status"] == "queued"
     assert result["job_id"] == job_id
@@ -79,9 +79,21 @@ def test_company_search_start_attaches_to_recent_progress(tmp_path, monkeypatch)
     path = api._search_progress_path(job_id)
     _write_search_progress(path, query=query, seconds_old=1)
 
-    result = api.post_companies_search_start(q=query, refresh=False)
+    result = api.post_companies_search_start(request=_admin_request(), q=query, refresh=False)
 
     assert result["status"] == "already_running"
     assert result["job_id"] == job_id
     assert path.exists()
     assert FakeThread.started == []
+
+
+def _admin_request():
+    """Stub Request for calling gated handlers as plain functions:
+    resolves to the anon-dev admin role in _caller_role."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        state=SimpleNamespace(auth_kind="anon_dev", session_email=None),
+        cookies={},
+        headers={},
+    )

@@ -245,6 +245,26 @@ def _expected_token() -> str | None:
     return _normalize_api_token(os.environ.get("BSH_RESEARCH_API_TOKEN"))
 
 
+def _anon_dev_enabled() -> bool:
+    """True only when the operator has explicitly opted into unauthenticated
+    access via ``BSH_ALLOW_ANON_DEV=1``. This is the ONLY thing that lets a
+    request through with no credentials when no shared token is configured —
+    without it, missing/empty ``BSH_RESEARCH_API_TOKEN`` fails closed. Must
+    never be set in production.
+    """
+    return os.environ.get("BSH_ALLOW_ANON_DEV") == "1"
+
+
+# Name of the httponly session cookie set on login. Lets browser downloads
+# (`<a href>`) and EventSource SSE authenticate without a `?token=` query
+# param, since those can't set an Authorization header.
+SESSION_COOKIE_NAME = "bsh_session"
+
+# Methods that can't mutate state — cookie-authenticated requests skip the
+# CSRF header check for these.
+_CSRF_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+
 def _normalize_api_token(value: str | None) -> str | None:
     token_value = (value or "").strip()
     if token_value.lower().startswith("bearer "):
@@ -311,54 +331,87 @@ def _describe_api_token(raw_value: str | None, normalized_value: str | None) -> 
     )
 
 
-def _extract_presented_token(
-    request: Request, query_token: str | None
-) -> tuple[str | None, str | None]:
-    """Read whatever the client presented (header or ?token=) and return
-    ``(presented, raw_for_logging)``. Does not validate."""
+def _extract_presented_token(request: Request) -> tuple[str | None, str | None]:
+    """Read the token from the Authorization header and return
+    ``(presented, raw_for_logging)``. Does not validate.
+
+    The legacy ``?token=`` query-parameter channel was removed — it leaked
+    credentials into access logs, browser history, and Referer headers.
+    Browser downloads and SSE now authenticate via the httponly session
+    cookie instead (see ``SESSION_COOKIE_NAME``).
+    """
     auth = request.headers.get("authorization") or ""
     if auth.lower().startswith("bearer "):
         return _normalize_api_token(auth[7:]), auth
-    if query_token:
-        return _normalize_api_token(query_token), query_token
     return None, None
 
 
-def require_api_token(
-    request: Request,
-    token: str | None = Query(default=None),
-) -> None:
-    """FastAPI dependency: enforce bearer-token auth on /api/* routes.
-
-    Accepts the shared env-configured token OR any non-expired
-    per-session token issued via ``POST /api/auth/token``.
+def _enforce_cookie_csrf(request: Request) -> None:
+    """For cookie-authenticated *mutations*, require a custom header a
+    cross-site attacker cannot set. SameSite=Lax already blocks cross-site
+    cookie POSTs; this is defense in depth. Bearer-header auth (iOS,
+    tooling) is CSRF-immune and never reaches this check.
     """
-    presented, presented_raw = _extract_presented_token(request, token)
+    if request.method in _CSRF_SAFE_METHODS:
+        return
+    if request.headers.get("x-bsh-client"):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Missing CSRF header (X-BSH-Client) on cookie-authenticated request",
+    )
+
+
+def require_api_token(request: Request) -> None:
+    """FastAPI dependency: enforce auth on /api/* routes.
+
+    Accepts, in order: the shared env-configured token (Authorization
+    header only), a per-session token issued via ``POST /api/auth/token``
+    (Authorization header), or the httponly session cookie set on login.
+
+    Fails CLOSED: with no shared token configured and no credentials
+    presented, the request is rejected 401 unless ``BSH_ALLOW_ANON_DEV=1``
+    is explicitly set (local development only).
+    """
+    presented, presented_raw = _extract_presented_token(request)
+    cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
     expected = _expected_token()
 
-    # Dev mode: no env token configured AND no session token presented →
-    # let everything through so local-only development still works.
-    if not expected and presented is None:
-        return
+    # Fail closed: no shared token, nothing presented → reject unless the
+    # operator explicitly opted into anonymous dev access. Anon dev is a
+    # local, full-access escape hatch (see _caller_role); the shared token
+    # below is a limited machine credential — the two are distinct.
+    if not expected and presented is None and not cookie_token:
+        if _anon_dev_enabled():
+            request.state.auth_kind = "anon_dev"
+            return
+        raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Fast path 1: shared env token (legacy / meta-tag flow).
+    # Path 1: shared env token (service/tooling, Authorization header).
     if expected and _api_token_matches(presented, expected):
+        request.state.auth_kind = "shared"
         return
 
-    # Fast path 2: a session token issued by the login endpoint.
+    # Path 2: session token in the Authorization header (web fetch, iOS).
     session = auth_store.validate_token(presented) if presented else None
     if session:
-        # Stash the authenticated email on request.state so future routes
-        # (audit logs, "who am I") can pull it without re-validating.
         request.state.session_email = session.get("email")
         return
 
+    # Path 3: session cookie (browser downloads / SSE). Guard mutations.
+    if cookie_token:
+        session = auth_store.validate_token(cookie_token)
+        if session:
+            request.state.session_email = session.get("email")
+            _enforce_cookie_csrf(request)
+            return
+
     logger.warning(
-        "API token rejected path=%s presented={%s} expected={%s} session=%s",
+        "API token rejected path=%s presented={%s} expected={%s} cookie=%s",
         request.url.path,
         _describe_api_token(presented_raw, presented),
         _describe_api_token(os.environ.get("BSH_RESEARCH_API_TOKEN"), expected or ""),
-        bool(session),
+        bool(cookie_token),
     )
     raise HTTPException(
         status_code=401,
@@ -385,42 +438,147 @@ class LoginResponse(BaseModel):
     email: str
     created_at: str
     expires_at: str
+    must_reset: bool = False
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., min_length=8, description="New password (min 8 chars)")
+
+
+# --- Login rate limiting -------------------------------------------------
+# In-memory sliding window keyed on normalized email. Blunts credential
+# stuffing / brute force without a datastore. Per-process (fine for the
+# single-worker deployment); swap for a shared store if scaled out.
+_LOGIN_MAX_FAILURES = 5
+_LOGIN_WINDOW_SECONDS = 15 * 60
+_login_failures: dict[str, list[float]] = {}
+_login_lock = threading.Lock()
+
+
+def _login_key(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def _rate_limit_login(email: str) -> None:
+    """Raise 429 if this email has too many recent failures."""
+    key = _login_key(email)
+    now = time.time()
+    with _login_lock:
+        hits = [t for t in _login_failures.get(key, []) if now - t < _LOGIN_WINDOW_SECONDS]
+        _login_failures[key] = hits
+        if len(hits) >= _LOGIN_MAX_FAILURES:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed login attempts. Try again later.",
+            )
+
+
+def _record_login_failure(email: str) -> None:
+    key = _login_key(email)
+    now = time.time()
+    with _login_lock:
+        hits = [t for t in _login_failures.get(key, []) if now - t < _LOGIN_WINDOW_SECONDS]
+        hits.append(now)
+        _login_failures[key] = hits
+
+
+def _reset_login_failures(email: str) -> None:
+    with _login_lock:
+        _login_failures.pop(_login_key(email), None)
+
+
+def _cookie_secure(request: Request) -> bool:
+    """Whether to mark the session cookie ``Secure``. Honors an explicit
+    ``BSH_COOKIE_SECURE`` override, else infers from the forwarded proto
+    (prod behind TLS-terminating nginx) or the request scheme. Off for
+    plain-http local dev so the cookie is still accepted there.
+    """
+    override = os.environ.get("BSH_COOKIE_SECURE")
+    if override in ("0", "1"):
+        return override == "1"
+    proto = request.headers.get("x-forwarded-proto")
+    if proto:
+        return proto.split(",")[0].strip() == "https"
+    return request.url.scheme == "https"
+
+
+# Cookie path is "/" rather than the mount prefix: nginx strips the
+# ``/research`` prefix before the app sees the request, so the app-internal
+# path is always ``/api/...``. A "/"-scoped cookie is sent for both the
+# browser-visible ``/research/...`` URLs and the stripped internal paths,
+# which a prefix-scoped cookie would not reliably cover.
+_SESSION_COOKIE_PATH = "/"
+
+
+def _set_session_cookie(request: Request, response: Response, raw_token: str) -> None:
+    """Attach the httponly session cookie so browser downloads (`<a href>`)
+    and EventSource SSE authenticate without a `?token=` query param."""
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=raw_token,
+        max_age=int(auth_store.SESSION_TTL.total_seconds()),
+        httponly=True,
+        secure=_cookie_secure(request),
+        samesite="lax",
+        path=_SESSION_COOKIE_PATH,
+    )
+
+
+def _clear_session_cookie(request: Request, response: Response) -> None:
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path=_SESSION_COOKIE_PATH)
 
 
 @auth_router.post("/token", response_model=LoginResponse)
-def login(payload: LoginRequest) -> LoginResponse:
-    """Email + password → freshly minted per-session bearer token.
+def login(request: Request, response: Response, payload: LoginRequest) -> LoginResponse:
+    """Email + password → freshly minted per-session token.
 
-    On success the caller stores ``token`` and presents it as
-    ``Authorization: Bearer <token>`` on every subsequent ``/api/*``
-    call. The token is valid for 30 days unless revoked via
-    ``POST /api/auth/logout``.
+    On success the caller receives ``token`` (stored client-side and sent
+    as ``Authorization: Bearer <token>`` on API fetches) AND an httponly
+    session cookie (used by browser downloads/SSE that can't set headers).
+    Rate-limited per email to blunt credential stuffing. Valid for 30 days
+    unless revoked via ``POST /api/auth/logout``.
     """
+    _rate_limit_login(payload.email)
     email = auth_store.verify_credentials(payload.email, payload.password)
     if not email:
+        _record_login_failure(payload.email)
         logger.warning(
             "Login rejected for email=%r (no match or bad password)",
             payload.email,
         )
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    _reset_login_failures(payload.email)
     session = auth_store.issue_session(email)
+    _set_session_cookie(request, response, session["token"])
     logger.info("Login accepted email=%s expires_at=%s", email, session["expires_at"])
-    return LoginResponse(**session)
+    return LoginResponse(
+        **session,
+        must_reset=auth_store.must_reset(email),
+    )
 
 
 @router.get("/auth/me")
-def auth_me(request: Request) -> dict:
+def auth_me(request: Request, response: Response) -> dict:
     """Identify the caller — useful for the SPA to confirm a stored
     token is still valid and to show the logged-in email in the UI.
-    Returns ``{email, auth: 'session' | 'shared'}``.
+    Returns ``{email, auth: 'session' | 'shared', role, permissions}``.
+
+    Also (re)issues the session cookie for header-authenticated callers so
+    users who logged in before cookie support gain one without re-login —
+    the SPA calls this on every boot.
     """
     email = getattr(request.state, "session_email", None)
-    role = product_store.role_for_email(email, shared_auth=email is None)
+    presented, _ = _extract_presented_token(request)
+    if email and presented and auth_store.validate_token(presented):
+        _set_session_cookie(request, response, presented)
+    role = _caller_role(request)
     return {
         "email": email,
         "auth": "session" if email else "shared",
         "role": role,
         "permissions": product_store.permissions_for_role(role),
+        "must_reset": auth_store.must_reset(email) if email else False,
     }
 
 
@@ -429,8 +587,20 @@ def _caller_email(request: Request) -> str | None:
 
 
 def _caller_role(request: Request) -> str:
+    """Resolve the effective RBAC role for the request.
+
+    - A logged-in user → their email-mapped role.
+    - Anonymous dev mode (``BSH_ALLOW_ANON_DEV=1``) → ``admin``: it's an
+      explicit, local-only, full-access escape hatch.
+    - The shared env token (a machine credential) → the read-only
+      ``service`` role.
+    """
     email = _caller_email(request)
-    return product_store.role_for_email(email, shared_auth=email is None)
+    if email:
+        return product_store.role_for_email(email)
+    if getattr(request.state, "auth_kind", None) == "anon_dev":
+        return "admin"
+    return product_store.role_for_email(None, shared_auth=True)
 
 
 def _require_permission(request: Request, permission: str) -> None:
@@ -443,14 +613,39 @@ def _require_permission(request: Request, permission: str) -> None:
 
 
 @router.post("/auth/logout", status_code=204)
-def logout(request: Request, token: str | None = Query(default=None)) -> Response:
-    """Revoke the bearer token used on this request. Safe to call even if
-    the token was the shared env token (it's a no-op then).
+def logout(request: Request, response: Response) -> Response:
+    """Revoke the session token used on this request (header or cookie) and
+    clear the session cookie. No-op for the shared env token.
     """
-    presented, _ = _extract_presented_token(request, token)
-    if presented:
-        auth_store.revoke_token(presented)
-    return Response(status_code=204)
+    presented, _ = _extract_presented_token(request)
+    cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
+    for candidate in (presented, cookie_token):
+        if candidate:
+            auth_store.revoke_token(candidate)
+    _clear_session_cookie(request, response)
+    response.status_code = 204
+    return response
+
+
+@router.post("/auth/change-password", response_model=LoginResponse)
+def change_password(
+    request: Request, response: Response, payload: ChangePasswordRequest
+) -> LoginResponse:
+    """Change the authenticated user's password. Requires the current
+    password, revokes every existing session for the user, and issues a
+    fresh one (returned + set as cookie) so the caller stays logged in.
+    Not available to shared-token callers (no user identity).
+    """
+    email = getattr(request.state, "session_email", None)
+    if not email:
+        raise HTTPException(status_code=403, detail="Session login required")
+    if not auth_store.verify_credentials(email, payload.current_password):
+        raise HTTPException(status_code=403, detail="Current password is incorrect")
+    auth_store.set_password(email, payload.new_password)
+    auth_store.revoke_email(email)
+    session = auth_store.issue_session(email)
+    _set_session_cookie(request, response, session["token"])
+    return LoginResponse(**session, must_reset=False)
 
 REPORT_TYPES = (
     "Investment Memo (Late-Stage)",
@@ -471,10 +666,16 @@ def api_health() -> dict:
 class CompanyOut(BaseModel):
     id: str
     name: str
+    legal_name: str | None = None
+    disambiguator: str | None = None
     ticker: str | None = None
     description: str | None = None
     sector: str | None = None
     industry: str | None = None
+    # Canonical display category: industry, falling back to sector. All UI
+    # surfaces render this one field (QA R5e: search/card showed sector while
+    # detail/sidebar showed industry for the same company).
+    category: str | None = None
     exchange: str | None = None
     status: str | None = None
     company_type: str | None = None  # "public" | "private" (see storage.infer_company_type)
@@ -847,7 +1048,7 @@ def get_workspace_settings(request: Request) -> dict:
     return {
         "account": product_store.workspace_profile(
             _caller_email(request),
-            shared_auth=_caller_email(request) is None,
+            role_override=_caller_role(request),
         )["account"],
         **product_store.get_preferences(_caller_email(request)),
     }
@@ -863,7 +1064,7 @@ def patch_workspace_settings(
         return {
             "account": product_store.workspace_profile(
                 _caller_email(request),
-                shared_auth=_caller_email(request) is None,
+                role_override=_caller_role(request),
             )["account"],
             **product_store.update_preferences(
                 _caller_email(request),
@@ -878,7 +1079,7 @@ def patch_workspace_settings(
 def get_workspace_user_center(request: Request) -> dict:
     return product_store.workspace_profile(
         _caller_email(request),
-        shared_auth=_caller_email(request) is None,
+        role_override=_caller_role(request),
     )
 
 
@@ -983,13 +1184,14 @@ def _run_search_job(job_id: str, query: str, refresh: bool) -> None:
 
 
 @router.post("/companies/search/start")
-def post_companies_search_start(q: str = "", refresh: bool = False) -> dict:
+def post_companies_search_start(request: Request, q: str = "", refresh: bool = False) -> dict:
     """Kick off a deep search in the background and return a job id + the
     SSE stream URL for live progress.
 
     If a fresh cache hit exists and refresh isn't set, the matches come
     back inline (no job, no stream needed).
     """
+    _require_permission(request, "tasks:action")
     query = (q or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
@@ -1179,8 +1381,9 @@ def _weekly_refresh_state_payload() -> dict | None:
 
 
 @router.post("/weekly-stocks/refresh")
-def post_weekly_stocks_refresh(force: bool = False) -> dict:
+def post_weekly_stocks_refresh(request: Request, force: bool = False) -> dict:
     """Kick off or attach to the weekly hot-stock dashboard refresh."""
+    _require_permission(request, "tasks:action")
     path = weekly_stocks.progress_path()
     state = _scan_progress_state(path)
     in_flight = _progress_state_in_flight(state)
@@ -1274,7 +1477,8 @@ def list_stock_research_trackers(include_archived: bool = False) -> list[dict]:
 
 
 @router.post("/stock-research/trackers", status_code=201)
-def create_stock_research_tracker(payload: dict) -> dict:
+def create_stock_research_tracker(request: Request, payload: dict) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.create_tracker(payload)
     except ValueError as exc:
@@ -1290,7 +1494,8 @@ def get_stock_research_tracker(tracker_id: str) -> dict:
 
 
 @router.patch("/stock-research/trackers/{tracker_id}")
-def update_stock_research_tracker(tracker_id: str, patch: dict) -> dict:
+def update_stock_research_tracker(request: Request, tracker_id: str, patch: dict) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.update_tracker(tracker_id, patch)
     except ValueError as exc:
@@ -1299,9 +1504,11 @@ def update_stock_research_tracker(tracker_id: str, patch: dict) -> dict:
 
 @router.post("/stock-research/trackers/{tracker_id}/disable")
 def disable_stock_research_tracker(
+    request: Request,
     tracker_id: str,
     archive: bool = False,
 ) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.disable_tracker(tracker_id, archive=archive)
     except ValueError as exc:
@@ -1309,7 +1516,8 @@ def disable_stock_research_tracker(
 
 
 @router.post("/stock-research/trackers/import-companies")
-def import_stock_research_company_trackers(limit: int = 20) -> dict:
+def import_stock_research_company_trackers(request: Request, limit: int = 20) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.import_company_trackers(limit=limit)
     except ValueError as exc:
@@ -1317,7 +1525,8 @@ def import_stock_research_company_trackers(limit: int = 20) -> dict:
 
 
 @router.post("/stock-research/sources/link", status_code=201)
-def create_stock_research_link_source(payload: dict) -> dict:
+def create_stock_research_link_source(request: Request, payload: dict) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.create_link_source(payload)
     except ValueError as exc:
@@ -1325,7 +1534,8 @@ def create_stock_research_link_source(payload: dict) -> dict:
 
 
 @router.post("/stock-research/sources/note", status_code=201)
-def create_stock_research_note_source(payload: dict) -> dict:
+def create_stock_research_note_source(request: Request, payload: dict) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.create_note_source(payload)
     except ValueError as exc:
@@ -1334,12 +1544,14 @@ def create_stock_research_note_source(payload: dict) -> dict:
 
 @router.post("/stock-research/sources/upload", status_code=201)
 async def upload_stock_research_source(
+    request: Request,
     file: UploadFile = File(...),
     tracker_ids: list[str] = Form(...),
     title: str | None = Form(default=None),
     priority: str = Form(default="user_provided"),
     relevance: str = Form(default="this_week_input"),
 ) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         data = await _read_upload_bounded(
             file,
@@ -1363,9 +1575,11 @@ async def upload_stock_research_source(
 
 @router.delete("/stock-research/trackers/{tracker_id}/sources/{source_id}")
 def remove_stock_research_source_assignment(
+    request: Request,
     tracker_id: str,
     source_id: str,
 ) -> dict:
+    _require_permission(request, "documents:delete")
     try:
         return stock_research.remove_source_assignment(tracker_id, source_id)
     except ValueError as exc:
@@ -1374,10 +1588,12 @@ def remove_stock_research_source_assignment(
 
 @router.post("/stock-research/trackers/{tracker_id}/run", status_code=202)
 def run_stock_research_tracker(
+    request: Request,
     tracker_id: str,
     period_id: str | None = None,
     force: bool = False,
 ) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.start_tracker_run(
             tracker_id,
@@ -1389,7 +1605,8 @@ def run_stock_research_tracker(
 
 
 @router.post("/stock-research/trackers/run-selected", status_code=202)
-def run_selected_stock_research_trackers(payload: dict) -> dict:
+def run_selected_stock_research_trackers(request: Request, payload: dict) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.start_selected_tracker_runs(
             [str(item) for item in (payload.get("tracker_ids") or [])],
@@ -1401,7 +1618,8 @@ def run_selected_stock_research_trackers(payload: dict) -> dict:
 
 
 @router.post("/stock-research/trackers/run-due", status_code=202)
-def run_due_stock_research_trackers(period_id: str | None = None) -> dict:
+def run_due_stock_research_trackers(request: Request, period_id: str | None = None) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.start_due_tracker_runs(period_id=period_id)
     except ValueError as exc:
@@ -1411,7 +1629,8 @@ def run_due_stock_research_trackers(period_id: str | None = None) -> dict:
 @router.post(
     "/stock-research/trackers/{tracker_id}/runs/{run_id}/cancel"
 )
-def cancel_stock_research_tracker_run(tracker_id: str, run_id: str) -> dict:
+def cancel_stock_research_tracker_run(request: Request, tracker_id: str, run_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.cancel_tracker_run(tracker_id, run_id)
     except ValueError as exc:
@@ -1422,7 +1641,8 @@ def cancel_stock_research_tracker_run(tracker_id: str, run_id: str) -> dict:
     "/stock-research/trackers/{tracker_id}/runs/{run_id}/retry",
     status_code=202,
 )
-def retry_stock_research_tracker_run(tracker_id: str, run_id: str) -> dict:
+def retry_stock_research_tracker_run(request: Request, tracker_id: str, run_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.retry_tracker_run(tracker_id, run_id)
     except ValueError as exc:
@@ -1449,9 +1669,11 @@ async def stream_stock_research_tracker_run(
 
 @router.post("/stock-research/aggregates/run", status_code=202)
 def run_stock_research_aggregate(
+    request: Request,
     period_id: str | None = None,
     force: bool = False,
 ) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.start_aggregate_job(period_id=period_id, force=force)
     except ValueError as exc:
@@ -1475,7 +1697,8 @@ def get_stock_research_aggregate(period_id: str) -> dict:
 
 
 @router.post("/stock-research/aggregates/{period_id}/cancel")
-def cancel_stock_research_aggregate(period_id: str) -> dict:
+def cancel_stock_research_aggregate(request: Request, period_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.cancel_aggregate_job(period_id)
     except ValueError as exc:
@@ -1483,7 +1706,8 @@ def cancel_stock_research_aggregate(period_id: str) -> dict:
 
 
 @router.post("/stock-research/aggregates/{period_id}/retry", status_code=202)
-def retry_stock_research_aggregate(period_id: str) -> dict:
+def retry_stock_research_aggregate(request: Request, period_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.retry_aggregate_job(period_id)
     except ValueError as exc:
@@ -1504,9 +1728,11 @@ async def stream_stock_research_aggregate(period_id: str) -> "StreamingResponse"
 
 @router.post("/stock-research/strategy-maps/run", status_code=202)
 def run_stock_research_strategy_map(
+    request: Request,
     period_id: str | None = None,
     force: bool = False,
 ) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.start_strategy_map_job(
             period_id=period_id,
@@ -1533,7 +1759,8 @@ def get_stock_research_strategy_map(period_id: str) -> dict:
 
 
 @router.post("/stock-research/strategy-maps/{period_id}/cancel")
-def cancel_stock_research_strategy_map(period_id: str) -> dict:
+def cancel_stock_research_strategy_map(request: Request, period_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.cancel_strategy_map_job(period_id)
     except ValueError as exc:
@@ -1541,7 +1768,8 @@ def cancel_stock_research_strategy_map(period_id: str) -> dict:
 
 
 @router.post("/stock-research/strategy-maps/{period_id}/retry", status_code=202)
-def retry_stock_research_strategy_map(period_id: str) -> dict:
+def retry_stock_research_strategy_map(request: Request, period_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return stock_research.retry_strategy_map_job(period_id)
     except ValueError as exc:
@@ -1577,7 +1805,8 @@ def list_stock_research_work_products(
 
 
 @router.patch("/stock-research/work-products/{artifact_id:path}")
-def update_stock_research_work_product(artifact_id: str, patch: dict) -> dict:
+def update_stock_research_work_product(request: Request, artifact_id: str, patch: dict) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.update_work_product(artifact_id, patch)
     except ValueError as exc:
@@ -1590,7 +1819,8 @@ def list_stock_research_review_queue(status: str | None = None) -> list[dict]:
 
 
 @router.patch("/stock-research/review-queue/{item_id:path}")
-def update_stock_research_review_item(item_id: str, patch: dict) -> dict:
+def update_stock_research_review_item(request: Request, item_id: str, patch: dict) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.update_review_item(item_id, patch)
     except ValueError as exc:
@@ -1650,7 +1880,8 @@ def get_stock_research_hypothesis_vintage(vintage_date: str) -> dict:
     status_code=201,
     response_model=HypothesisCreateResponse,
 )
-def create_stock_research_hypotheses(payload: HypothesisCreateRequest) -> dict:
+def create_stock_research_hypotheses(request: Request, payload: HypothesisCreateRequest) -> dict:
+    _require_permission(request, "tasks:action")
     try:
         return hypothesis_cycle.create_hypotheses(
             vintage_date=payload.vintage_date,
@@ -1667,9 +1898,11 @@ def create_stock_research_hypotheses(payload: HypothesisCreateRequest) -> dict:
     response_model=HypothesisEvaluateResponse,
 )
 def evaluate_stock_research_hypotheses(
+    request: Request,
     vintage_date: str,
     payload: HypothesisEvaluateRequest | None = None,
 ) -> dict:
+    _require_permission(request, "tasks:action")
     payload = payload or HypothesisEvaluateRequest()
     try:
         adapter = hypothesis_cycle.FixtureMarketDataAdapter(
@@ -1689,16 +1922,19 @@ def evaluate_stock_research_hypotheses(
     "/stock-research/hypotheses/calibrate",
     response_model=HypothesisTrainingSummary,
 )
-def calibrate_stock_research_hypotheses() -> dict:
+def calibrate_stock_research_hypotheses(request: Request) -> dict:
+    _require_permission(request, "tasks:action")
     return hypothesis_cycle.calibrate()
 
 
 @router.patch("/stock-research/trackers/{tracker_id}/runs/{run_id}/review")
 def update_stock_research_run_review(
+    request: Request,
     tracker_id: str,
     run_id: str,
     patch: dict,
 ) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.update_run_review(tracker_id, run_id, patch)
     except ValueError as exc:
@@ -1709,11 +1945,13 @@ def update_stock_research_run_review(
     "/stock-research/trackers/{tracker_id}/runs/{run_id}/knowledge/{update_id}"
 )
 def review_stock_research_knowledge_update(
+    request: Request,
     tracker_id: str,
     run_id: str,
     update_id: str,
     patch: dict,
 ) -> dict:
+    _require_permission(request, "sources:edit")
     try:
         return stock_research.review_knowledge_update(
             tracker_id,
@@ -1727,12 +1965,13 @@ def review_stock_research_knowledge_update(
 
 
 @router.post("/companies/select", status_code=201)
-def companies_select(payload: SelectMatch) -> dict:
+def companies_select(request: Request, payload: SelectMatch) -> dict:
     """Promote an autocomplete suggestion to a tracked company.
 
     Used when the user clicks a Yahoo-only typeahead hit and we need a stable
     local id before navigating to the research page.
     """
+    _require_permission(request, "sources:edit")
     if not payload.name.strip():
         raise HTTPException(status_code=400, detail="name is required")
     company = storage.upsert_company_from_match(payload.model_dump())
@@ -1782,13 +2021,48 @@ def _refresh_company_summary(company_id: str, *, progress=None) -> dict:
     if not name:
         raise HTTPException(status_code=400, detail="Company has no name to query")
 
-    result = companies_ai.deep_search(name, force_refresh=True, progress=progress)
+    # Query by the most stable key available — ticker, then website host —
+    # never the mutable AI-generated name alone: replaying the model's own
+    # `name` output as the next query is what minted sibling records (R5c).
+    # The name still rides along so a bare host query stays disambiguated.
+    ticker = (company.get("ticker") or "").strip()
+    host = storage._normalize_host(
+        company.get("website")
+    ) or storage._normalize_host(company.get("logo_domain"))
+    if ticker:
+        query = ticker
+    elif host:
+        query = f"{name} ({host})"
+    else:
+        query = name
+
+    result = companies_ai.deep_search(
+        query,
+        force_refresh=True,
+        progress=progress,
+        only_company_id=company_id,
+    )
     matches = result.get("matches") or []
     chosen: dict | None = next(
         (m for m in matches if m.get("id") == company_id), None
     )
-    if chosen is None and matches:
-        chosen = matches[0]
+    if chosen is None and result.get("source") == "claude_code":
+        # deep_search persisted nothing (no returned match resolved to this
+        # record). Abort rather than merge or mint a sibling — the old
+        # `matches[0]` fallback silently accepted a different company.
+        logger.warning(
+            "refresh for %s returned no match resolving to it (query=%r); "
+            "record left unchanged",
+            company_id,
+            query,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Refresh returned a different company; "
+                "record left unchanged"
+            ),
+        )
     if progress is not None:
         progress.emit(
             "stage",
@@ -1829,7 +2103,7 @@ def get_company(company_id: str) -> CompanyOut:
 
 
 @router.post("/companies/{company_id}/refresh")
-def refresh_company(company_id: str) -> CompanyOut:
+def refresh_company(request: Request, company_id: str) -> CompanyOut:
     """Re-run the AI deep search for this company by name and merge the new
     enrichment back into the local record. Also patch any other cached search
     results that contain this company so they show the fresh data on next view.
@@ -1839,6 +2113,7 @@ def refresh_company(company_id: str) -> CompanyOut:
     stays synchronous — the response carries the refreshed company once the
     underlying deep-search returns.
     """
+    _require_permission(request, "tasks:action")
     company = storage.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -1880,8 +2155,9 @@ def refresh_company(company_id: str) -> CompanyOut:
 
 
 @router.post("/companies/{company_id}/translate")
-def translate_company_endpoint(company_id: str) -> CompanyOut:
+def translate_company_endpoint(request: Request, company_id: str) -> CompanyOut:
     """Force a re-translation of this company (e.g. after editing fields)."""
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     _ensure_company_translation(company_id, force=True)
@@ -1903,7 +2179,8 @@ def get_report(report_id: str) -> ReportDetail:
 
 
 @router.post("/reports", status_code=201)
-def post_report(payload: GenerateRequest) -> ReportDetail:
+def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
+    _require_permission(request, "tasks:action")
     base_event = {
         "company_id": payload.company_id,
         "report_type": payload.report_type,
@@ -2245,7 +2522,8 @@ def preview_memo(
 
 
 @router.post("/reports/{report_id}/resume", status_code=202)
-def resume_memo_report(report_id: str) -> ReportDetail:
+def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
+    _require_permission(request, "tasks:action")
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -2301,8 +2579,66 @@ def resume_memo_report(report_id: str) -> ReportDetail:
     return ReportDetail(**_report_detail(updated))
 
 
+def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
+    """Auto-resume memo runs a restart interrupted (Phase 4.6).
+
+    The memo worker is a daemon thread, so a restart kills it; the shutdown
+    hook marks in-flight runs ``failed_during_analysis`` with
+    ``failure_phase="shutdown"`` — those were provably healthy when the
+    process exited, so resume them at startup. Runs the *orphan sweep*
+    demoted (``failure_phase="orphaned"``) may be arbitrarily old and are
+    deliberately NOT auto-resumed — they get a working Resume button for a
+    human instead. Genuine analysis failures also stay parked. Set
+    ``BSH_MEMO_AUTO_RESUME=0`` to keep restarts from spawning Claude work.
+    """
+    if os.environ.get("BSH_MEMO_AUTO_RESUME", "1") != "1":
+        return 0
+    resumed = 0
+    for report in storage.list_reports():
+        if resumed >= max_resumes:
+            break
+        if report.get("kind") != "investment_memo_latestage":
+            continue
+        if str(report.get("status") or "") != "failed_during_analysis":
+            continue
+        if report.get("failure_phase") != "shutdown":
+            continue
+        if not _report_resume_available(report):
+            continue
+        report_id = str(report.get("id") or "")
+        if not report_id:
+            continue
+        state = _scan_progress_state(_memo_stream_path_for_report(report_id))
+        if state.get("exists") and not state.get("terminated"):
+            continue
+        storage.update_report(
+            report_id,
+            status="analyzing",
+            stage="Resume queued (auto, after restart)",
+            progress=max(int(report.get("progress") or 0), 60),
+            error=None,
+            resume_from_status=report.get("resume_from_status")
+            or "failed_during_analysis",
+            resume_from_failure_phase=(
+                report.get("resume_from_failure_phase")
+                or report.get("failure_phase")
+            ),
+            resume_from_failure_detail=(
+                report.get("resume_from_failure_detail")
+                or report.get("failure_detail")
+                or report.get("error")
+            ),
+            failure_phase=None,
+            failure_detail=None,
+        )
+        memo_analysis.start_resume(report_id)
+        logger.info("Auto-resumed restart-interrupted memo run %s", report_id)
+        resumed += 1
+    return resumed
+
+
 @router.post("/memos/prep", status_code=201)
-def post_memo_prep(payload: MemoPrepRequest) -> ReportDetail:
+def post_memo_prep(request: Request, payload: MemoPrepRequest) -> ReportDetail:
     """Bootstrap an investment-memo run.
 
     Synchronously resolves the company, mints the run folder, runs the
@@ -2311,6 +2647,7 @@ def post_memo_prep(payload: MemoPrepRequest) -> ReportDetail:
     continue into analysis; hard out-of-scope failures preserve the run
     folder and return `status: failed_scope_check` plus the scope reason.
     """
+    _require_permission(request, "tasks:action")
     try:
         result = memo_prep.bootstrap_memo_run(
             payload.company_id,
@@ -2445,10 +2782,12 @@ def get_memo_analysis_run_ledger(company_id: str) -> list[dict]:
 
 @router.post("/companies/{company_id}/memo-analysis/tools/{tool_name}/run")
 def run_memo_analysis_tool(
+    request: Request,
     company_id: str,
     tool_name: str,
     response: Response,
 ) -> dict:
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2462,10 +2801,12 @@ def run_memo_analysis_tool(
 
 @router.patch("/companies/{company_id}/memo-analysis/artifacts/{artifact_name}")
 def patch_memo_analysis_artifact(
+    request: Request,
     company_id: str,
     artifact_name: str,
     patch: dict,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2476,10 +2817,12 @@ def patch_memo_analysis_artifact(
 
 @router.patch("/companies/{company_id}/memo-analysis/research-tasks/{task_id}")
 def patch_memo_analysis_research_task(
+    request: Request,
     company_id: str,
     task_id: str,
     patch: dict,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2492,7 +2835,8 @@ def patch_memo_analysis_research_task(
     "/companies/{company_id}/memo-analysis/research-tasks/{task_id}/run",
     status_code=202,
 )
-def run_memo_analysis_research_task(company_id: str, task_id: str) -> dict:
+def run_memo_analysis_research_task(request: Request, company_id: str, task_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2506,9 +2850,11 @@ def run_memo_analysis_research_task(company_id: str, task_id: str) -> dict:
     status_code=202,
 )
 def run_selected_memo_analysis_research_tasks(
+    request: Request,
     company_id: str,
     retry_failed: bool = True,
 ) -> dict:
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2523,7 +2869,8 @@ def run_selected_memo_analysis_research_tasks(
 @router.post(
     "/companies/{company_id}/memo-analysis/research-tasks/{task_id}/cancel"
 )
-def cancel_memo_analysis_research_task(company_id: str, task_id: str) -> dict:
+def cancel_memo_analysis_research_task(request: Request, company_id: str, task_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2672,7 +3019,8 @@ async def stream_memo_analysis_tool(
 
 
 @router.post("/companies/{company_id}/memo-analysis/approve")
-def approve_memo_analysis(company_id: str) -> dict:
+def approve_memo_analysis(request: Request, company_id: str) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2696,11 +3044,13 @@ def get_memo_editor(company_id: str) -> dict:
 
 @router.patch("/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}")
 def patch_memo_editor_card(
+    request: Request,
     company_id: str,
     section_id: str,
     card_id: str,
     patch: MemoEditorCardPatch,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2716,11 +3066,13 @@ def patch_memo_editor_card(
 
 @router.post("/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}/move")
 def move_memo_editor_card(
+    request: Request,
     company_id: str,
     section_id: str,
     card_id: str,
     payload: MemoEditorMoveRequest,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2738,12 +3090,14 @@ def move_memo_editor_card(
     "/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}/bullets/{bullet_id}"
 )
 def patch_memo_editor_bullet(
+    request: Request,
     company_id: str,
     section_id: str,
     card_id: str,
     bullet_id: str,
     patch: MemoEditorBulletPatch,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2762,12 +3116,14 @@ def patch_memo_editor_bullet(
     "/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}/bullets/{bullet_id}/dive-deeper"
 )
 def add_memo_editor_dive_deeper(
+    request: Request,
     company_id: str,
     section_id: str,
     card_id: str,
     bullet_id: str,
     payload: MemoEditorDiveRequest,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2784,9 +3140,11 @@ def add_memo_editor_dive_deeper(
 
 @router.post("/companies/{company_id}/memo-editor/conclusion/select")
 def select_memo_editor_conclusion(
+    request: Request,
     company_id: str,
     payload: MemoEditorConclusionRequest,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2796,7 +3154,8 @@ def select_memo_editor_conclusion(
 
 
 @router.post("/companies/{company_id}/memo-editor/sections/{section_id}/rerun")
-def request_memo_editor_section_rerun(company_id: str, section_id: str) -> dict:
+def request_memo_editor_section_rerun(request: Request, company_id: str, section_id: str) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2807,10 +3166,12 @@ def request_memo_editor_section_rerun(company_id: str, section_id: str) -> dict:
 
 @router.patch("/companies/{company_id}/memo-editor/appendix/{block_id}")
 def patch_memo_editor_appendix_block(
+    request: Request,
     company_id: str,
     block_id: str,
     patch: MemoEditorAppendixPatch,
 ) -> dict:
+    _require_permission(request, "memo:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2834,7 +3195,8 @@ def get_memo_editor_export_projection(company_id: str) -> dict:
 
 
 @router.post("/companies/{company_id}/memo-editor/export-projection")
-def post_memo_editor_export_projection(company_id: str) -> dict:
+def post_memo_editor_export_projection(request: Request, company_id: str) -> dict:
+    _require_permission(request, "memo:export")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     try:
@@ -2909,6 +3271,7 @@ def get_company_news_feed(
     category: str | None = None,
     tag: str | None = None,
     search: str | None = None,
+    lang: str | None = None,
 ) -> dict:
     try:
         return context_store.company_news(
@@ -2916,6 +3279,7 @@ def get_company_news_feed(
             category=category,
             tag=tag,
             search=search,
+            lang=lang,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -2985,11 +3349,13 @@ def get_files(company_id: str) -> list[dict]:
 
 @router.post("/companies/{company_id}/files", status_code=201)
 async def post_file(
+    request: Request,
     company_id: str,
     file: UploadFile = File(...),
     label: str | None = Form(None),
     language: str = Form("en"),
 ) -> dict:
+    _require_permission(request, "sources:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     data = await file.read()
@@ -3134,10 +3500,12 @@ def get_company_evidence_matrix(company_id: str) -> dict:
 
 @router.post("/companies/{company_id}/research-files", status_code=201)
 async def post_research_file(
+    request: Request,
     company_id: str,
     file: UploadFile = File(...),
     label: str | None = Form(None),
 ) -> dict:
+    _require_permission(request, "sources:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     data = await _read_upload_bounded(
@@ -3334,7 +3702,7 @@ def _run_research_summary_job(
     "/companies/{company_id}/research-files/{file_id}/summary",
     status_code=202,
 )
-def post_research_file_summary(company_id: str, file_id: str) -> dict:
+def post_research_file_summary(request: Request, company_id: str, file_id: str) -> dict:
     """Kick off the quick-summary job in the background.
 
     Returns immediately with the job descriptor (stream_url, log_url) —
@@ -3343,6 +3711,7 @@ def post_research_file_summary(company_id: str, file_id: str) -> dict:
     FE polls the file list to detect completion (and the user can click
     the rail entry to watch live).
     """
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     if research_store.get_file(company_id, file_id) is None:
@@ -3400,7 +3769,8 @@ def post_research_file_summary(company_id: str, file_id: str) -> dict:
 @router.post(
     "/companies/{company_id}/research-files/{file_id}/summary/cancel",
 )
-def cancel_research_file_summary(company_id: str, file_id: str) -> dict:
+def cancel_research_file_summary(request: Request, company_id: str, file_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     if research_store.get_file(company_id, file_id) is None:
@@ -3439,7 +3809,8 @@ def cancel_research_file_summary(company_id: str, file_id: str) -> dict:
     "/companies/{company_id}/research-files/{file_id}/summary",
     status_code=204,
 )
-def delete_research_file_summary(company_id: str, file_id: str) -> None:
+def delete_research_file_summary(request: Request, company_id: str, file_id: str) -> None:
+    _require_permission(request, "documents:delete")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     if research_store.get_file(company_id, file_id) is None:
@@ -3596,6 +3967,7 @@ def _run_summary_job(company_id: str, file_id: str, speed: str = "auto") -> None
 
 @router.post("/companies/{company_id}/files/{file_id}/summary")
 def post_file_summary(
+    request: Request,
     company_id: str, file_id: str, speed: str = "auto"
 ) -> dict:
     """Kick off bilingual deck summary generation in the background.
@@ -3609,6 +3981,7 @@ def post_file_summary(
     stream. The frontend opens the SSE stream to consume granular progress
     events and pulls the cached summary once `done` arrives.
     """
+    _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     found = files_store.get_file(company_id, file_id)
@@ -3660,6 +4033,7 @@ def _summary_kind_records():
 
     if not _fs.UPLOADS_ROOT.exists():
         return
+    company_names = storage.company_names()
     for jsonl_path in _fs.UPLOADS_ROOT.glob("*/*__summary.progress.jsonl"):
         company_id = jsonl_path.parent.name
         suffix = "__summary.progress.jsonl"
@@ -3676,9 +4050,7 @@ def _summary_kind_records():
             or (record and (record.get("label") or record.get("filename")))
             or "Deck summary"
         )
-        subtitle = state.get("subtitle") or (
-            (storage.get_company(company_id) or {}).get("name") or company_id
-        )
+        subtitle = state.get("subtitle") or company_names.get(company_id, company_id)
         yield {
             "kind": state.get("kind") or "summary",
             "title": title,
@@ -4005,6 +4377,7 @@ def _research_summary_kind_records():
     """Yield active-jobs rail entries for every quick-summary JSONL on disk."""
     if not research_store.RESEARCH_ROOT.exists():
         return
+    company_names = storage.company_names()
     for jsonl_path in research_store.RESEARCH_ROOT.glob(
         "*/*__quick_summary.progress.jsonl"
     ):
@@ -4024,9 +4397,7 @@ def _research_summary_kind_records():
             or (record and (record.get("label") or record.get("filename")))
             or "Quick summary"
         )
-        subtitle = state.get("subtitle") or (
-            (storage.get_company(company_id) or {}).get("name") or company_id
-        )
+        subtitle = state.get("subtitle") or company_names.get(company_id, company_id)
         yield {
             "kind": state.get("kind") or "research_summary",
             "title": title,
@@ -4334,6 +4705,7 @@ def _serena_research_task_kind_records():
     """Yield active-jobs rail entries for Memo Studio research-task jobs."""
     if not serena_analysis.ANALYSIS_ROOT.exists():
         return
+    company_names = storage.company_names()
     suffix = ".progress.jsonl"
     for jsonl_path in serena_analysis.ANALYSIS_ROOT.glob("*/*/logs/*.progress.jsonl"):
         if not jsonl_path.name.endswith(suffix):
@@ -4350,9 +4722,8 @@ def _serena_research_task_kind_records():
         yield {
             "kind": state.get("kind") or "serena_research_task",
             "title": state.get("title") or "Memo Studio research task",
-            "subtitle": state.get("subtitle") or (
-                (storage.get_company(company_id) or {}).get("name") or company_id
-            ),
+            "subtitle": state.get("subtitle")
+            or company_names.get(company_id, company_id),
             "stream_url": (
                 f"/api/companies/{company_id}/memo-analysis/sessions/{session_id}"
                 f"/research-tasks/{task_id}/stream"
@@ -4434,13 +4805,14 @@ def _resolve_job_log_path(combined: str):
         raise HTTPException(status_code=400, detail=f"Bad job key: {exc}") from exc
 
 
-@router.get("/jobs/active")
-def get_active_jobs() -> list[dict]:
-    """All in-flight Claude tasks across every kind. Powers ActiveJobsRail."""
+def recover_stale_jobs() -> None:
+    """Mark orphaned/stale Claude jobs terminal. Formerly run inline on every
+    /api/jobs/active poll — where it walked large trees under a global lock and
+    was the main cause of the endpoint's overload (and the 503s). Now driven off
+    the request path: once at startup and periodically by a background thread.
+    """
     try:
-        serena_analysis.recover_stale_runs(
-            max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
-        )
+        serena_analysis.recover_stale_runs(max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS)
     except Exception:
         logger.exception("failed to recover stale serena jobs")
     try:
@@ -4448,11 +4820,48 @@ def get_active_jobs() -> list[dict]:
     except Exception:
         logger.exception("failed to recover stale research jobs")
     try:
-        stock_research.recover_stale_runs(
-            max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
-        )
+        stock_research.recover_stale_runs(max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS)
     except Exception:
         logger.exception("failed to recover stale stock research jobs")
+
+
+_RECOVERY_INTERVAL_SECONDS = 60.0
+_recovery_thread_started = False
+_recovery_thread_lock = threading.Lock()
+
+
+def start_stale_job_recovery() -> None:
+    """Run one recovery sweep now, then keep sweeping in a daemon thread.
+    Idempotent — safe to call from the FastAPI startup hook."""
+    global _recovery_thread_started
+    with _recovery_thread_lock:
+        if _recovery_thread_started:
+            return
+        _recovery_thread_started = True
+
+    recover_stale_jobs()
+
+    def _loop() -> None:
+        while True:
+            time.sleep(_RECOVERY_INTERVAL_SECONDS)
+            try:
+                recover_stale_jobs()
+            except Exception:
+                logger.exception("background stale-job recovery failed")
+
+    threading.Thread(
+        target=_loop, name="stale-job-recovery", daemon=True
+    ).start()
+
+
+# Short TTL cache so concurrent ActiveJobsRail pollers share one filesystem
+# scan instead of each re-walking the (large) data tree.
+_ACTIVE_JOBS_TTL_SECONDS = 3.0
+_active_jobs_cache: tuple[float, list[dict]] | None = None
+_active_jobs_lock = threading.Lock()
+
+
+def _collect_active_jobs() -> list[dict]:
     out: list[dict] = []
     for source in (
         _summary_kind_records(),
@@ -4479,6 +4888,27 @@ def get_active_jobs() -> list[dict]:
             out.append(rec)
     out.sort(key=lambda j: j.get("started_at") or "", reverse=True)
     return out
+
+
+@router.get("/jobs/active")
+def get_active_jobs() -> list[dict]:
+    """All in-flight Claude tasks across every kind. Powers ActiveJobsRail.
+
+    Recovery of stale runs is NOT done here anymore (see
+    ``start_stale_job_recovery``); this endpoint only reads current state,
+    behind a short TTL cache so bursts of pollers coalesce.
+    """
+    global _active_jobs_cache
+    now = time.time()
+    with _active_jobs_lock:
+        if _active_jobs_cache is not None and (
+            now - _active_jobs_cache[0] < _ACTIVE_JOBS_TTL_SECONDS
+        ):
+            return _active_jobs_cache[1]
+    data = _collect_active_jobs()
+    with _active_jobs_lock:
+        _active_jobs_cache = (now, data)
+    return data
 
 
 @router.get("/jobs/log")
@@ -4651,7 +5081,8 @@ async def stream_research_file_summary_progress(
 @router.delete(
     "/companies/{company_id}/files/{file_id}/summary", status_code=204
 )
-def delete_file_summary(company_id: str, file_id: str) -> None:
+def delete_file_summary(request: Request, company_id: str, file_id: str) -> None:
+    _require_permission(request, "documents:delete")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     found = files_store.get_file(company_id, file_id)
@@ -4668,7 +5099,8 @@ def get_threads(company_id: str) -> list[dict]:
 
 
 @router.post("/companies/{company_id}/threads", status_code=201)
-def post_thread(company_id: str, payload: ThreadIn) -> dict:
+def post_thread(request: Request, company_id: str, payload: ThreadIn) -> dict:
+    _require_permission(request, "sources:edit")
     if not payload.question.strip():
         raise HTTPException(status_code=400, detail="Question is required")
     try:
@@ -4693,12 +5125,13 @@ class ExternalResearchPromoteIn(BaseModel):
 
 
 @router.post("/external/link-preview")
-def post_link_preview(payload: LinkPreviewIn) -> dict:
+def post_link_preview(request: Request, payload: LinkPreviewIn) -> dict:
     """Fetch a URL and return its OpenGraph-style preview without saving.
 
     Used by the Submit-a-link tool to show the user what they're about to
     accept before kicking off the analysis pipeline.
     """
+    _require_permission(request, "sources:edit")
     url = (payload.url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
@@ -4838,7 +5271,8 @@ def _external_item_response(item: dict) -> dict:
 
 
 @router.post("/external/news", status_code=201)
-def post_news(payload: NewsCreateIn) -> dict:
+def post_news(request: Request, payload: NewsCreateIn) -> dict:
+    _require_permission(request, "sources:edit")
     url = (payload.url or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
@@ -4940,10 +5374,11 @@ def delete_news(item_id: str, request: Request) -> None:
 
 
 @router.post("/external/news/{item_id}/retry")
-def retry_news(item_id: str) -> dict:
+def retry_news(request: Request, item_id: str) -> dict:
     """Re-run the analysis pipeline for a news item — useful when the
     initial run hit `analysis_error`.
     """
+    _require_permission(request, "tasks:action")
     item = external_store.get_item("news", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="News item not found")
@@ -5515,6 +5950,7 @@ def _extract_text_from_file(path_str: str) -> str:
 
 @router.post("/external/research", status_code=201)
 async def post_external_research(
+    request: Request,
     file: UploadFile = File(...),
     title: str | None = Form(None),
     source_company: str | None = Form(None),
@@ -5522,6 +5958,7 @@ async def post_external_research(
     contact_email: str | None = Form(None),
     notes: str | None = Form(None),
 ) -> dict:
+    _require_permission(request, "sources:edit")
     if not file.filename:
         raise HTTPException(status_code=400, detail="File is required")
     _external_research_upload_kind(file.filename)
@@ -5674,7 +6111,8 @@ async def stream_external_research_analysis_progress(item_id: str):
 
 
 @router.post("/external/research/{item_id}/analysis/cancel")
-def cancel_external_research_analysis(item_id: str) -> dict:
+def cancel_external_research_analysis(request: Request, item_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     item = external_store.get_item("external_research", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Research item not found")
@@ -5750,9 +6188,11 @@ def _promoted_research_record(company_id: str, item_id: str) -> dict | None:
 
 @router.post("/external/research/{item_id}/promote", status_code=201)
 def promote_external_research(
+    request: Request,
     item_id: str,
     payload: ExternalResearchPromoteIn,
 ) -> dict:
+    _require_permission(request, "sources:edit")
     company_id = payload.company_id
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -5935,7 +6375,7 @@ def _run_research_translate_job(
 
 
 @router.post("/external/research/{item_id}/translate")
-def post_research_translate(item_id: str, app_language: str | None = None) -> dict:
+def post_research_translate(request: Request, item_id: str, app_language: str | None = None) -> dict:
     """Kick off a high-fidelity PDF translation job for this research item.
 
     Returns ``{job_id, stream_url}`` for the live progress stream. Cached
@@ -5943,6 +6383,7 @@ def post_research_translate(item_id: str, app_language: str | None = None) -> di
     already matches the request — call with a different ``app_language`` or
     delete and re-upload to force a re-translate.
     """
+    _require_permission(request, "tasks:action")
     item = external_store.get_item("external_research", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Research item not found")
@@ -5988,7 +6429,8 @@ def post_research_translate(item_id: str, app_language: str | None = None) -> di
 
 
 @router.post("/external/research/{item_id}/translate/cancel")
-def cancel_research_translate(item_id: str) -> dict:
+def cancel_research_translate(request: Request, item_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     if external_store.get_item("external_research", item_id) is None:
         raise HTTPException(status_code=404, detail="Research item not found")
     cancel_key = _research_cancel_key("pdf_translation", item_id)
@@ -6082,8 +6524,9 @@ async def stream_research_translate_progress(item_id: str):
 
 
 @router.post("/external/research/{item_id}/retry")
-def retry_external_research(item_id: str) -> dict:
+def retry_external_research(request: Request, item_id: str) -> dict:
     """Re-run the analysis pipeline for an external research item."""
+    _require_permission(request, "tasks:action")
     item = external_store.get_item("external_research", item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Research item not found")
@@ -6125,10 +6568,12 @@ def get_external_feed() -> list[dict]:
 
 @router.post("/external/hormuz", status_code=201)
 async def post_hormuz(
+    request: Request,
     title: str = Form(...),
     body: str = Form(""),
     file: UploadFile | None = File(None),
 ) -> dict:
+    _require_permission(request, "sources:edit")
     title = (title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
@@ -6263,11 +6708,13 @@ def get_hormuz_library() -> list[dict]:
 
 @router.post("/external/hormuz/sources", status_code=201)
 async def post_hormuz_sources(
+    request: Request,
     files: list[UploadFile] = File(...),
 ) -> dict:
     """Upload one or more daily source reports (max 10). The date is
     parsed from each filename (e.g. 中东局势每日研判2026-05-13.pdf →
     2026-05-13)."""
+    _require_permission(request, "sources:edit")
     if len(files) > 10:
         raise HTTPException(
             status_code=400,
@@ -6307,8 +6754,9 @@ def get_hormuz_source_file(date: str, filename: str) -> FileResponse:
 
 
 @router.post("/external/hormuz/appendix/{date}/generate", status_code=201)
-def post_hormuz_appendix(date: str) -> dict:
+def post_hormuz_appendix(request: Request, date: str) -> dict:
     """Kick off (or re-run) the bilingual V3 appendix for a date."""
+    _require_permission(request, "tasks:action")
     try:
         return hormuz_prep.bootstrap_appendix_run(date)
     except ValueError as exc:
@@ -6410,10 +6858,13 @@ def _company_view(c: dict) -> dict:
     return {
         "id": c.get("id"),
         "name": c.get("name"),
+        "legal_name": c.get("legal_name"),
+        "disambiguator": c.get("disambiguator"),
         "ticker": c.get("ticker"),
         "description": c.get("description"),
         "sector": c.get("sector"),
         "industry": c.get("industry"),
+        "category": c.get("industry") or c.get("sector"),
         "exchange": c.get("exchange"),
         "status": c.get("status"),
         "company_type": c.get("company_type") or storage.infer_company_type(c),
@@ -6652,8 +7103,10 @@ def estimate_console_hydration(
 
 @router.post("/companies/{company_id}/console/sessions", status_code=201)
 def create_console_session(
+    request: Request,
     company_id: str, body: _ConsoleCreateBody | None = None
 ) -> dict:
+    _require_permission(request, "tasks:action")
     body = body or _ConsoleCreateBody()
     try:
         meta = console_session.create_session(
@@ -6701,7 +7154,8 @@ def get_hormuz_console_context() -> dict:
 
 
 @router.post("/external/hormuz/console/sessions", status_code=201)
-def create_hormuz_console_session(body: _ConsoleCreateBody | None = None) -> dict:
+def create_hormuz_console_session(request: Request, body: _ConsoleCreateBody | None = None) -> dict:
+    _require_permission(request, "tasks:action")
     body = body or _ConsoleCreateBody()
     try:
         meta = hormuz_console.create_session(output_language=body.output_language)
@@ -6746,11 +7200,13 @@ def get_console_turns(company_id: str, sid: str) -> list[dict]:
 
 @router.post("/companies/{company_id}/console/sessions/{sid}/ask")
 async def post_console_ask(
+    request: Request,
     company_id: str,
     sid: str,
     prompt: str = Form(...),
     images: list[UploadFile] = File(default=[]),
 ) -> dict:
+    _require_permission(request, "tasks:action")
     if not console_store.session_exists(company_id, sid):
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -6934,8 +7390,10 @@ async def stream_console_summary(
     status_code=204,
 )
 def cancel_console_ask(
+    request: Request,
     company_id: str, sid: str, turn_id: str
 ) -> Response:
+    _require_permission(request, "tasks:action")
     try:
         ok = console_session.cancel_turn(company_id, sid, turn_id)
     except ValueError as exc:
@@ -8970,7 +9428,14 @@ def _run_refresh_all_trader_snapshots_job(
 @router.get("/trader/stats")
 def get_trader_stats(limit: int = Query(default=30, ge=1, le=250)) -> dict:
     """Return per-symbol trader refresh token/change history."""
-    return trader_stats.build_dashboard(storage.list_companies(), limit=limit)
+    # list_companies() is slim (no trader_snapshot — it lives in sidecars);
+    # the dashboard summarizes snapshots, so hydrate via get_company.
+    companies = [
+        storage.get_company(c["id"]) or c
+        for c in storage.list_companies()
+        if c.get("id")
+    ]
+    return trader_stats.build_dashboard(companies, limit=limit)
 
 
 @router.get("/trader/stats/{company_id}")
@@ -8987,6 +9452,7 @@ def get_trader_stats_for_company(
 
 @router.post("/companies/{company_id}/trader/refresh")
 def post_trader_refresh(
+    request: Request,
     company_id: str,
     languages: str | None = None,
     include_translations: bool = True,
@@ -9014,6 +9480,7 @@ def post_trader_refresh(
 
     Public-only: returns 400 if the company's bucket is private.
     """
+    _require_permission(request, "tasks:action")
     company = storage.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -9088,6 +9555,7 @@ def post_trader_refresh(
 
 @router.post("/companies/{company_id}/trader/refresh-sections")
 def post_trader_refresh_sections(
+    request: Request,
     company_id: str,
     body: TraderSectionRefreshRequest,
     languages: str | None = None,
@@ -9095,6 +9563,7 @@ def post_trader_refresh_sections(
     translation_mode: str = "all",
 ) -> dict:
     """Retry selected trader snapshot sections without rerunning the whole view."""
+    _require_permission(request, "tasks:action")
     company = storage.get_company(company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -9168,12 +9637,14 @@ def post_trader_refresh_sections(
 
 @router.post("/companies/trader/refresh-all")
 def post_trader_refresh_all(
+    request: Request,
     languages: str | None = None,
     include_translations: bool = True,
     translation_mode: str = "all",
     force: bool = False,
 ) -> dict:
     """Refresh trader snapshots for every tracked public company."""
+    _require_permission(request, "tasks:action")
     languages_requested = _parse_trader_languages(languages)
     stream_url = "/api/companies/trader/refresh-all/stream"
     companies = _public_companies_for_trader_refresh()
@@ -9216,13 +9687,14 @@ def post_trader_refresh_all(
 
 
 @router.post("/companies/regen-all")
-def post_companies_regen_all(force: bool = False) -> dict:
+def post_companies_regen_all(request: Request, force: bool = False) -> dict:
     """Regenerate every tracked company's summary and public trader view.
 
     This is the broad admin refresh: every tracked company gets a fresh
     deep-search dossier plus forced company translation; companies that are
     public after that refresh also get a bilingual trader snapshot.
     """
+    _require_permission(request, "tasks:action")
     stream_url = "/api/companies/regen-all/stream"
     companies = _tracked_companies_for_regen()
     checkpoint = None if force else _load_regen_checkpoint()

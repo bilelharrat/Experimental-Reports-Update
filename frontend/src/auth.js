@@ -77,14 +77,14 @@ export async function signOut() {
   _clearStoredSession();
   session.value = null;
   if (had?.token) {
-    // Post directly with the captured token. We can't go through
-    // api.logout() / apiFetch here because getApiToken() would now fall
-    // back to the meta-tag (legacy shared token) and the server would
-    // try to revoke the wrong row.
+    // Post directly with the captured token (local state is already
+    // cleared, so apiFetch would send no Authorization header). Include
+    // credentials so the server can also clear the session cookie.
     try {
       await fetch(withBase("/api/auth/logout"), {
         method: "POST",
-        headers: { Authorization: `Bearer ${had.token}` },
+        headers: { Authorization: `Bearer ${had.token}`, "X-BSH-Client": "web" },
+        credentials: "same-origin",
       });
     } catch {
       // Network blip / server already gone — local state is gone too.

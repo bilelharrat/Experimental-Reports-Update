@@ -180,6 +180,7 @@ def test_translation_backfill_pauses_on_usage_limit(monkeypatch):
         return {"id": company_id, **patch}
 
     monkeypatch.setattr(server_main, "list_companies", lambda: list(companies))
+    monkeypatch.setattr(server_main, "get_company_ext", lambda _cid: {})
     monkeypatch.setattr(server_main, "translate_company", fake_translate)
     monkeypatch.setattr(server_main, "update_company", fake_update)
 
@@ -218,6 +219,7 @@ def test_translation_backfill_continues_after_non_limit_error(monkeypatch):
         return {"id": company_id, **patch}
 
     monkeypatch.setattr(server_main, "list_companies", lambda: list(companies))
+    monkeypatch.setattr(server_main, "get_company_ext", lambda _cid: {})
     monkeypatch.setattr(server_main, "translate_company", fake_translate)
     monkeypatch.setattr(server_main, "update_company", fake_update)
 

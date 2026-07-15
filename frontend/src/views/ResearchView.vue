@@ -13,6 +13,7 @@ import {
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
 import { useT } from "../i18n.js";
+import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
 import { appLanguage } from "../state.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
@@ -348,6 +349,38 @@ const sectorSignals = computed(() => {
 });
 
 let pollId = null;
+let pollActive = false;
+let pollFailures = 0;
+const pollConnectionLost = ref(false);
+// A ticker so elapsed/ETA labels keep moving even between poll responses.
+const nowTick = ref(Date.now());
+let nowTickId = null;
+
+// Memo generation legitimately runs ~19–34 minutes end-to-end; surface
+// elapsed + a rough ETA so an in-flight run is distinguishable from a hang.
+const MEMO_TYPICAL_MAX_MIN = 34;
+
+const reportInProgress = computed(() => {
+  const status = String(activeReport.value?.status || "");
+  return (
+    Boolean(activeReport.value) &&
+    status !== "complete" &&
+    status !== "complete_with_warnings" &&
+    !status.startsWith("failed")
+  );
+});
+const reportElapsedMin = computed(() => {
+  const created = activeReport.value?.created_at;
+  if (!created) return null;
+  const started = Date.parse(created);
+  if (Number.isNaN(started)) return null;
+  return Math.max(0, Math.round((nowTick.value - started) / 60000));
+});
+const reportEtaMin = computed(() => {
+  const elapsed = reportElapsedMin.value;
+  if (elapsed == null) return null;
+  return Math.max(1, MEMO_TYPICAL_MAX_MIN - elapsed);
+});
 
 // Map the HTTP status onto a localized title + body. 404 keeps the
 // existing "Company not found" copy; 401/403 explain the session
@@ -410,6 +443,7 @@ async function loadNewsFeed() {
       category: newsCategory.value,
       tag: newsTag.value,
       search: newsSearch.value,
+      lang: appLanguage.value,
     });
   } catch (e) {
     newsError.value = e?.message || String(e);
@@ -444,6 +478,11 @@ watch([newsCategory, newsTag], () => {
   if (company.value) loadNewsFeed();
 });
 
+// Re-fetch news content in the new language when the user toggles 中/EN.
+watch(appLanguage, () => {
+  if (company.value) loadNewsFeed();
+});
+
 async function loadOptions() {
   try {
     options.value = await api.options();
@@ -470,6 +509,8 @@ async function pollReport() {
   if (!activeReport.value) return;
   try {
     const r = await api.getReport(activeReport.value.id);
+    pollFailures = 0;
+    pollConnectionLost.value = false;
     activeReport.value = r;
     const status = String(r.status || "");
     if (
@@ -485,7 +526,14 @@ async function pollReport() {
       }
     }
   } catch (e) {
-    stopPolling();
+    // A transient blip (dev-server reload, laptop sleep, a read racing a
+    // write) must not permanently freeze a 30-minute run's progress UI.
+    // Back off and only give up after several consecutive failures.
+    pollFailures += 1;
+    if (pollFailures >= POLL_MAX_FAILURES) {
+      stopPolling();
+      pollConnectionLost.value = true;
+    }
   }
 }
 
@@ -497,13 +545,89 @@ async function openReportFromLibrary(r) {
   });
 }
 
+// SSE is the primary live channel for memo progress (it replays
+// stream.jsonl from the start, so a mid-run reload recovers history).
+// The bounded-retry poll stays as a slow safety net while the stream is
+// healthy and becomes the sole channel if the stream errors.
+let memoStream = null;
+let streamRefreshTimer = null;
+
+function openMemoStream() {
+  if (memoStream || !isMemo.value || !activeReport.value?.id) return;
+  if (typeof EventSource === "undefined") return;
+  try {
+    memoStream = new EventSource(
+      withApiToken(`/api/memos/${activeReport.value.id}/stream`),
+    );
+  } catch {
+    memoStream = null;
+    return;
+  }
+  memoStream.onmessage = (msg) => {
+    let terminal = false;
+    try {
+      const entry = JSON.parse(msg.data);
+      terminal = entry.type === "done" || entry.type === "error";
+    } catch {
+      // Non-JSON lines still count as liveness.
+    }
+    if (terminal) {
+      closeMemoStream();
+      pollReport();
+      return;
+    }
+    // Stream traffic proves the run is alive — refresh the report record
+    // (debounced) so stage/progress track without 1/s polling.
+    if (!streamRefreshTimer) {
+      streamRefreshTimer = setTimeout(() => {
+        streamRefreshTimer = null;
+        pollReport();
+      }, 2000);
+    }
+  };
+  memoStream.onerror = () => {
+    // Stream lost — the poll loop below takes over at full cadence.
+    closeMemoStream();
+  };
+}
+
+function closeMemoStream() {
+  if (streamRefreshTimer) {
+    clearTimeout(streamRefreshTimer);
+    streamRefreshTimer = null;
+  }
+  if (memoStream) {
+    memoStream.close();
+    memoStream = null;
+  }
+}
+
+function scheduleNextPoll() {
+  if (!pollActive) return;
+  // While the SSE stream is healthy the poll is only a safety net.
+  const delay = memoStream ? 15000 : pollDelayMs(pollFailures);
+  pollId = setTimeout(async () => {
+    await pollReport();
+    scheduleNextPoll();
+  }, delay);
+}
+
 function startPolling() {
   stopPolling();
-  pollId = setInterval(pollReport, 1000);
+  pollActive = true;
+  pollFailures = 0;
+  pollConnectionLost.value = false;
+  openMemoStream();
+  scheduleNextPoll();
+  if (!nowTickId) nowTickId = setInterval(() => { nowTick.value = Date.now(); }, 15000);
 }
 function stopPolling() {
-  if (pollId) clearInterval(pollId);
+  pollActive = false;
+  closeMemoStream();
+  if (pollId) clearTimeout(pollId);
   pollId = null;
+  if (nowTickId) clearInterval(nowTickId);
+  nowTickId = null;
 }
 
 async function generate(analysisSessionId = null, options = {}) {
@@ -685,16 +809,16 @@ onUnmounted(stopPolling);
                 {{ company.latest_funding.round }}
               </span>
               <span
-                v-if="company.industry || company.sector"
+                v-if="company.category"
                 class="rounded-chip bg-accent-soft px-2 py-1 text-xs font-semibold text-accent-ink"
               >
-                {{ company.industry || company.sector }}
+                {{ company.category }}
               </span>
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
-              <span v-if="company.founded_year">Founded {{ company.founded_year }}</span>
+              <span v-if="company.founded_year">{{ tr("overview.founded", { year: company.founded_year }) }}</span>
               <span v-if="company.hq">{{ company.hq }}</span>
-              <span v-if="company.employee_band">{{ company.employee_band }} employees</span>
+              <span v-if="company.employee_band">{{ tr("overview.employees", { band: company.employee_band }) }}</span>
             </div>
           </div>
         </div>
@@ -702,19 +826,19 @@ onUnmounted(stopPolling);
           v-if="company.latest_funding"
           class="rounded-subbox border border-subtle bg-surface-muted px-4 py-3 text-sm text-ink-muted lg:text-right"
         >
-          <div class="vogue-label text-[10px]">Last round</div>
+          <div class="vogue-label text-[10px]">{{ tr("overview.last_round") }}</div>
           <div class="mono-data mt-1 text-lg font-bold text-ink-primary">
             {{ company.latest_funding.amount_usd || company.latest_funding.round || "Unknown" }}
           </div>
           <div class="mt-1">
             <span v-if="company.latest_funding.post_money_usd">
-              post-money {{ company.latest_funding.post_money_usd }}
+              {{ tr("overview.post_money", { amount: company.latest_funding.post_money_usd }) }}
             </span>
             <span v-if="company.latest_funding.date">
               · {{ company.latest_funding.date }}
             </span>
             <span v-if="company.total_funding_usd">
-              · Total raised {{ company.total_funding_usd }}
+              · {{ tr("overview.total_raised", { amount: company.total_funding_usd }) }}
             </span>
           </div>
         </div>
@@ -902,6 +1026,36 @@ onUnmounted(stopPolling);
           class="h-full bg-accent transition-all"
           :style="{ width: (activeReport.progress || 0) + '%' }"
         ></div>
+      </div>
+
+      <div
+        v-if="isMemo && reportInProgress"
+        class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted"
+      >
+        <span v-if="activeReport.stage" class="text-ink-secondary font-medium">
+          {{ activeReport.stage }}
+        </span>
+        <span v-if="reportElapsedMin != null">
+          {{ tr("research.progress_elapsed", { minutes: reportElapsedMin }) }}
+        </span>
+        <span v-if="reportEtaMin != null">
+          {{ tr("research.progress_eta", { minutes: reportEtaMin }) }}
+        </span>
+        <span>{{ tr("research.progress_safe_to_close") }}</span>
+      </div>
+
+      <div
+        v-if="pollConnectionLost"
+        class="mt-3 flex items-center gap-3 rounded-lg border border-warning bg-warning-soft px-3 py-2 text-xs text-warning-ink"
+      >
+        <span>{{ tr("research.connection_lost") }}</span>
+        <button
+          type="button"
+          class="font-semibold underline"
+          @click="startPolling"
+        >
+          {{ tr("research.retry") }}
+        </button>
       </div>
 
       <div
@@ -1220,7 +1374,7 @@ onUnmounted(stopPolling);
     >
       <details open>
         <summary class="cursor-pointer text-sm font-semibold text-ink-primary focus-ring rounded">
-          Advanced Tools
+          {{ tr("research.advanced_tools") }}
         </summary>
         <div class="mt-4">
           <MemoAnalysisDashboard
@@ -1290,12 +1444,12 @@ onUnmounted(stopPolling);
     >
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div class="vogue-label">Company News</div>
+          <div class="vogue-label">{{ tr("research.tab_news") }}</div>
           <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
-            Reverse-chronological feed
+            {{ tr("news.feed_heading") }}
           </h2>
           <p class="mt-1 text-sm text-ink-muted">
-            Source-attributed company record, archive, and feed items.
+            {{ tr("news.feed_hint") }}
           </p>
         </div>
         <button
@@ -1303,7 +1457,7 @@ onUnmounted(stopPolling);
           class="pill-button border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
           @click="$emit('open-copilot')"
         >
-          Submit Link
+          {{ tr("sidebar.submit_link") }}
         </button>
       </div>
 
@@ -1314,15 +1468,15 @@ onUnmounted(stopPolling);
         <input
           v-model="newsSearch"
           type="search"
-          placeholder="Search news, sources, summaries"
+          :placeholder="tr('news.search_placeholder')"
           class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary placeholder:text-ink-subtle focus-ring"
         />
         <select
           v-model="newsCategory"
           class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary focus-ring"
-          aria-label="Filter news category"
+          :aria-label="tr('news.filter_category_label')"
         >
-          <option value="">All categories</option>
+          <option value="">{{ tr("news.all_categories") }}</option>
           <option v-for="category in newsFilters.categories" :key="category" :value="category">
             {{ category }}
           </option>
@@ -1330,9 +1484,9 @@ onUnmounted(stopPolling);
         <select
           v-model="newsTag"
           class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary focus-ring"
-          aria-label="Filter news tag"
+          :aria-label="tr('news.filter_tag_label')"
         >
-          <option value="">All tags</option>
+          <option value="">{{ tr("news.all_tags") }}</option>
           <option v-for="tag in newsFilters.tags" :key="tag" :value="tag">
             {{ tag }}
           </option>
@@ -1342,27 +1496,27 @@ onUnmounted(stopPolling);
             type="submit"
             class="rounded-full bg-ink-primary px-3 py-2 text-xs font-semibold text-white focus-ring"
           >
-            Filter
+            {{ tr("news.filter") }}
           </button>
           <button
             type="button"
             @click="resetNewsFilters"
             class="rounded-full border border-subtle px-3 py-2 text-xs font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
           >
-            Reset
+            {{ tr("news.reset") }}
           </button>
         </div>
       </form>
 
       <div v-if="newsLoading" class="flex items-center gap-2 text-sm text-ink-muted">
         <Loader2 class="h-4 w-4 animate-spin" />
-        Loading source-attributed news…
+        {{ tr("news.loading") }}
       </div>
       <div v-else-if="newsError" class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
         {{ newsError }}
       </div>
       <div v-else-if="companyNews.length === 0" class="rounded-row border border-subtle bg-surface-muted p-4 text-sm text-ink-muted">
-        {{ newsFeed.empty_state || "No company-specific news yet. Submit a link to archive the first source." }}
+        {{ newsFeed.empty_state || tr("news.empty") }}
       </div>
       <ul v-else class="space-y-3">
         <li
@@ -1372,12 +1526,12 @@ onUnmounted(stopPolling);
         >
           <div class="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
             <span class="h-2 w-2 rounded-full bg-accent"></span>
-            <span>{{ item.category || item.source || "company" }}</span>
+            <span>{{ item.category || item.source || tr("news.default_category") }}</span>
             <span v-if="item.published_at || item.date" class="mono-data">
               {{ item.published_at || item.date }}
             </span>
             <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 uppercase tracking-wide">
-              {{ item.source_class || item.provenance?.source_class || "source pending" }}
+              {{ item.source_class || item.provenance?.source_class || tr("news.source_pending") }}
             </span>
           </div>
           <div class="mt-1 text-sm font-semibold text-ink-primary">
@@ -1393,7 +1547,7 @@ onUnmounted(stopPolling);
             rel="noopener"
             class="mt-2 inline-flex text-xs font-semibold text-accent-ink hover:text-ink-primary focus-ring rounded"
           >
-            Open source
+            {{ tr("news.open_source") }}
           </a>
           <div v-if="item.tags?.length" class="mt-3 flex flex-wrap gap-1.5">
             <span
@@ -1413,7 +1567,7 @@ onUnmounted(stopPolling);
       class="space-y-5"
     >
       <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
-        <div class="vogue-label">Industry Views</div>
+        <div class="vogue-label">{{ tr("research.tab_industry") }}</div>
         <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
           {{ industryView?.title || company.industry || company.sector || "Sector context" }}
         </h2>
@@ -1422,7 +1576,7 @@ onUnmounted(stopPolling);
         </p>
         <div v-if="industryLoading" class="mt-4 flex items-center gap-2 text-sm text-ink-muted">
           <Loader2 class="h-4 w-4 animate-spin" />
-          Loading sector context…
+          {{ tr("industry.loading") }}
         </div>
         <div v-if="industryError" class="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
           {{ industryError }}
@@ -1447,14 +1601,14 @@ onUnmounted(stopPolling);
           </div>
         </div>
         <p v-else class="mt-4 text-sm text-ink-muted">
-          Sector metrics will appear here once sourced.
+          {{ tr("industry.metrics_pending") }}
         </p>
       </div>
 
       <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
-        <div class="vogue-label">Notable Voices</div>
+        <div class="vogue-label">{{ tr("industry.notable_voices") }}</div>
         <div v-if="expertOpinions.length === 0" class="mt-3 text-sm text-ink-muted">
-          Expert opinions are ready for the next evidence slice.
+          {{ tr("industry.opinions_pending") }}
         </div>
         <div v-else class="mt-4 grid gap-3 md:grid-cols-2">
           <article
@@ -1492,9 +1646,9 @@ onUnmounted(stopPolling);
 
       <div class="grid gap-5 lg:grid-cols-2">
         <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
-          <div class="vogue-label">Public Comps</div>
+          <div class="vogue-label">{{ tr("industry.public_comps") }}</div>
           <div v-if="publicComps.length === 0" class="mt-3 text-sm text-ink-muted">
-            Public comp cards will populate from competitor records and Stock Research snapshots.
+            {{ tr("industry.public_comps_pending") }}
           </div>
           <div v-else class="mt-4 space-y-3">
             <article
@@ -1535,9 +1689,9 @@ onUnmounted(stopPolling);
         </div>
 
         <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
-          <div class="vogue-label">Sector Signals</div>
+          <div class="vogue-label">{{ tr("industry.sector_signals") }}</div>
           <div v-if="sectorSignals.length === 0" class="mt-3 text-sm text-ink-muted">
-            Sector signals are pending source enrichment.
+            {{ tr("industry.sector_signals_pending") }}
           </div>
           <div v-else class="mt-4 space-y-3">
             <article

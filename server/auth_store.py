@@ -12,14 +12,14 @@ The HTTP shape lives in ``server/api.py``. This module is the data layer:
   only ever exists in the response body to the login call. Default TTL
   is 30 days; expired rows are dropped lazily on read.
 
-The existing shared ``BSH_RESEARCH_API_TOKEN`` env var continues to work
-independently for the served-HTML meta-tag flow — ``require_api_token``
-in ``api.py`` accepts either kind.
+The shared ``BSH_RESEARCH_API_TOKEN`` env var also authenticates (service
+role, header-only) — ``require_api_token`` in ``api.py`` accepts either.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
@@ -34,22 +34,22 @@ SESSION_TTL = timedelta(days=30)
 PBKDF2_ITERATIONS = 200_000
 PBKDF2_ALGO = "sha256"
 
-# Seeded on first start. The named accounts share the same initial
-# password per the operator; a future password-change endpoint will
-# mutate the store. `guest`/`guest` is a shared low-trust login — the
-# login field accepts any string (no email-format validation), so a
-# bare "guest" username works.
-SEED_USERS: list[tuple[str, str]] = [
-    ("robert@bshventures.com", "redapple"),
-    ("elina.sun@bshventures.com", "redapple"),
-    ("aurora.pan@bshventures.com", "redapple"),
-    ("serena@bshfoundation.org", "redapple"),
-    ("seline.sun@bshfoundation.org", "redapple"),
-    ("liupengsen50@gmail.com", "redapple"),
-    ("elbereth.wang@gmail.com", "redapple"),
-    ("viola.zhao@gmail.com", "redapple"),
-    ("846248966@qq.com", "redapple"),
-    ("guest", "guest"),
+# Accounts created on first start. NO passwords are baked into source
+# (an earlier version seeded a shared plaintext password, now burned).
+# Each seeded account gets an unusable random password and ``must_reset``
+# unless ``BSH_BOOTSTRAP_PASSWORD`` is set, in which case that password is
+# applied (still ``must_reset`` so the operator rotates it). Set a real
+# password per account with:  python -m server.auth_store set-password <email>
+SEED_EMAILS: list[str] = [
+    "robert@bshventures.com",
+    "elina.sun@bshventures.com",
+    "aurora.pan@bshventures.com",
+    "serena@bshfoundation.org",
+    "seline.sun@bshfoundation.org",
+    "liupengsen50@gmail.com",
+    "elbereth.wang@gmail.com",
+    "viola.zhao@gmail.com",
+    "846248966@qq.com",
 ]
 
 _LOCK = threading.RLock()
@@ -143,24 +143,42 @@ def _save_sessions(payload: dict) -> None:
 def bootstrap_seed_users() -> None:
     """Create the seed user records on first start. Idempotent: existing
     rows are preserved; only missing emails are added.
+
+    No plaintext password ships in source. Each new account is created
+    with ``BSH_BOOTSTRAP_PASSWORD`` if set, else an unusable random one,
+    and always flagged ``must_reset`` so the operator sets a real password
+    via ``python -m server.auth_store set-password <email>``.
     """
+    bootstrap_pw = os.environ.get("BSH_BOOTSTRAP_PASSWORD") or None
     with _LOCK:
         payload = _load_users()
         users = payload.setdefault("users", {})
         changed = False
-        for email, password in SEED_USERS:
+        for email in SEED_EMAILS:
             key = _normalize_email(email)
             if key in users:
                 continue
+            password = bootstrap_pw or secrets.token_urlsafe(32)
             users[key] = {
                 "email": key,
                 "password": _hash_password(password),
                 "created_at": _iso(_now()),
+                "must_reset": True,
             }
             changed = True
         if changed:
             payload["version"] = payload.get("version", 1)
             _save_users(payload)
+
+
+def must_reset(email: str | None) -> bool:
+    """True if ``email`` is flagged to change its password before use."""
+    key = _normalize_email(email)
+    if not key:
+        return False
+    with _LOCK:
+        record = _load_users().get("users", {}).get(key)
+    return bool(record and record.get("must_reset"))
 
 
 def verify_credentials(email: str, password: str) -> str | None:
@@ -196,6 +214,7 @@ def set_password(email: str, new_password: str) -> bool:
             return False
         users[key]["password"] = _hash_password(new_password)
         users[key]["password_changed_at"] = _iso(_now())
+        users[key].pop("must_reset", None)
         _save_users(payload)
     return True
 
@@ -322,7 +341,7 @@ def revoke_token(raw_token: str | None) -> bool:
 
 def revoke_email(email: str) -> int:
     """Delete all sessions for one email. Returns the count removed.
-    Useful for a future "log out everywhere" or password-change flow."""
+    Useful for a "log out everywhere" or password-change flow."""
     key = _normalize_email(email)
     with _LOCK:
         payload = _load_sessions()
@@ -333,3 +352,92 @@ def revoke_email(email: str) -> int:
         if targets:
             _save_sessions(payload)
     return len(targets)
+
+
+def revoke_all_sessions() -> int:
+    """Delete every session (e.g. after a credential compromise). Returns
+    the count removed."""
+    with _LOCK:
+        payload = _load_sessions()
+        sessions = payload.setdefault("sessions", {})
+        count = len(sessions)
+        if count:
+            payload["sessions"] = {}
+            _save_sessions(payload)
+    return count
+
+
+# ---- Operator CLI -------------------------------------------------------
+
+def _main(argv: list[str] | None = None) -> int:
+    import argparse
+    import getpass
+
+    parser = argparse.ArgumentParser(
+        prog="python -m server.auth_store",
+        description="Manage research-center accounts and sessions.",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_set = sub.add_parser("set-password", help="Set a user's password.")
+    p_set.add_argument("email")
+    p_set.add_argument(
+        "password",
+        nargs="?",
+        help="New password. Omit to be prompted (not echoed).",
+    )
+
+    p_create = sub.add_parser("create-user", help="Create a new account.")
+    p_create.add_argument("email")
+    p_create.add_argument("password", nargs="?")
+
+    sub.add_parser("list", help="List account emails.")
+
+    p_revoke = sub.add_parser("revoke", help="Revoke a user's sessions.")
+    p_revoke.add_argument("email")
+
+    sub.add_parser("revoke-all", help="Revoke ALL sessions (compromise).")
+
+    args = parser.parse_args(argv)
+
+    if args.cmd == "set-password":
+        pw = args.password or getpass.getpass("New password: ")
+        if not pw:
+            print("Password cannot be empty.")
+            return 2
+        ok = set_password(args.email, pw)
+        print("Password updated." if ok else f"No such user: {args.email}")
+        return 0 if ok else 1
+
+    if args.cmd == "create-user":
+        pw = args.password or getpass.getpass("Password: ")
+        if not pw:
+            print("Password cannot be empty.")
+            return 2
+        ok = create_user(args.email, pw)
+        print("User created." if ok else f"User already exists: {args.email}")
+        return 0 if ok else 1
+
+    if args.cmd == "list":
+        for email in list_user_emails():
+            flag = " (must reset)" if must_reset(email) else ""
+            print(f"{email}{flag}")
+        return 0
+
+    if args.cmd == "revoke":
+        n = revoke_email(args.email)
+        print(f"Revoked {n} session(s) for {args.email}.")
+        return 0
+
+    if args.cmd == "revoke-all":
+        n = revoke_all_sessions()
+        print(f"Revoked {n} session(s).")
+        return 0
+
+    return 2
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(_main())

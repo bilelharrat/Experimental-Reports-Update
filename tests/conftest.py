@@ -9,11 +9,22 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _disable_auth(monkeypatch):
-    """Force ``require_api_token`` into dev-mode (no token configured →
-    dependency is a no-op) for every test in this suite. We restore the
-    user's original env automatically when the test exits.
+    """Let API tests through without credentials. ``require_api_token`` now
+    fails closed, so we clear any shared token AND opt into anonymous dev
+    access explicitly. Tests that exercise auth itself override these with
+    their own ``monkeypatch`` in the test body. Env is restored on exit.
     """
     monkeypatch.delenv("BSH_RESEARCH_API_TOKEN", raising=False)
+    monkeypatch.setenv("BSH_ALLOW_ANON_DEV", "1")
+    # The /api/jobs/active TTL cache is keyed on time only; tests monkeypatch
+    # data roots, so a cache entry from one test would otherwise leak into the
+    # next. Clear it before each test.
+    try:
+        from server import api as _api
+
+        _api._active_jobs_cache = None
+    except Exception:
+        pass
 
 
 @pytest.fixture

@@ -1,12 +1,18 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
+import { reactive } from "vue";
 import HomeView from "../src/views/HomeView.vue";
+import SubmitLinkTool from "../src/components/SubmitLinkTool.vue";
+import UploadResearchTool from "../src/components/UploadResearchTool.vue";
+import AddHormuzResearchTool from "../src/components/AddHormuzResearchTool.vue";
 import { api } from "../src/api.js";
 
 const push = vi.fn();
+const mockRoute = reactive({ query: {} });
 
 vi.mock("vue-router", () => ({
   useRouter: () => ({ push }),
+  useRoute: () => mockRoute,
   RouterLink: {
     props: ["to"],
     template: "<a><slot /></a>",
@@ -32,6 +38,7 @@ describe("HomeView M1 layout and search", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    mockRoute.query = {};
     api.autocompleteCompanies.mockResolvedValue([]);
   });
 
@@ -125,7 +132,10 @@ describe("HomeView M1 layout and search", () => {
       .findAll("button")
       .find((button) => button.text().includes("Submit a link"))
       .trigger("click");
-    await wrapper.find("input[type='url']").setValue("https://example.com/research");
+    await wrapper
+      .findComponent(SubmitLinkTool)
+      .find("input[type='text']")
+      .setValue("https://example.com/research");
     await wrapper.findAll("form")[1].trigger("submit");
     await flushPromises();
     await wrapper
@@ -142,5 +152,44 @@ describe("HomeView M1 layout and search", () => {
       name: "external-news",
       params: { id: "news-1" },
     });
+  });
+});
+
+describe("HomeView ?intake= deep-links", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRoute.query = {};
+    api.autocompleteCompanies.mockResolvedValue([]);
+  });
+
+  it("opens the Submit Link tool at ?intake=link", async () => {
+    mockRoute.query = { intake: "link" };
+    const wrapper = mount(HomeView);
+    await flushPromises();
+
+    expect(wrapper.findComponent(SubmitLinkTool).props("expanded")).toBe(true);
+    expect(wrapper.findComponent(UploadResearchTool).props("expanded")).toBe(false);
+    expect(wrapper.findComponent(AddHormuzResearchTool).props("expanded")).toBe(false);
+  });
+
+  it("opens the Upload Research tool at ?intake=upload", async () => {
+    mockRoute.query = { intake: "upload" };
+    const wrapper = mount(HomeView);
+    await flushPromises();
+
+    expect(wrapper.findComponent(UploadResearchTool).props("expanded")).toBe(true);
+    expect(wrapper.findComponent(SubmitLinkTool).props("expanded")).toBe(false);
+  });
+
+  it("opens the internal note tool at ?intake=note and reacts to navigation", async () => {
+    const wrapper = mount(HomeView);
+    await flushPromises();
+    expect(wrapper.findComponent(AddHormuzResearchTool).props("expanded")).toBe(false);
+
+    // Sidebar Quick Intake buttons navigate to /?intake=note on the same
+    // mounted view — the watcher must pick up the query change.
+    mockRoute.query = { intake: "note" };
+    await flushPromises();
+    expect(wrapper.findComponent(AddHormuzResearchTool).props("expanded")).toBe(true);
   });
 });

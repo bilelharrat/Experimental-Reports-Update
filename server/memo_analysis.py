@@ -26,6 +26,7 @@ What this worker deliberately does **not** do (see `docs/architecture.md`):
 """
 from __future__ import annotations
 
+import atexit
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -2618,12 +2619,16 @@ def _run_fast_memo_pipeline(
         started_at=phase4_started_at,
         started_monotonic=phase4_started,
     )
-    bilingual_result, bilingual_error = claude_runner.run_memo_fast_bilingual_package(
-        run_dir=run_dir,
-        company_name=company_name,
-        run_id=run_id,
-        english_package_path=english_package_path,
-        progress=phase4_progress,
+    # Fan the pure-translation Chinese pass out per-section (R6d); it
+    # falls back to the monolithic pass on any unexpected shape/failure.
+    bilingual_result, bilingual_error = (
+        claude_runner.run_memo_fast_bilingual_package_parallel(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            english_package_path=english_package_path,
+            progress=phase4_progress,
+        )
     )
     if bilingual_error or not isinstance(bilingual_result, dict):
         message = bilingual_error or "Chinese package pass returned no data."
@@ -2830,13 +2835,70 @@ def _recover_done_memo_report(
     return True
 
 
-def recover_stale_reports() -> int:
-    """Mark memo runs complete when Claude succeeded but finalization was lost.
+# A run whose stream has been silent this long, with no live worker thread,
+# was orphaned (e.g. a restart killed the daemon thread mid-generation).
+ORPHAN_IDLE_THRESHOLD_SEC = 30 * 60
 
-    The memo skill can finish and write its structured memo package while the
-    Python worker is later interrupted before rendering or finalization.
-    This startup sweep is deliberately conservative: it only repairs runs
-    with a successful Claude result and a renderer-valid package.
+
+def _memo_worker_alive(report_id: str) -> bool:
+    names = {f"memo-analysis-{report_id}", f"memo-resume-{report_id}"}
+    return any(
+        t.name in names and t.is_alive() for t in threading.enumerate()
+    )
+
+
+def _demote_orphaned_report(report: dict, run_dir: Path) -> bool:
+    """Flip a restart-orphaned ``analyzing`` run to ``failed_during_analysis``.
+
+    A run stuck in a non-terminal status whose stream has been idle beyond
+    the threshold, with no live worker thread, can never finish on its own —
+    and while it stays ``analyzing`` it is invisible to the resume path
+    (which requires ``status.startswith("failed")``). Demoting it makes the
+    Resume button appear.
+    """
+    report_id = str(report.get("id") or "")
+    status = str(report.get("status") or "")
+    if not report_id or status.startswith("failed") or status == "complete":
+        return False
+    stream_path = memo_prep.stream_path(run_dir)
+    try:
+        ref = stream_path if stream_path.exists() else run_dir
+        idle_sec = time.time() - ref.stat().st_mtime
+    except OSError:
+        return False
+    if idle_sec < ORPHAN_IDLE_THRESHOLD_SEC:
+        return False
+    if _memo_worker_alive(report_id):
+        return False
+    message = "orphaned by server restart"
+    storage.update_report(
+        report_id,
+        status="failed_during_analysis",
+        stage="Analysis orphaned",
+        error=message,
+        failure_phase="orphaned",
+        failure_detail=message,
+    )
+    stream = job_progress.ProgressLog(stream_path, truncate=False)
+    stream.emit("error", error=message, phase="orphaned", recovered=True)
+    logger.warning(
+        "memo run %s demoted to failed_during_analysis after %ds idle",
+        report_id,
+        int(idle_sec),
+    )
+    return True
+
+
+def recover_stale_reports() -> int:
+    """Repair memo runs whose worker died before finalization.
+
+    Two cases:
+      - Claude succeeded but the worker was interrupted before rendering →
+        finish the render and mark ``complete`` (conservative: requires a
+        successful Claude result and a renderer-valid package).
+      - The worker was killed mid-generation (no result, stream cold, no
+        live thread) → demote to ``failed_during_analysis`` so the existing
+        resume path can pick the run up.
     """
     recovered = 0
     for report in storage.list_reports():
@@ -2862,6 +2924,10 @@ def recover_stale_reports() -> int:
             continue
         result = stream_state.get("success_result")
         if not result:
+            # Killed mid-generation: nothing to render, but don't abandon
+            # the run at "analyzing" forever — make it resume-eligible.
+            if _demote_orphaned_report(report, run_dir):
+                recovered += 1
             continue
         memo_paths_abs = _memo_paths_abs(report)
         if not memo_paths_abs:
@@ -2960,6 +3026,62 @@ def recover_stale_reports() -> int:
     return recovered
 
 
+# Report ids with a live in-process worker. Used by the shutdown hook to
+# write a terminal error event for anything a clean restart would otherwise
+# orphan at "analyzing" forever (the demote sweep covers hard kills).
+_ACTIVE_RUNS: set[str] = set()
+_ACTIVE_RUNS_LOCK = threading.Lock()
+
+
+def _register_active_run(report_id: str) -> None:
+    with _ACTIVE_RUNS_LOCK:
+        _ACTIVE_RUNS.add(report_id)
+
+
+def _unregister_active_run(report_id: str) -> None:
+    with _ACTIVE_RUNS_LOCK:
+        _ACTIVE_RUNS.discard(report_id)
+
+
+@atexit.register
+def _fail_active_runs_at_exit() -> None:
+    """Write a terminal error for in-flight memo runs on interpreter exit.
+
+    The workers are daemon threads, so a clean shutdown (Ctrl-C, --reload,
+    SIGTERM via uvicorn's handler → normal exit) kills them silently. This
+    hook makes the interruption visible and resume-eligible immediately
+    instead of waiting for the 30-minute orphan sweep. A SIGKILL skips
+    atexit entirely — that path is covered by ``_demote_orphaned_report``.
+    """
+    with _ACTIVE_RUNS_LOCK:
+        active = list(_ACTIVE_RUNS)
+    for report_id in active:
+        try:
+            report = storage.get_report(report_id)
+            status = str((report or {}).get("status") or "")
+            if not report or status.startswith("failed") or status == "complete":
+                continue
+            message = "interrupted by server shutdown"
+            storage.update_report(
+                report_id,
+                status="failed_during_analysis",
+                stage="Analysis interrupted",
+                error=message,
+                failure_phase="shutdown",
+                failure_detail=message,
+            )
+            run_dir = _resolve_run_dir(report)
+            if run_dir is not None:
+                stream = job_progress.ProgressLog(
+                    memo_prep.stream_path(run_dir), truncate=False
+                )
+                stream.emit("error", error=message, phase="shutdown")
+        except Exception:  # noqa: BLE001 — never let shutdown hooks raise
+            logger.exception(
+                "failed to mark memo run %s interrupted at shutdown", report_id
+            )
+
+
 def start_analysis(report_id: str) -> threading.Thread:
     """Kick off the analysis worker in a daemon thread."""
     t = threading.Thread(
@@ -2985,6 +3107,7 @@ def start_resume(report_id: str) -> threading.Thread:
 
 
 def _run_safe(report_id: str) -> None:
+    _register_active_run(report_id)
     try:
         _run(report_id)
     except Exception:  # noqa: BLE001
@@ -3002,9 +3125,12 @@ def _run_safe(report_id: str) -> None:
                 memo_prep.stream_path(run_dir), truncate=False
             )
             stream.emit("error", error="Analysis worker crashed; see server log.")
+    finally:
+        _unregister_active_run(report_id)
 
 
 def _resume_safe(report_id: str) -> None:
+    _register_active_run(report_id)
     try:
         _resume(report_id)
     except Exception:  # noqa: BLE001
@@ -3024,6 +3150,8 @@ def _resume_safe(report_id: str) -> None:
                 memo_prep.stream_path(run_dir), truncate=False
             )
             stream.emit("error", error="Resume worker crashed; see server log.")
+    finally:
+        _unregister_active_run(report_id)
 
 
 def _resolve_run_dir(report: dict) -> Path | None:

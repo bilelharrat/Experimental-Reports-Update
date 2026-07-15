@@ -10,6 +10,9 @@ import CompanyConsole from "./components/CompanyConsole.vue";
 import { activeSummaryTarget, closeSummary } from "./state.js";
 import { appLanguage, setAppLanguage } from "./state.js";
 import { isAuthenticated, sessionEmail } from "./auth.js";
+import { useT } from "./i18n.js";
+
+const t = useT();
 
 const reports = ref([]);
 const news = ref([]);
@@ -21,26 +24,43 @@ const error = ref(null);
 const route = useRoute();
 const copilotOpen = ref(false);
 
+// This feeds the sidebar nav — background data, not a live view. Poll slowly;
+// user actions refresh it immediately via @reports-changed.
+const POLL_INTERVAL_MS = 20000;
+let refreshing = false;
+
 async function refreshAll() {
+  // In-flight guard: /api/companies can take longer than the interval, so
+  // without this the timer would stack overlapping refreshes.
+  if (refreshing) return;
+  refreshing = true;
   try {
-    const [r, f, h, c] = await Promise.all([
+    // allSettled, not all: one slow/failed endpoint must not blank the whole
+    // sidebar (previously a single rejection dropped every assignment).
+    const [r, f, h, c] = await Promise.allSettled([
       api.listReports(),
       api.externalFeed(),
       api.listHormuz(),
       api.listCompanies(),
     ]);
-    reports.value = r;
-    news.value = f.filter((it) => it.kind === "news");
-    externalResearch.value = f.filter((it) => it.kind === "external_research");
-    hormuz.value = h;
-    companies.value = c;
-  } catch (e) {
-    // A 401 here means the session was already invalidated by auth.js
-    // (which clears state + redirects via the router watcher) — don't
-    // surface that as an in-page error.
-    if (e?.status !== 401) error.value = e.message;
+    if (r.status === "fulfilled") reports.value = r.value;
+    if (f.status === "fulfilled") {
+      news.value = f.value.filter((it) => it.kind === "news");
+      externalResearch.value = f.value.filter(
+        (it) => it.kind === "external_research",
+      );
+    }
+    if (h.status === "fulfilled") hormuz.value = h.value;
+    if (c.status === "fulfilled") companies.value = c.value;
+    // A 401 means auth.js already tore down the session and is redirecting —
+    // don't surface it. Show any other failure.
+    const failure = [r, f, h, c].find(
+      (x) => x.status === "rejected" && x.reason?.status !== 401,
+    );
+    error.value = failure ? failure.reason?.message || "Load failed" : null;
   } finally {
     loading.value = false;
+    refreshing = false;
   }
 }
 
@@ -48,15 +68,32 @@ async function refreshAll() {
 // stop when we log out. Avoids the login page making /api/* calls that
 // would 401 and dispatch the unauthorized event in a loop.
 let pollTimer = null;
+
+function pollTick() {
+  // Skip work while the tab is hidden; refresh once on return (below).
+  if (typeof document !== "undefined" && document.hidden) return;
+  refreshAll();
+}
+
+function onVisibilityChange() {
+  if (typeof document !== "undefined" && !document.hidden) refreshAll();
+}
+
 function startPolling() {
   if (pollTimer != null) return;
   refreshAll();
-  pollTimer = window.setInterval(refreshAll, 4000);
+  pollTimer = window.setInterval(pollTick, POLL_INTERVAL_MS);
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  }
 }
 function stopPolling() {
   if (pollTimer != null) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+  if (typeof document !== "undefined") {
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   }
   reports.value = [];
   news.value = [];
@@ -91,56 +128,59 @@ const currentCompany = computed(() =>
 );
 
 function tabLabel(tab) {
-  if (tab === "documents") return "Documents";
-  if (tab === "memo" || tab === "analysis") return "Memo Studio";
-  if (tab === "news") return "Company News";
-  if (tab === "industry") return "Industry Views";
-  if (tab === "console") return "Co-Pilot";
-  return "Overview";
+  // The dictionary already carries research.tab_* in both languages —
+  // ResearchView's tab strip uses them; this header copy must too.
+  if (tab === "documents") return t("research.tab_documents");
+  if (tab === "memo" || tab === "analysis") return t("research.tab_memo");
+  if (tab === "news") return t("research.tab_news");
+  if (tab === "industry") return t("research.tab_industry");
+  if (tab === "console") return t("research.tab_console");
+  return t("research.tab_overview");
 }
 
 const breadcrumbs = computed(() => {
   const name = String(route.name || "");
-  if (name === "home") return ["Research Center", "Home"];
-  if (name === "stock-research") return ["Research Center", "Stock"];
-  if (name === "settings") return ["Research Center", "Settings"];
-  if (name === "user-center") return ["Research Center", "User Center"];
+  const root = t("nav.breadcrumb_root");
+  if (name === "home") return [root, t("nav.home")];
+  if (name === "stock-research") return [root, t("sidebar.stock")];
+  if (name === "settings") return [root, t("sidebar.settings")];
+  if (name === "user-center") return [root, t("nav.user_center")];
   if (name === "source-library") {
-    return ["Research Center", "Source Library & Appendix"];
+    return [root, t("nav.source_library")];
   }
   if (name === "competitor-detail") {
     return [
-      "Research Center",
-      currentCompany.value?.name || route.params?.companyId || "Company",
-      "Competitor Detail",
+      root,
+      currentCompany.value?.name || route.params?.companyId || t("nav.company"),
+      t("nav.competitor_detail"),
     ];
   }
-  if (name === "innovation-lab") return ["Research Center", "Innovation Lab"];
+  if (name === "innovation-lab") return [root, t("sidebar.innovation_lab")];
   if (name.startsWith("research-page-") || name.startsWith("innovation-")) {
-    return ["Research Center", "Innovation Lab"];
+    return [root, t("sidebar.innovation_lab")];
   }
   if (name === "hormuz-library" || name === "hormuz-research") {
-    return ["Research Center", "Innovation Lab", "Hormuz"];
+    return [root, t("sidebar.innovation_lab"), "Hormuz"];
   }
-  if (name === "external-news") return ["Research Center", "Market Radar"];
-  if (name === "external-research") return ["Research Center", "External Research"];
-  if (name === "weekly-summary") return ["Research Center", "Weekly Summary"];
-  if (name === "trader-stats") return ["Research Center", "Stats"];
+  if (name === "external-news") return [root, t("sidebar.market_radar")];
+  if (name === "external-research") return [root, t("nav.external_research")];
+  if (name === "weekly-summary") return [root, t("nav.weekly_summary")];
+  if (name === "trader-stats") return [root, t("nav.stats")];
   if (name === "research") {
     return [
-      "Research Center",
-      currentCompany.value?.name || currentCompanyId.value || "Company",
+      root,
+      currentCompany.value?.name || currentCompanyId.value || t("nav.company"),
       tabLabel(route.query?.report ? route.query.tab || "memo" : route.query?.tab),
     ];
   }
-  return ["Research Center"];
+  return [root];
 });
 
 const copilotContext = computed(() => {
   if (currentCompany.value?.name) {
     return `${currentCompany.value.name} · ${tabLabel(route.query?.tab)}`;
   }
-  return breadcrumbs.value.slice(1).join(" · ") || "Research Center";
+  return breadcrumbs.value.slice(1).join(" · ") || t("nav.breadcrumb_root");
 });
 
 watch(
@@ -175,7 +215,7 @@ watch(
         <div class="flex flex-wrap items-center gap-3">
           <nav
             class="min-w-0 basis-full text-xs text-ink-muted sm:flex-1 sm:basis-auto"
-            aria-label="Breadcrumb"
+            :aria-label="t('nav.breadcrumb_label')"
           >
             <ol class="hidden min-w-0 items-center gap-1.5 sm:flex">
               <li
@@ -198,14 +238,14 @@ watch(
               </li>
             </ol>
             <div class="truncate font-medium text-ink-primary sm:hidden">
-              {{ breadcrumbs[breadcrumbs.length - 1] || "Research Center" }}
+              {{ breadcrumbs[breadcrumbs.length - 1] || t("nav.breadcrumb_root") }}
             </div>
           </nav>
 
           <div
             class="inline-flex overflow-hidden rounded-full border border-subtle bg-surface text-xs"
             role="group"
-            aria-label="App language"
+            :aria-label="t('nav.app_language_label')"
           >
             <button
               type="button"
@@ -239,7 +279,7 @@ watch(
           <RouterLink
             :to="{ name: 'settings' }"
             class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-subtle bg-surface text-ink-muted hover:text-ink-primary focus-ring"
-            aria-label="Settings"
+            :aria-label="t('sidebar.settings')"
           >
             <Settings class="h-4 w-4" />
           </RouterLink>
@@ -248,7 +288,7 @@ watch(
             class="inline-flex items-center gap-2 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:text-ink-primary focus-ring"
           >
             <User class="h-4 w-4 text-ink-muted" />
-            <span class="hidden max-w-36 truncate sm:inline">{{ sessionEmail || "Profile" }}</span>
+            <span class="hidden max-w-36 truncate sm:inline">{{ sessionEmail || t("sidebar.profile") }}</span>
           </RouterLink>
         </div>
       </header>
@@ -267,17 +307,17 @@ watch(
       type="button"
       @click="copilotOpen = true"
       class="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-ink-primary p-3 text-sm font-semibold text-white shadow-card-raised hover:-translate-y-0.5 focus-ring sm:bottom-5 sm:right-5 sm:px-4"
-      aria-label="Ask Co-Pilot"
+      :aria-label="t('copilot.ask')"
     >
       <Bot class="h-4 w-4 text-accent-soft" />
-      <span class="hidden sm:inline">Ask Co-Pilot</span>
+      <span class="hidden sm:inline">{{ t("copilot.ask") }}</span>
     </button>
 
     <Teleport to="body">
       <aside
         v-if="copilotOpen"
         class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[372px] flex-col border-l border-subtle bg-surface shadow-card-raised"
-        aria-label="AI Co-Pilot"
+        :aria-label="t('copilot.title')"
       >
         <header class="flex items-start gap-3 border-b border-subtle px-4 py-4">
           <div
@@ -286,7 +326,7 @@ watch(
             <Bot class="h-4 w-4" />
           </div>
           <div class="min-w-0 flex-1">
-            <div class="vogue-label">AI Co-Pilot</div>
+            <div class="vogue-label">{{ t("copilot.title") }}</div>
             <div class="truncate text-sm font-semibold text-ink-primary">
               {{ copilotContext }}
             </div>
@@ -295,7 +335,7 @@ watch(
             type="button"
             @click="copilotOpen = false"
             class="rounded-full p-1.5 text-ink-muted hover:bg-surface-muted hover:text-ink-primary focus-ring"
-            aria-label="Close Co-Pilot"
+            :aria-label="t('copilot.close')"
           >
             <X class="h-4 w-4" />
           </button>
@@ -308,20 +348,17 @@ watch(
           <div v-else class="space-y-4">
             <div class="rounded-card border border-subtle bg-surface-muted p-4">
               <div class="text-sm font-semibold text-ink-primary">
-                Context-aware co-pilot
+                {{ t("copilot.empty_title") }}
               </div>
               <p class="mt-1 text-sm leading-relaxed text-ink-muted">
-                Open a company workspace to hydrate company-specific sessions.
-                This global drawer preserves the existing console backend without
-                making Console a workspace tab.
+                {{ t("copilot.empty_body") }}
               </p>
             </div>
             <div class="ml-auto max-w-[85%] rounded-l-card rounded-br-card bg-ink-primary px-3 py-2 text-sm text-white">
-              Compare ZaiNar's revenue quality to NextNav.
+              {{ t("copilot.demo_user") }}
             </div>
             <div class="max-w-[85%] rounded-card bg-surface-muted px-3 py-2 text-sm text-ink-secondary">
-              On it. I will scope booked ARR versus MOUs and surface
-              disconfirming evidence first.
+              {{ t("copilot.demo_reply") }}
             </div>
           </div>
         </div>

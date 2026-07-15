@@ -43,6 +43,10 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "tasks:action",
     },
     "guest": {"memo:edit"},
+    # The shared env token (BSH_RESEARCH_API_TOKEN) authenticates as this
+    # role. Read-only: it can reach any non-permission-gated GET but none
+    # of the state-changing actions above. It is NOT admin.
+    "service": set(),
 }
 
 ROLE_BY_EMAIL = {
@@ -83,7 +87,9 @@ def _write_yaml(payload: dict) -> None:
 
 def role_for_email(email: str | None, *, shared_auth: bool = False) -> str:
     if shared_auth and not email:
-        return "admin"
+        # Shared-token callers get the read-only "service" role, never
+        # admin. The token is a machine credential, not a person.
+        return "service"
     normalized = (email or "").strip().lower()
     if not normalized:
         return "guest"
@@ -177,8 +183,10 @@ def display_name(email: str | None) -> str:
     return " ".join(part.capitalize() for part in parts if part) or normalized
 
 
-def workspace_profile(email: str | None, *, shared_auth: bool = False) -> dict:
-    role = role_for_email(email, shared_auth=shared_auth)
+def workspace_profile(
+    email: str | None, *, shared_auth: bool = False, role_override: str | None = None
+) -> dict:
+    role = role_override or role_for_email(email, shared_auth=shared_auth)
     users = auth_store.list_user_emails()
     company_count = len(storage.list_companies())
     report_count = len(storage.list_reports())

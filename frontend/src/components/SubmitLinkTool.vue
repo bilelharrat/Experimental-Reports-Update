@@ -17,7 +17,9 @@ const t = useT();
 const router = useRouter();
 const emit = defineEmits(["created"]);
 
-const expanded = ref(false);
+// v-model:expanded — HomeView drives this from ?intake= deep-links; the
+// header button below still toggles it locally.
+const expanded = defineModel("expanded", { type: Boolean, default: false });
 const url = ref("");
 const previewing = ref(false);
 const preview = ref(null);
@@ -37,10 +39,31 @@ function assignmentSummary(item) {
   return `Needs assignment review · ${assignment.category_label}`;
 }
 
+// Mirrors the server's own https:// prefixing (link intake accepts bare
+// hosts). Returns a localized error string, or null when the URL is usable.
+function urlValidationError() {
+  const raw = url.value.trim();
+  if (!raw) return t("submit_link.error_url_required");
+  try {
+    const candidate = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const parsed = new URL(candidate);
+    if (!parsed.hostname || !parsed.hostname.includes(".")) {
+      return t("submit_link.error_url_invalid");
+    }
+  } catch {
+    return t("submit_link.error_url_invalid");
+  }
+  return null;
+}
+
 async function runPreview() {
   error.value = null;
   preview.value = null;
-  if (!url.value.trim()) return;
+  const invalid = urlValidationError();
+  if (invalid) {
+    error.value = invalid;
+    return;
+  }
   previewing.value = true;
   try {
     preview.value = await api.linkPreview(url.value.trim());
@@ -52,7 +75,11 @@ async function runPreview() {
 }
 
 async function accept() {
-  if (!url.value.trim()) return;
+  const invalid = urlValidationError();
+  if (invalid) {
+    error.value = invalid;
+    return;
+  }
   submitting.value = true;
   error.value = null;
   try {
@@ -95,15 +122,19 @@ function cancel() {
 
     <div v-if="expanded" class="border-t border-subtle px-4 py-3 space-y-3">
       <form @submit.prevent="runPreview" class="flex items-center gap-2">
+        <!-- type=text, not type=url: native constraint validation silently
+             cancels the submit event for invalid values, so the user gets no
+             spinner and no error. Validation happens in runPreview instead. -->
         <input
           v-model="url"
-          type="url"
+          type="text"
+          inputmode="url"
           :placeholder="t('submit_link.url_placeholder')"
           class="flex-1 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring"
         />
         <button
           type="submit"
-          :disabled="!url.trim() || previewing"
+          :disabled="previewing"
           class="px-3 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1.5"
         >
           <Loader2 v-if="previewing" class="h-3.5 w-3.5 animate-spin" />
@@ -189,7 +220,7 @@ function cancel() {
           class="mt-2 inline-flex items-center gap-1 rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
         >
           <ExternalLink class="h-3 w-3" />
-          Open analysis
+          {{ t("intake.open_analysis") }}
         </button>
       </div>
     </div>

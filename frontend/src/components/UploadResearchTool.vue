@@ -16,7 +16,9 @@ const t = useT();
 const router = useRouter();
 const emit = defineEmits(["created"]);
 
-const expanded = ref(false);
+// v-model:expanded — HomeView drives this from ?intake= deep-links; the
+// header button below still toggles it locally.
+const expanded = defineModel("expanded", { type: Boolean, default: false });
 const file = ref(null);
 const title = ref("");
 const sourceCompany = ref("");
@@ -34,7 +36,10 @@ function onPick(e) {
   const f = e.target.files?.[0];
   if (!f) return;
   file.value = f;
-  if (!title.value) title.value = f.name.replace(/\.[^.]+$/, "");
+  // Don't prefill the title from the filename: the placeholder already
+  // advertises "defaults to filename" and the server applies that default
+  // for an empty field. A prefilled value made typing append to the
+  // filename instead of replacing it (QA 2026-07-13).
 }
 
 function assignmentSummary(item) {
@@ -160,7 +165,7 @@ async function submit() {
           @click="router.push({ name: 'external-research', params: { id: savedItem.id } })"
           class="mt-2 inline-flex items-center gap-1 rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
         >
-          Open analysis
+          {{ t("intake.open_analysis") }}
         </button>
       </div>
 

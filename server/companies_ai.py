@@ -19,6 +19,24 @@ logger = logging.getLogger(__name__)
 
 MAX_RESULTS = 6
 
+# The 11 GICS sectors. `sector` is constrained to this vocabulary so two
+# megacap records can't land in different taxonomies ("Technology" vs
+# "Communication Services" — colloquial vs GICS); free-text stays in
+# `industry`.
+GICS_SECTORS = [
+    "Energy",
+    "Materials",
+    "Industrials",
+    "Consumer Discretionary",
+    "Consumer Staples",
+    "Health Care",
+    "Financials",
+    "Information Technology",
+    "Communication Services",
+    "Utilities",
+    "Real Estate",
+]
+
 
 # JSON schema for the structured output. Strict mode requires every property
 # to be listed in `required` and `additionalProperties: false`. Optional
@@ -33,14 +51,29 @@ SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "name": {"type": "string"},
+                    "name": {
+                        "type": "string",
+                        "description": "Canonical display name, with NO parenthetical qualifiers — disambiguation goes in `disambiguator`",
+                    },
+                    "legal_name": {
+                        "type": ["string", "null"],
+                        "description": "Registered legal name ('Anduril Industries, Inc.')",
+                    },
+                    "disambiguator": {
+                        "type": ["string", "null"],
+                        "description": "Short qualifier when the plain name is ambiguous — location, DBA, or line of business ('Dallas, TX signage manufacturer'). Never fold this into `name`.",
+                    },
                     "ticker": {"type": ["string", "null"]},
                     "exchange": {"type": ["string", "null"]},
                     "status": {
                         "type": ["string", "null"],
                         "description": "public | private | subsidiary | nonprofit | null",
                     },
-                    "sector": {"type": ["string", "null"]},
+                    "sector": {
+                        "type": ["string", "null"],
+                        "enum": [*GICS_SECTORS, None],
+                        "description": "One of the 11 GICS sectors, or null",
+                    },
                     "industry": {"type": ["string", "null"]},
                     "description": {"type": ["string", "null"]},
                     "hq": {"type": ["string", "null"]},
@@ -162,6 +195,8 @@ SCHEMA: dict[str, Any] = {
                 },
                 "required": [
                     "name",
+                    "legal_name",
+                    "disambiguator",
                     "ticker",
                     "exchange",
                     "status",
@@ -202,9 +237,17 @@ SYSTEM_PROMPT = (
     "ambiguous (e.g. 'Apple' vs 'Apple Hospitality REIT').\n\n"
     "Aim for HIGH FILL — every field that has a verifiable answer should be "
     "populated. Use null only when the field genuinely doesn't apply (e.g. "
-    "earnings for a private company) or no public source exists. Use the "
-    "company's legal/canonical name ('Anduril Industries, Inc.', not "
-    "'Anduril Industries') so repeat searches reconcile to the same record.\n\n"
+    "earnings for a private company) or no public source exists.\n\n"
+    "Identity fields — these keep repeat searches reconciling to the same "
+    "record, so follow them exactly:\n"
+    "- name: the canonical display name ('Anduril Industries'). NEVER append "
+    "parenthetical qualifiers, locations, or DBAs to it.\n"
+    "- legal_name: the registered legal name ('Anduril Industries, Inc.').\n"
+    "- disambiguator: when the plain name is ambiguous (two companies share "
+    "it), put the distinguishing detail HERE — location, DBA, or line of "
+    "business ('Dallas, TX signage manufacturer') — not in name.\n"
+    "- sector: exactly one of the 11 GICS sectors from the schema enum; use "
+    "industry for the free-text specific business.\n\n"
     "Per-field guidance:\n"
     "- description: One sentence — what they do and how they make money.\n"
     "- key_people: 4–5 entries. ALWAYS include the founder(s), even if no "
@@ -234,13 +277,22 @@ SYSTEM_PROMPT = (
 
 
 def deep_search(
-    query: str, *, force_refresh: bool = False, progress=None
+    query: str,
+    *,
+    force_refresh: bool = False,
+    progress=None,
+    only_company_id: str | None = None,
 ) -> dict:
     """Run a deep search and persist any new matches into local storage.
 
     Cached results live forever (no TTL) — `force_refresh=True` re-queries
     and overwrites the cache. The response always includes `cached_at` (ISO
     8601, nullable) so the UI can show how stale the data is.
+
+    ``only_company_id`` restricts persistence: only returned matches that
+    resolve (by ticker/host/alias evidence) to that existing local record
+    are upserted; everything else is discarded unwritten. Refresh flows use
+    this so a re-query can never mint a sibling record (QA R5c).
 
     Returns:
       - source: "claude_code" | "cache" | "fallback"
@@ -296,6 +348,11 @@ def deep_search(
             "cached_at": None,
         }
 
+    if only_company_id is not None:
+        raw = [
+            m for m in raw
+            if storage.resolve_company_match(m) == only_company_id
+        ]
     enriched = [storage.upsert_company_from_match(m) for m in raw]
     if enriched:
         cache.put("companies_ai", q.lower(), enriched)

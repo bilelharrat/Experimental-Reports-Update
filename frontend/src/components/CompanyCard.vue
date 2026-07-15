@@ -10,6 +10,9 @@ import {
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
+
+const t = useT();
 
 const props = defineProps({
   company: { type: Object, required: true },
@@ -85,7 +88,7 @@ const earningsLine = computed(() => {
         >
           {{ company.ticker }}<span v-if="company.exchange" class="opacity-70"> · {{ company.exchange }}</span>
         </span>
-        <span v-if="company.sector" class="text-xs text-ink-muted">{{ company.sector }}</span>
+        <span v-if="company.category" class="text-xs text-ink-muted">{{ company.category }}</span>
       </div>
 
       <p
@@ -112,11 +115,11 @@ const earningsLine = computed(() => {
 
       <div v-if="fundingLine" class="mt-2 flex items-center gap-1.5 text-xs text-ink-muted">
         <TrendingUp class="h-3 w-3" />
-        <span>Last round: <span class="text-ink-secondary">{{ fundingLine }}</span></span>
+        <span>{{ t("card.last_round") }} <span class="text-ink-secondary">{{ fundingLine }}</span></span>
       </div>
       <div v-if="earningsLine" class="mt-1 flex items-center gap-1.5 text-xs text-ink-muted">
         <TrendingUp class="h-3 w-3" />
-        <span>Last earnings: <span class="text-ink-secondary">{{ earningsLine }}</span></span>
+        <span>{{ t("card.last_earnings") }} <span class="text-ink-secondary">{{ earningsLine }}</span></span>
       </div>
 
       <div

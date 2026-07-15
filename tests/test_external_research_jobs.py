@@ -817,7 +817,7 @@ def test_research_translation_supersedes_stale_progress_before_requeue(
 
     monkeypatch.setattr(api.threading, "Thread", FakeThread)
 
-    response = api.post_research_translate(item_id)
+    response = api.post_research_translate(_admin_request(), item_id)
     assert response["status"] == "queued"
     assert "started" in starts
     assert not progress_path.exists()
@@ -1040,6 +1040,9 @@ def test_stale_research_summary_and_analysis_are_recovered(
     os.utime(analysis_path, (0, 0))
 
     client = TestClient(app)
+    # Recovery no longer runs inline on GET /api/jobs/active (it moved to a
+    # startup + background sweep, off the request path). Invoke it directly.
+    api.recover_stale_jobs()
     active = client.get("/api/jobs/active")
     assert active.status_code == 200, active.text
     assert not any(job.get("file_id") == entry["id"] for job in active.json())
@@ -1049,3 +1052,15 @@ def test_stale_research_summary_and_analysis_are_recovered(
     item = external_store.get_item("external_research", item_id)
     assert item["status"] == "ready"
     assert "Recovered interrupted run" in item["analysis_error"]
+
+
+def _admin_request():
+    """Stub Request for calling gated handlers as plain functions:
+    resolves to the anon-dev admin role in _caller_role."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        state=SimpleNamespace(auth_kind="anon_dev", session_email=None),
+        cookies={},
+        headers={},
+    )

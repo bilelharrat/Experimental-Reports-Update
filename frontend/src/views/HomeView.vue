@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import {
   Search,
   Loader2,
@@ -28,7 +28,30 @@ import AddHormuzResearchTool from "../components/AddHormuzResearchTool.vue";
 const t = useT();
 
 const router = useRouter();
+const route = useRoute();
 const query = ref("");
+
+// ?intake=link|upload|note deep-links (and the sidebar Quick Intake
+// buttons, which navigate to those URLs) open the matching Quick Add tool.
+const linkOpen = ref(false);
+const uploadOpen = ref(false);
+const noteOpen = ref(false);
+const quickAddEl = ref(null);
+
+watch(
+  () => route.query.intake,
+  (v) => {
+    linkOpen.value = v === "link";
+    uploadOpen.value = v === "upload";
+    noteOpen.value = v === "note";
+    if (v) {
+      nextTick(() => {
+        quickAddEl.value?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      });
+    }
+  },
+  { immediate: true },
+);
 const suggestions = ref([]);
 const showSuggestions = ref(false);
 const autocompleting = ref(false);
@@ -422,7 +445,7 @@ function onBlur() {
             <div class="text-xs text-ink-muted truncate">
               <span v-if="s.ticker" class="font-mono">{{ s.ticker }}</span>
               <span v-if="s.exchange"> · {{ s.exchange }}</span>
-              <span v-if="s.sector"> · {{ s.sector }}</span>
+              <span v-if="s.category || s.sector"> · {{ s.category || s.sector }}</span>
               <span
                 v-if="s.source === 'local'"
                 class="ml-2 px-1 py-0.5 rounded bg-accent-soft text-accent-ink"
@@ -441,21 +464,21 @@ function onBlur() {
       </div>
     </form>
 
-    <div class="mx-auto mt-5 max-w-3xl">
+    <div ref="quickAddEl" class="mx-auto mt-5 max-w-3xl">
       <div class="mb-2 flex items-center justify-between px-1">
         <h2 class="vogue-label">{{ t("home.quick_add") }}</h2>
         <router-link
           :to="{ name: 'source-library' }"
           class="inline-flex items-center gap-1 text-xs font-semibold text-accent-ink hover:text-ink-primary focus-ring rounded"
         >
-          Source library &amp; appendix
+          {{ t("home.source_library") }}
           <ArrowRight class="h-3.5 w-3.5" />
         </router-link>
       </div>
       <div class="grid gap-3">
-        <SubmitLinkTool />
-        <UploadResearchTool />
-        <AddHormuzResearchTool />
+        <SubmitLinkTool v-model:expanded="linkOpen" />
+        <UploadResearchTool v-model:expanded="uploadOpen" />
+        <AddHormuzResearchTool v-model:expanded="noteOpen" />
       </div>
     </div>
 
@@ -593,9 +616,9 @@ function onBlur() {
     <section class="mt-12 rounded-card border border-subtle bg-surface p-5 shadow-card">
       <div class="mb-3 flex items-center justify-between gap-3">
         <div>
-          <div class="vogue-label">Operations</div>
+          <div class="vogue-label">{{ t("home.operations") }}</div>
           <p class="mt-1 text-sm text-ink-muted">
-            Administrative refresh actions stay available without competing with search.
+            {{ t("home.operations_hint") }}
           </p>
         </div>
       </div>

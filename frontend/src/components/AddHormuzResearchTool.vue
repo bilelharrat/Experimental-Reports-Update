@@ -18,7 +18,9 @@ const t = useT();
 const router = useRouter();
 const emit = defineEmits(["created"]);
 
-const expanded = ref(false);
+// v-model:expanded — HomeView drives this from ?intake= deep-links; the
+// header button below still toggles it locally.
+const expanded = defineModel("expanded", { type: Boolean, default: false });
 const title = ref("");
 const body = ref("");
 const file = ref(null);
@@ -184,7 +186,7 @@ async function submit() {
           @click="router.push({ name: 'hormuz-research', params: { id: savedItem.id } })"
           class="mt-2 inline-flex items-center gap-1 rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
         >
-          Open note
+          {{ t("intake.open_note") }}
         </button>
       </div>
 

@@ -3333,6 +3333,17 @@ def _analysis_session_file_listing(analysis_session_path: Path | None) -> str:
     return "\n".join(f"- {name}" for name in files) or "- Packet folder is empty."
 
 
+# The memo "package" passes (English synthesis, bilingual/Chinese fill, and
+# resume) each hand Claude the whole memo and ask for one large, tool-free
+# generation. During that emission Claude Code publishes no intermediate
+# stream-json events, so the silence guard's clock advances while the model
+# is working fine. The 180s default kills these routinely (it was the single
+# most common memo failure on record — "memo Chinese package stalled after
+# 180s"). Give them a budget that matches a real long generation, matching
+# the precedent already set for PDF translation.
+MEMO_PACKAGE_SILENCE_TIMEOUT_SEC = 600
+
+
 def _run_memo_local_json_artifact(
     *,
     prompt: str,
@@ -3357,6 +3368,12 @@ def _run_memo_local_json_artifact(
         claude_path() or "claude",
         "-p", prompt,
         "--output-format", "stream-json",
+        # Emit partial content_block_delta traffic. The memo package passes
+        # are single enormous tool-free generations that otherwise publish
+        # no events for minutes at a stretch — the silence guard in
+        # _consume_stream_json_process must see token flow as liveness so
+        # it measures true stalls, not "no complete event yet".
+        "--include-partial-messages",
         "--verbose",
         "--add-dir", str(run_dir),
         "--permission-mode", "bypassPermissions",
@@ -3632,7 +3649,7 @@ Return only the JSON matching the attached schema.
         progress_message="Synthesizing English memo package",
         timeout_label="memo English package",
         timeout_sec=timeout_sec,
-        silence_timeout_sec=600,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
     )
 
@@ -3686,8 +3703,259 @@ Chinese style:
         progress_message="Completing Chinese memo package",
         timeout_label="memo Chinese package",
         timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
     )
+
+
+_MEMO_BILINGUAL_UNIT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "unit": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    },
+    "required": ["unit"],
+}
+
+_MEMO_BILINGUAL_STYLE = """\
+Chinese style:
+- Formal written Chinese, not colloquial.
+- Use Chinese punctuation in Chinese sentences.
+- Keep a half-width space around Latin acronyms inside Chinese sentences.
+- Preserve company names, executive names, tickers, dates, currency amounts,
+  percentages, URLs, SAFE, SPV, ARR, NRR, IRR, EBITDA, CAGR, and other standard
+  acronyms in Latin form where appropriate.
+- Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
+  source-trace labels, memo-package labels, reviewer-prompt labels,
+  decision-question labels, `硬 IP 墙`, or `软性工具`.
+"""
+
+
+def _adopt_zh_translations(source: Any, translated: Any) -> None:
+    """Copy ONLY ``zh`` strings from ``translated`` into ``source`` in place.
+
+    The merge is deliberately one-way and shape-conservative: English values,
+    numbers, list lengths, and structure always come from ``source`` (the
+    English package). A localized value is a ``{en, zh}`` dict; we adopt its
+    ``zh`` only when the ``en`` on both sides matches, so a unit that drifted
+    from its input cannot corrupt the package.
+    """
+    if isinstance(source, dict) and isinstance(translated, dict):
+        if "en" in source and "zh" in source:
+            if (
+                str(translated.get("zh") or "").strip()
+                and translated.get("en") == source.get("en")
+                and not str(source.get("zh") or "").strip()
+            ):
+                source["zh"] = translated["zh"]
+        for key, value in source.items():
+            if key in translated:
+                _adopt_zh_translations(value, translated[key])
+        return
+    if isinstance(source, list) and isinstance(translated, list):
+        if len(source) == len(translated):
+            for s_item, t_item in zip(source, translated):
+                _adopt_zh_translations(s_item, t_item)
+
+
+def _run_bilingual_unit(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    unit_label: str,
+    unit_path: Path,
+    progress,
+    timeout_sec: int,
+) -> tuple[dict | None, str | None]:
+    prompt = f"""\
+You are completing the Simplified Chinese strings of ONE part of a BSH
+LP-facing investment memo package for {company_name} (run id: {run_id}).
+
+Input English source JSON for this part ({unit_label}):
+`{unit_path}`
+
+Task:
+- Read the input JSON.
+- Return `unit` with exactly the same JSON structure, unchanged English
+  values, same numbers, and same list lengths.
+- Fill every blank `zh` user-facing string with native professional
+  Simplified Chinese suitable for institutional investment readers.
+- Do not soften risks or change any recommendation.
+- Do not introduce new analysis.
+- Do not write files. Return only the JSON object matching the attached
+  schema.
+
+{_MEMO_BILINGUAL_STYLE}"""
+    result, error = _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=_MEMO_BILINGUAL_UNIT_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message=f"Translating {unit_label}",
+        timeout_label=f"memo Chinese package ({unit_label})",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=[run_dir],
+    )
+    if error:
+        return None, error
+    unit = (result or {}).get("unit")
+    if not isinstance(unit, dict):
+        return None, f"{unit_label} pass did not return a unit object"
+    unit["claude_cost_usd"] = result.get("claude_cost_usd")
+    unit["claude_duration_ms"] = result.get("claude_duration_ms")
+    return unit, None
+
+
+def run_memo_fast_bilingual_package_parallel(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    english_package_path: Path,
+    progress=None,
+    timeout_sec: int = 1200,
+    max_workers: int | None = None,
+) -> tuple[dict | None, str | None]:
+    """Per-section fan-out of the bilingual pass (R6d).
+
+    The Chinese pass is a pure translation of phase 3's output — nothing
+    requires one 20-minute monolithic call. Split the package into one unit
+    per section plus an envelope (everything else: company block, sources,
+    top-level strings), translate the units on the shared thread pool, and
+    reassemble with a zh-only merge that cannot alter English content.
+
+    Falls back to the monolithic ``run_memo_fast_bilingual_package`` when
+    the package shape is unexpected or any unit fails — worst case this is
+    exactly as slow and exactly as correct as before.
+    """
+    if os.environ.get("BSH_MEMO_BILINGUAL_PARALLEL", "1") != "1":
+        return run_memo_fast_bilingual_package(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            english_package_path=english_package_path,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+
+    def _fallback(reason: str) -> tuple[dict | None, str | None]:
+        logger.warning(
+            "bilingual parallel pass falling back to monolithic: %s", reason
+        )
+        if progress is not None:
+            progress.emit(
+                "claude_action",
+                action="thinking",
+                text=f"Parallel Chinese pass unavailable ({reason}); "
+                "running monolithic pass",
+            )
+        return run_memo_fast_bilingual_package(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            english_package_path=english_package_path,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+
+    try:
+        package = json.loads(english_package_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return _fallback(f"could not read English package: {exc}")
+    sections = package.get("sections")
+    if not isinstance(sections, list) or not sections:
+        return _fallback("package has no sections list")
+
+    units_dir = run_dir / "logs" / "bilingual_units"
+    units_dir.mkdir(parents=True, exist_ok=True)
+    envelope = {k: v for k, v in package.items() if k != "sections"}
+    units: list[tuple[str, Path, Any]] = []
+    envelope_path = units_dir / "envelope.en.json"
+    envelope_path.write_text(
+        json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    units.append(("package envelope", envelope_path, envelope))
+    for index, section in enumerate(sections):
+        section_id = (
+            str(section.get("id") or f"section-{index}")
+            if isinstance(section, dict)
+            else f"section-{index}"
+        )
+        path = units_dir / f"{index:02d}_{section_id}.en.json"
+        path.write_text(
+            json.dumps(section, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        units.append((f"section {section_id}", path, section))
+
+    workers = max_workers or int(os.environ.get("BSH_MEMO_FAST_MAX_WORKERS", "4") or 4)
+    workers = max(1, min(workers, len(units)))
+    from concurrent.futures import ThreadPoolExecutor
+
+    results: list[tuple[str, dict | None, str | None]] = []
+    with ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix="memo-bilingual"
+    ) as pool:
+        futures = {
+            pool.submit(
+                _run_bilingual_unit,
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                unit_label=label,
+                unit_path=path,
+                progress=progress,
+                timeout_sec=timeout_sec,
+            ): (label, source)
+            for label, path, source in units
+        }
+        for future, (label, source) in futures.items():
+            try:
+                unit, error = future.result()
+            except Exception as exc:  # noqa: BLE001
+                unit, error = None, f"{label} crashed: {exc}"
+            results.append((label, unit, error))
+            if error is None:
+                _adopt_zh_translations(source, unit)
+
+    failed = [f"{label}: {error}" for label, _, error in results if error]
+    if failed:
+        return _fallback("; ".join(failed[:3]))
+
+    cost = sum(
+        _to_float(unit.get("claude_cost_usd")) for _, unit, _ in results if unit
+    )
+    duration = max(
+        (_to_int(unit.get("claude_duration_ms")) for _, unit, _ in results if unit),
+        default=0,
+    )
+    return (
+        {
+            "memo_package": package,
+            "claude_cost_usd": round(cost, 6) if cost else None,
+            "claude_duration_ms": duration or None,
+            "claude_usage": None,
+        },
+        None,
+    )
+
+
+def _to_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _to_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def run_investment_memo(
@@ -4323,7 +4591,7 @@ def run_resume_memo_package(
         event_handler=_process_event,
         timeout_sec=timeout_sec,
         timeout_label="memo package resume",
-        silence_timeout_sec=180,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
     )
     result_event: dict | None = state.get("result_event")
     if stream_error:

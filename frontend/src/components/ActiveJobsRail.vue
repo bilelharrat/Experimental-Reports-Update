@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   AlertCircle,
   Brain,
@@ -19,24 +19,25 @@ import {
   Sparkles,
   Terminal,
 } from "lucide-vue-next";
-import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import {
+  activeJobs as jobs,
+  subscribeActiveJobs,
+  unsubscribeActiveJobs,
+} from "../activeJobs.js";
 import JobLogModal from "./JobLogModal.vue";
 
 const t = useT();
-const jobs = ref([]);
 const collapsed = ref(false);
 const expandedJobThreads = ref(new Set());
 const autoExpandedJobThreads = ref(new Set());
 const openJob = ref(null);
-let pollId = null;
-let polling = false;
 
-async function tick() {
-  if (polling) return;
-  polling = true;
-  try {
-    const nextJobs = await api.listActiveJobs();
+// Auto-expand memo threads as they appear. Driven by the shared jobs ref
+// instead of a component-local poll.
+watch(
+  jobs,
+  (nextJobs) => {
     const expanded = new Set(expandedJobThreads.value);
     const autoExpanded = new Set(autoExpandedJobThreads.value);
     for (const job of nextJobs) {
@@ -51,23 +52,14 @@ async function tick() {
         autoExpanded.add(key);
       }
     }
-    jobs.value = nextJobs;
     expandedJobThreads.value = expanded;
     autoExpandedJobThreads.value = autoExpanded;
-  } catch {
-    // network blip — keep prior value
-  } finally {
-    polling = false;
-  }
-}
+  },
+  { immediate: true },
+);
 
-onMounted(() => {
-  tick();
-  pollId = setInterval(tick, 3000);
-});
-onBeforeUnmount(() => {
-  if (pollId) clearInterval(pollId);
-});
+onMounted(subscribeActiveJobs);
+onBeforeUnmount(unsubscribeActiveJobs);
 
 function pct(j) {
   if (j.kind === "summary" && j.slide_count && j.slide_no) {

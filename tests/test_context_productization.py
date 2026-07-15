@@ -169,8 +169,11 @@ def test_settings_analytics_and_rbac(monkeypatch, tmp_path):
     assert user.status_code == 200, user.text
     assert user.json()["analytics"]["copilot_task_acceptance"]["acceptance_rate"] == 1.0
 
+    # Seed passwords no longer ship in source; create the low-trust guest
+    # account explicitly for this RBAC check.
     auth_store.bootstrap_seed_users()
-    login = client.post("/api/auth/token", json={"email": "guest", "password": "guest"})
+    auth_store.create_user("guest", "guest-passw0rd")
+    login = client.post("/api/auth/token", json={"email": "guest", "password": "guest-passw0rd"})
     assert login.status_code == 200, login.text
     token = login.json()["token"]
     headers = {"Authorization": f"Bearer {token}"}
@@ -181,3 +184,77 @@ def test_settings_analytics_and_rbac(monkeypatch, tmp_path):
     assert forbidden.status_code == 403
     assert not product_store.has_permission("guest", "documents:delete")
     assert (data_root / "settings" / "preferences.yaml").exists()
+
+
+def test_company_news_lang_zh_prefers_translated_recent_news(monkeypatch, tmp_path):
+    _patch_roots(monkeypatch, tmp_path)
+    storage.update_company(
+        "zainar-inc",
+        translation={
+            "language": "zh",
+            "recent_news": [
+                {"headline": "ZaiNar 企业 SDK 突破 50 个试点", "summary": "试点数量更新。"}
+            ],
+        },
+    )
+    client = TestClient(app)
+
+    en = client.get("/api/companies/zainar-inc/news-feed")
+    assert en.status_code == 200, en.text
+    en_titles = [row["title"] for row in en.json()["rows"]]
+    assert "ZaiNar enterprise SDK passes 50 pilots" in en_titles
+
+    zh = client.get("/api/companies/zainar-inc/news-feed", params={"lang": "zh"})
+    assert zh.status_code == 200, zh.text
+    zh_rows = zh.json()["rows"]
+    zh_titles = [row["title"] for row in zh_rows]
+    assert "ZaiNar 企业 SDK 突破 50 个试点" in zh_titles
+    assert "ZaiNar enterprise SDK passes 50 pilots" not in zh_titles
+    # The date rides along from the original item.
+    translated = next(r for r in zh_rows if r["title"].startswith("ZaiNar 企业"))
+    assert translated.get("published_at") == "2026-06-01"
+
+    # No server-side English UI copy leaks into the payload.
+    assert zh.json()["empty_state"] == ""
+
+
+def test_external_archive_news_serves_cached_zh_translation(monkeypatch, tmp_path):
+    from server import cache, external_translate
+
+    _patch_roots(monkeypatch, tmp_path)
+    monkeypatch.setattr(cache, "CACHE_ROOT", tmp_path / "data" / "cache")
+    item = external_store.write_item(
+        "news",
+        {
+            "id": external_store.new_id(),
+            "kind": "news",
+            "title": "ZaiNar lands enterprise deal",
+            "summary": "Deal summary.",
+            "source_url": "https://example.com/zainar",
+            "company_id": "zainar-inc",
+            "status": "ready",
+        },
+    )
+    # No Claude in tests: with a cold cache, zh view serves English and does
+    # not crash; a background attempt is registered at most once.
+    monkeypatch.setattr(external_translate.claude_runner, "is_available", lambda: False)
+    client = TestClient(app)
+    cold = client.get("/api/companies/zainar-inc/news-feed", params={"lang": "zh"})
+    assert cold.status_code == 200, cold.text
+    titles = [r["title"] for r in cold.json()["rows"]]
+    assert "ZaiNar lands enterprise deal" in titles
+
+    # Warm cache → the zh title is overlaid.
+    cache.put(
+        "news_translate",
+        item["id"],
+        {"title": "ZaiNar 拿下企业级订单", "summary": "交易摘要。"},
+    )
+    warm = client.get("/api/companies/zainar-inc/news-feed", params={"lang": "zh"})
+    warm_rows = warm.json()["rows"]
+    warm_titles = [r["title"] for r in warm_rows]
+    assert "ZaiNar 拿下企业级订单" in warm_titles
+    assert "ZaiNar lands enterprise deal" not in warm_titles
+    # English view stays English.
+    en = client.get("/api/companies/zainar-inc/news-feed")
+    assert "ZaiNar lands enterprise deal" in [r["title"] for r in en.json()["rows"]]

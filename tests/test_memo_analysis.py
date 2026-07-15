@@ -1858,7 +1858,7 @@ def test_resume_memo_endpoint_queues_failed_report(memo_env, monkeypatch):
         lambda report_id: called.append(report_id),
     )
 
-    response = api.resume_memo_report(report["id"])
+    response = api.resume_memo_report(_admin_request(), report["id"])
 
     assert called == [report["id"]]
     assert response.status == "analyzing"
@@ -1899,7 +1899,7 @@ def test_resume_memo_endpoint_preserves_original_resume_source(
         lambda report_id: called.append(report_id),
     )
 
-    response = api.resume_memo_report(report["id"])
+    response = api.resume_memo_report(_admin_request(), report["id"])
 
     assert called == [report["id"]]
     assert response.status == "analyzing"
@@ -2453,3 +2453,139 @@ def test_active_memo_job_includes_not_started_phase_rows(memo_env):
     assert phase2["status"] == "not_started"
     assert phase2["event_count"] == 0
     assert phase2["started_at"] is None
+
+
+# ---- orphan demotion (restart-killed runs must become resume-eligible) ----
+
+def _age_stream(run_dir, seconds_past_threshold=60):
+    import os
+    import time as _time
+
+    path = memo_prep.stream_path(run_dir)
+    old = _time.time() - memo_analysis.ORPHAN_IDLE_THRESHOLD_SEC - seconds_past_threshold
+    os.utime(path, (old, old))
+
+
+def test_recover_demotes_orphaned_analyzing_report(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("stage", stage="analyzing", message="working")
+    _age_stream(run_dir)
+
+    recovered = memo_analysis.recover_stale_reports()
+
+    assert recovered == 1
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "failed_during_analysis"
+    assert updated["error"] == "orphaned by server restart"
+    assert updated["failure_phase"] == "orphaned"
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["phase"] == "orphaned"
+
+
+def test_recover_leaves_fresh_analyzing_report_alone(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("stage", stage="analyzing", message="working")
+
+    memo_analysis.recover_stale_reports()
+
+    assert storage.get_report(report["id"])["status"] == "analyzing"
+
+
+def test_recover_leaves_run_with_live_worker_alone(memo_env, monkeypatch):
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("stage", stage="analyzing", message="working")
+    _age_stream(run_dir)
+    monkeypatch.setattr(memo_analysis, "_memo_worker_alive", lambda _rid: True)
+
+    memo_analysis.recover_stale_reports()
+
+    assert storage.get_report(report["id"])["status"] == "analyzing"
+
+
+def test_atexit_hook_fails_active_runs(memo_env):
+    report, run_dir = _make_memo_report(memo_env)
+    memo_analysis._register_active_run(report["id"])
+    try:
+        memo_analysis._fail_active_runs_at_exit()
+    finally:
+        memo_analysis._unregister_active_run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "failed_during_analysis"
+    assert updated["error"] == "interrupted by server shutdown"
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["phase"] == "shutdown"
+
+
+def _admin_request():
+    """Stub Request for calling gated handlers as plain functions:
+    resolves to the anon-dev admin role in _caller_role."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        state=SimpleNamespace(auth_kind="anon_dev", session_email=None),
+        cookies={},
+        headers={},
+    )
+
+
+# ---- Phase 4.6: restart-interrupted runs auto-resume at startup ----
+
+def _make_resumable_failed_report(memo_env, failure_phase):
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(exist_ok=True)
+    (analysis_dir / "pressure_tests.md").write_text("# Notes\n", encoding="utf-8")
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Analysis interrupted",
+        failure_phase=failure_phase,
+        failure_detail="interrupted by server shutdown",
+    )
+    return report
+
+
+def test_auto_resume_picks_up_shutdown_interrupted_runs(memo_env, monkeypatch):
+    report = _make_resumable_failed_report(memo_env, "shutdown")
+    called = []
+    monkeypatch.setattr(
+        memo_analysis, "start_resume", lambda report_id: called.append(report_id)
+    )
+
+    resumed = api.resume_interrupted_memo_runs()
+
+    assert resumed == 1
+    assert called == [report["id"]]
+    queued = storage.get_report(report["id"])
+    assert queued["status"] == "analyzing"
+    assert queued["resume_from_failure_phase"] == "shutdown"
+
+
+def test_auto_resume_leaves_orphaned_and_failed_runs_parked(memo_env, monkeypatch):
+    # Orphan-sweep demotions may be weeks old — a human decides those.
+    _make_resumable_failed_report(memo_env, "orphaned")
+    called = []
+    monkeypatch.setattr(
+        memo_analysis, "start_resume", lambda report_id: called.append(report_id)
+    )
+
+    assert api.resume_interrupted_memo_runs() == 0
+    assert called == []
+
+
+def test_auto_resume_respects_kill_switch(memo_env, monkeypatch):
+    _make_resumable_failed_report(memo_env, "shutdown")
+    monkeypatch.setenv("BSH_MEMO_AUTO_RESUME", "0")
+    called = []
+    monkeypatch.setattr(
+        memo_analysis, "start_resume", lambda report_id: called.append(report_id)
+    )
+
+    assert api.resume_interrupted_memo_runs() == 0
+    assert called == []

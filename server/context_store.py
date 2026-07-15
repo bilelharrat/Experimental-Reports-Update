@@ -165,12 +165,35 @@ def _news_row(row: dict, *, company_id: str, origin: str, index: int) -> dict:
     }
 
 
+def _translated_recent_news(company: dict) -> list:
+    """Overlay ``translation.recent_news`` (zh) onto ``recent_news``.
+
+    ``company_translate`` stores a same-length ``[{headline, summary}]`` list
+    aligned by index; dates/urls stay on the originals.
+    """
+    originals = _list(company.get("recent_news"))
+    translated = _list((company.get("translation") or {}).get("recent_news"))
+    if not translated:
+        return originals
+    merged: list = []
+    for i, item in enumerate(originals):
+        out = dict(item) if isinstance(item, dict) else {"headline": str(item)}
+        if i < len(translated) and isinstance(translated[i], dict):
+            if translated[i].get("headline"):
+                out["headline"] = translated[i]["headline"]
+            if translated[i].get("summary"):
+                out["summary"] = translated[i]["summary"]
+        merged.append(out)
+    return merged
+
+
 def company_news(
     company_id: str,
     *,
     category: str | None = None,
     tag: str | None = None,
     search: str | None = None,
+    lang: str | None = None,
 ) -> dict:
     company = storage.get_company(company_id)
     if company is None:
@@ -178,11 +201,34 @@ def company_news(
     rows: list[dict] = []
     for index, item in enumerate(_list(company.get("company_news")), start=1):
         rows.append(_news_row(item, company_id=company_id, origin="company_record", index=index))
-    for index, item in enumerate(_list(company.get("recent_news")), start=len(rows) + 1):
+    # External-archive and company_record items have no zh source; only
+    # recent_news carries translations today (see external_translate for the
+    # research-PDF pass — news items would need their own).
+    recent_news = (
+        _translated_recent_news(company)
+        if (lang or "").lower().startswith("zh")
+        else _list(company.get("recent_news"))
+    )
+    for index, item in enumerate(recent_news, start=len(rows) + 1):
         rows.append(_news_row(item, company_id=company_id, origin="recent_news", index=index))
+    want_zh = (lang or "").lower().startswith("zh")
     for index, item in enumerate(external_store.list_items("news"), start=len(rows) + 1):
-        if _matches_company(item, company):
-            rows.append(_news_row(item, company_id=company_id, origin="external_archive", index=index))
+        if not _matches_company(item, company):
+            continue
+        if want_zh and item.get("id"):
+            # Archive items have no zh source on the record; overlay the
+            # per-item translation cache (populated in the background on
+            # first zh view — see external_translate.ensure_news_translation).
+            from . import external_translate
+
+            translated = external_translate.ensure_news_translation(str(item["id"]))
+            if translated:
+                item = dict(item)
+                if translated.get("title"):
+                    item["title"] = translated["title"]
+                if translated.get("summary"):
+                    item["summary"] = translated["summary"]
+        rows.append(_news_row(item, company_id=company_id, origin="external_archive", index=index))
 
     deduped: dict[str, dict] = {}
     for row in rows:
@@ -217,7 +263,9 @@ def company_news(
         "generated_at": _now(),
         "rows": rows,
         "filters": {"categories": categories, "tags": tags},
-        "empty_state": "Submit a link to archive source-attributed company news." if not rows else "",
+        # No server-side UI copy: the client renders t("news.empty") in the
+        # viewer's language.
+        "empty_state": "",
     }
 
 

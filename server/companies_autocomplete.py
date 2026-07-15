@@ -35,50 +35,70 @@ EDGAR_HEADERS = {
 }
 EDGAR_TTL = 24 * 60 * 60
 
-_INDEX_LOCK = threading.RLock()
+_INDEX_LOCK = threading.RLock()  # guards reads/writes of the cached index
+_INDEX_FETCH_LOCK = threading.Lock()  # serializes network fetches only
 _INDEX: list[dict] | None = None
 _INDEX_LOADED_AT: float = 0.0
 
 
+def _fetch_edgar_rows() -> list[dict] | None:
+    """Download + parse the SEC ticker index. Returns rows, or None on
+    failure. Performs network I/O and holds NO lock — callers must not hold
+    ``_INDEX_LOCK`` across this (that used to serialize every autocomplete
+    behind an 8s fetch)."""
+    try:
+        with httpx.Client(timeout=8.0, headers=EDGAR_HEADERS) as client:
+            r = client.get(EDGAR_URL)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        logger.warning("SEC EDGAR ticker fetch failed: %s", exc)
+        return None
+    rows: list[dict] = []
+    # File shape: { "0": {cik_str, ticker, title}, "1": {...}, ... }
+    for v in data.values():
+        ticker = (v.get("ticker") or "").strip()
+        title = (v.get("title") or "").strip()
+        if not ticker or not title:
+            continue
+        rows.append(
+            {
+                "ticker": ticker.upper(),
+                "name": title,
+                "name_lower": title.lower(),
+                "ticker_lower": ticker.lower(),
+                "cik": v.get("cik_str"),
+            }
+        )
+    logger.info("Loaded SEC EDGAR ticker index: %d entries", len(rows))
+    return rows
+
+
 def _load_edgar_index() -> list[dict]:
-    """Fetch the SEC ticker index and normalize to a flat list of dicts."""
+    """Return the cached SEC ticker index, fetching it if stale. The network
+    fetch runs under ``_INDEX_FETCH_LOCK`` (which serializes fetchers) but NOT
+    under ``_INDEX_LOCK`` (which readers use), so a slow fetch never blocks
+    autocomplete once the index is warm."""
     global _INDEX, _INDEX_LOADED_AT
     with _INDEX_LOCK:
         if _INDEX is not None and (time.time() - _INDEX_LOADED_AT) < EDGAR_TTL:
             return _INDEX
-        try:
-            with httpx.Client(timeout=8.0, headers=EDGAR_HEADERS) as client:
-                r = client.get(EDGAR_URL)
-                r.raise_for_status()
-                data = r.json()
-        except Exception as exc:
-            logger.warning("SEC EDGAR ticker fetch failed: %s", exc)
-            if _INDEX is not None:
-                return _INDEX  # serve stale rather than fail
-            _INDEX = []
+
+    with _INDEX_FETCH_LOCK:
+        # Re-check: another thread may have fetched while we waited.
+        with _INDEX_LOCK:
+            if _INDEX is not None and (time.time() - _INDEX_LOADED_AT) < EDGAR_TTL:
+                return _INDEX
+        rows = _fetch_edgar_rows()  # network, no read lock held
+        with _INDEX_LOCK:
+            if rows is None:
+                if _INDEX is None:
+                    _INDEX = []
+                    _INDEX_LOADED_AT = time.time()
+                return _INDEX  # serve stale (or empty) rather than fail
+            _INDEX = rows
             _INDEX_LOADED_AT = time.time()
             return _INDEX
-
-        rows: list[dict] = []
-        # File shape: { "0": {cik_str, ticker, title}, "1": {...}, ... }
-        for v in data.values():
-            ticker = (v.get("ticker") or "").strip()
-            title = (v.get("title") or "").strip()
-            if not ticker or not title:
-                continue
-            rows.append(
-                {
-                    "ticker": ticker.upper(),
-                    "name": title,
-                    "name_lower": title.lower(),
-                    "ticker_lower": ticker.lower(),
-                    "cik": v.get("cik_str"),
-                }
-            )
-        _INDEX = rows
-        _INDEX_LOADED_AT = time.time()
-        logger.info("Loaded SEC EDGAR ticker index: %d entries", len(rows))
-        return _INDEX
 
 
 def _edgar_search(q: str, limit: int) -> list[dict]:
@@ -120,7 +140,11 @@ def _edgar_search(q: str, limit: int) -> list[dict]:
 _RESEARCHED_LOCK = threading.RLock()
 _RESEARCHED_CACHE: list[dict] | None = None
 _RESEARCHED_AT: float = 0.0
-RESEARCHED_TTL = 30
+# Long TTL: the deep-search cache only changes when a search writes new
+# results, and that path calls invalidate_researched_cache() (which also
+# rebuilds in the background). So the on-request path never pays the ~1.8s
+# directory scan in steady state — it used to rebuild every 30s.
+RESEARCHED_TTL = 60 * 60
 
 
 def _researched_dir() -> Path:
@@ -178,11 +202,43 @@ def _load_researched() -> list[dict]:
 
 
 def invalidate_researched_cache() -> None:
-    """Force the next autocomplete call to re-scan the cache directory."""
+    """Drop the researched-companies cache and rebuild it in the background,
+    so the next autocomplete finds it warm rather than paying the directory
+    scan on the request path. Called after a deep search writes new results."""
     global _RESEARCHED_CACHE, _RESEARCHED_AT
     with _RESEARCHED_LOCK:
         _RESEARCHED_CACHE = None
         _RESEARCHED_AT = 0.0
+
+    def _rebuild() -> None:
+        try:
+            _load_researched()
+        except Exception:
+            logger.exception("researched-cache background rebuild failed")
+
+    threading.Thread(
+        target=_rebuild, name="autocomplete-researched-rebuild", daemon=True
+    ).start()
+
+
+def prewarm_indexes() -> None:
+    """Warm both autocomplete indexes off the request path (called at server
+    startup). The EDGAR fetch is network-bound, so this runs in a daemon
+    thread and returns immediately."""
+
+    def _warm() -> None:
+        try:
+            _load_edgar_index()
+        except Exception:
+            logger.exception("EDGAR index prewarm failed")
+        try:
+            _load_researched()
+        except Exception:
+            logger.exception("researched-cache prewarm failed")
+
+    threading.Thread(
+        target=_warm, name="autocomplete-prewarm", daemon=True
+    ).start()
 
 
 def _researched_search(q: str, limit: int) -> list[dict]:
@@ -215,6 +271,7 @@ def _researched_search(q: str, limit: int) -> list[dict]:
                 "ticker": c.get("ticker"),
                 "sector": c.get("sector"),
                 "industry": c.get("industry"),
+                "category": c.get("industry") or c.get("sector"),
                 "exchange": c.get("exchange"),
                 "description": c.get("description"),
                 "status": c.get("status"),
@@ -288,6 +345,8 @@ def autocomplete(query: str, limit: int = 8) -> list[dict]:
                 "ticker": c.get("ticker"),
                 "name": c.get("name"),
                 "sector": c.get("sector"),
+                "industry": c.get("industry"),
+                "category": c.get("industry") or c.get("sector"),
                 "description": c.get("description"),
                 "status": c.get("status"),
                 "company_type": c.get("company_type"),

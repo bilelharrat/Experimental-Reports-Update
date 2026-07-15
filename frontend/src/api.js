@@ -1,17 +1,14 @@
-// API auth. Two parallel paths:
+// API auth:
 //
-//   1. Per-session bearer token (preferred). A future login UI will
-//      POST /api/auth/token with {email,password} and stash the returned
-//      session in localStorage under SESSION_KEY. While present and not
-//      expired, every API call uses it.
-//   2. Shared `BSH_RESEARCH_API_TOKEN` from the server-rendered <meta>
-//      tag (legacy / "meta-tag" flow). Falls back to this when there's
-//      no session in localStorage — keeps the current SPA working
-//      unchanged until the login UI lands.
+//   - `fetch` API calls send the per-session bearer token from
+//     localStorage (SESSION_KEY) as `Authorization: Bearer <token>`,
+//     minted by POST /api/auth/token. `apiFetch` is the canonical wrapper.
+//   - Raw-URL requests that can't set headers (downloads via <a href>,
+//     EventSource SSE) authenticate via the httponly session cookie the
+//     login endpoint sets; `withApiToken(path)` is now just `withBase`.
 //
-// `apiFetch` is the canonical wrapper — use it for any code path that
-// hits /api/. For raw URLs (downloads, EventSource SSE), use
-// `withApiToken(path)` instead since those don't support custom headers.
+// The old shared-token <meta> flow is removed — it exposed a privileged
+// credential in the served HTML.
 
 const SESSION_KEY = "bsh.research.session";
 
@@ -67,26 +64,28 @@ function getSessionToken() {
 }
 
 function getApiToken() {
-  const session = getSessionToken();
-  if (session) return session;
-  if (typeof document === "undefined") return null;
-  const el = document.querySelector('meta[name="bsh-research-api-token"]');
-  return el && el.content ? el.content : null;
+  // Session token only. The legacy shared-token <meta> tag is gone —
+  // it leaked a privileged credential into View Source.
+  return getSessionToken();
 }
 
+// Formerly appended `?token=<token>` for downloads and SSE, which leaked
+// the credential into access logs / history / Referer. Those requests now
+// authenticate via the httponly session cookie (set on login), which the
+// browser sends automatically on same-origin navigations and EventSource.
+// Kept as a thin alias so the call sites don't churn.
 export function withApiToken(path) {
-  const url = withBase(path);
-  const tok = getApiToken();
-  if (!tok) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}token=${encodeURIComponent(tok)}`;
+  return withBase(path);
 }
 
 export function apiFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const tok = getApiToken();
   if (tok) headers["Authorization"] = `Bearer ${tok}`;
-  return fetch(withBase(path), { ...opts, headers });
+  // CSRF marker for any cookie-authenticated mutation (a cross-site page
+  // can't set a custom header). Harmless on bearer-authed requests.
+  headers["X-BSH-Client"] = "web";
+  return fetch(withBase(path), { ...opts, headers, credentials: "same-origin" });
 }
 
 function _httpError(status, statusText, body) {
@@ -186,6 +185,7 @@ export const api = {
     if (filters.category) qs.set("category", filters.category);
     if (filters.tag) qs.set("tag", filters.tag);
     if (filters.search) qs.set("search", filters.search);
+    if (filters.lang) qs.set("lang", filters.lang);
     const query = qs.toString();
     return request(`/api/companies/${id}/news-feed${query ? `?${query}` : ""}`);
   },

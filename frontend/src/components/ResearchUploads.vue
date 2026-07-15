@@ -21,6 +21,11 @@ import {
   UploadCloud,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import {
+  activeJobs,
+  subscribeActiveJobs,
+  unsubscribeActiveJobs,
+} from "../activeJobs.js";
 import { useT } from "../i18n.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
 
@@ -185,8 +190,6 @@ const ACCEPT =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document," +
   "image/*,text/*";
 
-let pollTimer = null;
-
 async function load() {
   try {
     const fresh = await api.listResearchFiles(props.companyId);
@@ -205,17 +208,14 @@ async function load() {
 // summary is in-flight (locally launched or visible on the rail).
 async function syncWithRail() {
   let activeFileIds = new Set([...launching.value]);
-  try {
-    const jobs = await api.listActiveJobs();
-    for (const j of jobs) {
-      if (j.kind === "research_summary"
-          && j.company_id === props.companyId
-          && j.file_id) {
-        activeFileIds.add(j.file_id);
-      }
+  // Jobs come from the shared active-jobs store (single poll shared with the
+  // rail) rather than an independent per-component poll.
+  for (const j of activeJobs.value) {
+    if (j.kind === "research_summary"
+        && j.company_id === props.companyId
+        && j.file_id) {
+      activeFileIds.add(j.file_id);
     }
-  } catch {
-    // network blip — fall through
   }
   // Refresh the file list whenever something might have changed.
   await load();
@@ -237,15 +237,13 @@ const anyInFlight = computed(() =>
 );
 
 function startPolling() {
-  stopPolling();
-  pollTimer = setInterval(syncWithRail, 2000);
+  subscribeActiveJobs();
 }
 function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+  unsubscribeActiveJobs();
 }
+// Re-run the file-list sync whenever the shared active-jobs poll updates.
+watch(activeJobs, syncWithRail);
 
 onMounted(async () => {
   loading.value = true;
