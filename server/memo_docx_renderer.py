@@ -337,6 +337,41 @@ def validate_package(package: Any) -> None:
         raise MemoRenderError("Invalid memo package: " + "; ".join(errors))
 
 
+def fill_blank_zh_placeholders(package: dict) -> dict:
+    """Deep-copy a package and fill blank ``zh`` strings with a placeholder,
+    so English-only (phase 3) output can pass through render-shaped checks."""
+    import copy as _copy
+
+    probe = _copy.deepcopy(package)
+
+    def _fill_zh(node: Any) -> None:
+        if isinstance(node, dict):
+            if "en" in node and not str(node.get("zh") or "").strip():
+                node["zh"] = "占位"
+            for value in node.values():
+                _fill_zh(value)
+        elif isinstance(node, list):
+            for value in node:
+                _fill_zh(value)
+
+    _fill_zh(probe)
+    return probe
+
+
+def english_package_validation_errors(package: Any) -> list[str]:
+    """Validate an English-only package (phase 3 output, ``zh`` still blank).
+
+    Runs the full renderer validation against a copy whose empty ``zh``
+    strings are placeholder-filled, so structural defects (wrong source
+    vocabulary, missing sections, shallow content) surface at generation
+    time — where the synthesis pass can retry with the errors fed back —
+    instead of 20 minutes later at render time.
+    """
+    if not isinstance(package, dict):
+        return ["memo package must be a JSON object"]
+    return _package_validation_errors(fill_blank_zh_placeholders(package))
+
+
 def _package_validation_errors(package: Any) -> list[str]:
     errors: list[str] = []
     if not isinstance(package, dict):
@@ -717,6 +752,29 @@ def _validate_source(source: Any, location: str, errors: list[str]) -> None:
     )
 
 
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+_CJK_CHAR_RE = re.compile(r"[㐀-䶿一-鿿]")
+
+
+def _is_language_neutral_text(text: str) -> bool:
+    """True for plain strings safe to render identically in both locales.
+
+    Dates, figures, percentages, tickers, and proper-noun names carry no
+    translatable prose, so ``{"en": "2026-05", "zh": "2026-05"}`` would be
+    pure ceremony. Anything containing ordinary lowercase English words
+    ("120+ filed / 90+ issued") still requires an explicit bilingual pair.
+    """
+    stripped = text.strip()
+    if not stripped or _CJK_CHAR_RE.search(stripped):
+        return False
+    words = _LATIN_WORD_RE.findall(stripped)
+    if not words:
+        return True
+    if len(words) > 5:
+        return False
+    return all(word[0].isupper() for word in words)
+
+
 def _validate_localized_value(
     value: Any,
     location: str,
@@ -737,7 +795,13 @@ def _validate_localized_value(
         return
     if allow_plain or isinstance(value, (int, float)):
         return
-    errors.append(f"{location} must be bilingual with en and zh")
+    if isinstance(value, str) and _is_language_neutral_text(value):
+        return
+    errors.append(
+        f"{location} must be bilingual with en and zh (plain strings are "
+        "allowed only for language-neutral values such as dates, figures, "
+        "or proper-noun names)"
+    )
 
 
 def render_memos(

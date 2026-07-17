@@ -244,6 +244,11 @@ const messages = {
       'Review any preserved artifacts, diagnostics, and run folder above, then hit "Generate report" to start a fresh run.',
     "research.resume_memo": "Resume memo run",
     "research.resuming_memo": "Resuming…",
+    "research.status_complete_warnings": "Complete · warnings",
+    "research.complete_with_warnings_title": "Memo ready with quality warnings",
+    "research.complete_with_warnings_body":
+      "The memo rendered and is available below. Some quality checks still flag the findings listed here — resume the run to regenerate toward a clean memo, or use the memo as-is.",
+    "research.resume_memo_improve": "Resume to fix warnings",
     "research.redo_memo": "Redo from scratch",
     "research.resume_or_start_fresh_hint":
       "Resume reuses existing run artifacts; redo starts a fresh run.",
@@ -993,6 +998,11 @@ const messages = {
       "先查看上方保留的产物、诊断和运行目录，然后点击“生成报告”重新运行。",
     "research.resume_memo": "继续生成备忘录",
     "research.resuming_memo": "正在继续…",
+    "research.status_complete_warnings": "已完成 · 有警告",
+    "research.complete_with_warnings_title": "备忘录已生成，但存在质量警告",
+    "research.complete_with_warnings_body":
+      "备忘录已渲染完成，可在下方查看。部分质量检查仍有以下发现——可继续运行以重新生成更完善的版本，也可直接使用当前备忘录。",
+    "research.resume_memo_improve": "继续运行以修复警告",
     "research.redo_memo": "从头重新生成",
     "research.resume_or_start_fresh_hint":
       "继续生成会复用现有运行产物；从头重新生成会启动一次全新运行。",

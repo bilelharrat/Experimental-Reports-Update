@@ -116,10 +116,13 @@ const reportFailureDetail = computed(() => {
 const reportIsFailed = computed(() =>
   String(activeReport.value?.status || "").startsWith("failed"),
 );
+const reportHasWarnings = computed(
+  () => String(activeReport.value?.status || "") === "complete_with_warnings",
+);
 const canResumeMemo = computed(() =>
   Boolean(
     isMemo.value &&
-      reportIsFailed.value &&
+      (reportIsFailed.value || reportHasWarnings.value) &&
       activeReport.value?.resume_available,
   ),
 );
@@ -130,7 +133,8 @@ const latestResumableMemoReport = computed(() => {
       (report) =>
         report?.kind === "investment_memo_latestage" &&
         report?.resume_available &&
-        String(report?.status || "").startsWith("failed"),
+        (String(report?.status || "").startsWith("failed") ||
+          String(report?.status || "") === "complete_with_warnings"),
     )
     .sort((a, b) =>
       String(b.updated_at || b.created_at || "").localeCompare(
@@ -1008,6 +1012,11 @@ onUnmounted(stopPolling);
           >{{ tr("research.status_complete") }}</span
         >
         <span
+          v-else-if="activeReport.status === 'complete_with_warnings'"
+          class="text-xs px-2 py-1 rounded bg-warning-soft text-warning-ink"
+          >{{ tr("research.status_complete_warnings") }}</span
+        >
+        <span
           v-else-if="reportIsFailed"
           class="text-xs px-2 py-1 rounded bg-danger/10 text-danger"
           >{{ tr("research.status_failed") }}</span
@@ -1241,6 +1250,47 @@ onUnmounted(stopPolling);
         class="mt-6 whitespace-pre-wrap font-body text-sm leading-relaxed text-ink-primary bg-surface-muted rounded-lg p-4 border border-subtle"
         >{{ activeReport.content }}</pre
       >
+
+      <!-- Complete-with-warnings: the memo is delivered and usable, with
+           the quality findings listed and Resume available to regenerate
+           toward a clean memo. -->
+      <div
+        v-if="isMemo && reportHasWarnings"
+        class="mt-6 rounded-lg border border-warning/40 bg-warning-soft/40 p-4 text-sm text-ink-primary"
+      >
+        <div class="font-semibold text-warning-ink mb-1">
+          {{ tr("research.complete_with_warnings_title") }}
+        </div>
+        <p class="text-ink-secondary">
+          {{ tr("research.complete_with_warnings_body") }}
+        </p>
+        <ul
+          v-if="Array.isArray(activeReport.quality_warnings) && activeReport.quality_warnings.length"
+          class="mt-2 space-y-1 text-xs text-ink-secondary"
+        >
+          <li v-for="warning in activeReport.quality_warnings" :key="warning">
+            {{ warning }}
+          </li>
+        </ul>
+        <ul v-if="gateFindings.length" class="mt-2 space-y-1 text-xs text-ink-muted">
+          <li v-for="finding in gateFindings" :key="`warn-${finding.gateLabel}-${finding.code}-${finding.location}-${finding.snippet}`">
+            <span class="font-mono text-ink-secondary">{{ finding.code }}</span>
+            <span v-if="finding.location"> · {{ finding.location }}</span>
+            <span v-if="finding.snippet"> · {{ finding.snippet }}</span>
+          </li>
+        </ul>
+        <button
+          v-if="canResumeMemo"
+          type="button"
+          @click="resumeReport"
+          :disabled="resuming || generating"
+          class="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+        >
+          <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
+          <Sparkles v-else class="h-4 w-4" />
+          <span>{{ resuming ? tr("research.resuming_memo") : tr("research.resume_memo_improve") }}</span>
+        </button>
+      </div>
 
       <!-- Memo scope-fail: show the reason and the run folder for browsing. -->
       <!-- Generic failure banner for any failed_* memo run. -->

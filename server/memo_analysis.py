@@ -389,6 +389,67 @@ def _memo_package_render_validation_error(package_path: Path) -> str | None:
     return None
 
 
+def _memo_package_prerender_quality_error(
+    package: dict | Path,
+    *,
+    check_parity: bool = True,
+) -> str | None:
+    """Render a package to a throwaway dir and run the finalize-time quality
+    gates on it, so blocking findings feed the generation retry loop instead
+    of surfacing after the run declares success (each post-render miss costs
+    a full regeneration round). Applies the same deterministic voice rewrites
+    finalize applies, so this can't flag text finalize would have fixed.
+
+    Returns a findings summary, or None when the gates pass. Rendering is
+    local and takes about a second, so this is cheap relative to one Claude
+    generation pass.
+    """
+    import tempfile
+
+    try:
+        if isinstance(package, Path):
+            payload = json.loads(package.read_text(encoding="utf-8"))
+        else:
+            payload = package
+        payload, _ = _rewritten_memo_package_voice(payload)
+        with tempfile.TemporaryDirectory(prefix="memo-prelint-") as tmp:
+            tmp_dir = Path(tmp)
+            out_en = tmp_dir / "memo" / "prelint_en.docx"
+            out_zh = tmp_dir / "memo" / "prelint_zh.docx"
+            memo_docx_renderer.render_memos(
+                payload,
+                out_en=out_en,
+                out_zh=out_zh,
+                validation_en=tmp_dir / "logs" / "validation.txt",
+                validation_zh=tmp_dir / "logs" / "validation_cn.txt",
+                inventory_path=tmp_dir / "logs" / "file_inventory.md",
+                manifest_path=tmp_dir / "logs" / "run_manifest.md",
+            )
+            problems: list[str] = []
+            lint_result = memo_quality_lint.lint_memo_docx(out_en)
+            for finding in lint_result.p0_findings[:12]:
+                problems.append(
+                    f"quality gate {finding.code} at {finding.location}: "
+                    f"\"{finding.snippet}\" — {finding.suggestion}"
+                )
+            if check_parity:
+                parity_result = memo_chinese_parity.lint_chinese_memo_pair(
+                    out_en,
+                    out_zh,
+                )
+                for finding in parity_result.p0_findings[:12]:
+                    problems.append(
+                        f"Chinese parity gate {finding.code} at "
+                        f"{finding.location}: \"{finding.snippet}\" — "
+                        f"{finding.suggestion}"
+                    )
+            if problems:
+                return "; ".join(problems)
+    except Exception as exc:  # noqa: BLE001
+        return f"pre-render quality check failed: {type(exc).__name__}: {exc}"
+    return None
+
+
 def _archive_memo_package(package_path: Path, *, label: str) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     archive_path = package_path.with_name(f"memo_package.{label}.{stamp}.json")
@@ -1191,15 +1252,8 @@ def _rewrite_memo_package_voice_text(text: str) -> str:
     return updated
 
 
-def _clean_memo_package_voice(package_path: Path, stream: job_progress.ProgressLog) -> int:
-    if not package_path.exists():
-        return 0
-    try:
-        payload = json.loads(package_path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        logger.exception("failed to read memo package for voice cleanup: %s", package_path)
-        return 0
-
+def _rewritten_memo_package_voice(payload: Any) -> tuple[Any, list[dict[str, str]]]:
+    """Apply the deterministic voice rewrites to a package payload copy."""
     changes: list[dict[str, str]] = []
 
     def visit(value: Any, path: str = "") -> Any:
@@ -1223,7 +1277,19 @@ def _clean_memo_package_voice(package_path: Path, stream: job_progress.ProgressL
             return rewritten
         return value
 
-    cleaned = visit(payload)
+    return visit(payload), changes
+
+
+def _clean_memo_package_voice(package_path: Path, stream: job_progress.ProgressLog) -> int:
+    if not package_path.exists():
+        return 0
+    try:
+        payload = json.loads(package_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to read memo package for voice cleanup: %s", package_path)
+        return 0
+
+    cleaned, changes = _rewritten_memo_package_voice(payload)
     if not changes:
         return 0
     package_path.write_text(
@@ -1685,7 +1751,15 @@ def _run_chinese_parity_gate(
     stream: job_progress.ProgressLog,
     result: dict,
     recovered: bool = False,
-) -> bool:
+) -> tuple[dict, str | None]:
+    """Run the Chinese parity lint and return ``(payload, warning)``.
+
+    Blocking findings no longer fail the run: the generation loops already
+    retried with the findings fed back, so at this point delivering the memo
+    WITH its issues listed beats blocking the user with nothing. The caller
+    aggregates the warning into a ``complete_with_warnings`` terminal state,
+    and resume keeps working to regenerate toward a clean memo.
+    """
     storage.update_report(
         report_id,
         stage="Running Chinese memo parity gate",
@@ -1721,29 +1795,17 @@ def _run_chinese_parity_gate(
         timing["p0_count"] = parity_payload.get("p0_count")
         if parity_result.has_blocking_findings:
             msg = (
-                "Generated Chinese memo failed the parity gate with "
+                "Chinese memo parity gate found "
                 f"{parity_payload['p0_count']} P0 finding"
                 f"{'' if parity_payload['p0_count'] == 1 else 's'}. "
                 f"See {memo_prep._rel(parity_path)}."
             )
-            timing["status"] = "failed"
-            timing["error"] = msg
+            timing["status"] = "warning"
+            timing["warning"] = msg
             failure_message = msg
-            storage.update_report(
-                report_id,
-                status="failed_quality_gate",
-                stage="Memo failed Chinese parity gate",
-                progress=89,
-                error=msg,
-                failure_phase="chinese_parity_gate",
-                failure_detail=msg,
-                artifacts_available=True,
-                memo_chinese_parity=parity_payload,
-                claude_cost_usd=result.get("cost_usd"),
-                claude_duration_ms=result.get("duration_ms"),
-            )
             payload = {
-                "error": msg,
+                "stage": "chinese_parity_warning",
+                "message": msg,
                 "phase": "chinese_parity_gate",
                 "parity_report": memo_prep._rel(parity_path),
                 "findings": parity_payload["findings"][:10],
@@ -1753,16 +1815,10 @@ def _run_chinese_parity_gate(
             failure_payload = payload
 
     if failure_payload:
-        stream.emit(
-            "thread_failed",
-            thread=claude_runner.MEMO_PHASE5_THREAD,
-            error=failure_message,
-        )
-        stream.emit("error", **failure_payload)
-        return False
+        stream.emit("stage", **failure_payload)
 
     storage.update_report(report_id, memo_chinese_parity=parity_payload)
-    return True
+    return parity_payload, failure_message
 
 
 def _lint_memo_quality_gate(
@@ -2426,6 +2482,7 @@ def _run_fast_memo_pipeline(
     english_error: str | None = None
     attempts_used = 0
     last_transient = False
+    validation_feedback: str | None = None
     max_attempts = 1 + _memo_fast_english_package_retries()
     phase3_cost_before = phase3_progress.cost_usd
     phase3_duration_before = phase3_progress.duration_ms
@@ -2470,6 +2527,7 @@ def _run_fast_memo_pipeline(
             scope_check=scope_check,
             warnings=warnings,
             progress=phase3_progress,
+            validation_feedback=validation_feedback,
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
         attempt_duration = max(
@@ -2510,6 +2568,81 @@ def _run_fast_memo_pipeline(
                 )
                 if backoff_sec > 0:
                     time.sleep(backoff_sec)
+                continue
+            break
+        # Validate the package NOW (zh-tolerant) instead of letting the
+        # renderer discover the same defects 20 minutes later. Both fresh
+        # runs on record emitted the analysis-pass source vocabulary
+        # (label/source_class/detail) and died at the render gate; feeding
+        # the errors back lets the synthesis pass self-correct the way the
+        # resume path already does.
+        candidate = attempt_result.get("memo_package")
+        validation_errors = memo_docx_renderer.english_package_validation_errors(
+            candidate
+        )
+        if not validation_errors:
+            # Structure is good — also run the finalize-time English quality
+            # gate on a throwaway render, so banned vocabulary retries here
+            # with the findings fed back instead of costing a whole
+            # regeneration round after the Chinese fill.
+            quality_error = _memo_package_prerender_quality_error(
+                memo_docx_renderer.fill_blank_zh_placeholders(candidate),
+                check_parity=False,
+            )
+            if quality_error:
+                if attempt < max_attempts:
+                    validation_errors = [quality_error]
+                else:
+                    # Out of retries; the package renders, so carry the
+                    # findings forward as warnings instead of failing the
+                    # run (finalize marks it complete_with_warnings).
+                    phase3_progress.emit(
+                        "stage",
+                        stage="memo_english_quality_warning",
+                        message=(
+                            "English package still has quality findings "
+                            "after retries; continuing with warnings"
+                        ),
+                        validation_error=quality_error[:4000],
+                        attempt=attempt,
+                        max_attempts=max_attempts,
+                    )
+        if validation_errors:
+            english_error = (
+                "English package failed renderer validation: "
+                + "; ".join(validation_errors[:12])
+            )
+            _emit_phase_timing(
+                stream,
+                phase="memo_fast_english_package_attempt",
+                status="failed",
+                started_at=attempt_started_at,
+                started_monotonic=attempt_started,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                transient=False,
+                validation=True,
+                error=english_error,
+                cost_usd=round(attempt_cost, 6),
+                claude_duration_ms=attempt_duration,
+            )
+            if attempt < max_attempts:
+                validation_feedback = "\n".join(
+                    f"- {err}" for err in validation_errors[:20]
+                )
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_fast_english_package_validation_retry",
+                    message=(
+                        "English package failed renderer validation; "
+                        f"regenerating with errors fed back (attempt "
+                        f"{attempt + 1}/{max_attempts})"
+                    ),
+                    attempt=attempt,
+                    next_attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    validation_errors=validation_errors[:10],
+                )
                 continue
             break
         english_result = attempt_result
@@ -2651,6 +2784,69 @@ def _run_fast_memo_pipeline(
         return {"ok": False, "error": message, "cost_usd": cost_usd}
     final_package_path = _memo_package_path(run_dir)
     _write_json(final_package_path, memo_package)
+    package_error = _memo_package_render_validation_error(final_package_path)
+    if package_error:
+        # The English gate already validated structure, so any error here is
+        # Chinese fill that didn't land (blank `zh` after a unit drifted).
+        # The monolithic bilingual pass only fills blank `zh` strings — run
+        # it once over the merged package as a targeted repair.
+        phase4_progress.emit(
+            "stage",
+            stage="memo_package_zh_repair",
+            message=(
+                "Merged package failed renderer validation; running one "
+                "monolithic Chinese fill repair pass"
+            ),
+            validation_error=package_error[:2000],
+        )
+        repair_result, repair_error = claude_runner.run_memo_fast_bilingual_package(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            english_package_path=final_package_path,
+            progress=phase4_progress,
+        )
+        if not repair_error and isinstance(repair_result, dict):
+            repaired = repair_result.get("memo_package")
+            if isinstance(repaired, dict):
+                cost_usd += _as_float(repair_result.get("claude_cost_usd"))
+                worker_duration_ms += _as_int(
+                    repair_result.get("claude_duration_ms")
+                )
+                claude_runner._adopt_zh_translations(memo_package, repaired)
+                _write_json(final_package_path, memo_package)
+                package_error = _memo_package_render_validation_error(
+                    final_package_path
+                )
+    if package_error:
+        message = (
+            "Memo package failed renderer validation after the Chinese "
+            f"fill: {package_error}"
+        )
+        phase4_progress.emit("thread_failed", error=message)
+        _emit_phase_timing(
+            stream,
+            phase="memo_fast_chinese_package",
+            status="failed",
+            started_at=phase4_started_at,
+            started_monotonic=phase4_started,
+            error=message,
+        )
+        return {"ok": False, "error": message, "cost_usd": round(cost_usd, 6)}
+    # English vocabulary was gated in phase 3; this pass surfaces the
+    # bilingual findings (Chinese parity) early. They never block — the
+    # memo is delivered and finalize marks it complete_with_warnings.
+    quality_warning = _memo_package_prerender_quality_error(final_package_path)
+    if quality_warning:
+        phase4_progress.emit(
+            "stage",
+            stage="memo_package_quality_warning",
+            message=(
+                "Merged bilingual package has quality findings; delivering "
+                "with warnings"
+            ),
+            validation_error=quality_warning[:4000],
+        )
     phase4_progress.emit("thread_finished")
     _emit_phase_timing(
         stream,
@@ -2962,66 +3158,67 @@ def recover_stale_reports() -> int:
             progress=86,
             recovered=True,
         )
-        if not _run_chinese_parity_gate(
+        recovery_warnings: list[str] = []
+        _parity_payload, parity_warning = _run_chinese_parity_gate(
             report_id=report["id"],
             run_dir=run_dir,
             memo_paths_abs=memo_paths_abs,
             stream=stream,
             result=result,
             recovered=True,
-        ):
-            continue
+        )
+        if parity_warning:
+            recovery_warnings.append(parity_warning)
         lint_result, lint_path = _lint_memo_quality_gate(
             run_dir=run_dir,
             memo_paths_abs=memo_paths_abs,
             stream=stream,
             recovered=True,
         )
+        lint_payload = lint_result.to_dict()
+        storage.update_report(report["id"], memo_quality_lint=lint_payload)
         if lint_result.has_blocking_findings:
-            lint_payload = lint_result.to_dict()
             msg = (
-                "Recovered memo failed the DOCX quality gate with "
+                "Memo quality gate found "
                 f"{lint_payload['p0_count']} P0 finding"
                 f"{'' if lint_payload['p0_count'] == 1 else 's'}. "
                 f"See {memo_prep._rel(lint_path)}."
             )
-            storage.update_report(
-                report["id"],
-                status="failed_quality_gate",
-                stage="Memo failed quality gate",
-                progress=98,
-                error=msg,
-                failure_phase="quality_gate",
-                failure_detail=msg,
-                memo_quality_lint=lint_payload,
-                claude_cost_usd=result.get("cost_usd"),
-                claude_duration_ms=result.get("duration_ms"),
-            )
+            recovery_warnings.append(msg)
             stream.emit(
-                "error",
-                error=msg,
+                "stage",
+                stage="quality_gate_warning",
+                message=msg,
                 phase="quality_gate",
                 recovered=True,
                 lint_report=memo_prep._rel(lint_path),
                 findings=lint_payload["findings"][:10],
             )
-            continue
         storage.update_report(
             report["id"],
-            status="complete",
-            stage="Memo ready",
+            status=(
+                "complete_with_warnings" if recovery_warnings else "complete"
+            ),
+            stage=(
+                "Memo ready (quality warnings)"
+                if recovery_warnings
+                else "Memo ready"
+            ),
             progress=100,
+            quality_warnings=recovery_warnings or None,
             claude_cost_usd=result.get("cost_usd"),
             claude_duration_ms=result.get("duration_ms"),
         )
-        stream.emit(
-            "done",
-            report_id=report["id"],
-            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-            cost_usd=result.get("cost_usd"),
-            duration_ms=result.get("duration_ms"),
-            recovered=True,
-        )
+        done_payload = {
+            "report_id": report["id"],
+            "memo_paths": {k: str(v) for k, v in memo_paths_abs.items()},
+            "cost_usd": result.get("cost_usd"),
+            "duration_ms": result.get("duration_ms"),
+            "recovered": True,
+        }
+        if recovery_warnings:
+            done_payload["quality_warnings"] = recovery_warnings
+        stream.emit("done", **done_payload)
         recovered += 1
     return recovered
 
@@ -3283,15 +3480,17 @@ def _finalize_memo_from_package(
         recovered=recovered,
     )
 
-    if not _run_chinese_parity_gate(
+    quality_warnings: list[str] = []
+    _parity_payload, parity_warning = _run_chinese_parity_gate(
         report_id=report_id,
         run_dir=run_dir,
         memo_paths_abs=memo_paths_abs,
         stream=stream,
         result=result,
         recovered=recovered,
-    ):
-        return False
+    )
+    if parity_warning:
+        quality_warnings.append(parity_warning)
 
     storage.update_report(
         report_id,
@@ -3311,41 +3510,28 @@ def _finalize_memo_from_package(
         recovered=recovered,
     )
     if lint_result.has_blocking_findings:
+        # Deliver the memo with its issues listed instead of blocking: the
+        # generation loops already retried with these findings fed back,
+        # and a complete-with-warnings report keeps Resume available to
+        # regenerate toward a clean memo.
         lint_payload = lint_result.to_dict()
         msg = (
-            "Generated memo failed the DOCX quality gate with "
+            "Memo quality gate found "
             f"{lint_payload['p0_count']} P0 finding"
             f"{'' if lint_payload['p0_count'] == 1 else 's'}. "
             f"See {memo_prep._rel(lint_path)}."
         )
-        storage.update_report(
-            report_id,
-            status="failed_quality_gate",
-            stage="Memo failed quality gate",
-            progress=98,
-            error=msg,
-            failure_phase="quality_gate",
-            failure_detail=msg,
-            artifacts_available=True,
-            memo_quality_lint=lint_payload,
-            claude_cost_usd=result.get("cost_usd"),
-            claude_duration_ms=result.get("duration_ms"),
-        )
-        stream.emit(
-            "thread_failed",
-            thread=claude_runner.MEMO_PHASE5_THREAD,
-            error=msg,
-        )
+        quality_warnings.append(msg)
         payload = {
-            "error": msg,
+            "stage": "quality_gate_warning",
+            "message": msg,
             "phase": "quality_gate",
             "lint_report": memo_prep._rel(lint_path),
             "findings": lint_payload["findings"][:10],
         }
         if recovered:
             payload["recovered"] = True
-        stream.emit("error", **payload)
-        return False
+        stream.emit("stage", **payload)
     storage.update_report(report_id, memo_quality_lint=lint_result.to_dict())
     stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE5_THREAD)
 
@@ -3412,10 +3598,14 @@ def _finalize_memo_from_package(
         )
     stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE6_THREAD)
 
+    final_status = "complete_with_warnings" if quality_warnings else "complete"
+    final_stage = (
+        "Memo ready (quality warnings)" if quality_warnings else "Memo ready"
+    )
     storage.update_report(
         report_id,
-        status="complete",
-        stage="Memo ready",
+        status=final_status,
+        stage=final_stage,
         progress=100,
         error=None,
         failure_phase=None,
@@ -3424,6 +3614,7 @@ def _finalize_memo_from_package(
         resume_from_failure_phase=None,
         resume_from_failure_detail=None,
         artifacts_available=True,
+        quality_warnings=quality_warnings or None,
         claude_cost_usd=combined_result.get("cost_usd"),
         claude_duration_ms=combined_result.get("duration_ms"),
     )
@@ -3433,6 +3624,8 @@ def _finalize_memo_from_package(
         "cost_usd": combined_result.get("cost_usd"),
         "duration_ms": combined_result.get("duration_ms"),
     }
+    if quality_warnings:
+        done_payload["quality_warnings"] = quality_warnings
     if internal_generated:
         done_payload["internal_memo_paths"] = {
             k: str(v) for k, v in internal_paths_abs.items()
@@ -3474,10 +3667,20 @@ def _resume(report_id: str) -> None:
         raise RuntimeError(
             "Cannot resume: no memo_package.json or analysis artifacts exist"
         )
+    _quality_statuses = ("failed_quality_gate", "complete_with_warnings")
     quality_failed = (
-        report.get("status") == "failed_quality_gate"
+        report.get("status") in _quality_statuses
         or report.get("failure_phase") == "quality_gate"
-        or report.get("resume_from_status") == "failed_quality_gate"
+        or bool(report.get("quality_warnings"))
+        # The failure THIS resume recovers from (set by the resume endpoint
+        # just before it flips status to "analyzing"). resume_from_* alone
+        # is not enough: it preserves the ORIGINAL failure, so on a chained
+        # resume (renderer failure → resume → quality failure → resume) it
+        # still said "renderer_contract" and the worker reused the very
+        # package the quality gate had just rejected.
+        or report.get("resume_last_status") in _quality_statuses
+        or report.get("resume_last_failure_phase") == "quality_gate"
+        or report.get("resume_from_status") in _quality_statuses
         or report.get("resume_from_failure_phase") == "quality_gate"
     )
     quality_lint_path = run_dir / "logs" / "memo_quality_lint.md"
@@ -3630,16 +3833,22 @@ def _resume(report_id: str) -> None:
             lessons_path = None
         result = {"ok": False, "error": "Resume memo package did not run"}
         max_attempts = 1 + _memo_resume_package_retries()
+        validation_feedback: str | None = None
         for attempt in range(1, max_attempts + 1):
             attempt_started_at = _now_iso()
             attempt_started = time.monotonic()
             if attempt > 1:
+                retry_reason = (
+                    "renderer validation errors"
+                    if validation_feedback
+                    else "transient Claude transport error"
+                )
                 stream.emit(
                     "stage",
                     stage="resume_package_retry",
                     message=(
-                        "Retrying memo package resume after transient Claude "
-                        f"transport error (attempt {attempt}/{max_attempts})"
+                        f"Retrying memo package resume after {retry_reason} "
+                        f"(attempt {attempt}/{max_attempts})"
                     ),
                     attempt=attempt,
                     max_attempts=max_attempts,
@@ -3672,9 +3881,87 @@ def _resume(report_id: str) -> None:
                     quality_lint_path if quality_lint_path.exists() else None
                 ),
                 prior_package_path=prior_package_path,
+                validation_feedback=validation_feedback,
                 progress=stream,
                 timeout_sec=1800,
             )
+            validation_feedback = None
+            if result.get("ok"):
+                # The generation agent reporting success is not the gate —
+                # validate the freshly written package against the renderer
+                # contract now, so a contract violation retries here with
+                # the errors fed back instead of failing at render time.
+                if not package_path.exists():
+                    result = {
+                        "ok": False,
+                        "error": (
+                            "Resume run reported success but wrote no "
+                            f"memo package at {memo_prep._rel(package_path)}"
+                        ),
+                        "cost_usd": result.get("cost_usd"),
+                        "duration_ms": result.get("duration_ms"),
+                        "usage": result.get("usage"),
+                    }
+                else:
+                    package_error = _memo_package_render_validation_error(
+                        package_path
+                    )
+                    archive_label = "invalid"
+                    failed_gate = "renderer validation"
+                    if not package_error:
+                        package_error = _memo_package_prerender_quality_error(
+                            package_path
+                        )
+                        archive_label = "quality_failed"
+                        failed_gate = "pre-render quality checks"
+                        if package_error and attempt >= max_attempts:
+                            # Out of retries but the package renders — carry
+                            # the findings as warnings and deliver the memo
+                            # (finalize marks it complete_with_warnings)
+                            # instead of blocking with nothing.
+                            stream.emit(
+                                "stage",
+                                stage="resume_package_quality_warning",
+                                message=(
+                                    "Memo package still has quality findings "
+                                    "after retries; delivering with warnings"
+                                ),
+                                validation_error=package_error[:4000],
+                                attempt=attempt,
+                                max_attempts=max_attempts,
+                                recovered=True,
+                            )
+                            package_error = None
+                    if package_error:
+                        archive_path = _archive_memo_package(
+                            package_path, label=archive_label
+                        )
+                        prior_package_path = archive_path
+                        validation_feedback = package_error
+                        stream.emit(
+                            "stage",
+                            stage="resume_package_invalid",
+                            message=(
+                                "Regenerated memo package failed "
+                                f"{failed_gate}"
+                            ),
+                            memo_package=memo_prep._rel(archive_path),
+                            validation_error=package_error[:4000],
+                            attempt=attempt,
+                            max_attempts=max_attempts,
+                            recovered=True,
+                        )
+                        result = {
+                            "ok": False,
+                            "error": (
+                                "Regenerated memo package failed "
+                                f"{failed_gate}: {package_error}"
+                            ),
+                            "validation_error": package_error,
+                            "cost_usd": result.get("cost_usd"),
+                            "duration_ms": result.get("duration_ms"),
+                            "usage": result.get("usage"),
+                        }
             if result.get("ok"):
                 _emit_phase_timing(
                     stream,
@@ -3705,13 +3992,18 @@ def _resume(report_id: str) -> None:
                 claude_duration_ms=result.get("duration_ms"),
                 usage=result.get("usage"),
             )
-            if transient and attempt < max_attempts:
-                backoff_sec = _memo_fast_retry_backoff_sec()
+            if (transient or validation_feedback) and attempt < max_attempts:
+                backoff_sec = _memo_fast_retry_backoff_sec() if transient else 0.0
+                retry_reason = (
+                    "renderer validation errors"
+                    if validation_feedback
+                    else "a transient Claude transport error"
+                )
                 stream.emit(
                     "stage",
                     stage="resume_package_retry_scheduled",
                     message=(
-                        "Memo resume hit a transient Claude transport error; "
+                        f"Memo resume hit {retry_reason}; "
                         f"retrying attempt {attempt + 1}/{max_attempts}"
                     ),
                     attempt=attempt,

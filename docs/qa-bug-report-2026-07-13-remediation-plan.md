@@ -17,11 +17,18 @@ Plan written: 2026-07-14. Root-cause sections (R1–R8) cite line numbers agains
 > - The Phase 0 ops actions: rotate `BSH_RESEARCH_API_TOKEN` in prod, set
 >   real seed-account passwords + `revoke-all`, confirm `BSH_ALLOW_ANON_DEV`
 >   unset in prod.
-> - Do one live end-to-end memo generation after deploy (the 4.3/4.4
->   changes — partial-message liveness + parallel bilingual pass — have
->   unit coverage plus a monolithic fallback, but only a real run proves
->   them; set `BSH_MEMO_BILINGUAL_PARALLEL=0` to revert to the old
->   single-call pass if anything looks wrong).
+> - ~~Do one live end-to-end memo generation after deploy~~ **DONE
+>   (2026-07-14 evening): report `5fa7fd34adf5` (AMI Labs — the QA tester's
+>   own July 13 company) ran to `complete` with EN+ZH DOCX, 0 quality-gate
+>   P0s, 0 parity blockers. Chinese pass 105s (parallel units, no stall);
+>   analysis pipeline ~11 min. The run also surfaced and fixed two more
+>   defects: (a) chained-resume bug — a second resume reused the package
+>   the quality gate had just rejected because stale `resume_from_*`
+>   provenance masked the current failure; fixed with `resume_last_*`
+>   fields (endpoint + `_resume` predicate, 2 regression tests); (b) the
+>   generator kept writing "at the memo date", tripping the meta-language
+>   gate — voice contract now mandates absolute as-of dates and bans
+>   memo-self-referencing staleness phrasing. Suite: 460 pass / 0 fail.**
 >
 > New invariants beyond the Phase 0–1 list below:
 > - Company identity matches on evidence: ticker → website/logo host →

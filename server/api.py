@@ -740,6 +740,7 @@ class ReportSummary(BaseModel):
     artifacts_available: bool = False
     memo_quality_lint: dict | None = None
     memo_chinese_parity: dict | None = None
+    quality_warnings: list[str] | None = None
     analysis_session_id: str | None = None
     analysis_session_approved: bool = False
     download_urls: dict | None = None
@@ -2373,14 +2374,16 @@ def _report_resume_available(report: dict) -> bool:
     if report.get("kind") != "investment_memo_latestage":
         return False
     status = str(report.get("status") or "")
-    if not status.startswith("failed") or status in {
-        "failed_scope_check",
-    }:
+    resumable = (
+        status.startswith("failed") and status not in {"failed_scope_check"}
+    ) or status == "complete_with_warnings"
+    if not resumable:
         return False
     run_dir = _memo_run_dir(report)
     if not run_dir or not run_dir.exists():
         return False
-    if status == "failed_quality_gate":
+    if status in ("failed_quality_gate", "complete_with_warnings"):
+        # Quality regeneration needs the analysis artifacts to rewrite from.
         return bool(_report_analysis_artifacts(report))
     if (run_dir / "logs" / "memo_package.json").exists():
         return True
@@ -2538,10 +2541,13 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
             status_code=400,
             detail="Scope-check failures cannot be resumed",
         )
-    if not status.startswith("failed"):
+    if not status.startswith("failed") and status != "complete_with_warnings":
         raise HTTPException(
             status_code=409,
-            detail="Only failed memo reports can be resumed",
+            detail=(
+                "Only failed or complete-with-warnings memo reports can be "
+                "resumed"
+            ),
         )
     if not _report_resume_available(report):
         raise HTTPException(
@@ -2562,6 +2568,8 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
         stage="Resume queued",
         progress=max(int(report.get("progress") or 0), 60),
         error=None,
+        # resume_from_* preserve the ORIGINAL failure across chained
+        # resumes (provenance — or-chained on purpose)...
         resume_from_status=report.get("resume_from_status") or status,
         resume_from_failure_phase=(
             report.get("resume_from_failure_phase")
@@ -2572,6 +2580,13 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
             or report.get("failure_detail")
             or report.get("error")
         ),
+        # ...while resume_last_* always carry the failure THIS resume is
+        # recovering from. The worker's quality_failed check needs it: on a
+        # second resume the stale resume_from_* said "renderer_contract",
+        # so a quality-gate failure took the package-reuse shortcut and
+        # re-failed on the identical DOCX in one second.
+        resume_last_status=status,
+        resume_last_failure_phase=report.get("failure_phase"),
         failure_phase=None,
         failure_detail=None,
     ) or report
@@ -6969,6 +6984,7 @@ def _report_summary(r: dict) -> dict:
         "artifacts_available": bool(r.get("artifacts_available")),
         "memo_quality_lint": r.get("memo_quality_lint"),
         "memo_chinese_parity": r.get("memo_chinese_parity"),
+        "quality_warnings": r.get("quality_warnings") or None,
         "analysis_session_id": r.get("analysis_session_id"),
         "analysis_session_approved": bool(r.get("analysis_session_approved")),
         "resume_available": (

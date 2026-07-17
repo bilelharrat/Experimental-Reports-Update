@@ -2537,6 +2537,24 @@ MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA: dict[str, Any] = {
     "required": ["memo_package"],
 }
 
+MEMO_PACKAGE_SOURCES_CONTRACT = """\
+## Renderer Sources Contract (hard requirement — validated before rendering)
+
+Every entry in the package `sources` list must be an object with exactly
+these keys, all non-empty:
+- `id`: "S1", "S2", ... in order;
+- `title`: {"en": "...", "zh": ""} — human-readable source name;
+- `class`: the source class ("company-reported", "investor materials",
+  "third-party market data", "BSH primary diligence", "public filings", ...);
+- `treatment`: {"en": "...", "zh": ""} — one sentence on how the memo
+  weighs and uses this source;
+- `as_of`: the data vintage as an ISO date string.
+
+Do NOT reuse the analysis-pass evidence vocabulary (`source`,
+`source_class`, `label`, `detail`) for package sources — the renderer
+rejects those keys and the run fails.
+"""
+
 HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
 ## Human Executive Memo Voice Contract
 
@@ -2570,7 +2588,19 @@ Final memo prose must:
 - use source-class language in Sections I-V, with detailed source IDs only in
   a separate Sources, Source Classes, and Fact Reference Index;
 - convert disclosure gaps into risk factors, valuation sensitivities, Fermi
-  estimates, or deal-mechanics treatment.
+  estimates, or deal-mechanics treatment. This applies to EVERY mention,
+  including table cells: never leave a bare "Not disclosed" or "not
+  computable" — the same cell (or its row) must state the treatment, e.g.
+  "Not disclosed; modeled via customer-count proxy" or "Not disclosed;
+  treated as a valuation sensitivity". A terse untreated cell fails the
+  quality gate;
+- express data vintage with absolute dates only: "figures are as of March
+  2026", "no disclosure since the January launch window". NEVER anchor
+  staleness to the memo itself — phrases like "at the memo date", "as of
+  this writing", "four months old at the memo date", or any other
+  "the memo ..." construction are banned memo-self-reference and will fail
+  the quality gate. If staleness matters, state the as-of date and treat the
+  gap as a risk factor or valuation sensitivity.
 
 Sell-side investment memo posture:
 - Open from the sponsor thesis, not from a tombstone. Start with why we care
@@ -3218,9 +3248,14 @@ non-empty `sources` list. Use `paragraph`, `heading`, `bullets`, `callout`,
 and `table` blocks. Tables carry headers and rows as arrays; callouts carry
 concise title/body/items. The same package drives both EN and ZH
 output, so every final user-facing string in blocks, table cells, and source
-treatment must be bilingual (`{{"en": "...", "zh": "..."}}`) unless it is a
-proper noun, date, numeric value, source id, or intentionally language-neutral
-source title. This applies to descriptive prose inside table cells too: deal
+treatment must be bilingual (`{{"en": "...", "zh": "..."}}`). The ONLY values
+that may stay plain strings are fully language-neutral ones: dates
+("2026-05"), figures ("~$2.55B", "+180%"), source ids, tickers, and
+proper-noun names ("Koch Disruptive Technologies"). The renderer rejects any
+plain string containing ordinary lowercase English words — "120+ filed / 90+
+issued" or "$10M/site (LOI expected)" MUST be a bilingual object. When in
+doubt, use a bilingual object; identical en/zh is always valid.
+This applies to descriptive prose inside table cells too: deal
 mechanics such as SAFE / discount / cap / conversion terms must be written in
 natural Chinese in the `.zh` value (keep the bare term "SAFE", tickers, dates,
 and numbers, but translate the surrounding sentence). Never leave a cell's `.zh`
@@ -3508,7 +3543,15 @@ Focus for this pass:
 
 Rules:
 - Do not write files. Return only the JSON object matching the attached schema.
-- Keep it compact and memo-useful: maximum 8 key findings.
+- Hard output budget (schema-enforced — exceeding any limit rejects the
+  whole response): at most 8 `key_findings`, 8 `supporting_evidence`,
+  6 `disconfirming_evidence`, 5 `remaining_evidence_limits`,
+  6 `investment_implications`.
+- Keep every string SHORT: 1-2 sentences per field, no mini-essays. An
+  oversized response can be truncated in transit, which drops whole
+  properties and fails schema validation with a misleading
+  "missing required property" error — brevity is a correctness
+  requirement, not a style preference.
 - Separate company-reported, investor/intermediary, independent secondary, and
   internal model evidence.
 - Do not fabricate missing metrics. State what is disclosed, what is missing,
@@ -3549,11 +3592,21 @@ def run_memo_fast_english_package(
     warnings: list[str] | None = None,
     progress=None,
     timeout_sec: int = 1200,
+    validation_feedback: str | None = None,
 ) -> tuple[dict | None, str | None]:
     """Synthesize fast-pass artifacts into an English source package."""
     registry_entry = _extract_company_registry_entry_yaml(
         companies_yaml_path,
         company_slug,
+    )
+    validation_feedback_block = (
+        (
+            "\n## Previous attempt failed renderer validation\n"
+            "Fix EVERY error below while keeping the analytical content:\n"
+            f"{validation_feedback}\n"
+        )
+        if validation_feedback
+        else ""
     )
     registry_block = (
         f"```yaml\n{registry_entry}\n```"
@@ -3630,8 +3683,10 @@ Package requirements:
   offered", and "we are participating through". Never use detached
   recommendation, opportunity, access, or base-case framing.
 
-{MEMO_CONTENT_PARITY_CONTRACT}
+{MEMO_PACKAGE_SOURCES_CONTRACT}
 
+{MEMO_CONTENT_PARITY_CONTRACT}
+{validation_feedback_block}
 Return only the JSON matching the attached schema.
 """
     add_dirs = [settings_path.parent, companies_yaml_path.parent, run_dir]
@@ -4215,6 +4270,7 @@ def _build_resume_memo_package_prompt(
     company_registry_entry_yaml: str | None = None,
     quality_lint_path: Path | None = None,
     prior_package_path: Path | None = None,
+    validation_feedback: str | None = None,
 ) -> str:
     """Build the narrow resume prompt that only authors memo_package.json."""
     package_path = run_dir / "logs" / "memo_package.json"
@@ -4338,6 +4394,22 @@ below as needed to verify or support changed claims:
 {analysis_list}
 """
 
+    validation_feedback_block = ""
+    if validation_feedback:
+        validation_feedback_block = f"""\
+## Previous attempt failed pre-render validation
+
+The package written by the previous attempt was rejected before rendering —
+by the renderer's structural validation and/or the memo quality gates. Fix
+EVERY error below while keeping the analytical content. Structural errors
+name the exact JSON path that must change; quality-gate errors quote the
+offending text — rewrite that text (and any nearby wording with the same
+problem), do not just delete it:
+
+{validation_feedback}
+
+"""
+
     return f"""\
 You are resuming a previously interrupted BSH late-stage investment memo run.
 The analytical work already landed in the run folder. Your job in this resume
@@ -4369,6 +4441,7 @@ authoritative; do not look for another schema or example.
 {prior_package_line}
 
 {scope_block}{registry_block}{quality_lint_block}{prior_package_block}\
+{validation_feedback_block}\
 ## Existing analysis artifacts to use
 
 {analysis_instruction}
@@ -4432,11 +4505,18 @@ The final package must include at least these core section ids with non-empty,
 substantive blocks: `executive_summary`, `company_overview`,
 `investment_highlights`, `investment_risk`, and
 `financial_forecast_valuation`. Include a non-empty `sources` list.
+
+{MEMO_PACKAGE_SOURCES_CONTRACT}
+
 Use `paragraph`, `heading`, `bullets`, `callout`, and `table` blocks where
 useful. All final user-facing strings in blocks, tables, callouts, bullets,
-and source treatment must be bilingual (`{{"en": "...", "zh": "..."}}`)
-unless they are proper nouns, dates, numeric values, source ids, or intentionally
-language-neutral source titles.
+and source treatment must be bilingual (`{{"en": "...", "zh": "..."}}`). The
+ONLY values that may stay plain strings are fully language-neutral ones:
+dates ("2026-05"), figures ("~$2.55B", "+180%"), source ids, tickers, and
+proper-noun names ("Koch Disruptive Technologies"). The renderer rejects any
+plain string containing ordinary lowercase English words — "120+ filed / 90+
+issued" or "$10M/site (LOI expected)" MUST be a bilingual object. When in
+doubt, use a bilingual object; identical en/zh is always valid.
 
 Do not author a heading block that restates a numbered top-level section title;
 the renderer emits the roman-numbered section titles automatically. Subheadings
@@ -4478,6 +4558,7 @@ def run_resume_memo_package(
     warnings: list[str] | None = None,
     quality_lint_path: Path | None = None,
     prior_package_path: Path | None = None,
+    validation_feedback: str | None = None,
     progress=None,
     timeout_sec: int = 1800,
 ) -> dict:
@@ -4517,6 +4598,7 @@ def run_resume_memo_package(
         ),
         quality_lint_path=quality_lint_path,
         prior_package_path=prior_package_path,
+        validation_feedback=validation_feedback,
     )
     add_dirs = [
         str(run_dir),

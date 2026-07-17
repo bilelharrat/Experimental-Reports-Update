@@ -617,6 +617,91 @@ def test_renderer_rejects_missing_chinese_translation():
         memo_docx_renderer.validate_package(package)
 
 
+def test_renderer_accepts_language_neutral_plain_cells():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"][2]["rows"].append(
+        [
+            {"en": "Effective entry valuation", "zh": "有效入场估值"},
+            "~$2.55B",
+        ]
+    )
+    package["sections"][0]["blocks"][2]["rows"].append(
+        [
+            {"en": "Lead investor", "zh": "领投方"},
+            "Koch Disruptive Technologies",
+        ]
+    )
+    package["sections"][0]["blocks"][2]["rows"].append(
+        [{"en": "Data vintage", "zh": "数据时点"}, "2026-05"]
+    )
+
+    memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_plain_cells_containing_english_prose():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"][2]["rows"].append(
+        [
+            {"en": "Patents", "zh": "专利"},
+            "120+ filed / 90+ issued",
+        ]
+    )
+
+    with pytest.raises(
+        memo_docx_renderer.MemoRenderError, match="must be bilingual"
+    ):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_is_language_neutral_text():
+    neutral = [
+        "~$2.55B",
+        "2026-05",
+        "+180%",
+        "~106x-125x",
+        "$500M+",
+        "Steve Jurvetson",
+        "NextNav (NN)",
+        "HERE",
+    ]
+    prose = [
+        "120+ filed / 90+ issued",
+        "$10M/site (LOI expected)",
+        "~$36M (+~$16M expected)",
+        "Not disclosed",
+        "该轮次尚未定价",
+        "",
+    ]
+    for value in neutral:
+        assert memo_docx_renderer._is_language_neutral_text(value), value
+    for value in prose:
+        assert not memo_docx_renderer._is_language_neutral_text(value), value
+
+
+def test_renderer_renders_plain_scalar_cells_in_both_locales(tmp_path):
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"][2]["rows"].append(
+        [{"en": "Valuation", "zh": "估值"}, "~$2.55B"]
+    )
+
+    result = memo_docx_renderer.render_memos(
+        package,
+        out_en=tmp_path / "memo" / "memo_en.docx",
+        out_zh=tmp_path / "memo" / "memo_zh.docx",
+    )
+
+    assert result["ok"]
+    for locale in ("en", "zh"):
+        document = Document(result["outputs"][locale])
+        cell_texts = [
+            cell.text
+            for table in document.tables
+            for row in table.rows
+            for cell in row.cells
+        ]
+        assert "~$2.55B" in cell_texts
+
+
 def test_renderer_rejects_unsupported_block_type():
     package = copy.deepcopy(_package())
     package["sections"][0]["blocks"].append({
