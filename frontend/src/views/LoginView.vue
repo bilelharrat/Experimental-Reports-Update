@@ -56,11 +56,11 @@ async function onSubmit() {
 
       <label class="block">
         <span class="text-xs font-medium uppercase tracking-wide text-ink-muted">
-          {{ t("auth.email") }}
+          {{ t("auth.identity") }}
         </span>
         <input
           v-model="email"
-          type="email"
+          type="text"
           autocomplete="username"
           autocapitalize="none"
           spellcheck="false"

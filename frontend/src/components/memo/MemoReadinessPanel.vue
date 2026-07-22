@@ -1,7 +1,13 @@
 <script setup>
+import { computed } from "vue";
 import { AlertTriangle, CheckCircle2, Save } from "lucide-vue-next";
+import { formatIsoDate, humanizeStatus } from "../../formatters.js";
+import { useT } from "../../i18n.js";
+import { appLanguage } from "../../state.js";
 
-defineProps({
+const t = useT();
+
+const props = defineProps({
   readiness: { type: Object, default: () => ({ score: 0, total: 0, gates: [] }) },
   readinessPct: { type: Number, default: 0 },
   readinessBlockers: { type: Array, default: () => [] },
@@ -10,21 +16,22 @@ defineProps({
   savingArtifact: { type: String, default: null },
 });
 
+const displayedReadinessPct = computed(() =>
+  props.readinessBlockers.length ? Math.min(props.readinessPct, 95) : props.readinessPct,
+);
+
 const emit = defineEmits([
   "update-readiness-review-draft",
   "save-readiness-review",
 ]);
 
 function severityClass(severity) {
-  if (severity === "high") return "bg-danger/10 text-danger border-danger/30";
-  return "bg-warning-soft text-warning-ink border-warning/40";
+  if (severity === "high") return "bg-surface text-ink-primary border-danger border-l-4";
+  return "bg-surface text-ink-primary border-warning border-l-4";
 }
 
 function fmtDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return formatIsoDate(value, "");
 }
 </script>
 
@@ -34,7 +41,7 @@ function fmtDate(value) {
       <div class="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <div class="text-xs uppercase tracking-wide text-ink-muted">
-            Readiness
+            {{ t("memo.readiness_label") }}
           </div>
           <div class="mt-1 text-2xl font-semibold text-ink-primary">
             {{ readiness.score }} / {{ readiness.total }}
@@ -44,11 +51,11 @@ function fmtDate(value) {
           <div class="h-2 rounded-full bg-surface-muted overflow-hidden">
             <div
               class="h-full bg-accent transition-all"
-              :style="{ width: readinessPct + '%' }"
+              :style="{ width: displayedReadinessPct + '%' }"
             ></div>
           </div>
           <div class="mt-1 text-xs text-ink-muted text-right">
-            {{ readinessPct }}%
+            {{ displayedReadinessPct }}%
           </div>
         </div>
       </div>
@@ -71,10 +78,10 @@ function fmtDate(value) {
       </div>
       <div
         v-if="readinessBlockers.length"
-        class="mt-4 rounded-lg border border-warning/40 bg-warning-soft/60 p-3"
+        class="mt-4 rounded-row border border-warning border-l-4 bg-surface p-3"
       >
         <div class="text-xs uppercase tracking-wide text-warning-ink">
-          Approval blockers
+          {{ t("memo.approval_blockers") }}
         </div>
         <ul class="mt-2 space-y-1 text-sm text-warning-ink">
           <li v-for="blocker in readinessBlockers" :key="`${blocker.kind}-${blocker.id}`">
@@ -89,7 +96,7 @@ function fmtDate(value) {
       class="border border-subtle bg-surface rounded-card p-5"
     >
       <h3 class="font-display text-lg font-semibold text-ink-primary">
-        Additional Areas Needed
+        {{ t("memo.additional_areas") }}
       </h3>
       <div class="mt-3 grid md:grid-cols-2 gap-3">
         <div
@@ -104,7 +111,7 @@ function fmtDate(value) {
           <div class="mt-1 text-xs opacity-80">{{ area.why_it_matters }}</div>
           <div class="mt-2 flex items-center gap-2 flex-wrap">
             <span class="text-[10px] uppercase tracking-wide opacity-75">
-              {{ area.status || "open" }}
+              {{ humanizeStatus(area.status || "open", t("memo.pending"), appLanguage) }}
             </span>
             <span v-if="area.reviewed_at" class="text-[10px] opacity-70">
               {{ fmtDate(area.reviewed_at) }}
@@ -114,7 +121,7 @@ function fmtDate(value) {
             :value="readinessReviewDraft[area.id]"
             rows="2"
             class="mt-2 w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-xs text-ink-primary focus-ring resize-y"
-            placeholder="Rationale"
+            :placeholder="t('memo.rationale')"
             @input="emit('update-readiness-review-draft', area.id, $event.target.value)"
           ></textarea>
           <div class="mt-2 flex items-center gap-2 flex-wrap">
@@ -125,7 +132,7 @@ function fmtDate(value) {
               class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
             >
               <Save class="h-3.5 w-3.5" />
-              <span>Waive</span>
+              <span>{{ t("memo.waive") }}</span>
             </button>
             <button
               type="button"
@@ -134,7 +141,7 @@ function fmtDate(value) {
               class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
             >
               <CheckCircle2 class="h-3.5 w-3.5" />
-              <span>Reviewed</span>
+              <span>{{ t("memo.reviewed") }}</span>
             </button>
             <button
               type="button"
@@ -143,7 +150,7 @@ function fmtDate(value) {
               class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
             >
               <AlertTriangle class="h-3.5 w-3.5" />
-              <span>Reopen</span>
+              <span>{{ t("memo.reopen") }}</span>
             </button>
           </div>
         </div>

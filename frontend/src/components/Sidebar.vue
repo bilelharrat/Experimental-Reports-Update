@@ -4,7 +4,6 @@ import { RouterLink } from "vue-router";
 import {
   Activity,
   Bell,
-  Building2,
   ChevronDown,
   ChevronRight,
   FlaskConical,
@@ -13,9 +12,7 @@ import {
   LogOut,
   Newspaper,
   ScrollText,
-  Settings,
   UploadCloud,
-  User,
 } from "lucide-vue-next";
 import { sessionEmail, signOut } from "../auth.js";
 import { useT } from "../i18n.js";
@@ -94,9 +91,9 @@ const companyBuckets = computed(() => {
   // Labels resolved inside the computed (not a module constant) so they
   // stay reactive when the app language changes.
   return [
-    { id: "portfolio", label: t("sidebar.bucket_portfolio"), items: buckets.portfolio },
-    { id: "pipeline", label: t("sidebar.bucket_pipeline"), items: buckets.pipeline },
-    { id: "watchlist", label: t("sidebar.bucket_top_players"), items: buckets.watchlist },
+    { id: "portfolio", label: t("sidebar.portfolio"), items: buckets.portfolio },
+    { id: "pipeline", label: t("sidebar.pipeline"), items: buckets.pipeline },
+    { id: "watchlist", label: t("sidebar.top_players"), items: buckets.watchlist },
   ];
 });
 
@@ -125,6 +122,32 @@ function radarRoute(item) {
   }
   return { name: "external-news", params: { id: item.id } };
 }
+
+function researchStatus(company) {
+  const raw = String(company.research_status || company.analysis_status || company.status || "")
+    .toLowerCase();
+  if (/analyz|running|progress|queued/.test(raw)) {
+    return { label: t("sidebar.status_analyzing"), classes: "bg-warning-soft text-warning-ink" };
+  }
+  if (/review|draft|pending/.test(raw)) {
+    return { label: t("sidebar.status_review"), classes: "bg-danger-soft text-danger-ink" };
+  }
+  return { label: t("sidebar.status_researched"), classes: "bg-accent-soft text-accent-ink" };
+}
+
+function companyCategory(company) {
+  const translated = company.translation || {};
+  return translated.industry || translated.sector || company.industry || company.sector || t("sidebar.tracked");
+}
+
+const userName = computed(() => {
+  const localPart = String(sessionEmail.value || "").split("@")[0] || t("sidebar.researcher");
+  return localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+});
 </script>
 
 <template>
@@ -143,7 +166,7 @@ function radarRoute(item) {
         />
         <span class="leading-tight">
           <span class="block text-sm font-bold text-white">Berkeley Summit House</span>
-          <span class="block text-xs font-medium text-white/80">Research Center</span>
+          <span class="block text-xs font-medium text-white/80">{{ t("nav.research_center") }}</span>
         </span>
       </RouterLink>
     </div>
@@ -164,22 +187,22 @@ function radarRoute(item) {
             :to="{ name: 'home', query: { intake: 'link' } }"
             class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
           >
-            <LinkIcon class="h-4 w-4 text-accent" />
+            <span class="grid h-7 w-7 place-items-center rounded-chip bg-accent-soft"><LinkIcon class="h-4 w-4 text-accent" /></span>
             <span>{{ t("sidebar.submit_link") }}</span>
           </RouterLink>
           <RouterLink
             :to="{ name: 'home', query: { intake: 'upload' } }"
             class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
           >
-            <UploadCloud class="h-4 w-4 text-accent" />
+            <span class="grid h-7 w-7 place-items-center rounded-chip bg-ink-primary"><UploadCloud class="h-4 w-4 text-white" /></span>
             <span>{{ t("sidebar.upload_research") }}</span>
           </RouterLink>
           <RouterLink
             :to="{ name: 'home', query: { intake: 'note' } }"
             class="flex items-center gap-2 rounded-row border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-primary hover:border-accent hover:bg-accent-soft focus-ring"
           >
-            <ScrollText class="h-4 w-4 text-accent" />
-            <span>{{ t("sidebar.add_internal_note") }}</span>
+            <span class="grid h-7 w-7 place-items-center rounded-chip bg-danger-soft"><ScrollText class="h-4 w-4 text-danger" /></span>
+            <span>{{ t("sidebar.add_note") }}</span>
           </RouterLink>
         </div>
       </section>
@@ -195,7 +218,7 @@ function radarRoute(item) {
           {{ t("common.loading") }}
         </div>
         <div v-else-if="error" class="px-3 py-2 text-sm text-danger">
-          {{ error }}
+          {{ t("sidebar.load_error") }}
         </div>
         <div v-else class="space-y-4">
           <div v-for="bucket in companyBuckets" :key="bucket.id">
@@ -226,15 +249,21 @@ function radarRoute(item) {
                 <span class="min-w-0 flex-1">
                   <span class="block truncate font-semibold">{{ company.name }}</span>
                   <span class="block truncate text-[11px] text-ink-muted">
-                    {{ company.category || company.status || t("home.tag_tracked") }}
+                    {{ companyCategory(company) }}
                   </span>
+                </span>
+                <span
+                  class="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+                  :class="researchStatus(company).classes"
+                >
+                  {{ researchStatus(company).label }}
                 </span>
               </RouterLink>
               <button
                 v-if="bucket.items.length > 4"
                 type="button"
                 @click="toggleBucket(bucket.id)"
-                class="ml-1 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-ink-muted hover:bg-white/[0.70] hover:text-ink-primary focus-ring"
+                class="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs text-ink-muted hover:bg-white/[0.70] hover:text-ink-primary focus-ring"
               >
                 <ChevronDown v-if="expandedBuckets.has(bucket.id)" class="h-3 w-3" />
                 <ChevronRight v-else class="h-3 w-3" />
@@ -242,7 +271,7 @@ function radarRoute(item) {
                   {{
                     expandedBuckets.has(bucket.id)
                       ? t("sidebar.show_less")
-                      : t("sidebar.show_all", { n: bucket.items.length })
+                      : t("sidebar.show_all", { count: bucket.items.length })
                   }}
                 </span>
               </button>
@@ -288,7 +317,7 @@ function radarRoute(item) {
         >
           <Activity class="h-4 w-4 text-accent" />
           <span>{{ t("sidebar.stock") }}</span>
-          <span class="ml-auto text-[11px] font-normal text-ink-muted">{{ t("sidebar.stock_hint") }}</span>
+          <span class="ml-auto text-[11px] font-normal text-ink-muted">{{ t("sidebar.public_market_research") }}</span>
         </RouterLink>
         <RouterLink
           :to="{ name: 'innovation-lab' }"
@@ -301,27 +330,13 @@ function radarRoute(item) {
     </div>
 
     <div class="border-t border-subtle bg-white/[0.65] px-3 py-3">
-      <div class="mb-2 grid grid-cols-2 gap-2">
-        <RouterLink
-          :to="{ name: 'settings' }"
-          class="inline-flex items-center justify-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-2 text-xs font-semibold text-ink-secondary hover:text-ink-primary focus-ring"
-        >
-          <Settings class="h-3.5 w-3.5" />
-          {{ t("sidebar.settings") }}
-        </RouterLink>
-        <RouterLink
-          :to="{ name: 'user-center' }"
-          class="inline-flex items-center justify-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-2 text-xs font-semibold text-ink-secondary hover:text-ink-primary focus-ring"
-        >
-          <User class="h-3.5 w-3.5" />
-          {{ t("sidebar.profile") }}
-        </RouterLink>
-      </div>
       <div v-if="sessionEmail" class="flex items-center gap-2">
-        <User class="h-4 w-4 shrink-0 text-ink-muted" />
+        <div class="mono-data grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink-primary text-xs font-bold text-white">
+          {{ monogram(userName) }}
+        </div>
         <div class="min-w-0 flex-1">
-          <div class="vogue-label text-[9px]">{{ t("auth.signed_in_as") }}</div>
-          <div class="truncate text-xs text-ink-secondary" :title="sessionEmail">
+          <div class="truncate text-sm font-semibold text-ink-primary">{{ userName }}</div>
+          <div class="truncate text-[11px] text-ink-muted" :title="sessionEmail">
             {{ sessionEmail }}
           </div>
         </div>

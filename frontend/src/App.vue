@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { Bot, Languages, Settings, User, X } from "lucide-vue-next";
+import { Bot, ClipboardCheck, Languages, PanelRightClose, Settings, User } from "lucide-vue-next";
 import { api } from "./api.js";
+import { useT } from "./i18n.js";
 import Sidebar from "./components/Sidebar.vue";
 import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
@@ -10,9 +11,6 @@ import CompanyConsole from "./components/CompanyConsole.vue";
 import { activeSummaryTarget, closeSummary } from "./state.js";
 import { appLanguage, setAppLanguage } from "./state.js";
 import { isAuthenticated, sessionEmail } from "./auth.js";
-import { useT } from "./i18n.js";
-
-const t = useT();
 
 const reports = ref([]);
 const news = ref([]);
@@ -23,6 +21,8 @@ const loading = ref(true);
 const error = ref(null);
 const route = useRoute();
 const copilotOpen = ref(false);
+const companyConsoleRef = ref(null);
+const t = useT();
 
 // This feeds the sidebar nav — background data, not a live view. Poll slowly;
 // user actions refresh it immediately via @reports-changed.
@@ -128,8 +128,6 @@ const currentCompany = computed(() =>
 );
 
 function tabLabel(tab) {
-  // The dictionary already carries research.tab_* in both languages —
-  // ResearchView's tab strip uses them; this header copy must too.
   if (tab === "documents") return t("research.tab_documents");
   if (tab === "memo" || tab === "analysis") return t("research.tab_memo");
   if (tab === "news") return t("research.tab_news");
@@ -140,36 +138,36 @@ function tabLabel(tab) {
 
 const breadcrumbs = computed(() => {
   const name = String(route.name || "");
-  const root = t("nav.breadcrumb_root");
+  const root = t("nav.research_center");
   if (name === "home") return [root, t("nav.home")];
-  if (name === "stock-research") return [root, t("sidebar.stock")];
-  if (name === "settings") return [root, t("sidebar.settings")];
-  if (name === "user-center") return [root, t("nav.user_center")];
+  if (name === "stock-research") return [root, t("app.stock")];
+  if (name === "settings") return [root, t("app.settings")];
+  if (name === "user-center") return [root, t("app.user_center")];
   if (name === "source-library") {
-    return [root, t("nav.source_library")];
+    return [root, t("app.source_library")];
   }
   if (name === "competitor-detail") {
     return [
       root,
-      currentCompany.value?.name || route.params?.companyId || t("nav.company"),
-      t("nav.competitor_detail"),
+      currentCompany.value?.name || route.params?.companyId || t("app.company"),
+      t("app.competitor_detail"),
     ];
   }
-  if (name === "innovation-lab") return [root, t("sidebar.innovation_lab")];
+  if (name === "innovation-lab") return [root, t("app.innovation_lab")];
   if (name.startsWith("research-page-") || name.startsWith("innovation-")) {
-    return [root, t("sidebar.innovation_lab")];
+    return [root, t("app.innovation_lab")];
   }
   if (name === "hormuz-library" || name === "hormuz-research") {
-    return [root, t("sidebar.innovation_lab"), "Hormuz"];
+    return [root, t("app.innovation_lab"), t("app.hormuz")];
   }
-  if (name === "external-news") return [root, t("sidebar.market_radar")];
-  if (name === "external-research") return [root, t("nav.external_research")];
-  if (name === "weekly-summary") return [root, t("nav.weekly_summary")];
-  if (name === "trader-stats") return [root, t("nav.stats")];
+  if (name === "external-news") return [root, t("app.market_radar")];
+  if (name === "external-research") return [root, t("app.external_research")];
+  if (name === "weekly-summary") return [root, t("app.weekly_summary")];
+  if (name === "trader-stats") return [root, t("app.stats")];
   if (name === "research") {
     return [
       root,
-      currentCompany.value?.name || currentCompanyId.value || t("nav.company"),
+      currentCompany.value?.name || currentCompanyId.value || t("app.company"),
       tabLabel(route.query?.report ? route.query.tab || "memo" : route.query?.tab),
     ];
   }
@@ -182,6 +180,16 @@ const copilotContext = computed(() => {
   }
   return breadcrumbs.value.slice(1).join(" · ") || t("nav.breadcrumb_root");
 });
+
+const copilotQuickActions = computed(() => [
+  t("copilot.quick_evidence"),
+  t("copilot.quick_thesis"),
+  t("copilot.quick_update"),
+]);
+
+function prefillCopilot(prompt) {
+  companyConsoleRef.value?.prefillPrompt(prompt);
+}
 
 watch(
   () => route.fullPath,
@@ -208,14 +216,14 @@ watch(
       :loading="loading"
       :error="error"
     />
-    <main class="flex-1 min-w-0">
+    <main class="min-w-0 flex-1">
       <header
         class="sticky top-0 z-30 border-b border-subtle bg-canvas/90 px-4 py-3 backdrop-blur md:px-8"
       >
         <div class="flex flex-wrap items-center gap-3">
           <nav
             class="min-w-0 basis-full text-xs text-ink-muted sm:flex-1 sm:basis-auto"
-            :aria-label="t('nav.breadcrumb_label')"
+            :aria-label="t('common.breadcrumb')"
           >
             <ol class="hidden min-w-0 items-center gap-1.5 sm:flex">
               <li
@@ -238,14 +246,14 @@ watch(
               </li>
             </ol>
             <div class="truncate font-medium text-ink-primary sm:hidden">
-              {{ breadcrumbs[breadcrumbs.length - 1] || t("nav.breadcrumb_root") }}
+              {{ breadcrumbs[breadcrumbs.length - 1] || t("nav.research_center") }}
             </div>
           </nav>
 
           <div
             class="inline-flex overflow-hidden rounded-full border border-subtle bg-surface text-xs"
             role="group"
-            :aria-label="t('nav.app_language_label')"
+            :aria-label="t('lang.app_language')"
           >
             <button
               type="button"
@@ -279,7 +287,7 @@ watch(
           <RouterLink
             :to="{ name: 'settings' }"
             class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-subtle bg-surface text-ink-muted hover:text-ink-primary focus-ring"
-            :aria-label="t('sidebar.settings')"
+            :aria-label="t('app.settings')"
           >
             <Settings class="h-4 w-4" />
           </RouterLink>
@@ -288,7 +296,7 @@ watch(
             class="inline-flex items-center gap-2 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:text-ink-primary focus-ring"
           >
             <User class="h-4 w-4 text-ink-muted" />
-            <span class="hidden max-w-36 truncate sm:inline">{{ sessionEmail || t("sidebar.profile") }}</span>
+            <span class="hidden max-w-36 truncate sm:inline">{{ sessionEmail || t("app.user_center") }}</span>
           </RouterLink>
         </div>
       </header>
@@ -313,57 +321,76 @@ watch(
       <span class="hidden sm:inline">{{ t("copilot.ask") }}</span>
     </button>
 
-    <Teleport to="body">
-      <aside
-        v-if="copilotOpen"
-        class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[372px] flex-col border-l border-subtle bg-surface shadow-card-raised"
-        :aria-label="t('copilot.title')"
-      >
+    <aside
+      v-if="copilotOpen"
+      class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[372px] flex-col border-l border-subtle bg-surface shadow-card-raised lg:sticky lg:top-0 lg:z-20 lg:h-screen lg:w-[372px] lg:shrink-0"
+      :aria-label="t('copilot.title')"
+    >
         <header class="flex items-start gap-3 border-b border-subtle px-4 py-4">
           <div
-            class="mt-0.5 grid h-9 w-9 place-items-center rounded-full bg-accent-soft text-accent-ink"
+            class="mt-0.5 grid h-10 w-10 place-items-center rounded-row bg-accent text-white"
           >
-            <Bot class="h-4 w-4" />
+            <Bot class="h-5 w-5" />
           </div>
           <div class="min-w-0 flex-1">
-            <div class="vogue-label">{{ t("copilot.title") }}</div>
-            <div class="truncate text-sm font-semibold text-ink-primary">
-              {{ copilotContext }}
+            <div class="text-sm font-bold text-ink-primary">{{ t("copilot.title") }}</div>
+            <div class="truncate text-xs text-ink-muted">
+              {{ t("copilot.context", { context: copilotContext }) }}
             </div>
           </div>
           <button
             type="button"
             @click="copilotOpen = false"
             class="rounded-full p-1.5 text-ink-muted hover:bg-surface-muted hover:text-ink-primary focus-ring"
-            :aria-label="t('copilot.close')"
+            :aria-label="t('copilot.collapse')"
+            :title="t('copilot.collapse')"
           >
-            <X class="h-4 w-4" />
+            <PanelRightClose class="h-4 w-4" />
           </button>
         </header>
-        <div class="flex-1 overflow-y-auto p-4">
+        <div class="flex min-h-0 flex-1 flex-col gap-3 p-4">
+          <div v-if="currentCompanyId" class="rounded-row border border-accent/30 bg-accent-soft/60 p-3">
+            <div class="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-accent-ink">
+              <ClipboardCheck class="h-3.5 w-3.5" />
+              {{ t("copilot.research_task") }}
+            </div>
+            <p class="mt-1 text-sm font-semibold text-ink-primary">{{ t("copilot.task_prompt") }}</p>
+          </div>
           <CompanyConsole
             v-if="currentCompanyId"
+            ref="companyConsoleRef"
+            class="min-h-0 flex-1"
             :company-id="currentCompanyId"
           />
           <div v-else class="space-y-4">
             <div class="rounded-card border border-subtle bg-surface-muted p-4">
               <div class="text-sm font-semibold text-ink-primary">
-                {{ t("copilot.empty_title") }}
+                {{ t("copilot.context_aware") }}
               </div>
               <p class="mt-1 text-sm leading-relaxed text-ink-muted">
-                {{ t("copilot.empty_body") }}
+                {{ t("copilot.open_company") }}
               </p>
             </div>
             <div class="ml-auto max-w-[85%] rounded-l-card rounded-br-card bg-ink-primary px-3 py-2 text-sm text-white">
-              {{ t("copilot.demo_user") }}
+              {{ t("copilot.sample_user") }}
             </div>
             <div class="max-w-[85%] rounded-card bg-surface-muted px-3 py-2 text-sm text-ink-secondary">
-              {{ t("copilot.demo_reply") }}
+              {{ t("copilot.sample_assistant") }}
             </div>
           </div>
+          <div v-if="currentCompanyId" class="flex flex-wrap gap-1.5 border-t border-subtle pt-3">
+            <button
+              v-for="action in copilotQuickActions"
+              :key="action"
+              type="button"
+              @click="prefillCopilot(action)"
+              class="rounded-full border border-subtle bg-surface px-2.5 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
+            >
+              {{ action }}
+            </button>
+          </div>
         </div>
-      </aside>
-    </Teleport>
+    </aside>
 
     <ActiveJobsRail />
     <DeckSummaryModal

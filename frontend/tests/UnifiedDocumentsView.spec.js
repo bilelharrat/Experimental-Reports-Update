@@ -19,6 +19,7 @@ vi.mock("../src/api.js", () => ({
 }));
 
 vi.mock("../src/state.js", () => ({
+  appLanguage: { value: "en" },
   openSummary: vi.fn(),
 }));
 
@@ -170,12 +171,13 @@ describe("UnifiedDocumentsView", () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Memos");
-    expect(wrapper.text()).toContain("Company Materials");
-    expect(wrapper.text()).toContain("External Reports");
-    expect(wrapper.text()).toContain("unknown/pending");
+    expect(wrapper.text()).toContain("Generated Memos");
+    expect(wrapper.text()).toContain("Uploaded Documents");
+    expect(wrapper.text()).toContain("Source pending");
     expect(wrapper.text()).toContain("third-party market data");
-    expect(wrapper.text()).toContain("1 unresolved intake");
+    expect(wrapper.text()).toContain("1 awaiting review");
+    expect(wrapper.text()).toContain("2026-07-03");
+    expect(wrapper.text()).not.toContain("Document Library upload");
 
     const sourceClassFilter = wrapper.findAll("select")[1];
     await sourceClassFilter.setValue("third-party market data");
@@ -186,7 +188,7 @@ describe("UnifiedDocumentsView", () => {
       .findAll("button")
       .find((button) => button.text().includes("Source trace"));
     await traceButton.trigger("click");
-    expect(wrapper.text()).toContain("Source Trace");
+    expect(wrapper.text()).toContain("Source trace");
     expect(wrapper.text()).toContain("PitchBook");
     expect(wrapper.text()).toContain("ARR reached $24M");
   });

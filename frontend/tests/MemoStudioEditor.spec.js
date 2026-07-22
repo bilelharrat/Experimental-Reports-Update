@@ -269,6 +269,7 @@ describe("MemoStudioEditor", () => {
     expect(wrapper.text()).toContain("Risks and Mitigations");
     expect(wrapper.text()).toContain("Conclusion");
     expect(wrapper.text()).toContain("Appendix");
+    expect(wrapper.text()).toContain("0 of 5 sections ready");
 
     await wrapper.findAll("button").find((button) => button.text() === "Rerun").trigger("click");
     await flushPromises();
@@ -283,7 +284,7 @@ describe("MemoStudioEditor", () => {
       { included: false },
     );
 
-    await wrapper.findAll("button").find((button) => button.text().includes("Dive Deeper")).trigger("click");
+    await wrapper.find("button[aria-label='Dive deeper']").trigger("click");
     await flushPromises();
     expect(m.diveDeeper).toHaveBeenCalledWith(
       "zainar-inc",
@@ -293,7 +294,7 @@ describe("MemoStudioEditor", () => {
     );
     expect(wrapper.text()).toContain("Dive deeper point.");
 
-    await wrapper.findAll("button").find((button) => button.text().includes("Edit")).trigger("click");
+    await wrapper.find("button[aria-label='Edit']").trigger("click");
     await wrapper.find("textarea").setValue("Edited bullet.");
     await wrapper.findAll("button").find((button) => button.text() === "Save").trigger("click");
     await flushPromises();
@@ -305,7 +306,7 @@ describe("MemoStudioEditor", () => {
       { text: "Edited bullet." },
     );
 
-    await wrapper.findAll("button").find((button) => button.text().includes("Discuss")).trigger("click");
+    await wrapper.find("button[aria-label='Discuss']").trigger("click");
     await flushPromises();
     expect(m.createTask).toHaveBeenCalledWith(
       "zainar-inc",
@@ -320,7 +321,7 @@ describe("MemoStudioEditor", () => {
       bullet_id: "bullet-1",
     });
 
-    expect(wrapper.text()).toContain("Co-pilot Tasks");
+    expect(wrapper.text()).toContain("Co-Pilot Tasks");
     await wrapper.findAll("button").find((button) => button.text() === "Accept").trigger("click");
     await flushPromises();
     expect(m.updateTask).toHaveBeenCalledWith("zainar-inc", "task-1", { status: "accepted" });

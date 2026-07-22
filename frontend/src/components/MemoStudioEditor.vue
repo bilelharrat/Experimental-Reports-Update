@@ -8,11 +8,13 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
-  FileText,
   Loader2,
   RefreshCw,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { formatIsoDate, humanizeStatus } from "../formatters.js";
+import { useT } from "../i18n.js";
+import { appLanguage } from "../state.js";
 import MemoStudioBulletTree from "./memo/MemoStudioBulletTree.vue";
 
 const props = defineProps({
@@ -20,6 +22,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["discuss"]);
+const t = useT();
 
 const editor = ref(null);
 const loading = ref(true);
@@ -30,6 +33,13 @@ const exportError = ref("");
 const exporting = ref(false);
 const history = ref({ versions: [], audit_records: [], memo_tasks: [] });
 const historyError = ref("");
+const errorMessage = computed(() =>
+  error.value === "load" ? t("memo.load_error") : t("memo.action_failed"),
+);
+const historyErrorMessage = computed(() =>
+  historyError.value === "load" ? t("memo.history_error") : t("memo.action_failed"),
+);
+const exportErrorMessage = computed(() => t("memo.export_error"));
 
 const sectionIds = [
   "executive_summary",
@@ -44,13 +54,25 @@ const thesisCards = computed(() => orderedCards("investment_thesis"));
 const riskCards = computed(() => orderedCards("risks_mitigations"));
 const conclusion = computed(() => sections.value.conclusion || {});
 const appendixBlocks = computed(() => sections.value.appendix?.blocks || []);
-const memoTasks = computed(() => history.value?.memo_tasks || editor.value?.memo_tasks || []);
+const memoTasks = computed(() => {
+  const rows = history.value?.memo_tasks || editor.value?.memo_tasks || [];
+  const seen = new Set();
+  return rows.filter((task) => {
+    const signature = `${task.title || ""}|${task.description || ""}`
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!signature || seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+});
 const auditRecords = computed(() => history.value?.audit_records || editor.value?.audit_records || []);
 const versions = computed(() => history.value?.versions || []);
 const completedSections = computed(() =>
   sectionIds.filter((id) => {
-    const status = sections.value[id]?.status || "";
-    return status === "done" || status === "ready_for_input";
+    const status = String(sections.value[id]?.status || "").toLowerCase();
+    return ["done", "complete", "completed", "approved", "ready"].includes(status);
   }).length,
 );
 const progressPct = computed(() =>
@@ -59,7 +81,16 @@ const progressPct = computed(() =>
 
 function orderedCards(sectionId) {
   const cards = sections.value[sectionId]?.cards || [];
-  return [...cards].sort((a, b) => Number(a.rank || 0) - Number(b.rank || 0));
+  const seen = new Set();
+  return [...cards]
+    .sort((a, b) => Number(a.rank || 0) - Number(b.rank || 0))
+    .filter((card) => {
+      const bulletText = (card.bullets || []).map((bullet) => bullet.text || "").join("|");
+      const signature = `${card.title || ""}|${bulletText}`.toLowerCase().replace(/\s+/g, " ").trim();
+      if (!signature || seen.has(signature)) return false;
+      seen.add(signature);
+      return true;
+    });
 }
 
 function cardTone(sectionId, card) {
@@ -72,7 +103,7 @@ function cardTone(sectionId, card) {
 }
 
 function sourceLabel(item) {
-  return item?.source_class || item?.source_refs?.[0]?.source_class || "unknown/pending";
+  return item?.source_class || item?.source_refs?.[0]?.source_class || t("memo.source_pending");
 }
 
 function sourceCount(item) {
@@ -81,8 +112,8 @@ function sourceCount(item) {
 
 function coverageLabel(result) {
   const coverage = result?.source_coverage;
-  if (!coverage) return "coverage pending";
-  return `${Math.round((coverage.coverage || 0) * 100)}% source coverage`;
+  if (!coverage) return t("memo.coverage_pending");
+  return t("memo.source_coverage", { pct: Math.round((coverage.coverage || 0) * 100) });
 }
 
 async function load() {
@@ -92,8 +123,8 @@ async function load() {
   try {
     editor.value = await api.memoEditor.get(props.companyId);
     await loadHistory();
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "load";
   } finally {
     loading.value = false;
   }
@@ -103,8 +134,8 @@ async function loadHistory() {
   historyError.value = "";
   try {
     history.value = await api.memoEditor.history(props.companyId);
-  } catch (e) {
-    historyError.value = e?.message || String(e);
+  } catch {
+    historyError.value = "load";
     history.value = {
       versions: [],
       audit_records: editor.value?.audit_records || [],
@@ -126,8 +157,8 @@ async function patchCard(sectionId, card, patch) {
   savingId.value = `${sectionId}:${card.id}`;
   try {
     applyState(await api.memoEditor.patchCard(props.companyId, sectionId, card.id, patch));
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   } finally {
     savingId.value = "";
   }
@@ -137,8 +168,8 @@ async function moveCard(sectionId, card, direction) {
   savingId.value = `${sectionId}:${card.id}:move`;
   try {
     applyState(await api.memoEditor.moveCard(props.companyId, sectionId, card.id, direction));
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   } finally {
     savingId.value = "";
   }
@@ -148,8 +179,8 @@ async function selectConclusion(option) {
   savingId.value = `conclusion:${option.id}`;
   try {
     applyState(await api.memoEditor.selectConclusion(props.companyId, option.id));
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   } finally {
     savingId.value = "";
   }
@@ -159,8 +190,8 @@ async function rerunSection(sectionId) {
   savingId.value = `rerun:${sectionId}`;
   try {
     applyState(await api.memoEditor.rerunSection(props.companyId, sectionId));
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   } finally {
     savingId.value = "";
   }
@@ -174,8 +205,8 @@ async function toggleAppendix(block) {
         expanded: !block.expanded,
       }),
     );
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   } finally {
     savingId.value = "";
   }
@@ -189,8 +220,8 @@ async function projectExport() {
       record: true,
     });
     await loadHistory();
-  } catch (e) {
-    exportError.value = e?.message || String(e);
+  } catch {
+    exportError.value = "export";
   } finally {
     exporting.value = false;
   }
@@ -199,8 +230,8 @@ async function projectExport() {
 async function discuss(context) {
   const taskPayload = {
     action_type: "discuss",
-    title: `Discuss: ${context.card_title || context.bullet_text || "memo point"}`,
-    description: context.bullet_text || "Review this memo point in the co-pilot.",
+    title: t("memo.discuss_title", { point: context.card_title || context.bullet_text || t("memo.memo_point") }),
+    description: context.bullet_text || t("memo.discuss_description"),
     context: {
       ...context,
       company_id: props.companyId,
@@ -211,8 +242,8 @@ async function discuss(context) {
   try {
     await api.memoEditor.createTask(props.companyId, taskPayload);
     await loadHistory();
-  } catch (e) {
-    historyError.value = e?.message || String(e);
+  } catch {
+    historyError.value = "action";
   }
   emit("discuss", taskPayload.context);
 }
@@ -223,8 +254,8 @@ async function setTaskStatus(task, status) {
   try {
     await api.memoEditor.updateTask(props.companyId, task.id, { status });
     await loadHistory();
-  } catch (e) {
-    historyError.value = e?.message || String(e);
+  } catch {
+    historyError.value = "action";
   } finally {
     savingId.value = "";
   }
@@ -235,13 +266,12 @@ async function setTaskStatus(task, status) {
   <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <div class="vogue-label">Memo Studio</div>
+        <div class="vogue-label">{{ t("memo.eyebrow") }}</div>
         <h2 class="font-display text-xl font-semibold text-ink-primary">
-          PRD memo editor
+          {{ t("memo.title") }}
         </h2>
         <p class="mt-1 max-w-3xl text-sm text-ink-muted">
-          Curate the five-section memo from durable editor state. Export is
-          blocked until key figures have source or source-class coverage.
+          {{ t("memo.subtitle") }}
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
@@ -251,7 +281,7 @@ async function setTaskStatus(task, status) {
           class="inline-flex items-center gap-2 rounded-full border border-subtle px-3 py-2 text-xs font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
         >
           <RefreshCw class="h-4 w-4" />
-          Refresh
+          {{ t("common.refresh") }}
         </button>
         <button
           type="button"
@@ -261,24 +291,24 @@ async function setTaskStatus(task, status) {
         >
           <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
           <Download v-else class="h-4 w-4" />
-          Export Memo
+          {{ t("memo.export") }}
         </button>
       </div>
     </div>
 
     <div v-if="loading" class="mt-5 flex items-center gap-2 text-sm text-ink-muted">
       <Loader2 class="h-4 w-4 animate-spin" />
-      Loading memo editor…
+      {{ t("memo.loading") }}
     </div>
     <div v-else-if="error" class="mt-5 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
-      {{ error }}
+      {{ errorMessage }}
     </div>
 
     <template v-else-if="editor">
       <div class="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
         <div class="rounded-card border border-subtle bg-surface-muted p-4">
           <div class="flex items-center justify-between gap-3 text-xs text-ink-muted">
-            <span>Section {{ completedSections }} of 5 ready</span>
+            <span>{{ t("memo.readiness", { ready: completedSections, total: sectionIds.length }) }}</span>
             <span class="font-mono">{{ progressPct }}%</span>
           </div>
           <div class="mt-2 h-2 rounded-full bg-surface">
@@ -290,9 +320,9 @@ async function setTaskStatus(task, status) {
         </div>
         <div class="rounded-card border border-subtle bg-surface-muted p-4 text-xs text-ink-muted">
           <div class="font-semibold text-ink-primary">
-            {{ editor.version_id || "v1" }} · {{ editor.status || "draft" }}
+            {{ editor.version_id || "v1" }} · {{ humanizeStatus(editor.status, t("memo.draft"), appLanguage) }}
           </div>
-          <div class="mt-1">Updated {{ editor.updated_at || "pending" }}</div>
+          <div class="mono-data mt-1">{{ t("memo.updated") }} {{ formatIsoDate(editor.updated_at, t("memo.pending")) }}</div>
         </div>
       </div>
 
@@ -310,7 +340,7 @@ async function setTaskStatus(task, status) {
                 {{ exportResult.block_reason }}
               </template>
               <template v-else>
-                Export projection ready
+                {{ t("memo.export_ready") }}
               </template>
             </div>
             <p class="mt-1 text-xs opacity-80">
@@ -328,18 +358,17 @@ async function setTaskStatus(task, status) {
           </div>
         </div>
       </div>
-      <div v-if="exportError" class="mt-3 text-sm text-danger">{{ exportError }}</div>
+      <div v-if="exportError" class="mt-3 text-sm text-danger">{{ exportErrorMessage }}</div>
 
-      <section class="mt-6 rounded-card border border-subtle bg-surface-muted p-4">
-        <div class="flex items-start gap-3">
-          <FileText class="mt-1 h-5 w-5 text-accent" />
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <h3 class="font-display text-lg font-semibold text-ink-primary">
-                Executive Summary
-              </h3>
+      <section class="mt-6">
+        <div class="flex flex-wrap items-end justify-between gap-3 border-b border-subtle pb-3">
+          <div class="flex items-baseline gap-3">
+            <span class="mono-data text-xs font-bold text-accent-ink">01</span>
+            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.executive_summary") }}</h3>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
               <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
-                {{ sections.executive_summary?.status || "not started" }}
+              {{ humanizeStatus(sections.executive_summary?.status, t("memo.not_started"), appLanguage) }}
               </span>
               <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
                 {{ sourceLabel(sections.executive_summary) }}
@@ -349,43 +378,45 @@ async function setTaskStatus(task, status) {
                 @click="rerunSection('executive_summary')"
                 class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
               >
-                Rerun
+              {{ t("memo.rerun") }}
               </button>
-            </div>
+          </div>
+        </div>
+        <div class="mt-3 rounded-card border border-subtle border-l-4 border-l-accent bg-surface p-4">
             <p class="mt-2 text-sm leading-relaxed text-ink-secondary">
               {{ sections.executive_summary?.body }}
             </p>
             <div class="mt-3 grid gap-2 text-sm md:grid-cols-3">
               <div class="rounded-lg border border-subtle bg-surface p-3">
-                <div class="vogue-label">Recommendation</div>
+                <div class="vogue-label">{{ t("memo.recommendation") }}</div>
                 <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.recommendation }}</p>
               </div>
               <div class="rounded-lg border border-subtle bg-surface p-3">
-                <div class="vogue-label">Round</div>
-                <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.round || "Pending" }}</p>
+                <div class="vogue-label">{{ t("memo.round") }}</div>
+                <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.round || t("memo.pending") }}</p>
               </div>
               <div class="rounded-lg border border-subtle bg-surface p-3">
-                <div class="vogue-label">Top Gate</div>
+                <div class="vogue-label">{{ t("memo.top_gate") }}</div>
                 <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.top_gate }}</p>
               </div>
             </div>
-          </div>
         </div>
       </section>
 
       <section class="mt-6">
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="font-display text-lg font-semibold text-ink-primary">
-            Investment Thesis
-          </h3>
+        <div class="mb-3 flex items-end justify-between gap-3 border-b border-subtle pb-3">
+          <div class="flex items-baseline gap-3">
+            <span class="mono-data text-xs font-bold text-accent-ink">02</span>
+            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.investment_thesis") }}</h3>
+          </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-ink-muted">{{ thesisCards.length }} cards</span>
+            <span class="text-xs text-ink-muted">{{ t("memo.card_count", { count: thesisCards.length }) }}</span>
             <button
               type="button"
               @click="rerunSection('investment_thesis')"
               class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
             >
-              Rerun
+              {{ t("memo.rerun") }}
             </button>
           </div>
         </div>
@@ -393,7 +424,7 @@ async function setTaskStatus(task, status) {
           <article
             v-for="card in thesisCards"
             :key="card.id"
-            class="rounded-card border border-subtle border-l-4 bg-surface-muted p-4"
+            class="rounded-card border border-subtle border-l-4 bg-surface p-4"
             :class="cardTone('investment_thesis', card)"
           >
             <div class="flex gap-3">
@@ -402,15 +433,15 @@ async function setTaskStatus(task, status) {
                   type="checkbox"
                   :checked="card.included"
                   @change="patchCard('investment_thesis', card, { included: $event.target.checked })"
-                  class="h-4 w-4 rounded border-subtle text-accent focus-ring"
-                  :aria-label="`Include ${card.title}`"
+                  class="memo-checkbox focus-ring"
+                  :aria-label="t('memo.include_card', { title: card.title })"
                 />
                 <span class="font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
                 <button
                   type="button"
                   @click="moveCard('investment_thesis', card, 'up')"
                   class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  aria-label="Move thesis card up"
+                  :aria-label="t('memo.move_card_up')"
                 >
                   <ArrowUp class="h-3.5 w-3.5" />
                 </button>
@@ -418,7 +449,7 @@ async function setTaskStatus(task, status) {
                   type="button"
                   @click="moveCard('investment_thesis', card, 'down')"
                   class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  aria-label="Move thesis card down"
+                  :aria-label="t('memo.move_card_down')"
                 >
                   <ArrowDown class="h-3.5 w-3.5" />
                 </button>
@@ -434,7 +465,7 @@ async function setTaskStatus(task, status) {
                     <span class="mt-1 flex flex-wrap items-center gap-2">
                       <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ card.category }}</span>
                       <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ sourceLabel(card) }}</span>
-                      <span class="text-[11px] text-ink-muted">{{ sourceCount(card) }} sources</span>
+                      <span class="text-[11px] text-ink-muted">{{ t("memo.source_count", { count: sourceCount(card) }) }}</span>
                     </span>
                   </span>
                   <ChevronDown v-if="card.expanded" class="h-4 w-4 text-ink-muted" />
@@ -458,18 +489,19 @@ async function setTaskStatus(task, status) {
       </section>
 
       <section class="mt-6">
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="font-display text-lg font-semibold text-ink-primary">
-            Risks and Mitigations
-          </h3>
+        <div class="mb-3 flex items-end justify-between gap-3 border-b border-subtle pb-3">
+          <div class="flex items-baseline gap-3">
+            <span class="mono-data text-xs font-bold text-danger-ink">03</span>
+            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.risks") }}</h3>
+          </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-ink-muted">{{ riskCards.length }} cards</span>
+            <span class="text-xs text-ink-muted">{{ t("memo.card_count", { count: riskCards.length }) }}</span>
             <button
               type="button"
               @click="rerunSection('risks_mitigations')"
               class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
             >
-              Rerun
+              {{ t("memo.rerun") }}
             </button>
           </div>
         </div>
@@ -477,7 +509,7 @@ async function setTaskStatus(task, status) {
           <article
             v-for="card in riskCards"
             :key="card.id"
-            class="rounded-card border border-subtle border-l-4 bg-surface-muted p-4"
+            class="rounded-card border border-subtle border-l-4 bg-surface p-4"
             :class="cardTone('risks_mitigations', card)"
           >
             <div class="flex gap-3">
@@ -486,15 +518,15 @@ async function setTaskStatus(task, status) {
                   type="checkbox"
                   :checked="card.included"
                   @change="patchCard('risks_mitigations', card, { included: $event.target.checked })"
-                  class="h-4 w-4 rounded border-subtle text-accent focus-ring"
-                  :aria-label="`Include ${card.title}`"
+                  class="memo-checkbox focus-ring"
+                  :aria-label="t('memo.include_card', { title: card.title })"
                 />
                 <span class="font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
                 <button
                   type="button"
                   @click="moveCard('risks_mitigations', card, 'up')"
                   class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  aria-label="Move risk card up"
+                  :aria-label="t('memo.move_card_up')"
                 >
                   <ArrowUp class="h-3.5 w-3.5" />
                 </button>
@@ -502,7 +534,7 @@ async function setTaskStatus(task, status) {
                   type="button"
                   @click="moveCard('risks_mitigations', card, 'down')"
                   class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  aria-label="Move risk card down"
+                  :aria-label="t('memo.move_card_down')"
                 >
                   <ArrowDown class="h-3.5 w-3.5" />
                 </button>
@@ -517,7 +549,7 @@ async function setTaskStatus(task, status) {
                     <span class="block text-base font-semibold text-ink-primary">{{ card.title }}</span>
                     <span class="mt-1 flex flex-wrap items-center gap-2">
                       <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ card.category }}</span>
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ card.severity || "risk" }}</span>
+                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ card.severity || t("memo.risk") }}</span>
                       <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ sourceLabel(card) }}</span>
                     </span>
                   </span>
@@ -541,15 +573,18 @@ async function setTaskStatus(task, status) {
         </div>
       </section>
 
-      <section class="mt-6 rounded-card border border-subtle bg-surface-muted p-4">
-        <div class="flex items-center justify-between gap-3">
-          <h3 class="font-display text-lg font-semibold text-ink-primary">Conclusion</h3>
+      <section class="mt-6">
+        <div class="flex items-end justify-between gap-3 border-b border-subtle pb-3">
+          <div class="flex items-baseline gap-3">
+            <span class="mono-data text-xs font-bold text-accent-ink">04</span>
+            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.conclusion") }}</h3>
+          </div>
           <button
             type="button"
             @click="rerunSection('conclusion')"
             class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
           >
-            Rerun
+            {{ t("memo.rerun") }}
           </button>
         </div>
         <div class="mt-3 grid gap-3 md:grid-cols-3">
@@ -570,17 +605,20 @@ async function setTaskStatus(task, status) {
         </div>
       </section>
 
-      <section class="mt-6 rounded-card border border-subtle bg-surface-muted p-4">
-        <div class="flex items-center justify-between">
-          <h3 class="font-display text-lg font-semibold text-ink-primary">Appendix</h3>
+      <section class="mt-6">
+        <div class="flex items-end justify-between gap-3 border-b border-subtle pb-3">
+          <div class="flex items-baseline gap-3">
+            <span class="mono-data text-xs font-bold text-accent-ink">05</span>
+            <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.appendix") }}</h3>
+          </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-ink-muted">Collapsed by default</span>
+            <span class="text-xs text-ink-muted">{{ t("memo.collapsed_default") }}</span>
             <button
               type="button"
               @click="rerunSection('appendix')"
               class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
             >
-              Rerun
+              {{ t("memo.rerun") }}
             </button>
           </div>
         </div>
@@ -598,7 +636,7 @@ async function setTaskStatus(task, status) {
               <span>
                 <span class="font-semibold text-ink-primary">{{ block.title }}</span>
                 <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
-                  {{ block.status || "pending" }}
+                  {{ humanizeStatus(block.status, t("memo.pending"), appLanguage) }}
                 </span>
                 <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
                   {{ sourceLabel(block) }}
@@ -618,15 +656,15 @@ async function setTaskStatus(task, status) {
         <div class="rounded-card border border-subtle bg-surface-muted p-4">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="vogue-label">Co-pilot Tasks</div>
+              <div class="vogue-label">{{ t("memo.copilot_tasks") }}</div>
               <h3 class="font-display text-lg font-semibold text-ink-primary">
-                Action queue
+                {{ t("memo.action_queue") }}
               </h3>
             </div>
             <span class="mono-data text-xs text-ink-muted">{{ memoTasks.length }}</span>
           </div>
           <div v-if="memoTasks.length === 0" class="mt-3 text-sm text-ink-muted">
-            Discuss and Dive Deeper actions will create durable memo tasks here.
+            {{ t("memo.action_queue_empty") }}
           </div>
           <div v-else class="mt-3 space-y-2">
             <article
@@ -642,7 +680,7 @@ async function setTaskStatus(task, status) {
                   </p>
                 </div>
                 <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
-                  {{ task.status }}
+                  {{ humanizeStatus(task.status, t("memo.pending"), appLanguage) }}
                 </span>
               </div>
               <div class="mt-3 flex flex-wrap gap-2">
@@ -652,7 +690,7 @@ async function setTaskStatus(task, status) {
                   :disabled="savingId === `task:${task.id}` || task.status === 'accepted'"
                   class="rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50 focus-ring"
                 >
-                  Accept
+                  {{ t("memo.accept") }}
                 </button>
                 <button
                   type="button"
@@ -660,7 +698,7 @@ async function setTaskStatus(task, status) {
                   :disabled="savingId === `task:${task.id}` || task.status === 'rejected'"
                   class="rounded-full border border-subtle px-2.5 py-1 text-[11px] font-semibold text-ink-secondary disabled:opacity-50 focus-ring"
                 >
-                  Reject
+                  {{ t("memo.reject") }}
                 </button>
                 <button
                   type="button"
@@ -668,28 +706,28 @@ async function setTaskStatus(task, status) {
                   :disabled="savingId === `task:${task.id}` || task.status === 'completed'"
                   class="rounded-full border border-subtle px-2.5 py-1 text-[11px] font-semibold text-ink-secondary disabled:opacity-50 focus-ring"
                 >
-                  Complete
+                  {{ t("memo.complete") }}
                 </button>
               </div>
             </article>
           </div>
-          <div v-if="historyError" class="mt-3 text-xs text-danger">{{ historyError }}</div>
+          <div v-if="historyError" class="mt-3 text-xs text-danger">{{ historyErrorMessage }}</div>
         </div>
 
         <div class="rounded-card border border-subtle bg-surface-muted p-4">
-          <div class="vogue-label">Audit & Versions</div>
+          <div class="vogue-label">{{ t("memo.audit_versions") }}</div>
           <h3 class="font-display text-lg font-semibold text-ink-primary">
-            Recoverable history
+            {{ t("memo.recoverable_history") }}
           </h3>
           <div class="mt-3 grid gap-2 sm:grid-cols-2">
             <div class="rounded-row border border-subtle bg-surface p-3">
-              <div class="vogue-label text-[10px]">Revisions</div>
+              <div class="vogue-label text-[10px]">{{ t("memo.revisions") }}</div>
               <div class="mono-data mt-1 text-xl font-bold text-ink-primary">
                 {{ versions.length }}
               </div>
             </div>
             <div class="rounded-row border border-subtle bg-surface p-3">
-              <div class="vogue-label text-[10px]">Audit events</div>
+              <div class="vogue-label text-[10px]">{{ t("memo.audit_events") }}</div>
               <div class="mono-data mt-1 text-xl font-bold text-ink-primary">
                 {{ auditRecords.length }}
               </div>
@@ -703,15 +741,15 @@ async function setTaskStatus(task, status) {
             >
               <div class="flex items-center justify-between gap-3 text-xs">
                 <span class="font-semibold text-ink-primary">{{ version.revision_id }}</span>
-                <span class="text-ink-muted">{{ version.event }}</span>
+                <span class="text-ink-muted">{{ humanizeStatus(version.event, t("memo.pending"), appLanguage) }}</span>
               </div>
-              <div class="mt-0.5 text-[11px] text-ink-muted">{{ version.created_at }}</div>
+              <div class="mono-data mt-0.5 text-[11px] text-ink-muted">{{ formatIsoDate(version.created_at) }}</div>
             </div>
           </div>
           <div v-if="auditRecords.length" class="mt-3 max-h-44 overflow-y-auto space-y-1 text-xs text-ink-muted">
             <div v-for="record in auditRecords.slice(0, 8)" :key="record.id" class="rounded bg-surface px-2 py-1">
-              <span class="font-semibold text-ink-secondary">{{ record.event }}</span>
-              <span> · {{ record.created_at }}</span>
+              <span class="font-semibold text-ink-secondary">{{ humanizeStatus(record.event, t("memo.pending"), appLanguage) }}</span>
+              <span class="mono-data"> · {{ formatIsoDate(record.created_at) }}</span>
             </div>
           </div>
         </div>

@@ -93,7 +93,7 @@ const UI = {
     startError: "无法启动每周研究。",
     failed: "每周研究失败。",
     streamStalled: "每周研究进度已中断。正在检查更新后的摘要。",
-    noChange: "刷新已结束，但每周股票摘要没有变化。",
+    noChange: "刷新已完成，每周股票摘要没有变化。",
     lastFailed: "上次刷新失败",
     updated: "已更新",
     progressTitle: "刷新进度",

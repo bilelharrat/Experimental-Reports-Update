@@ -56,6 +56,9 @@ const suggestions = ref([]);
 const showSuggestions = ref(false);
 const autocompleting = ref(false);
 const error = ref(null);
+const errorMessage = computed(() =>
+  error.value === "search_stalled" ? t("home.search_stalled") : t("home.search_failed"),
+);
 
 const searchResults = ref(null); // { source, matches } | null
 const searching = ref(false);
@@ -108,8 +111,8 @@ watch(query, (q) => {
   debounceId = setTimeout(async () => {
     try {
       suggestions.value = await api.autocompleteCompanies(q.trim());
-    } catch (e) {
-      error.value = e.message;
+    } catch {
+      error.value = "search_failed";
     } finally {
       autocompleting.value = false;
     }
@@ -150,7 +153,7 @@ function armProgressIdleTimer() {
   if (progressIdleTimer) clearTimeout(progressIdleTimer);
   progressIdleTimer = setTimeout(() => {
     if (!searching.value) return;
-    error.value = t("home.search_stalled");
+    error.value = "search_stalled";
     searching.value = false;
     closeProgressStream();
   }, SEARCH_PROGRESS_IDLE_MS);
@@ -175,7 +178,7 @@ function handleProgressEvent(entry) {
     searching.value = false;
     closeProgressStream();
   } else if (entry.type === "error") {
-    error.value = entry.error || t("home.search_failed");
+    error.value = "search_failed";
     searching.value = false;
     closeProgressStream();
   }
@@ -230,8 +233,8 @@ async function runDeepSearch({ refresh = false } = {}) {
       // and the connection just hasn't been closed yet.
       if (!searching.value) closeProgressStream();
     };
-  } catch (e) {
-    error.value = e.message;
+  } catch {
+    error.value = "search_failed";
     searching.value = false;
   }
 }
@@ -257,9 +260,8 @@ async function refreshAllStockViews() {
         total,
       });
     }
-  } catch (e) {
-    stockRefreshError.value =
-      e?.message || t("home.refresh_stock_views_failed");
+  } catch {
+    stockRefreshError.value = t("home.refresh_stock_views_failed");
   } finally {
     refreshingStockViews.value = false;
   }
@@ -291,8 +293,8 @@ async function regenAllCompanies() {
         public: publicCount,
       });
     }
-  } catch (e) {
-    regenAllError.value = e?.message || t("home.regen_all_failed");
+  } catch {
+    regenAllError.value = t("home.regen_all_failed");
   } finally {
     regeneratingAll.value = false;
   }
@@ -313,7 +315,7 @@ function actionIcon(entry) {
 function actionLabel(entry) {
   if (entry.type === "stage") return entry.message || entry.stage;
   if (entry.action === "init")
-    return `${t("jobs.action.claude_initialized")} (${entry.model || "claude"})`;
+    return t("jobs.action.claude_initialized");
   if (entry.action === "thinking") return entry.text || t("jobs.action.thinking");
   if (entry.action === "tool_use") {
     if (entry.tool === "WebSearch")
@@ -406,17 +408,19 @@ function onBlur() {
         type="search"
         autofocus
         :placeholder="t('home.search_placeholder')"
-        class="w-full pl-12 pr-32 py-3 rounded-card border border-subtle bg-surface text-ink-primary placeholder:text-ink-subtle focus-ring shadow-card"
+        class="w-full rounded-full border border-subtle bg-surface py-3 pl-12 pr-16 text-ink-primary placeholder:text-ink-subtle shadow-card focus-ring"
         @focus="suggestions.length && (showSuggestions = true)"
         @blur="onBlur"
       />
       <button
         type="submit"
         :disabled="!query.trim() || searching"
-        class="absolute right-2 top-1/2 -translate-y-1/2 inline-flex whitespace-nowrap items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover disabled:opacity-60 focus-ring"
+        class="absolute right-1.5 top-1/2 grid h-[38px] w-[38px] -translate-y-1/2 place-items-center rounded-full bg-accent text-white hover:bg-accent-hover disabled:opacity-50 focus-ring"
+        :aria-label="searching ? t('home.searching') : t('home.search')"
+        :title="searching ? t('home.searching') : t('home.search')"
       >
-        <Sparkles class="h-3.5 w-3.5" />
-        <span>{{ searching ? t("home.searching") : t("home.search") }}</span>
+        <Loader2 v-if="searching" class="h-4 w-4 animate-spin" />
+        <ArrowRight v-else class="h-4 w-4" />
       </button>
 
       <div
@@ -482,7 +486,7 @@ function onBlur() {
       </div>
     </div>
 
-    <div v-if="error" class="mt-4 text-sm text-danger">{{ error }}</div>
+    <div v-if="error" class="mt-4 text-sm text-danger">{{ errorMessage }}</div>
 
     <div
       v-if="searching"
@@ -618,7 +622,7 @@ function onBlur() {
         <div>
           <div class="vogue-label">{{ t("home.operations") }}</div>
           <p class="mt-1 text-sm text-ink-muted">
-            {{ t("home.operations_hint") }}
+            {{ t("home.operations_help") }}
           </p>
         </div>
       </div>

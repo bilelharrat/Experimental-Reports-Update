@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { MessageSquare, Pencil, PlusCircle, Save, X } from "lucide-vue-next";
 import { api } from "../../api.js";
+import { useT } from "../../i18n.js";
 
 defineOptions({ name: "MemoStudioBulletTree" });
 
@@ -15,6 +16,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["updated", "discuss"]);
+const t = useT();
 
 const editingId = ref(null);
 const draftText = ref("");
@@ -22,7 +24,7 @@ const busyId = ref(null);
 const error = ref("");
 
 function sourceLabel(item) {
-  return item?.source_class || item?.source_refs?.[0]?.source_class || "unknown/pending";
+  return item?.source_class || item?.source_refs?.[0]?.source_class || t("memo.source_pending");
 }
 
 function startEdit(bullet) {
@@ -86,11 +88,11 @@ function discuss(bullet) {
 </script>
 
 <template>
-  <ul class="space-y-2" :class="depth ? 'mt-2 border-l border-subtle pl-3' : ''">
+  <ul class="divide-y divide-subtle" :class="depth ? 'mt-2 border-l border-subtle pl-3' : 'border-y border-subtle'">
     <li
       v-for="bullet in bullets"
       :key="bullet.id"
-      class="rounded-lg border border-subtle bg-surface px-3 py-2"
+      class="group py-3"
     >
       <div v-if="editingId === bullet.id" class="space-y-2">
         <textarea
@@ -106,7 +108,7 @@ function discuss(bullet) {
             class="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60 focus-ring"
           >
             <Save class="h-3.5 w-3.5" />
-            Save
+            {{ busyId === bullet.id ? t("common.saving") : t("memo.save") }}
           </button>
           <button
             type="button"
@@ -114,7 +116,7 @@ function discuss(bullet) {
             class="inline-flex items-center gap-1 rounded-full border border-subtle px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
           >
             <X class="h-3.5 w-3.5" />
-            Cancel
+            {{ t("common.cancel") }}
           </button>
         </div>
       </div>
@@ -124,31 +126,36 @@ function discuss(bullet) {
           <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
             {{ sourceLabel(bullet) }}
           </span>
-          <button
-            type="button"
-            @click="startEdit(bullet)"
-            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-          >
-            <Pencil class="h-3.5 w-3.5" />
-            Edit
-          </button>
-          <button
-            type="button"
-            @click="diveDeeper(bullet)"
-            :disabled="busyId === bullet.id"
-            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
-          >
-            <PlusCircle class="h-3.5 w-3.5" />
-            Dive Deeper
-          </button>
-          <button
-            type="button"
-            @click="discuss(bullet)"
-            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
-          >
-            <MessageSquare class="h-3.5 w-3.5" />
-            Discuss
-          </button>
+          <span class="ml-auto flex items-center gap-1 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+            <button
+              type="button"
+              @click="startEdit(bullet)"
+              class="grid h-7 w-7 place-items-center rounded-full border border-subtle text-ink-secondary hover:bg-surface-muted focus-ring"
+              :aria-label="t('memo.edit')"
+              :title="t('memo.edit')"
+            >
+              <Pencil class="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              @click="diveDeeper(bullet)"
+              :disabled="busyId === bullet.id"
+              class="grid h-7 w-7 place-items-center rounded-full border border-subtle text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+              :aria-label="t('memo.dive_deeper')"
+              :title="t('memo.dive_deeper')"
+            >
+              <PlusCircle class="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              @click="discuss(bullet)"
+              class="grid h-7 w-7 place-items-center rounded-full border border-subtle text-ink-secondary hover:bg-surface-muted focus-ring"
+              :aria-label="t('memo.discuss')"
+              :title="t('memo.discuss')"
+            >
+              <MessageSquare class="h-3.5 w-3.5" />
+            </button>
+          </span>
         </div>
       </div>
       <p v-if="error && busyId === bullet.id" class="mt-2 text-xs text-danger">

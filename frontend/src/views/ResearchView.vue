@@ -8,10 +8,18 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  RefreshCw,
   Send,
   Sparkles,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
+import {
+  formatCompactNumber,
+  formatIsoDate,
+  formatMetricValue,
+  humanizeStatus,
+  isPendingValue,
+} from "../formatters.js";
 import { useT } from "../i18n.js";
 import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
 import { appLanguage } from "../state.js";
@@ -28,10 +36,28 @@ const tr = useT();
 // through to the raw string so new server-side options keep working.
 const REPORT_TYPE_ZH = {
   "Investment Memo (Late-Stage)": "投资备忘录（Late-Stage / Pre-IPO）",
+  "Investment Report": "投资报告",
+  Background: "背景研究",
+  "Financial Analysis": "财务分析",
+  "Market Analysis": "市场分析",
 };
 const AUDIENCE_ZH = {
   Internal: "内部",
   External: "外部",
+  Assistant: "助理",
+  Partner: "合伙人",
+  LP: "LP",
+};
+const FUNDING_ROUND_ZH = {
+  PreSeed: "Pre-Seed",
+  "Pre-Seed": "Pre-Seed",
+  Seed: "种子轮",
+  "Series A": "A 轮",
+  "Series B": "B 轮",
+  "Series C": "C 轮",
+  "Series D": "D 轮",
+  Growth: "成长期",
+  Public: "已上市",
 };
 const MEMO_REPORT_TYPE = "Investment Memo (Late-Stage)";
 function reportTypeLabel(val) {
@@ -40,6 +66,10 @@ function reportTypeLabel(val) {
 }
 function audienceLabel(val) {
   if (appLanguage.value === "zh") return AUDIENCE_ZH[val] || val;
+  return val;
+}
+function fundingRoundLabel(val) {
+  if (appLanguage.value === "zh") return FUNDING_ROUND_ZH[val] || val;
   return val;
 }
 
@@ -56,11 +86,12 @@ const newsFeed = ref({ rows: [], filters: { categories: [], tags: [] }, empty_st
 const newsLoading = ref(false);
 const newsError = ref("");
 const newsCategory = ref("");
-const newsTag = ref("");
 const newsSearch = ref("");
 const industryView = ref(null);
 const industryLoading = ref(false);
 const industryError = ref("");
+const refreshingCompany = ref(false);
+const refreshCompanyError = ref("");
 
 const isPublicCompany = computed(() => {
   const c = company.value;
@@ -131,6 +162,14 @@ const reportFailedAtLabel = computed(() => {
 const reportIsFailed = computed(() =>
   String(activeReport.value?.status || "").startsWith("failed"),
 );
+const rendererContractErrors = computed(() => {
+  const errors = activeReport.value?.renderer_contract?.errors;
+  return Array.isArray(errors) ? errors : [];
+});
+const rendererContractFiles = computed(() => {
+  const files = activeReport.value?.renderer_contract?.expected_files;
+  return Array.isArray(files) ? files : [];
+});
 const reportHasWarnings = computed(
   () => String(activeReport.value?.status || "") === "complete_with_warnings",
 );
@@ -184,9 +223,12 @@ const reportFailureTitle = computed(() => {
 const reportHeadline = computed(() => {
   const r = activeReport.value;
   if (!r) return "";
-  if (reportIsFailed.value) return r.stage || reportFailureTitle.value;
-  return r.stage || r.status || "";
+  if (reportIsFailed.value) return reportFailureTitle.value;
+  return r.stage || humanizeStatus(r.status) || "";
 });
+const displayedReportProgress = computed(() =>
+  reportIsFailed.value ? 0 : Math.max(0, Math.min(100, Number(activeReport.value?.progress || 0))),
+);
 const analysisArtifacts = computed(() => {
   const artifacts = activeReport.value?.analysis_artifacts;
   return Array.isArray(artifacts) ? artifacts : [];
@@ -202,23 +244,12 @@ const gateDiagnostics = computed(() => {
       status: payload.status || "",
       p0Count: Number(payload.p0_count || 0),
       findingCount: Number(payload.finding_count || 0),
-      findings: Array.isArray(payload.findings) ? payload.findings : [],
     });
   };
   add(tr("research.gate_quality"), r.memo_quality_lint);
   add(tr("research.gate_chinese_parity"), r.memo_chinese_parity);
   return items;
 });
-const gateFindings = computed(() =>
-  gateDiagnostics.value
-    .flatMap((diag) =>
-      diag.findings.map((finding) => ({
-        ...finding,
-        gateLabel: diag.label,
-      })),
-    )
-    .slice(0, 6),
-);
 const memoArtifactsVisible = computed(() => {
   const r = activeReport.value;
   if (!isMemo.value || !r) return false;
@@ -233,15 +264,6 @@ const memoArtifactsVisible = computed(() => {
       r.content_zh,
   );
 });
-const rendererContractErrors = computed(() => {
-  const errors = activeReport.value?.renderer_contract?.errors;
-  return Array.isArray(errors) ? errors : [];
-});
-const rendererContractFiles = computed(() => {
-  const files = activeReport.value?.renderer_contract?.expected_files;
-  return Array.isArray(files) ? files : [];
-});
-
 // PDF preview popup (reuses the generic FilePreviewModal). `previewFile`
 // non-null = modal open; we hand the modal explicit tokened URLs since
 // it fetches the preview blob with a plain fetch (no auth header).
@@ -345,11 +367,32 @@ const companyNews = computed(() => {
   );
 });
 
-const newsFilters = computed(() => newsFeed.value?.filters || { categories: [], tags: [] });
+const NEWS_FILTERS = [
+  { value: "", labelKey: "research.news_filter_all" },
+  { value: "filings", labelKey: "research.news_filter_filings" },
+  { value: "funding", labelKey: "research.news_filter_funding" },
+  { value: "product", labelKey: "research.news_filter_product" },
+  { value: "press", labelKey: "research.news_filter_press" },
+];
+
+function selectNewsCategory(value) {
+  newsCategory.value = value;
+}
 
 const industryMetrics = computed(() => {
   const metrics = industryView.value?.metrics || company.value?.industry_view?.metrics;
   return Array.isArray(metrics) ? metrics : [];
+});
+
+const industryMetricSlots = computed(() => {
+  const rows = industryMetrics.value;
+  const defaults = [
+    { label: "TAM" },
+    { label: "CAGR" },
+    { label: tr("research.industry_public_comps") },
+    { label: "EV / Revenue" },
+  ];
+  return defaults.map((fallback, index) => rows[index] || fallback);
 });
 
 const expertOpinions = computed(() => {
@@ -435,6 +478,76 @@ function monogram(name) {
     .toUpperCase();
 }
 
+function translatedCompanyField(field) {
+  const c = company.value || {};
+  const sourceIsZh = c.language === "zh";
+  const needsTranslation = c.translation && (
+    (appLanguage.value === "zh" && !sourceIsZh) ||
+    (appLanguage.value === "en" && sourceIsZh)
+  );
+  if (needsTranslation && c.translation?.[field]) return c.translation[field];
+  return c[field];
+}
+
+const companyWebsiteHref = computed(() => {
+  const website = company.value?.website;
+  if (!website) return "";
+  return /^https?:\/\//i.test(website) ? website : `https://${website}`;
+});
+
+const companyPositioning = computed(() => {
+  const c = company.value || {};
+  const p = c.positioning || {};
+  if (p.category || p.customers || p.need || p.benefit || p.differentiator) {
+    return {
+      category: p.category || tr("research.positioning_company"),
+      customers: p.customers || tr("research.positioning_customers"),
+      need: p.need || tr("research.positioning_need"),
+      benefit: p.benefit || tr("research.positioning_benefit"),
+      alternative: p.alternative || tr("research.positioning_alternative"),
+      differentiator: p.differentiator || tr("research.positioning_differentiator"),
+    };
+  }
+  return null;
+});
+
+const companyPositioningFallback = computed(() => {
+  const text = translatedCompanyField("description") || tr("research.positioning_pending");
+  const splitAt = text.indexOf(",");
+  if (splitAt > 14) {
+    return {
+      lead: text.slice(0, splitAt + 1),
+      body: text.slice(splitAt + 1).trim(),
+    };
+  }
+  return { lead: company.value?.name || "", body: text };
+});
+
+async function refreshCompanyRecord() {
+  if (!company.value || refreshingCompany.value) return;
+  refreshingCompany.value = true;
+  refreshCompanyError.value = "";
+  try {
+    company.value = await api.refreshCompany(company.value.id);
+  } catch {
+    refreshCompanyError.value = tr("company.refresh_failed");
+  } finally {
+    refreshingCompany.value = false;
+  }
+}
+
+function fundingAmount(value) {
+  return formatCompactNumber(value, { currency: true });
+}
+
+function newsMeta(item) {
+  return [
+    item.source || item.provenance?.origin,
+    item.category,
+    formatIsoDate(item.published_at || item.date, ""),
+  ].filter(Boolean).join(" · ");
+}
+
 async function loadCompany() {
   companyError.value = null;
   try {
@@ -460,12 +573,11 @@ async function loadNewsFeed() {
   try {
     newsFeed.value = await api.getCompanyNewsFeed(props.companyId, {
       category: newsCategory.value,
-      tag: newsTag.value,
       search: newsSearch.value,
       lang: appLanguage.value,
     });
-  } catch (e) {
-    newsError.value = e?.message || String(e);
+  } catch {
+    newsError.value = "load";
     newsFeed.value = { rows: [], filters: { categories: [], tags: [] }, empty_state: "" };
   } finally {
     newsLoading.value = false;
@@ -478,22 +590,15 @@ async function loadIndustryView() {
   industryError.value = "";
   try {
     industryView.value = await api.getCompanyIndustryView(props.companyId);
-  } catch (e) {
-    industryError.value = e?.message || String(e);
+  } catch {
+    industryError.value = "load";
     industryView.value = null;
   } finally {
     industryLoading.value = false;
   }
 }
 
-function resetNewsFilters() {
-  newsCategory.value = "";
-  newsTag.value = "";
-  newsSearch.value = "";
-  loadNewsFeed();
-}
-
-watch([newsCategory, newsTag], () => {
+watch(newsCategory, () => {
   if (company.value) loadNewsFeed();
 });
 
@@ -823,7 +928,7 @@ onUnmounted(stopPolling);
     <div>
       <button
         @click="router.push({ name: 'home' })"
-        class="text-sm text-ink-muted hover:text-ink-primary inline-flex items-center gap-1 focus-ring rounded"
+        class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-surface-muted hover:text-ink-primary focus-ring"
       >
         <ArrowLeft class="h-4 w-4" /> {{ tr("research.back_to_search") }}
       </button>
@@ -831,12 +936,12 @@ onUnmounted(stopPolling);
 
     <header
       v-if="company"
-      class="rounded-card border border-subtle bg-surface p-5 shadow-card"
+      class="rounded-card border border-subtle bg-surface p-6 shadow-card"
     >
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div class="flex min-w-0 items-start gap-4">
           <div
-            class="mono-data grid h-14 w-14 shrink-0 place-items-center rounded-glass bg-accent-soft text-lg font-bold text-accent-ink ring-1 ring-subtle"
+            class="mono-data grid h-16 w-16 shrink-0 place-items-center rounded-glass bg-accent-soft text-xl font-bold text-accent-ink ring-1 ring-subtle"
           >
             {{ monogram(company.name) }}
           </div>
@@ -849,43 +954,80 @@ onUnmounted(stopPolling);
                 v-if="company.latest_funding?.round"
                 class="rounded-chip bg-surface-muted px-2 py-1 text-xs font-semibold text-ink-secondary"
               >
-                {{ company.latest_funding.round }}
+                {{ fundingRoundLabel(company.latest_funding.round) }}
               </span>
               <span
-                v-if="company.category"
+                v-if="translatedCompanyField('industry') || translatedCompanyField('sector')"
                 class="rounded-chip bg-accent-soft px-2 py-1 text-xs font-semibold text-accent-ink"
               >
-                {{ company.category }}
+                {{ translatedCompanyField("industry") || translatedCompanyField("sector") }}
               </span>
+              <a
+                v-if="companyWebsiteHref"
+                :href="companyWebsiteHref"
+                target="_blank"
+                rel="noopener"
+                class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-accent-ink hover:bg-accent-soft hover:text-ink-primary focus-ring"
+              >
+                <ExternalLink class="h-3.5 w-3.5" />
+                {{ company.website.replace(/^https?:\/\//, "") }}
+              </a>
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
-              <span v-if="company.founded_year">{{ tr("overview.founded", { year: company.founded_year }) }}</span>
-              <span v-if="company.hq">{{ company.hq }}</span>
-              <span v-if="company.employee_band">{{ tr("overview.employees", { band: company.employee_band }) }}</span>
+              <span v-if="company.founded_year">{{ tr("company.founded") }} {{ company.founded_year }}</span>
+              <span v-if="translatedCompanyField('hq')">{{ translatedCompanyField("hq") }}</span>
+              <span v-if="translatedCompanyField('employee_band')">
+                {{ translatedCompanyField("employee_band") }} {{ tr("company.employees") }}
+              </span>
             </div>
+            <div v-if="company.latest_funding" class="mono-data mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+              <span class="font-semibold text-ink-secondary">{{ tr("company.last_round") }}</span>
+              <span class="font-bold text-ink-primary">
+                {{
+                  isPendingValue(company.latest_funding.amount_usd)
+                    ? fundingRoundLabel(company.latest_funding.round)
+                    : fundingAmount(company.latest_funding.amount_usd)
+                }}
+              </span>
+              <span v-if="company.latest_funding.post_money_usd">
+                · {{ tr("company.post_money") }} {{ fundingAmount(company.latest_funding.post_money_usd) }}
+              </span>
+              <span v-if="company.latest_funding.date">· {{ formatIsoDate(company.latest_funding.date) }}</span>
+              <span v-if="company.total_funding_usd">
+                · {{ tr("company.total_raised") }} {{ fundingAmount(company.total_funding_usd) }}
+              </span>
+            </div>
+            <p v-if="refreshCompanyError" class="mt-2 text-xs text-danger">{{ refreshCompanyError }}</p>
           </div>
         </div>
-        <div
-          v-if="company.latest_funding"
-          class="rounded-subbox border border-subtle bg-surface-muted px-4 py-3 text-sm text-ink-muted lg:text-right"
+        <button
+          type="button"
+          @click="refreshCompanyRecord"
+          :disabled="refreshingCompany"
+          class="pill-button shrink-0 border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
         >
-          <div class="vogue-label text-[10px]">{{ tr("overview.last_round") }}</div>
-          <div class="mono-data mt-1 text-lg font-bold text-ink-primary">
-            {{ company.latest_funding.amount_usd || company.latest_funding.round || "Unknown" }}
-          </div>
-          <div class="mt-1">
-            <span v-if="company.latest_funding.post_money_usd">
-              {{ tr("overview.post_money", { amount: company.latest_funding.post_money_usd }) }}
-            </span>
-            <span v-if="company.latest_funding.date">
-              · {{ company.latest_funding.date }}
-            </span>
-            <span v-if="company.total_funding_usd">
-              · {{ tr("overview.total_raised", { amount: company.total_funding_usd }) }}
-            </span>
-          </div>
-        </div>
+          <Loader2 v-if="refreshingCompany" class="h-4 w-4 animate-spin" />
+          <RefreshCw v-else class="h-4 w-4" />
+          {{ refreshingCompany ? tr("company.refreshing") : tr("company.refresh") }}
+        </button>
       </div>
+      <p class="mt-5 border-t border-subtle pt-5 text-base leading-7 text-ink-primary">
+        <template v-if="companyPositioning">
+          <strong>{{ company.name }}</strong>
+          {{ tr("research.positioning_is_a") }}
+          <span class="position-highlight">{{ companyPositioning.category }}</span>
+          {{ tr("research.positioning_for") }} {{ companyPositioning.customers }}
+          {{ tr("research.positioning_who") }} {{ companyPositioning.need }},
+          {{ tr("research.positioning_that") }}
+          <span class="position-underline">{{ companyPositioning.benefit }}</span>.
+          {{ tr("research.positioning_unlike") }} {{ companyPositioning.alternative }},
+          {{ tr("research.positioning_it") }} {{ companyPositioning.differentiator }}.
+        </template>
+        <template v-else>
+          <span class="position-highlight">{{ companyPositioningFallback.lead }}</span>
+          {{ companyPositioningFallback.body }}
+        </template>
+      </p>
     </header>
 
     <div
@@ -897,9 +1039,6 @@ onUnmounted(stopPolling);
       </div>
       <p class="mt-1 text-sm text-ink-muted">
         {{ companyErrorBody }}
-      </p>
-      <p v-if="companyError.status && companyError.status !== 404" class="mt-1 text-[11px] text-ink-muted font-mono">
-        HTTP {{ companyError.status }} · {{ companyError.message }}
       </p>
       <button
         @click="router.push({ name: 'home' })"
@@ -920,11 +1059,13 @@ onUnmounted(stopPolling);
         :key="tab.id"
         @click="switchTab(tab.id)"
         :class="[
-          'rounded-t-lg px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm',
+          'workspace-tab px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm',
           activeTab === tab.id
-            ? 'text-ink-primary border-b-2 border-accent -mb-px'
+            ? 'text-ink-primary'
             : 'text-ink-muted hover:text-ink-primary',
         ]"
+        role="tab"
+        :aria-selected="activeTab === tab.id"
       >
         {{ tab.label }}
       </button>
@@ -1019,13 +1160,7 @@ onUnmounted(stopPolling);
           {{ tr("research.generation_request_failed") }}
         </div>
         <p class="mt-1 text-ink-secondary">
-          {{ generationError.message }}
-        </p>
-        <p
-          v-if="generationError.status"
-          class="mt-1 text-xs text-ink-muted font-mono"
-        >
-          HTTP {{ generationError.status }}
+          {{ tr("research.generation_error_body") }}
         </p>
       </div>
     </section>
@@ -1065,14 +1200,14 @@ onUnmounted(stopPolling);
           class="text-xs px-2 py-1 rounded bg-warning-soft text-warning-ink inline-flex items-center gap-1"
         >
           <Loader2 class="h-3 w-3 animate-spin" />
-          {{ activeReport.progress }}%
+          {{ displayedReportProgress }}%
         </span>
       </div>
 
       <div class="mt-4 h-2 w-full rounded-full bg-surface-muted overflow-hidden">
         <div
           class="h-full bg-accent transition-all"
-          :style="{ width: (activeReport.progress || 0) + '%' }"
+          :style="{ width: displayedReportProgress + '%' }"
         ></div>
       </div>
 
@@ -1125,7 +1260,7 @@ onUnmounted(stopPolling);
       </div>
 
       <ul
-        v-if="activeReport.stages && activeReport.stages.length"
+        v-if="!reportIsFailed && activeReport.stages && activeReport.stages.length"
         class="mt-4 space-y-1 text-sm"
       >
         <li
@@ -1233,15 +1368,6 @@ onUnmounted(stopPolling);
             <Eye class="h-4 w-4" />
             <span>{{ tr("research.preview_pdf_internal") }}</span>
           </button>
-          <a
-            v-if="activeReport.run_dir"
-            :href="`file://${activeReport.run_dir}`"
-            class="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink-primary focus-ring rounded"
-            :title="activeReport.run_dir"
-          >
-            <ExternalLink class="h-3 w-3" />
-            <span>{{ tr("research.run_folder") }}</span>
-          </a>
         </div>
 
         <!-- Language toggle for the preview body. -->
@@ -1340,11 +1466,12 @@ onUnmounted(stopPolling);
           activeReport.status !== 'failed_scope_check' &&
           !activeReport.dismissed_at
         "
-        class="mt-6 rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm text-ink-primary"
+        class="mt-6 rounded-card border border-warning/40 bg-surface p-4 text-sm text-ink-primary"
       >
-        <div class="font-semibold text-danger mb-1">
+        <div class="font-semibold text-ink-primary mb-1">
           {{ reportFailureTitle }}
         </div>
+        <p class="text-ink-secondary">{{ tr("research.failed_run_recovery_body") }}</p>
         <p v-if="reportFailedAtLabel" class="text-xs text-ink-muted">
           {{ tr("research.failed_run_at", { time: reportFailedAtLabel }) }}
         </p>
@@ -1361,7 +1488,7 @@ onUnmounted(stopPolling);
           {{ reportFailureDetail }}
         </p>
         <div v-if="gateDiagnostics.length" class="mt-3">
-          <div class="text-xs font-semibold uppercase tracking-wide text-danger">
+          <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
             {{ tr("research.gate_diagnostics") }}
           </div>
           <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
@@ -1371,13 +1498,6 @@ onUnmounted(stopPolling);
               {{ tr("research.gate_p0_findings") }}
               · {{ diag.findingCount }} {{ tr("research.gate_total_findings") }}
               <span v-if="diag.status">· {{ diag.status }}</span>
-            </li>
-          </ul>
-          <ul v-if="gateFindings.length" class="mt-2 space-y-1 text-xs text-ink-muted">
-            <li v-for="finding in gateFindings" :key="`${finding.gateLabel}-${finding.code}-${finding.location}-${finding.snippet}`">
-              <span class="font-mono text-ink-secondary">{{ finding.code }}</span>
-              <span v-if="finding.location"> · {{ finding.location }}</span>
-              <span v-if="finding.snippet"> · {{ finding.snippet }}</span>
             </li>
           </ul>
         </div>
@@ -1409,7 +1529,6 @@ onUnmounted(stopPolling);
         </div>
         <p v-if="activeReport.run_dir" class="mt-2 text-xs text-ink-muted">
           {{ tr("research.run_folder_preserved_prefix") }}
-          <span class="font-mono">{{ activeReport.run_dir }}</span>
         </p>
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <button
@@ -1454,10 +1573,7 @@ onUnmounted(stopPolling);
           }}
         </div>
         <p>{{ activeReport.scope_check.reason }}</p>
-        <p v-if="activeReport.run_dir" class="mt-2 text-xs text-ink-muted">
-          {{ tr("research.run_folder_preserved_prefix") }}
-          <span class="font-mono">{{ activeReport.run_dir }}</span>
-        </p>
+        <p class="mt-2 text-xs text-warning-ink">{{ tr("research.scope_check_recovery") }}</p>
       </div>
     </section>
 
@@ -1479,7 +1595,7 @@ onUnmounted(stopPolling);
       v-if="canShowMemoStudio && activeTab === 'memo'"
       class="mt-6 bg-surface border border-subtle rounded-card shadow-card p-6"
     >
-      <details open>
+      <details>
         <summary class="cursor-pointer text-sm font-semibold text-ink-primary focus-ring rounded">
           {{ tr("research.advanced_tools") }}
         </summary>
@@ -1551,12 +1667,18 @@ onUnmounted(stopPolling);
     >
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div class="vogue-label">{{ tr("research.tab_news") }}</div>
+          <div class="flex items-center gap-2">
+            <div class="vogue-label">{{ tr("research.tab_news") }}</div>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-ink">
+              <span class="live-pulse h-1.5 w-1.5 rounded-full bg-accent"></span>
+              {{ tr("research.news_live") }}
+            </span>
+          </div>
           <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
-            {{ tr("news.feed_heading") }}
+            {{ tr("research.news_feed_title") }}
           </h2>
           <p class="mt-1 text-sm text-ink-muted">
-            {{ tr("news.feed_hint") }}
+            {{ tr("research.news_feed_subtitle") }}
           </p>
         </div>
         <button
@@ -1564,98 +1686,74 @@ onUnmounted(stopPolling);
           class="pill-button border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
           @click="$emit('open-copilot')"
         >
-          {{ tr("sidebar.submit_link") }}
+          {{ tr("research.news_submit_link") }}
         </button>
       </div>
 
-      <form
-        class="mb-4 grid gap-3 md:grid-cols-[1fr_auto_auto_auto]"
-        @submit.prevent="loadNewsFeed"
-      >
+      <form class="mb-4 flex flex-col gap-3" @submit.prevent="loadNewsFeed">
         <input
           v-model="newsSearch"
           type="search"
-          :placeholder="tr('news.search_placeholder')"
+          :placeholder="tr('research.news_search_placeholder')"
           class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary placeholder:text-ink-subtle focus-ring"
         />
-        <select
-          v-model="newsCategory"
-          class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary focus-ring"
-          :aria-label="tr('news.filter_category_label')"
-        >
-          <option value="">{{ tr("news.all_categories") }}</option>
-          <option v-for="category in newsFilters.categories" :key="category" :value="category">
-            {{ category }}
-          </option>
-        </select>
-        <select
-          v-model="newsTag"
-          class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary focus-ring"
-          :aria-label="tr('news.filter_tag_label')"
-        >
-          <option value="">{{ tr("news.all_tags") }}</option>
-          <option v-for="tag in newsFilters.tags" :key="tag" :value="tag">
-            {{ tag }}
-          </option>
-        </select>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap items-center gap-2" role="group" :aria-label="tr('research.news_filter_label')">
           <button
-            type="submit"
-            class="rounded-full bg-ink-primary px-3 py-2 text-xs font-semibold text-white focus-ring"
-          >
-            {{ tr("news.filter") }}
-          </button>
-          <button
+            v-for="filter in NEWS_FILTERS"
+            :key="filter.value || 'all'"
             type="button"
-            @click="resetNewsFilters"
-            class="rounded-full border border-subtle px-3 py-2 text-xs font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
+            @click="selectNewsCategory(filter.value)"
+            :class="[
+              'rounded-full border px-3 py-1.5 text-xs font-semibold focus-ring',
+              newsCategory === filter.value
+                ? 'border-ink-primary bg-ink-primary text-white'
+                : 'border-subtle bg-surface text-ink-secondary hover:bg-surface-muted',
+            ]"
+            :aria-pressed="newsCategory === filter.value"
           >
-            {{ tr("news.reset") }}
+            {{ tr(filter.labelKey) }}
+          </button>
+          <button type="submit" class="ml-auto rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs font-semibold text-ink-secondary hover:bg-surface-muted focus-ring">
+            {{ tr("research.news_search") }}
           </button>
         </div>
       </form>
 
       <div v-if="newsLoading" class="flex items-center gap-2 text-sm text-ink-muted">
         <Loader2 class="h-4 w-4 animate-spin" />
-        {{ tr("news.loading") }}
+        {{ tr("research.news_loading") }}
       </div>
       <div v-else-if="newsError" class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
-        {{ newsError }}
+        {{ tr("research.news_load_error") }}
       </div>
       <div v-else-if="companyNews.length === 0" class="rounded-row border border-subtle bg-surface-muted p-4 text-sm text-ink-muted">
-        {{ newsFeed.empty_state || tr("news.empty") }}
+        {{ newsFeed.empty_state || tr("research.news_empty") }}
       </div>
       <ul v-else class="space-y-3">
         <li
           v-for="item in companyNews"
           :key="item.id || item.headline || item.title"
-          class="rounded-row border border-subtle bg-surface-muted p-4"
+          class="rounded-row border border-subtle bg-surface p-4"
         >
-          <div class="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-            <span class="h-2 w-2 rounded-full bg-accent"></span>
-            <span>{{ item.category || item.source || tr("news.default_category") }}</span>
-            <span v-if="item.published_at || item.date" class="mono-data">
-              {{ item.published_at || item.date }}
-            </span>
-            <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 uppercase tracking-wide">
-              {{ item.source_class || item.provenance?.source_class || tr("news.source_pending") }}
-            </span>
+          <div class="flex items-start gap-3">
+            <span class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-accent"></span>
+            <div class="min-w-0 flex-1">
+              <div class="mono-data text-[11px] uppercase tracking-wide text-ink-muted">{{ newsMeta(item) }}</div>
+              <div class="mt-1 text-sm font-semibold text-ink-primary">{{ item.title || item.headline }}</div>
+              <p v-if="item.summary" class="mt-1 text-sm leading-relaxed text-ink-secondary">{{ item.summary }}</p>
+            </div>
+            <a
+              v-if="item.url || item.archive_url"
+              :href="item.url || item.archive_url"
+              target="_blank"
+              rel="noopener"
+              class="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-subtle text-ink-muted hover:border-accent hover:text-accent-ink focus-ring"
+              :aria-label="tr('research.news_open_source')"
+              :title="tr('research.news_open_source')"
+            >
+              <ExternalLink class="h-4 w-4" />
+            </a>
           </div>
-          <div class="mt-1 text-sm font-semibold text-ink-primary">
-            {{ item.title || item.headline }}
-          </div>
-          <p v-if="item.summary" class="mt-1 text-sm leading-relaxed text-ink-secondary">
-            {{ item.summary }}
-          </p>
-          <a
-            v-if="item.url || item.archive_url"
-            :href="item.url || item.archive_url"
-            target="_blank"
-            rel="noopener"
-            class="mt-2 inline-flex text-xs font-semibold text-accent-ink hover:text-ink-primary focus-ring rounded"
-          >
-            {{ tr("news.open_source") }}
-          </a>
           <div v-if="item.tags?.length" class="mt-3 flex flex-wrap gap-1.5">
             <span
               v-for="tag in item.tags"
@@ -1676,76 +1774,66 @@ onUnmounted(stopPolling);
       <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
         <div class="vogue-label">{{ tr("research.tab_industry") }}</div>
         <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
-          {{ industryView?.title || company.industry || company.sector || "Sector context" }}
+          {{ industryView?.title || translatedCompanyField("industry") || translatedCompanyField("sector") || tr("research.industry_context") }}
         </h2>
         <p class="mt-1 max-w-3xl text-sm text-ink-muted">
-          {{ industryView?.summary || "Sector metrics, public comps, and signals will appear as source-backed context." }}
+          {{ industryView?.summary || tr("research.industry_summary") }}
         </p>
         <div v-if="industryLoading" class="mt-4 flex items-center gap-2 text-sm text-ink-muted">
           <Loader2 class="h-4 w-4 animate-spin" />
-          {{ tr("industry.loading") }}
+          {{ tr("research.industry_loading") }}
         </div>
         <div v-if="industryError" class="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
-          {{ industryError }}
+          {{ tr("research.industry_load_error") }}
         </div>
         <div
-          v-if="industryMetrics.length"
-          class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          class="mt-5 grid overflow-hidden rounded-card border border-subtle sm:grid-cols-2 lg:grid-cols-4"
         >
           <div
-            v-for="metric in industryMetrics"
+            v-for="metric in industryMetricSlots"
             :key="metric.label"
-            class="rounded-subbox border border-subtle bg-surface-muted p-4"
+            class="border-b border-subtle bg-surface p-4 last:border-b-0 sm:border-r sm:[&:nth-child(2)]:border-r-0 lg:border-b-0 lg:[&:nth-child(2)]:border-r lg:last:border-r-0"
           >
             <div class="vogue-label text-[10px]">{{ metric.label }}</div>
-            <div class="mono-data mt-2 text-2xl font-bold text-ink-primary">
-              {{ metric.value || "Unknown" }}
+            <div class="mono-data mt-2 font-bold" :class="isPendingValue(metric.value) ? 'text-xl text-ink-subtle' : 'text-2xl text-ink-primary'">
+              {{ isPendingValue(metric.value) ? "—" : formatMetricValue(metric.label, metric.value) }}
             </div>
-            <div v-if="metric.source_class || metric.as_of" class="mt-1 text-[11px] text-ink-muted">
-              {{ metric.source_class || "source pending" }}
-              <span v-if="metric.as_of">· {{ metric.as_of }}</span>
+            <div class="mt-1 text-[11px] text-ink-muted">
+              {{ metric.source_class || tr("research.source_pending") }}
+              <span v-if="metric.as_of">· {{ formatIsoDate(metric.as_of) }}</span>
             </div>
           </div>
         </div>
-        <p v-else class="mt-4 text-sm text-ink-muted">
-          {{ tr("industry.metrics_pending") }}
-        </p>
       </div>
 
       <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
-        <div class="vogue-label">{{ tr("industry.notable_voices") }}</div>
+        <div class="vogue-label">{{ tr("research.industry_expert_opinions") }}</div>
         <div v-if="expertOpinions.length === 0" class="mt-3 text-sm text-ink-muted">
-          {{ tr("industry.opinions_pending") }}
+          {{ tr("research.industry_expert_empty") }}
         </div>
-        <div v-else class="mt-4 grid gap-3 md:grid-cols-2">
+        <div v-else class="mt-4 divide-y divide-subtle rounded-card border border-subtle">
           <article
             v-for="opinion in expertOpinions"
             :key="`${opinion.speaker}-${opinion.date}`"
-            class="rounded-row border border-subtle bg-surface-muted p-4"
+            class="flex gap-3 bg-surface p-4"
           >
-            <div class="flex items-center gap-2">
-              <span
-                class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                :class="{
+            <div class="mono-data grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-bold text-accent-ink">{{ monogram(opinion.speaker) }}</div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-semibold text-ink-primary">{{ opinion.speaker }}</span>
+                <span class="text-xs text-ink-muted">{{ opinion.affiliation }}</span>
+                <span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" :class="{
                   'bg-accent-soft text-accent-ink': opinion.stance === 'Bullish',
                   'bg-danger-soft text-danger-ink': opinion.stance === 'Cautious',
-                  'bg-surface text-ink-muted': opinion.stance !== 'Bullish' && opinion.stance !== 'Cautious',
-                }"
-              >
-                {{ opinion.stance || "Neutral" }}
-              </span>
-              <span class="text-xs text-ink-muted">{{ opinion.date }}</span>
-            </div>
-            <p class="mt-2 text-sm leading-relaxed text-ink-secondary">
-              {{ opinion.summary || opinion.quote }}
-            </p>
-            <div class="mt-3 text-xs font-semibold text-ink-primary">
-              {{ opinion.speaker }}
-              <span class="font-normal text-ink-muted">· {{ opinion.affiliation }}</span>
-            </div>
-            <div class="mt-1 text-[11px] text-ink-muted">
-              {{ opinion.source_class || "source pending" }}
-              <span v-if="opinion.source_refs?.[0]?.title">· {{ opinion.source_refs[0].title }}</span>
+                  'bg-surface-muted text-ink-muted': opinion.stance !== 'Bullish' && opinion.stance !== 'Cautious',
+                }">{{ opinion.stance || tr("research.industry_neutral") }}</span>
+                <span class="mono-data text-xs text-ink-muted">{{ formatIsoDate(opinion.date, "") }}</span>
+              </div>
+              <p class="mt-2 text-sm italic leading-relaxed text-ink-secondary">“{{ opinion.summary || opinion.quote }}”</p>
+              <div class="mt-2 text-[11px] text-ink-muted">
+                {{ opinion.source_class || tr("research.source_pending") }}
+                <span v-if="opinion.source_refs?.[0]?.title">· {{ opinion.source_refs[0].title }}</span>
+              </div>
             </div>
           </article>
         </div>
@@ -1753,9 +1841,9 @@ onUnmounted(stopPolling);
 
       <div class="grid gap-5 lg:grid-cols-2">
         <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
-          <div class="vogue-label">{{ tr("industry.public_comps") }}</div>
+          <div class="vogue-label">{{ tr("research.industry_public_comps") }}</div>
           <div v-if="publicComps.length === 0" class="mt-3 text-sm text-ink-muted">
-            {{ tr("industry.public_comps_pending") }}
+            {{ tr("research.industry_comps_empty") }}
           </div>
           <div v-else class="mt-4 space-y-3">
             <article
@@ -1778,7 +1866,7 @@ onUnmounted(stopPolling);
                 </span>
               </div>
               <p class="mt-2 text-sm leading-relaxed text-ink-secondary">
-                {{ comp.note || "Public market read-through pending." }}
+                {{ comp.note || tr("research.industry_comp_pending") }}
               </p>
               <div class="mt-3 flex h-8 items-end gap-1" aria-hidden="true">
                 <span
@@ -1789,16 +1877,16 @@ onUnmounted(stopPolling);
                 ></span>
               </div>
               <div class="mt-2 text-[11px] text-ink-muted">
-                {{ comp.source_class || "source pending" }}
+                {{ comp.source_class || tr("research.source_pending") }}
               </div>
             </article>
           </div>
         </div>
 
         <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
-          <div class="vogue-label">{{ tr("industry.sector_signals") }}</div>
+          <div class="vogue-label">{{ tr("research.industry_sector_signals") }}</div>
           <div v-if="sectorSignals.length === 0" class="mt-3 text-sm text-ink-muted">
-            {{ tr("industry.sector_signals_pending") }}
+            {{ tr("research.industry_signals_empty") }}
           </div>
           <div v-else class="mt-4 space-y-3">
             <article
@@ -1808,10 +1896,10 @@ onUnmounted(stopPolling);
             >
               <div class="flex flex-wrap items-center gap-2">
                 <span class="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-ink">
-                  {{ signal.category || "sector" }}
+                  {{ signal.category || tr("research.industry_sector") }}
                 </span>
                 <span class="text-[11px] text-ink-muted">
-                  {{ signal.source_class || "third-party market data" }}
+                  {{ signal.source_class || tr("research.industry_market_data") }}
                 </span>
               </div>
               <div class="mt-2 text-sm font-semibold text-ink-primary">

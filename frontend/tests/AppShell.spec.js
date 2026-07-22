@@ -99,7 +99,8 @@ describe("App global shell", () => {
       .find((button) => button.text().includes("Ask Co-Pilot"));
     await openButton.trigger("click");
 
-    expect(wrapper.text()).toContain("AI Co-Pilot");
+    expect(wrapper.text()).toContain("Memo Co-Pilot");
+    expect(wrapper.text()).toContain("Research task");
     expect(wrapper.find("[data-testid='company-console']").text()).toContain(
       "Console zainar-inc",
     );

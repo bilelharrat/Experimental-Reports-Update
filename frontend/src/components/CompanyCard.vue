@@ -10,14 +10,14 @@ import {
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { formatCompactNumber, formatIsoDate, isPendingValue } from "../formatters.js";
 import { useT } from "../i18n.js";
-
-const t = useT();
 
 const props = defineProps({
   company: { type: Object, required: true },
 });
 const emit = defineEmits(["select", "refreshed"]);
+const t = useT();
 
 const refreshing = ref(false);
 
@@ -35,9 +35,9 @@ async function refresh(e) {
 
 const metaLine = computed(() => {
   const parts = [];
-  if (props.company.founded_year) parts.push(`Founded ${props.company.founded_year}`);
+  if (props.company.founded_year) parts.push(`${t("company.founded")} ${props.company.founded_year}`);
   if (props.company.hq) parts.push(props.company.hq);
-  if (props.company.employee_band) parts.push(`${props.company.employee_band} employees`);
+  if (props.company.employee_band) parts.push(`${props.company.employee_band} ${t("company.employees")}`);
   if (props.company.status) parts.push(props.company.status);
   return parts.join(" · ");
 });
@@ -47,9 +47,10 @@ const fundingLine = computed(() => {
   if (!f) return null;
   const parts = [];
   if (f.round) parts.push(f.round);
-  if (f.amount_usd) parts.push(f.amount_usd);
-  if (f.lead_investor) parts.push(`led by ${f.lead_investor}`);
-  if (f.date) parts.push(`(${f.date})`);
+  if (!isPendingValue(f.amount_usd)) parts.push(formatCompactNumber(f.amount_usd, { currency: true }));
+  if (!isPendingValue(f.post_money_usd)) parts.push(`${t("company.post_money")} ${formatCompactNumber(f.post_money_usd, { currency: true })}`);
+  if (f.lead_investor) parts.push(t("company.led_by", { investor: f.lead_investor }));
+  if (f.date) parts.push(`(${formatIsoDate(f.date)})`);
   return parts.join(" · ") || null;
 });
 
@@ -58,7 +59,7 @@ const earningsLine = computed(() => {
   if (!e) return null;
   const parts = [];
   if (e.period) parts.push(e.period);
-  if (e.revenue_yoy) parts.push(`rev ${e.revenue_yoy} YoY`);
+  if (e.revenue_yoy) parts.push(t("company.revenue_yoy", { value: e.revenue_yoy }));
   if (e.eps) parts.push(`EPS ${e.eps}`);
   if (e.beat_or_miss) parts.push(e.beat_or_miss);
   return parts.join(" · ") || null;
@@ -115,11 +116,11 @@ const earningsLine = computed(() => {
 
       <div v-if="fundingLine" class="mt-2 flex items-center gap-1.5 text-xs text-ink-muted">
         <TrendingUp class="h-3 w-3" />
-        <span>{{ t("card.last_round") }} <span class="text-ink-secondary">{{ fundingLine }}</span></span>
+        <span>{{ t("company.last_round") }} <span class="mono-data text-ink-secondary">{{ fundingLine }}</span></span>
       </div>
       <div v-if="earningsLine" class="mt-1 flex items-center gap-1.5 text-xs text-ink-muted">
         <TrendingUp class="h-3 w-3" />
-        <span>{{ t("card.last_earnings") }} <span class="text-ink-secondary">{{ earningsLine }}</span></span>
+        <span>{{ t("company.last_earnings") }} <span class="text-ink-secondary">{{ earningsLine }}</span></span>
       </div>
 
       <div

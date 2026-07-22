@@ -561,10 +561,11 @@ describe("route smoke tests", () => {
     const wrapper = await mountRoute("/research/generalist?report=report-1");
     const hrefs = wrapper.findAll("a").map((a) => a.attributes("href"));
 
-    expect(wrapper.text()).toContain("Draft memo artifacts remain visible for debugging");
-    expect(wrapper.text()).toContain("Gate diagnostics");
-    expect(wrapper.text()).toContain("sell_side_voice_violation");
-    expect(wrapper.text()).toContain("The recommendation is Proceed if confirmed");
+    expect(wrapper.text()).toContain("Available draft files remain visible for review");
+    expect(wrapper.text()).toContain("Review summary");
+    expect(wrapper.text()).not.toContain("sell_side_voice_violation");
+    expect(wrapper.text()).not.toContain("The recommendation is Proceed if confirmed");
+    expect(wrapper.text()).not.toContain("data/memos/generalist/run");
     expect(hrefs).toContain("/api/reports/report-1/download?language=en");
     wrapper.unmount();
   });
@@ -660,7 +661,7 @@ describe("route smoke tests", () => {
     const wrapper = await mountRoute("/research/generalist?tab=documents");
     const hrefs = wrapper.findAll("a").map((a) => a.attributes("href"));
 
-    expect(wrapper.text()).toContain("Generated Reports");
+    expect(wrapper.text()).toContain("Generated Memos");
     expect(wrapper.text()).toContain("EN");
     expect(wrapper.text()).toContain("ZH");
     expect(hrefs).toContain("/api/reports/report-1/download?language=en");
@@ -743,8 +744,9 @@ describe("route smoke tests", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Memo generation request failed");
-    expect(wrapper.text()).toContain("Settings file missing");
-    expect(wrapper.text()).toContain("HTTP 400");
+    expect(wrapper.text()).toContain("The memo could not be started");
+    expect(wrapper.text()).not.toContain("Settings file missing");
+    expect(wrapper.text()).not.toContain("HTTP 400");
     wrapper.unmount();
   });
 

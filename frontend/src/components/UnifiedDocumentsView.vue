@@ -13,7 +13,9 @@ import {
   UploadCloud,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
-import { openSummary } from "../state.js";
+import { formatIsoDate, humanizeStatus } from "../formatters.js";
+import { useT } from "../i18n.js";
+import { appLanguage, openSummary } from "../state.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
 
 const props = defineProps({
@@ -22,6 +24,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["open-report", "files-changed"]);
+const t = useT();
 
 const payload = ref({
   groups: [],
@@ -48,6 +51,11 @@ const uploadError = ref("");
 const uploadLanguage = ref("en");
 const launchingSummaryId = ref("");
 
+const errorMessage = computed(() =>
+  error.value === "load" ? t("documents.load_error") : t("documents.action_error"),
+);
+const uploadErrorMessage = computed(() => t("documents.upload_error"));
+
 const previewing = ref(null);
 const traceRow = ref(null);
 
@@ -61,8 +69,8 @@ async function load() {
   error.value = "";
   try {
     payload.value = await api.listCompanyDocuments(props.companyId);
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "load";
   } finally {
     loading.value = false;
   }
@@ -79,29 +87,22 @@ const statuses = computed(() => payload.value.filters?.statuses || []);
 
 const filteredGroups = computed(() => {
   const q = query.value.trim().toLowerCase();
-  return (payload.value.groups || [])
-    .map((group) => {
-      const rows = (group.rows || []).filter((row) => {
-        if (categoryFilter.value !== "all" && row.category !== categoryFilter.value) return false;
-        if (sourceClassFilter.value !== "all" && row.source_class !== sourceClassFilter.value) return false;
-        if (languageFilter.value !== "all" && (row.language || "unknown") !== languageFilter.value) return false;
-        if (statusFilter.value !== "all" && (row.status || "pending") !== statusFilter.value) return false;
-        if (!q) return true;
-        return [
-          row.title,
-          row.filename,
-          row.backend_label,
-          row.provenance?.origin,
-          row.provenance?.url,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q);
-      });
-      return { ...group, rows };
-    })
-    .filter((group) => group.rows.length || categoryFilter.value === "all");
+  const rows = (payload.value.groups || []).flatMap((group) => group.rows || []).filter((row) => {
+    if (categoryFilter.value !== "all" && row.category !== categoryFilter.value) return false;
+    if (sourceClassFilter.value !== "all" && row.source_class !== sourceClassFilter.value) return false;
+    if (languageFilter.value !== "all" && (row.language || "unknown") !== languageFilter.value) return false;
+    if (statusFilter.value !== "all" && (row.status || "pending") !== statusFilter.value) return false;
+    if (!q) return true;
+    return [row.title, row.filename, row.provenance?.origin, row.provenance?.url]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+  return [
+    { id: "generated-memos", rows: rows.filter((row) => row.backend === "generated_report") },
+    { id: "uploaded-documents", rows: rows.filter((row) => row.backend !== "generated_report") },
+  ].filter((group) => group.rows.length);
 });
 
 const visibleCount = computed(() =>
@@ -109,10 +110,7 @@ const visibleCount = computed(() =>
 );
 
 function fmtDate(value) {
-  if (!value) return "Pending date";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString();
+  return formatIsoDate(value, t("documents.pending_date"));
 }
 
 function fmtSize(bytes) {
@@ -131,6 +129,41 @@ function sourceBadgeClass(sourceClass) {
   if (sourceClass === "unknown/pending") return "bg-warning-soft text-warning-ink border-warning/30";
   if (sourceClass === "internal note") return "bg-surface-muted text-ink-secondary border-subtle";
   return "bg-surface text-ink-secondary border-subtle";
+}
+
+function sourceBadgeLabel(row) {
+  const value = String(row.source_class || "").toLowerCase();
+  if (value === "generated memo") return t("documents.source_generated");
+  if (value === "internal note") return t("documents.source_internal");
+  if (value === "unknown/pending" || !value) return t("documents.source_pending");
+  return row.source_class_label || row.source_class;
+}
+
+function fileType(row) {
+  const source = String(row.filename || row.title || row.kind || "").toLowerCase();
+  if (row.provenance?.url || row.kind === "url") return "URL";
+  if (source.endsWith(".pdf") || row.kind === "pdf") return "PDF";
+  if (/\.xlsx?$/.test(source) || ["xls", "xlsx"].includes(row.kind)) return "XLSX";
+  if (source.endsWith(".md") || row.kind === "md") return "MD";
+  if (/\.docx?$/.test(source) || ["doc", "docx"].includes(row.kind)) return "DOCX";
+  if (/\.pptx?$/.test(source) || ["ppt", "pptx"].includes(row.kind)) return "PPTX";
+  return String(row.type_badge || row.kind || "FILE").toUpperCase();
+}
+
+function fileTileClass(row) {
+  const type = fileType(row);
+  if (type === "PDF") return "bg-danger-soft text-danger-ink";
+  if (type === "XLSX") return "bg-success-soft text-success-ink";
+  if (type === "URL") return "bg-accent-soft text-accent-ink";
+  return "bg-surface-muted text-ink-secondary";
+}
+
+function groupLabel(group) {
+  const id = String(group.id || group.label || "").toLowerCase();
+  if (id.includes("generated") || id.includes("memo") || id.includes("report")) {
+    return t("documents.generated_memos");
+  }
+  return t("documents.uploaded_documents");
 }
 
 function openPreview(row) {
@@ -184,8 +217,8 @@ async function summarize(row) {
   try {
     await api.generateResearchFileSummary(props.companyId, row.record_id);
     await load();
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   } finally {
     launchingSummaryId.value = "";
   }
@@ -201,8 +234,8 @@ async function removeRow(row) {
     }
     await load();
     emit("files-changed");
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   }
 }
 
@@ -211,8 +244,8 @@ async function updateMetadata(row, patch) {
   try {
     await api.updateDocumentMetadata(props.companyId, row.backend, row.record_id, patch);
     await load();
-  } catch (e) {
-    error.value = e?.message || String(e);
+  } catch {
+    error.value = "action";
   } finally {
     savingId.value = "";
   }
@@ -228,8 +261,8 @@ async function uploadLibrary(list) {
     }
     await load();
     emit("files-changed");
-  } catch (e) {
-    uploadError.value = e?.message || String(e);
+  } catch {
+    uploadError.value = "upload";
   } finally {
     libraryUploading.value = false;
     if (libraryFileInput.value) libraryFileInput.value.value = "";
@@ -245,8 +278,8 @@ async function uploadBackground(list) {
       await api.uploadResearchFile(props.companyId, file);
     }
     await load();
-  } catch (e) {
-    uploadError.value = e?.message || String(e);
+  } catch {
+    uploadError.value = "upload";
   } finally {
     backgroundUploading.value = false;
     if (backgroundFileInput.value) backgroundFileInput.value.value = "";
@@ -262,20 +295,19 @@ function openReport(row) {
   <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
-        <div class="vogue-label">Documents</div>
+        <div class="vogue-label">{{ t("documents.eyebrow") }}</div>
         <h2 class="font-display text-xl font-semibold text-ink-primary">
-          Unified Evidence Library
+          {{ t("documents.title") }}
         </h2>
         <p class="mt-1 max-w-3xl text-sm text-ink-muted">
-          One grouped PRD view over Document Library and Background Documents.
-          Backend ownership remains explicit on each row.
+          {{ t("documents.subtitle") }}
         </p>
       </div>
       <div class="rounded-subbox border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-muted">
-        <span class="font-mono text-ink-primary">{{ visibleCount }}</span> visible
+        <span class="font-mono text-ink-primary">{{ visibleCount }}</span> {{ t("documents.visible") }}
         <span v-if="payload.unresolved_intake_count">
           · <span class="font-mono text-warning-ink">{{ payload.unresolved_intake_count }}</span>
-          unresolved intake
+          {{ t("documents.unresolved") }}
         </span>
       </div>
     </div>
@@ -284,8 +316,8 @@ function openReport(row) {
       <div class="rounded-subbox border border-subtle bg-surface-muted p-4">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <div class="text-sm font-semibold text-ink-primary">Document Library upload</div>
-            <p class="mt-1 text-xs text-ink-muted">General company files under data/uploads.</p>
+            <div class="text-sm font-semibold text-ink-primary">{{ t("documents.library_upload") }}</div>
+            <p class="mt-1 text-xs text-ink-muted">{{ t("documents.library_upload_help") }}</p>
           </div>
           <button
             type="button"
@@ -295,11 +327,11 @@ function openReport(row) {
           >
             <Loader2 v-if="libraryUploading" class="h-3.5 w-3.5 animate-spin" />
             <UploadCloud v-else class="h-3.5 w-3.5" />
-            Upload
+            {{ t("documents.upload") }}
           </button>
         </div>
         <div class="mt-3 flex items-center gap-1 text-xs text-ink-muted">
-          <span>Language</span>
+          <span>{{ t("documents.language") }}</span>
           <button
             v-for="opt in ['en', 'zh']"
             :key="opt"
@@ -326,8 +358,8 @@ function openReport(row) {
       <div class="rounded-subbox border border-subtle bg-surface-muted p-4">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <div class="text-sm font-semibold text-ink-primary">Background Documents upload</div>
-            <p class="mt-1 text-xs text-ink-muted">Memo-input research under data/research.</p>
+            <div class="text-sm font-semibold text-ink-primary">{{ t("documents.research_upload") }}</div>
+            <p class="mt-1 text-xs text-ink-muted">{{ t("documents.research_upload_help") }}</p>
           </div>
           <button
             type="button"
@@ -337,11 +369,11 @@ function openReport(row) {
           >
             <Loader2 v-if="backgroundUploading" class="h-3.5 w-3.5 animate-spin" />
             <UploadCloud v-else class="h-3.5 w-3.5" />
-            Upload
+            {{ t("documents.upload") }}
           </button>
         </div>
         <p class="mt-3 text-xs text-ink-muted">
-          This upload remains separate from the Document Library and is the only file bucket intended for memo inputs.
+          {{ t("documents.research_upload_note") }}
         </p>
         <input
           ref="backgroundFileInput"
@@ -355,7 +387,7 @@ function openReport(row) {
     </div>
 
     <div v-if="uploadError" class="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
-      {{ uploadError }}
+      {{ uploadErrorMessage }}
     </div>
 
     <div class="mt-5 grid gap-3 lg:grid-cols-[1.4fr_repeat(4,minmax(0,1fr))]">
@@ -364,58 +396,58 @@ function openReport(row) {
         <input
           v-model="query"
           type="search"
-          placeholder="Filter documents"
+          :placeholder="t('documents.filter_placeholder')"
           class="w-full rounded-lg border border-subtle bg-surface-muted py-2 pl-9 pr-3 text-sm text-ink-primary placeholder:text-ink-subtle focus-ring"
         />
       </label>
       <select v-model="categoryFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
-        <option value="all">All categories</option>
+        <option value="all">{{ t("documents.all_categories") }}</option>
         <option v-for="category in categories" :key="category.id" :value="category.id">
           {{ category.label }}
         </option>
       </select>
       <select v-model="sourceClassFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
-        <option value="all">All source classes</option>
+        <option value="all">{{ t("documents.all_source_classes") }}</option>
         <option v-for="sourceClass in sourceClasses" :key="sourceClass" :value="sourceClass">
           {{ sourceClass }}
         </option>
       </select>
       <select v-model="languageFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
-        <option value="all">All languages</option>
+        <option value="all">{{ t("documents.all_languages") }}</option>
         <option v-for="language in languages" :key="language" :value="language">
           {{ language.toUpperCase() }}
         </option>
       </select>
       <select v-model="statusFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
-        <option value="all">All statuses</option>
+        <option value="all">{{ t("documents.all_statuses") }}</option>
         <option v-for="status in statuses" :key="status" :value="status">
-          {{ status }}
+          {{ humanizeStatus(status, t("memo.pending"), appLanguage) }}
         </option>
       </select>
     </div>
 
     <div v-if="loading" class="mt-6 flex items-center gap-2 text-sm text-ink-muted">
       <Loader2 class="h-4 w-4 animate-spin" />
-      Loading documents…
+      {{ t("documents.loading") }}
     </div>
     <div v-else-if="error" class="mt-6 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
       <AlertCircle class="mt-0.5 h-4 w-4" />
-      {{ error }}
+      {{ errorMessage }}
     </div>
     <div v-else-if="visibleCount === 0" class="mt-6 rounded-subbox border border-dashed border-subtle bg-surface-muted p-6 text-sm text-ink-muted">
-      No documents match the current filters.
+      {{ t("documents.empty") }}
     </div>
 
     <div v-else class="mt-6 space-y-5">
       <section
         v-for="group in filteredGroups"
         :key="group.id"
-        class="rounded-subbox border border-subtle bg-surface-muted"
+        class="overflow-hidden rounded-subbox border border-subtle bg-surface"
       >
         <div class="flex items-center justify-between gap-3 border-b border-subtle px-4 py-3">
           <div class="flex items-center gap-2">
             <ChevronDown class="h-4 w-4 text-ink-muted" />
-            <h3 class="font-display text-base font-semibold text-ink-primary">{{ group.label }}</h3>
+            <h3 class="font-display text-base font-semibold text-ink-primary">{{ groupLabel(group) }}</h3>
           </div>
           <span class="font-mono text-xs text-ink-muted">{{ group.rows.length }}</span>
         </div>
@@ -423,14 +455,18 @@ function openReport(row) {
           <li
             v-for="row in group.rows"
             :key="row.id"
-            class="px-4 py-3"
+            class="px-4 py-4"
           >
             <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
+              <div
+                class="mono-data grid h-11 w-11 shrink-0 place-items-center rounded-row text-[10px] font-bold"
+                :class="fileTileClass(row)"
+                aria-hidden="true"
+              >
+                {{ fileType(row) }}
+              </div>
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2">
-                  <span class="rounded border border-subtle bg-surface px-1.5 py-0.5 font-mono text-[10px] uppercase text-ink-muted">
-                    {{ row.type_badge }}
-                  </span>
                   <button
                     v-if="row.backend === 'generated_report'"
                     type="button"
@@ -443,22 +479,19 @@ function openReport(row) {
                     {{ row.title }}
                   </span>
                   <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="sourceBadgeClass(row.source_class)">
-                    {{ row.source_class_label }}
+                    {{ sourceBadgeLabel(row) }}
                   </span>
                   <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-ink-muted">
-                    {{ row.backend_label }}
-                  </span>
-                  <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-ink-muted">
-                    {{ row.status }}
+                    {{ humanizeStatus(row.status, t("memo.pending"), appLanguage) }}
                   </span>
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
-                  <span>{{ row.filename || row.provenance?.file || "No file" }}</span>
+                  <span>{{ row.filename || t("documents.no_file") }}</span>
                   <span v-if="rowSize(row)">{{ rowSize(row) }}</span>
-                  <span>{{ fmtDate(row.captured_at || row.uploaded_at) }}</span>
+                  <span class="mono-data">{{ fmtDate(row.captured_at || row.uploaded_at) }}</span>
                   <span>{{ (row.language || "unknown").toUpperCase() }}</span>
-                  <span v-if="row.provenance?.origin">Source: {{ row.provenance.origin }}</span>
-                  <span v-if="row.source_trace_count">{{ row.source_trace_count }} traces</span>
+                  <span v-if="row.provenance?.origin">{{ t("documents.source") }}: {{ row.provenance.origin }}</span>
+                  <span v-if="row.source_trace_count">{{ row.source_trace_count }} {{ t("documents.traces") }}</span>
                 </div>
                 <p
                   v-if="row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary"
@@ -489,46 +522,55 @@ function openReport(row) {
                   </select>
                   <span v-if="savingId === row.id" class="inline-flex items-center gap-1 text-ink-muted">
                     <Loader2 class="h-3 w-3 animate-spin" />
-                    Saving
+                    {{ t("common.saving") }}
                   </span>
                 </div>
               </div>
 
               <div class="flex shrink-0 flex-wrap items-center gap-1.5">
                 <button
+                  v-if="row.backend === 'generated_report'"
+                  type="button"
+                  @click="openReport(row)"
+                  class="inline-flex items-center gap-1 rounded-full bg-ink-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-ink-secondary focus-ring"
+                >
+                  <Eye class="h-3.5 w-3.5" />
+                  {{ t("documents.open") }}
+                </button>
+                <button
                   type="button"
                   @click="traceRow = row"
-                  class="inline-flex items-center gap-1 rounded border border-subtle bg-surface px-2 py-1 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+                  class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
                 >
                   <FileText class="h-3.5 w-3.5" />
-                  Source trace
+                  {{ t("documents.source_trace") }}
                 </button>
                 <button
                   v-if="canSummarize(row)"
                   type="button"
                   @click="summarize(row)"
                   :disabled="launchingSummaryId === row.id"
-                  class="inline-flex items-center gap-1 rounded border border-subtle bg-surface px-2 py-1 text-xs text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+                  class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
                 >
                   <Loader2 v-if="launchingSummaryId === row.id" class="h-3.5 w-3.5 animate-spin" />
                   <Sparkles v-else class="h-3.5 w-3.5" />
-                  Summarize
+                  {{ t("documents.summarize") }}
                 </button>
                 <button
                   v-if="row.backend !== 'generated_report'"
                   type="button"
                   @click="openPreview(row)"
-                  class="inline-flex items-center gap-1 rounded border border-subtle bg-surface px-2 py-1 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+                  class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
                 >
                   <Eye class="h-3.5 w-3.5" />
-                  Preview
+                  {{ t("documents.view") }}
                 </button>
                 <template v-if="row.backend === 'generated_report'">
                   <a
                     v-for="(url, key) in row.download_urls || {}"
                     :key="key"
                     :href="downloadUrl(row, key)"
-                    class="inline-flex items-center gap-1 rounded border border-subtle bg-surface px-2 py-1 text-xs uppercase text-ink-secondary hover:bg-surface-muted focus-ring"
+                    class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs uppercase text-ink-secondary hover:bg-surface-muted focus-ring"
                   >
                     <Download class="h-3.5 w-3.5" />
                     {{ String(key).toUpperCase() }}
@@ -537,19 +579,19 @@ function openReport(row) {
                 <a
                   v-else
                   :href="downloadUrl(row)"
-                  class="inline-flex items-center gap-1 rounded border border-subtle bg-surface px-2 py-1 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+                  class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
                 >
                   <Download class="h-3.5 w-3.5" />
-                  Download
+                  {{ t("documents.export") }}
                 </a>
                 <button
                   v-if="row.editable_metadata"
                   type="button"
                   @click="removeRow(row)"
-                  class="inline-flex items-center gap-1 rounded border border-subtle bg-surface px-2 py-1 text-xs text-ink-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger focus-ring"
+                  class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger focus-ring"
                 >
                   <Trash2 class="h-3.5 w-3.5" />
-                  Delete
+                  {{ t("common.delete") }}
                 </button>
               </div>
             </div>
@@ -564,7 +606,7 @@ function openReport(row) {
     >
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="vogue-label">Source Trace</div>
+          <div class="vogue-label">{{ t("documents.source_trace") }}</div>
           <h3 class="mt-1 font-display text-lg font-semibold text-ink-primary">
             {{ traceRow.title }}
           </h3>
@@ -574,45 +616,44 @@ function openReport(row) {
           @click="traceRow = null"
           class="rounded-full border border-subtle px-3 py-1 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
         >
-          Close
+          {{ t("documents.close") }}
         </button>
       </div>
       <dl class="mt-5 space-y-3 text-sm">
         <div>
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">Source class</dt>
+          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.source_class") }}</dt>
           <dd class="mt-1 text-ink-primary">{{ traceRow.source_class }}</dd>
         </div>
         <div>
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">Origin</dt>
-          <dd class="mt-1 text-ink-primary">{{ traceRow.provenance?.origin || "Pending" }}</dd>
+          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.origin") }}</dt>
+          <dd class="mt-1 text-ink-primary">{{ traceRow.provenance?.origin || t("memo.pending") }}</dd>
         </div>
         <div>
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">Captured</dt>
-          <dd class="mt-1 text-ink-primary">{{ traceRow.provenance?.captured_at || "Pending" }}</dd>
+          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.captured") }}</dt>
+          <dd class="mono-data mt-1 text-ink-primary">{{ formatIsoDate(traceRow.provenance?.captured_at, t("memo.pending")) }}</dd>
         </div>
         <div v-if="traceRow.provenance?.url">
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">URL</dt>
+          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.url") }}</dt>
           <dd class="mt-1 break-all text-ink-primary">{{ traceRow.provenance.url }}</dd>
         </div>
       </dl>
       <div class="mt-5">
-        <h4 class="text-sm font-semibold text-ink-primary">Source refs</h4>
+        <h4 class="text-sm font-semibold text-ink-primary">{{ t("documents.source_refs") }}</h4>
         <ul class="mt-2 space-y-2 text-xs text-ink-secondary">
           <li
             v-for="sourceRef in traceRow.source_refs || []"
             :key="`${sourceRef.title}-${sourceRef.file}-${sourceRef.url}`"
             class="rounded-subbox border border-subtle bg-surface-muted p-3"
           >
-            <div class="font-semibold text-ink-primary">{{ sourceRef.title || "Source pending" }}</div>
+            <div class="font-semibold text-ink-primary">{{ sourceRef.title || t("research.source_pending") }}</div>
             <div class="mt-1">{{ sourceRef.source_class || traceRow.source_class }}</div>
-            <div v-if="sourceRef.file" class="mt-1 break-all font-mono text-[11px]">{{ sourceRef.file }}</div>
           </li>
         </ul>
       </div>
       <div class="mt-5">
-        <h4 class="text-sm font-semibold text-ink-primary">Trace excerpts</h4>
+        <h4 class="text-sm font-semibold text-ink-primary">{{ t("documents.trace_excerpts") }}</h4>
         <div v-if="!(traceRow.source_traces || []).length" class="mt-2 text-sm text-ink-muted">
-          No extracted trace excerpts are available yet.
+          {{ t("documents.no_excerpts") }}
         </div>
         <ul v-else class="mt-2 space-y-2 text-xs text-ink-secondary">
           <li
@@ -623,7 +664,7 @@ function openReport(row) {
             <div class="font-semibold text-ink-primary">{{ trace.locator || trace.label || "Document" }}</div>
             <p class="mt-1 leading-relaxed">{{ trace.excerpt || trace.text }}</p>
             <div v-if="trace.confidence" class="mt-2 text-[11px] uppercase tracking-wide text-ink-muted">
-              {{ trace.confidence }} confidence
+              {{ t("documents.confidence", { value: trace.confidence }) }}
             </div>
           </li>
         </ul>

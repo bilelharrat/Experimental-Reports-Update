@@ -53,8 +53,8 @@ describe("Sidebar", () => {
     expect(wrapper.text()).toContain("Market Radar");
     expect(wrapper.text()).toContain("Stock");
     expect(wrapper.text()).toContain("Innovation Lab");
-    expect(wrapper.text()).toContain("Settings");
-    expect(wrapper.text()).toContain("Profile");
+    expect(wrapper.text()).not.toContain("Settings");
+    expect(wrapper.text()).not.toContain("Profile");
     expect(wrapper.text()).not.toContain("Hormuz Appendix");
     expect(wrapper.text()).not.toContain("Hormuz Research");
   });
