@@ -358,6 +358,176 @@ def fill_blank_zh_placeholders(package: dict) -> dict:
     return probe
 
 
+_SOURCE_KEY_SYNONYMS = {
+    # Analysis-pass evidence vocabulary that keeps leaking into package
+    # sources. Renaming is lossless, so repair it instead of failing the run.
+    "label": "title",
+    "source_class": "class",
+    "detail": "treatment",
+    "name": "title",
+}
+
+_BLOCK_TYPE_SYNONYMS = {
+    "bullet": "bullets",
+    "bullet_list": "bullets",
+    "bulleted_list": "bullets",
+    "list": "bullets",
+    "para": "paragraph",
+    "text": "paragraph",
+    "call_out": "callout",
+    "box": "callout",
+}
+
+
+def _repair_titleish(value: Any) -> str:
+    """First-sentence-ish English text usable as a derived title."""
+    text = _content_text(value)
+    if not text:
+        return ""
+    sentence = re.split(r"(?<=[.!?;:])\s", text, maxsplit=1)[0].strip()
+    words = sentence.split()
+    if len(words) > 10:
+        sentence = " ".join(words[:10]).rstrip(",;:") + "…"
+    return sentence.rstrip(".")
+
+
+def _repair_localized(node: dict, key: str, repairs: list[str], where: str) -> None:
+    """Wrap a plain non-language-neutral string as {"en": ..., "zh": ""}."""
+    value = node.get(key)
+    if (
+        isinstance(value, str)
+        and value.strip()
+        and not _is_language_neutral_text(value)
+    ):
+        node[key] = {"en": value, "zh": ""}
+        repairs.append(f"{where}: wrapped plain string as bilingual en value")
+
+
+def _repair_localized_list(items: Any, repairs: list[str], where: str) -> list:
+    if not isinstance(items, list):
+        return items
+    out = []
+    for index, item in enumerate(items):
+        if (
+            isinstance(item, str)
+            and item.strip()
+            and not _is_language_neutral_text(item)
+        ):
+            out.append({"en": item, "zh": ""})
+            repairs.append(f"{where}[{index}]: wrapped plain string as bilingual en value")
+        else:
+            out.append(item)
+    return out
+
+
+def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
+    """Deterministically fix mechanical package defects before validation.
+
+    Only lossless, unambiguous repairs are applied — a missing callout title
+    is derived from the callout's own body, plain strings in bilingual slots
+    are wrapped as ``{"en": ..., "zh": ""}``, and analysis-pass source
+    vocabulary (``label``/``source_class``/``detail``) is renamed to the
+    renderer contract. Anything judgment-shaped is left for the validation
+    feedback loop. Returns ``(repaired_copy, repair_descriptions)``; the
+    input is never mutated and an empty repair list means the package was
+    returned unchanged.
+    """
+    import copy as _copy
+
+    if not isinstance(package, dict):
+        return package, []
+    repaired = _copy.deepcopy(package)
+    repairs: list[str] = []
+
+    if not str(repaired.get("schema_version") or "").strip():
+        repaired["schema_version"] = SCHEMA_VERSION
+        repairs.append(f"schema_version: defaulted to {SCHEMA_VERSION}")
+
+    sections = repaired.get("sections")
+    for s_index, section in enumerate(sections if isinstance(sections, list) else []):
+        if not isinstance(section, dict):
+            continue
+        where_section = f"sections[{s_index}]"
+        _repair_localized(section, "title", repairs, f"{where_section}.title")
+        blocks = section.get("blocks")
+        for b_index, block in enumerate(blocks if isinstance(blocks, list) else []):
+            if not isinstance(block, dict):
+                continue
+            where = f"{where_section}.blocks[{b_index}]"
+            raw_kind = str(block.get("type") or "paragraph").strip().lower()
+            kind = _BLOCK_TYPE_SYNONYMS.get(raw_kind, raw_kind)
+            if kind != str(block.get("type") or "paragraph"):
+                block["type"] = kind
+                repairs.append(f"{where}.type: normalized {raw_kind!r} to {kind!r}")
+            if kind == "paragraph" and not _content_text(
+                block.get("text") or block.get("body")
+            ):
+                # Some generations put paragraph prose under `title`.
+                if _content_text(block.get("title")):
+                    block["text"] = block.pop("title")
+                    repairs.append(f"{where}: moved paragraph title into text")
+            if kind == "heading":
+                _repair_localized(block, "text", repairs, f"{where}.text")
+                _repair_localized(block, "title", repairs, f"{where}.title")
+            elif kind == "paragraph":
+                _repair_localized(block, "text", repairs, f"{where}.text")
+                _repair_localized(block, "body", repairs, f"{where}.body")
+            elif kind == "bullets":
+                block["items"] = _repair_localized_list(
+                    block.get("items"), repairs, f"{where}.items"
+                )
+            elif kind == "callout":
+                _repair_localized(block, "title", repairs, f"{where}.title")
+                _repair_localized(block, "label", repairs, f"{where}.label")
+                _repair_localized(block, "body", repairs, f"{where}.body")
+                block["items"] = _repair_localized_list(
+                    block.get("items"), repairs, f"{where}.items"
+                )
+                if not _content_text(block.get("title") or block.get("label")):
+                    derived = _repair_titleish(
+                        block.get("body") or block.get("text")
+                    ) or _repair_titleish(
+                        next(iter(block.get("items") or []), None)
+                    ) or "Key Consideration"
+                    block["title"] = {"en": derived, "zh": ""}
+                    repairs.append(
+                        f"{where}.title: derived callout title from its content"
+                    )
+            elif kind == "table":
+                _repair_localized(block, "title", repairs, f"{where}.title")
+                block["headers"] = _repair_localized_list(
+                    block.get("headers"), repairs, f"{where}.headers"
+                )
+                rows = block.get("rows")
+                for r_index, row in enumerate(rows if isinstance(rows, list) else []):
+                    cells = row.get("cells") if isinstance(row, dict) else row
+                    fixed = _repair_localized_list(
+                        cells, repairs, f"{where}.rows[{r_index}].cells"
+                    )
+                    if isinstance(row, dict):
+                        row["cells"] = fixed
+                    elif isinstance(rows, list):
+                        rows[r_index] = fixed
+
+    sources = repaired.get("sources")
+    for index, source in enumerate(sources if isinstance(sources, list) else []):
+        if not isinstance(source, dict):
+            continue
+        where = f"sources[{index}]"
+        for old_key, new_key in _SOURCE_KEY_SYNONYMS.items():
+            if old_key in source and not str(source.get(new_key) or "").strip():
+                source[new_key] = source.pop(old_key)
+                repairs.append(f"{where}: renamed {old_key!r} to {new_key!r}")
+        if not str(source.get("id") or "").strip():
+            source["id"] = f"S{index + 1}"
+            repairs.append(f"{where}.id: assigned S{index + 1}")
+        # `title` may legally stay a plain string; only `treatment` is
+        # validated as a bilingual value.
+        _repair_localized(source, "treatment", repairs, f"{where}.treatment")
+
+    return repaired, repairs
+
+
 def english_package_validation_errors(package: Any) -> list[str]:
     """Validate an English-only package (phase 3 output, ``zh`` still blank).
 

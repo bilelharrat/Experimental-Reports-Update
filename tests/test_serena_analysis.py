@@ -3597,3 +3597,38 @@ def test_analysis_backed_prep_accepts_approved_session_with_reopened_blockers(
     assert report["analysis_session_id"] == approved["id"]
     assert report["analysis_session_approved"] is True
     assert report["status"] == "ready_for_analysis"
+
+
+def test_empty_session_readiness_gates_are_actionable(tmp_path, monkeypatch):
+    """A bare draft session (the Axiom 2026-07-20 confusion): every open gate
+    must name the concrete tool/action that clears it, not just say the gap
+    "must be addressed"."""
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "axiom-math-ai-inc",
+            "name": "Axiom Math",
+            "status": "private",
+            "sector": "AI",
+            "description": "AI mathematician producing Lean-verified proofs.",
+        },
+    )
+
+    session = serena_analysis.get_current_session("axiom-math-ai-inc")
+
+    open_gaps = {
+        gap["id"]: gap
+        for gap in session["additional_areas"]
+        if gap.get("status") == "open"
+    }
+    assert "Run the Strategic Risk Mapper" in open_gaps["strategic_risks"]["why_it_matters"]
+    assert open_gaps["strategic_risks"]["tool"] == "strategic_risk_mapper"
+    assert "Run the Risk Prioritizer" in open_gaps["risk_priorities"]["why_it_matters"]
+    assert "Run the Thesis Spine" in open_gaps["thesis_spine"]["why_it_matters"]
+    assert open_gaps["thesis_spine"]["tool"] == "thesis_spine_builder"
+    # The blocking-gate list carries the same concrete action.
+    blockers = {
+        b["id"]: b for b in session["readiness"]["approval_blockers"]
+    }
+    assert "Run the Strategic Risk Mapper" in blockers["strategic_risks"]["reason"]

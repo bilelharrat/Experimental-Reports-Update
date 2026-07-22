@@ -463,16 +463,26 @@ def _fallback_thesis_cards(company: dict) -> list[dict]:
         for p in products[:3]
         if _clean_text(p.get("name") if isinstance(p, dict) else p)
     )
+    company_label = (
+        _clean_text(company.get("name"), limit=80)
+        or _clean_text(company.get("id"), limit=80)
+        or "The company"
+    )
+    # Fallback card text must stay company-neutral or company-derived.
+    # Earlier revisions hardcoded Zainar-specific claims (sub-meter
+    # positioning, GPS-alternative) here, which seeded every other
+    # company's editor with another company's assets.
     cards = [
         _card(
             prefix="thesis",
             index=1,
-            title="Existing networks can become a software positioning layer.",
+            title=f"{company_label} claims a differentiated technology position.",
             category="Technology moat",
             bullets=[
                 _bullet(
                     _clean_text(positioning.get("differentiator"), limit=500)
-                    or "The platform claims sub-meter location using existing network infrastructure.",
+                    or _clean_text(company.get("description"), limit=500)
+                    or "Differentiation claims are not yet documented; treat this thesis as pending diligence.",
                     index=1,
                     source_refs=positioning_refs,
                     source_class="company material",
@@ -480,7 +490,7 @@ def _fallback_thesis_cards(company: dict) -> list[dict]:
                 ),
                 _bullet(
                     _clean_text(positioning.get("benefit"), limit=500)
-                    or "The core benefit is GPS-alternative location where GPS fails.",
+                    or "The core customer benefit has not been independently verified; source it before export.",
                     index=2,
                     source_refs=positioning_refs,
                     source_class="company material",
@@ -494,7 +504,7 @@ def _fallback_thesis_cards(company: dict) -> list[dict]:
         _card(
             prefix="thesis",
             index=2,
-            title="Launch-scale metrics create a late-stage underwriting frame.",
+            title="Disclosed metrics frame the underwriting baseline.",
             category="Commercial traction",
             bullets=[
                 _bullet(
@@ -583,14 +593,14 @@ def _fallback_risk_cards(company: dict) -> list[dict]:
         _card(
             prefix="risk",
             index=2,
-            title="Standards or carrier adoption could compress moat durability.",
+            title="Competitive or platform shifts could compress moat durability.",
             category="Technology/IP",
             severity="medium",
             bullets=[
                 _bullet(
                     _clean_text(signals[0].get("implication"), limit=500)
                     if signals
-                    else "Patent and standards diligence should test whether the claimed moat survives platform adoption.",
+                    else "Patent, standards, and competitive diligence should test whether the claimed moat survives platform-level adoption by larger players.",
                     index=1,
                     source_refs=signal_refs,
                     source_class="third-party market data",

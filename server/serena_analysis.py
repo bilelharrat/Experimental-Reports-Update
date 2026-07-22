@@ -6675,6 +6675,41 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
         ("risk_sensitivities", "Top 3 risk sensitivities selected", len(sensitivity_rows) >= 3),
         ("approved", "Final memo generation approved", bool(session.get("approved_for_memo"))),
     ]
+    # Each open gate must name its concrete fix — "must be addressed" alone
+    # is not actionable when the session is an empty draft and nothing has
+    # been generated yet.
+    gate_actions = {
+        "strategic_risks": (
+            "strategic_risk_mapper",
+            'No risks exist yet. Run the Strategic Risk Mapper tool '
+            '("Map risks") to generate them.',
+        ),
+        "risk_priorities": (
+            "priority_prompt_harness",
+            'Risks have not been prioritized. Run the Risk Prioritizer tool '
+            '("Build source review queue") after the risk map.',
+        ),
+        "thesis_spine": (
+            "thesis_spine_builder",
+            'No thesis draft exists yet. Run the Thesis Spine tool '
+            '("Draft thesis") to draft highlights, risks, and '
+            "recommendation logic.",
+        ),
+        "highlights": (
+            "thesis_spine_builder",
+            "Edit the Thesis Spine until it carries 3-5 Investment "
+            "Highlights.",
+        ),
+        "memo_risks": (
+            "thesis_spine_builder",
+            "Edit the Thesis Spine until it carries 3-5 Investment Risks.",
+        ),
+        "risk_sensitivities": (
+            "thesis_spine_builder",
+            "Select the top 3 risk / valuation sensitivities in the Thesis "
+            "Spine.",
+        ),
+    }
     if completed_task_results:
         gates.extend([
             (
@@ -6703,7 +6738,11 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
                 if gid in {"strategic_risks", "thesis_spine", "risk_sensitivities"}
                 else "medium"
             ),
-            "reason": "Complete this required readiness gate before approval.",
+            "reason": (
+                gate_actions.get(gid, (None, None))[1]
+                or "Complete this required readiness gate before approval."
+            ),
+            "tool": gate_actions.get(gid, (None, None))[0],
         }
         for gid, label, ok in gates
         if gid != "approved" and not ok
@@ -6719,7 +6758,16 @@ def _readiness(session: dict) -> tuple[dict, list[dict]]:
             "id": gid,
             "severity": "high" if gid in {"strategic_risks", "thesis_spine", "risk_sensitivities"} else "medium",
             "area": label,
-            "why_it_matters": "This must be addressed or explicitly waived before final memo generation.",
+            "why_it_matters": (
+                (
+                    gate_actions.get(gid, (None, ""))[1] + " "
+                    if gate_actions.get(gid, (None, ""))[1]
+                    else ""
+                )
+                + "This must be addressed or explicitly waived before final "
+                "memo generation."
+            ),
+            "tool": gate_actions.get(gid, (None, None))[0],
             "status": "open",
         }
         for gid, label, ok in gates if gid != "approved" and not ok

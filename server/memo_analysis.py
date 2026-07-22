@@ -91,9 +91,9 @@ def _memo_fast_max_workers() -> int:
 def _memo_fast_english_package_retries() -> int:
     raw = os.environ.get("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES")
     try:
-        value = int(raw) if raw is not None else 1
+        value = int(raw) if raw is not None else 2
     except ValueError:
-        value = 1
+        value = 2
     return max(0, min(value, 3))
 
 
@@ -385,7 +385,31 @@ def _memo_package_render_validation_error(package_path: Path) -> str | None:
     try:
         memo_docx_renderer.load_package(package_path)
     except Exception as exc:  # noqa: BLE001
-        return f"{type(exc).__name__}: {exc}"
+        error = f"{type(exc).__name__}: {exc}"
+        # Before reporting failure, try the conservative deterministic
+        # repair (missing callout titles, plain strings in bilingual slots,
+        # analysis-pass source vocabulary). Persist the repaired package
+        # only when it fully clears validation, so every caller of this
+        # gate — phase 4 merge, resume, finalize — self-heals mechanical
+        # defects instead of burning a regeneration round.
+        try:
+            payload = json.loads(package_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return error
+        repaired, repairs = memo_docx_renderer.repair_package_structure(payload)
+        if not repairs:
+            return error
+        try:
+            memo_docx_renderer.validate_package(repaired)
+        except Exception:  # noqa: BLE001
+            return error
+        _write_json(package_path, repaired)
+        logger.info(
+            "memo package %s auto-repaired: %s",
+            package_path,
+            "; ".join(repairs[:10]),
+        )
+        return None
     return None
 
 
@@ -2483,6 +2507,10 @@ def _run_fast_memo_pipeline(
     attempts_used = 0
     last_transient = False
     validation_feedback: str | None = None
+    cumulative_errors: list[str] = []
+    last_invalid_candidate: dict | None = None
+    last_validation_errors: list[str] = []
+    last_attempt_result: dict | None = None
     max_attempts = 1 + _memo_fast_english_package_retries()
     phase3_cost_before = phase3_progress.cost_usd
     phase3_duration_before = phase3_progress.duration_ms
@@ -2577,6 +2605,32 @@ def _run_fast_memo_pipeline(
         # the errors back lets the synthesis pass self-correct the way the
         # resume path already does.
         candidate = attempt_result.get("memo_package")
+        if isinstance(candidate, dict):
+            # Persist every candidate so a failed run leaves its work product
+            # on disk for debugging and surgical repair instead of vanishing.
+            _write_json(
+                run_dir / "logs" / f"memo_package.en.attempt-{attempt}.json",
+                candidate,
+            )
+            # Mechanical defects (missing callout title, plain strings in
+            # bilingual slots, analysis-pass source vocabulary) are fixed
+            # deterministically instead of burning a full regeneration.
+            repaired_candidate, structure_repairs = (
+                memo_docx_renderer.repair_package_structure(candidate)
+            )
+            if structure_repairs:
+                candidate = repaired_candidate
+                attempt_result["memo_package"] = repaired_candidate
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_auto_repair",
+                    message=(
+                        f"Auto-repaired {len(structure_repairs)} mechanical "
+                        "package defect(s) before validation"
+                    ),
+                    repairs=structure_repairs[:20],
+                    attempt=attempt,
+                )
         validation_errors = memo_docx_renderer.english_package_validation_errors(
             candidate
         )
@@ -2608,6 +2662,13 @@ def _run_fast_memo_pipeline(
                         max_attempts=max_attempts,
                     )
         if validation_errors:
+            for err in validation_errors:
+                if err not in cumulative_errors:
+                    cumulative_errors.append(err)
+            if isinstance(candidate, dict):
+                last_invalid_candidate = candidate
+                last_validation_errors = list(validation_errors)
+                last_attempt_result = attempt_result
             english_error = (
                 "English package failed renderer validation: "
                 + "; ".join(validation_errors[:12])
@@ -2627,8 +2688,13 @@ def _run_fast_memo_pipeline(
                 claude_duration_ms=attempt_duration,
             )
             if attempt < max_attempts:
+                # Feed back the cumulative error list, not just this
+                # attempt's: retry 2 of the Axiom run fixed the fed-back
+                # quality finding but regressed on structure it had gotten
+                # right in attempt 1, because that structure was never
+                # mentioned in the feedback.
                 validation_feedback = "\n".join(
-                    f"- {err}" for err in validation_errors[:20]
+                    f"- {err}" for err in cumulative_errors[:30]
                 )
                 phase3_progress.emit(
                     "stage",
@@ -2663,6 +2729,98 @@ def _run_fast_memo_pipeline(
             else None,
         )
         break
+    if (
+        english_error
+        and english_result is None
+        and isinstance(last_invalid_candidate, dict)
+        and last_validation_errors
+    ):
+        # Every full attempt is spent and the last candidate still fails
+        # structural validation. Instead of abandoning the run (and its
+        # accumulated analysis cost), run one surgical repair pass over the
+        # invalid package: fix ONLY the listed defects, preserving content.
+        invalid_path = run_dir / "logs" / "memo_package.en.invalid.json"
+        _write_json(invalid_path, last_invalid_candidate)
+        phase3_progress.emit(
+            "stage",
+            stage="memo_package_structure_repair",
+            message=(
+                "English package still fails renderer validation after all "
+                "attempts; running a surgical structure repair pass instead "
+                "of failing the run"
+            ),
+            validation_errors=last_validation_errors[:10],
+        )
+        repair_result, repair_error = (
+            claude_runner.run_memo_package_structure_repair(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                package_path=invalid_path,
+                validation_errors=last_validation_errors,
+                progress=phase3_progress,
+            )
+        )
+        repaired_package = (
+            repair_result.get("memo_package")
+            if not repair_error and isinstance(repair_result, dict)
+            else None
+        )
+        if isinstance(repaired_package, dict):
+            repaired_package, _ = memo_docx_renderer.repair_package_structure(
+                repaired_package
+            )
+            remaining_errors = (
+                memo_docx_renderer.english_package_validation_errors(
+                    repaired_package
+                )
+            )
+            if not remaining_errors:
+                quality_error = _memo_package_prerender_quality_error(
+                    memo_docx_renderer.fill_blank_zh_placeholders(
+                        repaired_package
+                    ),
+                    check_parity=False,
+                )
+                if quality_error:
+                    phase3_progress.emit(
+                        "stage",
+                        stage="memo_english_quality_warning",
+                        message=(
+                            "Repaired English package still has quality "
+                            "findings; continuing with warnings"
+                        ),
+                        validation_error=quality_error[:4000],
+                    )
+                english_result = dict(last_attempt_result or {})
+                english_result["memo_package"] = repaired_package
+                english_error = None
+                last_transient = False
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_structure_repair_succeeded",
+                    message=(
+                        "Surgical structure repair fixed the package; "
+                        "resuming the pipeline"
+                    ),
+                )
+            else:
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_structure_repair_failed",
+                    message=(
+                        "Surgical structure repair did not clear renderer "
+                        "validation"
+                    ),
+                    validation_errors=remaining_errors[:10],
+                )
+        elif repair_error:
+            phase3_progress.emit(
+                "stage",
+                stage="memo_package_structure_repair_failed",
+                message="Surgical structure repair pass failed",
+                error=str(repair_error)[:2000],
+            )
     phase3_cost_delta = max(0.0, phase3_progress.cost_usd - phase3_cost_before)
     phase3_duration_delta = max(
         0, phase3_progress.duration_ms - phase3_duration_before

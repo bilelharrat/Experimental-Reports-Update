@@ -746,6 +746,11 @@ class ReportSummary(BaseModel):
     download_urls: dict | None = None
     preview_urls: dict | None = None
     resume_available: bool = False
+    # Set when a newer memo run for the same company replaced this failed
+    # run; superseded failures are no longer resumable or auto-surfaced.
+    superseded_by: str | None = None
+    # Set when the user cleared this failure record without reprocessing.
+    dismissed_at: str | None = None
 
 
 class ReportDetail(ReportSummary):
@@ -2179,6 +2184,29 @@ def get_report(report_id: str) -> ReportDetail:
     return ReportDetail(**_report_detail(report))
 
 
+def _supersede_stale_memo_failures(company_id: str, new_report_id: str | None) -> None:
+    """Mark older failed memo runs for this company as replaced by a new run.
+
+    A failed report's error banner describes progress-to-date of THAT run;
+    once the user starts a fresh run it stops being the current state and
+    only confuses. Superseded records (and their run folders) stay on disk
+    for forensics, but `resume_available` turns false so the UI no longer
+    auto-surfaces or offers to resume them.
+    """
+    if not new_report_id or not company_id:
+        return
+    for old in storage.list_reports():
+        if (
+            old.get("id") == new_report_id
+            or old.get("company_id") != company_id
+            or old.get("kind") != "investment_memo_latestage"
+            or old.get("superseded_by")
+            or not str(old.get("status") or "").startswith("failed")
+        ):
+            continue
+        storage.update_report(old["id"], superseded_by=new_report_id)
+
+
 @router.post("/reports", status_code=201)
 def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
     _require_permission(request, "tasks:action")
@@ -2258,6 +2286,9 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
                 detail="Report record vanished after prep",
             )
             raise HTTPException(status_code=500, detail="Report record vanished after prep")
+        _supersede_stale_memo_failures(
+            report.get("company_id") or payload.company_id, report.get("id")
+        )
         _record_report_generation_event(
             "report_created",
             **base_event,
@@ -2372,6 +2403,11 @@ def _report_analysis_artifacts(report: dict) -> list[dict]:
 
 def _report_resume_available(report: dict) -> bool:
     if report.get("kind") != "investment_memo_latestage":
+        return False
+    # A newer run replaced this failure, or the user dismissed it; the
+    # record stays for forensics but it must not be auto-surfaced or
+    # resumed.
+    if report.get("superseded_by") or report.get("dismissed_at"):
         return False
     status = str(report.get("status") or "")
     resumable = (
@@ -2524,6 +2560,44 @@ def preview_memo(
     )
 
 
+@router.post("/reports/{report_id}/dismiss", status_code=200)
+def dismiss_memo_report(request: Request, report_id: str) -> ReportDetail:
+    """Clear a failed memo run's error record without any reprocessing.
+
+    Resume regenerates the memo with real Claude passes — the right call
+    when the user still wants the memo. For a stale failure they just want
+    out of the way, this marks the record dismissed: no worker, no cost.
+    The run folder and report record stay on disk for forensics, but the
+    failure stops being auto-surfaced and stops offering resume.
+    """
+    _require_permission(request, "tasks:action")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.get("kind") != "investment_memo_latestage":
+        raise HTTPException(
+            status_code=400,
+            detail="Only investment memo reports can be dismissed",
+        )
+    status = str(report.get("status") or "")
+    if not status.startswith("failed"):
+        raise HTTPException(
+            status_code=409,
+            detail="Only failed memo reports can be dismissed",
+        )
+    state = _scan_progress_state(_memo_stream_path_for_report(report_id))
+    if state.get("exists") and not state.get("terminated"):
+        raise HTTPException(
+            status_code=409,
+            detail="Memo report still has an active worker",
+        )
+    updated = storage.update_report(
+        report_id,
+        dismissed_at=datetime.now(timezone.utc).isoformat(),
+    ) or report
+    return ReportDetail(**_report_detail(updated))
+
+
 @router.post("/reports/{report_id}/resume", status_code=202)
 def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
     _require_permission(request, "tasks:action")
@@ -2589,6 +2663,13 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
         resume_last_failure_phase=report.get("failure_phase"),
         failure_phase=None,
         failure_detail=None,
+        # Per-run diagnostics describe the FAILED attempt's progress-to-date;
+        # clear them so the UI reflects the resumed attempt, not stale gates.
+        analysis_error=None,
+        renderer_contract=None,
+        memo_quality_lint=None,
+        memo_chinese_parity=None,
+        quality_warnings=None,
     ) or report
     memo_analysis.start_resume(report_id)
     return ReportDetail(**_report_detail(updated))
@@ -2645,6 +2726,11 @@ def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
             ),
             failure_phase=None,
             failure_detail=None,
+            analysis_error=None,
+            renderer_contract=None,
+            memo_quality_lint=None,
+            memo_chinese_parity=None,
+            quality_warnings=None,
         )
         memo_analysis.start_resume(report_id)
         logger.info("Auto-resumed restart-interrupted memo run %s", report_id)
@@ -2678,6 +2764,9 @@ def post_memo_prep(request: Request, payload: MemoPrepRequest) -> ReportDetail:
     report = result.get("report") or storage.get_report(result["report_id"])
     if report is None:
         raise HTTPException(status_code=500, detail="Report record vanished after prep")
+    _supersede_stale_memo_failures(
+        report.get("company_id") or payload.company_id, report.get("id")
+    )
     return ReportDetail(**_report_detail(report))
 
 
@@ -6992,6 +7081,8 @@ def _report_summary(r: dict) -> dict:
             if r.get("kind") == "investment_memo_latestage"
             else False
         ),
+        "superseded_by": r.get("superseded_by"),
+        "dismissed_at": r.get("dismissed_at"),
     }
     download_urls, preview_urls = _memo_report_artifact_urls(r)
     if download_urls:

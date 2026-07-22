@@ -229,6 +229,10 @@ const messages = {
     "research.preview_en": "English",
     "research.preview_zh": "中文",
     "research.failed_run": "This run failed — {status}",
+    "research.failed_run_at":
+      "Failed {time} — this is the preserved record of that run; it stays until a resume or a fresh run replaces it.",
+    "research.failed_run_superseded":
+      "A newer run for this company has replaced this record.",
     "research.failed_run_generic": "Memo generation failed",
     "research.failed_run_renderer": "Memo rendering failed",
     "research.failed_run_quality_gate": "Memo quality check failed",
@@ -251,7 +255,9 @@ const messages = {
     "research.resume_memo_improve": "Resume to fix warnings",
     "research.redo_memo": "Redo from scratch",
     "research.resume_or_start_fresh_hint":
-      "Resume reuses existing run artifacts; redo starts a fresh run.",
+      "Resume reuses existing run artifacts; redo starts a fresh run; clearing removes this failure record without any reprocessing.",
+    "research.dismiss_failed": "Clear failure record",
+    "research.dismissing": "Clearing…",
     "research.gate_diagnostics": "Gate diagnostics",
     "research.gate_quality": "Quality gate",
     "research.gate_chinese_parity": "Chinese parity",
@@ -983,6 +989,9 @@ const messages = {
     "research.preview_en": "English",
     "research.preview_zh": "中文",
     "research.failed_run": "本次生成失败：{status}",
+    "research.failed_run_at":
+      "失败时间：{time} — 此为该次运行的保留记录，续跑或重新生成后将被替换。",
+    "research.failed_run_superseded": "该公司已有新一次运行，此记录已被替代。",
     "research.failed_run_generic": "备忘录生成失败",
     "research.failed_run_renderer": "备忘录渲染失败",
     "research.failed_run_quality_gate": "备忘录质量检查未通过",
@@ -1005,7 +1014,9 @@ const messages = {
     "research.resume_memo_improve": "继续运行以修复警告",
     "research.redo_memo": "从头重新生成",
     "research.resume_or_start_fresh_hint":
-      "继续生成会复用现有运行产物；从头重新生成会启动一次全新运行。",
+      "继续生成会复用现有运行产物；从头重新生成会启动一次全新运行；清除仅移除此失败记录，不做任何处理。",
+    "research.dismiss_failed": "清除失败记录",
+    "research.dismissing": "清除中…",
     "research.gate_diagnostics": "检查诊断",
     "research.gate_quality": "质量检查",
     "research.gate_chinese_parity": "中文一致性",

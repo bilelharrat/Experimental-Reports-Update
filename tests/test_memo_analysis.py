@@ -1880,6 +1880,133 @@ def test_resume_memo_endpoint_queues_failed_report(memo_env, monkeypatch):
     )
 
 
+def test_resume_clears_stale_run_diagnostics(memo_env, monkeypatch):
+    """Resume must clear the failed attempt's progress-to-date diagnostics
+    (gate findings, renderer contract, warnings) so the UI reflects the new
+    attempt instead of replaying stale errors."""
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text(
+        "# Pressure tests\n",
+        encoding="utf-8",
+    )
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        stage="Claude skill run failed",
+        error="English package failed renderer validation: title is required",
+        failure_phase="analysis",
+        failure_detail="English package failed renderer validation",
+        analysis_error="stale analysis error",
+        renderer_contract={"errors": ["stale contract error"]},
+        memo_quality_lint={"status": "failed", "p0_count": 3},
+        memo_chinese_parity={"status": "failed", "p0_count": 1},
+        quality_warnings=["stale warning"],
+    )
+    monkeypatch.setattr(memo_analysis, "start_resume", lambda report_id: None)
+
+    response = api.resume_memo_report(_admin_request(), report["id"])
+
+    assert response.status == "analyzing"
+    queued = storage.get_report(report["id"])
+    assert queued["error"] is None
+    assert queued["failure_phase"] is None
+    assert queued["failure_detail"] is None
+    assert queued["analysis_error"] is None
+    assert queued["renderer_contract"] is None
+    assert queued["memo_quality_lint"] is None
+    assert queued["memo_chinese_parity"] is None
+    assert queued["quality_warnings"] is None
+    # Provenance of the original failure is still preserved.
+    assert queued["resume_from_status"] == "failed_during_analysis"
+
+
+def test_dismiss_failed_memo_report_clears_without_processing(
+    memo_env, monkeypatch
+):
+    """Dismissing a stale failure clears it from the UI with ZERO
+    reprocessing — no worker starts, the record just stops being
+    resumable/auto-surfaced while staying on disk for forensics."""
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text("# Notes\n", encoding="utf-8")
+    storage.update_report(
+        report["id"],
+        status="failed_during_analysis",
+        failure_phase="analysis",
+        error="English package failed renderer validation",
+    )
+    monkeypatch.setattr(
+        memo_analysis,
+        "start_resume",
+        lambda report_id: pytest.fail("dismiss must not start any worker"),
+    )
+
+    response = api.dismiss_memo_report(_admin_request(), report["id"])
+
+    assert response.dismissed_at
+    assert response.resume_available is False
+    stored = storage.get_report(report["id"])
+    assert stored["dismissed_at"]
+    # The record itself is preserved untouched for forensics.
+    assert stored["status"] == "failed_during_analysis"
+    assert stored["error"] == "English package failed renderer validation"
+    assert api._report_resume_available(stored) is False
+
+    # Non-failed reports cannot be dismissed.
+    storage.update_report(report["id"], status="complete", dismissed_at=None)
+    with pytest.raises(HTTPException) as exc:
+        api.dismiss_memo_report(_admin_request(), report["id"])
+    assert exc.value.status_code == 409
+
+
+def test_fresh_memo_run_supersedes_stale_failures(memo_env):
+    """Starting a new memo run marks older failed runs for the company as
+    superseded: still on disk for forensics, but no longer resumable or
+    auto-surfaced in the UI."""
+    failed, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "pressure_tests.md").write_text("# Notes\n", encoding="utf-8")
+    storage.update_report(
+        failed["id"],
+        status="failed_during_analysis",
+        failure_phase="analysis",
+    )
+    assert api._report_resume_available(storage.get_report(failed["id"])) is True
+
+    # A delivered complete_with_warnings memo must NOT be superseded.
+    warned = storage.create_report_record(
+        company_id="generalist-inc",
+        company_name="Generalist, Inc.",
+        report_type=memo_prep.REPORT_TYPE,
+        audience="Internal",
+        language="en",
+        kind="investment_memo_latestage",
+        status="complete_with_warnings",
+    )
+    # A failed memo for ANOTHER company must NOT be superseded.
+    other = storage.create_report_record(
+        company_id="zainar-inc",
+        company_name="ZaiNar, Inc.",
+        report_type=memo_prep.REPORT_TYPE,
+        audience="Internal",
+        language="en",
+        kind="investment_memo_latestage",
+        status="failed_during_analysis",
+    )
+
+    api._supersede_stale_memo_failures("generalist-inc", "new-report-id")
+
+    updated = storage.get_report(failed["id"])
+    assert updated["superseded_by"] == "new-report-id"
+    assert api._report_resume_available(updated) is False
+    assert storage.get_report(warned["id"]).get("superseded_by") is None
+    assert storage.get_report(other["id"]).get("superseded_by") is None
+
+
 def test_resume_memo_endpoint_preserves_original_resume_source(
     memo_env, monkeypatch
 ):
@@ -2743,15 +2870,13 @@ def test_phase3_retries_on_validation_failure_with_feedback(memo_env, monkeypatc
         english_calls.append(kwargs.get("validation_feedback"))
         package = _memo_package(body_zh="")
         if len(english_calls) == 1:
-            # First attempt: the wrong source vocabulary.
-            package["sources"] = [
-                {
-                    "id": "S1",
-                    "label": {"en": "Registry", "zh": ""},
-                    "source_class": "company-reported",
-                    "detail": {"en": "d", "zh": ""},
-                    "as_of": "2026-03-10",
-                }
+            # First attempt: a required section is missing entirely — a
+            # defect deterministic auto-repair cannot fix, so the feedback
+            # retry loop must engage.
+            package["sections"] = [
+                section
+                for section in package["sections"]
+                if section["id"] != "financial_forecast_valuation"
             ]
         return {
             "analysis_artifacts": {},
@@ -2789,8 +2914,195 @@ def test_phase3_retries_on_validation_failure_with_feedback(memo_env, monkeypatc
     assert len(english_calls) == 2
     # First attempt had no feedback; the retry carried the exact errors.
     assert english_calls[0] is None
-    assert "sources[0].title" in english_calls[1]
+    assert "missing required section financial_forecast_valuation" in english_calls[1]
     assert result.get("ok") is True
+
+
+def test_phase3_auto_repairs_mechanical_defects_without_burning_a_retry(
+    memo_env, monkeypatch
+):
+    """The 2026-07-20 Axiom failure mode: a callout missing its title (and
+    analysis-pass source vocabulary) must be repaired deterministically in
+    Python — one generation attempt, no retry, run delivered."""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    english_calls = []
+
+    def fake_english_package(**kwargs):
+        english_calls.append(kwargs.get("validation_feedback"))
+        package = _memo_package(body_zh="")
+        package["sections"][0]["blocks"].append(
+            {
+                "type": "callout",
+                "body": {
+                    "en": (
+                        "Valuation support depends on scenario ranges and "
+                        "carries no commercial de-risking."
+                    ),
+                    "zh": "",
+                },
+                "items": [],
+            }
+        )
+        package["sources"] = [
+            {
+                "label": {"en": "Registry", "zh": ""},
+                "source_class": "company-reported",
+                "detail": {"en": "Registry disclosures.", "zh": ""},
+                "as_of": "2026-03-10",
+            }
+        ]
+        return {"analysis_artifacts": {}, "memo_package": package}, None
+
+    def fake_bilingual(**kwargs):
+        return {"memo_package": _memo_package()}, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_package", fake_english_package
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        fake_bilingual,
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    # One attempt was enough — the defects were repaired, not retried.
+    assert len(english_calls) == 1
+    events = _events(memo_prep.stream_path(run_dir))
+    repair_events = [
+        e for e in events if e.get("stage") == "memo_package_auto_repair"
+    ]
+    assert repair_events
+    # The candidate was persisted for debugging.
+    assert (run_dir / "logs" / "memo_package.en.attempt-1.json").exists()
+    # The repaired English package carries the derived callout title and the
+    # renamed source keys.
+    english_package = json.loads(
+        (run_dir / "logs" / "memo_package.en.json").read_text(encoding="utf-8")
+    )
+    callout = english_package["sections"][0]["blocks"][-1]
+    assert callout["title"]["en"]
+    assert english_package["sources"][0]["class"] == "company-reported"
+
+
+def test_phase3_surgical_structure_repair_rescues_exhausted_run(
+    memo_env, monkeypatch
+):
+    """When every full generation attempt fails structural validation with a
+    defect Python cannot fix, one surgical repair pass over the invalid
+    package must rescue the run instead of failing it."""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    def fake_english_package(**kwargs):
+        package = _memo_package(body_zh="")
+        package["sections"] = [
+            section
+            for section in package["sections"]
+            if section["id"] != "financial_forecast_valuation"
+        ]
+        return {"analysis_artifacts": {}, "memo_package": package}, None
+
+    repair_calls = []
+
+    def fake_structure_repair(**kwargs):
+        repair_calls.append(kwargs)
+        assert kwargs["package_path"].exists()
+        assert any(
+            "financial_forecast_valuation" in err
+            for err in kwargs["validation_errors"]
+        )
+        return {"memo_package": _memo_package(body_zh="")}, None
+
+    def fake_bilingual(**kwargs):
+        return {"memo_package": _memo_package()}, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_package", fake_english_package
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_package_structure_repair",
+        fake_structure_repair,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        fake_bilingual,
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    assert len(repair_calls) == 1
+    events = _events(memo_prep.stream_path(run_dir))
+    stages = [e.get("stage") for e in events if e.get("type") == "stage"]
+    assert "memo_package_structure_repair" in stages
+    assert "memo_package_structure_repair_succeeded" in stages
+    # The invalid package was persisted for the repair pass and debugging.
+    assert (run_dir / "logs" / "memo_package.en.invalid.json").exists()
 
 
 # ---- Resume-path validation of the freshly regenerated package ----
@@ -3135,3 +3447,121 @@ def test_resume_available_for_complete_with_warnings(memo_env):
     # Plain complete stays non-resumable.
     storage.update_report(report["id"], status="complete")
     assert api._report_resume_available(storage.get_report(report["id"])) is False
+
+
+def test_full_fast_pipeline_end_to_end_survives_adversarial_generation(
+    memo_env, monkeypatch
+):
+    """Drive memo_analysis._run through the ENTIRE fast pipeline with the
+    worst plausible generation output at every stage: half the analysis
+    passes fail, the first English package has the wrong source vocabulary
+    AND a missing required section, the second still carries a scaffold
+    phrase, and the Chinese fill misses a translation. The run must still
+    END with a delivered memo (complete_with_warnings), never a blocked
+    failure."""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    analysis_calls = []
+
+    def fake_analysis_pass(**kwargs):
+        analysis_calls.append(kwargs.get("pass_id"))
+        if len(analysis_calls) % 2 == 0:
+            return None, "simulated transport failure"
+        return {
+            "summary": "s",
+            "key_findings": ["finding"],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    english_calls = []
+
+    def fake_english_package(**kwargs):
+        english_calls.append(kwargs.get("validation_feedback"))
+        if len(english_calls) == 1:
+            package = _memo_package(body_zh="")
+            # Wrong source vocabulary (auto-repaired deterministically, so
+            # it alone would NOT burn a retry) plus a missing required
+            # section (not auto-repairable — forces the feedback retry).
+            package["sources"] = [
+                {
+                    "id": "S1",
+                    "label": {"en": "Registry", "zh": ""},
+                    "source_class": "company-reported",
+                    "detail": {"en": "d", "zh": ""},
+                    "as_of": "2026-03-10",
+                }
+            ]
+            package["sections"] = [
+                section
+                for section in package["sections"]
+                if section["id"] != "financial_forecast_valuation"
+            ]
+        else:
+            package = _memo_package(body_en=_SCAFFOLD_BODY_EN, body_zh="")
+        return {"analysis_artifacts": {}, "memo_package": package}, None
+
+    def fake_parallel_bilingual(**kwargs):
+        package = _memo_package(body_en=_SCAFFOLD_BODY_EN)
+        package["sections"][0]["blocks"][1]["title"]["zh"] = ""
+        return {"memo_package": package}, None
+
+    repair_calls = []
+
+    def fake_monolithic_bilingual(**kwargs):
+        repair_calls.append(kwargs)
+        return {"memo_package": _memo_package(body_en=_SCAFFOLD_BODY_EN)}, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_package", fake_english_package
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        fake_parallel_bilingual,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        fake_monolithic_bilingual,
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    # The run DELIVERED: memo rendered, findings carried as warnings.
+    assert updated["status"] == "complete_with_warnings"
+    assert updated["progress"] == 100
+    assert updated["artifacts_available"] is True
+    assert updated["quality_warnings"]
+    for entry in updated["memo_files"]:
+        assert (memo_prep.DATA_DIR.parent / entry["path"]).exists()
+    # Structural error was fed back; quality finding survived to the final
+    # attempt and was accepted as a warning. The wrong source vocabulary was
+    # auto-repaired deterministically, so only the missing section — the
+    # defect Python cannot fix — appears in the feedback.
+    assert len(english_calls) == 2
+    assert english_calls[0] is None
+    assert "missing required section financial_forecast_valuation" in english_calls[1]
+    assert "sources[0].title" not in english_calls[1]
+    # The blank Chinese string triggered exactly one repair pass.
+    assert len(repair_calls) == 1
+    # Analysis phase tolerated partial pass failures.
+    assert len(analysis_calls) >= 2
+    # Resume stays available to regenerate toward a clean memo.
+    assert api._report_resume_available(updated) is True
+
+    events = _events(memo_prep.stream_path(run_dir))
+    assert events[-1]["type"] == "done"
+    assert events[-1]["quality_warnings"]

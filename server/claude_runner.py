@@ -2555,6 +2555,29 @@ Do NOT reuse the analysis-pass evidence vocabulary (`source`,
 rejects those keys and the run fails.
 """
 
+MEMO_PACKAGE_BLOCK_CONTRACT = """\
+## Renderer Block Contract (hard requirement — validated before rendering)
+
+Every block is validated field-by-field. Required fields per block type:
+- `heading`: `text` (bilingual object). Optional `level`.
+- `paragraph`: `text` (bilingual object).
+- `bullets`: `items` — non-empty list of bilingual objects.
+- `callout`: `title` (bilingual object) is REQUIRED on every callout, even
+  when the callout has a body or items; a callout without a title fails the
+  run. Optional `body` (bilingual) and `items` (list of bilingual objects).
+- `table`: `headers` and/or `rows` (rows are lists of bilingual cell
+  objects); optional `title` (bilingual).
+
+Bilingual object means `{"en": "...", "zh": ""}` in this pass (`zh` filled
+later). Plain strings are allowed ONLY for fully language-neutral values
+(dates, figures, tickers, proper-noun names). Any plain string containing
+ordinary lowercase English words fails validation — when in doubt, use the
+bilingual object form.
+
+Before returning, re-check every callout block for a non-empty `title` and
+every bullets block for a non-empty `items` list.
+"""
+
 HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
 ## Human Executive Memo Voice Contract
 
@@ -3601,8 +3624,12 @@ def run_memo_fast_english_package(
     )
     validation_feedback_block = (
         (
-            "\n## Previous attempt failed renderer validation\n"
-            "Fix EVERY error below while keeping the analytical content:\n"
+            "\n## Previous attempts failed renderer validation\n"
+            "Fix EVERY error below while keeping the analytical content. The\n"
+            "list is cumulative across attempts: errors from earlier attempts\n"
+            "must STAY fixed — do not reintroduce a defect while fixing a new\n"
+            "one. Re-verify the full Renderer Block Contract on every block\n"
+            "before returning:\n"
             f"{validation_feedback}\n"
         )
         if validation_feedback
@@ -3685,6 +3712,8 @@ Package requirements:
 
 {MEMO_PACKAGE_SOURCES_CONTRACT}
 
+{MEMO_PACKAGE_BLOCK_CONTRACT}
+
 {MEMO_CONTENT_PARITY_CONTRACT}
 {validation_feedback_block}
 Return only the JSON matching the attached schema.
@@ -3757,6 +3786,65 @@ Chinese style:
         progress=progress,
         progress_message="Completing Chinese memo package",
         timeout_label="memo Chinese package",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=[run_dir],
+    )
+
+
+def run_memo_package_structure_repair(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    package_path: Path,
+    validation_errors: list[str],
+    progress=None,
+    timeout_sec: int = 900,
+) -> tuple[dict | None, str | None]:
+    """Surgically fix listed validation defects in an existing package.
+
+    Last-resort recovery: instead of regenerating a whole ~$2.5 English
+    package because one callout is missing a title, hand the invalid package
+    plus the exact validator errors to a short repair pass that must return
+    the full package with ONLY those defects fixed.
+    """
+    error_lines = "\n".join(f"- {err}" for err in validation_errors[:30])
+    prompt = f"""\
+You are repairing the structure of a BSH LP-facing investment memo package
+for {company_name} (run id: {run_id}).
+
+Input package (fails renderer validation):
+`{package_path}`
+
+Renderer validation errors to fix:
+{error_lines}
+
+{MEMO_PACKAGE_BLOCK_CONTRACT}
+
+{MEMO_PACKAGE_SOURCES_CONTRACT}
+
+Task:
+- Read the package file.
+- Return `memo_package`: the SAME package with ONLY the listed defects
+  repaired. This is a structural repair, not a rewrite.
+- Preserve every analytical claim, number, table row, source, English string,
+  and Chinese string exactly as-is unless a listed error requires changing it.
+- A missing callout title must be a short label derived from that callout's
+  own content. A missing bilingual value must be authored from the
+  surrounding context of that block only.
+- Do not add, remove, or reorder sections or blocks unless a listed error
+  requires it.
+- Do not write files. Return only the JSON object matching the attached
+  schema.
+"""
+    return _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Repairing memo package structure",
+        timeout_label="memo package structure repair",
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],

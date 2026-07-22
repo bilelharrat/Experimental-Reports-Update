@@ -988,3 +988,95 @@ def _write_parity_docx(
         table = document.add_table(rows=1, cols=1)
         table.cell(0, 0).text = "额外表格"
     document.save(path)
+
+
+# ---- Deterministic structural auto-repair (repair_package_structure) ----
+
+
+def test_repair_derives_missing_callout_title_from_body():
+    """The Axiom-run killer: a callout without a title must be repaired by
+    deriving a short title from the callout's own content, not fail the run."""
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "callout",
+            "body": {
+                "en": (
+                    "Valuation support depends on scenario ranges. The "
+                    "step-up carries no commercial de-risking."
+                ),
+                "zh": "估值支撑取决于情景区间。",
+            },
+            "items": [],
+        }
+    )
+    assert memo_docx_renderer.english_package_validation_errors(package)
+
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert any("derived callout title" in r for r in repairs)
+    title = repaired["sections"][0]["blocks"][-1]["title"]
+    assert title["en"].startswith("Valuation support depends on scenario ranges")
+    # The original input is never mutated.
+    assert "title" not in package["sections"][0]["blocks"][-1]
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_renames_analysis_pass_source_vocabulary():
+    package = copy.deepcopy(_package())
+    package["sources"] = [
+        {
+            "label": {"en": "Company registry", "zh": ""},
+            "source_class": "company-reported",
+            "detail": {"en": "Registry and launch disclosures.", "zh": ""},
+            "as_of": "2026-03-10",
+        }
+    ]
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    source = repaired["sources"][0]
+    assert source["title"] == {"en": "Company registry", "zh": ""}
+    assert source["class"] == "company-reported"
+    assert source["treatment"] == {
+        "en": "Registry and launch disclosures.",
+        "zh": "",
+    }
+    assert source["id"] == "S1"
+    assert repairs
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_wraps_plain_english_strings_as_bilingual():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "bullets",
+            "items": ["120+ patents filed and 90+ issued across the portfolio."],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    item = repaired["sections"][0]["blocks"][-1]["items"][0]
+    assert item == {
+        "en": "120+ patents filed and 90+ issued across the portfolio.",
+        "zh": "",
+    }
+    assert repairs
+    assert not memo_docx_renderer.english_package_validation_errors(repaired)
+
+
+def test_repair_normalizes_block_type_synonyms():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append(
+        {
+            "type": "bullet_list",
+            "items": [{"en": "A substantive bullet point.", "zh": "要点。"}],
+        }
+    )
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repaired["sections"][0]["blocks"][-1]["type"] == "bullets"
+    assert any("normalized" in r for r in repairs)
+
+
+def test_repair_is_noop_on_valid_package():
+    package = copy.deepcopy(_package())
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert repairs == []
+    assert repaired == package

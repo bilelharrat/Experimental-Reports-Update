@@ -81,6 +81,7 @@ const companyReports = ref([]);
 const generationError = ref(null);
 const resuming = ref(false);
 const startingFresh = ref(false);
+const dismissing = ref(false);
 // The Generate button is "generating" only when a report is actively
 // in-flight. Terminal failure states (failed_scope_check,
 // failed_during_analysis, failed_orphaned) leave the button clickable
@@ -112,6 +113,20 @@ const reportFailureDetail = computed(() => {
   const r = activeReport.value;
   if (!r) return "";
   return r.failure_detail || r.error || r.stage || "";
+});
+// A failed report is a historical record — without a timestamp the banner
+// reads as a live error, even days later. Label it with when it failed.
+const reportFailedAtLabel = computed(() => {
+  const raw = activeReport.value?.updated_at || activeReport.value?.created_at;
+  if (!raw) return "";
+  const failedAt = Date.parse(raw);
+  if (Number.isNaN(failedAt)) return "";
+  return new Date(failedAt).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 });
 const reportIsFailed = computed(() =>
   String(activeReport.value?.status || "").startsWith("failed"),
@@ -709,6 +724,30 @@ async function resumeReport() {
   }
 }
 
+async function dismissFailedReport() {
+  const reportId = activeReport.value?.id;
+  if (!reportId) return;
+  generationError.value = null;
+  dismissing.value = true;
+  try {
+    await api.dismissReport(reportId);
+    // The failure record is cleared — drop it from view entirely and land
+    // on the company's normal (no-report) research state.
+    activeReport.value = null;
+    stopPolling();
+    router.replace({
+      name: "research",
+      params: { companyId: props.companyId },
+    });
+    await loadCompanyReports();
+    emit("reports-changed");
+  } catch (e) {
+    generationError.value = requestErrorPayload(e);
+  } finally {
+    dismissing.value = false;
+  }
+}
+
 async function submitThread() {
   if (!newQuestion.value.trim()) return;
   submittingThread.value = true;
@@ -1298,13 +1337,20 @@ onUnmounted(stopPolling);
         v-if="
           isMemo &&
           String(activeReport.status || '').startsWith('failed') &&
-          activeReport.status !== 'failed_scope_check'
+          activeReport.status !== 'failed_scope_check' &&
+          !activeReport.dismissed_at
         "
         class="mt-6 rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm text-ink-primary"
       >
         <div class="font-semibold text-danger mb-1">
           {{ reportFailureTitle }}
         </div>
+        <p v-if="reportFailedAtLabel" class="text-xs text-ink-muted">
+          {{ tr("research.failed_run_at", { time: reportFailedAtLabel }) }}
+        </p>
+        <p v-if="activeReport.superseded_by" class="text-xs text-ink-muted">
+          {{ tr("research.failed_run_superseded") }}
+        </p>
         <p v-if="activeReport.stage" class="text-ink-secondary">
           {{ activeReport.stage }}
         </p>
@@ -1365,17 +1411,28 @@ onUnmounted(stopPolling);
           {{ tr("research.run_folder_preserved_prefix") }}
           <span class="font-mono">{{ activeReport.run_dir }}</span>
         </p>
-        <button
-          v-if="canResumeMemo"
-          type="button"
-          @click="resumeReport"
-          :disabled="resuming || generating"
-          class="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
-        >
-          <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
-          <Sparkles v-else class="h-4 w-4" />
-          <span>{{ resuming ? tr("research.resuming_memo") : tr("research.resume_memo") }}</span>
-        </button>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            v-if="canResumeMemo"
+            type="button"
+            @click="resumeReport"
+            :disabled="resuming || generating || dismissing"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+          >
+            <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
+            <Sparkles v-else class="h-4 w-4" />
+            <span>{{ resuming ? tr("research.resuming_memo") : tr("research.resume_memo") }}</span>
+          </button>
+          <button
+            type="button"
+            @click="dismissFailedReport"
+            :disabled="resuming || generating || dismissing"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle text-ink-muted hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+          >
+            <Loader2 v-if="dismissing" class="h-4 w-4 animate-spin" />
+            <span>{{ dismissing ? tr("research.dismissing") : tr("research.dismiss_failed") }}</span>
+          </button>
+        </div>
         <p class="mt-2 text-xs text-ink-muted">
           {{
             canResumeMemo

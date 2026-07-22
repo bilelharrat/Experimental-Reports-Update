@@ -225,6 +225,10 @@ export const api = {
     request(`/api/reports/${encodeURIComponent(reportId)}/resume`, {
       method: "POST",
     }),
+  dismissReport: (reportId) =>
+    request(`/api/reports/${encodeURIComponent(reportId)}/dismiss`, {
+      method: "POST",
+    }),
   listCompanyReports: (companyId) =>
     request(`/api/companies/${companyId}/reports`),
   listCompanyDocuments: (companyId) =>
