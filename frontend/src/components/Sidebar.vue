@@ -14,6 +14,7 @@ import {
   ScrollText,
   UploadCloud,
 } from "lucide-vue-next";
+import brandLogoUrl from "../assets/berkeley-summit-house.svg";
 import { sessionEmail, signOut } from "../auth.js";
 import { useT } from "../i18n.js";
 
@@ -154,20 +155,17 @@ const userName = computed(() => {
   <aside
     class="rail-gradient flex max-h-[26rem] w-full shrink-0 flex-col overflow-hidden border-b border-subtle lg:sticky lg:top-0 lg:h-screen lg:max-h-none lg:w-[288px] lg:border-b-0 lg:border-r"
   >
-    <div class="px-5 pb-4 pt-3">
+    <div class="px-5 pb-4 pt-4">
       <RouterLink
         to="/"
-        class="flex items-center gap-3 rounded focus-ring"
+        class="block rounded focus-ring"
       >
         <img
-          src="/app-icon.png"
-          alt="BSH"
-          class="h-12 w-12 shrink-0 rounded-glass object-cover shadow-card"
+          :src="brandLogoUrl"
+          alt="Berkeley Summit House"
+          class="h-auto w-[66px] max-w-full brightness-0 invert"
         />
-        <span class="leading-tight">
-          <span class="block text-sm font-bold text-white">Berkeley Summit House</span>
-          <span class="block text-xs font-medium text-white/80">{{ t("nav.research_center") }}</span>
-        </span>
+        <span class="mt-1 block text-xs font-medium text-white/80">{{ t("nav.research_center") }}</span>
       </RouterLink>
     </div>
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -395,3 +396,165 @@ def test_weekly_generate_summary_runs_phased_pipeline(tmp_weekly, monkeypatch):
     draft = weekly_stocks.load_draft()
     assert draft["status"] == "complete"
     assert draft["completed_count"] == 6
+
+
+def test_fill_missing_summary_zh_translates_english_narrative(monkeypatch):
+    """The fast scan produces English-only narrative; the zh fields must be
+    translated from it, not left on the generic stats template (the July 20
+    miss: market_pulse_zh showed leaderboard stats while market_pulse_en
+    carried the real market story)."""
+    calls = []
+
+    def fake_structured(**kwargs):
+        calls.append(kwargs)
+        payload = json.loads(
+            kwargs["user_prompt"].split("INPUT:\n", 1)[1]
+        )
+        return {key: f"中文：{value[:20]}" for key, value in payload.items()}, None
+
+    monkeypatch.setattr(
+        weekly_stocks.claude_runner, "run_structured_prompt", fake_structured
+    )
+    summary = {
+        "week_label": "Week of July 20-24, 2026",
+        "week_label_en": "Week of July 20-24, 2026",
+        "week_label_zh": "Week of July 20-24, 2026",
+        "market_pulse_en": "A choppy, risk-off tilt dominated the tape.",
+        "market_pulse_zh": "本周动量由 PYPL 领衔。",
+        "benchmark_context_en": "S&P 500 roughly flat on the open.",
+        "benchmark_context_zh": "已发布标的本周平均表现为 +22.6%。",
+        "methodology_en": "Phased scan plus per-stock verification.",
+        "methodology_zh": "先进行市场扫描。",
+        "stocks": [
+            {
+                "ticker": "PYPL",
+                # Fallback card: English stitched into a Chinese template.
+                "why_awesome_en": "PYPL screened hot: best-in-class relative strength this week.",
+                "why_awesome_zh": "PYPL 进入本周热门名单：best-in-class relative strength versus a flat index this week.",
+                "catalyst_en": "Top weekly S&P 500 gainer on a sharp re-rating into earnings.",
+                "catalyst_zh": "Top weekly S&P 500 gainer on a sharp re-rating into earnings.",
+                # Genuine Chinese — must NOT be retranslated.
+                "setup_en": "Scan-qualified momentum setup awaiting deeper verification.",
+                "setup_zh": "已通过周度扫描筛选，仍需更深入验证的动量机会。",
+                "risk_en": "Thesis weakens without confirmation.",
+                "risk_zh": "若后续数据无法确认催化剂，交易逻辑会走弱。",
+            }
+        ],
+    }
+    # The fast scan carried no _zh fields at all.
+    scan = {"market_pulse": "A choppy, risk-off tilt dominated the tape."}
+
+    weekly_stocks._fill_missing_summary_zh(summary, scan)
+
+    assert len(calls) == 1
+    assert summary["market_pulse_zh"].startswith("中文：A choppy")
+    assert summary["benchmark_context_zh"].startswith("中文：S&P 500")
+    assert summary["week_label_zh"].startswith("中文：Week of")
+    stock = summary["stocks"][0]
+    # English-contaminated stock fields were translated from English…
+    assert stock["why_awesome_zh"].startswith("中文：PYPL screened hot")
+    assert stock["catalyst_zh"].startswith("中文：Top weekly")
+    # …while genuine Chinese stayed untouched.
+    assert stock["setup_zh"] == "已通过周度扫描筛选，仍需更深入验证的动量机会。"
+    assert stock["risk_zh"] == "若后续数据无法确认催化剂，交易逻辑会走弱。"
+
+
+def test_fill_missing_summary_zh_keeps_scan_chinese_and_survives_failure(
+    monkeypatch,
+):
+    summary = {
+        "market_pulse_en": "English narrative.",
+        "market_pulse_zh": "扫描给出的真实中文叙述。",
+        "benchmark_context_en": "Benchmark narrative.",
+        "benchmark_context_zh": "已发布标的本周平均表现为 +22.6%。",
+    }
+    scan = {"market_pulse_zh": "扫描给出的真实中文叙述。"}
+
+    def failing_structured(**kwargs):
+        return None, "claude unavailable"
+
+    monkeypatch.setattr(
+        weekly_stocks.claude_runner, "run_structured_prompt", failing_structured
+    )
+    weekly_stocks._fill_missing_summary_zh(summary, scan)
+
+    # Scan-provided Chinese untouched; failed translation keeps the fallback
+    # instead of blanking or raising.
+    assert summary["market_pulse_zh"] == "扫描给出的真实中文叙述。"
+    assert summary["benchmark_context_zh"] == "已发布标的本周平均表现为 +22.6%。"
+
+
+def test_fallback_scan_is_flagged_and_carries_no_fabricated_data():
+    """The fallback scan must never masquerade as live market data (the July
+    review finding: fabricated SNOW +36.5% cards stamped with the current
+    week's dates). It is a seed watchlist, flagged as such."""
+    scan = weekly_stocks._fallback_scan("scan timed out")
+
+    assert scan["is_fallback"] is True
+    assert scan["scan_error"] == "scan timed out"
+    for candidate in scan["candidates"]:
+        assert candidate["weekly_change_pct"] is None
+        assert "fallback" in candidate["sources"][0]["label"].lower()
+    # The narrative must disclose the failure, not claim weekly momentum.
+    assert "failed" in scan["market_pulse"].lower()
+
+
+def test_fallback_stock_card_is_flagged_unverified():
+    candidate = {
+        "rank": 1,
+        "ticker": "AAA",
+        "name": "Alpha Inc.",
+        "weekly_change_pct": 4.2,
+    }
+    stock = weekly_stocks._fallback_stock_from_candidate(candidate, "detail timeout")
+
+    assert stock["is_fallback"] is True
+    assert stock["sparkline_synthetic"] is True
+    assert "unverified" in stock["why_awesome"].lower()
+
+
+def test_assemble_summary_propagates_fallback_flags():
+    scan = {"is_fallback": True, "week_label": "Week of July 28-31, 2026"}
+    stocks = [
+        weekly_stocks._fallback_stock_from_candidate(
+            {"rank": i, "ticker": t, "name": t}
+        )
+        for i, t in enumerate(["AAA", "BBB", "CCC", "DDD", "EEE"], start=1)
+    ]
+    summary = weekly_stocks._assemble_summary(scan, stocks, [])
+
+    assert summary["scan_fallback"] is True
+    assert summary["fallback_stock_count"] == 5
+
+
+def test_detail_call_retries_once_on_transient_error(tmp_weekly, monkeypatch):
+    tickers = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]
+    detail_attempts = {}
+
+    def fake_run_web_research_json(**kwargs):
+        name = kwargs["name"]
+        if name == "weekly_scan":
+            return _sample_scan(), None
+        ticker = name.removeprefix("weekly_stock_").upper()
+        detail_attempts[ticker] = detail_attempts.get(ticker, 0) + 1
+        if ticker == "AAA" and detail_attempts[ticker] == 1:
+            return None, "Connection reset by peer"
+        return _sample_stock(ticker, tickers.index(ticker) + 1), None
+
+    monkeypatch.setattr(
+        weekly_stocks.claude_runner,
+        "run_web_research_json",
+        fake_run_web_research_json,
+    )
+    assert weekly_stocks.claude_runner.is_transient_claude_error(
+        "Connection reset by peer"
+    )
+
+    summary, err = weekly_stocks.generate_summary()
+
+    assert err is None
+    assert detail_attempts["AAA"] == 2
+    aaa = next(s for s in summary["stocks"] if s["ticker"] == "AAA")
+    assert not aaa.get("is_fallback")
+    assert summary["scan_fallback"] is False
+    assert summary["fallback_stock_count"] == 0

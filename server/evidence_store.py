@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -17,6 +18,9 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 
 from . import external_store, files_store, research_store, storage
+
+# Serializes read-modify-write cycles on the unresolved-intake queue file.
+_QUEUE_LOCK = threading.RLock()
 
 DOCUMENT_CATEGORIES: tuple[dict[str, str], ...] = (
     {"id": "memos", "label": "Memos"},
@@ -648,8 +652,18 @@ def _read_queue() -> list[dict]:
     try:
         with path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or []
-    except Exception:
-        return []
+    except Exception as exc:  # noqa: BLE001
+        # Quarantine and fail loud: silently reading a corrupt queue as []
+        # meant the next add wiped every pending intake row.
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        quarantined = path.with_name(f"{path.name}.corrupt-{stamp}")
+        try:
+            path.replace(quarantined)
+        except OSError:
+            raise RuntimeError(f"Unreadable intake queue {path}: {exc}") from exc
+        raise RuntimeError(
+            f"Corrupt intake queue quarantined to {quarantined.name}: {exc}"
+        ) from exc
     return data if isinstance(data, list) else []
 
 
@@ -684,10 +698,13 @@ def add_unresolved_intake(
         "assignment": assignment,
         "status": "unresolved",
     }
-    rows = [existing for existing in _read_queue() if existing.get("id") != key]
-    rows.append(row)
-    rows.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
-    _write_queue(rows)
+    # The queue lives in one file; the lock makes the read-modify-write
+    # atomic against concurrent intake submissions.
+    with _QUEUE_LOCK:
+        rows = [existing for existing in _read_queue() if existing.get("id") != key]
+        rows.append(row)
+        rows.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+        _write_queue(rows)
     return row
 
 

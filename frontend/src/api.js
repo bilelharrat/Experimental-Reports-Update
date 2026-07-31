@@ -94,6 +94,26 @@ function _httpError(status, statusText, body) {
   return err;
 }
 
+// Shared ok-check for methods that call apiFetch directly (FormData
+// uploads, deletes) instead of going through request(). Keeps the two
+// paths behaviorally identical: a 401 tears down the stale session via
+// bsh:unauthorized, and thrown errors always carry .status (and .detail
+// when the body parses as JSON) so callers can branch on them.
+async function ensureOk(res) {
+  if (res.ok) return res;
+  const text = await res.text().catch(() => "");
+  if (res.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("bsh:unauthorized"));
+  }
+  const err = _httpError(res.status, res.statusText, text);
+  try {
+    err.detail = JSON.parse(text);
+  } catch {
+    /* body wasn't JSON — err.message already carries the raw text */
+  }
+  throw err;
+}
+
 async function request(path, opts = {}) {
   const { timeoutMs, ...fetchOpts } = opts;
   let timeoutId = null;
@@ -114,15 +134,10 @@ async function request(path, opts = {}) {
   }).finally(() => {
     if (timeoutId != null) window.clearTimeout(timeoutId);
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    if (res.status === 401 && typeof window !== "undefined") {
-      // auth.js listens for this and clears the stale session so the
-      // router guard kicks the user back to /login on next nav.
-      window.dispatchEvent(new CustomEvent("bsh:unauthorized"));
-    }
-    throw _httpError(res.status, res.statusText, text);
-  }
+  // auth.js listens for the 401-triggered bsh:unauthorized event inside
+  // ensureOk and clears the stale session so the router guard kicks the
+  // user back to /login on next nav.
+  await ensureOk(res);
   if (res.status === 204) return null;
   return res.json();
 }
@@ -248,14 +263,12 @@ export const api = {
     fd.append("file", file);
     if (label) fd.append("label", label);
     if (language) fd.append("language", language);
-    const res = await apiFetch(`/api/companies/${companyId}/files`, {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
-    }
+    const res = await ensureOk(
+      await apiFetch(`/api/companies/${companyId}/files`, {
+        method: "POST",
+        body: fd,
+      }),
+    );
     return res.json();
   },
   fileUrl: (companyId, fileId) =>
@@ -263,10 +276,11 @@ export const api = {
   filePreviewUrl: (companyId, fileId) =>
     withApiToken(`/api/companies/${companyId}/files/${fileId}/preview`),
   deleteFile: async (companyId, fileId) => {
-    const res = await apiFetch(`/api/companies/${companyId}/files/${fileId}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    await ensureOk(
+      await apiFetch(`/api/companies/${companyId}/files/${fileId}`, {
+        method: "DELETE",
+      }),
+    );
   },
   getFileSummary: (companyId, fileId) =>
     request(`/api/companies/${companyId}/files/${fileId}/summary`),
@@ -282,11 +296,11 @@ export const api = {
   listActiveJobs: () => request("/api/jobs/active", { timeoutMs: 8000 }),
   jobLog: (logUrl) => request(logUrl, { timeoutMs: 8000 }),
   deleteFileSummary: async (companyId, fileId) => {
-    const res = await apiFetch(
-      `/api/companies/${companyId}/files/${fileId}/summary`,
-      { method: "DELETE" },
+    await ensureOk(
+      await apiFetch(`/api/companies/${companyId}/files/${fileId}/summary`, {
+        method: "DELETE",
+      }),
     );
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
 
   // Research library (Serena's per-company background-docs folder).
@@ -297,14 +311,12 @@ export const api = {
     const fd = new FormData();
     fd.append("file", file);
     if (label) fd.append("label", label);
-    const res = await apiFetch(
-      `/api/companies/${companyId}/research-files`,
-      { method: "POST", body: fd },
+    const res = await ensureOk(
+      await apiFetch(`/api/companies/${companyId}/research-files`, {
+        method: "POST",
+        body: fd,
+      }),
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
-    }
     return res.json();
   },
   researchFileUrl: (companyId, fileId, opts = {}) =>
@@ -314,11 +326,11 @@ export const api = {
       }`,
     ),
   deleteResearchFile: async (companyId, fileId) => {
-    const res = await apiFetch(
-      `/api/companies/${companyId}/research-files/${fileId}`,
-      { method: "DELETE" },
+    await ensureOk(
+      await apiFetch(`/api/companies/${companyId}/research-files/${fileId}`, {
+        method: "DELETE",
+      }),
     );
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
   generateResearchFileSummary: (companyId, fileId) =>
     request(
@@ -330,11 +342,12 @@ export const api = {
       `/api/companies/${companyId}/research-files/${fileId}/summary/stream`,
     ),
   deleteResearchFileSummary: async (companyId, fileId) => {
-    const res = await apiFetch(
-      `/api/companies/${companyId}/research-files/${fileId}/summary`,
-      { method: "DELETE" },
+    await ensureOk(
+      await apiFetch(
+        `/api/companies/${companyId}/research-files/${fileId}/summary`,
+        { method: "DELETE" },
+      ),
     );
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   },
 
   memoAnalysis: {
@@ -458,8 +471,9 @@ export const api = {
     }),
   newsArchiveUrl: (id) => withApiToken(`/api/external/news/${id}/archive`),
   deleteNews: async (id) => {
-    const res = await apiFetch(`/api/external/news/${id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    await ensureOk(
+      await apiFetch(`/api/external/news/${id}`, { method: "DELETE" }),
+    );
   },
   retryNews: (id) =>
     request(`/api/external/news/${id}/retry`, { method: "POST" }),
@@ -469,14 +483,9 @@ export const api = {
   listExternalResearch: () => request("/api/external/research"),
   getExternalResearch: (id) => request(`/api/external/research/${id}`),
   uploadExternalResearch: async (form) => {
-    const res = await apiFetch("/api/external/research", {
-      method: "POST",
-      body: form,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
-    }
+    const res = await ensureOk(
+      await apiFetch("/api/external/research", { method: "POST", body: form }),
+    );
     return res.json();
   },
   externalResearchFileUrl: (id, opts = {}) =>
@@ -484,8 +493,9 @@ export const api = {
       `/api/external/research/${id}/file${opts.inline ? "?inline=1" : ""}`,
     ),
   deleteExternalResearch: async (id) => {
-    const res = await apiFetch(`/api/external/research/${id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    await ensureOk(
+      await apiFetch(`/api/external/research/${id}`, { method: "DELETE" }),
+    );
   },
   startResearchTranslation: (id, appLanguage) =>
     request(
@@ -505,20 +515,16 @@ export const api = {
     fd.append("title", title);
     fd.append("body", body || "");
     if (file) fd.append("file", file);
-    const res = await apiFetch("/api/external/hormuz", {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
-    }
+    const res = await ensureOk(
+      await apiFetch("/api/external/hormuz", { method: "POST", body: fd }),
+    );
     return res.json();
   },
   hormuzFileUrl: (id) => withApiToken(`/api/external/hormuz/${id}/file`),
   deleteHormuz: async (id) => {
-    const res = await apiFetch(`/api/external/hormuz/${id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    await ensureOk(
+      await apiFetch(`/api/external/hormuz/${id}`, { method: "DELETE" }),
+    );
   },
 
   // Date-organized Hormuz source library + V3 bilingual appendix.
@@ -526,14 +532,12 @@ export const api = {
   uploadHormuzSources: async (fileList) => {
     const fd = new FormData();
     for (const f of fileList) fd.append("files", f);
-    const res = await apiFetch("/api/external/hormuz/sources", {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
-    }
+    const res = await ensureOk(
+      await apiFetch("/api/external/hormuz/sources", {
+        method: "POST",
+        body: fd,
+      }),
+    );
     return res.json();
   },
   hormuzSourceUrl: (date, filename) =>
@@ -541,14 +545,11 @@ export const api = {
       `/api/external/hormuz/sources/${date}/${encodeURIComponent(filename)}`,
     ),
   generateHormuzAppendix: async (date) => {
-    const res = await apiFetch(
-      `/api/external/hormuz/appendix/${date}/generate`,
-      { method: "POST" },
+    const res = await ensureOk(
+      await apiFetch(`/api/external/hormuz/appendix/${date}/generate`, {
+        method: "POST",
+      }),
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
-    }
     return res.json();
   },
   hormuzAppendixFileUrl: (date, slot) =>
@@ -626,14 +627,12 @@ export const api = {
       if (title) fd.append("title", title);
       if (priority) fd.append("priority", priority);
       if (relevance) fd.append("relevance", relevance);
-      const res = await apiFetch("/api/stock-research/sources/upload", {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
-      }
+      const res = await ensureOk(
+        await apiFetch("/api/stock-research/sources/upload", {
+          method: "POST",
+          body: fd,
+        }),
+      );
       return res.json();
     },
     runTracker: (trackerId, { periodId, force = false } = {}) => {
@@ -857,18 +856,12 @@ export const api = {
       const fd = new FormData();
       fd.append("prompt", prompt);
       for (const f of files) fd.append("images", f, f.name);
-      const res = await apiFetch(
-        `/api/companies/${companyId}/console/sessions/${sid}/ask`,
-        { method: "POST", body: fd },
+      const res = await ensureOk(
+        await apiFetch(
+          `/api/companies/${companyId}/console/sessions/${sid}/ask`,
+          { method: "POST", body: fd },
+        ),
       );
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        let detail = null;
-        try { detail = JSON.parse(text); } catch { /* keep raw text */ }
-        const err = _httpError(res.status, res.statusText, text);
-        err.detail = detail;
-        throw err;
-      }
       return res.json();
     },
     askStreamUrl: (companyId, sid, turnId) =>
@@ -884,9 +877,8 @@ export const api = {
         `/api/companies/${companyId}/console/sessions/${sid}/ask/${turnId}/cancel`,
         { method: "POST" },
       );
-      if (!res.ok && res.status !== 404) {
-        throw _httpError(res.status, res.statusText, await res.text().catch(() => ""));
-      }
+      // A 404 means the turn already finished — treat as a no-op cancel.
+      if (res.status !== 404) await ensureOk(res);
       return res.status === 204;
     },
     attachmentUrl: (companyId, sid, imgId) =>
@@ -898,11 +890,11 @@ export const api = {
         method: "POST",
       }),
     deleteSession: async (companyId, sid) => {
-      const res = await apiFetch(
-        `/api/companies/${companyId}/console/sessions/${sid}`,
-        { method: "DELETE" },
+      await ensureOk(
+        await apiFetch(`/api/companies/${companyId}/console/sessions/${sid}`, {
+          method: "DELETE",
+        }),
       );
-      if (!res.ok) throw _httpError(res.status, res.statusText, await res.text().catch(() => ""));
     },
   },
 

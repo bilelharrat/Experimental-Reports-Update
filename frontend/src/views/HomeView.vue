@@ -96,11 +96,16 @@ function toggleProgressExpanded() {
 }
 
 let debounceId = null;
+// Monotonic sequence for autocomplete requests: two keystrokes >220ms
+// apart issue two requests, and without this guard the slower (older)
+// response could resolve last and overwrite fresher suggestions.
+let autocompleteSeq = 0;
 
 watch(query, (q) => {
   clearTimeout(debounceId);
   error.value = null;
   if (!q.trim() || q.trim().length < 2) {
+    autocompleteSeq += 1; // invalidate any in-flight request
     suggestions.value = [];
     autocompleting.value = false;
     showSuggestions.value = false;
@@ -109,12 +114,17 @@ watch(query, (q) => {
   autocompleting.value = true;
   showSuggestions.value = true;
   debounceId = setTimeout(async () => {
+    const seq = ++autocompleteSeq;
     try {
-      suggestions.value = await api.autocompleteCompanies(q.trim());
+      const matches = await api.autocompleteCompanies(q.trim());
+      if (seq !== autocompleteSeq) return; // stale response
+      suggestions.value = matches;
     } catch {
-      error.value = "search_failed";
+      // A failed background autocomplete isn't a failed search — don't
+      // reuse the deep-search error banner for it.
+      if (seq !== autocompleteSeq) return;
     } finally {
-      autocompleting.value = false;
+      if (seq === autocompleteSeq) autocompleting.value = false;
     }
   }, 220);
 });
@@ -123,17 +133,22 @@ async function pickSuggestion(s) {
   showSuggestions.value = false;
   let id = s.id;
   if (!id) {
-    const upserted = await api.selectCompany({
-      name: s.name,
-      ticker: s.ticker,
-      description: s.description,
-      sector: s.sector,
-      industry: s.industry,
-      exchange: s.exchange,
-      status: s.status,
-      company_type: s.company_type,
-    });
-    id = upserted.id;
+    try {
+      const upserted = await api.selectCompany({
+        name: s.name,
+        ticker: s.ticker,
+        description: s.description,
+        sector: s.sector,
+        industry: s.industry,
+        exchange: s.exchange,
+        status: s.status,
+        company_type: s.company_type,
+      });
+      id = upserted.id;
+    } catch {
+      error.value = "search_failed";
+      return;
+    }
   }
   router.push({ name: "research", params: { companyId: id } });
 }

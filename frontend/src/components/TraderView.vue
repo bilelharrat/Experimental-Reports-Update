@@ -92,6 +92,7 @@ const refreshError = ref(null);
 const liveStatus = ref("");
 const retryingSections = ref(new Set());
 let activeStream = null;
+let streamIdleTimer = null;
 
 const snapshot = computed(() => props.company.trader_snapshot || null);
 const refreshedAt = computed(() => snapshot.value?.refreshed_at || null);
@@ -188,7 +189,9 @@ function openStream(streamUrl) {
   const url = api.trader.streamUrl(props.company.id);
   const es = new EventSource(url);
   activeStream = es;
+  armStreamIdleTimer();
   es.onmessage = async (ev) => {
+    armStreamIdleTimer();
     let entry;
     try { entry = JSON.parse(ev.data); } catch { return; }
     if (entry.type === "stage" && entry.message) {
@@ -219,11 +222,36 @@ function openStream(streamUrl) {
     // EventSource raises onerror both for transient hiccups and for
     // permanent connection failures. We only flip back to "not
     // refreshing" once the server has terminated the stream (done /
-    // error). Otherwise the browser will reconnect.
+    // error). Otherwise the browser will reconnect. The idle watchdog
+    // below covers the case where the server dies and no terminal event
+    // ever arrives — without it the spinner ran forever.
   };
 }
 
+function armStreamIdleTimer() {
+  if (streamIdleTimer) window.clearTimeout(streamIdleTimer);
+  streamIdleTimer = window.setTimeout(async () => {
+    if (!refreshing.value) return;
+    closeStream();
+    refreshing.value = false;
+    retryingSections.value = new Set();
+    liveStatus.value = "";
+    // The job may have finished while the stream was dead — pull the
+    // latest snapshot before deciding whether to surface an error.
+    try {
+      const fresh = await api.getCompany(props.company.id);
+      emit("refreshed", fresh);
+    } catch {
+      refreshError.value = t("trader.refresh_failed");
+    }
+  }, 120000);
+}
+
 function closeStream() {
+  if (streamIdleTimer) {
+    window.clearTimeout(streamIdleTimer);
+    streamIdleTimer = null;
+  }
   if (activeStream) {
     try { activeStream.close(); } catch { /* */ }
     activeStream = null;

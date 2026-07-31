@@ -14,9 +14,6 @@ from typing import Any
 
 from . import storage
 
-ANALYTICS_ROOT = storage.DATA_DIR / "analytics"
-EVENTS_FILE = ANALYTICS_ROOT / "events.jsonl"
-
 _LOCK = threading.RLock()
 
 
@@ -27,10 +24,6 @@ def _now() -> str:
 def _parse_ts(value: Any) -> datetime | None:
     if not value:
         return None
-
-
-def _events_file() -> Path:
-    return storage.DATA_DIR / "analytics" / "events.jsonl"
     try:
         text = str(value).replace("Z", "+00:00")
         parsed = datetime.fromisoformat(text)
@@ -39,6 +32,10 @@ def _events_file() -> Path:
         return parsed
     except ValueError:
         return None
+
+
+def _events_file() -> Path:
+    return storage.DATA_DIR / "analytics" / "events.jsonl"
 
 
 def record_event(event: str, **payload: Any) -> dict:

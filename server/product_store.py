@@ -71,8 +71,19 @@ def _read_yaml(default: dict) -> dict:
     try:
         with path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-    except Exception:
-        return copy.deepcopy(default)
+    except Exception as exc:  # noqa: BLE001
+        # Quarantine and fail loud: silently answering with defaults meant
+        # the next update_preferences persisted defaults over everyone's
+        # stored preferences without a trace.
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        quarantined = path.with_name(f"{path.name}.corrupt-{stamp}")
+        try:
+            path.replace(quarantined)
+        except OSError:
+            raise RuntimeError(f"Unreadable preferences {path}: {exc}") from exc
+        raise RuntimeError(
+            f"Corrupt preferences quarantined to {quarantined.name}: {exc}"
+        ) from exc
     return data if isinstance(data, dict) else copy.deepcopy(default)
 
 

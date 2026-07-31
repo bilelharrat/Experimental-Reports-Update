@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { AlertCircle, Loader2, LogIn } from "lucide-vue-next";
+import brandLogoUrl from "../assets/berkeley-summit-house.svg";
 import { signIn } from "../auth.js";
 import { useT } from "../i18n.js";
 
@@ -44,9 +45,13 @@ async function onSubmit() {
       @submit.prevent="onSubmit"
       class="w-full max-w-sm bg-surface border border-subtle rounded-card shadow-card p-8 space-y-5"
     >
-      <div class="flex items-center gap-3">
-        <img src="/app-icon.png" alt="" class="h-12 w-12 rounded-lg object-cover shrink-0" />
-        <div class="min-w-0">
+      <div>
+        <img
+          :src="brandLogoUrl"
+          alt="Berkeley Summit House"
+          class="h-auto w-[66px] max-w-full"
+        />
+        <div class="mt-3 min-w-0">
           <h1 class="font-display text-lg font-semibold text-ink-primary leading-tight">
             {{ t("auth.title") }}
           </h1>

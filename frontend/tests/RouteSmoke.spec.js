@@ -570,6 +570,41 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
+  it("renders completed memo warnings with gate findings", async () => {
+    api.getReport.mockResolvedValue({
+      id: "report-warning",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "complete_with_warnings",
+      progress: 100,
+      stage: "Memo ready (quality warnings)",
+      quality_warnings: ["Chinese memo parity gate found 1 P0 finding."],
+      memo_quality_lint: { status: "passed", findings: [] },
+      memo_chinese_parity: {
+        status: "failed",
+        findings: [
+          {
+            severity: "P0",
+            code: "zh_core_section_missing",
+            location: "executive_summary",
+            snippet: "executive_summary",
+          },
+        ],
+      },
+    });
+
+    const wrapper = await mountRoute("/research/generalist?report=report-warning");
+
+    expect(wrapper.text()).toContain("Memo ready with quality warnings");
+    expect(wrapper.text()).toContain("zh_core_section_missing");
+    expect(wrapper.text()).toContain("executive_summary");
+    wrapper.unmount();
+  });
+
   it("shows generated memo download links in the documents library", async () => {
     const report = {
       id: "report-1",

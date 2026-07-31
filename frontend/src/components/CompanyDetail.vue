@@ -1,6 +1,11 @@
 <script setup>
 import { computed, ref, watch } from "vue";
-import { formatMetricValue, isPendingValue } from "../formatters.js";
+import {
+  companySummaryMetrics,
+  inferredMetricLabelKey,
+  inferredMetricSourceKey,
+} from "../companyMetrics.js";
+import { formatIsoDate, formatMetricValue, isPendingValue } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import TraderView from "./TraderView.vue";
@@ -60,21 +65,7 @@ function monogram(name) {
     .toUpperCase();
 }
 
-const metrics = computed(() => {
-  const rows = Array.isArray(props.company.metrics) ? props.company.metrics : [];
-  if (rows.length) return rows;
-  return [
-    { label: "ARR", value: "Unknown", source_class: "source pending" },
-    { label: "YoY Growth", value: "Unknown", source_class: "source pending" },
-    {
-      label: "Valuation",
-      value: props.company.latest_funding?.post_money_usd || "Unknown",
-      source_class: props.company.latest_funding ? "company record" : "source pending",
-      as_of: props.company.latest_funding?.date,
-    },
-    { label: "TAM", value: "Unknown", source_class: "source pending" },
-  ];
-});
+const metrics = computed(() => companySummaryMetrics(props.company));
 
 const team = computed(() => {
   const typed = props.company.team_profiles || props.company.team || [];
@@ -118,9 +109,27 @@ const capTable = computed(() => props.company.cap_table_lineage || []);
 
 function metricSource(metric) {
   const ref = Array.isArray(metric.source_refs) ? metric.source_refs[0] : null;
-  if (ref?.label) return ref.label;
-  if (metric.source_class && metric.as_of) return `${metric.source_class} · ${metric.as_of}`;
-  return metric.source_class || "source pending";
+  if (ref?.label) {
+    const sourceKey = ref.label_key || inferredMetricSourceKey(ref.label);
+    return viewLang.value === "zh" && sourceKey ? t(sourceKey) : ref.label;
+  }
+  const sourceLabel = metric.source_key ? t(metric.source_key) : metric.source_class;
+  if (sourceLabel && metric.as_of) {
+    const rawDate = String(metric.as_of).match(
+      /(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}/,
+    )?.[0];
+    const normalizedDate = rawDate
+      ? formatIsoDate(new Date(rawDate).toISOString())
+      : formatIsoDate(metric.as_of, viewLang.value === "zh" ? "" : metric.as_of);
+    return normalizedDate ? `${sourceLabel} · ${normalizedDate}` : sourceLabel;
+  }
+  return sourceLabel || t("company.metric_pending");
+}
+
+function metricLabel(metric) {
+  if (viewLang.value === "zh" && metric.label_zh) return metric.label_zh;
+  const labelKey = metric.label_key || inferredMetricLabelKey(metric.label);
+  return viewLang.value === "zh" && labelKey ? t(labelKey) : metric.label;
 }
 
 function displayMetric(metric) {
@@ -136,7 +145,7 @@ function displayMetric(metric) {
         :key="metric.label"
         class="border-b border-subtle p-5 last:border-b-0 sm:border-r sm:[&:nth-child(2)]:border-r-0 lg:border-b-0 lg:[&:nth-child(2)]:border-r lg:last:border-r-0"
       >
-        <div class="vogue-label">{{ metric.label }}</div>
+        <div class="vogue-label">{{ metricLabel(metric) }}</div>
         <div
           class="mono-data mt-2 font-bold"
           :class="isPendingValue(metric.value) ? 'text-2xl text-ink-subtle' : 'text-3xl text-ink-primary'"

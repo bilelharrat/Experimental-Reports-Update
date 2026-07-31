@@ -88,6 +88,27 @@ def _sanitize_filename(name: str) -> str:
     return base or "file"
 
 
+def _quarantine_corrupt_index(path: Path, error: Exception) -> None:
+    """Move an unparseable index aside and fail loudly.
+
+    Silently treating a corrupt index as empty meant the next write
+    rebuilt it containing only the new entry, orphaning every previously
+    uploaded file's record. Quarantining preserves the bytes for manual
+    recovery; the caller's operation fails with a clear error instead.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    quarantined = path.with_name(f"{path.name}.corrupt-{stamp}")
+    try:
+        path.replace(quarantined)
+        logger.error("Quarantined corrupt index %s -> %s", path, quarantined)
+    except OSError:
+        logger.exception("Failed to quarantine corrupt index %s", path)
+        raise RuntimeError(f"Unreadable index {path}: {error}") from error
+    raise RuntimeError(
+        f"Corrupt index quarantined to {quarantined.name}: {error}"
+    ) from error
+
+
 def _read_index(company_id: str) -> list[dict]:
     p = _index_path(company_id)
     if not p.exists():
@@ -95,9 +116,11 @@ def _read_index(company_id: str) -> list[dict]:
     try:
         with p.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or []
-    except Exception:
-        return []
-    return list(data) if isinstance(data, list) else []
+    except Exception as exc:  # noqa: BLE001
+        _quarantine_corrupt_index(p, exc)
+    if not isinstance(data, list):
+        _quarantine_corrupt_index(p, ValueError("index is not a list"))
+    return list(data)
 
 
 def _write_index(company_id: str, entries: list[dict]) -> None:

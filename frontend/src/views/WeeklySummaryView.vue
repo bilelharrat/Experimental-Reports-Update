@@ -60,6 +60,10 @@ const UI = {
     skipped: "Skipped",
     building: "Building",
     published: "Published",
+    scanFallbackNotice:
+      "The live market scan failed for this refresh. This dashboard was seeded from a static watchlist — rankings and narratives are unverified.",
+    unverifiedCard: "Unverified — scan result only",
+    syntheticSparkline: "Illustrative shape, not real prices",
   },
   zh: {
     back: "首页",
@@ -102,6 +106,10 @@ const UI = {
     skipped: "已跳过",
     building: "正在生成",
     published: "已发布",
+    scanFallbackNotice:
+      "本次刷新的实时市场扫描失败，内容来自静态备用观察名单——排名与叙述均未经验证。",
+    unverifiedCard: "未经验证——仅为扫描结果",
+    syntheticSparkline: "示意图形，非真实价格",
   },
 };
 
@@ -571,7 +579,16 @@ function refreshedAtLabel(iso) {
 }
 
 onMounted(initializeWeeklySummary);
-onBeforeUnmount(closeStream);
+onBeforeUnmount(() => {
+  // Settle the active context, not just the stream: the fallback poll loop
+  // in waitForUpdatedSummary spins on `!context.settled` and would keep
+  // hitting the API every 3s for up to 15 minutes after navigation.
+  if (activeRefreshContext) {
+    activeRefreshContext.settled = true;
+    activeRefreshContext = null;
+  }
+  closeStream();
+});
 </script>
 
 <template>
@@ -778,6 +795,13 @@ onBeforeUnmount(closeStream);
     </div>
 
     <template v-else>
+      <div
+        v-if="summary.scan_fallback"
+        class="mt-6 flex items-start gap-2 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+      >
+        <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{{ ui.scanFallbackNotice }}</span>
+      </div>
       <section class="mt-6 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         <div class="rounded-card border border-subtle bg-surface p-5 shadow-card">
           <div class="flex items-start justify-between gap-4">
@@ -899,6 +923,13 @@ onBeforeUnmount(closeStream);
                   <span v-if="pick(stock, 'sector')">· {{ pick(stock, "sector") }}</span>
                   <span>· {{ fmtUsd(stock.market_cap_usd) }}</span>
                 </div>
+                <div
+                  v-if="stock.is_fallback"
+                  class="mt-1.5 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+                >
+                  <AlertTriangle class="h-3 w-3" />
+                  {{ ui.unverifiedCard }}
+                </div>
               </div>
               <div class="text-right">
                 <div class="font-display text-xl font-semibold" :class="scoreTone(stock.score)">
@@ -920,6 +951,9 @@ onBeforeUnmount(closeStream);
                   vector-effect="non-scaling-stroke"
                 />
               </svg>
+            </div>
+            <div v-if="stock.sparkline_synthetic" class="mt-1 text-[10px] text-ink-muted">
+              {{ ui.syntheticSparkline }}
             </div>
 
             <div class="mt-4 grid grid-cols-3 gap-2 text-center">

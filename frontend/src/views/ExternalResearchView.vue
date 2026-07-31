@@ -38,15 +38,24 @@ async function load() {
     error.value = e.message;
   }
 }
+// Tolerate transient poll failures (dev-server reloads, network blips)
+// before giving up — stopping on the first error froze a processing
+// item's status permanently.
+const POLL_MAX_FAILURES = 5;
+let pollFailures = 0;
+
 function startPolling() {
   stopPolling();
+  pollFailures = 0;
   pollId = setInterval(async () => {
     try {
       const fresh = await api.getExternalResearch(props.id);
+      pollFailures = 0;
       item.value = fresh;
       if (fresh.status === "ready" || fresh.status === "failed") stopPolling();
     } catch {
-      stopPolling();
+      pollFailures += 1;
+      if (pollFailures >= POLL_MAX_FAILURES) stopPolling();
     }
   }, 1500);
 }
@@ -84,7 +93,12 @@ onUnmounted(stopPolling);
 
 async function remove() {
   if (!confirm(t("external.delete_confirm"))) return;
-  await api.deleteExternalResearch(props.id);
+  try {
+    await api.deleteExternalResearch(props.id);
+  } catch (e) {
+    error.value = e?.message || String(e);
+    return;
+  }
   router.push({ name: "home" });
 }
 

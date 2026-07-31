@@ -1,5 +1,31 @@
 # BSH Research Center — workflow
 
+> Keep this file and AGENTS.md in sync: they are the same workflow doc for
+> different agents and differ ONLY in the agent name on the branch-prefix
+> and commit-trailer lines. Edit both when you change either.
+
+## Verifying changes
+
+Run these before declaring any change done:
+
+```sh
+uv run python -m pytest              # backend (~4 min, 500 tests, no network/LLM calls)
+npm --prefix frontend test           # frontend unit (vitest, ~10s)
+npm --prefix frontend run lint       # eslint gate (CI enforces --max-warnings=0)
+uv run ruff check server scripts tests
+```
+
+Targeted runs are fine while iterating (`uv run python -m pytest
+tests/test_weekly_stocks.py`); run the relevant suite in full before
+finishing. `scripts/quality.sh` is the complete CI-equivalent gate
+(includes the frontend build and Playwright browser smoke). Tests marked
+`e2e` spawn a real Claude CLI and cost money — they are deselected by
+default; never run them casually.
+
+Architecture orientation (which module owns what, memo pipeline stages,
+what "Serena" and "Hormuz" are) lives in `docs/architecture.md`. Env vars
+are documented in `.env.example`.
+
 ## Branching
 
 **All work happens directly on `main`.** No worktree branches, no feature

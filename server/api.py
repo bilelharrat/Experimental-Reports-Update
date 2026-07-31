@@ -230,12 +230,14 @@ def _honor_research_cancel(
 #     web SPA, mobile clients, and external tooling)
 #   - ``Authorization: Bearer sha256:<digest>`` (only the shared token
 #     accepts a sha256-prefixed form; session tokens never do)
-#   - ``?token=<token>`` query parameter (for EventSource SSE and
-#     ``<a href="...">`` download links that can't set headers)
+#   - the httponly ``bsh_session`` cookie (EventSource SSE and
+#     ``<a href="...">`` downloads, which can't set headers). There is NO
+#     ``?token=`` query-parameter channel — it leaked credentials into
+#     access logs/history and was removed; see ``_extract_presented_token``.
 #
-# When ``BSH_RESEARCH_API_TOKEN`` is empty/unset AND no users have logged
-# in yet, the dependency is a no-op so local development without auth
-# still works.
+# Requests with no credentials fail closed (401). The only escape hatch is
+# the explicit ``BSH_ALLOW_ANON_DEV=1`` local-development opt-in — see
+# ``_anon_dev_enabled`` below.
 
 
 def _expected_token() -> str | None:
@@ -1216,38 +1218,40 @@ def post_companies_search_start(request: Request, q: str = "", refresh: bool = F
     job_id = _search_job_id(query)
     path = _search_progress_path(job_id)
 
-    # Idempotency: attach to an in-flight job for the same query.
-    state = _scan_progress_state(path)
-    in_flight = _progress_state_in_flight(
-        state, max_idle_seconds=SEARCH_JOB_MAX_IDLE_SECONDS
-    )
-    if in_flight:
-        return {
-            "cached": False,
-            "job_id": job_id,
-            "stream_url": f"/api/companies/search/stream/{job_id}",
-            "status": "already_running",
-        }
-    if state.get("exists") and not state.get("terminated"):
-        try:
-            job_progress.ProgressLog(path).emit(
-                "error",
-                error="superseded stale company search",
-                terminal=True,
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("company search: failed to terminate stale log")
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            logger.exception("company search: failed to unlink stale log")
+    # Idempotency: attach to an in-flight job for the same query. The lock
+    # serializes check-then-spawn so concurrent POSTs can't both start one.
+    with _job_start_lock(f"search:{job_id}"):
+        state = _scan_progress_state(path)
+        in_flight = _progress_state_in_flight(
+            state, max_idle_seconds=SEARCH_JOB_MAX_IDLE_SECONDS
+        )
+        if in_flight:
+            return {
+                "cached": False,
+                "job_id": job_id,
+                "stream_url": f"/api/companies/search/stream/{job_id}",
+                "status": "already_running",
+            }
+        if state.get("exists") and not state.get("terminated"):
+            try:
+                job_progress.ProgressLog(path).emit(
+                    "error",
+                    error="superseded stale company search",
+                    terminal=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("company search: failed to terminate stale log")
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                logger.exception("company search: failed to unlink stale log")
 
-    threading.Thread(
-        target=_run_search_job,
-        args=(job_id, query, refresh),
-        name=f"search:{job_id}",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_run_search_job,
+            args=(job_id, query, refresh),
+            name=f"search:{job_id}",
+            daemon=True,
+        ).start()
     return {
         "cached": False,
         "job_id": job_id,
@@ -1391,46 +1395,47 @@ def post_weekly_stocks_refresh(request: Request, force: bool = False) -> dict:
     """Kick off or attach to the weekly hot-stock dashboard refresh."""
     _require_permission(request, "tasks:action")
     path = weekly_stocks.progress_path()
-    state = _scan_progress_state(path)
-    in_flight = _progress_state_in_flight(state)
     stream_url = "/api/weekly-stocks/refresh/stream"
-    if in_flight and not force:
-        return {
-            "job_id": "weekly",
-            "stream_url": stream_url,
-            "status": "already_running",
-        }
-    if state.get("exists") and not state.get("terminated"):
-        try:
-            tail_progress = job_progress.ProgressLog(path)
-            tail_progress.emit(
-                "error",
-                error=(
-                    "superseded by force-refresh"
-                    if force
-                    else "superseded stale weekly refresh"
-                ),
-                terminal=True,
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("weekly refresh: failed to terminate stale log")
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            logger.exception("weekly refresh: failed to unlink stale log")
+    with _job_start_lock("weekly"):
+        state = _scan_progress_state(path)
+        in_flight = _progress_state_in_flight(state)
+        if in_flight and not force:
+            return {
+                "job_id": "weekly",
+                "stream_url": stream_url,
+                "status": "already_running",
+            }
+        if state.get("exists") and not state.get("terminated"):
+            try:
+                tail_progress = job_progress.ProgressLog(path)
+                tail_progress.emit(
+                    "error",
+                    error=(
+                        "superseded by force-refresh"
+                        if force
+                        else "superseded stale weekly refresh"
+                    ),
+                    terminal=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("weekly refresh: failed to terminate stale log")
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                logger.exception("weekly refresh: failed to unlink stale log")
 
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("", encoding="utf-8")
-        weekly_stocks.clear_draft()
-    except Exception:  # noqa: BLE001
-        logger.exception("weekly refresh: failed to clear previous progress log")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("", encoding="utf-8")
+            weekly_stocks.clear_draft()
+        except Exception:  # noqa: BLE001
+            logger.exception("weekly refresh: failed to clear previous progress log")
 
-    threading.Thread(
-        target=_run_weekly_stocks_job,
-        name="weekly-stocks",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_run_weekly_stocks_job,
+            name="weekly-stocks",
+            daemon=True,
+        ).start()
     return {
         "job_id": "weekly",
         "stream_url": stream_url,
@@ -3462,7 +3467,9 @@ async def post_file(
     _require_permission(request, "sources:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
-    data = await file.read()
+    data = await _read_upload_bounded(
+        file, max_bytes=files_store.MAX_FILE_BYTES
+    )
     try:
         record = files_store.upload_file(
             company_id,
@@ -3824,39 +3831,40 @@ def post_research_file_summary(request: Request, company_id: str, file_id: str) 
     progress_path = research_store.quick_summary_progress_path(
         company_id, file_id
     )
-    state = _scan_progress_state(progress_path)
-    if _progress_state_in_flight(state):
-        return {
-            "kind": "research_summary",
-            "company_id": company_id,
-            "file_id": file_id,
-            "status": "already_running",
-            "stream_url": (
-                f"/api/companies/{company_id}/research-files/{file_id}/summary/stream"
-            ),
-            "log_url": (
-                f"/api/jobs/log?path=research_summary:{company_id}/{file_id}"
-            ),
-        }
-    if state.get("exists") and not state.get("terminated"):
-        _supersede_progress_file(
-            progress_path,
-            reason="superseded stale research summary progress",
+    with _job_start_lock(f"research_summary:{company_id}/{file_id}"):
+        state = _scan_progress_state(progress_path)
+        if _progress_state_in_flight(state):
+            return {
+                "kind": "research_summary",
+                "company_id": company_id,
+                "file_id": file_id,
+                "status": "already_running",
+                "stream_url": (
+                    f"/api/companies/{company_id}/research-files/{file_id}/summary/stream"
+                ),
+                "log_url": (
+                    f"/api/jobs/log?path=research_summary:{company_id}/{file_id}"
+                ),
+            }
+        if state.get("exists") and not state.get("terminated"):
+            _supersede_progress_file(
+                progress_path,
+                reason="superseded stale research summary progress",
+            )
+
+        # Reset any prior summary so the UI shows the new run cleanly.
+        research_store.update_record(company_id, file_id, quick_summary=None)
+
+        cancel_key = _research_cancel_key(
+            "research_summary", company_id, file_id
         )
-
-    # Reset any prior summary so the UI shows the new run cleanly.
-    research_store.update_record(company_id, file_id, quick_summary=None)
-
-    cancel_key = _research_cancel_key(
-        "research_summary", company_id, file_id
-    )
-    cancel_event = _start_research_cancel_event(cancel_key)
-    threading.Thread(
-        target=_run_research_summary_job,
-        args=(company_id, file_id, cancel_key, cancel_event),
-        name=f"research-summary-{company_id}-{file_id}",
-        daemon=True,
-    ).start()
+        cancel_event = _start_research_cancel_event(cancel_key)
+        threading.Thread(
+            target=_run_research_summary_job,
+            args=(company_id, file_id, cancel_key, cancel_event),
+            name=f"research-summary-{company_id}-{file_id}",
+            daemon=True,
+        ).start()
     return {
         "kind": "research_summary",
         "company_id": company_id,
@@ -3943,6 +3951,20 @@ def _summary_progress_path(company_id: str, file_id: str) -> "Path":
         files_store._company_dir(company_id)
         / f"{file_id}__summary.progress.jsonl"
     )
+
+
+# Striped locks serializing the check-then-spawn section of every job-start
+# endpoint. Without this, two concurrent POSTs can both observe "not in
+# flight" and spawn duplicate background workers truncating/writing the same
+# progress JSONL. Striping (hash of the job key onto a fixed pool) keeps the
+# lock table bounded regardless of how many distinct job keys exist; a hash
+# collision just briefly serializes two unrelated job starts, which is
+# harmless because the critical section is a quick file scan + Thread.start().
+_JOB_START_LOCKS = [threading.Lock() for _ in range(64)]
+
+
+def _job_start_lock(key: str) -> threading.Lock:
+    return _JOB_START_LOCKS[hash(key) % len(_JOB_START_LOCKS)]
 
 
 def _scan_progress_state(path: "Path") -> dict:
@@ -4098,23 +4120,24 @@ def post_file_summary(
     # info instead of starting a second one. Caller's SSE replay will pick
     # up from the existing JSONL.
     progress_path = _summary_progress_path(company_id, file_id)
-    state = _scan_progress_state(progress_path)
-    if state.get("exists") and not state.get("terminated"):
-        return {
-            "job_id": file_id,
-            "stream_url": (
-                f"/api/companies/{company_id}/files/{file_id}/summary/stream"
-            ),
-            "speed": state.get("speed") or "unknown",
-            "status": "already_running",
-        }
+    with _job_start_lock(f"summary:{company_id}/{file_id}"):
+        state = _scan_progress_state(progress_path)
+        if state.get("exists") and not state.get("terminated"):
+            return {
+                "job_id": file_id,
+                "stream_url": (
+                    f"/api/companies/{company_id}/files/{file_id}/summary/stream"
+                ),
+                "speed": state.get("speed") or "unknown",
+                "status": "already_running",
+            }
 
-    threading.Thread(
-        target=_run_summary_job,
-        args=(company_id, file_id, speed),
-        name=f"summary:{file_id}",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_run_summary_job,
+            args=(company_id, file_id, speed),
+            name=f"summary:{file_id}",
+            daemon=True,
+        ).start()
     return {
         "job_id": file_id,
         "stream_url": (
@@ -6502,28 +6525,29 @@ def post_research_translate(request: Request, item_id: str, app_language: str | 
         }
 
     progress_path = _research_translate_progress_path(item_id)
-    state = _scan_progress_state(progress_path)
-    if _progress_state_in_flight(state):
-        return {
-            "cached": False,
-            "job_id": item_id,
-            "stream_url": f"/api/external/research/{item_id}/translate/stream",
-            "status": "already_running",
-        }
-    if state.get("exists") and not state.get("terminated"):
-        _supersede_progress_file(
-            progress_path,
-            reason="superseded stale research translation progress",
-        )
+    with _job_start_lock(f"pdf_translation:{item_id}"):
+        state = _scan_progress_state(progress_path)
+        if _progress_state_in_flight(state):
+            return {
+                "cached": False,
+                "job_id": item_id,
+                "stream_url": f"/api/external/research/{item_id}/translate/stream",
+                "status": "already_running",
+            }
+        if state.get("exists") and not state.get("terminated"):
+            _supersede_progress_file(
+                progress_path,
+                reason="superseded stale research translation progress",
+            )
 
-    cancel_key = _research_cancel_key("pdf_translation", item_id)
-    cancel_event = _start_research_cancel_event(cancel_key)
-    threading.Thread(
-        target=_run_research_translate_job,
-        args=(item_id, app_language, cancel_key, cancel_event),
-        name=f"research_translate:{item_id}",
-        daemon=True,
-    ).start()
+        cancel_key = _research_cancel_key("pdf_translation", item_id)
+        cancel_event = _start_research_cancel_event(cancel_key)
+        threading.Thread(
+            target=_run_research_translate_job,
+            args=(item_id, app_language, cancel_key, cancel_event),
+            name=f"research_translate:{item_id}",
+            daemon=True,
+        ).start()
     return {
         "cached": False,
         "job_id": item_id,
@@ -6685,7 +6709,9 @@ async def post_hormuz(
     safe_name: str | None = None
     content_type = ""
     if file is not None and file.filename:
-        data = await file.read()
+        data = await _read_upload_bounded(
+            file, max_bytes=files_store.MAX_FILE_BYTES
+        )
         if data:
             file_data = data
             safe_name = files_store._sanitize_filename(file.filename)
@@ -7322,7 +7348,25 @@ async def post_console_ask(
 
     saved: list[str] = []
     for upload in images or []:
-        data = await upload.read()
+        try:
+            data = await _read_upload_bounded(
+                upload, max_bytes=console_store.MAX_ATTACHMENT_BYTES
+            )
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise
+            # Keep the structured error shape the frontend matches on.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "attachment_too_large",
+                    "limit_bytes": console_store.MAX_ATTACHMENT_BYTES,
+                    "message": (
+                        "Attachment too large: exceeds "
+                        f"{console_store.MAX_ATTACHMENT_BYTES} bytes"
+                    ),
+                },
+            ) from exc
         try:
             record = console_store.save_attachment(
                 company_id=company_id,
@@ -9609,49 +9653,57 @@ def post_trader_refresh(
     stream_url = f"/api/companies/{company_id}/trader/refresh/stream"
 
     path = _trader_snapshot_progress_path(company_id)
-    state = _scan_progress_state(path)
-    in_flight = state.get("exists") and not state.get("terminated")
-    if in_flight and not force:
-        return {
-            "job_id": company_id,
-            "stream_url": stream_url,
-            "status": "already_running",
-            "languages_requested": languages_requested,
-        }
-    if in_flight and force:
-        # Supersede the stale in-flight worker. We emit a terminal
-        # `error` event so any SSE consumer tailing the old progress
-        # file sees an explicit superseded marker rather than a silent
-        # cut. The old background thread, if still alive, will keep
-        # running but its writes go to a deleted file — harmless.
-        try:
-            tail_progress = job_progress.ProgressLog(path)
-            tail_progress.emit(
-                "error",
-                error="superseded by force-refresh",
-                terminal=True,
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception(
-                "force-refresh: failed to mark stale progress terminated"
-            )
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            logger.exception("force-refresh: failed to unlink stale progress")
+    with _job_start_lock(f"trader:{company_id}"):
+        state = _scan_progress_state(path)
+        # `_progress_state_in_flight` (not a bare exists-and-not-terminated
+        # check) so a worker that died without a terminal event stops
+        # blocking new refreshes once the log goes idle.
+        in_flight = _progress_state_in_flight(state)
+        if in_flight and not force:
+            return {
+                "job_id": company_id,
+                "stream_url": stream_url,
+                "status": "already_running",
+                "languages_requested": languages_requested,
+            }
+        if state.get("exists") and not state.get("terminated"):
+            # Supersede the stale in-flight worker. We emit a terminal
+            # `error` event so any SSE consumer tailing the old progress
+            # file sees an explicit superseded marker rather than a silent
+            # cut. The old background thread, if still alive, will keep
+            # running but its writes go to a deleted file — harmless.
+            try:
+                tail_progress = job_progress.ProgressLog(path)
+                tail_progress.emit(
+                    "error",
+                    error=(
+                        "superseded by force-refresh"
+                        if force
+                        else "superseded stale trader refresh"
+                    ),
+                    terminal=True,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "force-refresh: failed to mark stale progress terminated"
+                )
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                logger.exception("force-refresh: failed to unlink stale progress")
 
-    threading.Thread(
-        target=_run_trader_snapshot_job,
-        args=(company_id,),
-        kwargs={
-            "languages_requested": languages_requested,
-            "include_translations": include_translations,
-            "translation_mode": translation_mode,
-            "force": force,
-        },
-        name=f"trader-snapshot:{company_id}",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_run_trader_snapshot_job,
+            args=(company_id,),
+            kwargs={
+                "languages_requested": languages_requested,
+                "include_translations": include_translations,
+                "translation_mode": translation_mode,
+                "force": force,
+            },
+            name=f"trader-snapshot:{company_id}",
+            daemon=True,
+        ).start()
     return {
         "job_id": company_id,
         "stream_url": stream_url,
@@ -9701,37 +9753,43 @@ def post_trader_refresh_sections(
     languages_requested = _parse_trader_languages(languages)
     stream_url = f"/api/companies/{company_id}/trader/refresh/stream"
     path = _trader_snapshot_progress_path(company_id)
-    state = _scan_progress_state(path)
-    in_flight = state.get("exists") and not state.get("terminated")
-    if in_flight and not body.force:
-        return {
-            "job_id": company_id,
-            "stream_url": stream_url,
-            "status": "already_running",
-            "languages_requested": languages_requested,
-            "retry_scope": "sections",
-            "retried_sections": sections,
-        }
-    if in_flight and body.force:
-        _supersede_progress_file(
-            path, reason="superseded by section force-refresh"
-        )
+    with _job_start_lock(f"trader:{company_id}"):
+        state = _scan_progress_state(path)
+        in_flight = _progress_state_in_flight(state)
+        if in_flight and not body.force:
+            return {
+                "job_id": company_id,
+                "stream_url": stream_url,
+                "status": "already_running",
+                "languages_requested": languages_requested,
+                "retry_scope": "sections",
+                "retried_sections": sections,
+            }
+        if state.get("exists") and not state.get("terminated"):
+            _supersede_progress_file(
+                path,
+                reason=(
+                    "superseded by section force-refresh"
+                    if body.force
+                    else "superseded stale trader refresh"
+                ),
+            )
 
-    threading.Thread(
-        target=_run_trader_snapshot_job,
-        args=(company_id,),
-        kwargs={
-            "languages_requested": languages_requested,
-            "include_translations": include_translations,
-            "translation_mode": translation_mode,
-            "force": body.force,
-            "section_ids": sections,
-            "preserve_existing_sections": body.preserve_existing_sections,
-            "retry_scope": "sections",
-        },
-        name=f"trader-snapshot:{company_id}:sections",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_run_trader_snapshot_job,
+            args=(company_id,),
+            kwargs={
+                "languages_requested": languages_requested,
+                "include_translations": include_translations,
+                "translation_mode": translation_mode,
+                "force": body.force,
+                "section_ids": sections,
+                "preserve_existing_sections": body.preserve_existing_sections,
+                "retry_scope": "sections",
+            },
+            name=f"trader-snapshot:{company_id}:sections",
+            daemon=True,
+        ).start()
     return {
         "job_id": company_id,
         "stream_url": stream_url,
@@ -9758,32 +9816,33 @@ def post_trader_refresh_all(
     queue = _summarize_trader_refresh_queue(companies, force=force)
 
     path = _trader_refresh_all_progress_path()
-    state = _scan_progress_state(path)
-    in_flight = _progress_state_in_flight(state)
-    if in_flight and not force:
-        return {
-            "job_id": "all",
-            "stream_url": stream_url,
-            "status": "already_running",
-            "languages_requested": languages_requested,
-            **queue,
-        }
-    if in_flight and force:
-        _supersede_progress_file(
-            path, reason="superseded by bulk force-refresh"
-        )
+    with _job_start_lock("trader:all"):
+        state = _scan_progress_state(path)
+        in_flight = _progress_state_in_flight(state)
+        if in_flight and not force:
+            return {
+                "job_id": "all",
+                "stream_url": stream_url,
+                "status": "already_running",
+                "languages_requested": languages_requested,
+                **queue,
+            }
+        if in_flight and force:
+            _supersede_progress_file(
+                path, reason="superseded by bulk force-refresh"
+            )
 
-    threading.Thread(
-        target=_run_refresh_all_trader_snapshots_job,
-        kwargs={
-            "force": force,
-            "languages_requested": languages_requested,
-            "include_translations": include_translations,
-            "translation_mode": translation_mode,
-        },
-        name="trader-snapshot:all",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_run_refresh_all_trader_snapshots_job,
+            kwargs={
+                "force": force,
+                "languages_requested": languages_requested,
+                "include_translations": include_translations,
+                "translation_mode": translation_mode,
+            },
+            name="trader-snapshot:all",
+            daemon=True,
+        ).start()
     return {
         "job_id": "all",
         "stream_url": stream_url,
@@ -9815,34 +9874,35 @@ def post_companies_regen_all(request: Request, force: bool = False) -> dict:
     )
 
     path = _company_regen_all_progress_path()
-    progress_state = _scan_progress_state(path)
-    in_flight = _regen_all_thread_running() or _progress_state_in_flight(
-        progress_state
-    )
-    if in_flight and not force:
-        return {
-            "job_id": "all",
-            "stream_url": stream_url,
-            "status": "already_running",
-            "resumed": will_resume,
-            "languages_requested": ["en", "zh"],
-            **queue,
-        }
-    if in_flight and force:
-        _supersede_progress_file(
-            path, reason="superseded by regen-all force-refresh"
+    with _job_start_lock("regen:all"):
+        progress_state = _scan_progress_state(path)
+        in_flight = _regen_all_thread_running() or _progress_state_in_flight(
+            progress_state
         )
-    elif progress_state.get("exists") and not progress_state.get("terminated"):
-        _supersede_progress_file(
-            path, reason="superseded stale regen-all progress"
-        )
+        if in_flight and not force:
+            return {
+                "job_id": "all",
+                "stream_url": stream_url,
+                "status": "already_running",
+                "resumed": will_resume,
+                "languages_requested": ["en", "zh"],
+                **queue,
+            }
+        if in_flight and force:
+            _supersede_progress_file(
+                path, reason="superseded by regen-all force-refresh"
+            )
+        elif progress_state.get("exists") and not progress_state.get("terminated"):
+            _supersede_progress_file(
+                path, reason="superseded stale regen-all progress"
+            )
 
-    threading.Thread(
-        target=_run_regen_all_companies_job,
-        kwargs={"force": force},
-        name="company-regen-all",
-        daemon=True,
-    ).start()
+        threading.Thread(
+            target=_run_regen_all_companies_job,
+            kwargs={"force": force},
+            name="company-regen-all",
+            daemon=True,
+        ).start()
     return {
         "job_id": "all",
         "stream_url": stream_url,

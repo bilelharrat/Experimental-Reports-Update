@@ -197,6 +197,19 @@ def _startup() -> None:
     _start_translation_backfill()
 
 
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    # Reap every live claude CLI subprocess group. They run detached
+    # (start_new_session=True) so nothing else kills them when uvicorn
+    # exits — without this a dev restart leaves orphaned CLI runs burning
+    # tokens with no consumer. Also registered via atexit as a backstop
+    # for non-graceful exits.
+    try:
+        claude_runner.terminate_live_claude_procs()
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to terminate live claude subprocesses")
+
+
 # Content fields we expect a real translation to populate. A block that
 # has none of these filled is a stale skeleton or a persisted failed
 # attempt (e.g. NVDA: language="other", every field null) — the old

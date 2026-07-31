@@ -17,6 +17,7 @@ Public entry points:
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
@@ -26,6 +27,7 @@ import signal
 import subprocess
 import threading
 import time
+import weakref
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,46 @@ import yaml
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 
 logger = logging.getLogger(__name__)
+
+# Every claude CLI subprocess is registered here so a server shutdown can
+# reap the whole fleet. The CLI runs with start_new_session=True (so a
+# cancelled parent doesn't orphan its Bash-tool children), which also means
+# nothing kills those sessions automatically when uvicorn exits — without
+# this registry a dev restart leaves live `claude` processes burning tokens
+# with no consumer. WeakSet: finished/reaped Popen objects drop out on GC.
+_LIVE_CLAUDE_PROCS: "weakref.WeakSet[subprocess.Popen]" = weakref.WeakSet()
+_LIVE_CLAUDE_PROCS_LOCK = threading.Lock()
+
+
+def _popen_claude(*args, **kwargs) -> subprocess.Popen:
+    """subprocess.Popen + registration in the live-process registry.
+
+    Every claude CLI spawn in this module must go through this helper so
+    `terminate_live_claude_procs` can reap it at shutdown.
+    """
+    proc = subprocess.Popen(*args, **kwargs)
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        _LIVE_CLAUDE_PROCS.add(proc)
+    return proc
+
+
+def terminate_live_claude_procs() -> int:
+    """Terminate every still-running claude subprocess group. Returns the
+    number of processes that needed termination. Called from the server's
+    shutdown path (and safe to call any time)."""
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        procs = list(_LIVE_CLAUDE_PROCS)
+    killed = 0
+    for proc in procs:
+        if proc.poll() is None:
+            killed += 1
+            _terminate_process_group(proc, grace_s=2.0)
+    if killed:
+        logger.info("shutdown: terminated %d live claude subprocess(es)", killed)
+    return killed
+
+
+atexit.register(terminate_live_claude_procs)
 
 
 def _terminate_process_group(proc: subprocess.Popen, *, grace_s: float = 2.0) -> None:
@@ -1066,8 +1108,15 @@ def run_summary(
 
     # Stage the deck inside the work dir so Claude has filesystem access via
     # cwd + --add-dir without us having to allow-list the project root.
+    # copy2 preserves mtime, so (size, mtime) equality means "same file";
+    # comparing size alone let a same-size edited source reuse a stale copy.
     staged_deck = work_dir / source_path.name
-    if not staged_deck.exists() or staged_deck.stat().st_size != source_path.stat().st_size:
+    src_stat = source_path.stat()
+    if (
+        not staged_deck.exists()
+        or (staged_deck.stat().st_size, staged_deck.stat().st_mtime)
+        != (src_stat.st_size, src_stat.st_mtime)
+    ):
         shutil.copy2(source_path, staged_deck)
 
     # Don't pre-create progress.md — Claude's tool stack requires that any
@@ -1122,13 +1171,14 @@ def run_summary(
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return {"error": f"Failed to launch claude: {exc}"}
@@ -1138,40 +1188,27 @@ def run_summary(
     )
     stderr_thread.start()
 
+    def _handle_event(event: dict, prog, state: dict) -> None:
+        if prog:
+            _process_event(event, prog, state)
+
     state: dict[str, Any] = {"page_count": page_count}
-    final_text: str | None = None
-    result_event: dict | None = None
-    try:
-        for line in proc.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            try:
-                if progress:
-                    _process_event(event, progress, state)
-            except Exception:
-                logger.exception("progress event handling failed")
-            if event.get("type") == "result":
-                result_event = event
-                final_text = event.get("result")
-        proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        return {"error": f"Claude timed out after {timeout_sec}s"}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_handle_event,
+        timeout_sec=timeout_sec,
+        timeout_label="deck summary",
+        # Slide-by-slide Reads/Writes produce a steady event stream; 300s of
+        # silence means the CLI is genuinely wedged, not just thinking.
+        silence_timeout_sec=300.0,
+    )
+    if stream_error:
+        return {"error": stream_error}
 
-    if proc.returncode and proc.returncode != 0:
-        tail = "".join(stderr_log[-20:]).strip()
-        return {
-            "error": (
-                f"claude exited {proc.returncode}"
-                + (f": {tail[:600]}" if tail else "")
-            )
-        }
-
+    result_event = state.get("result_event")
     if not final_text and result_event:
         final_text = result_event.get("result")
     if not final_text:
@@ -1464,12 +1501,17 @@ def _consume_stream_json_process(
     timeout_label: str,
     silence_timeout_sec: float = 120.0,
     cancel_event: threading.Event | None = None,
+    stop_on_result: bool = False,
 ) -> tuple[str | None, str | None]:
     """Consume Claude stream-json without blocking forever on stdout.
 
     Returns ``(final_text, error)``. ``final_text`` prefers a captured
     StructuredOutput payload when present, matching the previous parser
     behavior.
+
+    ``stop_on_result=True`` stops consuming at the first ``result`` event
+    and reaps a lingering process instead of erroring — for skill runs
+    where the CLI can keep the pipe open after its result.
     """
     import queue as _queue
 
@@ -1515,6 +1557,8 @@ def _consume_stream_json_process(
                 final_text = json.dumps(structured)
             else:
                 final_text = event.get("result")
+            if stop_on_result:
+                break
 
     if interrupted is not None:
         _terminate_process_group(proc, grace_s=5.0)
@@ -1525,6 +1569,19 @@ def _consume_stream_json_process(
                 reason=interrupted,
             )
         return None, interrupted
+
+    if stop_on_result and state.get("result_event") is not None:
+        # The CLI can linger after emitting its result; give it a moment
+        # then reap the whole group rather than failing a completed run.
+        try:
+            proc.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "%s subprocess kept running after result; terminating group",
+                timeout_label,
+            )
+            _terminate_process_group(proc, grace_s=2.0)
+        return final_text, None
 
     try:
         proc.wait(timeout=5.0)
@@ -1639,7 +1696,7 @@ def run_company_search(
 
     # Streaming path — emit progress events as Claude works.
     try:
-        proc_stream = subprocess.Popen(
+        proc_stream = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -1736,7 +1793,7 @@ def run_public_company_snapshot(
     ]
 
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -1846,7 +1903,7 @@ def run_web_research_json(
         cmd += ["--json-schema", json.dumps(schema)]
 
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -2157,7 +2214,7 @@ def run_pdf_translation(
         )
 
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -3454,7 +3511,7 @@ def _run_memo_local_json_artifact(
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(run_dir),
             stdout=subprocess.PIPE,
@@ -4209,7 +4266,7 @@ def run_investment_memo(
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(run_dir),
             stdout=subprocess.PIPE,
@@ -4235,38 +4292,27 @@ def run_investment_memo(
         "phase_thread": _MEMO_PHASE1_THREAD,
         "memo_phase_tracking": True,
     }
-    result_event: dict | None = None
-    try:
-        for line in proc.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            try:
-                if progress:
-                    _process_event(event, progress, state)
-            except Exception:
-                logger.exception("progress event handling failed")
-            if event.get("type") == "result":
-                result_event = event
-                break
-        if result_event is not None:
-            try:
-                proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                logger.warning(
-                    "memo claude subprocess kept running after result; "
-                    "terminating process group"
-                )
-                _terminate_process_group(proc, grace_s=2.0)
-        else:
-            proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        _terminate_process_group(proc, grace_s=2.0)
-        return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
+
+    def _handle_event(event: dict, prog, run_state: dict) -> None:
+        if prog:
+            _process_event(event, prog, run_state)
+
+    _, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_handle_event,
+        timeout_sec=timeout_sec,
+        timeout_label="memo skill",
+        # The analysis passes Read/Write constantly; extended silence means
+        # a wedged CLI, and the wall-clock cap still bounds the whole run.
+        silence_timeout_sec=300.0,
+        stop_on_result=True,
+    )
+    result_event = state.get("result_event")
+    if stream_error and result_event is None:
+        return {"ok": False, "error": stream_error}
 
     # Close out any pass threads that we opened during the run. The
     # subprocess having reached `result` is the only completion signal we
@@ -4730,7 +4776,7 @@ def run_resume_memo_package(
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(run_dir),
             stdout=subprocess.PIPE,
@@ -5057,7 +5103,7 @@ def run_internal_diligence_memo(
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(run_dir),
             stdout=subprocess.PIPE,
@@ -5292,13 +5338,14 @@ def run_hormuz_appendix(
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(run_dir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
     except FileNotFoundError as exc:
         return {"ok": False, "error": f"Failed to launch claude: {exc}"}
@@ -5308,37 +5355,38 @@ def run_hormuz_appendix(
     )
     stderr_thread.start()
 
-    state: dict[str, Any] = {}
-    result_event: dict | None = None
-    try:
-        for line in proc.stdout or []:  # type: ignore[union-attr]
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            try:
-                if progress:
-                    _process_event(event, progress, state)
-            except Exception:
-                logger.exception("progress event handling failed")
-            if event.get("type") == "result":
-                result_event = event
-        proc.wait(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        return {"ok": False, "error": f"Claude timed out after {timeout_sec}s"}
+    def _handle_event(event: dict, prog, run_state: dict) -> None:
+        if prog:
+            _process_event(event, prog, run_state)
 
-    if proc.returncode and proc.returncode != 0:
-        tail = "".join(stderr_log[-20:]).strip()
+    state: dict[str, Any] = {}
+    _, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_handle_event,
+        timeout_sec=timeout_sec,
+        timeout_label="hormuz appendix",
+        silence_timeout_sec=300.0,
+        stop_on_result=True,
+    )
+    result_event = state.get("result_event")
+    if stream_error and result_event is None:
+        return {"ok": False, "error": stream_error}
+    if result_event and (
+        result_event.get("subtype") == "error" or result_event.get("is_error")
+    ):
         return {
             "ok": False,
             "error": (
-                f"claude exited {proc.returncode}"
-                + (f": {tail[:600]}" if tail else "")
+                result_event.get("error")
+                or result_event.get("result")
+                or "Claude skill run failed"
             ),
+            "cost_usd": result_event.get("total_cost_usd"),
+            "duration_ms": result_event.get("duration_ms"),
+            "subtype": result_event.get("subtype"),
         }
 
     out: dict = {"ok": True}
@@ -5740,7 +5788,7 @@ OUTPUT REQUIREMENTS:
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -5872,7 +5920,7 @@ def run_structured_prompt(
         )
         stderr_log: list[str] = []
         try:
-            proc = subprocess.Popen(
+            proc = _popen_claude(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -7021,7 +7069,7 @@ def _run_serena_json_artifact(
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -7545,7 +7593,7 @@ OUTPUT REQUIREMENTS:
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -7766,7 +7814,7 @@ OUTPUT REQUIREMENTS:
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -7954,7 +8002,7 @@ OUTPUT REQUIREMENTS:
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -8224,7 +8272,7 @@ OUTPUT REQUIREMENTS:
 
     stderr_log: list[str] = []
     try:
-        proc = subprocess.Popen(
+        proc = _popen_claude(
             cmd,
             cwd=str(work_dir),
             stdout=subprocess.PIPE,
@@ -8421,13 +8469,17 @@ def _reader_thread(handle: _ConsoleRunHandle) -> None:
 
 
 def _spawn_console(cmd: list[str], cwd: Path | None) -> _ConsoleRunHandle:
-    proc = subprocess.Popen(
+    # start_new_session so cancellation can reap the whole process group —
+    # console runs use the Bash tool, and killing only the direct PID left
+    # its children running.
+    proc = _popen_claude(
         cmd,
         cwd=str(cwd) if cwd else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
+        start_new_session=True,
     )
     handle = _ConsoleRunHandle(proc)
     handle.reader = threading.Thread(
@@ -8443,20 +8495,39 @@ def _spawn_console(cmd: list[str], cwd: Path | None) -> _ConsoleRunHandle:
 def _terminate_console(
     handle: _ConsoleRunHandle, *, grace_s: float
 ) -> str:
-    """SIGINT → wait → SIGKILL. Returns the signal name that succeeded."""
+    """SIGINT → wait → group SIGKILL. Returns the signal name that succeeded.
+
+    SIGINT goes to the process group so the CLI's own children (Bash tool
+    subprocesses) get the interrupt too; the escalation kills the whole
+    group rather than just the direct child.
+    """
     import signal as _signal
 
     if handle.proc.poll() is not None:
         return "exited"
-    try:
-        handle.proc.send_signal(_signal.SIGINT)
-    except ProcessLookupError:
-        return "exited"
+    pid = getattr(handle.proc, "pid", None)
+    interrupted = False
+    if pid is not None:
+        try:
+            os.killpg(pid, _signal.SIGINT)
+            interrupted = True
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+    if not interrupted:
+        try:
+            handle.proc.send_signal(_signal.SIGINT)
+        except ProcessLookupError:
+            return "exited"
     try:
         handle.proc.wait(timeout=grace_s)
         return "SIGINT"
     except subprocess.TimeoutExpired:
         pass
+    if pid is not None:
+        try:
+            os.killpg(pid, _signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
     try:
         handle.proc.kill()
     except ProcessLookupError:

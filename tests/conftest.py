@@ -8,6 +8,72 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _isolate_data_dir(monkeypatch, tmp_path):
+    """Redirect every module-level data path to a per-test tmp dir.
+
+    The live ``data/`` directory used to be the default for any test that
+    forgot to monkeypatch a root — ``data/companies.yaml.broken_by_tests``
+    was the scar. Modules freeze path constants at import time, so each one
+    must be re-pointed individually; keep this list in sync when adding a
+    store with its own module-level path constant. Tests that need their
+    own layout simply monkeypatch over these (their patch runs later).
+    """
+    from server import (
+        auth_store,
+        cache,
+        console_store,
+        external_store,
+        files_store,
+        hormuz_store,
+        memo_editor_store,
+        memo_prep,
+        product_store,
+        research_store,
+        serena_analysis,
+        stock_research,
+        storage,
+        weekly_stocks,
+    )
+
+    data_root = tmp_path / "data"
+    monkeypatch.setattr(storage, "DATA_DIR", data_root)
+    monkeypatch.setattr(storage, "COMPANIES_FILE", data_root / "companies.yaml")
+    monkeypatch.setattr(storage, "REPORTS_DIR", data_root / "reports")
+    monkeypatch.setattr(storage, "THREADS_DIR", data_root / "threads")
+    monkeypatch.setattr(cache, "CACHE_ROOT", data_root / "cache")
+    monkeypatch.setattr(auth_store, "USERS_FILE", data_root / "users.json")
+    monkeypatch.setattr(auth_store, "SESSIONS_FILE", data_root / "sessions.json")
+    monkeypatch.setattr(external_store, "EXTERNAL_ROOT", data_root / "external")
+    monkeypatch.setattr(files_store, "UPLOADS_ROOT", data_root / "uploads")
+    monkeypatch.setattr(research_store, "RESEARCH_ROOT", data_root / "research")
+    monkeypatch.setattr(console_store, "CONSOLES_ROOT", data_root / "consoles")
+    monkeypatch.setattr(memo_editor_store, "EDITOR_ROOT", data_root / "memo_editor")
+    monkeypatch.setattr(product_store, "SETTINGS_ROOT", data_root / "settings")
+    monkeypatch.setattr(memo_prep, "MEMOS_ROOT", data_root / "memos")
+    monkeypatch.setattr(
+        memo_prep, "SETTINGS_FILE", data_root / "settings" / "serena_background.md"
+    )
+    monkeypatch.setattr(memo_prep, "COMPANIES_FILE", data_root / "companies.yaml")
+    monkeypatch.setattr(hormuz_store, "DATA_DIR", data_root)
+    monkeypatch.setattr(
+        hormuz_store,
+        "SOURCES_ROOT",
+        data_root / "external" / "hormuz_research" / "sources",
+    )
+    monkeypatch.setattr(hormuz_store, "APPENDIX_ROOT", data_root / "hormuz_appendix")
+    monkeypatch.setattr(weekly_stocks, "WEEKLY_DIR", data_root / "_weekly_stocks")
+    monkeypatch.setattr(
+        stock_research, "STOCK_RESEARCH_ROOT", data_root / "stock_research"
+    )
+    monkeypatch.setattr(
+        serena_analysis, "ANALYSIS_ROOT", data_root / "serena_analysis"
+    )
+    monkeypatch.setattr(
+        serena_analysis, "TRAINING_ROOT", data_root / "serena_training"
+    )
+
+
+@pytest.fixture(autouse=True)
 def _disable_auth(monkeypatch):
     """Let API tests through without credentials. ``require_api_token`` now
     fails closed, so we clear any shared token AND opt into anonymous dev

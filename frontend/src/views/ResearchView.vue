@@ -250,6 +250,21 @@ const gateDiagnostics = computed(() => {
   add(tr("research.gate_chinese_parity"), r.memo_chinese_parity);
   return items;
 });
+const gateFindings = computed(() => {
+  const r = activeReport.value;
+  if (!r) return [];
+  const gates = [
+    [tr("research.gate_quality"), r.memo_quality_lint],
+    [tr("research.gate_chinese_parity"), r.memo_chinese_parity],
+  ];
+  return gates.flatMap(([gateLabel, payload]) => {
+    const findings = payload?.findings;
+    if (!Array.isArray(findings)) return [];
+    return findings
+      .filter((finding) => finding && typeof finding === "object")
+      .map((finding) => ({ ...finding, gateLabel }));
+  });
+});
 const memoArtifactsVisible = computed(() => {
   const r = activeReport.value;
   if (!isMemo.value || !r) return false;
@@ -302,6 +317,7 @@ const threads = ref([]);
 const newQuestion = ref("");
 const newAnswer = ref("");
 const submittingThread = ref(false);
+const submitThreadError = ref("");
 
 const libraryRefresh = ref(0);
 
@@ -422,15 +438,17 @@ let nowTickId = null;
 // elapsed + a rough ETA so an in-flight run is distinguishable from a hang.
 const MEMO_TYPICAL_MAX_MIN = 34;
 
-const reportInProgress = computed(() => {
-  const status = String(activeReport.value?.status || "");
+function isTerminalReportStatus(status) {
+  const s = String(status || "");
   return (
-    Boolean(activeReport.value) &&
-    status !== "complete" &&
-    status !== "complete_with_warnings" &&
-    !status.startsWith("failed")
+    s === "complete" || s === "complete_with_warnings" || s.startsWith("failed")
   );
-});
+}
+
+const reportInProgress = computed(() =>
+  Boolean(activeReport.value) &&
+  !isTerminalReportStatus(activeReport.value?.status),
+);
 const reportElapsedMin = computed(() => {
   const created = activeReport.value?.created_at;
   if (!created) return null;
@@ -550,10 +568,16 @@ function newsMeta(item) {
 
 async function loadCompany() {
   companyError.value = null;
+  const requestedId = props.companyId;
   try {
-    company.value = await api.getCompany(props.companyId);
+    const fresh = await api.getCompany(requestedId);
+    // Stale-response guard: on rapid navigation an earlier, slower
+    // response can resolve last and clobber the newer company's state.
+    if (requestedId !== props.companyId) return;
+    company.value = fresh;
     await Promise.allSettled([loadNewsFeed(), loadIndustryView()]);
   } catch (e) {
+    if (requestedId !== props.companyId) return;
     // Keep the HTTP status on the error object so the template can
     // tell "company genuinely missing" from "your session expired" /
     // "something else went wrong". Distinguishing these is the
@@ -856,6 +880,7 @@ async function dismissFailedReport() {
 async function submitThread() {
   if (!newQuestion.value.trim()) return;
   submittingThread.value = true;
+  submitThreadError.value = "";
   try {
     await api.addThread(props.companyId, {
       question: newQuestion.value.trim(),
@@ -864,6 +889,10 @@ async function submitThread() {
     newQuestion.value = "";
     newAnswer.value = "";
     await loadThreads();
+  } catch (e) {
+    // Surface the failure — an unhandled rejection here left the user's
+    // typed question apparently ignored with zero feedback.
+    submitThreadError.value = e?.message || String(e);
   } finally {
     submittingThread.value = false;
   }
@@ -873,10 +902,17 @@ async function loadFromQuery() {
   const reportId = route.query.report;
   if (reportId) {
     try {
-      activeReport.value = await api.getReport(reportId);
+      const report = await api.getReport(reportId);
+      // Stale-response guard: bail if the query changed while we awaited.
+      if (route.query.report !== reportId) return;
+      activeReport.value = report;
       activeTab.value = "memo";
-      if (activeReport.value.status !== "complete") startPolling();
+      // Poll only genuinely in-flight runs. failed_* and
+      // complete_with_warnings are terminal — polling them opened a
+      // pointless SSE stream on every page load of a failed report.
+      if (!isTerminalReportStatus(report.status)) startPolling();
     } catch (e) {
+      if (route.query.report !== reportId) return;
       activeReport.value = null;
     }
   } else {
@@ -888,7 +924,9 @@ async function loadFromQuery() {
       return;
     }
     try {
-      activeReport.value = await api.getReport(resumable.id);
+      const report = await api.getReport(resumable.id);
+      if (route.query.report) return; // navigated to a specific report meanwhile
+      activeReport.value = report;
     } catch (e) {
       activeReport.value = null;
     }
@@ -1631,7 +1669,10 @@ onUnmounted(stopPolling);
           :placeholder="tr('research.optional_notes_placeholder')"
           class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring resize-y"
         ></textarea>
-        <div class="flex justify-end">
+        <div class="flex items-center justify-end gap-3">
+          <span v-if="submitThreadError" class="text-xs text-danger">
+            {{ submitThreadError }}
+          </span>
           <button
             type="submit"
             :disabled="!newQuestion.trim() || submittingThread"

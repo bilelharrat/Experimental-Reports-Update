@@ -51,7 +51,8 @@ Running without any credentials is off by default. To allow it locally, set
 `BSH_ALLOW_ANON_DEV=1` (grants **admin** — local, full-access escape hatch).
 **Never set this in production.** For plain-http local dev also set
 `BSH_COOKIE_SECURE=0` so the session cookie is accepted. Both are in the
-sample `.env`.
+tracked `.env.example` (copy it to `.env`, which is gitignored). All other
+environment variables are documented there too.
 
 ### Account management (operator CLI)
 
@@ -89,17 +90,13 @@ npm run dev   # proxies /api to http://127.0.0.1:8010
 - **Autocomplete** uses the SEC EDGAR ticker index (~13K US public companies,
   cached for 24h) merged with already-tracked local companies. No auth, no
   rate limits.
-- **Deep search** (the Search button / Enter) uses the OpenAI Responses API
-  with `web_search` and a JSON-schema structured output for richer results
-  with 2026 highlights, key people, last funding round, etc. Cached per query
-  for 24h. Requires `OPENAI_API_KEY`; falls back to local-only matches when
-  unset.
-
-```sh
-export OPENAI_API_KEY=sk-...
-export OPENAI_MODEL=gpt-4.1   # optional, defaults to gpt-4.1
-./run.sh
-```
+- **Deep search** (the Search button / Enter) spawns the Claude Code CLI
+  (`claude -p` with WebSearch/WebFetch and a strict JSON schema) for richer
+  results with 2026 highlights, key people, last funding round, etc. Cached
+  per query (no TTL). Requires the `claude` CLI on PATH (`npm install -g
+  @anthropic-ai/claude-code`, then run `claude` once to authenticate); falls
+  back to local-registry matches when unavailable. See
+  `server/companies_ai.py`.
 
 ## Library
 
@@ -110,15 +107,48 @@ and Markdown files can be opened in-browser, all files can be downloaded.
 
 ## Data
 
+Tracked seeds:
+
 - `server/seed_data/company_records.yaml` — Git-tracked curated company seed
   records, including PRD/demo company profile fields
 - `server/seed_data/company_fixtures.yaml` — opt-in deterministic QA fixture
   companies
-- `data/companies.yaml` — local materialized company list
-- `data/reports/<id>.yaml` — generated reports (one per run; full history)
-- `data/threads/<company>.yaml` — knowledge-base Q&A threads
-- `data/uploads/<company>/` — uploaded PDFs, PPT/PPTX, and MD files with an `index.yaml`
-- `data/cache/companies_ai/` — persisted deep-search results (no auto-expiry)
+
+### Data directory map
+
+Everything under `data/` is generated at runtime. Directories prefixed `_`
+hold background-job progress logs (JSONL) rather than durable records.
+Owning module in parentheses:
+
+| Path | Contents (owner) |
+| --- | --- |
+| `data/companies.yaml` | materialized company list (`storage`) |
+| `data/company_ext/` | per-company extended sidecar records (`storage`) |
+| `data/reports/<id>.yaml` | generated reports, full history (`storage`) |
+| `data/threads/<company>.yaml` | knowledge-base Q&A threads (`storage`) |
+| `data/uploads/<company>/` | Document Library uploads + `index.yaml` (`files_store`) |
+| `data/research/<company>/` | background research docs + `index.yaml` (`research_store`) |
+| `data/memos/` | memo pipeline run dirs (`memo_prep`, `memo_analysis`) |
+| `data/memo_editor/` | memo studio editor state (`memo_editor_store`) |
+| `data/external/` | news / external research / hormuz sources (`external_store`, `hormuz_store`) |
+| `data/hormuz_appendix/` | generated Hormuz bilingual appendixes (`hormuz_store`) |
+| `data/consoles/` | company console sessions + attachments (`console_store`) |
+| `data/serena_analysis/`, `data/serena_training/` | Serena research-tool artifacts (`serena_analysis`) |
+| `data/stock_research/` | stock trackers, hypotheses, sources (`stock_research`, `hypothesis_store`) |
+| `data/intake/` | unresolved evidence intake queue (`evidence_store`) |
+| `data/analytics/events.jsonl` | append-only product analytics (`analytics_store`) |
+| `data/settings/` | preferences + Serena background memo (`product_store`, `memo_prep`) |
+| `data/cache/` | deep-search + EDGAR caches, no auto-expiry (`cache`) |
+| `data/users.json`, `data/sessions.json` | accounts and hashed session tokens (`auth_store`) |
+| `data/_api/`, `data/_regen/`, `data/_trader/`, `data/_trader_sections/`, `data/_trader_stats/`, `data/_weekly_stocks/` | job progress JSONL + checkpoints (`api`, `weekly_stocks`) |
+| `data/report_visuals/`, `data/visual_briefs/` | generated report imagery (large; prune periodically) |
+
+**Domain names:** "Serena" is the research analyst persona — the
+memo/research pipelines named for her live in `serena_analysis.py` and the
+memo modules. "Hormuz" is the Strait-of-Hormuz daily geopolitical research
+feature: sources land under `data/external/hormuz_research/`, and the
+`hormuz_*` modules build the bilingual appendix from them. See
+`docs/architecture.md` for the full module map.
 
 The whole `data/` directory is gitignored. Server startup generates local
 runtime state from tracked seeds. To run that materialization explicitly:

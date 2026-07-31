@@ -98,6 +98,42 @@ team profiles, competitors, company news, industry view, disclosures, and other
 PRD facts. It must preserve populated local generated fields including
 `translation`, `trader_snapshot`, `memo_state`, and `audit_records`.
 
+## Other AI surfaces (outside the two-feature contract)
+
+The two features above are the ones bound by the hard rules. Several
+other AI-driven surfaces exist and are deliberately independent of both:
+
+- **Hormuz** (`server/hormuz_store.py`, `hormuz_prep.py`,
+  `hormuz_analysis.py`, `hormuz_console.py`) — the Strait-of-Hormuz daily
+  geopolitical research feature. Analysts upload date-organized source
+  reports into `data/external/hormuz_research/sources/<date>/`; the
+  appendix skill (`claude_runner.run_hormuz_appendix`) generates a
+  bilingual (CN-first, EN-translated) appendix into
+  `data/hormuz_appendix/<date>/`. The Hormuz Console is a chat scoped to
+  the last two days of reports.
+- **Trader snapshots** (`server/companies_ai_public.py`, trader endpoints
+  in `api.py`) — per-public-company bilingual trading dashboards stored on
+  the company record as `trader_snapshot`.
+- **Weekly stocks** (`server/weekly_stocks.py`) — the weekly hot-stock
+  dashboard: one scan pass, then per-stock verification passes. Payloads
+  carry `scan_fallback` / per-stock `is_fallback` flags when the live scan
+  or a verification pass failed; the frontend must render those as
+  unverified content.
+- **Stock research trackers + Hypothesis Lab** (`server/stock_research.py`,
+  `hypothesis_store.py`, `hypothesis_cycle.py`) — recurring research
+  trackers and the hypothesis→evidence→verdict cycle under
+  `data/stock_research/`.
+- **Company consoles** (`server/console_store.py`, `console_session.py`,
+  console sections of `claude_runner.py`) — per-company interactive chat
+  sessions with document staging, under `data/consoles/`.
+- **Deep search** (`server/companies_ai.py`) — company search via the
+  Claude CLI with WebSearch; cached per query in `data/cache/`.
+
+"Serena" names the research-analyst persona whose memo/research flows the
+Investment Memo feature implements; `serena_analysis.py` holds her
+per-company research tools (thesis spine, benchmarks, chart specs, etc.)
+with artifacts under `data/serena_analysis/`.
+
 ## Cross-feature checks the code must keep enforcing
 
 - `server/memo_prep.py` must never import from or reference

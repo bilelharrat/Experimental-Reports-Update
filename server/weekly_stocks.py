@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,8 @@ from typing import Any
 
 from . import claude_runner, storage
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
 
@@ -750,16 +753,34 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
                 message=f"Researching {ticker}",
             )
 
-        detail, detail_err = claude_runner.run_web_research_json(
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=build_stock_detail_prompt(scan, candidate),
-            schema=STOCK_DETAIL_SCHEMA,
-            name=f"weekly_stock_{ticker.lower()}",
-            timeout_sec=115,
-            silence_timeout_sec=60,
-            progress=progress,
-            use_json_schema=True,
-        )
+        detail = None
+        detail_err: str | None = None
+        # One retry on transient failures (socket blips, CLI crashes) before
+        # falling back to an unverified scan-only card.
+        for attempt in range(2):
+            detail, detail_err = claude_runner.run_web_research_json(
+                system_prompt=SYSTEM_PROMPT,
+                user_prompt=build_stock_detail_prompt(scan, candidate),
+                schema=STOCK_DETAIL_SCHEMA,
+                name=f"weekly_stock_{ticker.lower()}",
+                timeout_sec=115,
+                silence_timeout_sec=60,
+                progress=progress,
+                use_json_schema=True,
+            )
+            if not detail_err or attempt == 1:
+                break
+            if not claude_runner.is_transient_claude_error(detail_err):
+                break
+            if progress:
+                progress.emit(
+                    "stock_retry",
+                    ticker=ticker,
+                    index=index,
+                    total_count=len(candidates),
+                    error=detail_err,
+                    message=f"Retrying {ticker} after transient error",
+                )
         if detail_err:
             error = {
                 "ticker": ticker,
@@ -861,6 +882,7 @@ def generate_summary(progress=None) -> tuple[dict[str, Any] | None, str | None]:
             message="Assembling weekly dashboard",
         )
     summary = _assemble_summary(scan, stocks, errors)
+    _fill_missing_summary_zh(summary, scan, progress=progress)
     saved = save_summary(summary)
     draft.update(
         status="complete",
@@ -900,6 +922,21 @@ def _fail_draft(
     save_draft(draft)
 
 
+# Static seed list used only when the live scan fails. Deliberately carries
+# no price data, no current-week claims, and no fabricated catalysts: each
+# candidate still goes through the real per-stock verification pass, and
+# anything that can't be verified is published flagged as fallback content
+# (see `is_fallback` handling in `_assemble_summary` and the frontend).
+_FALLBACK_SEED_CANDIDATES: list[dict[str, Any]] = [
+    {"ticker": "SNOW", "name": "Snowflake Inc.", "exchange": "NYSE", "sector": "Software"},
+    {"ticker": "NVDA", "name": "NVIDIA Corporation", "exchange": "NASDAQ", "sector": "Semiconductors"},
+    {"ticker": "MRVL", "name": "Marvell Technology, Inc.", "exchange": "NASDAQ", "sector": "Semiconductors"},
+    {"ticker": "MDB", "name": "MongoDB, Inc.", "exchange": "NASDAQ", "sector": "Software"},
+    {"ticker": "DELL", "name": "Dell Technologies Inc.", "exchange": "NYSE", "sector": "Hardware"},
+    {"ticker": "CRWD", "name": "CrowdStrike Holdings, Inc.", "exchange": "NASDAQ", "sector": "Cybersecurity"},
+]
+
+
 def _fallback_scan(error: str | None = None, now: datetime | None = None) -> dict[str, Any]:
     current = now or datetime.now(timezone.utc)
     date_label = current.strftime("%Y-%m-%d")
@@ -909,105 +946,66 @@ def _fallback_scan(error: str | None = None, now: datetime | None = None) -> dic
         f"{current.day}, {current.year}"
     )
     source = {
-        "label": "Current-week market mover scan",
+        "label": "Static fallback watchlist (live scan unavailable)",
         "url": None,
         "date": date_label,
     }
-    candidates = [
-        {
-            "rank": 1,
-            "ticker": "SNOW",
-            "name": "Snowflake Inc.",
-            "exchange": "NYSE",
-            "sector": "Software",
-            "score_hint": 94,
-            "weekly_change_pct": 36.5,
-            "catalyst": "Q1 beat, strong product revenue growth, and a large Amazon partnership put Snowflake at the center of the data-AI trade.",
-            "reason": "Largest clean software breakout in the current-week scan.",
-            "sources": [source],
-        },
-        {
-            "rank": 2,
-            "ticker": "NVDA",
-            "name": "NVIDIA Corporation",
-            "exchange": "NASDAQ",
-            "sector": "Semiconductors",
-            "score_hint": 91,
-            "weekly_change_pct": None,
-            "catalyst": "AI infrastructure demand and earnings momentum kept NVIDIA as the benchmark for the week's technology leadership.",
-            "reason": "Anchor name for AI semiconductor sentiment and sector breadth.",
-            "sources": [source],
-        },
-        {
-            "rank": 3,
-            "ticker": "MRVL",
-            "name": "Marvell Technology, Inc.",
-            "exchange": "NASDAQ",
-            "sector": "Semiconductors",
-            "score_hint": 86,
-            "weekly_change_pct": None,
-            "catalyst": "AI infrastructure and custom silicon narratives kept Marvell in the current-week mover set.",
-            "reason": "High-beta AI infrastructure exposure with fresh earnings attention.",
-            "sources": [source],
-        },
-        {
-            "rank": 4,
-            "ticker": "MDB",
-            "name": "MongoDB, Inc.",
-            "exchange": "NASDAQ",
-            "sector": "Software",
-            "score_hint": 84,
-            "weekly_change_pct": None,
-            "catalyst": "Database software earnings and AI-app demand screens surfaced MongoDB as a software momentum candidate.",
-            "reason": "Enterprise software name with catalyst-driven attention.",
-            "sources": [source],
-        },
-        {
-            "rank": 5,
-            "ticker": "DELL",
-            "name": "Dell Technologies Inc.",
-            "exchange": "NYSE",
-            "sector": "Hardware",
-            "score_hint": 82,
-            "weekly_change_pct": None,
-            "catalyst": "AI server demand, backlog commentary, and earnings focus kept Dell in the weekly AI-infrastructure basket.",
-            "reason": "Hardware beneficiary of the AI server cycle.",
-            "sources": [source],
-        },
-        {
-            "rank": 6,
-            "ticker": "CRWD",
-            "name": "CrowdStrike Holdings, Inc.",
-            "exchange": "NASDAQ",
-            "sector": "Cybersecurity",
-            "score_hint": 80,
-            "weekly_change_pct": None,
-            "catalyst": "Cybersecurity earnings and ARR durability made CrowdStrike a liquid software candidate to verify.",
-            "reason": "Security software name with fresh earnings setup.",
-            "sources": [source],
-        },
-    ]
+    candidates = []
+    for rank, seed in enumerate(_FALLBACK_SEED_CANDIDATES, start=1):
+        candidates.append(
+            {
+                **seed,
+                "rank": rank,
+                "score_hint": 50,
+                "weekly_change_pct": None,
+                "catalyst": (
+                    "Live market scan unavailable; standing watchlist name "
+                    "pending per-stock verification."
+                ),
+                "reason": (
+                    "Included from the static fallback watchlist, not from "
+                    "a live scan of this week's movers."
+                ),
+                "sources": [source],
+            }
+        )
     context = {
+        "is_fallback": True,
         "week_label": week_label,
         "as_of": date_label,
-        "market_pulse": "AI infrastructure and enterprise software dominate this week's momentum, led by earnings-driven breakouts in servers, data cloud, and database software.",
-        "benchmark_context": "The published leaders are ranked by verified weekly price action, catalyst quality, source support, and narrative durability.",
-        "methodology": "Screened current-week movers, then verified each stock's price action, catalysts, sources, and narrative durability.",
+        "market_pulse": (
+            "The live weekly market scan failed, so this dashboard was "
+            "seeded from a static watchlist instead of this week's actual "
+            "movers. Treat rankings and narratives as unverified."
+        ),
+        "market_pulse_zh": (
+            "本周实时市场扫描失败，本页内容来自静态备用观察名单，"
+            "并非本周真实的市场热点。排名与叙述均未经验证。"
+        ),
+        "benchmark_context": (
+            "Fallback mode: entries come from a standing watchlist, not "
+            "verified weekly price action."
+        ),
+        "benchmark_context_zh": "兜底模式：条目来自固定观察名单，并非经过验证的本周走势。",
+        "methodology": (
+            "Live scan unavailable; a static watchlist was substituted and "
+            "each name was individually verified where possible."
+        ),
         "candidates": candidates,
         "watchlist": [
             {
                 "ticker": "HPE",
                 "name": "Hewlett Packard Enterprise Co.",
-                "reason": "AI server and enterprise infrastructure read-through to monitor.",
-                "reason_en": "AI server and enterprise infrastructure read-through to monitor.",
-                "reason_zh": "继续观察AI服务器和企业基础设施的联动机会。",
+                "reason": "Standing watchlist name (fallback mode).",
+                "reason_en": "Standing watchlist name (fallback mode).",
+                "reason_zh": "固定观察名单标的（兜底模式）。",
             },
             {
                 "ticker": "PSTG",
                 "name": "Pure Storage, Inc.",
-                "reason": "Storage infrastructure name close to the same AI hardware theme.",
-                "reason_en": "Storage infrastructure name close to the same AI hardware theme.",
-                "reason_zh": "与AI硬件主题相关的存储基础设施标的。",
+                "reason": "Standing watchlist name (fallback mode).",
+                "reason_en": "Standing watchlist name (fallback mode).",
+                "reason_zh": "固定观察名单标的（兜底模式）。",
             },
         ],
     }
@@ -1112,10 +1110,10 @@ def _fallback_stock_from_candidate(
         _ensure_bilingual_text(row, base, fallback="")
     score = _number(row.get("score_hint"), 70)
     move = _nullable_number(row.get("weekly_change_pct"))
-    catalyst = str(row.get("catalyst") or "Fresh weekly catalyst")
+    catalyst = str(row.get("catalyst") or "No verified catalyst (detail research failed)")
     catalyst_en = str(row.get("catalyst_en") or catalyst)
     catalyst_zh = str(row.get("catalyst_zh") or catalyst_en)
-    reason = str(row.get("reason") or "current-week momentum and attention")
+    reason = str(row.get("reason") or "surfaced by the weekly scan; not verified")
     reason_en = str(row.get("reason_en") or reason)
     reason_zh = str(row.get("reason_zh") or reason_en)
     move_value = _format_pct(move)
@@ -1132,17 +1130,19 @@ def _fallback_stock_from_candidate(
         "sector": row.get("sector"),
         "sector_en": row.get("sector_en"),
         "sector_zh": row.get("sector_zh"),
+        "is_fallback": True,
+        "sparkline_synthetic": True,
         "score": score,
         "weekly_change_pct": move,
         "relative_volume": None,
         "relative_strength_pct": None,
         "market_cap_usd": None,
-        "why_awesome": f"{ticker} screened as a hot weekly setup: {reason_en}",
-        "why_awesome_en": f"{ticker} screened as a hot weekly setup: {reason_en}",
-        "why_awesome_zh": f"{ticker} 进入本周热门名单：{reason_zh}",
-        "setup": "Scan-qualified momentum setup awaiting deeper verification.",
-        "setup_en": "Scan-qualified momentum setup awaiting deeper verification.",
-        "setup_zh": "已通过周度扫描筛选，仍需更深入验证的动量机会。",
+        "why_awesome": f"{ticker} surfaced in the weekly scan (unverified): {reason_en}",
+        "why_awesome_en": f"{ticker} surfaced in the weekly scan (unverified): {reason_en}",
+        "why_awesome_zh": f"{ticker} 出现在本周扫描中（未经验证）：{reason_zh}",
+        "setup": "Scan result only — per-stock verification did not complete.",
+        "setup_en": "Scan result only — per-stock verification did not complete.",
+        "setup_zh": "仅为扫描结果——个股深度验证未完成。",
         "catalyst": catalyst,
         "catalyst_en": catalyst_en,
         "catalyst_zh": catalyst_zh,
@@ -1167,7 +1167,7 @@ def _fallback_stock_from_candidate(
                 "label": "Catalyst",
                 "label_en": "Catalyst",
                 "label_zh": "催化剂",
-                "value": "Fresh",
+                "value": "Unverified",
                 "score": min(100, max(0, score - 5)),
                 "note": catalyst_en,
                 "note_en": catalyst_en,
@@ -1242,7 +1242,14 @@ def _assemble_summary(
         or "Phased scan plus per-stock verification of price action, volume, catalysts, liquidity and narrative durability."
     )
     methodology_zh = "先进行市场扫描，再逐只股票验证走势、成交量、催化剂、流动性和叙事持续性。"
+    fallback_stock_count = sum(1 for stock in ranked if stock.get("is_fallback"))
     summary = {
+        # Honesty flags: `scan_fallback` means the candidate list itself came
+        # from the static seed watchlist (live scan failed); per-stock
+        # `is_fallback` means that card skipped detail verification. The
+        # frontend must render these as degraded/unverified content.
+        "scan_fallback": bool(scan.get("is_fallback")),
+        "fallback_stock_count": fallback_stock_count,
         "week_label": scan.get("week_label") or _week_label_fallback(),
         "week_label_en": scan.get("week_label_en") or scan.get("week_label") or _week_label_fallback(),
         "week_label_zh": scan.get("week_label_zh") or scan.get("week_label_en") or scan.get("week_label") or _week_label_fallback(),
@@ -1266,6 +1273,128 @@ def _assemble_summary(
         )[:12],
     }
     return summary
+
+
+_SUMMARY_ZH_PAIRS = (
+    ("week_label", "week_label_zh"),
+    ("market_pulse", "market_pulse_zh"),
+    ("benchmark_context", "benchmark_context_zh"),
+    ("methodology", "methodology_zh"),
+)
+
+_STOCK_ZH_FIELDS = ("why_awesome", "setup", "catalyst", "risk")
+_LOWERCASE_EN_WORD_RE = re.compile(r"\b[a-z][a-z'-]+\b")
+
+
+def _zh_needs_translation(value: Any) -> bool:
+    """True when a `_zh` field is blank or carries untranslated English prose.
+
+    Fallback stock cards stitch candidate English (reason/catalyst) into
+    Chinese templates, producing half-English strings like
+    "PYPL 进入本周热门名单：Best-in-class relative strength...". Genuine
+    Chinese carries at most a few Latin proper nouns/tickers (all
+    capitalized), so a run of lowercase English words is a reliable signal.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return True
+    return len(_LOWERCASE_EN_WORD_RE.findall(text)) >= 4
+
+
+def _fill_missing_summary_zh(
+    summary: dict[str, Any],
+    scan: dict[str, Any],
+    progress=None,
+) -> None:
+    """Translate top-level narrative fields the fast scan left English-only.
+
+    FAST_WEEKLY_SCAN_SCHEMA intentionally skips the `_zh` fields for speed,
+    which used to leave `market_pulse_zh` / `benchmark_context_zh` on a
+    generic stats template while the English carried the real weekly
+    narrative. Fill the missing Chinese with one small translation call; on
+    any failure the template fallback stays so publishing never blocks.
+    """
+    needed: dict[str, str] = {}
+    for base, zh_key in _SUMMARY_ZH_PAIRS:
+        if str(scan.get(zh_key) or "").strip():
+            continue  # the scan produced real Chinese for this field
+        source = str(
+            summary.get(f"{base}_en") or summary.get(base) or ""
+        ).strip()
+        if source:
+            needed[zh_key] = source
+    # Stock cards: fallback-built cards embed untranslated English in their
+    # `_zh` fields; detection is content-based so genuine scan Chinese is
+    # never touched.
+    stocks = summary.get("stocks") if isinstance(summary.get("stocks"), list) else []
+    for index, stock in enumerate(stocks):
+        if not isinstance(stock, dict):
+            continue
+        for base in _STOCK_ZH_FIELDS:
+            zh_key = f"{base}_zh"
+            if not _zh_needs_translation(stock.get(zh_key)):
+                continue
+            source = str(
+                stock.get(f"{base}_en") or stock.get(base) or ""
+            ).strip()
+            if source:
+                needed[f"stocks[{index}].{zh_key}"] = source
+    if not needed:
+        return
+    if progress:
+        progress.emit(
+            "stage",
+            stage="translate_zh",
+            message="Translating weekly narrative to Chinese",
+        )
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {key: {"type": "string"} for key in needed},
+        "required": list(needed),
+    }
+    payload = json.dumps(needed, ensure_ascii=False, indent=2)
+    data, err = claude_runner.run_structured_prompt(
+        system_prompt=(
+            "You translate a weekly public-equities dashboard from English "
+            "to Simplified Chinese for institutional investors. Produce "
+            "natural finance/trader Chinese, not literal word-by-word "
+            "translation. Keep tickers, company names, index names, dates, "
+            "percentages, and dollar figures in their original form.\n\n"
+            + INVESTMENT_RESEARCH_CHINESE_STYLE
+        ),
+        user_prompt=(
+            "Translate each English value in this JSON object to Simplified "
+            "Chinese and return a JSON object with the SAME keys.\n\n"
+            f"INPUT:\n{payload}"
+        ),
+        schema=schema,
+        name="weekly_summary_zh",
+        timeout_sec=120,
+        progress=progress,
+    )
+    if err or not isinstance(data, dict):
+        logger.warning("weekly summary zh translation failed: %s", err)
+        if progress:
+            progress.emit(
+                "stage",
+                stage="translate_zh_fallback",
+                message="Chinese translation failed; keeping fallback text",
+                error=err,
+            )
+        return
+    stock_key_re = re.compile(r"^stocks\[(\d+)\]\.(\w+)$")
+    for key in needed:
+        value = data.get(key)
+        if not (isinstance(value, str) and value.strip()):
+            continue
+        match = stock_key_re.match(key)
+        if match:
+            index = int(match.group(1))
+            if 0 <= index < len(stocks) and isinstance(stocks[index], dict):
+                stocks[index][match.group(2)] = value.strip()
+        else:
+            summary[key] = value.strip()
 
 
 def _market_pulse_fallback(stocks: list[dict[str, Any]]) -> tuple[str, str]:

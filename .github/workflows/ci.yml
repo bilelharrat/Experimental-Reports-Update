@@ -47,9 +47,11 @@ jobs:
       - name: Lint frontend
         run: npm --prefix frontend run lint
 
+      # The quick job runs only the hypothesis suite as a fast smoke; the
+      # Full job (below) runs the entire backend + frontend gate.
       - name: Unit tests
         run: |
-          python -m pytest tests/test_hypothesis_store.py tests/test_hypothesis_cycle.py
+          uv run python -m pytest tests/test_hypothesis_store.py tests/test_hypothesis_cycle.py
           npm --prefix frontend test
 
   full:

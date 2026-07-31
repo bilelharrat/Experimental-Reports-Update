@@ -13,6 +13,8 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import { appLanguage } from "../state.js";
+import { localizedChangeHighlights } from "../traderStatsI18n.js";
 
 const t = useT();
 
@@ -164,6 +166,10 @@ function failedSectionCount(record) {
 
 function changedSections(record) {
   return record?.change_summary?.changed_sections || [];
+}
+
+function changeHighlights(record) {
+  return localizedChangeHighlights(record, appLanguage.value, t);
 }
 
 function sectionLabel(section) {
@@ -473,7 +479,7 @@ function selectItem(item) {
             </h3>
             <ul class="mt-3 space-y-2 text-sm leading-5 text-ink-secondary">
               <li
-                v-for="(highlight, index) in selectedLatest.change_summary?.highlights || []"
+                v-for="(highlight, index) in changeHighlights(selectedLatest)"
                 :key="index"
                 class="flex gap-2"
               >
