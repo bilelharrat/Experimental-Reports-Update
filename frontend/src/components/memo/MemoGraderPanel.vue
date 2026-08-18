@@ -14,7 +14,7 @@ const emit = defineEmits(["select-memo-for-grading"]);
       :value="memoGrader?.selected_report_id || memoGrader?.completed_report_id || ''"
       @change="emit('select-memo-for-grading', $event.target.value)"
       :disabled="Boolean(savingArtifact) || completedMemoRuns.length === 0"
-      class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-xs text-ink-primary focus-ring"
+      class="field field-sm focus-ring"
     >
       <option value="">
         {{ completedMemoRuns.length ? "Select completed memo" : "No completed memos" }}
@@ -29,7 +29,7 @@ const emit = defineEmits(["select-memo-for-grading"]);
     </select>
     <div
       v-if="memoGrader?.status === 'graded'"
-      class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-secondary"
+      class="rounded-subbox bg-fill-tertiary px-3 py-2 text-xs text-ink-secondary"
     >
       <div class="font-medium text-ink-primary">
         Graded {{ memoGrader.completed_report_id }}

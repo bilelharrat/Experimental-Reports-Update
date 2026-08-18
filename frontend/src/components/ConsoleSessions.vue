@@ -88,11 +88,11 @@ function turnTime(ts) {
     <!-- Read-only transcript modal -->
     <div
       v-if="modalSid"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      class="sheet-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       @click.self="closeModal"
     >
       <div
-        class="bg-surface rounded-card shadow-card border border-subtle max-w-3xl w-full max-h-[80vh] flex flex-col"
+        class="sheet-panel bg-surface rounded-sheet max-w-3xl w-full max-h-[80vh] flex flex-col"
       >
         <div class="flex items-center justify-between gap-3 p-4 border-b border-subtle">
           <div>
@@ -118,9 +118,9 @@ function turnTime(ts) {
 
           <div
             v-if="modalMeta?.summary?.bullets?.length"
-            class="rounded-lg border border-subtle bg-surface-muted p-3 space-y-1"
+            class="rounded-subbox bg-fill-tertiary p-3 space-y-1"
           >
-            <div class="text-xs uppercase tracking-wide text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               {{ tr("console.summary_title") }}
             </div>
             <ul class="list-disc list-inside text-ink-secondary space-y-0.5">
@@ -129,7 +129,7 @@ function turnTime(ts) {
           </div>
 
           <div v-for="t in modalTurns" :key="t.id + ':' + t.role" class="space-y-1">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               <template v-if="t.role === 'user'">▶ {{ tr("console.you") }}</template>
               <template v-else>▶ {{ tr("console.claude") }}</template>
               <span class="ml-2 normal-case tracking-normal">{{ turnTime(t.ts) }}</span>

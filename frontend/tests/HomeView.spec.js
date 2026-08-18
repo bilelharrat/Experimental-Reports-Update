@@ -46,28 +46,16 @@ describe("HomeView M1 layout and search", () => {
     vi.useRealTimers();
   });
 
-  it("places Quick Add directly after the search form before operations", () => {
-    const wrapper = mount(HomeView, {
-      global: {
-        stubs: {
-          "router-link": {
-            props: ["to"],
-            template: "<a><slot /></a>",
-          },
-        },
-      },
-    });
-    const form = wrapper.find("form");
-    const quickAdd = form.element.nextElementSibling;
+  it("is search-first with glass intake actions under the field", () => {
+    const wrapper = mount(HomeView);
 
-    expect(quickAdd?.textContent).toContain("Quick Add");
-    expect(quickAdd?.textContent).toContain("Submit a link");
-    expect(quickAdd?.textContent).toContain("Upload external research");
-    expect(quickAdd?.textContent).toContain("Add research");
-    expect(quickAdd?.textContent).toContain("Source library & appendix");
-    expect(wrapper.text().indexOf("Quick Add")).toBeLessThan(
-      wrapper.text().indexOf("Operations"),
-    );
+    expect(wrapper.text()).toContain("Find a Company");
+    expect(wrapper.text()).toContain("Link");
+    expect(wrapper.text()).toContain("File");
+    expect(wrapper.text()).toContain("Note");
+    expect(wrapper.text()).toContain("Library");
+    expect(wrapper.text()).not.toContain("Quick Add");
+    expect(wrapper.text()).not.toContain("Operations");
   });
 
   it("opens an exact autocomplete company instead of starting deep search", async () => {
@@ -117,6 +105,7 @@ describe("HomeView M1 layout and search", () => {
         company_reason: "No high-confidence company match.",
       },
     });
+    mockRoute.query = { intake: "link" };
     const wrapper = mount(HomeView, {
       global: {
         stubs: {
@@ -127,11 +116,7 @@ describe("HomeView M1 layout and search", () => {
         },
       },
     });
-
-    await wrapper
-      .findAll("button")
-      .find((button) => button.text().includes("Submit a link"))
-      .trigger("click");
+    await flushPromises();
     await wrapper
       .findComponent(SubmitLinkTool)
       .find("input[type='text']")
@@ -182,11 +167,20 @@ describe("HomeView ?intake= deep-links", () => {
   });
 
   it("opens the internal note tool at ?intake=note and reacts to navigation", async () => {
-    const wrapper = mount(HomeView);
+    const wrapper = mount(HomeView, {
+      global: {
+        stubs: {
+          "router-link": {
+            props: ["to"],
+            template: "<a><slot /></a>",
+          },
+        },
+      },
+    });
     await flushPromises();
-    expect(wrapper.findComponent(AddHormuzResearchTool).props("expanded")).toBe(false);
+    expect(wrapper.findComponent(AddHormuzResearchTool).exists()).toBe(false);
 
-    // Sidebar Quick Intake buttons navigate to /?intake=note on the same
+    // Toolbar Quick Add navigates to /?intake=note on the same
     // mounted view — the watcher must pick up the query change.
     mockRoute.query = { intake: "note" };
     await flushPromises();

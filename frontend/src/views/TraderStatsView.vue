@@ -1,10 +1,8 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   BarChart3,
   Gauge,
   Loader2,
@@ -205,16 +203,9 @@ function selectItem(item) {
       class="flex flex-col gap-4 border-b border-subtle pb-5 lg:flex-row lg:items-start lg:justify-between"
     >
       <div class="min-w-0">
-        <RouterLink
-          :to="{ name: 'home' }"
-          class="inline-flex items-center gap-1.5 rounded text-sm text-ink-muted hover:text-ink-primary focus-ring"
-        >
-          <ArrowLeft class="h-4 w-4" />
-          {{ t("common.back") }}
-        </RouterLink>
-        <div class="mt-4 flex items-center gap-2">
+        <div class="flex items-center gap-2">
           <BarChart3 class="h-5 w-5 text-accent" />
-          <h1 class="font-display text-2xl font-semibold text-ink-primary">
+          <h1 class="font-display text-large-title text-ink-primary">
             {{ t("trader_stats.title") }}
           </h1>
         </div>
@@ -226,7 +217,7 @@ function selectItem(item) {
         type="button"
         :disabled="loading || refreshing"
         @click="refreshStats"
-        class="inline-flex items-center justify-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-primary shadow-card hover:bg-surface-muted disabled:opacity-60 focus-ring"
+        class="btn-bordered focus-ring"
       >
         <Loader2 v-if="refreshing" class="h-4 w-4 animate-spin text-accent" />
         <RefreshCw v-else class="h-4 w-4 text-accent" />
@@ -238,8 +229,8 @@ function selectItem(item) {
       class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
       aria-live="polite"
     >
-      <div class="rounded-card border border-subtle bg-surface p-4 shadow-card">
-        <div class="flex items-center gap-2 text-xs font-medium uppercase text-ink-muted">
+      <div class="rounded-card bg-surface p-4 shadow-card">
+        <div class="flex items-center gap-2 vogue-label">
           <Activity class="h-4 w-4" />
           {{ t("trader_stats.metric_symbols") }}
         </div>
@@ -247,8 +238,8 @@ function selectItem(item) {
           {{ fmtNumber(totals.recorded_count || 0) }}
         </div>
       </div>
-      <div class="rounded-card border border-subtle bg-surface p-4 shadow-card">
-        <div class="flex items-center gap-2 text-xs font-medium uppercase text-ink-muted">
+      <div class="rounded-card bg-surface p-4 shadow-card">
+        <div class="flex items-center gap-2 vogue-label">
           <Gauge class="h-4 w-4" />
           {{ t("trader_stats.metric_tokens") }}
         </div>
@@ -256,8 +247,8 @@ function selectItem(item) {
           {{ fmtTokens(totals.total_tokens) }}
         </div>
       </div>
-      <div class="rounded-card border border-subtle bg-surface p-4 shadow-card">
-        <div class="flex items-center gap-2 text-xs font-medium uppercase text-ink-muted">
+      <div class="rounded-card bg-surface p-4 shadow-card">
+        <div class="flex items-center gap-2 vogue-label">
           <TrendingUp class="h-4 w-4" />
           {{ t("trader_stats.metric_change") }}
         </div>
@@ -265,8 +256,8 @@ function selectItem(item) {
           {{ fmtPct(totals.average_change_pct) }}
         </div>
       </div>
-      <div class="rounded-card border border-subtle bg-surface p-4 shadow-card">
-        <div class="flex items-center gap-2 text-xs font-medium uppercase text-ink-muted">
+      <div class="rounded-card bg-surface p-4 shadow-card">
+        <div class="flex items-center gap-2 vogue-label">
           <AlertTriangle class="h-4 w-4" />
           {{ t("trader_stats.metric_failed") }}
         </div>
@@ -290,10 +281,10 @@ function selectItem(item) {
 
     <div
       v-else-if="!items.length"
-      class="mt-10 rounded-card border border-subtle bg-surface px-6 py-8 text-center shadow-card"
+      class="mt-10 rounded-card bg-surface px-6 py-8 text-center shadow-card"
     >
       <BarChart3 class="mx-auto h-8 w-8 text-ink-muted" />
-      <h2 class="mt-3 font-display text-lg font-semibold text-ink-primary">
+      <h2 class="mt-3 font-display text-title3 text-ink-primary">
         {{ t("trader_stats.empty_title") }}
       </h2>
       <p class="mx-auto mt-2 max-w-xl text-sm text-ink-secondary">
@@ -302,7 +293,7 @@ function selectItem(item) {
     </div>
 
     <div v-else class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-      <section class="min-w-0 overflow-hidden rounded-card border border-subtle bg-surface shadow-card">
+      <section class="min-w-0 overflow-hidden rounded-card bg-surface shadow-card">
         <div class="border-b border-subtle px-4 py-3">
           <h2 class="text-sm font-semibold text-ink-primary">
             {{ t("trader_stats.table_title") }}
@@ -404,7 +395,7 @@ function selectItem(item) {
         </div>
       </section>
 
-      <aside class="rounded-card border border-subtle bg-surface shadow-card">
+      <aside class="rounded-card bg-surface shadow-card">
         <div class="border-b border-subtle px-4 py-3">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -465,7 +456,7 @@ function selectItem(item) {
               <div
                 v-for="section in selectedFailedSections"
                 :key="`${section.thread || 'thread'}-${section.error || ''}`"
-                class="rounded-lg border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning-ink"
+                class="banner-warning"
               >
                 <div class="font-medium">{{ section.thread || t("trader_stats.detail_failed_unknown") }}</div>
                 <div class="mt-1 text-xs leading-5">{{ section.error || t("trader_stats.detail_failed_no_error") }}</div>

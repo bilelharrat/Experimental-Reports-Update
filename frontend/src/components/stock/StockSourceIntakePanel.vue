@@ -56,7 +56,7 @@ function updateNoteForm(field, value) {
 <template>
   <section class="space-y-4">
     <div class="grid gap-4 xl:grid-cols-[22rem_1fr]">
-      <aside class="rounded-lg border border-subtle bg-surface p-4">
+      <aside class="rounded-card bg-surface shadow-card p-4">
         <h2 class="text-sm font-semibold">Assign Source</h2>
         <div class="mt-3 space-y-2">
           <label
@@ -87,7 +87,7 @@ function updateNoteForm(field, value) {
           />
           <button
             type="button"
-            class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+            class="btn-bordered w-full focus-ring"
             :disabled="busy || !sourceTrackerIds.length || !fileForm.file"
             @click="emit('submit-file-source')"
           >
@@ -116,7 +116,7 @@ function updateNoteForm(field, value) {
           ></textarea>
           <button
             type="button"
-            class="inline-flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white focus-ring disabled:opacity-50"
+            class="btn-filled w-full focus-ring"
             :disabled="busy || !sourceTrackerIds.length || !linkForm.url"
             @click="emit('submit-link-source')"
           >
@@ -139,7 +139,7 @@ function updateNoteForm(field, value) {
           ></textarea>
           <button
             type="button"
-            class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+            class="btn-bordered w-full focus-ring"
             :disabled="busy || !sourceTrackerIds.length || !noteForm.body"
             @click="emit('submit-note-source')"
           >
@@ -148,9 +148,9 @@ function updateNoteForm(field, value) {
           </button>
         </div>
       </aside>
-      <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-        <table class="min-w-full text-left text-sm">
-          <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+      <div class="overflow-x-auto rounded-card bg-surface shadow-card">
+        <table class="inset-table">
+          <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
             <tr>
               <th class="px-3 py-2">Source</th>
               <th class="px-3 py-2">Tracker</th>

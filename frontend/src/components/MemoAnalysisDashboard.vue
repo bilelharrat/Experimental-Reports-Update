@@ -1218,7 +1218,7 @@ watch(additionalAreas, (areas) => {
 
         <div class="border border-subtle bg-surface rounded-card p-5">
           <div class="flex items-center justify-between gap-3">
-            <h3 class="font-display text-lg font-semibold text-ink-primary">
+            <h3 class="font-display text-title3 text-ink-primary">
               Investment Highlights & Risks
             </h3>
             <button
@@ -1226,7 +1226,7 @@ watch(additionalAreas, (areas) => {
               type="button"
               @click="saveThesisDraft"
               :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
+              class="btn-bordered btn-sm focus-ring"
             >
               <Loader2
                 v-if="savingArtifact === 'thesis_spine'"
@@ -1240,17 +1240,17 @@ watch(additionalAreas, (areas) => {
             No thesis spine drafted yet.
           </div>
           <template v-else>
-            <div class="mt-3 text-xs uppercase tracking-wide text-ink-muted">
+            <div class="mt-3 text-footnote font-semibold text-ink-muted">
               Highlights
             </div>
             <div class="mt-2 space-y-3">
               <div
                 v-for="(item, index) in thesisDraft.investment_highlights"
                 :key="item.id || index"
-                class="rounded-lg border border-subtle bg-surface-muted p-3 space-y-2"
+                class="rounded-subbox bg-fill-tertiary p-3 space-y-2"
               >
                 <label
-                  class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                  class="block text-[11px] font-medium text-footnote font-semibold text-ink-muted"
                   :for="`highlight-claim-${item.id || index}`"
                 >
                   Claim {{ index + 1 }}
@@ -1258,10 +1258,10 @@ watch(additionalAreas, (areas) => {
                 <input
                   :id="`highlight-claim-${item.id || index}`"
                   v-model="item.claim"
-                  class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring"
+                  class="field focus-ring"
                 />
                 <label
-                  class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                  class="block text-[11px] font-medium text-footnote font-semibold text-ink-muted"
                   :for="`highlight-detail-${item.id || index}`"
                 >
                   Detail
@@ -1270,21 +1270,21 @@ watch(additionalAreas, (areas) => {
                   :id="`highlight-detail-${item.id || index}`"
                   v-model="item.detail"
                   rows="3"
-                  class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
+                  class="field resize-y focus-ring"
                 ></textarea>
               </div>
             </div>
-            <div class="mt-4 text-xs uppercase tracking-wide text-ink-muted">
+            <div class="mt-4 text-footnote font-semibold text-ink-muted">
               Risks
             </div>
             <div class="mt-2 space-y-3">
               <div
                 v-for="(item, index) in thesisDraft.investment_risks"
                 :key="item.id || index"
-                class="rounded-lg border border-subtle bg-surface-muted p-3 space-y-2"
+                class="rounded-subbox bg-fill-tertiary p-3 space-y-2"
               >
                 <label
-                  class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                  class="block text-[11px] font-medium text-footnote font-semibold text-ink-muted"
                   :for="`risk-claim-${item.id || index}`"
                 >
                   Claim {{ index + 1 }}
@@ -1292,10 +1292,10 @@ watch(additionalAreas, (areas) => {
                 <input
                   :id="`risk-claim-${item.id || index}`"
                   v-model="item.claim"
-                  class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring"
+                  class="field focus-ring"
                 />
                 <label
-                  class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                  class="block text-[11px] font-medium text-footnote font-semibold text-ink-muted"
                   :for="`risk-detail-${item.id || index}`"
                 >
                   Detail
@@ -1304,21 +1304,21 @@ watch(additionalAreas, (areas) => {
                   :id="`risk-detail-${item.id || index}`"
                   v-model="item.detail"
                   rows="3"
-                  class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
+                  class="field resize-y focus-ring"
                 ></textarea>
               </div>
             </div>
-            <div class="mt-4 text-xs uppercase tracking-wide text-ink-muted">
+            <div class="mt-4 text-footnote font-semibold text-ink-muted">
               Risk And Valuation Sensitivities
             </div>
             <div class="mt-2 space-y-3">
               <div
                 v-for="(gate, index) in thesisSensitivities(thesisDraft)"
                 :key="gate.id || index"
-                class="rounded-lg border border-subtle bg-surface-muted p-3 space-y-2"
+                class="rounded-subbox bg-fill-tertiary p-3 space-y-2"
               >
                 <label
-                  class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                  class="block text-[11px] font-medium text-footnote font-semibold text-ink-muted"
                   :for="`sensitivity-${gate.id || index}`"
                 >
                   Sensitivity {{ index + 1 }}
@@ -1327,10 +1327,10 @@ watch(additionalAreas, (areas) => {
                   :id="`sensitivity-${gate.id || index}`"
                   v-model="gate.sensitivity"
                   rows="2"
-                  class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
+                  class="field resize-y focus-ring"
                 ></textarea>
                 <label
-                  class="block text-[11px] font-medium uppercase tracking-wide text-ink-muted"
+                  class="block text-[11px] font-medium text-footnote font-semibold text-ink-muted"
                   :for="`sensitivity-support-${gate.id || index}`"
                 >
                   Support Evidence
@@ -1339,7 +1339,7 @@ watch(additionalAreas, (areas) => {
                   :id="`sensitivity-support-${gate.id || index}`"
                   v-model="gate.support_evidence"
                   rows="2"
-                  class="w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary focus-ring resize-y"
+                  class="field resize-y focus-ring"
                 ></textarea>
               </div>
             </div>
@@ -1362,8 +1362,8 @@ watch(additionalAreas, (areas) => {
         @toggle-task-source="toggleTaskSource"
       />
 
-      <details class="rounded-card border border-subtle bg-surface p-5">
-        <summary class="cursor-pointer font-display text-lg font-semibold text-ink-primary focus-ring">
+      <details class="rounded-card bg-surface p-5">
+        <summary class="cursor-pointer font-display text-title3 text-ink-primary focus-ring">
           Evidence, Ledger, And Source Boundaries
         </summary>
         <div class="mt-4 space-y-4">
@@ -1399,8 +1399,8 @@ watch(additionalAreas, (areas) => {
         </div>
       </details>
 
-      <details class="rounded-card border border-subtle bg-surface p-5">
-        <summary class="cursor-pointer font-display text-lg font-semibold text-ink-primary focus-ring">
+      <details class="rounded-card bg-surface p-5">
+        <summary class="cursor-pointer font-display text-title3 text-ink-primary focus-ring">
           Visual, Narrative, And Benchmark Tools
         </summary>
         <div class="mt-4 grid xl:grid-cols-2 gap-4">

@@ -104,7 +104,7 @@ function fmtDate(value) {
 <template>
   <section class="space-y-3">
     <div class="flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <h3 class="font-display text-title3 text-ink-primary">
         Core Memo Workflow
       </h3>
     </div>
@@ -112,7 +112,7 @@ function fmtDate(value) {
       <article
         v-for="tool in coreTools"
         :key="tool.name"
-        class="rounded-card border border-subtle bg-surface p-4"
+        class="rounded-card bg-surface p-4"
       >
         <div class="flex items-start gap-3">
           <component
@@ -123,10 +123,7 @@ function fmtDate(value) {
             <div class="flex items-center gap-2 flex-wrap">
               <div class="font-medium text-ink-primary">{{ tool.label }}</div>
               <span
-                :class="[
-                  'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                  statusClass(tool.status),
-                ]"
+                :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', statusClass(tool.status), ]"
               >
                 {{ tool.status.replace('_', ' ') }}
               </span>
@@ -135,17 +132,11 @@ function fmtDate(value) {
               {{ tool.description }}
             </p>
             <div
-              :class="[
-                'mt-3 inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-medium uppercase tracking-wide',
-                preworkClass(tool),
-              ]"
+              :class="[ 'mt-3 inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-medium ', preworkClass(tool), ]"
             >
               <component
                 :is="preworkIcon(tool)"
-                :class="[
-                  'h-3.5 w-3.5',
-                  tool.status === 'running' ? 'animate-spin' : '',
-                ]"
+                :class="[ 'h-3.5 w-3.5', tool.status === 'running' ? 'animate-spin' : '', ]"
               />
               <span>{{ preworkLabel(tool) }}</span>
             </div>
@@ -162,9 +153,9 @@ function fmtDate(value) {
               <div
                 v-for="(prompt, index) in promptsFor(tool)"
                 :key="`${tool.name}-prompt-${index}`"
-                class="rounded-lg border border-subtle bg-surface-muted px-3 py-2"
+                class="rounded-subbox bg-fill-tertiary px-3 py-2"
               >
-                <div class="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+                <div class="text-[11px] font-medium text-footnote font-semibold text-ink-muted">
                   {{ promptTitle(prompt, index) }}
                 </div>
                 <div class="mt-1 text-sm text-ink-primary">
@@ -183,7 +174,7 @@ function fmtDate(value) {
             type="button"
             @click="emit('run-tool', tool.name)"
             :disabled="Boolean(runningTool) || tool.status === 'running'"
-            class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-subtle bg-surface-muted px-3 text-sm text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring"
+            class="btn-bordered h-9 shrink-0 focus-ring"
             :title="`Run ${tool.label}`"
           >
             <Loader2
@@ -199,7 +190,7 @@ function fmtDate(value) {
 
     <details
       v-if="optionalTools.length"
-      class="rounded-card border border-subtle bg-surface p-4"
+      class="rounded-card bg-surface p-4"
     >
       <summary class="cursor-pointer text-sm font-medium text-ink-primary focus-ring">
         Optional Memo Tools
@@ -219,10 +210,7 @@ function fmtDate(value) {
               <div class="flex items-center gap-2 flex-wrap">
                 <div class="font-medium text-ink-primary">{{ tool.label }}</div>
                 <span
-                  :class="[
-                    'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                    statusClass(tool.status),
-                  ]"
+                  :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', statusClass(tool.status), ]"
                 >
                   {{ tool.status.replace('_', ' ') }}
                 </span>
@@ -243,9 +231,9 @@ function fmtDate(value) {
                 <div
                   v-for="(prompt, index) in promptsFor(tool)"
                   :key="`${tool.name}-optional-prompt-${index}`"
-                  class="rounded-lg border border-subtle bg-surface-muted px-3 py-2"
+                  class="rounded-subbox bg-fill-tertiary px-3 py-2"
                 >
-                  <div class="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+                  <div class="text-[11px] font-medium text-footnote font-semibold text-ink-muted">
                     {{ promptTitle(prompt, index) }}
                   </div>
                   <div class="mt-1 text-sm text-ink-primary">
@@ -264,7 +252,7 @@ function fmtDate(value) {
               type="button"
               @click="emit('run-tool', tool.name)"
               :disabled="Boolean(runningTool) || tool.status === 'running'"
-              class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-subtle bg-surface-muted px-2.5 text-xs text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring"
+              class="btn-bordered btn-sm h-8 shrink-0 focus-ring"
               :title="`Run ${tool.label}`"
             >
               <Loader2
@@ -281,7 +269,7 @@ function fmtDate(value) {
 
     <details
       v-if="afterMemoTools.length"
-      class="rounded-card border border-subtle bg-surface p-4"
+      class="rounded-card bg-surface p-4"
     >
       <summary class="cursor-pointer text-sm font-medium text-ink-primary focus-ring">
         After Memo
@@ -301,10 +289,7 @@ function fmtDate(value) {
               <div class="flex items-center gap-2 flex-wrap">
                 <div class="font-medium text-ink-primary">{{ tool.label }}</div>
                 <span
-                  :class="[
-                    'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                    statusClass(tool.status),
-                  ]"
+                  :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', statusClass(tool.status), ]"
                 >
                   {{ tool.status.replace('_', ' ') }}
                 </span>
@@ -330,7 +315,7 @@ function fmtDate(value) {
               type="button"
               @click="emit('run-tool', tool.name)"
               :disabled="Boolean(runningTool) || tool.status === 'running'"
-              class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-subtle bg-surface-muted px-2.5 text-xs text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring"
+              class="btn-bordered btn-sm h-8 shrink-0 focus-ring"
               :title="`Run ${tool.label}`"
             >
               <Loader2

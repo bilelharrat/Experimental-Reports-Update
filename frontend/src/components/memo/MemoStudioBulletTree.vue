@@ -98,14 +98,14 @@ function discuss(bullet) {
         <textarea
           v-model="draftText"
           rows="3"
-          class="w-full rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary focus-ring"
+          class="field focus-ring"
         />
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
             @click="saveBullet(bullet)"
             :disabled="busyId === bullet.id"
-            class="inline-flex items-center gap-1 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60 focus-ring"
+            class="btn-filled btn-sm focus-ring"
           >
             <Save class="h-3.5 w-3.5" />
             {{ busyId === bullet.id ? t("common.saving") : t("memo.save") }}
@@ -123,7 +123,7 @@ function discuss(bullet) {
       <div v-else>
         <p class="text-sm leading-relaxed text-ink-secondary">{{ bullet.text }}</p>
         <div class="mt-2 flex flex-wrap items-center gap-2">
-          <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
+          <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
             {{ sourceLabel(bullet) }}
           </span>
           <span class="ml-auto flex items-center gap-1 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">

@@ -495,12 +495,7 @@ function attachmentUrl(turn, att) {
             v-for="s in activeSessions"
             :key="s.id"
             @click="selectSession(s.id)"
-            :class="[
-              'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm focus-ring flex-shrink-0',
-              activeId === s.id
-                ? 'bg-accent text-white'
-                : 'bg-surface-muted text-ink-secondary hover:bg-surface',
-            ]"
+            :class="[ 'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm focus-ring flex-shrink-0', activeId === s.id ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
           >
             <span class="h-1.5 w-1.5 rounded-full"
                   :class="activeId === s.id ? 'bg-white' : 'bg-accent'"></span>
@@ -508,7 +503,7 @@ function attachmentUrl(turn, att) {
           </button>
           <button
             @click="openCreate"
-            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm bg-surface-muted text-ink-primary hover:bg-surface border border-subtle focus-ring flex-shrink-0"
+            class="btn-bordered btn-sm focus-ring flex-shrink-0"
           >
             <Plus class="h-3.5 w-3.5" />
             {{ tr("console.new_console") }}
@@ -548,7 +543,7 @@ function attachmentUrl(turn, att) {
             <span>{{ tokensCaption }}</span>
             <span
               v-if="activeMeta.output_language"
-              class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary text-[10px] font-medium uppercase tracking-wider"
+              class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary text-[10px] font-medium r"
               :title="tr('console.output_language_help')"
             >
               {{ activeMeta.output_language }}
@@ -556,12 +551,7 @@ function attachmentUrl(turn, att) {
           </div>
           <div class="mt-1 h-1.5 w-full rounded-full bg-surface-muted overflow-hidden">
             <div
-              :class="[
-                'h-full',
-                meter.color === 'red' ? 'bg-danger' :
-                meter.color === 'yellow' ? 'bg-warning' :
-                'bg-accent',
-              ]"
+              :class="[ 'h-full', meter.color === 'red' ? 'bg-danger' : meter.color === 'yellow' ? 'bg-warning' : 'bg-accent', ]"
               :style="{ width: Math.min(100, meter.pct_used * 100) + '%' }"
             ></div>
           </div>
@@ -596,7 +586,7 @@ function attachmentUrl(turn, att) {
         <span>{{ tr("console.lock_threshold") }}</span>
         <button
           @click="archive"
-          class="px-3 py-1 rounded bg-accent text-white hover:bg-accent-hover focus-ring text-xs"
+          class="btn-filled btn-sm focus-ring"
         >
           {{ tr("console.session_full_cta") }}
         </button>
@@ -605,7 +595,7 @@ function attachmentUrl(turn, att) {
       <!-- Hydration status -->
       <div
         v-if="!hydrationDone"
-        class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-muted flex items-center gap-2"
+        class="rounded-subbox bg-fill-tertiary px-3 py-2 text-xs text-ink-muted flex items-center gap-2"
       >
         <Loader2 class="h-3.5 w-3.5 animate-spin" />
         <span>{{ hydrationStage || tr("console.hydrating") }}</span>
@@ -621,7 +611,7 @@ function attachmentUrl(turn, att) {
           —
         </div>
         <div v-for="t in turns" :key="t.id + ':' + t.role" class="space-y-1">
-          <div class="text-xs uppercase tracking-wide text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             <template v-if="t.role === 'user'">▶ {{ tr("console.you") }}</template>
             <template v-else>▶ {{ tr("console.claude") }}</template>
             <span class="ml-2 normal-case tracking-normal">{{ turnTime(t.ts) }}</span>
@@ -654,7 +644,7 @@ function attachmentUrl(turn, att) {
 
         <!-- Live in-flight turn -->
         <div v-if="pendingTurnId" class="space-y-1">
-          <div class="text-xs uppercase tracking-wide text-ink-muted flex items-center gap-2">
+          <div class="text-footnote font-semibold text-ink-muted flex items-center gap-2">
             <Loader2 class="h-3 w-3 animate-spin" />
             ▶ {{ tr("console.claude") }}
             <span v-if="pendingQueuePos > 0" class="normal-case tracking-normal text-ink-muted">
@@ -675,7 +665,7 @@ function attachmentUrl(turn, att) {
           :key="'q:' + q.turn_id"
           class="space-y-1 opacity-70"
         >
-          <div class="text-xs uppercase tracking-wide text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             ▶ {{ tr("console.claude") }}
             <span class="normal-case tracking-normal">
               ({{ tr("console.queued_position", { n: q.position }) }})
@@ -743,7 +733,7 @@ function attachmentUrl(turn, att) {
             v-else
             @click="send"
             :disabled="lockSend || !prompt.trim()"
-            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed focus-ring text-sm"
+            class="btn-filled btn-sm disabled:cursor-not-allowed focus-ring"
           >
             <Send class="h-4 w-4" />
             {{ tr("console.send") }}
@@ -757,11 +747,11 @@ function attachmentUrl(turn, att) {
     <!-- Create-console modal -->
     <div
       v-if="showCreate"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      class="sheet-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       @click.self="showCreate = false"
     >
-      <div class="bg-surface rounded-card shadow-card border border-subtle p-6 max-w-lg w-full space-y-4 max-h-[80vh] overflow-y-auto">
-        <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <div class="sheet-panel bg-surface rounded-sheet p-6 max-w-lg w-full space-y-4 max-h-[80vh] overflow-y-auto">
+        <h3 class="font-display text-title3 text-ink-primary">
           {{ tr("console.create_console") }}
         </h3>
         <p class="text-sm text-ink-secondary">{{ tr("console.empty_help") }}</p>
@@ -786,31 +776,21 @@ function attachmentUrl(turn, att) {
         <!-- Output-language toggle. Persisted to meta on create and used
              by the hydration prompt + every ask's system prompt. -->
         <div class="space-y-1.5">
-          <div class="text-xs font-medium text-ink-primary uppercase tracking-wide">
+          <div class="text-xs font-medium text-ink-primary">
             {{ tr("console.output_language_label") }}
           </div>
           <div class="flex items-center gap-2">
             <button
               type="button"
               @click="outputLanguage = 'en'"
-              :class="[
-                'px-3 py-1 rounded text-sm focus-ring',
-                outputLanguage === 'en'
-                  ? 'bg-accent text-white'
-                  : 'bg-surface-muted text-ink-secondary hover:bg-surface',
-              ]"
+              :class="[ 'px-3 py-1 rounded text-sm focus-ring', outputLanguage === 'en' ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
             >
               {{ tr("console.output_language_en") }}
             </button>
             <button
               type="button"
               @click="outputLanguage = 'zh'"
-              :class="[
-                'px-3 py-1 rounded text-sm focus-ring',
-                outputLanguage === 'zh'
-                  ? 'bg-accent text-white'
-                  : 'bg-surface-muted text-ink-secondary hover:bg-surface',
-              ]"
+              :class="[ 'px-3 py-1 rounded text-sm focus-ring', outputLanguage === 'zh' ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
             >
               {{ tr("console.output_language_zh") }}
             </button>
@@ -823,15 +803,15 @@ function attachmentUrl(turn, att) {
         <!-- File list + cost estimate -->
         <div
           v-if="estimateLoading"
-          class="rounded-lg border border-subtle bg-surface-muted p-3 text-xs text-ink-muted"
+          class="rounded-subbox bg-fill-tertiary p-3 text-xs text-ink-muted"
         >
           {{ tr("console.estimate_loading") }}
         </div>
         <div
           v-else-if="estimate && estimate.files?.length"
-          class="rounded-lg border border-subtle bg-surface-muted p-3 space-y-2 text-xs"
+          class="rounded-subbox bg-fill-tertiary p-3 space-y-2 text-xs"
         >
-          <div class="font-medium text-ink-primary uppercase tracking-wide text-[10px]">
+          <div class="font-medium text-ink-primary text-[10px]">
             {{ tr("console.estimate_files", { count: estimate.files.length }) }}
           </div>
           <ul class="space-y-0.5 text-ink-secondary max-h-40 overflow-y-auto">
@@ -855,7 +835,7 @@ function attachmentUrl(turn, att) {
         </div>
         <div
           v-else-if="estimate"
-          class="rounded-lg border border-subtle bg-surface-muted p-3 text-xs text-ink-muted"
+          class="rounded-subbox bg-fill-tertiary p-3 text-xs text-ink-muted"
         >
           {{ tr("console.estimate_zero") }}
         </div>
@@ -873,7 +853,7 @@ function attachmentUrl(turn, att) {
           <button
             @click="confirmCreate"
             :disabled="creating"
-            class="px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50 focus-ring text-sm"
+            class="btn-filled btn-sm focus-ring"
           >
             {{ tr("console.create_console") }}
           </button>

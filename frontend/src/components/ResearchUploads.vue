@@ -357,7 +357,7 @@ function formatCost(c) {
   <section
     class="bg-surface border border-subtle rounded-card shadow-card p-6"
   >
-    <h2 class="font-display text-lg font-semibold text-ink-primary mb-1">
+    <h2 class="font-display text-title3 text-ink-primary mb-1">
       {{ t("research_uploads.title") }}
     </h2>
     <p class="text-sm text-ink-muted mb-4">
@@ -371,20 +371,11 @@ function formatCost(c) {
       @drop="onDrop"
       @dragover="onDragOver"
       @dragleave="onDragLeave"
-      :class="[
-        'rounded-lg border-2 border-dashed transition-colors px-6 py-8',
-        'flex flex-col items-center justify-center gap-2 cursor-pointer text-center',
-        dragOver
-          ? 'border-accent bg-accent-soft/40'
-          : 'border-subtle bg-surface-muted hover:bg-surface',
-      ]"
+      :class="[ 'rounded-lg border-2 border-dashed transition-colors px-6 py-8', 'flex flex-col items-center justify-center gap-2 cursor-pointer text-center', dragOver ? 'border-accent bg-accent-soft/40' : 'border-subtle bg-surface-muted hover:bg-surface', ]"
       @click="fileInput?.click()"
     >
       <UploadCloud
-        :class="[
-          'h-8 w-8',
-          dragOver ? 'text-accent' : 'text-ink-muted',
-        ]"
+        :class="[ 'h-8 w-8', dragOver ? 'text-accent' : 'text-ink-muted', ]"
       />
       <div class="text-sm text-ink-primary font-medium">
         {{ t("research_uploads.dropzone") }}
@@ -442,7 +433,7 @@ function formatCost(c) {
         <li
           v-for="f in files"
           :key="f.id"
-          class="rounded-lg border border-subtle bg-surface-muted px-4 py-3"
+          class="rounded-subbox bg-fill-tertiary px-4 py-3"
         >
           <div class="flex items-start gap-3">
             <component
@@ -478,25 +469,20 @@ function formatCost(c) {
                   f.quick_summary && !f.quick_summary.error ? 0 : -1
                 "
                 :aria-expanded="isExpanded(f.id)"
-                :class="[
-                  'focus-ring rounded',
-                  f.quick_summary && !f.quick_summary.error
-                    ? 'cursor-pointer'
-                    : 'cursor-default',
-                ]"
+                :class="[ 'focus-ring rounded', f.quick_summary && !f.quick_summary.error ? 'cursor-pointer' : 'cursor-default', ]"
               >
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm font-medium text-ink-primary truncate">
                     {{ f.filename }}
                   </span>
                   <span
-                    class="text-[10px] font-mono uppercase tracking-wide text-ink-muted bg-surface border border-subtle rounded px-1.5 py-px"
+                    class="text-[10px] font-mono text-footnote font-semibold text-ink-muted bg-surface border border-subtle rounded px-1.5 py-px"
                   >
                     {{ f.kind }}
                   </span>
                   <span
                     v-if="sourceLangLabel(f.quick_summary)"
-                    class="text-[10px] font-mono uppercase tracking-wide text-accent-ink bg-accent-soft border border-accent-soft rounded px-1.5 py-px"
+                    class="text-[10px] font-mono text-accent-ink bg-accent-soft border border-accent-soft rounded px-1.5 py-px"
                     title="Source language detected from the document"
                   >
                     {{ sourceLangLabel(f.quick_summary) }}
@@ -519,12 +505,7 @@ function formatCost(c) {
                     <button
                       type="button"
                       @click="toggleSummaryLang(f.id, 'en')"
-                      :class="[
-                        'px-1.5 py-0.5 rounded border focus-ring',
-                        summaryLangFor(f) === 'en'
-                          ? 'bg-accent text-white border-accent'
-                          : 'bg-surface text-ink-secondary border-subtle hover:bg-surface-muted',
-                      ]"
+                      :class="[ 'px-1.5 py-0.5 rounded border focus-ring', summaryLangFor(f) === 'en' ? 'bg-accent text-white border-accent' : 'bg-surface text-ink-secondary border-subtle hover:bg-surface-muted', ]"
                     >
                       EN<span
                         v-if="f.quick_summary.language === 'en'"
@@ -535,12 +516,7 @@ function formatCost(c) {
                     <button
                       type="button"
                       @click="toggleSummaryLang(f.id, 'zh')"
-                      :class="[
-                        'px-1.5 py-0.5 rounded border focus-ring',
-                        summaryLangFor(f) === 'zh'
-                          ? 'bg-accent text-white border-accent'
-                          : 'bg-surface text-ink-secondary border-subtle hover:bg-surface-muted',
-                      ]"
+                      :class="[ 'px-1.5 py-0.5 rounded border focus-ring', summaryLangFor(f) === 'zh' ? 'bg-accent text-white border-accent' : 'bg-surface text-ink-secondary border-subtle hover:bg-surface-muted', ]"
                     >
                       中<span
                         v-if="f.quick_summary.language === 'zh'"
@@ -593,7 +569,7 @@ function formatCost(c) {
                   </span>
                   <span
                     v-if="f.quick_summary.doc_type"
-                    class="text-[10px] uppercase tracking-wide font-mono text-accent-ink bg-accent-soft border border-accent-soft rounded px-1.5 py-px"
+                    class="text-caption1 font-mono text-accent-ink bg-accent-soft border border-accent-soft rounded px-1.5 py-px"
                   >
                     {{ f.quick_summary.doc_type }}
                   </span>
@@ -647,7 +623,7 @@ function formatCost(c) {
                     :key="`fig-${i}`"
                     class="rounded bg-surface border border-subtle px-2 py-1.5"
                   >
-                    <div class="text-[10px] text-ink-muted uppercase tracking-wide">
+                    <div class="text-[10px] text-ink-muted">
                       {{ figureLabel(fig, summaryLangFor(f)) }}
                     </div>
                     <div class="text-xs font-medium text-ink-primary font-mono">
@@ -673,19 +649,19 @@ function formatCost(c) {
                   class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]"
                 >
                   <div v-if="(f.quick_summary.entities.people || []).length">
-                    <div class="text-ink-muted text-[10px] uppercase tracking-wide mb-0.5">{{ t("research_uploads.people") }}</div>
+                    <div class="text-ink-muted text-caption1 mb-0.5">{{ t("research_uploads.people") }}</div>
                     <div class="text-ink-secondary">
                       {{ f.quick_summary.entities.people.join(", ") }}
                     </div>
                   </div>
                   <div v-if="(f.quick_summary.entities.organizations || []).length">
-                    <div class="text-ink-muted text-[10px] uppercase tracking-wide mb-0.5">{{ t("research_uploads.orgs") }}</div>
+                    <div class="text-ink-muted text-caption1 mb-0.5">{{ t("research_uploads.orgs") }}</div>
                     <div class="text-ink-secondary">
                       {{ f.quick_summary.entities.organizations.join(", ") }}
                     </div>
                   </div>
                   <div v-if="(f.quick_summary.entities.products || []).length">
-                    <div class="text-ink-muted text-[10px] uppercase tracking-wide mb-0.5">{{ t("research_uploads.products_label") }}</div>
+                    <div class="text-ink-muted text-caption1 mb-0.5">{{ t("research_uploads.products_label") }}</div>
                     <div class="text-ink-secondary">
                       {{ f.quick_summary.entities.products.join(", ") }}
                     </div>
@@ -726,14 +702,7 @@ function formatCost(c) {
                   type="button"
                   @click="summarize(f)"
                   :disabled="launching.has(f.id)"
-                  :class="[
-                    'inline-flex items-center gap-1.5 px-2 py-1 rounded',
-                    'text-xs border focus-ring',
-                    f.quick_summary && !f.quick_summary.error
-                      ? 'border-subtle bg-surface hover:bg-surface-muted text-ink-secondary'
-                      : 'border-accent bg-accent text-white hover:bg-accent-hover',
-                    launching.has(f.id) && 'opacity-60 cursor-not-allowed',
-                  ]"
+                  :class="[ 'inline-flex items-center gap-1.5 px-2 py-1 rounded', 'text-xs border focus-ring', f.quick_summary && !f.quick_summary.error ? 'border-subtle bg-surface hover:bg-surface-muted text-ink-secondary' : 'border-accent bg-accent text-white hover:bg-accent-hover', launching.has(f.id) && 'opacity-60 cursor-not-allowed', ]"
                 >
                   <Loader2
                     v-if="launching.has(f.id)"

@@ -54,7 +54,7 @@ function canRetryRun(run) {
       <div class="flex gap-2">
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy"
           @click="emit('run-aggregate')"
         >
@@ -63,7 +63,7 @@ function canRetryRun(run) {
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy"
           @click="emit('run-strategy-map')"
         >
@@ -72,9 +72,9 @@ function canRetryRun(run) {
         </button>
       </div>
     </div>
-    <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-      <table class="min-w-full text-left text-sm">
-        <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+    <div class="overflow-x-auto rounded-card bg-surface shadow-card">
+      <table class="inset-table">
+        <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
           <tr>
             <th class="px-3 py-2">Run</th>
             <th class="px-3 py-2">Tracker</th>
@@ -181,7 +181,7 @@ function canRetryRun(run) {
       empty-text="No normalized Stock Research run rows yet."
     />
     <div v-if="selectedRun" class="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
-      <section class="rounded-lg border border-subtle bg-surface">
+      <section class="rounded-card bg-surface shadow-card">
         <div class="border-b border-subtle px-4 py-3">
           <h3 class="text-sm font-semibold">Latest Report</h3>
           <div class="mt-1 font-mono text-xs text-ink-muted">{{ selectedRun.run_id }}</div>
@@ -191,7 +191,7 @@ function canRetryRun(run) {
         </div>
       </section>
       <section class="space-y-4">
-        <div class="rounded-lg border border-subtle bg-surface p-4">
+        <div class="rounded-card bg-surface shadow-card p-4">
           <h3 class="text-sm font-semibold">Source Traces</h3>
           <div v-if="selectedRun.source_traces?.length" class="mt-3 space-y-2">
             <div
@@ -206,7 +206,7 @@ function canRetryRun(run) {
           </div>
           <div v-else class="mt-3 text-sm text-ink-muted">No source traces captured.</div>
         </div>
-        <div class="rounded-lg border border-subtle bg-surface p-4">
+        <div class="rounded-card bg-surface shadow-card p-4">
           <h3 class="text-sm font-semibold">Current vs Previous</h3>
           <div v-if="selectedRunDiff.length" class="mt-3 space-y-2">
             <div

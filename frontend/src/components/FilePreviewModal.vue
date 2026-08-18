@@ -155,11 +155,11 @@ watch(
   <Teleport to="body">
     <div
       v-if="isOpen"
-      class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      class="sheet-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       @click.self="emit('close')"
     >
       <div
-        class="w-[90vw] h-[90vh] max-w-[1400px] bg-surface rounded-card shadow-card-raised border border-subtle flex flex-col overflow-hidden"
+        class="sheet-panel w-[90vw] h-[90vh] max-w-[1400px] bg-surface rounded-sheet flex flex-col overflow-hidden"
       >
         <header
           class="flex items-center gap-3 px-4 py-2.5 border-b border-subtle bg-surface"
@@ -194,14 +194,14 @@ watch(
             :href="previewUrl"
             target="_blank"
             rel="noopener"
-            class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface-muted text-ink-secondary inline-flex items-center gap-1.5 focus-ring"
+            class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5"
           >
             <ExternalLink class="h-3 w-3" /> New tab
           </a>
           <a
             :href="downloadUrl"
             :download="file?.filename"
-            class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface-muted text-ink-secondary inline-flex items-center gap-1.5 focus-ring"
+            class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5"
           >
             <Download class="h-3 w-3" /> Download
           </a>
@@ -266,7 +266,7 @@ watch(
                 <a
                   :href="downloadUrl"
                   :download="file?.filename"
-                  class="px-3 py-1.5 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover focus-ring inline-flex items-center gap-1.5"
+                  class="btn-filled btn-sm focus-ring"
                 >
                   <Download class="h-3.5 w-3.5" />
                   Download

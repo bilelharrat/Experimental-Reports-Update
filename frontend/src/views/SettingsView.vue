@@ -1,22 +1,42 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { Bell, Database, Languages, SlidersHorizontal } from "lucide-vue-next";
+import { Bell, Database, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sparkles, Sun, SunMoon } from "lucide-vue-next";
 import { api } from "../api.js";
+import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
+import { useT } from "../i18n.js";
 import { appLanguage, setAppLanguage } from "../state.js";
 
+const t = useT();
+
 const settings = ref(null);
+const profile = ref(null);
 const loading = ref(true);
 const error = ref("");
 const saving = ref("");
+const regeneratingAll = ref(false);
+const refreshingStockViews = ref(false);
+const operationsMessage = ref("");
+const operationsError = ref("");
 
 const prefs = computed(() => settings.value?.preferences || {});
-const account = computed(() => settings.value?.account || {});
+const account = computed(() => profile.value?.account || settings.value?.account || {});
+const team = computed(() => profile.value?.team || {});
+const usage = computed(() => profile.value?.usage || {});
+const status = computed(() => profile.value?.status || {});
 
 async function load() {
   loading.value = true;
   error.value = "";
   try {
-    settings.value = await api.workspaceSettings();
+    const [workspace, user] = await Promise.allSettled([
+      api.workspaceSettings(),
+      api.userCenter(),
+    ]);
+    if (workspace.status === "fulfilled") settings.value = workspace.value;
+    if (user.status === "fulfilled") profile.value = user.value;
+    if (workspace.status === "rejected" && user.status === "rejected") {
+      error.value = workspace.reason?.message || String(workspace.reason);
+    }
   } catch (e) {
     error.value = e?.message || String(e);
   } finally {
@@ -38,162 +58,306 @@ async function patchPreference(key, value) {
 }
 
 onMounted(load);
+
+async function regenAllCompanies() {
+  if (regeneratingAll.value) return;
+  regeneratingAll.value = true;
+  operationsMessage.value = "";
+  operationsError.value = "";
+  try {
+    const result = await api.regenAllCompanies();
+    const total = result.total_count ?? 0;
+    if (!total) operationsMessage.value = t("home.regen_all_none");
+    else if (result.status === "already_running") {
+      operationsMessage.value = t("home.regen_all_running", { total });
+    } else {
+      operationsMessage.value = t("home.regen_all_started", {
+        total,
+        public: result.public_trader_count ?? 0,
+      });
+    }
+  } catch {
+    operationsError.value = t("home.regen_all_failed");
+  } finally {
+    regeneratingAll.value = false;
+  }
+}
+
+async function refreshAllStockViews() {
+  if (refreshingStockViews.value) return;
+  refreshingStockViews.value = true;
+  operationsMessage.value = "";
+  operationsError.value = "";
+  try {
+    const result = await api.trader.refreshAll();
+    const total = result.total_count ?? 0;
+    if (!total) operationsMessage.value = t("home.refresh_stock_views_none");
+    else if (result.status === "already_running") {
+      operationsMessage.value = t("home.refresh_stock_views_running", { total });
+    } else {
+      operationsMessage.value = t("home.refresh_stock_views_started", {
+        queued: result.queued_count ?? 0,
+        total,
+      });
+    }
+  } catch {
+    operationsError.value = t("home.refresh_stock_views_failed");
+  } finally {
+    refreshingStockViews.value = false;
+  }
+}
+
+function appearanceLabel(value) {
+  if (value === "light") return t("settings.appearance_light");
+  if (value === "dark") return t("settings.appearance_dark");
+  return t("settings.appearance_auto");
+}
+
+function appearanceIcon(value) {
+  if (value === "light") return Sun;
+  if (value === "dark") return Moon;
+  return SunMoon;
+}
 </script>
 
 <template>
   <div class="mx-auto max-w-5xl px-8 py-10">
-    <header class="mb-8">
-      <div class="vogue-label">Workspace</div>
-      <h1 class="mt-2 font-display text-3xl font-bold text-ink-primary">
+    <header class="mb-6">
+      <h1 class="font-display text-title3 text-ink-primary">
         Settings
       </h1>
     </header>
 
-    <div v-if="loading" class="rounded-card border border-subtle bg-surface p-5 text-sm text-ink-muted">
+    <div v-if="loading" class="rounded-card bg-surface p-5 text-callout text-ink-muted">
       Loading settings…
     </div>
-    <div v-else-if="error" class="rounded-card border border-danger/30 bg-danger/10 p-5 text-sm text-danger">
+    <div v-else-if="error" class="rounded-card bg-danger-soft p-5 text-callout text-danger-ink">
       {{ error }}
     </div>
 
-    <div v-else class="grid gap-4 lg:grid-cols-2">
-      <section class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+    <div v-else class="space-y-4">
+      <section class="group-card p-5">
+        <div class="flex items-start gap-4">
+          <div class="grid h-11 w-11 place-items-center rounded-subbox bg-accent text-caption1 font-semibold uppercase text-white">
+            {{ (account.name || account.email || "?").charAt(0) }}
+          </div>
+          <div class="min-w-0 flex-1">
+            <h2 class="font-display text-title3 text-ink-primary">
+              {{ t("app.user_center") }}
+            </h2>
+            <div class="mt-0.5 text-callout text-ink-primary">{{ account.name || account.email }}</div>
+            <div class="text-footnote text-ink-muted">{{ account.email }}</div>
+            <div class="mt-2 flex flex-wrap gap-2 text-caption1 text-ink-muted">
+              <span v-if="account.workspace">{{ account.workspace }}</span>
+              <span v-if="account.role">{{ account.role }}</span>
+              <span v-if="account.plan">{{ account.plan }}</span>
+            </div>
+          </div>
+        </div>
+        <dl class="mt-4 grid gap-2 text-callout sm:grid-cols-3">
+          <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+            <dt class="text-caption1 text-ink-muted">{{ t("settings.permissions") }}</dt>
+            <dd class="mt-0.5 font-medium text-ink-primary">{{ account.permissions?.length || 0 }}</dd>
+          </div>
+          <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+            <dt class="text-caption1 text-ink-muted">{{ t("settings.seats") }}</dt>
+            <dd class="mt-0.5 font-medium text-ink-primary">{{ team.licensed_seats || 0 }}</dd>
+          </div>
+          <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+            <dt class="text-caption1 text-ink-muted">{{ t("settings.usage") }}</dt>
+            <dd class="mt-0.5 font-medium text-ink-primary">{{ usage.analytics_events || 0 }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div class="grid gap-4 lg:grid-cols-2">
+      <section class="rounded-card bg-surface p-5 shadow-card">
         <div class="flex items-center gap-2">
           <Languages class="h-4 w-4 text-accent" />
-          <h2 class="font-display text-lg font-bold text-ink-primary">
+          <h2 class="font-display text-title3 text-ink-primary">
             Preferences
           </h2>
         </div>
         <div class="mt-4">
           <div class="vogue-label mb-2">Language</div>
           <div
-            class="inline-flex overflow-hidden rounded-full border border-subtle bg-surface text-sm"
+            class="segmented"
             role="group"
             aria-label="App language"
           >
             <button
               type="button"
               @click="patchPreference('language', 'en')"
-              :class="[
-                'px-4 py-2 focus-ring',
-                (prefs.language || appLanguage) === 'en'
-                  ? 'bg-accent text-white'
-                  : 'text-ink-secondary hover:bg-surface-muted',
-              ]"
+              class="segmented-item focus-ring"
+              :data-selected="(prefs.language || appLanguage) === 'en'"
             >
               EN
             </button>
             <button
               type="button"
               @click="patchPreference('language', 'zh')"
-              :class="[
-                'border-l border-subtle px-4 py-2 focus-ring',
-                (prefs.language || appLanguage) === 'zh'
-                  ? 'bg-accent text-white'
-                  : 'text-ink-secondary hover:bg-surface-muted',
-              ]"
+              class="segmented-item focus-ring"
+              :data-selected="(prefs.language || appLanguage) === 'zh'"
             >
               中文
             </button>
           </div>
         </div>
+        <div class="mt-5">
+          <div class="vogue-label mb-2">{{ t("settings.appearance") }}</div>
+          <div
+            class="segmented"
+            role="group"
+            :aria-label="t('settings.appearance')"
+          >
+            <button
+              v-for="option in APPEARANCES"
+              :key="option"
+              type="button"
+              @click="setAppearance(option)"
+              class="segmented-item focus-ring inline-flex items-center gap-1"
+              :data-selected="appearance === option"
+            >
+              <component :is="appearanceIcon(option)" class="h-3.5 w-3.5" />
+              {{ appearanceLabel(option) }}
+            </button>
+          </div>
+        </div>
       </section>
 
-      <section class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+      <section class="rounded-card bg-surface p-5 shadow-card">
         <div class="flex items-center gap-2">
           <Bell class="h-4 w-4 text-accent" />
-          <h2 class="font-display text-lg font-bold text-ink-primary">
+          <h2 class="font-display text-title3 text-ink-primary">
             Alerts
           </h2>
         </div>
-        <div class="mt-4 space-y-3 text-sm text-ink-secondary">
-          <label class="flex items-center justify-between gap-3">
+        <div class="mt-4 space-y-1 text-callout text-ink-secondary">
+          <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
             <span>Weekly summary</span>
             <input
               type="checkbox"
               :checked="prefs.weekly_summary"
               :disabled="saving === 'weekly_summary'"
-              class="h-4 w-4 accent-[var(--tiffany)] focus-ring"
+              class="memo-checkbox focus-ring"
               @change="patchPreference('weekly_summary', $event.target.checked)"
             />
           </label>
-          <label class="flex items-center justify-between gap-3">
+          <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
             <span>Stock auto-refresh</span>
             <input
               type="checkbox"
               :checked="prefs.stock_auto_refresh"
               :disabled="saving === 'stock_auto_refresh'"
-              class="h-4 w-4 accent-[var(--tiffany)] focus-ring"
+              class="memo-checkbox focus-ring"
               @change="patchPreference('stock_auto_refresh', $event.target.checked)"
             />
           </label>
-          <label class="flex items-center justify-between gap-3">
+          <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
             <span>Agent task alerts</span>
             <input
               type="checkbox"
               :checked="prefs.agent_alerts"
               :disabled="saving === 'agent_alerts'"
-              class="h-4 w-4 accent-[var(--tiffany)] focus-ring"
+              class="memo-checkbox focus-ring"
               @change="patchPreference('agent_alerts', $event.target.checked)"
             />
           </label>
-          <label class="flex items-center justify-between gap-3">
+          <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
             <span>Compact density</span>
             <input
               type="checkbox"
               :checked="prefs.compact_density"
               :disabled="saving === 'compact_density'"
-              class="h-4 w-4 accent-[var(--tiffany)] focus-ring"
+              class="memo-checkbox focus-ring"
               @change="patchPreference('compact_density', $event.target.checked)"
             />
           </label>
         </div>
       </section>
 
-      <section class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+      <section class="rounded-card bg-surface p-5 shadow-card">
         <div class="flex items-center gap-2">
           <Database class="h-4 w-4 text-accent" />
-          <h2 class="font-display text-lg font-bold text-ink-primary">
+          <h2 class="font-display text-title3 text-ink-primary">
             System Status
           </h2>
         </div>
-        <div class="mt-4 grid gap-2 text-sm">
-          <div class="flex justify-between rounded-row bg-surface-muted px-3 py-2">
-            <span>Workspace role</span>
+        <div class="mt-4 grid gap-1.5 text-callout">
+          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">Workspace role</span>
             <span class="font-semibold text-accent-ink">{{ account.role || "adapter" }}</span>
           </div>
-          <div class="flex justify-between rounded-row bg-surface-muted px-3 py-2">
-            <span>Account</span>
+          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">Account</span>
             <span class="font-semibold text-ink-primary">{{ account.email }}</span>
           </div>
-          <div class="flex justify-between rounded-row bg-surface-muted px-3 py-2">
-            <span>Adapter scope</span>
+          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">Adapter scope</span>
             <span class="font-semibold text-accent-ink">Ready</span>
           </div>
         </div>
       </section>
 
-      <section class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+      <section class="rounded-card bg-surface p-5 shadow-card">
         <div class="flex items-center gap-2">
           <SlidersHorizontal class="h-4 w-4 text-accent" />
-          <h2 class="font-display text-lg font-bold text-ink-primary">
+          <h2 class="font-display text-title3 text-ink-primary">
             Usage
           </h2>
         </div>
-        <div class="mt-4 grid gap-2 text-sm">
-          <div class="flex justify-between rounded-row bg-surface-muted px-3 py-2">
-            <span>Plan</span>
+        <div class="mt-4 grid gap-1.5 text-callout">
+          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">Plan</span>
             <span class="font-semibold text-ink-primary">{{ account.plan }}</span>
           </div>
-          <div class="flex justify-between rounded-row bg-surface-muted px-3 py-2">
-            <span>Permissions</span>
+          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">Permissions</span>
             <span class="mono-data font-semibold text-ink-primary">{{ account.permissions?.length || 0 }}</span>
           </div>
-          <div class="rounded-row bg-surface-muted px-3 py-2 text-xs text-ink-muted">
-            {{ settings.adapter_scope }}
+          <div class="rounded-row bg-fill-tertiary px-3 py-2 text-footnote text-ink-muted">
+            {{ settings?.adapter_scope }}
+          </div>
+          <div v-if="Object.keys(status).length" class="mt-3 space-y-1 text-footnote text-ink-muted">
+            <div v-for="(value, key) in status" :key="key" class="flex justify-between gap-3">
+              <span>{{ String(key).replaceAll("_", " ") }}</span>
+              <span class="text-ink-primary">{{ value }}</span>
+            </div>
           </div>
         </div>
       </section>
+
+      <section class="rounded-card bg-surface p-5 shadow-card lg:col-span-2">
+        <h2 class="font-display text-title3 text-ink-primary">
+          {{ t("settings.operations") }}
+        </h2>
+        <p class="mt-1 text-footnote text-ink-muted">{{ t("home.operations_help") }}</p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            :disabled="regeneratingAll"
+            class="btn-bordered focus-ring"
+            @click="regenAllCompanies"
+          >
+            <Loader2 v-if="regeneratingAll" class="h-4 w-4 animate-spin" />
+            <Sparkles v-else class="h-4 w-4" />
+            {{ regeneratingAll ? t("home.regenerating_all") : t("home.regen_all") }}
+          </button>
+          <button
+            type="button"
+            :disabled="refreshingStockViews"
+            class="btn-bordered focus-ring"
+            @click="refreshAllStockViews"
+          >
+            <Loader2 v-if="refreshingStockViews" class="h-4 w-4 animate-spin" />
+            <RefreshCw v-else class="h-4 w-4" />
+            {{ refreshingStockViews ? t("home.refreshing_stock_views") : t("home.refresh_stock_views") }}
+          </button>
+        </div>
+        <p v-if="operationsMessage" class="mt-2 text-footnote text-ink-muted">{{ operationsMessage }}</p>
+        <p v-if="operationsError" class="mt-2 text-footnote text-danger">{{ operationsError }}</p>
+      </section>
+    </div>
     </div>
   </div>
 </template>

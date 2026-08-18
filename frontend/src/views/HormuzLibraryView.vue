@@ -161,10 +161,10 @@ function closePreview() {
     </button>
 
     <header class="border-b border-subtle pb-4">
-      <div class="text-xs uppercase tracking-wider text-ink-muted">
+      <div class="vogue-label">
         Hormuz research
       </div>
-      <h1 class="font-display text-2xl font-semibold text-ink-primary mt-0.5">
+      <h1 class="font-display text-large-title text-ink-primary mt-0.5">
         Source library &amp; V3 appendix
       </h1>
       <p class="mt-1 text-sm text-ink-muted">
@@ -175,7 +175,7 @@ function closePreview() {
     </header>
 
     <!-- Tabs -->
-    <div class="flex items-center gap-2 border-b border-subtle">
+    <div class="flex items-center gap-1 hairline-b" role="tablist">
       <button
         v-for="t in [
           { id: 'library', label: 'Source library & V3 appendix' },
@@ -183,12 +183,10 @@ function closePreview() {
         ]"
         :key="t.id"
         @click="tab = t.id"
-        :class="[
-          '-mb-px px-3 py-2 text-sm border-b-2 focus-ring',
-          tab === t.id
-            ? 'border-accent text-ink-primary font-medium'
-            : 'border-transparent text-ink-muted hover:text-ink-primary',
-        ]"
+        class="workspace-tab px-3 py-2.5 text-callout font-medium focus-ring"
+        :class="tab === t.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary'"
+        role="tab"
+        :aria-selected="tab === t.id"
       >
         {{ t.label }}
       </button>
@@ -198,7 +196,7 @@ function closePreview() {
 
     <template v-else>
     <!-- Upload (click or drag-and-drop, up to 10 files) -->
-    <div class="rounded-card border border-subtle bg-surface p-4">
+    <div class="rounded-card bg-surface p-4">
       <div
         role="button"
         tabindex="0"
@@ -209,11 +207,7 @@ function closePreview() {
         @dragover.prevent.stop="onDragOver"
         @dragleave.prevent="onDragLeave"
         class="flex flex-col items-center justify-center gap-2 px-4 py-8 rounded-lg border-2 border-dashed text-sm cursor-pointer transition-colors focus-ring"
-        :class="
-          dragOver
-            ? 'border-accent bg-accent-soft text-ink-primary'
-            : 'border-subtle bg-surface-muted text-ink-muted hover:bg-surface'
-        "
+        :class="dragOver ? 'border-accent bg-accent-soft text-ink-primary' : 'border-subtle bg-surface-muted text-ink-muted hover:bg-surface'"
       >
         <Loader2 v-if="uploading" class="h-5 w-5 animate-spin text-accent" />
         <Upload v-else class="h-5 w-5" />
@@ -263,10 +257,10 @@ function closePreview() {
     <div
       v-for="e in entries"
       :key="e.date"
-      class="rounded-card border border-subtle bg-surface p-4 space-y-3"
+      class="rounded-card bg-surface p-4 space-y-3"
     >
       <div class="flex items-center gap-3">
-        <div class="font-display text-lg font-semibold text-ink-primary">
+        <div class="font-display text-title3 text-ink-primary">
           {{ e.date }}
         </div>
         <span
@@ -278,16 +272,7 @@ function closePreview() {
         <span class="flex-1"></span>
         <span
           class="text-xs px-2 py-0.5 rounded-full"
-          :class="{
-            'bg-success-soft text-success-ink':
-              appendixState(e).tone === 'ok',
-            'bg-surface-muted text-ink-muted':
-              appendixState(e).tone === 'idle',
-            'bg-warning-soft text-warning-ink':
-              appendixState(e).tone === 'run',
-            'bg-danger-soft text-danger-ink':
-              appendixState(e).tone === 'fail',
-          }"
+          :class="{ 'bg-success-soft text-success-ink': appendixState(e).tone === 'ok', 'bg-surface-muted text-ink-muted': appendixState(e).tone === 'idle', 'bg-warning-soft text-warning-ink': appendixState(e).tone === 'run', 'bg-danger-soft text-danger-ink': appendixState(e).tone === 'fail', }"
         >
           <Loader2
             v-if="appendixState(e).tone === 'run'"
@@ -305,7 +290,7 @@ function closePreview() {
           :href="api.hormuzSourceUrl(e.date, s.filename)"
           target="_blank"
           rel="noopener"
-          class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted hover:bg-surface text-xs text-ink-primary focus-ring"
+          class="btn-bordered btn-sm focus-ring"
         >
           <FileText class="h-3.5 w-3.5 text-ink-muted shrink-0" />
           <span class="truncate max-w-[260px]">{{ s.filename }}</span>
@@ -323,7 +308,7 @@ function closePreview() {
             busyDate === e.date || appendixState(e).tone === 'run'
           "
           @click="generate(e.date)"
-          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover focus-ring disabled:opacity-50"
+          class="btn-filled focus-ring"
         >
           <Loader2
             v-if="busyDate === e.date || appendixState(e).tone === 'run'"
@@ -344,14 +329,14 @@ function closePreview() {
             :href="api.hormuzAppendixFileUrl(e.date, 'cn_md')"
             target="_blank"
             rel="noopener"
-            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-subtle bg-surface-muted hover:bg-surface text-sm text-ink-primary focus-ring"
+            class="btn-bordered focus-ring"
           >
             <FileText class="h-4 w-4 text-ink-muted" /> CN .md
           </a>
           <button
             type="button"
             @click="openPreview(e.date, 'cn_pdf', '中文')"
-            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-subtle bg-surface-muted hover:bg-surface text-sm text-ink-primary focus-ring"
+            class="btn-bordered focus-ring"
           >
             <Eye class="h-4 w-4 text-ink-muted" /> CN PDF
           </button>
@@ -359,14 +344,14 @@ function closePreview() {
             :href="api.hormuzAppendixFileUrl(e.date, 'en_md')"
             target="_blank"
             rel="noopener"
-            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-subtle bg-surface-muted hover:bg-surface text-sm text-ink-primary focus-ring"
+            class="btn-bordered focus-ring"
           >
             <FileText class="h-4 w-4 text-ink-muted" /> EN .md
           </a>
           <button
             type="button"
             @click="openPreview(e.date, 'en_pdf', 'English')"
-            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-subtle bg-surface-muted hover:bg-surface text-sm text-ink-primary focus-ring"
+            class="btn-bordered focus-ring"
           >
             <Eye class="h-4 w-4 text-ink-muted" /> EN PDF
           </button>

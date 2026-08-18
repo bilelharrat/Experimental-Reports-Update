@@ -14,7 +14,7 @@ const emit = defineEmits(["save-benchmark"]);
 <template>
   <div class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <h3 class="font-display text-title3 text-ink-primary">
         Benchmark Dashboard
       </h3>
       <button
@@ -22,7 +22,7 @@ const emit = defineEmits(["save-benchmark"]);
         type="button"
         @click="emit('save-benchmark')"
         :disabled="Boolean(savingArtifact)"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
+        class="btn-bordered btn-sm focus-ring"
       >
         <Loader2
           v-if="savingArtifact === 'benchmark_dashboard'"
@@ -40,11 +40,11 @@ const emit = defineEmits(["save-benchmark"]);
         v-if="benchmarkDraft"
         v-model="benchmarkDraft.summary"
         rows="2"
-        class="mt-2 w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-secondary focus-ring resize-y"
+        class="field resize-y mt-2 focus-ring"
       ></textarea>
       <div class="mt-3 overflow-x-auto">
         <table class="min-w-full text-sm">
-          <thead class="text-xs uppercase tracking-wide text-ink-muted">
+          <thead class="text-footnote font-semibold text-ink-muted">
             <tr class="border-b border-subtle">
               <th class="text-left py-2 pr-3">Company</th>
               <th class="text-left py-2 pr-3">Ticker</th>
@@ -122,7 +122,7 @@ const emit = defineEmits(["save-benchmark"]);
         class="mt-4 grid md:grid-cols-2 gap-3 text-xs text-ink-secondary"
       >
         <div v-if="benchmarkView?.benchmark_gaps?.length">
-          <div class="uppercase tracking-wide text-ink-muted">Benchmark Evidence Limits</div>
+          <div class="text-footnote font-semibold text-ink-muted">Benchmark Evidence Limits</div>
           <ul class="mt-1 space-y-1">
             <li v-for="gap in benchmarkView?.benchmark_gaps || []" :key="gap">
               {{ gap }}
@@ -130,7 +130,7 @@ const emit = defineEmits(["save-benchmark"]);
           </ul>
         </div>
         <div v-if="benchmarkView?.must_prove?.length">
-          <div class="uppercase tracking-wide text-ink-muted">Required Valuation Support</div>
+          <div class="text-footnote font-semibold text-ink-muted">Required Valuation Support</div>
           <ul class="mt-1 space-y-1">
             <li v-for="claim in benchmarkView?.must_prove || []" :key="claim">
               {{ claim }}
@@ -142,7 +142,7 @@ const emit = defineEmits(["save-benchmark"]);
         v-if="benchmarkView?.source_traces?.length"
         class="mt-4 text-xs text-ink-secondary"
       >
-        <div class="uppercase tracking-wide text-ink-muted">Source Evidence</div>
+        <div class="text-footnote font-semibold text-ink-muted">Source Evidence</div>
         <div
           v-for="(trace, index) in benchmarkView.source_traces.slice(0, 4)"
           :key="`${trace.locator || trace.title || trace.url}-${index}`"

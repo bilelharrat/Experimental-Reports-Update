@@ -5,7 +5,6 @@ import StockResearchView from "../src/views/StockResearchView.vue";
 import ResearchView from "../src/views/ResearchView.vue";
 import InnovationLabView from "../src/views/InnovationLabView.vue";
 import SettingsView from "../src/views/SettingsView.vue";
-import UserCenterView from "../src/views/UserCenterView.vue";
 import SourceLibraryView from "../src/views/SourceLibraryView.vue";
 import CompetitorDetailView from "../src/views/CompetitorDetailView.vue";
 import { api } from "../src/api.js";
@@ -42,6 +41,8 @@ vi.mock("../src/api.js", () => ({
     getCompetitorDetail: vi.fn(),
     workspaceSettings: vi.fn(),
     updateWorkspaceSettings: vi.fn(),
+    regenAllCompanies: vi.fn(),
+    trader: { refreshAll: vi.fn() },
     userCenter: vi.fn(),
     analyticsSummary: vi.fn(),
     options: vi.fn(),
@@ -160,7 +161,7 @@ async function mountRouteWithRouter(path) {
       { path: "/stock-research", name: "stock-research", component: StockResearchView },
       { path: "/innovation-lab", name: "innovation-lab", component: InnovationLabView },
       { path: "/settings", name: "settings", component: SettingsView },
-      { path: "/user", name: "user-center", component: UserCenterView },
+      { path: "/user", name: "user-center", redirect: { name: "settings" } },
       { path: "/source-library", name: "source-library", component: SourceLibraryView },
       { path: "/companies/:companyId/competitors/:competitorId", name: "competitor-detail", component: CompetitorDetailView, props: true },
       { path: "/innovation-lab/hormuz", name: "hormuz-library", component: { template: "<div />" } },
@@ -371,10 +372,11 @@ describe("route smoke tests", () => {
 
     expect(wrapper.text()).toContain("Generalist");
     expect(wrapper.text()).toContain("Overview");
-    expect(wrapper.text()).toContain("Documents");
+    expect(wrapper.text()).toContain("Evidence");
     expect(wrapper.text()).toContain("Memo Studio");
-    expect(wrapper.text()).toContain("Company News");
-    expect(wrapper.text()).toContain("Industry Views");
+    expect(wrapper.text()).not.toContain("Documents");
+    expect(wrapper.text()).not.toContain("Company News");
+    expect(wrapper.text()).not.toContain("Industry Views");
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
   });

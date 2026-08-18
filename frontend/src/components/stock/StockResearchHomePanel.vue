@@ -18,8 +18,8 @@ function trackerTypeCount(summary, type) {
 <template>
   <section class="space-y-5">
     <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-      <div class="rounded-lg border border-subtle bg-surface p-4">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">Trackers</div>
+      <div class="rounded-card bg-surface shadow-card p-4">
+        <div class="text-footnote font-semibold text-ink-muted">Trackers</div>
         <div class="mt-2 text-2xl font-semibold">{{ summary.tracker_count || 0 }}</div>
         <div class="mt-1 text-xs text-ink-muted">
           {{ trackerTypeCount(summary, "macro") }} macro ·
@@ -27,15 +27,15 @@ function trackerTypeCount(summary, type) {
           {{ trackerTypeCount(summary, "company") }} company
         </div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface p-4">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">Due Or Stale</div>
+      <div class="rounded-card bg-surface shadow-card p-4">
+        <div class="text-footnote font-semibold text-ink-muted">Due Or Stale</div>
         <div class="mt-2 text-2xl font-semibold">
           {{ summary.due_count || 0 }} / {{ summary.stale_count || 0 }}
         </div>
         <div class="mt-1 text-xs text-ink-muted">Due trackers / stale trackers</div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface p-4">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">Review Queue</div>
+      <div class="rounded-card bg-surface shadow-card p-4">
+        <div class="text-footnote font-semibold text-ink-muted">Review Queue</div>
         <div class="mt-2 text-2xl font-semibold">
           {{ summary.open_review_item_count || 0 }}
         </div>
@@ -43,8 +43,8 @@ function trackerTypeCount(summary, type) {
           {{ summary.missing_source_warning_count || 0 }} source warnings
         </div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface p-4">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">Work Products</div>
+      <div class="rounded-card bg-surface shadow-card p-4">
+        <div class="text-footnote font-semibold text-ink-muted">Work Products</div>
         <div class="mt-2 text-2xl font-semibold">{{ summary.work_product_count || 0 }}</div>
         <div class="mt-1 text-xs text-ink-muted">
           {{ summary.source_count || 0 }} assigned sources
@@ -56,24 +56,24 @@ function trackerTypeCount(summary, type) {
       v-if="summary.doctor_error_count || summary.doctor_warning_count || summary.run_ledger_count"
       class="grid gap-3 md:grid-cols-3"
     >
-      <div class="rounded-lg border border-subtle bg-surface p-4">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">Data Doctor</div>
+      <div class="rounded-card bg-surface shadow-card p-4">
+        <div class="text-footnote font-semibold text-ink-muted">Data Doctor</div>
         <div class="mt-2 text-sm font-semibold">
           {{ summary.doctor_error_count || 0 }} errors · {{ summary.doctor_warning_count || 0 }} warnings
         </div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface p-4">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">Run Ledger</div>
+      <div class="rounded-card bg-surface shadow-card p-4">
+        <div class="text-footnote font-semibold text-ink-muted">Run Ledger</div>
         <div class="mt-2 text-sm font-semibold">{{ summary.run_ledger_count || 0 }} tracked jobs</div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface p-4">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">Failed Runs</div>
+      <div class="rounded-card bg-surface shadow-card p-4">
+        <div class="text-footnote font-semibold text-ink-muted">Failed Runs</div>
         <div class="mt-2 text-sm font-semibold">{{ summary.failed_run_count || 0 }}</div>
       </div>
     </div>
 
     <div class="grid gap-4 xl:grid-cols-2">
-      <section class="rounded-lg border border-subtle bg-surface">
+      <section class="rounded-card bg-surface shadow-card">
         <div class="border-b border-subtle px-4 py-3">
           <h2 class="text-sm font-semibold">Latest Weekly Aggregate</h2>
         </div>
@@ -86,7 +86,7 @@ function trackerTypeCount(summary, type) {
             </div>
             <button
               type="button"
-              class="mt-2 inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-xs font-medium hover:bg-surface-muted focus-ring"
+              class="btn-bordered btn-sm mt-2 focus-ring"
               @click="emit('open-tab', 'aggregate')"
             >
               Open aggregate
@@ -97,7 +97,7 @@ function trackerTypeCount(summary, type) {
           </div>
         </div>
       </section>
-      <section class="rounded-lg border border-subtle bg-surface">
+      <section class="rounded-card bg-surface shadow-card">
         <div class="border-b border-subtle px-4 py-3">
           <h2 class="text-sm font-semibold">Latest Strategy Map</h2>
         </div>
@@ -109,7 +109,7 @@ function trackerTypeCount(summary, type) {
             </div>
             <button
               type="button"
-              class="mt-2 inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-xs font-medium hover:bg-surface-muted focus-ring"
+              class="btn-bordered btn-sm mt-2 focus-ring"
               @click="emit('open-tab', 'strategy')"
             >
               Open strategy map

@@ -1,16 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   BarChart3,
   CalendarClock,
   ExternalLink,
   Flame,
   Gauge,
-  Languages,
   Loader2,
   RefreshCw,
   TrendingUp,
@@ -595,15 +592,8 @@ onBeforeUnmount(() => {
   <div class="max-w-7xl mx-auto px-6 lg:px-8 py-8">
     <header class="flex flex-col gap-4 border-b border-subtle pb-5 lg:flex-row lg:items-start lg:justify-between">
       <div class="min-w-0">
-        <RouterLink
-          to="/"
-          class="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink-primary focus-ring rounded"
-        >
-          <ArrowLeft class="h-4 w-4" />
-          {{ ui.back }}
-        </RouterLink>
-        <div class="mt-4 flex flex-wrap items-center gap-3">
-          <h1 class="font-display text-2xl font-semibold text-ink-primary">
+        <div class="flex flex-wrap items-center gap-3">
+          <h1 class="font-display text-large-title text-ink-primary">
             {{ ui.title }}
           </h1>
           <span
@@ -627,44 +617,10 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <div
-          class="inline-flex overflow-hidden rounded-lg border border-subtle bg-surface text-sm shadow-card"
-          role="group"
-          aria-label="Weekly summary language"
-        >
-          <button
-            type="button"
-            @click="viewLang = 'en'"
-            :class="[
-              'inline-flex items-center gap-1.5 px-3 py-2 focus-ring',
-              viewLang === 'en'
-                ? 'bg-accent text-white'
-                : 'text-ink-secondary hover:bg-surface-muted',
-            ]"
-            :aria-pressed="viewLang === 'en'"
-          >
-            <Languages v-if="viewLang === 'en'" class="h-3.5 w-3.5" />
-            EN
-          </button>
-          <button
-            type="button"
-            @click="viewLang = 'zh'"
-            :class="[
-              'inline-flex items-center gap-1.5 border-l border-subtle px-3 py-2 focus-ring',
-              viewLang === 'zh'
-                ? 'bg-accent text-white'
-                : 'text-ink-secondary hover:bg-surface-muted',
-            ]"
-            :aria-pressed="viewLang === 'zh'"
-          >
-            <Languages v-if="viewLang === 'zh'" class="h-3.5 w-3.5" />
-            中
-          </button>
-        </div>
         <button
           type="button"
           @click="expandedPrompt = !expandedPrompt"
-          class="inline-flex items-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring"
+          class="btn-bordered focus-ring"
         >
           <BarChart3 class="h-4 w-4" />
           {{ ui.prompt }}
@@ -673,7 +629,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="refreshSummary({ force: true })"
           :disabled="refreshing"
-          class="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 focus-ring"
+          class="btn-filled focus-ring"
         >
           <Loader2 v-if="refreshing" class="h-4 w-4 animate-spin" />
           <RefreshCw v-else class="h-4 w-4" />
@@ -684,7 +640,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="expandedPrompt"
-      class="mt-5 rounded-card border border-subtle bg-surface shadow-card"
+      class="mt-5 rounded-card bg-surface shadow-card"
     >
       <div class="border-b border-subtle px-4 py-3 text-sm font-semibold text-ink-primary">
         {{ ui.promptTitle }}
@@ -702,7 +658,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="refreshing && refreshDraft"
-      class="mt-3 rounded-card border border-subtle bg-surface px-4 py-3 shadow-card"
+      class="mt-3 rounded-card bg-surface px-4 py-3 shadow-card"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="text-sm font-semibold text-ink-primary">
@@ -773,10 +729,10 @@ onBeforeUnmount(() => {
 
     <div
       v-else-if="!summary"
-      class="mt-10 rounded-card border border-subtle bg-surface px-6 py-8 text-center shadow-card"
+      class="mt-10 rounded-card bg-surface px-6 py-8 text-center shadow-card"
     >
       <Flame class="mx-auto h-8 w-8 text-accent" />
-      <h2 class="mt-3 font-display text-lg font-semibold text-ink-primary">
+      <h2 class="mt-3 font-display text-title3 text-ink-primary">
         {{ ui.emptyTitle }}
       </h2>
       <p class="mx-auto mt-2 max-w-xl text-sm text-ink-secondary">
@@ -786,7 +742,7 @@ onBeforeUnmount(() => {
         type="button"
         @click="refreshSummary()"
         :disabled="refreshing"
-        class="mt-5 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60 focus-ring"
+        class="btn-filled mt-5 focus-ring"
       >
         <Loader2 v-if="refreshing" class="h-4 w-4 animate-spin" />
         <RefreshCw v-else class="h-4 w-4" />
@@ -803,14 +759,14 @@ onBeforeUnmount(() => {
         <span>{{ ui.scanFallbackNotice }}</span>
       </div>
       <section class="mt-6 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <div class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+        <div class="rounded-card bg-surface p-5 shadow-card">
           <div class="flex items-start justify-between gap-4">
             <div class="min-w-0">
-              <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-2 vogue-label">
                 <Flame class="h-3.5 w-3.5" />
                 {{ ui.leadSetup }}
               </div>
-              <h2 class="mt-3 font-display text-2xl font-semibold text-ink-primary">
+              <h2 class="mt-3 font-display text-title1 text-ink-primary">
                 <span v-if="leader">{{ leader.ticker }} · {{ leader.name }}</span>
                 <span v-else>{{ ui.weeklyMarketPulse }}</span>
               </h2>
@@ -855,7 +811,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+        <div class="rounded-card bg-surface p-5 shadow-card">
           <div class="flex items-center justify-between gap-3">
             <div class="text-sm font-semibold text-ink-primary">{{ ui.dashboardPulse }}</div>
             <span class="text-xs text-ink-muted">{{ refreshedAtLabel(summary.generated_at || summary.as_of) }}</span>
@@ -875,7 +831,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="mt-6 grid gap-4 lg:grid-cols-[1fr_2fr]">
-        <div class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+        <div class="rounded-card bg-surface p-5 shadow-card">
           <div class="flex items-center gap-2 text-sm font-semibold text-ink-primary">
             <Activity class="h-4 w-4 text-accent" />
             {{ ui.sectorHeat }}
@@ -907,13 +863,13 @@ onBeforeUnmount(() => {
           <article
             v-for="stock in stocks"
             :key="stock.ticker"
-            class="rounded-card border border-subtle bg-surface p-4 shadow-card"
+            class="rounded-card bg-surface p-4 shadow-card"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
                   <span class="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">#{{ stock.rank }}</span>
-                  <h3 class="font-display text-lg font-semibold text-ink-primary">
+                  <h3 class="font-display text-title3 text-ink-primary">
                     {{ stock.ticker }}
                   </h3>
                   <span class="truncate text-sm text-ink-muted">{{ stock.name }}</span>
@@ -939,7 +895,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <div class="mt-4 h-16 rounded-lg border border-subtle bg-surface-muted px-2 py-2">
+            <div class="mt-4 h-16 rounded-subbox bg-fill-tertiary px-2 py-2">
               <svg viewBox="0 0 100 52" preserveAspectRatio="none" class="h-full w-full">
                 <polyline
                   :points="sparklinePoints(stock.sparkline)"
@@ -1023,7 +979,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="mt-6 grid gap-4 lg:grid-cols-2">
-        <div class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+        <div class="rounded-card bg-surface p-5 shadow-card">
           <div class="text-sm font-semibold text-ink-primary">{{ ui.watchlist }}</div>
           <div class="mt-3 divide-y divide-subtle">
             <div
@@ -1040,7 +996,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="rounded-card border border-subtle bg-surface p-5 shadow-card">
+        <div class="rounded-card bg-surface p-5 shadow-card">
           <div class="text-sm font-semibold text-ink-primary">{{ ui.sources }}</div>
           <div class="mt-3 space-y-2">
             <a

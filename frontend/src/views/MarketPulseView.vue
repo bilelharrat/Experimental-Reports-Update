@@ -152,15 +152,15 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas">
-    <div class="border-b border-subtle bg-surface">
+  <div>
+    <div>
       <div class="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-5">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <div class="vogue-label">
               Research Pages
             </div>
-            <h1 class="font-display text-2xl font-semibold text-ink-primary">
+            <h1 class="font-display text-large-title text-ink-primary">
               Market Pulse
             </h1>
             <div class="mt-1 text-sm text-ink-muted">
@@ -172,7 +172,7 @@ onMounted(load);
             <ResearchPagesNav />
             <button
               type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
+              class="btn-bordered focus-ring"
               :disabled="loading || refreshing"
               @click="refreshPage"
             >
@@ -201,20 +201,20 @@ onMounted(load);
       </div>
       <div v-else class="space-y-6">
         <div class="grid gap-3 md:grid-cols-4">
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Signals</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Signals</div>
             <div class="mt-2 text-2xl font-semibold">{{ summary.signal_count || 0 }}</div>
           </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Primary sourced</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Primary sourced</div>
             <div class="mt-2 text-2xl font-semibold">{{ summary.primary_source_signal_count || 0 }}</div>
           </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Weak or missing</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Weak or missing</div>
             <div class="mt-2 text-2xl font-semibold">{{ summary.weak_or_missing_signal_count || 0 }}</div>
           </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Avg source quality</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Avg source quality</div>
             <div class="mt-2 text-2xl font-semibold">{{ fmtPct(health.average_source_quality) }}</div>
           </div>
         </div>
@@ -237,44 +237,44 @@ onMounted(load);
           </div>
         </section>
 
-        <section class="rounded-lg border border-subtle bg-surface">
+        <section class="rounded-card bg-surface shadow-card">
           <div class="border-b border-subtle px-4 py-3">
-            <h2 class="font-display text-lg font-semibold">Market Regime</h2>
+            <h2 class="font-display text-title3">Market Regime</h2>
           </div>
           <div class="grid gap-3 p-4 lg:grid-cols-5">
             <div class="rounded-md border border-subtle bg-surface-muted p-3">
-              <div class="text-xs uppercase tracking-wide text-ink-muted">Posture</div>
+              <div class="text-footnote font-semibold text-ink-muted">Posture</div>
               <div class="mt-2 text-lg font-semibold capitalize">{{ regime.posture || "empty" }}</div>
             </div>
             <div class="rounded-md border border-subtle bg-surface-muted p-3">
-              <div class="flex items-center gap-2 text-xs uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-2 text-footnote font-semibold text-ink-muted">
                 <TrendingUp class="h-3.5 w-3.5" />
                 Positive
               </div>
               <div class="mt-2 text-lg font-semibold">{{ regime.breadth?.positive_signals || 0 }}</div>
             </div>
             <div class="rounded-md border border-subtle bg-surface-muted p-3">
-              <div class="flex items-center gap-2 text-xs uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-2 text-footnote font-semibold text-ink-muted">
                 <TrendingDown class="h-3.5 w-3.5" />
                 Negative
               </div>
               <div class="mt-2 text-lg font-semibold">{{ regime.breadth?.negative_signals || 0 }}</div>
             </div>
             <div class="rounded-md border border-subtle bg-surface-muted p-3">
-              <div class="text-xs uppercase tracking-wide text-ink-muted">Volatility</div>
+              <div class="text-footnote font-semibold text-ink-muted">Volatility</div>
               <div class="mt-2 text-sm text-ink-secondary">{{ regime.volatility?.status || "placeholder" }}</div>
             </div>
             <div class="rounded-md border border-subtle bg-surface-muted p-3">
-              <div class="text-xs uppercase tracking-wide text-ink-muted">Rates and liquidity</div>
+              <div class="text-footnote font-semibold text-ink-muted">Rates and liquidity</div>
               <div class="mt-2 text-sm text-ink-secondary">Pending data foundation</div>
             </div>
           </div>
         </section>
 
         <div class="grid gap-6 xl:grid-cols-[minmax(0,1.8fr)_minmax(20rem,0.9fr)]">
-          <section class="overflow-hidden rounded-lg border border-subtle bg-surface">
+          <section class="overflow-hidden rounded-card bg-surface shadow-card">
             <div class="flex flex-wrap items-center justify-between gap-3 border-b border-subtle px-4 py-3">
-              <h2 class="font-display text-lg font-semibold">Ranked Signals</h2>
+              <h2 class="font-display text-title3">Ranked Signals</h2>
               <div class="flex items-center gap-2 text-xs text-ink-muted">
                 <TableProperties class="h-4 w-4" />
                 {{ summary.period_id || "No aggregate" }}
@@ -285,7 +285,7 @@ onMounted(load);
             </div>
             <div v-else class="overflow-x-auto">
               <table class="min-w-full text-sm">
-                <thead class="bg-surface-muted text-left text-xs uppercase tracking-wide text-ink-muted">
+                <thead class="bg-surface-muted text-left text-footnote font-semibold text-ink-muted">
                   <tr>
                     <th class="px-3 py-2">Signal</th>
                     <th class="px-3 py-2">Direction</th>
@@ -362,9 +362,9 @@ onMounted(load);
           </section>
 
           <aside class="space-y-6">
-            <section class="rounded-lg border border-subtle bg-surface">
+            <section class="rounded-card bg-surface shadow-card">
               <div class="border-b border-subtle px-4 py-3">
-                <h2 class="font-display text-lg font-semibold">Theme Heat Map</h2>
+                <h2 class="font-display text-title3">Theme Heat Map</h2>
               </div>
               <div v-if="heatmap.length === 0" class="p-4 text-sm text-ink-muted">
                 No sector or theme groupings are available.
@@ -383,9 +383,9 @@ onMounted(load);
               </div>
             </section>
 
-            <section class="rounded-lg border border-subtle bg-surface">
+            <section class="rounded-card bg-surface shadow-card">
               <div class="border-b border-subtle px-4 py-3">
-                <h2 class="font-display text-lg font-semibold">Source Traces</h2>
+                <h2 class="font-display text-title3">Source Traces</h2>
               </div>
               <div v-if="!selectedSignal" class="p-4 text-sm text-ink-muted">
                 Select a signal to inspect source traces.
@@ -422,9 +422,9 @@ onMounted(load);
         </div>
 
         <div class="grid gap-6 lg:grid-cols-3">
-          <section class="rounded-lg border border-subtle bg-surface">
+          <section class="rounded-card bg-surface shadow-card">
             <div class="border-b border-subtle px-4 py-3">
-              <h2 class="font-display text-lg font-semibold">Changed Since Last Week</h2>
+              <h2 class="font-display text-title3">Changed Since Last Week</h2>
             </div>
             <div class="grid gap-3 p-4 text-sm">
               <div>
@@ -442,10 +442,10 @@ onMounted(load);
             </div>
           </section>
 
-          <section class="rounded-lg border border-subtle bg-surface">
+          <section class="rounded-card bg-surface shadow-card">
             <div class="flex items-center gap-2 border-b border-subtle px-4 py-3">
               <CalendarDays class="h-4 w-4 text-ink-muted" />
-              <h2 class="font-display text-lg font-semibold">Catalyst Preview</h2>
+              <h2 class="font-display text-title3">Catalyst Preview</h2>
             </div>
             <div v-if="catalysts.length === 0" class="p-4 text-sm text-ink-muted">
               No catalyst calendar rows are available.
@@ -460,10 +460,10 @@ onMounted(load);
             </div>
           </section>
 
-          <section class="rounded-lg border border-subtle bg-surface">
+          <section class="rounded-card bg-surface shadow-card">
             <div class="flex items-center gap-2 border-b border-subtle px-4 py-3">
               <AlertTriangle class="h-4 w-4 text-ink-muted" />
-              <h2 class="font-display text-lg font-semibold">Doctor Issues</h2>
+              <h2 class="font-display text-title3">Doctor Issues</h2>
             </div>
             <div v-if="issues.length === 0" class="flex items-center gap-2 p-4 text-sm text-success-ink">
               <CheckCircle2 class="h-4 w-4" />

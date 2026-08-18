@@ -29,7 +29,7 @@ const emit = defineEmits(["approve", "generate-memo"]);
         type="button"
         :disabled="approving || loading || approved || !readyForApproval"
         :title="approvalTitle"
-        class="inline-flex items-center gap-2 rounded-lg border border-subtle bg-surface px-3 py-2 text-sm text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+        class="btn-bordered focus-ring"
         @click="emit('approve')"
       >
         <Loader2 v-if="approving" class="h-4 w-4 animate-spin" />
@@ -40,7 +40,7 @@ const emit = defineEmits(["approve", "generate-memo"]);
         type="button"
         :disabled="!canGenerateMemo"
         :title="canGenerateMemo ? 'Generate memo with current Memo Studio context' : 'Memo Studio session is loading'"
-        class="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50 focus-ring"
+        class="btn-filled disabled:cursor-not-allowed focus-ring"
         @click="emit('generate-memo')"
       >
         <FileText class="h-4 w-4" />

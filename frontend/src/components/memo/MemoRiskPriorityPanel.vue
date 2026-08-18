@@ -20,7 +20,7 @@ const emit = defineEmits([
 <template>
   <div class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <h3 class="font-display text-title3 text-ink-primary">
         Strategic Risk Board
       </h3>
       <button
@@ -28,7 +28,7 @@ const emit = defineEmits([
         type="button"
         @click="emit('save-risk-priorities')"
         :disabled="Boolean(savingArtifact)"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
+        class="btn-bordered btn-sm focus-ring"
       >
         <Loader2
           v-if="savingArtifact === 'risk_priorities'"
@@ -45,7 +45,7 @@ const emit = defineEmits([
       <div
         v-for="risk in prioritizedRisks"
         :key="risk.id"
-        class="rounded-lg border border-subtle bg-surface-muted p-3"
+        class="rounded-subbox bg-fill-tertiary p-3"
       >
         <div class="flex items-start gap-3">
           <div class="flex w-8 shrink-0 flex-col items-center gap-1">
@@ -53,7 +53,7 @@ const emit = defineEmits([
               type="button"
               @click="emit('move-risk-priority', risk.id, -1)"
               :disabled="!canMoveRisk(risk.id, -1) || Boolean(savingArtifact)"
-              class="h-7 w-7 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface text-ink-muted hover:text-ink-primary hover:bg-surface-muted disabled:opacity-35 disabled:cursor-not-allowed focus-ring"
+              class="btn-bordered h-7 w-7 text-ink-muted hover:text-ink-primary disabled:opacity-35 disabled:cursor-not-allowed focus-ring"
               title="Move risk up"
             >
               <ArrowUp class="h-3.5 w-3.5" />
@@ -65,7 +65,7 @@ const emit = defineEmits([
               type="button"
               @click="emit('move-risk-priority', risk.id, 1)"
               :disabled="!canMoveRisk(risk.id, 1) || Boolean(savingArtifact)"
-              class="h-7 w-7 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface text-ink-muted hover:text-ink-primary hover:bg-surface-muted disabled:opacity-35 disabled:cursor-not-allowed focus-ring"
+              class="btn-bordered h-7 w-7 text-ink-muted hover:text-ink-primary disabled:opacity-35 disabled:cursor-not-allowed focus-ring"
               title="Move risk down"
             >
               <ArrowDown class="h-3.5 w-3.5" />
@@ -74,7 +74,7 @@ const emit = defineEmits([
           <div class="min-w-0 flex-1">
             <div class="flex items-start justify-between gap-3">
               <div class="font-medium text-ink-primary">{{ risk.title }}</div>
-              <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+              <span class="text-caption1 text-ink-muted">
                 {{ risk.status }}
               </span>
             </div>

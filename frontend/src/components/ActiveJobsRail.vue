@@ -313,7 +313,7 @@ const visible = computed(() => jobs.value.length > 0);
           ></span>
           <span class="relative inline-flex h-2 w-2 rounded-full bg-accent"></span>
         </span>
-        <span class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+        <span class="vogue-label">
           {{ t("jobs.rail_title") }} · {{ jobs.length }}
         </span>
         <span class="flex-1"></span>
@@ -420,7 +420,7 @@ const visible = computed(() => jobs.value.length > 0);
             >
               <ChevronDown v-if="threadsExpanded(j)" class="h-3 w-3 shrink-0" />
               <ChevronRight v-else class="h-3 w-3 shrink-0" />
-              <span class="font-mono uppercase tracking-wide">{{
+              <span class="font-mono">{{
                 t("jobs.parallel_flows")
               }}</span>
               <span class="ml-auto font-mono">
@@ -441,12 +441,7 @@ const visible = computed(() => jobs.value.length > 0);
                   <component
                     :is="threadIcon(thread)"
                     class="h-3 w-3 shrink-0"
-                    :class="{
-                      'text-success-ink': thread.status === 'done',
-                      'text-danger': thread.status === 'failed',
-                      'text-accent animate-spin': thread.status === 'running',
-                      'text-ink-muted': thread.status === 'not_started',
-                    }"
+                    :class="{ 'text-success-ink': thread.status === 'done', 'text-danger': thread.status === 'failed', 'text-accent animate-spin': thread.status === 'running', 'text-ink-muted': thread.status === 'not_started', }"
                   />
                   <span class="truncate text-[11px] font-medium text-ink-primary">
                     {{ thread.name }}

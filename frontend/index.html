@@ -6,12 +6,24 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/app-icon.png" />
     <title>BSH Research Center</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f2f7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000" />
+    <!-- Appearance is resolved before first paint so a dark-mode reload never
+         flashes the light canvas. Mirrors the logic in src/appearance.js. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("bsh.research.appearance");
+          var dark =
+            saved === "dark" ||
+            ((!saved || saved === "auto") &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* private mode / storage disabled — fall back to light */
+        }
+      })();
+    </script>
   </head>
   <body class="min-h-screen">
     <div id="app"></div>

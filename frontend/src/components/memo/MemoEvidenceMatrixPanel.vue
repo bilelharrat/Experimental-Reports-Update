@@ -38,25 +38,20 @@ function topEvidence(row) {
   <section class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div>
-        <h3 class="font-display text-lg font-semibold text-ink-primary">
+        <h3 class="font-display text-title3 text-ink-primary">
           Evidence Matrix
         </h3>
         <div v-if="evidenceMatrix" class="mt-1 text-xs text-ink-muted">
           {{ evidenceMatrix.claim_count || 0 }} claims
         </div>
       </div>
-      <div class="flex items-center gap-1 rounded-lg border border-subtle bg-surface-muted p-1">
+      <div class="flex items-center gap-1 rounded-subbox bg-fill-tertiary p-1">
         <button
           v-for="status in ['all', 'mixed', 'contradicted', 'missing']"
           :key="status"
           type="button"
           @click="emit('update:evidence-status-filter', status)"
-          :class="[
-            'px-2 py-1 rounded-md text-xs focus-ring',
-            evidenceStatusFilter === status
-              ? 'bg-surface text-ink-primary shadow-sm'
-              : 'text-ink-muted hover:text-ink-primary',
-          ]"
+          :class="[ 'px-2 py-1 rounded-md text-xs focus-ring', evidenceStatusFilter === status ? 'bg-surface text-ink-primary shadow-sm' : 'text-ink-muted hover:text-ink-primary', ]"
         >
           {{ status }}
         </button>
@@ -70,7 +65,7 @@ function topEvidence(row) {
     </div>
     <div v-else class="mt-4 overflow-x-auto">
       <table class="min-w-full text-sm">
-        <thead class="text-xs uppercase tracking-wide text-ink-muted">
+        <thead class="text-footnote font-semibold text-ink-muted">
           <tr class="border-b border-subtle">
             <th class="text-left py-2 pr-3">Claim</th>
             <th class="text-left py-2 pr-3">Status</th>
@@ -90,10 +85,7 @@ function topEvidence(row) {
             </td>
             <td class="py-2 pr-3">
               <span
-                :class="[
-                  'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                  statusClass(row.status),
-                ]"
+                :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', statusClass(row.status), ]"
               >
                 {{ row.status }}
               </span>

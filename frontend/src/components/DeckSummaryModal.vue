@@ -389,11 +389,11 @@ const lastStage = computed(
   <Teleport to="body">
     <div
       v-if="isOpen"
-      class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      class="sheet-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       @click.self="emit('close')"
     >
       <div
-        class="w-[92vw] h-[92vh] max-w-[1100px] bg-canvas rounded-card shadow-card-raised border border-subtle flex flex-col overflow-hidden"
+        class="sheet-panel w-[92vw] h-[92vh] max-w-[1100px] bg-canvas rounded-sheet flex flex-col overflow-hidden"
       >
         <!-- Header -->
         <header
@@ -441,24 +441,14 @@ const lastStage = computed(
             <button
               type="button"
               @click="tab = 'en'"
-              :class="[
-                'text-xs px-2.5 py-1 rounded-md border focus-ring',
-                tab === 'en'
-                  ? 'bg-accent text-white border-accent'
-                  : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
-              ]"
+              :class="[ 'text-xs px-2.5 py-1 rounded-md border focus-ring', tab === 'en' ? 'bg-accent text-white border-accent' : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong', ]"
             >
               English
             </button>
             <button
               type="button"
               @click="tab = 'zh'"
-              :class="[
-                'text-xs px-2.5 py-1 rounded-md border focus-ring',
-                tab === 'zh'
-                  ? 'bg-accent text-white border-accent'
-                  : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
-              ]"
+              :class="[ 'text-xs px-2.5 py-1 rounded-md border focus-ring', tab === 'zh' ? 'bg-accent text-white border-accent' : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong', ]"
             >
               中文
             </button>
@@ -478,7 +468,7 @@ const lastStage = computed(
             type="button"
             @click="regenerate"
             :disabled="generating"
-            class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface-muted text-ink-secondary focus-ring inline-flex items-center gap-1.5 disabled:opacity-60"
+            class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5 disabled:opacity-60"
             :title="summary ? 'Regenerate summary' : 'Generate summary'"
           >
             <Loader2 v-if="generating" class="h-3 w-3 animate-spin" />
@@ -530,10 +520,10 @@ const lastStage = computed(
 
             <!-- Stage timeline -->
             <section
-              class="bg-surface border border-subtle rounded-card shadow-card p-5"
+              class="rounded-card bg-surface shadow-card p-5"
             >
               <div
-                class="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted mb-3"
+                class="vogue-label mb-3"
               >
                 Pipeline
               </div>
@@ -545,11 +535,7 @@ const lastStage = computed(
                 >
                   <span
                     class="h-5 w-5 rounded-full grid place-items-center shrink-0"
-                    :class="{
-                      'bg-success-soft text-success-ink': s.state === 'done',
-                      'bg-accent-soft text-accent': s.state === 'active',
-                      'bg-surface-muted text-ink-subtle': s.state === 'pending',
-                    }"
+                    :class="{ 'bg-success-soft text-success-ink': s.state === 'done', 'bg-accent-soft text-accent': s.state === 'active', 'bg-surface-muted text-ink-subtle': s.state === 'pending', }"
                   >
                     <Check v-if="s.state === 'done'" class="h-3 w-3" />
                     <Loader2
@@ -559,11 +545,7 @@ const lastStage = computed(
                     <span v-else class="text-[10px]">·</span>
                   </span>
                   <span
-                    :class="
-                      s.state === 'pending'
-                        ? 'text-ink-subtle'
-                        : 'text-ink-secondary'
-                    "
+                    :class="s.state === 'pending' ? 'text-ink-subtle' : 'text-ink-secondary'"
                     >{{ s.label }}</span
                   >
                 </li>
@@ -573,10 +555,10 @@ const lastStage = computed(
             <!-- Per-slide tickbox feed -->
             <section
               v-if="slideEvents.length"
-              class="bg-surface border border-subtle rounded-card shadow-card p-5"
+              class="rounded-card bg-surface shadow-card p-5"
             >
               <div
-                class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted mb-3"
+                class="flex items-center justify-between vogue-label mb-3"
               >
                 <span>Slides extracted</span>
                 <span class="font-mono normal-case tracking-normal">
@@ -607,10 +589,10 @@ const lastStage = computed(
             <!-- Claude action feed -->
             <section
               v-if="claudeActions.length"
-              class="bg-surface border border-subtle rounded-card shadow-card p-5"
+              class="rounded-card bg-surface shadow-card p-5"
             >
               <div
-                class="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted mb-3"
+                class="flex items-center justify-between vogue-label mb-3"
               >
                 <span class="inline-flex items-center gap-1.5">
                   <span class="relative flex h-1.5 w-1.5">
@@ -657,15 +639,7 @@ const lastStage = computed(
                     class="text-ink-secondary"
                   >
                     <span
-                      :class="
-                        a.tool === 'Read'
-                          ? 'text-info'
-                          : a.tool === 'Write'
-                          ? 'text-success'
-                          : a.tool === 'Edit'
-                          ? 'text-warning'
-                          : 'text-ink-muted'
-                      "
+                      :class="a.tool === 'Read' ? 'text-info' : a.tool === 'Write' ? 'text-success' : a.tool === 'Edit' ? 'text-warning' : 'text-ink-muted'"
                       >⏻ {{ a.tool }}</span
                     >
                     <span class="ml-1 text-ink-muted">{{ truncate(a.preview, 140) }}</span>
@@ -695,7 +669,7 @@ const lastStage = computed(
           <!-- Error state -->
           <div v-else-if="error" class="max-w-2xl mx-auto px-6 py-10">
             <div
-              class="text-sm text-danger-ink bg-danger-soft border border-danger/40 rounded-lg px-3 py-2"
+              class="banner-danger"
             >
               {{ error }}
             </div>
@@ -718,7 +692,7 @@ const lastStage = computed(
                 class="absolute -left-4 top-0 bottom-0 w-1 rounded-full bg-accent"
               ></div>
               <div
-                class="text-[10px] font-semibold uppercase tracking-[0.18em] text-accent mb-3"
+                class="vogue-label text-accent mb-3"
               >
                 Executive summary
                 <span
@@ -738,7 +712,7 @@ const lastStage = computed(
             <section v-if="sections.length">
               <div class="flex items-baseline justify-between mb-3">
                 <div
-                  class="text-[10px] font-semibold uppercase tracking-[0.18em] text-ink-muted"
+                  class="vogue-label"
                 >
                   Supporting detail
                   <span

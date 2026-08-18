@@ -70,10 +70,10 @@ const earningsLine = computed(() => {
   <button
     type="button"
     @click="emit('select', company)"
-    class="w-full text-left p-5 rounded-card border border-subtle bg-surface hover:bg-surface-muted hover:border-strong shadow-card focus-ring transition flex items-start gap-4"
+    class="w-full text-left p-5 rounded-card bg-surface hover:bg-fill-tertiary shadow-card focus-ring transition flex items-start gap-4"
   >
     <div
-      class="h-11 w-11 rounded-lg bg-surface-muted border border-subtle grid place-items-center shrink-0 overflow-hidden"
+      class="h-11 w-11 rounded-subbox bg-fill-tertiary grid place-items-center shrink-0 overflow-hidden"
     >
       <Building2 class="h-5 w-5 text-ink-muted" />
     </div>

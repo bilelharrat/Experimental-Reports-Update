@@ -116,11 +116,11 @@ async function retry() {
           <Globe class="h-5 w-5 text-ink-muted" />
         </div>
         <div class="flex-1 min-w-0">
-          <div class="text-xs uppercase tracking-wider text-ink-muted">
+          <div class="vogue-label">
             {{ t("news.type") }} · {{ item.domain || item.site_name || t("news.link") }}
           </div>
           <h1
-            class="font-display text-2xl font-semibold text-ink-primary mt-0.5"
+            class="font-display text-large-title text-ink-primary mt-0.5"
           >
             {{ item.title || item.source_url }}
           </h1>
@@ -193,7 +193,7 @@ async function retry() {
 
       <div
         v-if="item.analysis_error"
-        class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
+        class="banner-warning flex items-center justify-between gap-3"
       >
         <span>{{ t("external.analysis_incomplete", { error: item.analysis_error }) }}</span>
         <button
@@ -210,7 +210,7 @@ async function retry() {
 
       <div
         v-if="item.error && item.status === 'failed'"
-        class="text-sm text-danger-ink bg-danger-soft border border-danger/40 rounded-lg px-3 py-2"
+        class="banner-danger"
       >
         {{ item.error }}
       </div>

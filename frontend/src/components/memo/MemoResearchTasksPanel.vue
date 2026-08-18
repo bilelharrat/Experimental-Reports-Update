@@ -68,7 +68,7 @@ function fmtDate(value) {
 <template>
   <div class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <h3 class="font-display text-title3 text-ink-primary">
         Research Task Queue
       </h3>
       <button
@@ -76,7 +76,7 @@ function fmtDate(value) {
         type="button"
         @click="emit('run-selected-tasks')"
         :disabled="runningBatch || hasRunningTasks"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
+        class="btn-bordered btn-sm focus-ring"
       >
         <Loader2 v-if="runningBatch" class="h-3.5 w-3.5 animate-spin" />
         <Play v-else class="h-3.5 w-3.5" />
@@ -85,7 +85,7 @@ function fmtDate(value) {
     </div>
     <div
       v-if="batchStatus"
-      class="mt-3 rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-secondary"
+      class="mt-3 rounded-subbox bg-fill-tertiary px-3 py-2 text-xs text-ink-secondary"
     >
       <div>
         Launched {{ batchStatus.launched_task_ids?.length || 0 }} tasks · concurrency {{ batchStatus.concurrency }}
@@ -108,7 +108,7 @@ function fmtDate(value) {
         v-for="task in tasks"
         :key="task.id"
         :id="`memo-task-${task.id}`"
-        class="rounded-lg border border-subtle bg-surface-muted p-3"
+        class="rounded-subbox bg-fill-tertiary p-3"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
@@ -118,10 +118,7 @@ function fmtDate(value) {
                 {{ task.priority }}
               </span>
               <span
-                :class="[
-                  'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                  statusClass(task.status),
-                ]"
+                :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', statusClass(task.status), ]"
               >
                 {{ statusLabel(task.status) }}
               </span>
@@ -134,7 +131,7 @@ function fmtDate(value) {
               type="button"
               @click="emit('run-research-task', task.id)"
               :disabled="Boolean(runningTask) || task.status === 'running'"
-              class="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+              class="btn-bordered btn-sm h-8 w-8 focus-ring"
               :title="task.status === 'running' ? 'Task running' : task.status === 'done' ? 'Run task again' : 'Run task'"
             >
               <Loader2
@@ -161,9 +158,9 @@ function fmtDate(value) {
         </div>
         <div
           v-if="sourceFiles.length"
-          class="mt-3 rounded-lg border border-subtle bg-surface px-3 py-2"
+          class="mt-3 rounded-card bg-surface shadow-card px-3 py-2"
         >
-          <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+          <div class="text-[11px] text-footnote font-semibold text-ink-muted">
             Sources
           </div>
           <div class="mt-2 flex flex-wrap gap-2">
@@ -191,7 +188,7 @@ function fmtDate(value) {
         </div>
         <div
           v-if="task.result_summary || task.answer"
-          class="mt-3 rounded-lg border border-subtle bg-surface px-3 py-2 text-xs text-ink-secondary"
+          class="mt-3 rounded-card bg-surface shadow-card px-3 py-2 text-xs text-ink-secondary"
         >
           <div class="font-medium text-ink-primary">
             {{ task.answer || task.result_summary }}
@@ -209,7 +206,7 @@ function fmtDate(value) {
             v-if="listItems(task.supporting_evidence).length"
             class="mt-3"
           >
-            <div class="text-[11px] uppercase tracking-wide text-success-ink">
+            <div class="text-[11px] text-success-ink">
               Supporting evidence
             </div>
             <div
@@ -225,7 +222,7 @@ function fmtDate(value) {
             v-if="listItems(task.contradicting_evidence).length"
             class="mt-3"
           >
-            <div class="text-[11px] uppercase tracking-wide text-danger">
+            <div class="text-[11px] text-danger">
               Contradicting evidence
             </div>
             <div
@@ -241,7 +238,7 @@ function fmtDate(value) {
             v-if="listItems(task.open_questions).length"
             class="mt-3"
           >
-            <div class="text-[11px] uppercase tracking-wide text-warning-ink">
+            <div class="text-[11px] text-warning-ink">
               Evidence limits
             </div>
             <ul class="mt-1 space-y-1">

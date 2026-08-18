@@ -71,7 +71,7 @@ function badgeClass(kind) {
         </label>
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover focus-ring disabled:opacity-50"
+          class="btn-filled focus-ring"
           :disabled="busy || !liveVintageDate"
           @click="emit('create-live', liveVintageDate)"
         >
@@ -88,7 +88,7 @@ function badgeClass(kind) {
         </label>
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy || !debugVintageDate"
           @click="emit('create-debug-backfill', debugVintageDate)"
         >
@@ -97,7 +97,7 @@ function badgeClass(kind) {
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy"
           @click="emit('calibrate')"
         >
@@ -107,9 +107,9 @@ function badgeClass(kind) {
       </div>
     </div>
 
-    <div v-if="vintages.length" class="overflow-hidden rounded-lg border border-subtle bg-surface">
+    <div v-if="vintages.length" class="overflow-hidden rounded-card bg-surface shadow-card">
       <table class="min-w-full text-sm">
-        <thead class="bg-surface-muted text-left text-xs uppercase tracking-wide text-ink-muted">
+        <thead class="bg-surface-muted text-left text-footnote font-semibold text-ink-muted">
           <tr>
             <th class="px-3 py-2">Vintage</th>
             <th class="px-3 py-2">Kind</th>
@@ -154,9 +154,9 @@ function badgeClass(kind) {
       No hypothesis vintages yet.
     </div>
 
-    <div v-if="selectedRows.length" class="overflow-hidden rounded-lg border border-subtle bg-surface">
+    <div v-if="selectedRows.length" class="overflow-hidden rounded-card bg-surface shadow-card">
       <table class="min-w-full text-sm">
-        <thead class="bg-surface-muted text-left text-xs uppercase tracking-wide text-ink-muted">
+        <thead class="bg-surface-muted text-left text-footnote font-semibold text-ink-muted">
           <tr>
             <th class="px-3 py-2">Claim</th>
             <th class="px-3 py-2">Ticker</th>
@@ -193,7 +193,7 @@ function badgeClass(kind) {
       </table>
     </div>
 
-    <div v-if="calibration.length" class="rounded-lg border border-subtle bg-surface p-4 text-sm">
+    <div v-if="calibration.length" class="rounded-card bg-surface shadow-card p-4 text-sm">
       <div class="font-medium">Latest Calibration</div>
       <div class="mt-2 text-ink-muted">
         {{ calibration[0].eligible_outcome_count || 0 }} eligible outcomes
