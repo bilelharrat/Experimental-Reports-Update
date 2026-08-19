@@ -724,11 +724,7 @@ def _vintage_summaries(vintage_date: str) -> list[dict[str, Any]]:
                 "hypothesis_count": len(kind_hypotheses),
                 "outcome_count": len(kind_outcomes),
                 "pending_count": len(
-                    [
-                        row
-                        for row in kind_hypotheses
-                        if row["hypothesis_id"] not in completed_ids
-                    ]
+                    [row for row in kind_hypotheses if row["hypothesis_id"] not in completed_ids]
                 ),
                 "training_eligible_count": len(
                     [row for row in kind_outcomes if row.get("eligible_for_training")]
@@ -767,9 +763,7 @@ def hypothesis_dashboard_payload() -> dict[str, Any]:
         reverse=True,
     )
     summaries = [
-        summary
-        for vintage_date in vintage_dates
-        for summary in _vintage_summaries(vintage_date)
+        summary for vintage_date in vintage_dates for summary in _vintage_summaries(vintage_date)
     ]
     pending = [row for row in rows if not row.get("outcome")]
     return {

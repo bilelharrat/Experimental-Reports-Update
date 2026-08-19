@@ -126,7 +126,9 @@ def create_hypotheses(
         actual_kind = "debug_backfill"
     if actual_kind == "debug_backfill":
         if parsed_vintage > current_date():
-            raise ValueError("debug_backfill hypotheses cannot be created for a future vintage date")
+            raise ValueError(
+                "debug_backfill hypotheses cannot be created for a future vintage date"
+            )
         allow_debug_backfill = True
 
     started = time.monotonic()
