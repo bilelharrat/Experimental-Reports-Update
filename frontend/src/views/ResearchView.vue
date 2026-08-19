@@ -19,6 +19,7 @@ import {
   formatMetricValue,
   humanizeStatus,
   isPendingValue,
+  isTerminalReportStatus,
 } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
@@ -438,13 +439,6 @@ let nowTickId = null;
 // elapsed + a rough ETA so an in-flight run is distinguishable from a hang.
 const MEMO_TYPICAL_MAX_MIN = 34;
 
-function isTerminalReportStatus(status) {
-  const s = String(status || "");
-  return (
-    s === "complete" || s === "complete_with_warnings" || s.startsWith("failed")
-  );
-}
-
 const reportInProgress = computed(() =>
   Boolean(activeReport.value) &&
   !isTerminalReportStatus(activeReport.value?.status),
@@ -826,8 +820,16 @@ function openMemoEditorDiscuss() {
   emit("open-copilot");
 }
 
-function handleDocumentsChanged() {
+async function handleDocumentsChanged() {
   libraryRefresh.value += 1;
+  // Deleting a generated report from the Library must not leave a stale
+  // viewer: refresh the report list and drop the active report if gone.
+  await loadCompanyReports();
+  const reports = Array.isArray(companyReports.value) ? companyReports.value : [];
+  if (activeReport.value && !reports.some((r) => r.id === activeReport.value.id)) {
+    activeReport.value = null;
+    stopPolling();
+  }
 }
 
 async function resumeReport() {

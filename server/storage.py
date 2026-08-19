@@ -814,6 +814,23 @@ def update_report(report_id: str, **patch: Any) -> dict | None:
         return data
 
 
+def delete_report(report_id: str) -> bool:
+    """Remove a report record. Returns False if it did not exist.
+
+    Deletes only the YAML record — a memo run's folder under
+    ``data/memos/`` stays on disk, mirroring dismiss's forensics
+    philosophy.
+    """
+    with _LOCK:
+        path = _report_path(report_id)
+        _reports_cache.pop(str(path), None)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return False
+        return True
+
+
 def append_report_stage(report_id: str, stage: dict) -> dict | None:
     with _LOCK:
         data = get_report(report_id)

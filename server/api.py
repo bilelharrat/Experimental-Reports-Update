@@ -2603,6 +2603,29 @@ def dismiss_memo_report(request: Request, report_id: str) -> ReportDetail:
     return ReportDetail(**_report_detail(updated))
 
 
+@router.delete("/reports/{report_id}", status_code=204)
+def delete_report(request: Request, report_id: str) -> None:
+    """Delete a generated report record so it leaves the Library.
+
+    Removes only the record: a memo run's folder under ``data/memos/``
+    stays on disk, like dismissed failures. Refuses while a memo worker
+    is still writing (same guard as dismiss).
+    """
+    _require_permission(request, "documents:delete")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.get("kind") == "investment_memo_latestage":
+        state = _scan_progress_state(_memo_stream_path_for_report(report_id))
+        if state.get("exists") and not state.get("terminated"):
+            raise HTTPException(
+                status_code=409,
+                detail="Memo report still has an active worker",
+            )
+    if not storage.delete_report(report_id):
+        raise HTTPException(status_code=404, detail="Report not found")
+
+
 @router.post("/reports/{report_id}/resume", status_code=202)
 def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
     _require_permission(request, "tasks:action")

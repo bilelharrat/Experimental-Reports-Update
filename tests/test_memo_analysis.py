@@ -1962,6 +1962,39 @@ def test_dismiss_failed_memo_report_clears_without_processing(
     assert exc.value.status_code == 409
 
 
+def test_delete_report_removes_record_keeps_run_dir(memo_env):
+    """Deleting a generated report removes it from the Library while the
+    memo run folder stays on disk for forensics."""
+    report, run_dir = _make_memo_report(memo_env)
+    storage.update_report(report["id"], status="complete")
+
+    api.delete_report(_admin_request(), report["id"])
+
+    assert storage.get_report(report["id"]) is None
+    assert report["id"] not in {r["id"] for r in storage.list_reports()}
+    assert run_dir.exists()
+
+    with pytest.raises(HTTPException) as exc:
+        api.delete_report(_admin_request(), report["id"])
+    assert exc.value.status_code == 404
+
+
+def test_delete_report_blocks_active_memo_worker(memo_env):
+    """A memo run whose worker stream is still live cannot be deleted."""
+    report, run_dir = _make_memo_report(memo_env)
+    stream = memo_prep.stream_path(run_dir)
+    stream.parent.mkdir(parents=True, exist_ok=True)
+    stream.write_text(
+        json.dumps({"type": "status", "phase": "analysis"}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        api.delete_report(_admin_request(), report["id"])
+    assert exc.value.status_code == 409
+    assert storage.get_report(report["id"]) is not None
+
+
 def test_fresh_memo_run_supersedes_stale_failures(memo_env):
     """Starting a new memo run marks older failed runs for the company as
     superseded: still on disk for forensics, but no longer resumable or

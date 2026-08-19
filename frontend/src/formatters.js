@@ -109,6 +109,13 @@ const STATUS_LABELS_ZH = {
   waived: "已豁免",
 };
 
+export function isTerminalReportStatus(status) {
+  const s = String(status || "");
+  return (
+    s === "complete" || s === "complete_with_warnings" || s.startsWith("failed")
+  );
+}
+
 export function humanizeStatus(value, fallback = "Pending", language = "en") {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return fallback;

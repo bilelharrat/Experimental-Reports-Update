@@ -244,6 +244,13 @@ export const api = {
     request(`/api/reports/${encodeURIComponent(reportId)}/dismiss`, {
       method: "POST",
     }),
+  deleteReport: async (reportId) => {
+    await ensureOk(
+      await apiFetch(`/api/reports/${encodeURIComponent(reportId)}`, {
+        method: "DELETE",
+      }),
+    );
+  },
   listCompanyReports: (companyId) =>
     request(`/api/companies/${companyId}/reports`),
   listCompanyDocuments: (companyId) =>

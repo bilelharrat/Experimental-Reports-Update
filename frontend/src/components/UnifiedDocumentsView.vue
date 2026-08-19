@@ -13,7 +13,7 @@ import {
   UploadCloud,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
-import { formatIsoDate, humanizeStatus } from "../formatters.js";
+import { formatIsoDate, humanizeStatus, isTerminalReportStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage, openSummary } from "../state.js";
 import FilePreviewModal from "./FilePreviewModal.vue";
@@ -231,6 +231,8 @@ async function removeRow(row) {
       await api.deleteFile(props.companyId, row.record_id);
     } else if (row.backend === "background_documents") {
       await api.deleteResearchFile(props.companyId, row.record_id);
+    } else if (row.backend === "generated_report") {
+      await api.deleteReport(row.record_id);
     }
     await load();
     emit("files-changed");
@@ -585,7 +587,7 @@ function openReport(row) {
                   {{ t("documents.export") }}
                 </a>
                 <button
-                  v-if="row.editable_metadata"
+                  v-if="row.editable_metadata || (row.backend === 'generated_report' && isTerminalReportStatus(row.status))"
                   type="button"
                   @click="removeRow(row)"
                   class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger focus-ring"
