@@ -371,11 +371,6 @@ def client():
     return TestClient(app)
 
 
-@pytest.fixture(autouse=True)
-def _disable_auth(monkeypatch):
-    monkeypatch.delenv("BSH_RESEARCH_API_TOKEN", raising=False)
-
-
 # ---- Schema sanity ------------------------------------------------------
 
 
