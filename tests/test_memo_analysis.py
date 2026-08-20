@@ -390,38 +390,150 @@ def _memo_package(body_en=None, body_zh=None):
                 "id": "investment_risk",
                 "blocks": [
                     {
-                        "type": "bullets",
-                        "items": [
-                            {
-                                "en": "Hardware integration may slow gross-margin expansion.",
-                                "zh": "硬件集成可能拖慢毛利率提升。",
-                            },
-                            {
-                                "en": "Enterprise adoption may remain services-heavy.",
-                                "zh": "企业采用可能继续偏服务交付。",
-                            }
-                        ],
+                        "type": "paragraph",
+                        "text": {
+                            "en": "Risk concentrates in commercial proof, not technology.",
+                            "zh": "风险集中在商业验证，而非技术。",
+                        },
+                    },
+                    {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 1: Adoption may stay services-heavy and cap margins",
+                            "zh": "风险 1：采用可能持续偏服务交付，压制利润率",
+                        },
                     },
                     {
                         "type": "table",
                         "component": "risk_register",
-                        "title": {"en": "Risk Register", "zh": "风险清单"},
-                        "headers": [
-                            {"en": "Risk", "zh": "风险"},
-                            {"en": "Severity", "zh": "严重性"},
-                            {"en": "Likelihood", "zh": "可能性"},
-                            {"en": "Mitigation", "zh": "缓释方式"},
-                        ],
+                        "layout": "key_value",
+                        "headers": [],
                         "rows": [
                             [
-                                {"en": "Services-heavy adoption", "zh": "服务交付占比高"},
-                                {"en": "Medium", "zh": "中"},
-                                {"en": "Medium", "zh": "中"},
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Commercial", "zh": "商业"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
                                 {
-                                    "en": "Track repeatable deployment margin by cohort.",
+                                    "en": (
+                                        "Deployments still need on-site engineering, so "
+                                        "gross margin sits below the software multiple "
+                                        "the round implies."
+                                    ),
+                                    "zh": (
+                                        "部署仍需现场工程支持，毛利率低于本轮估值隐含的"
+                                        "软件业务倍数。"
+                                    ),
+                                },
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": "Repeatable deployment margin by cohort.",
                                     "zh": "按批次跟踪可重复部署利润率。",
                                 },
-                            ]
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "7/10: margin path drives the exit multiple.",
+                                    "zh": "7/10：利润率路径决定退出倍数。",
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 2: Hardware integration may slow gross-margin expansion",
+                            "zh": "风险 2：硬件集成可能拖慢毛利率提升",
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "component": "risk_register",
+                        "layout": "key_value",
+                        "headers": [],
+                        "rows": [
+                            [
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Technology", "zh": "技术"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
+                                {
+                                    "en": (
+                                        "Custom hardware per site adds cost the software "
+                                        "roadmap cannot amortize quickly."
+                                    ),
+                                    "zh": "每个站点的定制硬件带来难以快速摊薄的成本。",
+                                },
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": "Bill-of-materials cost per deployment.",
+                                    "zh": "每次部署的物料成本。",
+                                },
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "5/10: meaningful but monitorable.",
+                                    "zh": "5/10：影响明确但可跟踪。",
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 3: Enterprise buyers may pause pilots in a downturn",
+                            "zh": "风险 3：企业客户可能在下行周期暂停试点",
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "component": "risk_register",
+                        "layout": "key_value",
+                        "headers": [],
+                        "rows": [
+                            [
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Market", "zh": "市场"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
+                                {
+                                    "en": (
+                                        "Pilot budgets are discretionary, so a capex "
+                                        "pullback delays the conversion the base case "
+                                        "counts on."
+                                    ),
+                                    "zh": (
+                                        "试点预算属于可自由支配支出，资本开支收缩会推迟"
+                                        "基准情景所依赖的转化。"
+                                    ),
+                                },
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": "Pilot-to-production conversion each quarter.",
+                                    "zh": "每季度试点转生产的转化率。",
+                                },
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "4/10: real but limited effect on the case.",
+                                    "zh": "4/10：真实存在但影响有限。",
+                                },
+                            ],
                         ],
                     },
                     {

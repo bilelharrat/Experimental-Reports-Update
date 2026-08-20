@@ -165,9 +165,13 @@ REQUIRED_MEMO_COMPONENTS = (
     },
     {
         "id": "risk_register",
-        "label": "Investment Risk / Risk Register table",
+        "label": "Investment Risk / per-risk card tables",
         "block_types": {"table"},
-        "patterns": (r"\brisk register\b", r"\bseverity\b.*\blikelihood\b"),
+        "patterns": (
+            r"\brisk register\b",
+            r"\brisk type\b.*\brisk rating\b",
+            r"\bseverity\b.*\blikelihood\b",
+        ),
     },
     {
         "id": "disconfirming_evidence",
@@ -272,6 +276,26 @@ SUPPORTED_BLOCK_TYPES = {
 _NUMBERED_SECTION_HEADING_RE = re.compile(
     r"^\s*(?:(?:i|ii|iii|iv|v|vi|vii|viii|ix|x)\.|[一二三四五六七八九十]+[、.．])",
     re.IGNORECASE,
+)
+# Per-risk cards in `investment_risk`: a "Risk N: <one-line summary>" heading
+# followed by a key_value table with these four row labels. Enforced at
+# generation time only (english_package_validation_errors), so packages from
+# runs that predate the format still re-render.
+_RISK_CARD_HEADING_RE = re.compile(r"^\s*risk\s+(\d+)\s*[:：]\s*\S", re.IGNORECASE)
+_RISK_RATING_VALUE_RE = re.compile(r"^\s*(10|[1-9])\s*/\s*10\b")
+_RISK_CARD_ROW_LABELS = (
+    ("risk type", "Risk Type"),
+    ("why it matters", "Why it matters"),
+    ("what we watch", "What we watch"),
+    ("risk rating", "Risk Rating"),
+)
+_RISK_CARD_FORMAT_HINT = (
+    "section investment_risk must present risks as per-risk cards: 4-6 "
+    "`heading` blocks titled 'Risk N: <one-line summary>', each immediately "
+    "followed by a `table` block with component 'risk_register', layout "
+    "'key_value', headers [], and exactly four two-cell rows labeled "
+    "'Risk Type', 'Why it matters', 'What we watch', 'Risk Rating' (the "
+    "rating written as 'N/10: short reason'), ordered highest rating first"
 )
 VALUATION_CONTENT_TERMS = (
     "model treatment",
@@ -539,7 +563,103 @@ def english_package_validation_errors(package: Any) -> list[str]:
     """
     if not isinstance(package, dict):
         return ["memo package must be a JSON object"]
-    return _package_validation_errors(fill_blank_zh_placeholders(package))
+    filled = fill_blank_zh_placeholders(package)
+    errors = _package_validation_errors(filled)
+    errors.extend(_risk_card_format_errors(filled))
+    return errors
+
+
+def _risk_card_format_errors(package: dict) -> list[str]:
+    """Generation-time gate for the per-risk card format in investment_risk.
+
+    Kept out of ``_package_validation_errors`` on purpose: render-time
+    validation must keep accepting packages from runs that predate the card
+    format, while the synthesis retry loop gets precise errors to fix.
+    """
+    sections = package.get("sections")
+    if not isinstance(sections, list):
+        return []
+    section = next(
+        (
+            s
+            for s in sections
+            if isinstance(s, dict) and str(s.get("id") or "") == "investment_risk"
+        ),
+        None,
+    )
+    if section is None:
+        # The missing-section error is already raised by shared validation.
+        return []
+    errors: list[str] = []
+    blocks = [b for b in section.get("blocks") or [] if isinstance(b, dict)]
+    cards: list[tuple[str, dict, str]] = []
+    for index, block in enumerate(blocks):
+        if str(block.get("type") or "paragraph") != "heading":
+            continue
+        heading_text = _content_text(block.get("text") or block.get("title"))
+        if not _RISK_CARD_HEADING_RE.match(heading_text):
+            continue
+        location = f"investment_risk blocks[{index}]"
+        nxt = blocks[index + 1] if index + 1 < len(blocks) else None
+        if not isinstance(nxt, dict) or str(nxt.get("type") or "") != "table":
+            errors.append(
+                f"{location}: risk heading {heading_text!r} must be "
+                "immediately followed by its key_value risk card table"
+            )
+            continue
+        cards.append((heading_text, nxt, f"investment_risk blocks[{index + 1}]"))
+    if len(cards) < 3:
+        errors.append(_RISK_CARD_FORMAT_HINT)
+        return errors
+
+    ratings: list[tuple[str, int]] = []
+    for heading_text, table, location in cards:
+        if str(table.get("layout") or "").strip().lower() != "key_value":
+            errors.append(
+                f"{location}: risk card table must declare \"layout\": \"key_value\""
+            )
+        if [header for header in table.get("headers") or [] if _content_text(header)]:
+            errors.append(f"{location}: risk card table must have empty headers")
+        row_texts: list[tuple[str, str] | None] = []
+        for row in table.get("rows") or []:
+            cells = row.get("cells") if isinstance(row, dict) else row
+            if isinstance(cells, (list, tuple)) and len(cells) == 2:
+                row_texts.append((_content_text(cells[0]), _content_text(cells[1])))
+            else:
+                row_texts.append(None)
+        if len(row_texts) != 4 or any(row is None for row in row_texts):
+            errors.append(
+                f"{location}: risk card table needs exactly four two-cell rows "
+                "(Risk Type / Why it matters / What we watch / Risk Rating)"
+            )
+            continue
+        for (prefix, label), row in zip(_RISK_CARD_ROW_LABELS, row_texts):
+            label_text, value_text = row  # type: ignore[misc]
+            if not label_text.lower().startswith(prefix):
+                errors.append(
+                    f"{location}: row label {label_text!r} must be {label!r}"
+                )
+            elif not value_text.strip():
+                errors.append(f"{location}: row {label!r} must not be empty")
+        rating_row = row_texts[3]
+        if rating_row and rating_row[0].lower().startswith("risk rating"):
+            match = _RISK_RATING_VALUE_RE.match(rating_row[1])
+            if match:
+                ratings.append((heading_text, int(match.group(1))))
+            else:
+                errors.append(
+                    f"{location}: Risk Rating must be written as "
+                    "'N/10: short reason' with N from 1-10"
+                )
+    for (prev_title, prev_rating), (title, rating) in zip(ratings, ratings[1:]):
+        if rating > prev_rating:
+            errors.append(
+                "investment_risk: risk cards must be ordered by Risk Rating, "
+                f"highest first — {title!r} ({rating}/10) is rated above "
+                f"{prev_title!r} ({prev_rating}/10) but listed after it"
+            )
+            break
+    return errors
 
 
 def _package_validation_errors(package: Any) -> list[str]:
@@ -1252,6 +1372,34 @@ def _add_callout(document: Document, block: dict, locale: str) -> None:
     document.add_paragraph().paragraph_format.space_after = Pt(4)
 
 
+def _add_key_value_card_table(document: Document, rows: list[list[str]], locale: str) -> None:
+    """Render a ``layout: "key_value"`` block: label column left, prose right.
+
+    This is the risk-card layout — a shaded bold label column so the reader
+    scans Risk Type / Why it matters / What we watch / Risk Rating at a
+    glance. A rating value ("8/10 — …") is bolded so the importance level
+    stands out.
+    """
+    table = document.add_table(rows=len(rows), cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = True
+    for idx, (label, value) in enumerate(rows):
+        cells = table.rows[idx].cells
+        cells[0].width = Cm(4.2)
+        cells[1].width = Cm(11.3)
+        _shade_cell(cells[0], WARM_GREY)
+        _set_cell_borders(cells[0])
+        _set_cell_borders(cells[1])
+        _cell_text(cells[0], label, locale=locale, bold=True, color=NAVY)
+        _cell_text(
+            cells[1],
+            value,
+            locale=locale,
+            bold=bool(_RISK_RATING_VALUE_RE.match(str(value or ""))),
+        )
+    document.add_paragraph().paragraph_format.space_after = Pt(4)
+
+
 def _add_key_value_table(document: Document, rows: list[tuple[str, str]], locale: str) -> None:
     if not rows:
         return
@@ -1272,6 +1420,14 @@ def _add_table(document: Document, block: dict, locale: str) -> None:
     headers = [_loc(header, locale) for header in block.get("headers") or []]
     rows = [_row_values(row, locale) for row in block.get("rows") or []]
     if not rows and not headers:
+        return
+    if (
+        str(block.get("layout") or "").strip().lower() == "key_value"
+        and not headers
+        and rows
+        and all(len(row) == 2 for row in rows)
+    ):
+        _add_key_value_card_table(document, rows, locale)
         return
     col_count = max([len(headers), *(len(row) for row in rows)] or [1])
     table = document.add_table(rows=(1 if headers else 0) + len(rows), cols=col_count)

@@ -294,41 +294,155 @@ def _package() -> dict:
                 "id": "investment_risk",
                 "blocks": [
                     {
-                        "type": "bullets",
-                        "items": [
-                            {
-                                "en": "Hardware integration may slow gross-margin expansion.",
-                                "zh": "硬件集成可能拖慢毛利率提升。",
-                            },
-                            {
-                                "en": "Enterprise adoption may remain services-heavy.",
-                                "zh": "企业采用可能继续偏服务交付。",
-                            },
-                        ],
+                        "type": "paragraph",
+                        "text": {
+                            "en": (
+                                "Risk concentrates in commercial proof, not in whether "
+                                "the technology works in production."
+                            ),
+                            "zh": "风险集中在商业验证，而非技术能否在生产环境运行。",
+                        },
+                    },
+                    {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 1: Deployments may stay services-heavy and cap margins",
+                            "zh": "风险 1：部署可能持续偏服务交付，压制利润率",
+                        },
                     },
                     {
                         "type": "table",
                         "component": "risk_register",
-                        "title": {
-                            "en": "Risk Register",
-                            "zh": "风险清单",
-                        },
-                        "headers": [
-                            {"en": "Risk", "zh": "风险"},
-                            {"en": "Severity", "zh": "严重性"},
-                            {"en": "Likelihood", "zh": "可能性"},
-                            {"en": "Mitigation", "zh": "缓释方式"},
-                        ],
+                        "layout": "key_value",
+                        "headers": [],
                         "rows": [
                             [
-                                {"en": "Services-heavy deployment", "zh": "服务交付占比较高"},
-                                {"en": "Medium", "zh": "中"},
-                                {"en": "Medium", "zh": "中"},
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Commercial", "zh": "商业"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
                                 {
-                                    "en": "Track repeatable deployment margin by customer cohort.",
-                                    "zh": "按客户批次跟踪可重复部署利润率。",
+                                    "en": (
+                                        "Each deployment still needs on-site engineering, so "
+                                        "gross margin sits below the software multiple the "
+                                        "round implies."
+                                    ),
+                                    "zh": (
+                                        "每次部署仍需要现场工程支持，因此毛利率低于本轮估值"
+                                        "所隐含的软件业务倍数。"
+                                    ),
                                 },
-                            ]
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": (
+                                        "Repeatable deployment margin by customer cohort, "
+                                        "reported quarterly."
+                                    ),
+                                    "zh": "按客户批次的可重复部署利润率，按季度跟踪。",
+                                },
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "7/10: margin path drives the exit multiple.",
+                                    "zh": "7/10：利润率路径决定退出倍数。",
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 2: Hardware integration may slow gross-margin expansion",
+                            "zh": "风险 2：硬件集成可能拖慢毛利率提升",
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "component": "risk_register",
+                        "layout": "key_value",
+                        "headers": [],
+                        "rows": [
+                            [
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Technology", "zh": "技术"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
+                                {
+                                    "en": (
+                                        "Custom hardware per site adds cost the software "
+                                        "roadmap cannot amortize quickly."
+                                    ),
+                                    "zh": "每个站点的定制硬件带来软件路线图难以快速摊薄的成本。",
+                                },
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": "Bill-of-materials cost per deployment over 2026.",
+                                    "zh": "2026 年内每次部署的物料成本。",
+                                },
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "5/10: meaningful but monitorable.",
+                                    "zh": "5/10：影响明确但可跟踪。",
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 3: Enterprise buyers may pause pilots in a downturn",
+                            "zh": "风险 3：企业客户可能在下行周期暂停试点",
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "component": "risk_register",
+                        "layout": "key_value",
+                        "headers": [],
+                        "rows": [
+                            [
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Market", "zh": "市场"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
+                                {
+                                    "en": (
+                                        "Pilot budgets are discretionary, so a capex pullback "
+                                        "delays the conversion the base case counts on."
+                                    ),
+                                    "zh": (
+                                        "试点预算属于可自由支配支出，资本开支收缩会推迟基准"
+                                        "情景所依赖的转化。"
+                                    ),
+                                },
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": "Pilot-to-production conversion rate each quarter.",
+                                    "zh": "每季度试点转生产的转化率。",
+                                },
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "4/10: real but limited effect on the case.",
+                                    "zh": "4/10：真实存在但对投资判断影响有限。",
+                                },
+                            ],
                         ],
                     },
                     {
@@ -988,6 +1102,138 @@ def _write_parity_docx(
         table = document.add_table(rows=1, cols=1)
         table.cell(0, 0).text = "额外表格"
     document.save(path)
+
+
+# ---- Per-risk card format gate (generation-time only) ----
+
+
+def _risk_section(package: dict) -> dict:
+    return next(
+        section
+        for section in package["sections"]
+        if section["id"] == "investment_risk"
+    )
+
+
+def test_valid_risk_cards_pass_generation_gate():
+    assert memo_docx_renderer.english_package_validation_errors(_package()) == []
+
+
+def test_legacy_risk_register_fails_generation_gate_but_still_renders():
+    """Old single-table registers must be rejected at generation time (so the
+    retry loop reformats them) while render-time validation keeps accepting
+    them — packages from runs that predate the card format still re-render."""
+    package = copy.deepcopy(_package())
+    section = _risk_section(package)
+    section["blocks"] = [
+        {
+            "type": "paragraph",
+            "text": {
+                "en": "Risk concentrates in commercial proof.",
+                "zh": "风险集中在商业验证。",
+            },
+        },
+        {
+            "type": "table",
+            "component": "risk_register",
+            "title": {"en": "Risk Register", "zh": "风险清单"},
+            "headers": [
+                {"en": "Risk", "zh": "风险"},
+                {"en": "Severity", "zh": "严重性"},
+                {"en": "Likelihood", "zh": "可能性"},
+            ],
+            "rows": [
+                [
+                    {"en": "Services-heavy deployment", "zh": "服务交付占比较高"},
+                    {"en": "Medium", "zh": "中"},
+                    {"en": "Medium", "zh": "中"},
+                ]
+            ],
+        },
+        {
+            "type": "callout",
+            "component": "disconfirming_evidence",
+            "tone": "warning",
+            "title": {"en": "Bear-Case Evidence", "zh": "熊市情景证据"},
+            "items": [
+                {
+                    "en": "Revenue disclosure remains limited relative to valuation.",
+                    "zh": "相对于估值，收入披露仍然有限。",
+                }
+            ],
+        },
+    ]
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert any("per-risk cards" in error for error in errors)
+    # Render-time validation is unchanged.
+    memo_docx_renderer.validate_package(package)
+
+
+def test_risk_card_missing_layout_is_flagged():
+    package = copy.deepcopy(_package())
+    card = _risk_section(package)["blocks"][2]
+    del card["layout"]
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert any('"layout": "key_value"' in error for error in errors)
+
+
+def test_risk_card_rating_format_is_enforced():
+    package = copy.deepcopy(_package())
+    card = _risk_section(package)["blocks"][2]
+    card["rows"][3][1] = {"en": "High", "zh": "高"}
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert any("'N/10: short reason'" in error for error in errors)
+
+
+def test_risk_cards_must_be_ordered_by_rating():
+    package = copy.deepcopy(_package())
+    section = _risk_section(package)
+    blocks = section["blocks"]
+    # Move the 4/10 card (blocks[5:7]) ahead of the 7/10 card (blocks[1:3]).
+    section["blocks"] = (
+        [blocks[0]] + blocks[5:7] + blocks[1:3] + blocks[3:5] + blocks[7:]
+    )
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert any("ordered by Risk Rating" in error for error in errors)
+
+
+def test_key_value_risk_cards_render_label_column(tmp_path):
+    package_path = tmp_path / "logs" / "memo_package.json"
+    package_path.parent.mkdir(parents=True)
+    package_path.write_text(json.dumps(_package()), encoding="utf-8")
+    out_en = tmp_path / "memo" / "en.docx"
+    out_zh = tmp_path / "memo" / "zh.docx"
+
+    result = memo_docx_renderer.render_memos(
+        package_path,
+        out_en=out_en,
+        out_zh=out_zh,
+        manifest_path=tmp_path / "logs" / "run_manifest.md",
+        inventory_path=tmp_path / "logs" / "file_inventory.md",
+    )
+    assert result["ok"] is True
+
+    def _card_tables(path):
+        labels = ["Risk Type", "Why it matters", "What we watch", "Risk Rating"]
+        zh_labels = ["风险类型", "为什么重要", "跟踪信号", "风险评分"]
+        found = []
+        for table in Document(path).tables:
+            first_column = [row.cells[0].text.strip() for row in table.rows]
+            if first_column in (labels, zh_labels):
+                found.append(table)
+        return found
+
+    en_cards = _card_tables(out_en)
+    assert len(en_cards) == 3
+    assert all(len(card.columns) == 2 for card in en_cards)
+    en_text = _all_text(out_en)
+    assert "Risk 1: Deployments may stay services-heavy and cap margins" in en_text
+    assert "7/10: margin path drives the exit multiple." in en_text
+    zh_cards = _card_tables(out_zh)
+    assert len(zh_cards) == 3
+    zh_text = _all_text(out_zh)
+    assert "风险 1：部署可能持续偏服务交付，压制利润率" in zh_text
+    assert "7/10：利润率路径决定退出倍数。" in zh_text
 
 
 # ---- Deterministic structural auto-repair (repair_package_structure) ----

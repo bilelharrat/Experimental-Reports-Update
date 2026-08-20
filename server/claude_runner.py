@@ -2958,7 +2958,8 @@ these and writes content coverage into `logs/validation.txt`.
 - `competitive_analysis`: competitive analysis table.
 - `replacement_coexistence`: replacement-vs-coexistence treatment.
 - `moat`: moat / defensibility table.
-- `risk_register`: compact risk register table with mitigation or monitoring.
+- `risk_register`: per-risk card tables in `investment_risk` (see the Risk
+  Register Format Contract).
 - `disconfirming_evidence`: bear-case or disconfirming evidence treatment.
 - `time_base_integrity`: valuation/date/multiple timing table.
 - `growth_bridge`: growth bridge table.
@@ -2973,6 +2974,50 @@ these and writes content coverage into `logs/validation.txt`.
 If you add any non-core section id, provide a bilingual section `title`; the
 renderer only auto-titles known core section ids. Unknown ids without titles
 lose visible structure and will fail validation.
+"""
+
+MEMO_RISK_REGISTER_CONTRACT = """\
+## Risk Register Format Contract (hard requirement — validated before rendering)
+
+The `investment_risk` section presents risks as PER-RISK CARDS, not one wide
+risk table. Structure, in order:
+
+1. One short intro paragraph framing where the risk really concentrates.
+2. 4-6 risk cards. Each card is exactly two consecutive blocks:
+   - a `heading` block (level 3) whose text is
+     `{"en": "Risk N: <one-line summary>", "zh": "风险 N：<一句话概括>"}`.
+     The one-line summary is a plain, specific sentence a reader understands
+     without opening the table — name the actual failure ("The next round may
+     price below the December 2024 mark"), never a category label
+     ("Financing risk").
+   - a `table` block with `component: "risk_register"`,
+     `"layout": "key_value"`, `"headers": []`, and EXACTLY these four
+     two-cell rows (label cell first, content cell second):
+       1. `Risk Type` / `风险类型` — a 1-4 word category such as Commercial,
+          Market, Competition, Technology, Financing, Regulatory, or
+          Execution. Not a sentence.
+       2. `Why it matters` / `为什么重要` — 2-4 plain sentences: what the
+          risk is, the evidence behind it, and its effect on valuation
+          stated explicitly, with numbers wherever they exist.
+       3. `What we watch` / `跟踪信号` — 1-3 concrete, observable signals
+          that would confirm or defuse the risk, dated where possible.
+       4. `Risk Rating` / `风险评分` — `"N/10: <short reason>"` with N from
+          1-10. Anchors: 9-10 could break the investment case on its own;
+          7-8 could push the outcome below base case; 5-6 meaningful but
+          monitorable; 3-4 real but limited effect; 1-2 minor.
+3. Order the cards by Risk Rating, highest first, so the most important risk
+   is the first thing the reader sees.
+
+Card prose style: write like a person, not a report generator. Short
+declarative sentences. Never use "furthermore", "moreover", "notably", "it
+is important to note", "significant headwinds", or symmetrical templated
+phrasing, and never bridge clauses with an em dash — the quality lint
+blocks it. Concrete nouns and numbers over abstractions. A reader should
+grasp each risk from its heading alone and get the full picture from the
+card in under thirty seconds.
+
+Keep the disconfirming-evidence treatment and the downside scenario as
+separate blocks after the risk cards, as before.
 """
 
 
@@ -3360,6 +3405,8 @@ treatment, scenario ranges, valuation, revenue, margins, or valuation
 sensitivities.
 
 {MEMO_CONTENT_PARITY_CONTRACT}
+
+{MEMO_RISK_REGISTER_CONTRACT}
 
 The Chinese memo must be native professional investment Chinese with
 analytical parity to English: same recommendation, confidence level, risks,
@@ -3773,6 +3820,8 @@ Package requirements:
 {MEMO_PACKAGE_BLOCK_CONTRACT}
 
 {MEMO_CONTENT_PARITY_CONTRACT}
+
+{MEMO_RISK_REGISTER_CONTRACT}
 {validation_feedback_block}
 Return only the JSON matching the attached schema.
 """
@@ -3836,6 +3885,10 @@ Chinese style:
 - Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
   source-trace labels, memo-package labels, reviewer-prompt labels,
   decision-question labels, `硬 IP 墙`, or `软性工具`.
+- Use these fixed translations for risk-card row labels: Risk Type →
+  风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
+  Risk Rating → 风险评分. A card heading "Risk N: <summary>" becomes
+  "风险 N：<一句话概括>". Keep the rating value format `N/10` unchanged.
 """
     return _run_memo_local_json_artifact(
         prompt=prompt,
@@ -3881,6 +3934,8 @@ Renderer validation errors to fix:
 {MEMO_PACKAGE_BLOCK_CONTRACT}
 
 {MEMO_PACKAGE_SOURCES_CONTRACT}
+
+{MEMO_RISK_REGISTER_CONTRACT}
 
 Task:
 - Read the package file.
@@ -3932,6 +3987,10 @@ Chinese style:
 - Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
   source-trace labels, memo-package labels, reviewer-prompt labels,
   decision-question labels, `硬 IP 墙`, or `软性工具`.
+- Use these fixed translations for risk-card row labels: Risk Type →
+  风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
+  Risk Rating → 风险评分. A card heading "Risk N: <summary>" becomes
+  "风险 N：<一句话概括>". Keep the rating value format `N/10` unchanged.
 """
 
 
@@ -4666,6 +4725,8 @@ substantive bullets or equivalent explanatory prose/table/callout.
 scenario ranges, valuation, revenue, margins, or valuation sensitivities.
 
 {MEMO_CONTENT_PARITY_CONTRACT}
+
+{MEMO_RISK_REGISTER_CONTRACT}
 
 The Chinese memo must be native professional investment Chinese with analytical
 parity to English. Do not translate prompt scaffolding into visible prose.

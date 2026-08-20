@@ -1218,7 +1218,8 @@ these slugs and writes content coverage into `logs/validation.txt`.
 - `competitive_analysis`: competitive analysis table.
 - `replacement_coexistence`: replacement-vs-coexistence treatment.
 - `moat`: moat / defensibility table.
-- `risk_register`: compact risk register table with mitigation or monitoring.
+- `risk_register`: per-risk card tables (Risk Type / Why it matters / What we
+  watch / Risk Rating), one card per risk under a "Risk N: …" heading.
 - `disconfirming_evidence`: bear-case or disconfirming evidence treatment.
 - `time_base_integrity`: valuation/date/multiple timing table.
 - `growth_bridge`: growth bridge table.
@@ -1631,13 +1632,33 @@ Evaluate the team named in Section II:
 Section IV consolidates everything that argues against the deal — the risks themselves and the explicit disconfirming evidence behind them. Do not soften or balance against the thesis here; that work happens in the recommendation logic in Section I.
 
 *Risk Register*  
-Render as a compact risk table with 4–6 rows.
+Render as 4–6 per-risk cards, NOT one wide risk table. Each card is a
+"Risk N: <one-line summary>" heading followed by a compact label/value table:
 
-Each risk statement is a sharp one-sentence risk. Put evidence, mitigants, and monitoring notes in the compact table fields or adjacent notes, not in layered explanatory risk prose.
+**Risk 1: The next round may price below the December 2024 mark**
 
-| # | Risk | Severity | Likelihood | Disconfirming Evidence | Mitigant / Monitoring Approach |
-|---|------|----------|------------|------------------------|-------------------------------|
-| 1 | [risk] | High / Med / Low | High / Med / Low | [evidence] | [mitigant] |
+| Risk Type | Financing |
+|---|---|
+| Why it matters | 2–4 plain sentences: what the risk is, the evidence behind it, and the effect on valuation stated explicitly with numbers. |
+| What we watch | 1–3 concrete, observable signals that would confirm or defuse the risk, dated where possible. |
+| Risk Rating | 8/10: one short clause on why it earns this rating. |
+
+Rules for the cards:
+
+- The one-line summary is a plain, specific sentence a reader understands
+  without opening the table — name the actual failure, never a category
+  label ("Financing risk" is a Risk Type, not a summary).
+- Risk Type is a 1–4 word category: Commercial, Market, Competition,
+  Technology, Financing, Regulatory, Execution, or another short label.
+- Risk Rating anchors: 9–10 could break the investment case on its own;
+  7–8 could push the outcome below base case; 5–6 meaningful but
+  monitorable; 3–4 real but limited effect; 1–2 minor.
+- Order the cards by Risk Rating, highest first — the most important risk
+  is the first thing the reader sees.
+- Write like a person, not a report generator: short declarative sentences,
+  concrete nouns and numbers, no "furthermore" / "moreover" / "notably" /
+  "it is important to note", no symmetrical templated phrasing. A reader
+  should get the full picture of each risk in under thirty seconds.
 
 *Key Disconfirming Evidence*  
 Beyond the risk table, surface the strongest factual evidence that cuts against the thesis. This is not a risk list — it is the body of evidence a skeptical investor would lead with. Use an evidence-summary callout box if the disconfirming evidence is especially central to the case.
@@ -1833,6 +1854,11 @@ Rules:
 | Quality of Team | 团队质量 |
 | IV. Investment Risk | 四、投资风险 |
 | Risk Register | 风险清单 |
+| Risk N: <one-line summary> | 风险 N：<一句话概括> |
+| Risk Type | 风险类型 |
+| Why it matters | 为什么重要 |
+| What we watch | 跟踪信号 |
+| Risk Rating | 风险评分 |
 | Key Disconfirming Evidence | 关键反证 |
 | Downside Scenario | 下行情景 |
 | V. Financial Forecast & Valuation | 五、财务分析 |
