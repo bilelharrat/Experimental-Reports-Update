@@ -256,3 +256,13 @@ def test_slug_derives_from_legal_name_and_matches_on_it(tmp_data):
     )
     assert out["id"] == first["id"]
     assert len(storage.list_companies()) == 1
+
+
+def test_company_search_prompt_is_identity_first():
+    from server import companies_ai
+
+    prompt = companies_ai.SYSTEM_PROMPT
+    assert "identity-first" in prompt.lower() or "Work identity-first" in prompt
+    assert "HIGH FILL" not in prompt
+    assert "full investment analysis" in prompt.lower() or "not a full investment analysis" in prompt
+    assert "identification" in prompt.lower()

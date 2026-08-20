@@ -590,18 +590,18 @@ function liveTailText(count) {
 <template>
   <Teleport to="body">
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      class="sheet-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       @click.self="emit('close')"
     >
       <div
-        class="bg-surface rounded-card shadow-card-raised border border-subtle w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+        class="sheet-panel bg-surface rounded-sheet w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
       >
         <header
           class="px-4 py-3 border-b border-subtle flex items-start gap-3"
         >
           <div class="flex-1 min-w-0">
             <div
-              class="text-[10px] uppercase tracking-wider text-ink-muted font-mono"
+              class="text-caption1r text-ink-muted font-mono"
             >
               {{ kindLabel(job.kind) }}
             </div>
@@ -672,14 +672,7 @@ function liveTailText(count) {
                       : Loader2
                   "
                   class="h-3.5 w-3.5 shrink-0"
-                  :class="{
-                    'text-success-ink': g.status === 'done',
-                    'text-danger': g.status === 'failed',
-                    'text-ink-muted': g.status === 'not_started',
-                    'text-accent animate-spin':
-                      g.status === 'running' && !terminated,
-                    'text-ink-muted': g.status === 'running' && terminated,
-                  }"
+                  :class="{ 'text-success-ink': g.status === 'done', 'text-danger': g.status === 'failed', 'text-ink-muted': g.status === 'not_started', 'text-accent animate-spin': g.status === 'running' && !terminated, 'text-ink-muted': g.status === 'running' && terminated, }"
                 />
                 <div class="font-semibold text-ink-primary text-[12px] truncate flex-1">
                   {{ g.title }}
@@ -727,12 +720,7 @@ function liveTailText(count) {
                   v-for="(entry, i) in visibleEvents(g.events)"
                   :key="i"
                   class="flex items-start gap-2 px-2 py-1 rounded"
-                  :class="{
-                    'bg-accent-soft/30':
-                      entry.type === 'stage' || entry.type === 'job_init',
-                    'text-danger': entry.is_error || entry.type === 'error',
-                    'text-success-ink': entry.type === 'done',
-                  }"
+                  :class="{ 'bg-accent-soft/30': entry.type === 'stage' || entry.type === 'job_init', 'text-danger': entry.is_error || entry.type === 'error', 'text-success-ink': entry.type === 'done', }"
                 >
                   <component
                     v-if="actionIcon(entry)"
@@ -765,7 +753,7 @@ function liveTailText(count) {
                   class="mt-2 pt-2 border-t border-subtle"
                 >
                   <div
-                    class="px-2 text-[10px] uppercase tracking-wide text-ink-muted"
+                    class="px-2 text-caption1 text-ink-muted"
                   >
                     {{ t("jobs.modal.output_section") }}
                   </div>
@@ -818,12 +806,7 @@ function liveTailText(count) {
               v-for="(entry, i) in visibleEvents(events)"
               :key="i"
               class="flex items-start gap-2 px-2 py-1 rounded"
-              :class="{
-                'bg-accent-soft/30':
-                  entry.type === 'stage' || entry.type === 'job_init',
-                'text-danger': entry.is_error || entry.type === 'error',
-                'text-success-ink': entry.type === 'done',
-              }"
+              :class="{ 'bg-accent-soft/30': entry.type === 'stage' || entry.type === 'job_init', 'text-danger': entry.is_error || entry.type === 'error', 'text-success-ink': entry.type === 'done', }"
             >
               <component
                 v-if="actionIcon(entry)"
@@ -856,7 +839,7 @@ function liveTailText(count) {
               class="mt-2 pt-2 border-t border-subtle"
             >
               <div
-                class="px-2 text-[10px] uppercase tracking-wide text-ink-muted"
+                class="px-2 text-caption1 text-ink-muted"
               >
                 {{ t("jobs.modal.output_section") }}
               </div>

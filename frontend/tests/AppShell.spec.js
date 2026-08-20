@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import App from "../src/App.vue";
 import { session } from "../src/auth.js";
 import { api } from "../src/api.js";
+import { setSidebarCollapsed } from "../src/state.js";
 
 vi.mock("../src/api.js", () => ({
   api: {
@@ -20,6 +21,8 @@ function makeRouter(initialPath) {
     routes: [
       { path: "/login", name: "login", component: { template: "<div>Login route</div>" } },
       { path: "/", name: "home", component: { template: "<div>Home route</div>" } },
+      { path: "/tracking", name: "tracking", component: { template: "<div>Tracking route</div>" } },
+      { path: "/market-radar", name: "market-radar", component: { template: "<div>Radar route</div>" } },
       { path: "/settings", name: "settings", component: { template: "<div>Settings route</div>" } },
       { path: "/user", name: "user-center", component: { template: "<div>User route</div>" } },
       { path: "/:companyId", name: "research", component: { template: "<div>Company route</div>" } },
@@ -55,6 +58,7 @@ async function mountApp(initialPath) {
 describe("App global shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setSidebarCollapsed(false);
     api.listReports.mockResolvedValue([]);
     api.externalFeed.mockResolvedValue([]);
     api.listHormuz.mockResolvedValue([]);
@@ -78,6 +82,24 @@ describe("App global shell", () => {
     expect(api.listReports).not.toHaveBeenCalled();
   });
 
+  it("keeps Co-Pilot as a quiet toolbar inspector on Home", async () => {
+    session.value = {
+      token: "test-token",
+      email: "elina.sun@bshfoundation.org",
+      expires_at: "2999-01-01T00:00:00Z",
+    };
+
+    const wrapper = await mountApp("/");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Home route");
+    expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Add"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Account"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="App language"]').exists()).toBe(false);
+  });
+
   it("renders authenticated chrome and opens the company co-pilot drawer", async () => {
     session.value = {
       token: "test-token",
@@ -89,21 +111,21 @@ describe("App global shell", () => {
     await flushPromises();
 
     expect(wrapper.find("[data-testid='left-rail']").text()).toContain("Rail 1");
-    expect(wrapper.text()).toContain("Research Center");
     expect(wrapper.text()).toContain("ZaiNar, Inc.");
-    expect(wrapper.text()).toContain("Memo Studio");
-    expect(wrapper.text()).toContain("Ask Co-Pilot");
+    expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Add"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Account"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="App language"]').exists()).toBe(false);
 
-    const openButton = wrapper
-      .findAll("button")
-      .find((button) => button.text().includes("Ask Co-Pilot"));
+    const openButton = wrapper.find('[aria-label="Ask Co-Pilot"]');
     await openButton.trigger("click");
 
-    expect(wrapper.text()).toContain("Memo Co-Pilot");
-    expect(wrapper.text()).toContain("Research task");
+    expect(wrapper.text()).toContain("Co-Pilot");
+    expect(wrapper.text()).toContain("Review the current workspace");
     expect(wrapper.find("[data-testid='company-console']").text()).toContain(
       "Console zainar-inc",
     );
-    expect(wrapper.text()).not.toContain("Ask Co-Pilot");
+    expect(openButton.attributes("aria-pressed")).toBe("true");
   });
 });

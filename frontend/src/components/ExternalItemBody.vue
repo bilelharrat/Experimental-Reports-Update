@@ -55,31 +55,21 @@ const langLabel = (code) =>
       <button
         type="button"
         @click="tab = 'source'"
-        :class="[
-          'text-xs px-2.5 py-1 rounded-md border focus-ring',
-          tab === 'source'
-            ? 'bg-accent text-white border-accent'
-            : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
-        ]"
+        :class="[ 'text-xs px-2.5 py-1 rounded-md border focus-ring', tab === 'source' ? 'bg-accent text-white border-accent' : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong', ]"
       >
         {{ t("external.source_panel") }} · {{ langLabel(sourceLang) }}
       </button>
       <button
         type="button"
         @click="tab = 'translation'"
-        :class="[
-          'text-xs px-2.5 py-1 rounded-md border focus-ring',
-          tab === 'translation'
-            ? 'bg-accent text-white border-accent'
-            : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
-        ]"
+        :class="[ 'text-xs px-2.5 py-1 rounded-md border focus-ring', tab === 'translation' ? 'bg-accent text-white border-accent' : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong', ]"
       >
         {{ t("external.translation_panel") }} · {{ langLabel(targetLang) }}
       </button>
     </div>
 
     <section v-if="view.summary">
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
+      <h3 class="vogue-label mb-2">
         {{ t("external.summary") }}
       </h3>
       <p class="text-ink-secondary leading-relaxed whitespace-pre-wrap">
@@ -88,7 +78,7 @@ const langLabel = (code) =>
     </section>
 
     <section v-if="view.key_points.length">
-      <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
+      <h3 class="vogue-label mb-2">
         {{ t("external.key_points") }}
       </h3>
       <ul class="space-y-1.5 list-disc pl-5 text-ink-secondary">
@@ -100,7 +90,7 @@ const langLabel = (code) =>
 
     <details v-if="view.full_text" class="text-sm">
       <summary
-        class="cursor-pointer text-xs font-semibold uppercase tracking-wide text-ink-muted hover:text-ink-primary"
+        class="cursor-pointer vogue-label hover:text-ink-primary"
       >
         {{ t("external.full_translation") }}
       </summary>

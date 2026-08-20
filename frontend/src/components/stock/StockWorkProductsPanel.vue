@@ -48,7 +48,7 @@ function fmtBytes(value) {
   <section class="space-y-4">
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold">Work Products</h2>
+        <h2 class="text-lg font-semibold">Deliverables</h2>
         <p class="text-sm text-ink-muted">
           Cataloged tracker reports, aggregates, strategy maps, and exports.
         </p>
@@ -88,9 +88,9 @@ function fmtBytes(value) {
         </select>
       </div>
     </div>
-    <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-      <table class="min-w-full text-left text-sm">
-        <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+    <div class="overflow-x-auto rounded-card bg-surface shadow-card">
+      <table class="inset-table">
+        <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
           <tr>
             <th class="px-3 py-2">Product</th>
             <th class="px-3 py-2">Type</th>

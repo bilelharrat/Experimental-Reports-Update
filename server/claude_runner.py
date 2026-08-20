@@ -35,6 +35,7 @@ from typing import Any
 import yaml
 
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
+from .risk_workbench import company_risk_context
 
 logger = logging.getLogger(__name__)
 
@@ -6117,6 +6118,42 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
 }
 
 
+_SERENA_RISK_EVIDENCE_ITEM: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "file_id": {"type": ["string", "null"]},
+        "filename": {"type": ["string", "null"]},
+        "locator": {"type": ["string", "null"]},
+        "excerpt": {"type": "string"},
+        "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+        },
+        "source_class": {
+            "type": "string",
+            "enum": [
+                "first_party",
+                "third_party",
+                "market_data",
+                "filing",
+                "transcript",
+                "news",
+                "research_file",
+                "inference",
+            ],
+        },
+    },
+    "required": [
+        "file_id",
+        "filename",
+        "locator",
+        "excerpt",
+        "confidence",
+        "source_class",
+    ],
+}
+
 SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -6130,10 +6167,25 @@ SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
                 "additionalProperties": False,
                 "properties": {
                     "title": {"type": "string"},
+                    "description": {
+                        "type": "string",
+                        "description": "One or two sentences on what the risk actually is.",
+                    },
                     "decision_question": {"type": "string"},
                     "why_it_matters": {"type": "string"},
+                    "materiality": {
+                        "type": "string",
+                        "description": (
+                            "Why this is a genuine investment risk rather than "
+                            "a technically possible but practically irrelevant issue."
+                        ),
+                    },
                     "bull_case_answer": {"type": "string"},
                     "bear_case_answer": {"type": "string"},
+                    "key_questions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                     "evidence_needed": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -6142,8 +6194,42 @@ SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
                         "type": "array",
                         "items": {"type": "string"},
                     },
+                    "supporting_evidence": {
+                        "type": "array",
+                        "items": _SERENA_RISK_EVIDENCE_ITEM,
+                    },
+                    "contradicting_evidence": {
+                        "type": "array",
+                        "items": _SERENA_RISK_EVIDENCE_ITEM,
+                    },
+                    "missing_evidence": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "evidence_that_would_change_assessment": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                     "research_prompt": {"type": "string"},
                     "memo_section": {"type": "string"},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                    },
+                    "likelihood": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"],
+                    },
+                    "mitigation_or_monitoring": {"type": "string"},
+                    "suggested_posture": {
+                        "type": "string",
+                        "enum": [
+                            "lead_risk",
+                            "downside_trigger",
+                            "valuation_sensitivity",
+                            "monitoring",
+                        ],
+                    },
                     "status": {
                         "type": "string",
                         "enum": ["unresearched", "researched", "needs_review"],
@@ -6151,14 +6237,25 @@ SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
                 },
                 "required": [
                     "title",
+                    "description",
                     "decision_question",
                     "why_it_matters",
+                    "materiality",
                     "bull_case_answer",
                     "bear_case_answer",
+                    "key_questions",
                     "evidence_needed",
                     "best_sources",
+                    "supporting_evidence",
+                    "contradicting_evidence",
+                    "missing_evidence",
+                    "evidence_that_would_change_assessment",
                     "research_prompt",
                     "memo_section",
+                    "severity",
+                    "likelihood",
+                    "mitigation_or_monitoring",
+                    "suggested_posture",
                     "status",
                 ],
             },
@@ -6170,6 +6267,14 @@ SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
         },
     },
     "required": ["risks", "source_basis"],
+}
+
+
+SERENA_RISK_REFINE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": SERENA_STRATEGIC_RISK_SCHEMA["properties"]["risks"]["items"]["properties"],
+    "required": SERENA_STRATEGIC_RISK_SCHEMA["properties"]["risks"]["items"]["required"],
 }
 
 
@@ -7506,7 +7611,12 @@ def run_serena_strategic_risk_mapper(
         indent=2,
         ensure_ascii=False,
     )
-    company_str = json.dumps(company, indent=2, ensure_ascii=False, default=str)
+    company_str = json.dumps(
+        company_risk_context(company),
+        indent=2,
+        ensure_ascii=False,
+        default=str,
+    )
     files_str = "\n".join(f"- {name}" for name in local_files) or "- No local research files found."
     lessons_block = ""
     if lessons_path and lessons_path.exists():
@@ -7521,11 +7631,11 @@ labels, prompt labels, and process/checklist wording before using them.
 """
 
     prompt = f"""\
-You are Serena's Strategic Risk Mapper for a late-stage investment memo.
-Generate the 5-8 decision-grade strategic risks that control whether
-the investment case for {company_name} is attractive.
+You are writing the investment-risk section of a late-stage memo for {company_name}.
+Identify the 5-8 risks that actually control the recommendation — not a
+generic risk catalog.
 
-Company:
+Company record (use these facts; do not invent others):
 ```json
 {company_str}
 ```
@@ -7537,24 +7647,33 @@ Available files in that folder:
 {files_str}
 {lessons_block}
 
+What a useful risk looks like:
+- Specific to this company, this business model, and this stage.
+- Material to valuation, terms, or whether we participate.
+- Sharp enough to become one memo sentence.
+- Supported by a sourced fact, filing, contract, metric, or explicit gap.
+- Paired with a real bull reading and a real bear reading.
+
+What to reject:
+- Template risks that would apply to any company in the sector.
+- Technically possible issues that would not change the investment call.
+- Duplicate risks that restate the same failure mode.
+- Risks included only because a document happened to mention them.
+
 Instructions:
-- Frame risks as investment bars and failure modes, not generic risk labels.
-  The risk title must be sharp enough to become a one-sentence memo risk.
-- Prefer risks that can change a BSH recommendation: valuation durability,
-  deployment depth, revenue quality, market abstraction, moat durability,
-  budget ownership, public-comp support, and disconfirming evidence.
-- For each risk, include the best bull answer, best bear answer, concrete
-  support evidence, and the source types that strengthen or weaken the risk.
-- Prioritize risks that help an operator choose the final risk-section posture:
-  lead risk, downside trigger, valuation sensitivity, or monitoring item.
-- Use the Serena research folder above for local company documents. Do NOT
-  read from `data/uploads/` or the Document Library.
-- If local research files exist, inspect the relevant files with Read/Bash.
-- Use WebSearch/WebFetch when public filings, transcripts, market data, or
-  current public evidence are needed.
-- Separate verified evidence from inference. Do not invent facts.
-- Include concrete evidence targets and the best source types.
-- Make research_prompt actionable enough that a later background job can run it.
+- Read local research files with Read/Bash when they exist. Do NOT read
+  `data/uploads/` or the Document Library.
+- Use company news, funding, filings, industry/comps, and research-folder
+  documents as the evidence base.
+- Use WebSearch/WebFetch only for current public facts you cannot get locally.
+- Separate verified evidence from inference. Tag source_class honestly.
+- For each risk, fill bull and bear as competing interpretations of the
+  same facts, not as cheerleading and scare language.
+- Name the evidence that would change the call.
+- Prefer fewer, sharper risks over padding to eight. Five excellent risks
+  beat eight generic ones.
+- Write like an investment analyst: short, concrete, no filler, no
+  "it is important to note", no restating the title in the description.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONE JSON object that conforms to this schema:
@@ -7643,6 +7762,146 @@ OUTPUT REQUIREMENTS:
     return parsed, None
 
 
+def run_serena_risk_refine(
+    *,
+    company: dict,
+    risk: dict,
+    framing: str,
+    analyst_note: str = "",
+    research_dir: Path,
+    progress=None,
+    timeout_sec: int = 600,
+    silence_timeout_sec: int = 180,
+) -> tuple[dict | None, str | None]:
+    """Regenerate one strategic risk through an analyst-chosen framing."""
+    if not is_available():
+        return None, (
+            "Claude Code (`claude`) not on PATH. Install it with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+
+    from .risk_workbench import FRAMINGS, apply_framing, company_risk_context
+
+    company_name = company.get("name") or company.get("id") or "the company"
+    company_id = company.get("id") or ""
+    seeded = apply_framing(dict(risk), framing, analyst_note)
+    research_dir = Path(research_dir)
+    work_dir = research_dir if research_dir.exists() else (
+        Path("/tmp") / f"bsh_serena_risk_refine_{company_id or 'company'}"
+    )
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    schema_str = json.dumps(SERENA_RISK_REFINE_SCHEMA, indent=2, ensure_ascii=False)
+    prompt = f"""\
+You are refining ONE investment risk for {company_name}. Do not rewrite
+the rest of the risk map.
+
+Analyst framing: {seeded.get("framing") or framing}
+Allowed framings: {", ".join(FRAMINGS)}
+Analyst note: {analyst_note or "(none)"}
+
+Current risk:
+```json
+{json.dumps(seeded, indent=2, ensure_ascii=False, default=str)}
+```
+
+Company context:
+```json
+{json.dumps(company_risk_context(company), indent=2, ensure_ascii=False, default=str)}
+```
+
+Serena research folder: `{research_dir}`
+
+Instructions:
+- Keep the same investment issue unless the analyst note clearly redirects it.
+- Develop the analysis through the chosen framing.
+- Keep competing bull and bear readings visible.
+- Cite supporting, contradicting, missing, and decision-changing evidence.
+- Write like an investment analyst. No filler. No generic sector language.
+- Use Read/Bash on local research files. Do not read `data/uploads/`.
+- Use WebSearch/WebFetch only for missing public facts.
+
+OUTPUT REQUIREMENTS:
+- Respond with ONE JSON object that conforms to this schema:
+
+```json
+{schema_str}
+```
+
+- Output JSON only. No prose, no markdown fences.
+- Omit `id`.
+"""
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash,WebSearch,WebFetch",
+        "--json-schema", json.dumps(SERENA_RISK_REFINE_SCHEMA),
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message="Refining one strategic risk with Claude",
+            company_id=company_id,
+            risk_id=risk.get("id"),
+        )
+    stderr_log: list[str] = []
+    try:
+        proc = _popen_claude(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return None, f"Failed to launch claude: {exc}"
+    threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    ).start()
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_search_event,
+        timeout_sec=timeout_sec,
+        timeout_label="serena risk refine",
+        silence_timeout_sec=silence_timeout_sec,
+    )
+    if stream_error:
+        return None, stream_error
+    if not final_text:
+        return None, "claude returned empty result"
+    parsed = _parse_json_tolerant(final_text.strip())
+    if parsed is None and "```" in final_text:
+        fenced = re.findall(r"```(?:json)?\s*\n?(.*?)```", final_text, re.DOTALL)
+        if fenced:
+            parsed = _parse_json_tolerant(max(fenced, key=len).strip())
+    if parsed is None:
+        m = _JSON_OBJ_RE.search(final_text)
+        if m:
+            parsed = _parse_json_tolerant(m.group(0))
+    if not isinstance(parsed, dict):
+        return None, f"claude output didn't parse as JSON: {final_text[:300]}"
+    parsed["id"] = risk.get("id")
+    parsed["framing"] = seeded.get("framing")
+    parsed["edited_by_human"] = True
+    if analyst_note:
+        parsed["analyst_note"] = analyst_note
+    return parsed, None
+
+
 def run_serena_thesis_spine_builder(
     *,
     company: dict,
@@ -7686,6 +7945,7 @@ def run_serena_thesis_spine_builder(
     analysis_context = {
         "strategic_risks": artifacts.get("strategic_risks"),
         "risk_priorities": artifacts.get("risk_priorities"),
+        "ordered_strategic_risks": artifacts.get("ordered_strategic_risks"),
         "research_tasks": artifacts.get("research_tasks"),
         "chart_specs": artifacts.get("chart_specs"),
         "benchmark_dashboard": artifacts.get("benchmark_dashboard"),
@@ -7741,6 +8001,9 @@ Available files in that folder:
 Instructions:
 - Use the current strategic risks, risk priorities, selected research-task
   results, chart specs, and benchmark context above.
+- Treat `ordered_strategic_risks` and `risk_priorities` as the analyst's
+  ranking. Lead with rank 1. Skip dismissed risks. Honor any analyst
+  framing or note on a risk.
 - Build 3-5 investment highlights, 3-5 investment risks, direct
   recommendation logic, the top risk and valuation sensitivities for defending
   the investment recommendation, bull-case drivers, and downside sensitivities.

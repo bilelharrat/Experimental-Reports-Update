@@ -64,7 +64,7 @@ watch(() => [props.companyId, props.competitorId], load);
     </div>
 
     <template v-else-if="payload">
-      <header class="mt-6 rounded-card border border-subtle bg-surface p-6 shadow-card">
+      <header class="mt-6 rounded-card bg-surface p-6 shadow-card">
         <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div class="flex min-w-0 items-start gap-4">
             <div
@@ -75,10 +75,10 @@ watch(() => [props.companyId, props.competitorId], load);
             <div class="min-w-0">
               <div class="vogue-label">Competitor Detail</div>
               <div class="mt-1 flex flex-wrap items-center gap-2">
-                <h1 class="font-display text-3xl font-bold text-ink-primary">
+                <h1 class="font-display text-large-title text-ink-primary">
                   {{ company.name }} vs {{ competitor.name }}
                 </h1>
-                <span class="rounded-full bg-surface-muted px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                <span class="rounded-full bg-surface-muted px-2 py-1 text-caption1 font-semibold text-ink-muted">
                   {{ competitor.status || "Private" }}
                 </span>
                 <span
@@ -95,7 +95,7 @@ watch(() => [props.companyId, props.competitorId], load);
           </div>
           <RouterLink
             :to="{ name: 'research', params: { companyId }, query: { tab: 'memo' } }"
-            class="pill-button border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            class="btn-bordered focus-ring"
           >
             Back to memo
           </RouterLink>
@@ -106,7 +106,7 @@ watch(() => [props.companyId, props.competitorId], load);
         <div
           v-for="metric in competitor.metrics || []"
           :key="metric.label"
-          class="rounded-card border border-subtle bg-surface p-5 shadow-card"
+          class="rounded-card bg-surface p-5 shadow-card"
         >
           <div class="vogue-label">{{ metric.label }}</div>
           <div class="mono-data mt-2 text-2xl font-bold text-ink-primary">
@@ -118,11 +118,11 @@ watch(() => [props.companyId, props.competitorId], load);
         </div>
       </section>
 
-      <section class="mt-6 rounded-card border border-subtle bg-surface p-6 shadow-card">
+      <section class="mt-6 rounded-card bg-surface p-6 shadow-card">
         <div class="vogue-label">Head-to-head</div>
         <div class="mt-4 overflow-x-auto">
-          <table class="min-w-full text-left text-sm">
-            <thead class="text-xs uppercase tracking-wide text-ink-muted">
+          <table class="inset-table">
+            <thead class="text-footnote font-semibold text-ink-muted">
               <tr>
                 <th class="border-b border-subtle py-2 pr-4">Dimension</th>
                 <th class="border-b border-subtle px-4 py-2">{{ company.name }}</th>
@@ -150,13 +150,13 @@ watch(() => [props.companyId, props.competitorId], load);
         <article
           v-for="item in payload.placeholders || []"
           :key="item.id"
-          class="rounded-card border border-subtle bg-surface p-5 shadow-card"
+          class="rounded-card bg-surface p-5 shadow-card"
         >
           <div class="flex items-center justify-between gap-3">
-            <h2 class="font-display text-lg font-semibold text-ink-primary">
+            <h2 class="font-display text-title3 text-ink-primary">
               {{ item.title }}
             </h2>
-            <span class="rounded-full bg-surface-muted px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+            <span class="rounded-full bg-surface-muted px-2 py-1 text-caption1 font-semibold text-ink-muted">
               {{ item.status }}
             </span>
           </div>
@@ -166,7 +166,7 @@ watch(() => [props.companyId, props.competitorId], load);
         </article>
       </section>
 
-      <section class="mt-6 rounded-card border border-subtle bg-surface p-5 shadow-card">
+      <section class="mt-6 rounded-card bg-surface p-5 shadow-card">
         <div class="vogue-label">Evidence links</div>
         <div class="mt-3 flex flex-wrap gap-2">
           <a

@@ -208,15 +208,15 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas">
-    <div class="border-b border-subtle bg-surface">
+  <div>
+    <div>
       <div class="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-5">
         <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            <div class="vogue-label">
               Research Pages
             </div>
-            <h1 class="font-display text-2xl font-semibold text-ink-primary">
+            <h1 class="font-display text-large-title text-ink-primary">
               Hypothesis Lab
             </h1>
             <div class="mt-1 text-sm text-ink-muted">
@@ -228,7 +228,7 @@ onMounted(load);
             <ResearchPagesNav />
             <button
               type="button"
-              class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
+              class="btn-bordered focus-ring"
               :disabled="loading || refreshing || busy"
               @click="refreshPage"
             >
@@ -257,32 +257,32 @@ onMounted(load);
       </div>
       <div v-else class="space-y-6">
         <div class="grid gap-3 md:grid-cols-5">
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Hypotheses</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Hypotheses</div>
             <div class="mt-2 text-2xl font-semibold">{{ summary.hypothesis_count || 0 }}</div>
           </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Live</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Live</div>
             <div class="mt-2 text-2xl font-semibold">{{ summary.live_hypothesis_count || 0 }}</div>
           </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Debug</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Debug</div>
             <div class="mt-2 text-2xl font-semibold">{{ summary.debug_hypothesis_count || 0 }}</div>
           </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Evaluated</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Evaluated</div>
             <div class="mt-2 text-2xl font-semibold">{{ summary.evaluated_count || 0 }}</div>
           </div>
-          <div class="rounded-lg border border-subtle bg-surface p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-muted">Source traces</div>
+          <div class="rounded-card bg-surface shadow-card p-4">
+            <div class="text-footnote font-semibold text-ink-muted">Source traces</div>
             <div class="mt-2 text-2xl font-semibold">{{ health.source_trace_count || 0 }}</div>
           </div>
         </div>
 
-        <section class="rounded-lg border border-subtle bg-surface">
+        <section class="rounded-card bg-surface shadow-card">
           <div class="flex flex-wrap items-end justify-between gap-3 border-b border-subtle px-4 py-3">
             <div>
-              <h2 class="font-display text-lg font-semibold">Vintage Controls</h2>
+              <h2 class="font-display text-title3">Vintage Controls</h2>
               <div class="mt-1 text-sm text-ink-muted">
                 Debug backfills remain ineligible for training.
               </div>
@@ -298,7 +298,7 @@ onMounted(load);
               </label>
               <button
                 type="button"
-                class="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover focus-ring disabled:opacity-50"
+                class="btn-filled focus-ring"
                 :disabled="busy || !liveVintageDate"
                 @click="createLive"
               >
@@ -315,7 +315,7 @@ onMounted(load);
               </label>
               <button
                 type="button"
-                class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
+                class="btn-bordered focus-ring"
                 :disabled="busy || !debugVintageDate"
                 @click="createDebug"
               >
@@ -324,7 +324,7 @@ onMounted(load);
               </button>
               <button
                 type="button"
-                class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
+                class="btn-bordered focus-ring"
                 :disabled="busy"
                 @click="calibrate"
               >
@@ -339,7 +339,7 @@ onMounted(load);
           </div>
           <div v-else class="overflow-x-auto">
             <table class="min-w-full text-sm">
-              <thead class="bg-surface-muted text-left text-xs uppercase tracking-wide text-ink-muted">
+              <thead class="bg-surface-muted text-left text-footnote font-semibold text-ink-muted">
                 <tr>
                   <th class="px-3 py-2">Vintage</th>
                   <th class="px-3 py-2">Kind</th>
@@ -383,17 +383,17 @@ onMounted(load);
           </div>
         </section>
 
-        <section class="overflow-hidden rounded-lg border border-subtle bg-surface">
+        <section class="overflow-hidden rounded-card bg-surface shadow-card">
           <div class="flex items-center gap-2 border-b border-subtle px-4 py-3">
             <Timer class="h-4 w-4 text-ink-muted" />
-            <h2 class="font-display text-lg font-semibold">Hypothesis Table</h2>
+            <h2 class="font-display text-title3">Hypothesis Table</h2>
           </div>
           <div v-if="hypotheses.length === 0" class="p-6 text-sm text-ink-muted">
             No hypotheses are available.
           </div>
           <div v-else class="overflow-x-auto">
             <table class="min-w-full text-sm">
-              <thead class="bg-surface-muted text-left text-xs uppercase tracking-wide text-ink-muted">
+              <thead class="bg-surface-muted text-left text-footnote font-semibold text-ink-muted">
                 <tr>
                   <th class="px-3 py-2">Claim</th>
                   <th class="px-3 py-2">Ticker</th>
@@ -459,16 +459,16 @@ onMounted(load);
         </section>
 
         <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(20rem,0.8fr)]">
-          <section class="rounded-lg border border-subtle bg-surface">
+          <section class="rounded-card bg-surface shadow-card">
             <div class="border-b border-subtle px-4 py-3">
-              <h2 class="font-display text-lg font-semibold">Outcome Table</h2>
+              <h2 class="font-display text-title3">Outcome Table</h2>
             </div>
             <div v-if="outcomes.length === 0" class="p-4 text-sm text-ink-muted">
               No evaluated outcomes yet.
             </div>
             <div v-else class="overflow-x-auto">
               <table class="min-w-full text-sm">
-                <thead class="bg-surface-muted text-left text-xs uppercase tracking-wide text-ink-muted">
+                <thead class="bg-surface-muted text-left text-footnote font-semibold text-ink-muted">
                   <tr>
                     <th class="px-3 py-2">Ticker</th>
                     <th class="px-3 py-2 text-right">Abs</th>
@@ -490,9 +490,9 @@ onMounted(load);
             </div>
           </section>
 
-          <section class="rounded-lg border border-subtle bg-surface">
+          <section class="rounded-card bg-surface shadow-card">
             <div class="border-b border-subtle px-4 py-3">
-              <h2 class="font-display text-lg font-semibold">Calibration Chart</h2>
+              <h2 class="font-display text-title3">Calibration Chart</h2>
             </div>
             <div v-if="calibration.length === 0" class="p-4 text-sm text-ink-muted">
               No calibration summary yet.
@@ -510,10 +510,10 @@ onMounted(load);
             </div>
           </section>
 
-          <section class="rounded-lg border border-subtle bg-surface">
+          <section class="rounded-card bg-surface shadow-card">
             <div class="flex items-center gap-2 border-b border-subtle px-4 py-3">
               <AlertTriangle class="h-4 w-4 text-ink-muted" />
-              <h2 class="font-display text-lg font-semibold">Leakage Doctor</h2>
+              <h2 class="font-display text-title3">Leakage Doctor</h2>
             </div>
             <div v-if="issues.length === 0" class="flex items-center gap-2 p-4 text-sm text-success-ink">
               <CheckCircle2 class="h-4 w-4" />

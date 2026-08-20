@@ -1,6 +1,7 @@
 import { watch } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { isAuthenticated, validateSession } from "./auth.js";
+import { postAuthPath } from "./state.js";
 
 const HomeView = () => import("./views/HomeView.vue");
 const LoginView = () => import("./views/LoginView.vue");
@@ -17,8 +18,9 @@ const EvidenceMatrixView = () => import("./views/EvidenceMatrixView.vue");
 const HypothesisLabView = () => import("./views/HypothesisLabView.vue");
 const InnovationLabView = () => import("./views/InnovationLabView.vue");
 const SettingsView = () => import("./views/SettingsView.vue");
-const UserCenterView = () => import("./views/UserCenterView.vue");
 const SourceLibraryView = () => import("./views/SourceLibraryView.vue");
+const TrackingView = () => import("./views/TrackingView.vue");
+const MarketRadarView = () => import("./views/MarketRadarView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 
 function routerHistoryBase() {
@@ -53,6 +55,8 @@ export const router = createRouter({
       meta: { public: true },
     },
     { path: "/", name: "home", component: HomeView },
+    { path: "/tracking", name: "tracking", component: TrackingView },
+    { path: "/market-radar", name: "market-radar", component: MarketRadarView },
     {
       path: "/weekly-summary",
       name: "weekly-summary",
@@ -81,7 +85,7 @@ export const router = createRouter({
     {
       path: "/user",
       name: "user-center",
-      component: UserCenterView,
+      redirect: { name: "settings" },
       alias: "/profile",
     },
     {
@@ -151,7 +155,7 @@ export const router = createRouter({
 router.beforeEach((to) => {
   // Already signed in and trying to reach /login → bounce home.
   if (to.name === "login" && isAuthenticated.value) {
-    return { path: "/" };
+    return postAuthPath(typeof to.query.next === "string" ? to.query.next : "/");
   }
   // Any non-public route requires a session.
   if (!to.meta?.public && !isAuthenticated.value) {

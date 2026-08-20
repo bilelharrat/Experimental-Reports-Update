@@ -10,15 +10,14 @@ const links = [
 </script>
 
 <template>
-  <nav class="flex flex-wrap items-center gap-2" aria-label="Research pages">
+  <nav class="segmented" aria-label="Research pages">
     <RouterLink
       v-for="link in links"
       :key="link.to"
       :to="link.to"
-      class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring"
-      active-class="border-accent/40 bg-accent-soft text-accent-ink"
+      class="segmented-item focus-ring inline-flex items-center gap-1.5"
     >
-      <component :is="link.icon" class="h-4 w-4" />
+      <component :is="link.icon" class="h-3.5 w-3.5" />
       {{ link.label }}
     </RouterLink>
   </nav>

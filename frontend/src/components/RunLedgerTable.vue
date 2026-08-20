@@ -1,7 +1,7 @@
 <script setup>
 defineProps({
   rows: { type: Array, default: () => [] },
-  title: { type: String, default: "Run Ledger" },
+  title: { type: String, default: "Run history" },
   description: { type: String, default: "" },
   emptyText: { type: String, default: "No run ledger rows yet." },
 });
@@ -77,7 +77,7 @@ function targetLabel(row) {
 </script>
 
 <template>
-  <section class="rounded-lg border border-subtle bg-surface">
+  <section class="rounded-card bg-surface shadow-card">
     <div class="flex items-start justify-between gap-3 border-b border-subtle px-4 py-3">
       <div>
         <h3 class="text-sm font-semibold text-ink-primary">{{ title }}</h3>
@@ -90,8 +90,8 @@ function targetLabel(row) {
       </span>
     </div>
     <div class="overflow-x-auto">
-      <table class="min-w-full text-left text-sm">
-        <thead class="bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+      <table class="inset-table">
+        <thead>
           <tr>
             <th class="px-3 py-2">Job</th>
             <th class="px-3 py-2">Target</th>
@@ -111,7 +111,7 @@ function targetLabel(row) {
           >
             <td class="px-3 py-2">
               <div class="font-medium capitalize text-ink-primary">{{ jobLabel(row) }}</div>
-              <div class="mt-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
+              <div class="mt-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
                 {{ workspaceLabel(row) }}
               </div>
               <div class="mt-1 max-w-64 truncate font-mono text-[11px] text-ink-muted">
@@ -126,10 +126,7 @@ function targetLabel(row) {
             </td>
             <td class="px-3 py-2">
               <span
-                :class="[
-                  'rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide',
-                  statusClass(row.status),
-                ]"
+                :class="[ 'rounded px-1.5 py-0.5 text-caption1', statusClass(row.status), ]"
               >
                 {{ label(row.status, "unknown") }}
               </span>

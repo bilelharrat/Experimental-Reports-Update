@@ -25,7 +25,7 @@ function promptStatus(prompt) {
 <template>
   <div class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <h3 class="font-display text-title3 text-ink-primary">
         Chart & Table Plan
       </h3>
       <button
@@ -33,7 +33,7 @@ function promptStatus(prompt) {
         type="button"
         @click="emit('save-chart-specs')"
         :disabled="Boolean(savingArtifact)"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
+        class="btn-bordered btn-sm focus-ring"
       >
         <Loader2
           v-if="savingArtifact === 'chart_specs'"
@@ -50,7 +50,7 @@ function promptStatus(prompt) {
       <div
         v-for="spec in chartSpecsDraft"
         :key="spec.id"
-        class="rounded-lg border border-subtle bg-surface-muted p-3"
+        class="rounded-subbox bg-fill-tertiary p-3"
       >
         <div class="flex items-center justify-between gap-3">
           <div class="text-sm font-medium text-ink-primary">{{ spec.title }}</div>
@@ -64,12 +64,7 @@ function promptStatus(prompt) {
               <span>Final memo</span>
             </label>
             <span
-              :class="[
-                'text-[10px] rounded px-1.5 py-0.5 uppercase',
-                (spec.source_availability || spec.data_availability) === 'missing'
-                  ? 'bg-warning-soft text-warning-ink'
-                  : 'bg-success-soft text-success-ink',
-              ]"
+              :class="[ 'text-[10px] rounded px-1.5 py-0.5 uppercase', (spec.source_availability || spec.data_availability) === 'missing' ? 'bg-warning-soft text-warning-ink' : 'bg-success-soft text-success-ink', ]"
             >
               {{ spec.source_availability || spec.data_availability }}
             </span>
@@ -102,7 +97,7 @@ function promptStatus(prompt) {
           v-if="spec.text_overlay_plan"
           class="mt-3 rounded border border-subtle bg-surface px-2 py-1.5 text-xs text-ink-secondary"
         >
-          <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+          <div class="text-[11px] text-footnote font-semibold text-ink-muted">
             Overlay copy
           </div>
           <div class="mt-1 font-medium text-ink-primary">
@@ -131,7 +126,7 @@ function promptStatus(prompt) {
           v-if="listItems(spec.required_metrics).length"
           class="mt-3 text-xs text-ink-secondary"
         >
-          <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+          <div class="text-[11px] text-footnote font-semibold text-ink-muted">
             Required metrics
           </div>
           <div class="mt-1 grid sm:grid-cols-2 gap-1.5">
@@ -153,7 +148,7 @@ function promptStatus(prompt) {
           v-if="listItems(spec.information_gaps).length"
           class="mt-3 text-xs text-warning-ink"
         >
-          <div class="text-[11px] uppercase tracking-wide">
+          <div class="text-[11px]">
             Information gaps
           </div>
           <ul class="mt-1 space-y-1">
@@ -169,7 +164,7 @@ function promptStatus(prompt) {
           v-if="listItems(spec.reviewer_prompts).length"
           class="mt-3 text-xs text-ink-secondary"
         >
-          <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+          <div class="text-[11px] text-footnote font-semibold text-ink-muted">
             Operator review notes
           </div>
           <div
@@ -187,7 +182,7 @@ function promptStatus(prompt) {
           v-if="listItems(spec.source_traces).length"
           class="mt-3 text-xs text-ink-secondary"
         >
-          <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+          <div class="text-[11px] text-footnote font-semibold text-ink-muted">
             Source evidence
           </div>
           <div
@@ -206,7 +201,7 @@ function promptStatus(prompt) {
           v-if="spec.design_prompt?.composition"
           class="mt-3 text-xs text-ink-secondary"
         >
-          <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+          <div class="text-[11px] text-footnote font-semibold text-ink-muted">
             Image prompt
           </div>
           <div class="mt-1 rounded border border-subtle bg-surface px-2 py-1">

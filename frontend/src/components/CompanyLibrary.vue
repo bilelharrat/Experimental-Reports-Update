@@ -180,7 +180,7 @@ const counts = computed(() => {
 <template>
   <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
     <div class="flex items-center justify-between mb-1">
-      <h2 class="font-display text-lg font-semibold text-ink-primary">{{ t("library.title") }}</h2>
+      <h2 class="font-display text-title3 text-ink-primary">{{ t("library.title") }}</h2>
       <span class="text-xs text-ink-muted">
         {{ t("library.count", { reports: reports.length, files: files.length }) }}
       </span>
@@ -200,12 +200,7 @@ const counts = computed(() => {
         :key="opt.code"
         type="button"
         @click="languageFilter = opt.code"
-        :class="[
-          'text-xs px-2.5 py-1 rounded-md border focus-ring transition',
-          languageFilter === opt.code
-            ? 'bg-accent text-white border-accent'
-            : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong',
-        ]"
+        :class="[ 'text-xs px-2.5 py-1 rounded-md border focus-ring transition', languageFilter === opt.code ? 'bg-accent text-white border-accent' : 'bg-surface-muted border-subtle text-ink-secondary hover:border-strong', ]"
       >
         {{ opt.label
         }}<span
@@ -221,12 +216,7 @@ const counts = computed(() => {
       @dragover.prevent="dragOver = true"
       @dragleave.prevent="dragOver = false"
       @drop="onDrop"
-      :class="[
-        'rounded-lg border-2 border-dashed px-4 py-5 text-center transition mb-5',
-        dragOver
-          ? 'border-accent bg-accent-soft/40'
-          : 'border-subtle bg-surface-muted hover:border-strong',
-      ]"
+      :class="[ 'rounded-lg border-2 border-dashed px-4 py-5 text-center transition mb-5', dragOver ? 'border-accent bg-accent-soft/40' : 'border-subtle bg-surface-muted hover:border-strong', ]"
     >
       <UploadCloud class="h-6 w-6 text-ink-muted mx-auto mb-1" />
       <div class="text-sm text-ink-secondary">
@@ -250,12 +240,7 @@ const counts = computed(() => {
           :key="opt.code"
           type="button"
           @click="uploadLanguage = opt.code"
-          :class="[
-            'px-2 py-0.5 rounded border focus-ring',
-            uploadLanguage === opt.code
-              ? 'bg-accent-soft text-accent-ink border-accent/40'
-              : 'bg-surface border-subtle text-ink-secondary hover:border-strong',
-          ]"
+          :class="[ 'px-2 py-0.5 rounded border focus-ring', uploadLanguage === opt.code ? 'bg-accent-soft text-accent-ink border-accent/40' : 'bg-surface border-subtle text-ink-secondary hover:border-strong', ]"
         >
           {{ opt.label }}
         </button>
@@ -298,14 +283,14 @@ const counts = computed(() => {
     <div v-else class="space-y-5">
       <!-- Generated reports -->
       <div v-if="sortedReports.length > 0">
-        <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
+        <div class="vogue-label mb-2">
           {{ t("library.generated_reports") }}
         </div>
         <ul class="space-y-1.5">
           <li
             v-for="r in sortedReports"
             :key="r.id"
-            class="flex items-center gap-3 px-3 py-2 rounded-lg border border-subtle bg-surface-muted hover:bg-surface focus-within:bg-surface"
+            class="flex items-center gap-3 px-3 py-2 rounded-subbox bg-fill-tertiary hover:bg-surface focus-within:bg-surface"
           >
             <Sparkles class="h-4 w-4 text-accent shrink-0" />
             <button
@@ -378,14 +363,14 @@ const counts = computed(() => {
 
       <!-- Uploaded files -->
       <div v-if="filteredFiles.length > 0">
-        <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
+        <div class="vogue-label mb-2">
           {{ t("library.uploads") }}
         </div>
         <ul class="space-y-1.5">
           <li
             v-for="f in filteredFiles"
             :key="f.id"
-            class="rounded-lg border border-subtle bg-surface-muted"
+            class="rounded-subbox bg-fill-tertiary"
           >
             <div class="flex items-center gap-3 px-3 py-2">
               <component

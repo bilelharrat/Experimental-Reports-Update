@@ -40,7 +40,7 @@ function fmtDate(value) {
     <section class="border border-subtle bg-surface rounded-card p-5">
       <div class="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <div class="text-xs uppercase tracking-wide text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             {{ t("memo.readiness_label") }}
           </div>
           <div class="mt-1 text-2xl font-semibold text-ink-primary">
@@ -63,7 +63,7 @@ function fmtDate(value) {
         <div
           v-for="gate in readiness.gates"
           :key="gate.id"
-          class="flex items-center gap-2 rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm"
+          class="flex items-center gap-2 rounded-subbox bg-fill-tertiary px-3 py-2 text-sm"
         >
           <CheckCircle2
             v-if="gate.status === 'done'"
@@ -80,7 +80,7 @@ function fmtDate(value) {
         v-if="readinessBlockers.length"
         class="mt-4 rounded-row border border-warning border-l-4 bg-surface p-3"
       >
-        <div class="text-xs uppercase tracking-wide text-warning-ink">
+        <div class="text-xs text-warning-ink">
           {{ t("memo.approval_blockers") }}
         </div>
         <ul class="mt-2 space-y-1 text-sm text-warning-ink">
@@ -95,22 +95,19 @@ function fmtDate(value) {
       v-if="additionalAreas.length"
       class="border border-subtle bg-surface rounded-card p-5"
     >
-      <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <h3 class="font-display text-title3 text-ink-primary">
         {{ t("memo.additional_areas") }}
       </h3>
       <div class="mt-3 grid md:grid-cols-2 gap-3">
         <div
           v-for="area in additionalAreas"
           :key="area.id"
-          :class="[
-            'rounded-lg border px-3 py-2',
-            severityClass(area.severity),
-          ]"
+          :class="[ 'rounded-lg border px-3 py-2', severityClass(area.severity), ]"
         >
           <div class="text-sm font-medium">{{ area.area }}</div>
           <div class="mt-1 text-xs opacity-80">{{ area.why_it_matters }}</div>
           <div class="mt-2 flex items-center gap-2 flex-wrap">
-            <span class="text-[10px] uppercase tracking-wide opacity-75">
+            <span class="text-caption1 opacity-75">
               {{ humanizeStatus(area.status || "open", t("memo.pending"), appLanguage) }}
             </span>
             <span v-if="area.reviewed_at" class="text-[10px] opacity-70">
@@ -120,7 +117,7 @@ function fmtDate(value) {
           <textarea
             :value="readinessReviewDraft[area.id]"
             rows="2"
-            class="mt-2 w-full rounded-lg border border-subtle bg-surface px-3 py-2 text-xs text-ink-primary focus-ring resize-y"
+            class="field field-sm resize-y mt-2 focus-ring"
             :placeholder="t('memo.rationale')"
             @input="emit('update-readiness-review-draft', area.id, $event.target.value)"
           ></textarea>
@@ -129,7 +126,7 @@ function fmtDate(value) {
               type="button"
               @click="emit('save-readiness-review', area, 'waived')"
               :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
+              class="btn-bordered btn-sm px-2 focus-ring"
             >
               <Save class="h-3.5 w-3.5" />
               <span>{{ t("memo.waive") }}</span>
@@ -138,7 +135,7 @@ function fmtDate(value) {
               type="button"
               @click="emit('save-readiness-review', area, 'reviewed')"
               :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
+              class="btn-bordered btn-sm px-2 focus-ring"
             >
               <CheckCircle2 class="h-3.5 w-3.5" />
               <span>{{ t("memo.reviewed") }}</span>
@@ -147,7 +144,7 @@ function fmtDate(value) {
               type="button"
               @click="emit('save-readiness-review', area, 'open')"
               :disabled="Boolean(savingArtifact)"
-              class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring text-xs"
+              class="btn-bordered btn-sm px-2 focus-ring"
             >
               <AlertTriangle class="h-3.5 w-3.5" />
               <span>{{ t("memo.reopen") }}</span>

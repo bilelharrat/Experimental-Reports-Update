@@ -287,7 +287,7 @@ async function setTaskStatus(task, status) {
           type="button"
           @click="projectExport"
           :disabled="exporting || loading"
-          class="inline-flex items-center gap-2 rounded-full bg-ink-primary px-4 py-2 text-xs font-semibold text-white disabled:opacity-60 focus-ring"
+          class="btn-filled rounded-full px-4 py-2 text-xs font-semibold disabled:opacity-60 focus-ring"
         >
           <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
           <Download v-else class="h-4 w-4" />
@@ -306,7 +306,7 @@ async function setTaskStatus(task, status) {
 
     <template v-else-if="editor">
       <div class="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
-        <div class="rounded-card border border-subtle bg-surface-muted p-4">
+        <div class="rounded-card bg-surface-muted p-4">
           <div class="flex items-center justify-between gap-3 text-xs text-ink-muted">
             <span>{{ t("memo.readiness", { ready: completedSections, total: sectionIds.length }) }}</span>
             <span class="font-mono">{{ progressPct }}%</span>
@@ -318,7 +318,7 @@ async function setTaskStatus(task, status) {
             />
           </div>
         </div>
-        <div class="rounded-card border border-subtle bg-surface-muted p-4 text-xs text-ink-muted">
+        <div class="rounded-card bg-surface-muted p-4 text-xs text-ink-muted">
           <div class="font-semibold text-ink-primary">
             {{ editor.version_id || "v1" }} · {{ humanizeStatus(editor.status, t("memo.draft"), appLanguage) }}
           </div>
@@ -367,10 +367,10 @@ async function setTaskStatus(task, status) {
             <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.executive_summary") }}</h3>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-              <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
+              <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
               {{ humanizeStatus(sections.executive_summary?.status, t("memo.not_started"), appLanguage) }}
               </span>
-              <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
+              <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
                 {{ sourceLabel(sections.executive_summary) }}
               </span>
               <button
@@ -387,15 +387,15 @@ async function setTaskStatus(task, status) {
               {{ sections.executive_summary?.body }}
             </p>
             <div class="mt-3 grid gap-2 text-sm md:grid-cols-3">
-              <div class="rounded-lg border border-subtle bg-surface p-3">
+              <div class="rounded-card bg-surface shadow-card p-3">
                 <div class="vogue-label">{{ t("memo.recommendation") }}</div>
                 <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.recommendation }}</p>
               </div>
-              <div class="rounded-lg border border-subtle bg-surface p-3">
+              <div class="rounded-card bg-surface shadow-card p-3">
                 <div class="vogue-label">{{ t("memo.round") }}</div>
                 <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.round || t("memo.pending") }}</p>
               </div>
-              <div class="rounded-lg border border-subtle bg-surface p-3">
+              <div class="rounded-card bg-surface shadow-card p-3">
                 <div class="vogue-label">{{ t("memo.top_gate") }}</div>
                 <p class="mt-1 text-ink-secondary">{{ sections.executive_summary?.top_gate }}</p>
               </div>
@@ -463,8 +463,8 @@ async function setTaskStatus(task, status) {
                   <span>
                     <span class="block text-base font-semibold text-ink-primary">{{ card.title }}</span>
                     <span class="mt-1 flex flex-wrap items-center gap-2">
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ card.category }}</span>
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ sourceLabel(card) }}</span>
+                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ card.category }}</span>
+                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ sourceLabel(card) }}</span>
                       <span class="text-[11px] text-ink-muted">{{ t("memo.source_count", { count: sourceCount(card) }) }}</span>
                     </span>
                   </span>
@@ -548,9 +548,9 @@ async function setTaskStatus(task, status) {
                   <span>
                     <span class="block text-base font-semibold text-ink-primary">{{ card.title }}</span>
                     <span class="mt-1 flex flex-wrap items-center gap-2">
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ card.category }}</span>
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ card.severity || t("memo.risk") }}</span>
-                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">{{ sourceLabel(card) }}</span>
+                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ card.category }}</span>
+                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ card.severity || t("memo.risk") }}</span>
+                      <span class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">{{ sourceLabel(card) }}</span>
                     </span>
                   </span>
                   <ChevronDown v-if="card.expanded" class="h-4 w-4 text-ink-muted" />
@@ -598,7 +598,7 @@ async function setTaskStatus(task, status) {
           >
             <div class="text-sm font-semibold text-ink-primary">{{ option.label }}</div>
             <p class="mt-2 text-sm leading-relaxed text-ink-muted">{{ option.text }}</p>
-            <div class="mt-3 text-[11px] uppercase tracking-wide text-ink-muted">
+            <div class="mt-3 text-[11px] text-footnote font-semibold text-ink-muted">
               {{ sourceLabel(option) }}
             </div>
           </button>
@@ -622,7 +622,7 @@ async function setTaskStatus(task, status) {
             </button>
           </div>
         </div>
-        <div class="mt-3 divide-y divide-subtle rounded-card border border-subtle bg-surface">
+        <div class="mt-3 divide-y divide-subtle rounded-card bg-surface">
           <div
             v-for="block in appendixBlocks"
             :key="block.id"
@@ -635,10 +635,10 @@ async function setTaskStatus(task, status) {
             >
               <span>
                 <span class="font-semibold text-ink-primary">{{ block.title }}</span>
-                <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
+                <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
                   {{ humanizeStatus(block.status, t("memo.pending"), appLanguage) }}
                 </span>
-                <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink-muted">
+                <span class="ml-2 rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
                   {{ sourceLabel(block) }}
                 </span>
               </span>
@@ -653,11 +653,11 @@ async function setTaskStatus(task, status) {
       </section>
 
       <section class="mt-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <div class="rounded-card border border-subtle bg-surface-muted p-4">
+        <div class="rounded-card bg-surface-muted p-4">
           <div class="flex items-center justify-between gap-3">
             <div>
               <div class="vogue-label">{{ t("memo.copilot_tasks") }}</div>
-              <h3 class="font-display text-lg font-semibold text-ink-primary">
+              <h3 class="font-display text-title3 text-ink-primary">
                 {{ t("memo.action_queue") }}
               </h3>
             </div>
@@ -670,7 +670,7 @@ async function setTaskStatus(task, status) {
             <article
               v-for="task in memoTasks"
               :key="task.id"
-              class="rounded-row border border-subtle bg-surface p-3"
+              class="rounded-row bg-fill-tertiary p-3"
             >
               <div class="flex flex-wrap items-start justify-between gap-2">
                 <div class="min-w-0">
@@ -679,7 +679,7 @@ async function setTaskStatus(task, status) {
                     {{ task.description }}
                   </p>
                 </div>
-                <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-caption1 font-semibold text-ink-muted">
                   {{ humanizeStatus(task.status, t("memo.pending"), appLanguage) }}
                 </span>
               </div>
@@ -688,7 +688,7 @@ async function setTaskStatus(task, status) {
                   type="button"
                   @click="setTaskStatus(task, 'accepted')"
                   :disabled="savingId === `task:${task.id}` || task.status === 'accepted'"
-                  class="rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50 focus-ring"
+                  class="btn-filled btn-sm px-2.5 text-[11px] focus-ring"
                 >
                   {{ t("memo.accept") }}
                 </button>
@@ -714,26 +714,26 @@ async function setTaskStatus(task, status) {
           <div v-if="historyError" class="mt-3 text-xs text-danger">{{ historyErrorMessage }}</div>
         </div>
 
-        <div class="rounded-card border border-subtle bg-surface-muted p-4">
+        <div class="rounded-card bg-surface-muted p-4">
           <div class="vogue-label">{{ t("memo.audit_versions") }}</div>
-          <h3 class="font-display text-lg font-semibold text-ink-primary">
+          <h3 class="font-display text-title3 text-ink-primary">
             {{ t("memo.recoverable_history") }}
           </h3>
           <div class="mt-3 grid gap-2 sm:grid-cols-2">
-            <div class="rounded-row border border-subtle bg-surface p-3">
+            <div class="rounded-row bg-fill-tertiary p-3">
               <div class="vogue-label text-[10px]">{{ t("memo.revisions") }}</div>
               <div class="mono-data mt-1 text-xl font-bold text-ink-primary">
                 {{ versions.length }}
               </div>
             </div>
-            <div class="rounded-row border border-subtle bg-surface p-3">
+            <div class="rounded-row bg-fill-tertiary p-3">
               <div class="vogue-label text-[10px]">{{ t("memo.audit_events") }}</div>
               <div class="mono-data mt-1 text-xl font-bold text-ink-primary">
                 {{ auditRecords.length }}
               </div>
             </div>
           </div>
-          <div v-if="versions.length" class="mt-3 max-h-48 overflow-y-auto rounded-row border border-subtle bg-surface">
+          <div v-if="versions.length" class="mt-3 max-h-48 overflow-y-auto rounded-row bg-fill-tertiary">
             <div
               v-for="version in versions.slice(0, 6)"
               :key="version.revision_id"

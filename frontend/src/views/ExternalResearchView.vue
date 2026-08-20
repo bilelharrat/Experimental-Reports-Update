@@ -291,11 +291,11 @@ const showFullViewer = ref(false);
           <FileText class="h-5 w-5 text-ink-muted" />
         </div>
         <div class="flex-1 min-w-0">
-          <div class="text-xs uppercase tracking-wider text-ink-muted">
+          <div class="vogue-label">
             {{ t("external.type") }}
           </div>
           <h1
-            class="font-display text-2xl font-semibold text-ink-primary mt-0.5"
+            class="font-display text-large-title text-ink-primary mt-0.5"
           >
             {{ item.title || item.filename }}
           </h1>
@@ -396,7 +396,7 @@ const showFullViewer = ref(false);
 
       <div
         v-if="item.analysis_error"
-        class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3"
+        class="banner-warning flex items-center justify-between gap-3"
       >
         <span>{{ t("external.analysis_incomplete", { error: item.analysis_error }) }}</span>
         <button
@@ -412,7 +412,7 @@ const showFullViewer = ref(false);
       </div>
       <div
         v-if="item.error && item.status === 'failed'"
-        class="text-sm text-danger-ink bg-danger-soft border border-danger/40 rounded-lg px-3 py-2"
+        class="banner-danger"
       >
         {{ item.error }}
       </div>
@@ -507,7 +507,7 @@ const showFullViewer = ref(false);
               type="button"
               @click="startTranslation"
               :disabled="!isPdf"
-              class="px-3 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1.5"
+              class="btn-filled focus-ring"
             >
               <Languages class="h-3.5 w-3.5" />
               {{ t("external.translate_to", { lang: langLabel(appLanguage) }) }}
@@ -528,7 +528,7 @@ const showFullViewer = ref(false);
               </span>
               <span
                 v-if="translateStage?.stage"
-                class="ml-auto text-[10px] uppercase tracking-wide text-ink-muted font-mono"
+                class="ml-auto text-caption1 text-ink-muted font-mono"
               >
                 {{ translateStage.stage }}
               </span>
@@ -541,10 +541,7 @@ const showFullViewer = ref(false);
                 v-for="(entry, i) in translateProgressEvents"
                 :key="i"
                 class="flex items-start gap-2 px-2 py-1 rounded"
-                :class="{
-                  'bg-accent-soft/30': entry.type === 'stage',
-                  'text-danger': entry.is_error,
-                }"
+                :class="{ 'bg-accent-soft/30': entry.type === 'stage', 'text-danger': entry.is_error, }"
               >
                 <component
                   v-if="actionIcon(entry)"
@@ -588,10 +585,7 @@ const showFullViewer = ref(false);
           <div
             v-else
             class="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-ink-primary"
-            :class="{
-              'font-zh':
-                translation.target_language === 'zh',
-            }"
+            :class="{ 'font-zh': translation.target_language === 'zh', }"
           >
             <div
               v-for="(page, pi) in translation.pages"
@@ -599,7 +593,7 @@ const showFullViewer = ref(false);
               class="space-y-3"
             >
               <div
-                class="text-[10px] uppercase tracking-wider text-ink-muted border-t border-subtle pt-2"
+                class="text-caption1r text-ink-muted border-t border-subtle pt-2"
                 v-if="pi > 0"
               >
                 {{ t("external.page", { page: page.page }) }}

@@ -49,11 +49,11 @@ async function remove() {
       <header class="flex items-start gap-3 border-b border-subtle pb-5">
         <ScrollText class="h-5 w-5 text-ink-muted mt-1 shrink-0" />
         <div class="flex-1 min-w-0">
-          <div class="text-xs uppercase tracking-wider text-ink-muted">
+          <div class="vogue-label">
             {{ t("hormuz.research_label") }}
           </div>
           <h1
-            class="font-display text-2xl font-semibold text-ink-primary mt-0.5"
+            class="font-display text-large-title text-ink-primary mt-0.5"
           >
             {{ item.title }}
           </h1>
@@ -78,7 +78,7 @@ async function remove() {
         :href="api.hormuzFileUrl(item.id)"
         target="_blank"
         rel="noopener"
-        class="flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted hover:bg-surface text-sm text-ink-primary focus-ring"
+        class="flex items-center gap-2 px-3 py-2 rounded-subbox bg-fill-tertiary hover:bg-surface text-sm text-ink-primary focus-ring"
       >
         <FileText class="h-4 w-4 text-ink-muted shrink-0" />
         <span class="truncate flex-1">{{ item.filename || item.stored_name }}</span>

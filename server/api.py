@@ -785,6 +785,11 @@ class MemoPrepRequest(BaseModel):
     analysis_session_id: str | None = None
 
 
+class MemoRiskRefineRequest(BaseModel):
+    framing: str = "other"
+    analyst_note: str = ""
+
+
 class MemoEditorCardPatch(BaseModel):
     included: bool | None = None
     expanded: bool | None = None
@@ -2943,6 +2948,28 @@ def patch_memo_analysis_artifact(
         raise HTTPException(status_code=404, detail="Company not found")
     try:
         return serena_analysis.patch_artifact(company_id, artifact_name, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-analysis/risks/{risk_id}/refine")
+def refine_memo_analysis_risk(
+    request: Request,
+    company_id: str,
+    risk_id: str,
+    body: MemoRiskRefineRequest | None = None,
+) -> dict:
+    _require_permission(request, "memo:edit")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    payload = body or MemoRiskRefineRequest()
+    try:
+        return serena_analysis.refine_risk(
+            company_id,
+            risk_id,
+            framing=payload.framing,
+            analyst_note=payload.analyst_note or "",
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

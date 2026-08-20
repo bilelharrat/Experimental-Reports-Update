@@ -140,7 +140,7 @@ test("Trader Stats removes high-level cost and avoids a status column", async ({
   await mockApi(page);
   await page.goto("/research/trader-stats");
 
-  await expect(page.getByRole("heading", { name: "Trader Refresh Stats" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Stats" })).toBeVisible();
   const topMetrics = page.locator("[aria-live='polite']");
   await expect(topMetrics).toContainText("Symbols");
   await expect(topMetrics).toContainText("Tokens");

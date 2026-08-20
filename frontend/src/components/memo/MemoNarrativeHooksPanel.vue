@@ -22,7 +22,7 @@ function promptStatus(prompt) {
 <template>
   <div class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-ink-primary">
+      <h3 class="font-display text-title3 text-ink-primary">
         Intro, Risk, Conclusion Choices
       </h3>
       <button
@@ -30,7 +30,7 @@ function promptStatus(prompt) {
         type="button"
         @click="emit('save-narrative')"
         :disabled="Boolean(savingArtifact)"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 focus-ring text-xs"
+        class="btn-bordered btn-sm focus-ring"
       >
         <Loader2
           v-if="savingArtifact === 'narrative_hooks'"
@@ -44,19 +44,14 @@ function promptStatus(prompt) {
       No intro or conclusion choices yet.
     </div>
     <template v-else>
-      <div class="mt-3 text-xs uppercase tracking-wide text-ink-muted">
+      <div class="mt-3 text-footnote font-semibold text-ink-muted">
         Intro stance
       </div>
       <div class="mt-2 space-y-2">
         <label
           v-for="opening in narrativeDraft.openings"
           :key="opening.id"
-          :class="[
-            'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer',
-            narrativeDraft.selected_opening_id === opening.id
-              ? 'border-accent bg-accent-soft/40 text-accent-ink'
-              : 'border-subtle bg-surface-muted text-ink-primary',
-          ]"
+          :class="[ 'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer', narrativeDraft.selected_opening_id === opening.id ? 'border-accent bg-accent-soft/40 text-accent-ink' : 'border-subtle bg-surface-muted text-ink-primary', ]"
         >
           <input
             v-model="narrativeDraft.selected_opening_id"
@@ -89,7 +84,7 @@ function promptStatus(prompt) {
       </div>
       <div
         v-if="listItems(narrativeDraft.transitions).length"
-        class="mt-4 text-xs uppercase tracking-wide text-ink-muted"
+        class="mt-4 text-footnote font-semibold text-ink-muted"
       >
         Risk-section posture
       </div>
@@ -100,12 +95,7 @@ function promptStatus(prompt) {
         <label
           v-for="transition in narrativeDraft.transitions"
           :key="transition.id"
-          :class="[
-            'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer',
-            narrativeDraft.selected_transition_id === transition.id
-              ? 'border-accent bg-accent-soft/40 text-accent-ink'
-              : 'border-subtle bg-surface-muted text-ink-primary',
-          ]"
+          :class="[ 'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer', narrativeDraft.selected_transition_id === transition.id ? 'border-accent bg-accent-soft/40 text-accent-ink' : 'border-subtle bg-surface-muted text-ink-primary', ]"
         >
           <input
             v-model="narrativeDraft.selected_transition_id"
@@ -130,19 +120,14 @@ function promptStatus(prompt) {
           </span>
         </label>
       </div>
-      <div class="mt-4 text-xs uppercase tracking-wide text-ink-muted">
+      <div class="mt-4 text-footnote font-semibold text-ink-muted">
         Conclusion posture
       </div>
       <div class="mt-2 space-y-2">
         <label
           v-for="ending in narrativeDraft.endings"
           :key="ending.id"
-          :class="[
-            'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer',
-            narrativeDraft.selected_ending_id === ending.id
-              ? 'border-accent bg-accent-soft/40 text-accent-ink'
-              : 'border-subtle bg-surface-muted text-ink-primary',
-          ]"
+          :class="[ 'flex items-start gap-3 rounded-lg border p-3 text-sm cursor-pointer', narrativeDraft.selected_ending_id === ending.id ? 'border-accent bg-accent-soft/40 text-accent-ink' : 'border-subtle bg-surface-muted text-ink-primary', ]"
         >
           <input
             v-model="narrativeDraft.selected_ending_id"
@@ -169,9 +154,9 @@ function promptStatus(prompt) {
       </div>
       <div
         v-if="listItems(narrativeDraft.reviewer_prompts).length"
-        class="mt-4 rounded-lg border border-subtle bg-surface-muted p-3 text-xs text-ink-secondary"
+        class="mt-4 rounded-subbox bg-fill-tertiary p-3 text-xs text-ink-secondary"
       >
-        <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+        <div class="text-[11px] text-footnote font-semibold text-ink-muted">
           Operator review notes
         </div>
         <div

@@ -122,37 +122,37 @@ async function submit() {
         <input
           v-model="title"
           :placeholder="t('upload_research.placeholder_title')"
-          class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
+          class="field focus-ring"
         />
         <input
           v-model="sourceCompany"
           :placeholder="t('upload_research.placeholder_source')"
-          class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
+          class="field focus-ring"
         />
         <input
           v-model="contactName"
           :placeholder="t('upload_research.placeholder_contact_name')"
-          class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
+          class="field focus-ring"
         />
         <input
           v-model="contactEmail"
           type="email"
           :placeholder="t('upload_research.placeholder_contact_email')"
-          class="px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm"
+          class="field focus-ring"
         />
       </div>
       <textarea
         v-model="notes"
         rows="2"
         :placeholder="t('upload_research.placeholder_notes')"
-        class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm resize-y"
+        class="field resize-y focus-ring"
       ></textarea>
 
       <div v-if="error" class="text-sm text-danger">{{ error }}</div>
 
       <div
         v-if="savedItem"
-        class="rounded-card border border-subtle bg-surface-muted p-3 text-sm"
+        class="rounded-card bg-surface-muted p-3 text-sm"
       >
         <div class="font-semibold text-ink-primary">
           {{ assignmentSummary(savedItem) }}
@@ -163,7 +163,7 @@ async function submit() {
         <button
           type="button"
           @click="router.push({ name: 'external-research', params: { id: savedItem.id } })"
-          class="mt-2 inline-flex items-center gap-1 rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+          class="btn-bordered btn-sm mt-2 focus-ring"
         >
           {{ t("intake.open_analysis") }}
         </button>
@@ -174,7 +174,7 @@ async function submit() {
           type="button"
           @click="submit"
           :disabled="!file || submitting"
-          class="px-3 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1.5"
+          class="btn-filled focus-ring"
         >
           <Loader2 v-if="submitting" class="h-3.5 w-3.5 animate-spin" />
           <UploadCloud v-else class="h-3.5 w-3.5" />

@@ -59,7 +59,7 @@ function countLabel(count, singular) {
       </div>
       <button
         type="button"
-        class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+        class="btn-bordered focus-ring"
         :disabled="busy"
         @click="emit('import-company-trackers')"
       >
@@ -67,9 +67,9 @@ function countLabel(count, singular) {
         Import Companies
       </button>
     </div>
-    <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-      <table class="min-w-full text-left text-sm">
-        <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+    <div class="overflow-x-auto rounded-card bg-surface shadow-card">
+      <table class="inset-table">
+        <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
           <tr>
             <th class="w-10 px-3 py-2"></th>
             <th class="px-3 py-2">Tracker</th>

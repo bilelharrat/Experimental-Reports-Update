@@ -32,7 +32,7 @@ function firstTrace(item) {
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white focus-ring disabled:opacity-50"
+          class="btn-filled focus-ring"
           :disabled="busy"
           @click="emit('run-strategy-map')"
         >
@@ -42,7 +42,7 @@ function firstTrace(item) {
         <button
           v-if="strategyMap"
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy"
           @click="emit('retry-strategy-map')"
         >
@@ -52,7 +52,7 @@ function firstTrace(item) {
         <button
           v-if="strategyMap"
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy"
           @click="emit('cancel-strategy-map')"
         >
@@ -62,9 +62,9 @@ function firstTrace(item) {
       </div>
     </div>
     <div v-if="strategyMap" class="space-y-4">
-      <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-        <table class="min-w-full text-left text-sm">
-          <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+      <div class="overflow-x-auto rounded-card bg-surface shadow-card">
+        <table class="inset-table">
+          <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
             <tr>
               <th class="px-3 py-2">Node</th>
               <th class="px-3 py-2">Posture</th>
@@ -95,12 +95,12 @@ function firstTrace(item) {
           </tbody>
         </table>
       </div>
-      <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
+      <div class="overflow-x-auto rounded-card bg-surface shadow-card">
         <div class="border-b border-subtle px-4 py-3">
           <h3 class="text-sm font-semibold">Source Inspector</h3>
         </div>
-        <table class="min-w-full text-left text-sm">
-          <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+        <table class="inset-table">
+          <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
             <tr>
               <th class="px-3 py-2">Kind</th>
               <th class="px-3 py-2">Node / Edge</th>
@@ -127,7 +127,7 @@ function firstTrace(item) {
           </tbody>
         </table>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface p-4">
+      <div class="rounded-card bg-surface shadow-card p-4">
         <h3 class="text-sm font-semibold">Diff Versus Prior Map</h3>
         <div class="mt-3 flex flex-wrap gap-2">
           <span
@@ -142,7 +142,7 @@ function firstTrace(item) {
           </span>
         </div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface p-4">
+      <div class="rounded-card bg-surface shadow-card p-4">
         <h3 class="text-sm font-semibold">Unresolved Contradictions</h3>
         <div v-if="strategyContradictions.length" class="mt-3 space-y-2">
           <div
@@ -159,7 +159,7 @@ function firstTrace(item) {
         <div v-else class="mt-3 text-sm text-ink-muted">No unresolved contradictions.</div>
       </div>
     </div>
-    <div v-else class="rounded-lg border border-subtle bg-surface p-6 text-sm text-ink-muted">
+    <div v-else class="rounded-card bg-surface shadow-card p-6 text-sm text-ink-muted">
       No strategy map yet.
     </div>
   </section>

@@ -374,6 +374,11 @@ export const api = {
         `/api/companies/${companyId}/memo-analysis/artifacts/${encodeURIComponent(artifactName)}`,
         { method: "PATCH", body: JSON.stringify(patch) },
       ),
+    refineRisk: (companyId, riskId, body) =>
+      request(
+        `/api/companies/${companyId}/memo-analysis/risks/${encodeURIComponent(riskId)}/refine`,
+        { method: "POST", body: JSON.stringify(body || {}) },
+      ),
     patchTask: (companyId, taskId, patch) =>
       request(
         `/api/companies/${companyId}/memo-analysis/research-tasks/${encodeURIComponent(taskId)}`,

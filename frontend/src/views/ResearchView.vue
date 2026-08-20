@@ -2,7 +2,6 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  ArrowLeft,
   Download,
   Eye,
   ExternalLink,
@@ -11,6 +10,8 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  ArrowLeft,
+  Star,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
 import {
@@ -23,7 +24,7 @@ import {
 } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
-import { appLanguage } from "../state.js";
+import { appLanguage, toggleTrackedCompany, trackedCompanyIds } from "../state.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import MemoAnalysisDashboard from "../components/MemoAnalysisDashboard.vue";
@@ -81,6 +82,9 @@ const route = useRoute();
 const router = useRouter();
 
 const company = ref(null);
+const companyTracked = computed(() =>
+  trackedCompanyIds.value.has(String(props.companyId || company.value?.id || "")),
+);
 const companyError = ref(null);
 const options = ref({ report_types: [], audiences: [], languages: [] });
 const newsFeed = ref({ rows: [], filters: { categories: [], tags: [] }, empty_state: "" });
@@ -323,17 +327,21 @@ const submitThreadError = ref("");
 const libraryRefresh = ref(0);
 
 const TAB_IDS = ["overview", "documents", "memo", "news", "industry"];
+const EVIDENCE_TABS = ["documents", "news", "industry"];
 function normalizeTabName(raw) {
   if (raw === "analysis") return "memo";
   if (raw === "console") {
     emit("open-copilot");
-    return "overview";
+    return "memo";
   }
   if (!raw && route.query.report) return "memo";
   return TAB_IDS.includes(raw) ? raw : "overview";
 }
 
 const activeTab = ref(normalizeTabName(route.query.tab));
+const lastEvidenceTab = ref(
+  EVIDENCE_TABS.includes(activeTab.value) ? activeTab.value : "documents",
+);
 function switchTab(name) {
   const nextTab =
     name === "memo" && company.value && !canShowMemoStudio.value
@@ -352,6 +360,9 @@ watch(
     activeTab.value = normalizeTabName(tab);
   },
 );
+watch(activeTab, (tab) => {
+  if (EVIDENCE_TABS.includes(tab)) lastEvidenceTab.value = tab;
+});
 function normalizeActiveTabForCompany() {
   if (activeTab.value === "memo" && company.value && !canShowMemoStudio.value) {
     switchTab("overview");
@@ -362,13 +373,31 @@ watch(
   normalizeActiveTabForCompany,
 );
 
+const workspaceMode = computed(() => {
+  if (activeTab.value === "memo") return "memo";
+  if (EVIDENCE_TABS.includes(activeTab.value)) return "evidence";
+  return "overview";
+});
+
 const workspaceTabs = computed(() => [
   { id: "overview", label: tr("research.tab_overview"), show: true },
-  { id: "documents", label: tr("research.tab_documents"), show: true },
+  { id: "evidence", label: tr("research.tab_evidence"), show: true },
   { id: "memo", label: tr("research.tab_memo"), show: canShowMemoStudio.value },
-  { id: "news", label: tr("research.tab_news"), show: true },
-  { id: "industry", label: tr("research.tab_industry"), show: true },
 ]);
+
+const evidenceTabs = computed(() => [
+  { id: "documents", label: tr("research.tab_documents") },
+  { id: "news", label: tr("research.tab_news") },
+  { id: "industry", label: tr("research.tab_industry") },
+]);
+
+function switchMode(mode) {
+  if (mode === "evidence") {
+    switchTab(lastEvidenceTab.value);
+    return;
+  }
+  switchTab(mode);
+}
 
 const companyNews = computed(() => {
   const c = company.value || {};
@@ -964,115 +993,118 @@ onUnmounted(stopPolling);
 </script>
 
 <template>
-  <div class="w-full px-8 py-10 space-y-8">
-    <div>
-      <button
-        @click="router.push({ name: 'home' })"
-        class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-sm text-ink-muted hover:bg-surface-muted hover:text-ink-primary focus-ring"
-      >
-        <ArrowLeft class="h-4 w-4" /> {{ tr("research.back_to_search") }}
-      </button>
-    </div>
-
-    <header
-      v-if="company"
-      class="rounded-card border border-subtle bg-surface p-6 shadow-card"
-    >
-      <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-        <div class="flex min-w-0 items-start gap-4">
-          <div
-            class="mono-data grid h-16 w-16 shrink-0 place-items-center rounded-glass bg-accent-soft text-xl font-bold text-accent-ink ring-1 ring-subtle"
+  <div class="w-full space-y-6 px-5 py-5 md:px-8 md:py-6">
+    <header v-if="company" class="flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="icon-btn shrink-0"
+            :aria-label="tr('research.back')"
+            :title="tr('research.back')"
+            @click="router.push({ name: 'home' })"
           >
-            {{ monogram(company.name) }}
-          </div>
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <h1 class="font-display text-3xl font-bold text-ink-primary">
-                {{ company.name }}
-              </h1>
-              <span
-                v-if="company.latest_funding?.round"
-                class="rounded-chip bg-surface-muted px-2 py-1 text-xs font-semibold text-ink-secondary"
-              >
-                {{ fundingRoundLabel(company.latest_funding.round) }}
-              </span>
-              <span
-                v-if="translatedCompanyField('industry') || translatedCompanyField('sector')"
-                class="rounded-chip bg-accent-soft px-2 py-1 text-xs font-semibold text-accent-ink"
-              >
-                {{ translatedCompanyField("industry") || translatedCompanyField("sector") }}
-              </span>
-              <a
-                v-if="companyWebsiteHref"
-                :href="companyWebsiteHref"
-                target="_blank"
-                rel="noopener"
-                class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-accent-ink hover:bg-accent-soft hover:text-ink-primary focus-ring"
-              >
-                <ExternalLink class="h-3.5 w-3.5" />
-                {{ company.website.replace(/^https?:\/\//, "") }}
-              </a>
-            </div>
-            <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
-              <span v-if="company.founded_year">{{ tr("company.founded") }} {{ company.founded_year }}</span>
-              <span v-if="translatedCompanyField('hq')">{{ translatedCompanyField("hq") }}</span>
-              <span v-if="translatedCompanyField('employee_band')">
-                {{ translatedCompanyField("employee_band") }} {{ tr("company.employees") }}
-              </span>
-            </div>
-            <div v-if="company.latest_funding" class="mono-data mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
-              <span class="font-semibold text-ink-secondary">{{ tr("company.last_round") }}</span>
-              <span class="font-bold text-ink-primary">
-                {{
-                  isPendingValue(company.latest_funding.amount_usd)
-                    ? fundingRoundLabel(company.latest_funding.round)
-                    : fundingAmount(company.latest_funding.amount_usd)
-                }}
-              </span>
-              <span v-if="company.latest_funding.post_money_usd">
-                · {{ tr("company.post_money") }} {{ fundingAmount(company.latest_funding.post_money_usd) }}
-              </span>
-              <span v-if="company.latest_funding.date">· {{ formatIsoDate(company.latest_funding.date) }}</span>
-              <span v-if="company.total_funding_usd">
-                · {{ tr("company.total_raised") }} {{ fundingAmount(company.total_funding_usd) }}
-              </span>
-            </div>
-            <p v-if="refreshCompanyError" class="mt-2 text-xs text-danger">{{ refreshCompanyError }}</p>
-          </div>
+            <ArrowLeft class="h-4 w-4" />
+          </button>
+          <h1 class="font-display text-title2 text-ink-primary">{{ company.name }}</h1>
+          <button
+            type="button"
+            class="icon-btn shrink-0"
+            :aria-label="companyTracked ? tr('research.untrack') : tr('research.track')"
+            :title="companyTracked ? tr('research.untrack') : tr('research.track')"
+            :aria-pressed="companyTracked"
+            @click="toggleTrackedCompany(company.id)"
+          >
+            <Star
+              class="h-4 w-4"
+              :class="companyTracked ? 'text-warning' : ''"
+              :fill="companyTracked ? 'currentColor' : 'none'"
+            />
+          </button>
         </div>
-        <button
-          type="button"
-          @click="refreshCompanyRecord"
-          :disabled="refreshingCompany"
-          class="pill-button shrink-0 border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
-        >
-          <Loader2 v-if="refreshingCompany" class="h-4 w-4 animate-spin" />
-          <RefreshCw v-else class="h-4 w-4" />
-          {{ refreshingCompany ? tr("company.refreshing") : tr("company.refresh") }}
-        </button>
+        <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span
+            v-if="company.latest_funding?.round"
+            class="text-footnote font-medium text-ink-muted"
+          >
+            {{ fundingRoundLabel(company.latest_funding.round) }}
+          </span>
+          <span
+            v-if="translatedCompanyField('industry') || translatedCompanyField('sector')"
+            class="text-footnote text-ink-muted"
+          >
+            {{ translatedCompanyField("industry") || translatedCompanyField("sector") }}
+          </span>
+          <a
+            v-if="companyWebsiteHref"
+            :href="companyWebsiteHref"
+            target="_blank"
+            rel="noopener"
+            class="inline-flex items-center gap-1 rounded text-footnote font-medium text-accent-ink hover:text-ink-primary focus-ring"
+          >
+            <ExternalLink class="h-3 w-3" />
+            {{ company.website.replace(/^https?:\/\//, "") }}
+          </a>
+        </div>
+        <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption1 text-ink-subtle">
+          <span v-if="company.founded_year">{{ tr("company.founded") }} {{ company.founded_year }}</span>
+          <span v-if="translatedCompanyField('hq')">{{ translatedCompanyField("hq") }}</span>
+          <span v-if="translatedCompanyField('employee_band')">
+            {{ translatedCompanyField("employee_band") }} {{ tr("company.employees") }}
+          </span>
+          <span v-if="company.latest_funding" class="mono-data">
+            {{ tr("company.last_round") }}
+            {{
+              isPendingValue(company.latest_funding.amount_usd)
+                ? fundingRoundLabel(company.latest_funding.round)
+                : fundingAmount(company.latest_funding.amount_usd)
+            }}
+            <template v-if="company.latest_funding.post_money_usd">
+              · {{ tr("company.post_money") }} {{ fundingAmount(company.latest_funding.post_money_usd) }}
+            </template>
+            <template v-if="company.latest_funding.date">
+              · {{ formatIsoDate(company.latest_funding.date) }}
+            </template>
+            <template v-if="company.total_funding_usd">
+              · {{ tr("company.total_raised") }} {{ fundingAmount(company.total_funding_usd) }}
+            </template>
+          </span>
+        </div>
+        <p v-if="refreshCompanyError" class="mt-2 text-caption1 text-danger">{{ refreshCompanyError }}</p>
+        <p class="mt-3 max-w-3xl text-callout leading-relaxed text-ink-secondary">
+          <template v-if="companyPositioning">
+            <strong class="font-semibold text-ink-primary">{{ company.name }}</strong>
+            {{ tr("research.positioning_is_a") }}
+            <span class="position-highlight">{{ companyPositioning.category }}</span>
+            {{ tr("research.positioning_for") }} {{ companyPositioning.customers }}
+            {{ tr("research.positioning_who") }} {{ companyPositioning.need }},
+            {{ tr("research.positioning_that") }}
+            <span class="position-underline">{{ companyPositioning.benefit }}</span>.
+            {{ tr("research.positioning_unlike") }} {{ companyPositioning.alternative }},
+            {{ tr("research.positioning_it") }} {{ companyPositioning.differentiator }}.
+          </template>
+          <template v-else>
+            <span class="position-highlight">{{ companyPositioningFallback.lead }}</span>
+            {{ companyPositioningFallback.body }}
+          </template>
+        </p>
       </div>
-      <p class="mt-5 border-t border-subtle pt-5 text-base leading-7 text-ink-primary">
-        <template v-if="companyPositioning">
-          <strong>{{ company.name }}</strong>
-          {{ tr("research.positioning_is_a") }}
-          <span class="position-highlight">{{ companyPositioning.category }}</span>
-          {{ tr("research.positioning_for") }} {{ companyPositioning.customers }}
-          {{ tr("research.positioning_who") }} {{ companyPositioning.need }},
-          {{ tr("research.positioning_that") }}
-          <span class="position-underline">{{ companyPositioning.benefit }}</span>.
-          {{ tr("research.positioning_unlike") }} {{ companyPositioning.alternative }},
-          {{ tr("research.positioning_it") }} {{ companyPositioning.differentiator }}.
-        </template>
-        <template v-else>
-          <span class="position-highlight">{{ companyPositioningFallback.lead }}</span>
-          {{ companyPositioningFallback.body }}
-        </template>
-      </p>
+      <button
+        type="button"
+        @click="refreshCompanyRecord"
+        :disabled="refreshingCompany"
+        class="icon-btn shrink-0"
+        :aria-label="refreshingCompany ? tr('company.refreshing') : tr('company.refresh')"
+        :title="refreshingCompany ? tr('company.refreshing') : tr('company.refresh')"
+      >
+        <Loader2 v-if="refreshingCompany" class="h-4 w-4 animate-spin" />
+        <RefreshCw v-else class="h-4 w-4" />
+      </button>
     </header>
 
     <div
       v-else-if="companyError"
-      class="rounded-card border border-subtle bg-surface p-6 text-center"
+      class="rounded-card bg-surface p-6 text-center"
     >
       <div class="font-display text-lg text-ink-primary">
         {{ companyErrorTitle }}
@@ -1089,26 +1121,42 @@ onUnmounted(stopPolling);
     </div>
     <div v-else class="text-sm text-ink-muted">{{ tr("common.loading") }}</div>
 
-    <!-- PRD workspace tabs. Legacy tab=analysis maps to Memo Studio. -->
-    <div
-      v-if="company"
-      class="flex max-w-full flex-wrap items-center gap-x-1 gap-y-2 border-b border-subtle pb-px"
-    >
-      <button
-        v-for="tab in workspaceTabs.filter((item) => item.show)"
-        :key="tab.id"
-        @click="switchTab(tab.id)"
-        :class="[
-          'workspace-tab px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm',
-          activeTab === tab.id
-            ? 'text-ink-primary'
-            : 'text-ink-muted hover:text-ink-primary',
-        ]"
-        role="tab"
-        :aria-selected="activeTab === tab.id"
+    <!-- Three workspace modes. Legacy tab=documents|news|industry stay as Evidence. -->
+    <div v-if="company" class="space-y-2">
+      <div
+        class="hairline-b flex max-w-full flex-wrap items-center gap-x-1 gap-y-2 pb-px"
+        role="tablist"
       >
-        {{ tab.label }}
-      </button>
+        <button
+          v-for="tab in workspaceTabs.filter((item) => item.show)"
+          :key="tab.id"
+          @click="switchMode(tab.id)"
+          :class="[ 'workspace-tab px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm', workspaceMode === tab.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary', ]"
+          role="tab"
+          :aria-selected="workspaceMode === tab.id"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <div
+        v-if="workspaceMode === 'evidence'"
+        class="segmented w-fit"
+        role="tablist"
+        :aria-label="tr('research.tab_evidence')"
+      >
+        <button
+          v-for="tab in evidenceTabs"
+          :key="tab.id"
+          type="button"
+          class="segmented-item focus-ring"
+          :data-selected="activeTab === tab.id"
+          :aria-selected="activeTab === tab.id"
+          role="tab"
+          @click="switchTab(tab.id)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
     </div>
 
     <CompanyDetail
@@ -1119,44 +1167,39 @@ onUnmounted(stopPolling);
 
     <section
       v-if="company && activeTab === 'memo'"
-      class="bg-surface border border-subtle rounded-card shadow-card p-6"
+      class="flex flex-wrap items-end gap-3"
     >
-      <h2 class="font-display text-lg font-semibold text-ink-primary mb-4">
-        {{ tr("research.generate_report") }}
-      </h2>
-      <div class="grid sm:grid-cols-2 gap-4">
-        <label class="block">
-          <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
-            {{ tr("research.label_report_type") }}
-          </div>
-          <select
-            v-model="reportType"
-            class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary focus-ring"
-          >
-            <option v-for="t in options.report_types" :key="t" :value="t">
-              {{ reportTypeLabel(t) }}
-            </option>
-          </select>
-        </label>
-        <label class="block">
-          <div class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
-            {{ tr("research.label_audience") }}
-          </div>
-          <select
-            v-model="audience"
-            class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary focus-ring"
-          >
-            <option v-for="a in options.audiences" :key="a" :value="a">
-              {{ audienceLabel(a) }}
-            </option>
-          </select>
-        </label>
-      </div>
-      <div class="mt-5 flex items-center gap-3">
+      <label class="min-w-[12rem] flex-1">
+        <div class="vogue-label mb-1.5">
+          {{ tr("research.label_report_type") }}
+        </div>
+        <select
+          v-model="reportType"
+          class="field focus-ring"
+        >
+          <option v-for="t in options.report_types" :key="t" :value="t">
+            {{ reportTypeLabel(t) }}
+          </option>
+        </select>
+      </label>
+      <label class="min-w-[10rem] flex-1">
+        <div class="vogue-label mb-1.5">
+          {{ tr("research.label_audience") }}
+        </div>
+        <select
+          v-model="audience"
+          class="field focus-ring"
+        >
+          <option v-for="a in options.audiences" :key="a" :value="a">
+            {{ audienceLabel(a) }}
+          </option>
+        </select>
+      </label>
+      <div class="flex flex-wrap items-center gap-2 pb-0.5">
         <button
           @click="generate()"
           :disabled="generating || resuming"
-          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+          class="btn-filled disabled:cursor-not-allowed focus-ring"
         >
           <Loader2 v-if="generating || resuming" class="h-4 w-4 animate-spin" />
           <Sparkles v-else class="h-4 w-4" />
@@ -1177,7 +1220,7 @@ onUnmounted(stopPolling);
           type="button"
           @click="generate(null, { forceFresh: true })"
           :disabled="generating || resuming"
-          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+          class="btn-bordered disabled:cursor-not-allowed focus-ring"
         >
           <Sparkles class="h-4 w-4" />
           <span>{{ tr("research.redo_memo") }}</span>
@@ -1207,16 +1250,16 @@ onUnmounted(stopPolling);
 
     <section
       v-if="activeReport && activeTab === 'memo'"
-      class="bg-surface border border-subtle rounded-card shadow-card p-6"
+      class="rounded-card bg-surface shadow-card p-6"
     >
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <div class="text-xs uppercase tracking-wider text-ink-muted">
+          <div class="vogue-label">
             {{ reportTypeLabel(activeReport.report_type) }} ·
             {{ audienceLabel(activeReport.audience) }}
             · {{ (activeReport.language || "en").toUpperCase() }}
           </div>
-          <div class="font-display text-lg font-semibold text-ink-primary">
+          <div class="font-display text-title3 text-ink-primary">
             {{ reportHeadline }}
           </div>
         </div>
@@ -1343,7 +1386,7 @@ onUnmounted(stopPolling);
               v-for="artifact in analysisArtifacts"
               :key="artifact.filename || artifact.label"
               :href="withApiToken(artifact.download_url || '#')"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+              class="btn-bordered focus-ring"
             >
               <FileText class="h-4 w-4" />
               <span>{{ artifact.label || artifact.filename }}</span>
@@ -1357,7 +1400,7 @@ onUnmounted(stopPolling);
           <a
             v-if="activeReport.download_urls?.en"
             :href="withApiToken(activeReport.download_urls.en)"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            class="btn-bordered focus-ring"
           >
             <FileText class="h-4 w-4" />
             <span>{{ tr("research.download_en") }}</span>
@@ -1367,7 +1410,7 @@ onUnmounted(stopPolling);
             v-if="activeReport.preview_urls?.en"
             type="button"
             @click="openMemoPreview('en')"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            class="btn-bordered focus-ring"
           >
             <Eye class="h-4 w-4" />
             <span>{{ tr("research.preview_pdf_en") }}</span>
@@ -1375,7 +1418,7 @@ onUnmounted(stopPolling);
           <a
             v-if="activeReport.download_urls?.zh"
             :href="withApiToken(activeReport.download_urls.zh)"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            class="btn-bordered focus-ring"
           >
             <FileText class="h-4 w-4" />
             <span>{{ tr("research.download_zh") }}</span>
@@ -1385,7 +1428,7 @@ onUnmounted(stopPolling);
             v-if="activeReport.preview_urls?.zh"
             type="button"
             @click="openMemoPreview('zh')"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            class="btn-bordered focus-ring"
           >
             <Eye class="h-4 w-4" />
             <span>{{ tr("research.preview_pdf_zh") }}</span>
@@ -1393,7 +1436,7 @@ onUnmounted(stopPolling);
           <a
             v-if="activeReport.download_urls?.internal"
             :href="withApiToken(activeReport.download_urls.internal)"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            class="btn-bordered focus-ring"
           >
             <FileText class="h-4 w-4" />
             <span>{{ tr("research.download_internal") }}</span>
@@ -1403,7 +1446,7 @@ onUnmounted(stopPolling);
             v-if="activeReport.preview_urls?.internal"
             type="button"
             @click="openMemoPreview('internal')"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+            class="btn-bordered focus-ring"
           >
             <Eye class="h-4 w-4" />
             <span>{{ tr("research.preview_pdf_internal") }}</span>
@@ -1415,28 +1458,18 @@ onUnmounted(stopPolling);
           v-if="activeReport.content_en || activeReport.content_zh"
           class="flex items-center gap-2 text-xs"
         >
-          <span class="text-ink-muted uppercase tracking-wide">{{ tr("research.preview_label") }}</span>
+          <span class="text-ink-muted">{{ tr("research.preview_label") }}</span>
           <button
             type="button"
             @click="previewLanguage = 'en'"
-            :class="[
-              'px-2 py-1 rounded',
-              previewLanguage === 'en'
-                ? 'bg-accent text-white'
-                : 'bg-surface-muted text-ink-secondary hover:bg-surface',
-            ]"
+            :class="[ 'px-2 py-1 rounded', previewLanguage === 'en' ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
           >
             {{ tr("research.preview_en") }}
           </button>
           <button
             type="button"
             @click="previewLanguage = 'zh'"
-            :class="[
-              'px-2 py-1 rounded',
-              previewLanguage === 'zh'
-                ? 'bg-accent text-white'
-                : 'bg-surface-muted text-ink-secondary hover:bg-surface',
-            ]"
+            :class="[ 'px-2 py-1 rounded', previewLanguage === 'zh' ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
           >
             {{ tr("research.preview_zh") }}
           </button>
@@ -1489,7 +1522,7 @@ onUnmounted(stopPolling);
           type="button"
           @click="resumeReport"
           :disabled="resuming || generating"
-          class="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+          class="btn-bordered mt-3 disabled:cursor-not-allowed focus-ring"
         >
           <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
           <Sparkles v-else class="h-4 w-4" />
@@ -1528,7 +1561,7 @@ onUnmounted(stopPolling);
           {{ reportFailureDetail }}
         </p>
         <div v-if="gateDiagnostics.length" class="mt-3">
-          <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="vogue-label">
             {{ tr("research.gate_diagnostics") }}
           </div>
           <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
@@ -1542,7 +1575,7 @@ onUnmounted(stopPolling);
           </ul>
         </div>
         <div v-if="rendererContractErrors.length" class="mt-3">
-          <div class="text-xs font-semibold uppercase tracking-wide text-danger">
+          <div class="vogue-label text-danger">
             {{ tr("research.renderer_contract_checks") }}
           </div>
           <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
@@ -1552,7 +1585,7 @@ onUnmounted(stopPolling);
           </ul>
         </div>
         <div v-if="rendererContractFiles.length" class="mt-3">
-          <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="vogue-label">
             {{ tr("research.expected_files") }}
           </div>
           <ul class="mt-1 space-y-1 text-xs text-ink-muted font-mono">
@@ -1576,7 +1609,7 @@ onUnmounted(stopPolling);
             type="button"
             @click="resumeReport"
             :disabled="resuming || generating || dismissing"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+            class="btn-bordered disabled:cursor-not-allowed focus-ring"
           >
             <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
             <Sparkles v-else class="h-4 w-4" />
@@ -1586,7 +1619,7 @@ onUnmounted(stopPolling);
             type="button"
             @click="dismissFailedReport"
             :disabled="resuming || generating || dismissing"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-subtle text-ink-muted hover:bg-surface disabled:opacity-60 disabled:cursor-not-allowed focus-ring"
+            class="btn-bordered text-ink-muted disabled:cursor-not-allowed focus-ring"
           >
             <Loader2 v-if="dismissing" class="h-4 w-4 animate-spin" />
             <span>{{ dismissing ? tr("research.dismissing") : tr("research.dismiss_failed") }}</span>
@@ -1633,7 +1666,7 @@ onUnmounted(stopPolling);
 
     <section
       v-if="canShowMemoStudio && activeTab === 'memo'"
-      class="mt-6 bg-surface border border-subtle rounded-card shadow-card p-6"
+      class="mt-6 rounded-card bg-surface shadow-card p-6"
     >
       <details>
         <summary class="cursor-pointer text-sm font-semibold text-ink-primary focus-ring rounded">
@@ -1650,9 +1683,9 @@ onUnmounted(stopPolling);
 
     <section
       v-if="company && activeTab === 'memo'"
-      class="bg-surface border border-subtle rounded-card shadow-card p-6"
+      class="rounded-card bg-surface shadow-card p-6"
     >
-      <h2 class="font-display text-lg font-semibold text-ink-primary mb-1">
+      <h2 class="font-display text-title3 text-ink-primary mb-1">
         {{ tr("research.knowledge_base") }}
       </h2>
       <p class="text-sm text-ink-muted mb-4">
@@ -1663,13 +1696,13 @@ onUnmounted(stopPolling);
         <input
           v-model="newQuestion"
           :placeholder="tr('research.ask_question_placeholder')"
-          class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring"
+          class="field focus-ring"
         />
         <textarea
           v-model="newAnswer"
           rows="2"
           :placeholder="tr('research.optional_notes_placeholder')"
-          class="w-full px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring resize-y"
+          class="field resize-y focus-ring"
         ></textarea>
         <div class="flex items-center justify-end gap-3">
           <span v-if="submitThreadError" class="text-xs text-danger">
@@ -1678,7 +1711,7 @@ onUnmounted(stopPolling);
           <button
             type="submit"
             :disabled="!newQuestion.trim() || submittingThread"
-            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-60 focus-ring text-sm"
+            class="btn-filled btn-sm focus-ring"
           >
             <Send class="h-3.5 w-3.5" />
             {{ tr("research.save_thread") }}
@@ -1706,18 +1739,18 @@ onUnmounted(stopPolling);
 
     <section
       v-if="company && activeTab === 'news'"
-      class="bg-surface border border-subtle rounded-card shadow-card p-6"
+      class="rounded-card bg-surface shadow-card p-6"
     >
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div class="flex items-center gap-2">
             <div class="vogue-label">{{ tr("research.tab_news") }}</div>
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-ink">
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-ink">
               <span class="live-pulse h-1.5 w-1.5 rounded-full bg-accent"></span>
               {{ tr("research.news_live") }}
             </span>
           </div>
-          <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
+          <h2 class="mt-1 font-display text-title2 text-ink-primary">
             {{ tr("research.news_feed_title") }}
           </h2>
           <p class="mt-1 text-sm text-ink-muted">
@@ -1726,7 +1759,7 @@ onUnmounted(stopPolling);
         </div>
         <button
           type="button"
-          class="pill-button border border-subtle bg-surface-muted text-ink-primary hover:bg-surface focus-ring"
+          class="btn-bordered focus-ring"
           @click="$emit('open-copilot')"
         >
           {{ tr("research.news_submit_link") }}
@@ -1738,7 +1771,7 @@ onUnmounted(stopPolling);
           v-model="newsSearch"
           type="search"
           :placeholder="tr('research.news_search_placeholder')"
-          class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-primary placeholder:text-ink-subtle focus-ring"
+          class="field focus-ring"
         />
         <div class="flex flex-wrap items-center gap-2" role="group" :aria-label="tr('research.news_filter_label')">
           <button
@@ -1746,12 +1779,7 @@ onUnmounted(stopPolling);
             :key="filter.value || 'all'"
             type="button"
             @click="selectNewsCategory(filter.value)"
-            :class="[
-              'rounded-full border px-3 py-1.5 text-xs font-semibold focus-ring',
-              newsCategory === filter.value
-                ? 'border-ink-primary bg-ink-primary text-white'
-                : 'border-subtle bg-surface text-ink-secondary hover:bg-surface-muted',
-            ]"
+            :class="[ 'rounded-full border px-3 py-1.5 text-xs font-semibold focus-ring', newsCategory === filter.value ? 'border-ink-primary bg-ink-primary text-white' : 'border-subtle bg-surface text-ink-secondary hover:bg-surface-muted', ]"
             :aria-pressed="newsCategory === filter.value"
           >
             {{ tr(filter.labelKey) }}
@@ -1769,19 +1797,19 @@ onUnmounted(stopPolling);
       <div v-else-if="newsError" class="rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
         {{ tr("research.news_load_error") }}
       </div>
-      <div v-else-if="companyNews.length === 0" class="rounded-row border border-subtle bg-surface-muted p-4 text-sm text-ink-muted">
+      <div v-else-if="companyNews.length === 0" class="rounded-subbox bg-fill-tertiary p-4 text-sm text-ink-muted">
         {{ newsFeed.empty_state || tr("research.news_empty") }}
       </div>
       <ul v-else class="space-y-3">
         <li
           v-for="item in companyNews"
           :key="item.id || item.headline || item.title"
-          class="rounded-row border border-subtle bg-surface p-4"
+          class="rounded-row bg-fill-tertiary p-4"
         >
           <div class="flex items-start gap-3">
             <span class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-accent"></span>
             <div class="min-w-0 flex-1">
-              <div class="mono-data text-[11px] uppercase tracking-wide text-ink-muted">{{ newsMeta(item) }}</div>
+              <div class="mono-data text-[11px] text-footnote font-semibold text-ink-muted">{{ newsMeta(item) }}</div>
               <div class="mt-1 text-sm font-semibold text-ink-primary">{{ item.title || item.headline }}</div>
               <p v-if="item.summary" class="mt-1 text-sm leading-relaxed text-ink-secondary">{{ item.summary }}</p>
             </div>
@@ -1801,7 +1829,7 @@ onUnmounted(stopPolling);
             <span
               v-for="tag in item.tags"
               :key="`${item.id}-${tag}`"
-              class="rounded-full bg-surface px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted"
+              class="rounded-full bg-surface px-2 py-0.5 text-caption1 font-semibold text-ink-muted"
             >
               {{ tag }}
             </span>
@@ -1814,9 +1842,9 @@ onUnmounted(stopPolling);
       v-if="company && activeTab === 'industry'"
       class="space-y-5"
     >
-      <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
+      <div class="rounded-card bg-surface p-6 shadow-card">
         <div class="vogue-label">{{ tr("research.tab_industry") }}</div>
-        <h2 class="mt-1 font-display text-xl font-bold text-ink-primary">
+        <h2 class="mt-1 font-display text-title2 text-ink-primary">
           {{ industryView?.title || translatedCompanyField("industry") || translatedCompanyField("sector") || tr("research.industry_context") }}
         </h2>
         <p class="mt-1 max-w-3xl text-sm text-ink-muted">
@@ -1849,7 +1877,7 @@ onUnmounted(stopPolling);
         </div>
       </div>
 
-      <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
+      <div class="rounded-card bg-surface p-6 shadow-card">
         <div class="vogue-label">{{ tr("research.industry_expert_opinions") }}</div>
         <div v-if="expertOpinions.length === 0" class="mt-3 text-sm text-ink-muted">
           {{ tr("research.industry_expert_empty") }}
@@ -1865,11 +1893,7 @@ onUnmounted(stopPolling);
               <div class="flex flex-wrap items-center gap-2">
                 <span class="text-sm font-semibold text-ink-primary">{{ opinion.speaker }}</span>
                 <span class="text-xs text-ink-muted">{{ opinion.affiliation }}</span>
-                <span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" :class="{
-                  'bg-accent-soft text-accent-ink': opinion.stance === 'Bullish',
-                  'bg-danger-soft text-danger-ink': opinion.stance === 'Cautious',
-                  'bg-surface-muted text-ink-muted': opinion.stance !== 'Bullish' && opinion.stance !== 'Cautious',
-                }">{{ opinion.stance || tr("research.industry_neutral") }}</span>
+                <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" :class="{ 'bg-accent-soft text-accent-ink': opinion.stance === 'Bullish', 'bg-danger-soft text-danger-ink': opinion.stance === 'Cautious', 'bg-surface-muted text-ink-muted': opinion.stance !== 'Bullish' && opinion.stance !== 'Cautious', }">{{ opinion.stance || tr("research.industry_neutral") }}</span>
                 <span class="mono-data text-xs text-ink-muted">{{ formatIsoDate(opinion.date, "") }}</span>
               </div>
               <p class="mt-2 text-sm italic leading-relaxed text-ink-secondary">“{{ opinion.summary || opinion.quote }}”</p>
@@ -1883,7 +1907,7 @@ onUnmounted(stopPolling);
       </div>
 
       <div class="grid gap-5 lg:grid-cols-2">
-        <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
+        <div class="rounded-card bg-surface p-6 shadow-card">
           <div class="vogue-label">{{ tr("research.industry_public_comps") }}</div>
           <div v-if="publicComps.length === 0" class="mt-3 text-sm text-ink-muted">
             {{ tr("research.industry_comps_empty") }}
@@ -1892,7 +1916,7 @@ onUnmounted(stopPolling);
             <article
               v-for="comp in publicComps"
               :key="comp.id || comp.ticker"
-              class="rounded-row border border-subtle bg-surface-muted p-4"
+              class="rounded-subbox bg-fill-tertiary p-4"
             >
               <div class="flex items-start justify-between gap-3">
                 <div>
@@ -1926,7 +1950,7 @@ onUnmounted(stopPolling);
           </div>
         </div>
 
-        <div class="rounded-card border border-subtle bg-surface p-6 shadow-card">
+        <div class="rounded-card bg-surface p-6 shadow-card">
           <div class="vogue-label">{{ tr("research.industry_sector_signals") }}</div>
           <div v-if="sectorSignals.length === 0" class="mt-3 text-sm text-ink-muted">
             {{ tr("research.industry_signals_empty") }}
@@ -1935,10 +1959,10 @@ onUnmounted(stopPolling);
             <article
               v-for="signal in sectorSignals"
               :key="signal.id || signal.signal"
-              class="rounded-row border border-subtle bg-surface-muted p-4"
+              class="rounded-subbox bg-fill-tertiary p-4"
             >
               <div class="flex flex-wrap items-center gap-2">
-                <span class="rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-ink">
+                <span class="rounded-full bg-warning-soft px-2 py-0.5 text-caption1 font-semibold text-warning-ink">
                   {{ signal.category || tr("research.industry_sector") }}
                 </span>
                 <span class="text-[11px] text-ink-muted">

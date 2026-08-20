@@ -43,6 +43,11 @@ def _seed_company(tmp_path, monkeypatch, company: dict) -> None:
     )
     monkeypatch.setattr(
         claude_runner,
+        "run_serena_risk_refine",
+        lambda **kwargs: (None, "Claude disabled in test"),
+    )
+    monkeypatch.setattr(
+        claude_runner,
         "run_serena_thesis_spine_builder",
         lambda **kwargs: (None, "Claude disabled in test"),
     )
@@ -3632,3 +3637,217 @@ def test_empty_session_readiness_gates_are_actionable(tmp_path, monkeypatch):
         b["id"]: b for b in session["readiness"]["approval_blockers"]
     }
     assert "Run the Strategic Risk Mapper" in blockers["strategic_risks"]["reason"]
+
+
+def test_analyst_risk_ranking_shapes_packet_and_thesis(tmp_path, monkeypatch):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+            "products": [{"name": "Humanoid platform"}],
+        },
+    )
+    client = TestClient(app)
+    session = None
+    for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
+        session = _post_tool(client, "generalist", tool)
+    assert session is not None
+    risks = session["artifacts"]["strategic_risks"]["risks"]
+    priorities = session["artifacts"]["risk_priorities"]["priorities"]
+    moved = priorities[-1]
+    lead_title = next(
+        risk["title"] for risk in risks if risk["id"] == moved["risk_id"]
+    )
+    patch = client.patch(
+        "/api/companies/generalist/memo-analysis/artifacts/risk_priorities",
+        json={
+            "priorities": [
+                {
+                    "risk_id": moved["risk_id"],
+                    "rank": 1,
+                    "selected": True,
+                    "disposition": "lead_risk",
+                    "rationale": "Analyst: this is the deal-breaking risk.",
+                },
+                *[
+                    {**row, "rank": index + 2, "selected": False}
+                    for index, row in enumerate(priorities)
+                    if row["risk_id"] != moved["risk_id"]
+                ],
+            ],
+        },
+    )
+    assert patch.status_code == 200
+    ranked = patch.json()["artifacts"]["risk_priorities"]["priorities"]
+    assert ranked[0]["risk_id"] == moved["risk_id"]
+    assert ranked[0]["human_ranked"] is True
+    packet = patch.json()["artifacts"]["memo_packet"]
+    assert "#1" in packet
+    assert lead_title in packet
+    assert "Bull:" in packet
+    assert "Bear:" in packet
+
+    lead_question = next(
+        risk["decision_question"] for risk in risks if risk["id"] == moved["risk_id"]
+    )
+    thesis_session = _post_tool(client, "generalist", "thesis_spine_builder")
+    thesis = thesis_session["artifacts"]["thesis_spine"]
+    assert thesis["investment_risks"][0]["claim"] == lead_title
+    assert lead_question in thesis["investment_highlights"][1]["detail"]
+
+
+def test_dismissed_risks_are_excluded_from_packet_and_can_be_refined(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+            "recent_news": [
+                {
+                    "headline": "Pilot conversion remains the open question",
+                    "summary": "Customers remain in paid pilots, not production.",
+                }
+            ],
+        },
+    )
+    client = TestClient(app)
+    session = None
+    for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
+        session = _post_tool(client, "generalist", tool)
+    assert session is not None
+    priorities = session["artifacts"]["risk_priorities"]["priorities"]
+    dismissed_id = priorities[0]["risk_id"]
+    keep_id = priorities[1]["risk_id"]
+    patched = client.patch(
+        "/api/companies/generalist/memo-analysis/artifacts/risk_priorities",
+        json={
+            "priorities": [
+                {
+                    "risk_id": dismissed_id,
+                    "rank": 1,
+                    "selected": False,
+                    "disposition": "dismissed",
+                    "rationale": "Not material to the investment call.",
+                },
+                {
+                    "risk_id": keep_id,
+                    "rank": 2,
+                    "selected": True,
+                    "disposition": "lead_risk",
+                },
+            ],
+        },
+    )
+    assert patched.status_code == 200
+    packet = patched.json()["artifacts"]["memo_packet"]
+    assert "Dismissed by analyst" in packet
+    keep_title = next(
+        risk["title"]
+        for risk in patched.json()["artifacts"]["strategic_risks"]["risks"]
+        if risk["id"] == keep_id
+    )
+    assert keep_title in packet
+
+    refined = client.post(
+        f"/api/companies/generalist/memo-analysis/risks/{keep_id}/refine",
+        json={
+            "framing": "competitive_moat",
+            "analyst_note": "Approach this as a moat problem.",
+        },
+    )
+    assert refined.status_code == 200
+    risk = next(
+        item
+        for item in refined.json()["artifacts"]["strategic_risks"]["risks"]
+        if item["id"] == keep_id
+    )
+    assert risk["framing"] == "competitive_moat"
+    assert risk["edited_by_human"] is True
+    assert "moat" in (risk.get("research_prompt") or "").lower()
+    assert "Approach this as a moat problem." in (risk.get("analyst_note") or "")
+    packet = refined.json()["artifacts"]["memo_packet"]
+    assert "Analyst framing: competitive moat" in packet
+
+
+def test_research_task_evidence_is_copied_onto_the_parent_risk(
+    tmp_path, monkeypatch
+):
+    _seed_company(
+        tmp_path,
+        monkeypatch,
+        {
+            "id": "generalist",
+            "name": "Generalist",
+            "status": "private",
+            "sector": "AI Robotics",
+            "description": "Generalist builds humanoid robots.",
+        },
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_serena_research_task",
+        lambda **kwargs: (
+            {
+                "answer": "Production evidence is mixed.",
+                "supporting_evidence": [
+                    {
+                        "file_id": None,
+                        "filename": "notes.md",
+                        "locator": "p.2",
+                        "excerpt": "One factory line is live.",
+                        "confidence": "medium",
+                        "source_class": "research_file",
+                    }
+                ],
+                "contradicting_evidence": [
+                    {
+                        "file_id": None,
+                        "filename": "notes.md",
+                        "locator": "p.4",
+                        "excerpt": "A second site is still a paid pilot.",
+                        "confidence": "high",
+                        "source_class": "research_file",
+                    }
+                ],
+                "remaining_evidence_limits": ["No independent utilization data."],
+                "open_questions": ["No independent utilization data."],
+                "sources_checked": ["notes.md"],
+                "confidence": "medium",
+            },
+            None,
+        ),
+    )
+    client = TestClient(app)
+    session = None
+    for tool in ("strategic_risk_mapper", "priority_prompt_harness"):
+        session = _post_tool(client, "generalist", tool)
+    assert session is not None
+    task = session["artifacts"]["research_tasks"]["tasks"][0]
+    response = client.post(
+        f"/api/companies/generalist/memo-analysis/research-tasks/{task['id']}/run"
+    )
+    assert response.status_code in {200, 202}
+    done = _wait_for_task_status("generalist", task["id"], "done")
+    parent = next(
+        risk
+        for risk in done["artifacts"]["strategic_risks"]["risks"]
+        if risk["id"] == task["risk_id"]
+    )
+    excerpts = [row.get("excerpt") for row in parent.get("supporting_evidence") or []]
+    assert "One factory line is live." in excerpts
+    contradicting = [
+        row.get("excerpt") for row in parent.get("contradicting_evidence") or []
+    ]
+    assert "A second site is still a paid pilot." in contradicting
+    assert parent["status"] in {"researched", "needs_review"}

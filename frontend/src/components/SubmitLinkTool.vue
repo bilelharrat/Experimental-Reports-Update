@@ -130,12 +130,12 @@ function cancel() {
           type="text"
           inputmode="url"
           :placeholder="t('submit_link.url_placeholder')"
-          class="flex-1 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring"
+          class="field flex-1 focus-ring"
         />
         <button
           type="submit"
           :disabled="previewing"
-          class="px-3 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1.5"
+          class="btn-filled focus-ring"
         >
           <Loader2 v-if="previewing" class="h-3.5 w-3.5 animate-spin" />
           <span>{{ t("submit_link.preview") }}</span>
@@ -146,7 +146,7 @@ function cancel() {
 
       <div
         v-if="preview"
-        class="rounded-card border border-subtle bg-surface-muted p-3 flex items-start gap-3"
+        class="rounded-card bg-surface-muted p-3 flex items-start gap-3"
       >
         <img
           v-if="preview.image"
@@ -189,7 +189,7 @@ function cancel() {
             type="button"
             @click="accept"
             :disabled="submitting"
-            class="px-3 py-1.5 rounded-lg bg-accent text-white text-xs hover:bg-accent-hover disabled:opacity-60 focus-ring inline-flex items-center gap-1"
+            class="btn-filled btn-sm focus-ring"
           >
             <Sparkles class="h-3 w-3" />
             <span>{{ submitting ? t("common.saving") : t("submit_link.accept") }}</span>
@@ -206,7 +206,7 @@ function cancel() {
 
       <div
         v-if="savedItem"
-        class="rounded-card border border-subtle bg-surface-muted p-3 text-sm"
+        class="rounded-card bg-surface-muted p-3 text-sm"
       >
         <div class="font-semibold text-ink-primary">
           {{ assignmentSummary(savedItem) }}
@@ -217,7 +217,7 @@ function cancel() {
         <button
           type="button"
           @click="router.push({ name: 'external-news', params: { id: savedItem.id } })"
-          class="mt-2 inline-flex items-center gap-1 rounded-lg border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+          class="btn-bordered btn-sm mt-2 focus-ring"
         >
           <ExternalLink class="h-3 w-3" />
           {{ t("intake.open_analysis") }}

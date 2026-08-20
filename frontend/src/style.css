@@ -2,80 +2,142 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   BSH Research Center — design tokens.
+
+   The visual language follows the Apple Human Interface Guidelines, using the
+   macOS/iPadOS idiom: a translucent source-list sidebar, a vibrant toolbar,
+   grouped content on a recessed canvas, and the system color palette.
+
+   Colors are RGB triplets (no rgb() wrapper) so Tailwind can apply
+   <alpha-value>; see tailwind.config.cjs.
+--------------------------------------------------------------------------- */
+
 :root {
   color-scheme: light;
-  /* BSH Research Center v2 design tokens */
-  --bg-base: #f8fafc;
-  --surface: #ffffff;
-  --surface-alt: #f1f5f9;
-  --ink: #0f172a;
-  --muted: #64748b;
-  --muted-2: #94a3b8;
-  --border: #e2e8f0;
-  --border-2: #cbd5e1;
-  --tiffany: #0abab5;
-  --tiffany-dark: #088f8f;
-  --tiffany-light: #e6f7f6;
-  --coral: #ef4444;
-  --coral-light: #fef2f2;
-  --amber: #f59e0b;
-  --mint: #5eead4;
-  --shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
-  --shadow-hover: 0 6px 16px rgba(15, 23, 42, 0.07);
-  --rail-grad: linear-gradient(180deg, #0aa8a3 0, #0aa8a3 46px, #f8fafc 520px);
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "SF Mono", "Roboto Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
 
-  --color-canvas: 248 250 252;
+  /* Backgrounds: Apple's grouped-background model — a recessed canvas with
+     white content surfaces sitting on top of it. */
+  --color-canvas: 242 242 247; /* systemGroupedBackground */
   --color-surface: 255 255 255;
-  --color-surface-muted: 241 245 249;
+  --color-surface-muted: 239 239 244;
   --color-surface-raised: 255 255 255;
-  --color-border-subtle: 226 232 240;
-  --color-border-strong: 203 213 225;
-  --color-text-primary: 15 23 42;
-  --color-text-secondary: 51 65 85;
-  --color-text-muted: 100 116 139;
-  --color-text-subtle: 148 163 184;
-  --color-accent: 10 186 181;
-  --color-accent-hover: 8 143 143;
-  --color-accent-soft: 230 247 246;
-  --color-accent-ink: 8 143 143;
-  --color-success: 10 186 181;
-  --color-success-soft: 230 247 246;
-  --color-success-ink: 8 143 143;
-  --color-warning: 245 158 11;
-  --color-warning-soft: 255 247 237;
-  --color-warning-ink: 146 64 14;
-  --color-danger: 239 68 68;
-  --color-danger-soft: 254 242 242;
-  --color-danger-ink: 185 28 28;
+
+  /* Separators. */
+  --color-border-subtle: 210 210 215;
+  --color-border-strong: 198 198 200; /* opaqueSeparator */
+
+  /* Label hierarchy. Apple specifies these as black at decreasing opacities;
+     resolved to solids so the tokens stay composable. */
+  --color-text-primary: 0 0 0;            /* label */
+  --color-text-secondary: 99 99 102;      /* secondaryLabel, resolved */
+  --color-text-muted: 142 142 147;        /* systemGray / tertiaryLabel */
+  --color-text-subtle: 174 174 178;       /* systemGray2 */
+
+  /* Fill hierarchy — resolved systemFill values on a white grouped surface. */
+  --color-fill: 227 227 232;
+  --color-fill-secondary: 232 232 237;
+  --color-fill-tertiary: 238 238 241;
+
+  /* Tint: sky blue with a Tiffany lightness — more blue, less cyan. */
+  --color-accent: 56 168 232;             /* #38A8E8 */
+  --color-accent-hover: 32 140 208;
+  --color-accent-soft: 224 242 252;
+  --color-accent-ink: 16 112 168;
+
+  /* Semantic colors from the Apple system palette (light). */
+  --color-success: 52 199 89;             /* systemGreen */
+  --color-success-soft: 230 247 233;
+  --color-success-ink: 36 138 61;
+  --color-warning: 255 149 0;             /* systemOrange */
+  --color-warning-soft: 255 243 224;
+  --color-warning-ink: 201 82 0;
+  --color-danger: 255 59 48;              /* systemRed */
+  --color-danger-soft: 255 234 232;
+  --color-danger-ink: 215 0 21;
+
+  /* Materials: translucency + blur is the defining characteristic of Apple
+     chrome. Applied to the sidebar, toolbar, cards, and sheets. */
+  --material-bar: rgba(249, 249, 251, 0.5);
+  --material-sidebar: rgba(246, 246, 249, 0.5);
+  --material-menu: rgba(252, 252, 254, 0.72);
+  --material-blur: saturate(160%) blur(28px);
+  --glass-card: rgba(255, 255, 255, 0.48);
+  --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.9);
+  --scrim: rgba(0, 0, 0, 0.28);
+
+  /* Elevation. Apple keeps resting shadows nearly invisible and reserves real
+     depth for presented surfaces. */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-sheet: 0 24px 64px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.08);
+
+  /* Motion. The spring curve overshoots slightly — Apple's levitation
+     settle, used only on transforms. */
+  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-base: 240ms;
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, monospace;
+
+  /* Legacy aliases — leftover one-off references (checkboxes, old CSS). */
+  --tiffany: rgb(56, 168, 232);
+  --tiffany-dark: rgb(32, 140, 208);
+  --coral: rgb(255, 59, 48);
 }
 
 .dark {
   color-scheme: dark;
-  --color-canvas: 11 13 18;
-  --color-surface: 20 24 33;
-  --color-surface-muted: 27 31 42;
-  --color-surface-raised: 26 30 40;
-  --color-border-subtle: 38 42 53;
-  --color-border-strong: 57 64 80;
-  --color-text-primary: 231 233 238;
-  --color-text-secondary: 193 199 210;
-  --color-text-muted: 154 163 178;
-  --color-text-subtle: 107 114 128;
-  --color-accent: 56 189 248;
-  --color-accent-hover: 125 211 252;
-  --color-accent-soft: 12 74 110;
-  --color-accent-ink: 186 230 253;
-  --color-success: 52 211 153;
-  --color-success-soft: 6 78 59;
-  --color-success-ink: 167 243 208;
-  --color-warning: 251 191 36;
-  --color-warning-soft: 120 53 15;
-  --color-warning-ink: 253 230 138;
-  --color-danger: 248 113 113;
-  --color-danger-soft: 127 29 29;
-  --color-danger-ink: 254 202 202;
+
+  --color-canvas: 0 0 0;
+  --color-surface: 28 28 30;
+  --color-surface-muted: 44 44 46;
+  --color-surface-raised: 44 44 46;
+
+  --color-border-subtle: 56 56 58;
+  --color-border-strong: 72 72 74;
+
+  --color-text-primary: 255 255 255;
+  --color-text-secondary: 158 158 164;
+  --color-text-muted: 134 134 139;
+  --color-text-subtle: 99 99 102;
+
+  --color-fill: 58 58 60;
+  --color-fill-secondary: 56 56 58;
+  --color-fill-tertiary: 44 44 46;
+
+  /* Apple brightens tints in dark mode so they hold contrast on black. */
+  --color-accent: 56 168 232;
+  --color-accent-hover: 32 140 208;
+  --color-accent-soft: 12 40 64;
+  --color-accent-ink: 56 168 232;
+
+  --color-success: 48 209 88;
+  --color-success-soft: 16 51 28;
+  --color-success-ink: 124 232 148;
+  --color-warning: 255 159 10;
+  --color-warning-soft: 58 42 8;
+  --color-warning-ink: 255 215 154;
+  --color-danger: 255 69 58;
+  --color-danger-soft: 59 21 19;
+  --color-danger-ink: 255 179 174;
+
+  --material-bar: rgba(30, 30, 32, 0.5);
+  --material-sidebar: rgba(24, 24, 26, 0.5);
+  --material-menu: rgba(44, 44, 46, 0.78);
+  --glass-card: rgba(44, 44, 46, 0.42);
+  --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.1);
+  --scrim: rgba(0, 0, 0, 0.5);
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-sheet: 0 24px 64px rgba(0, 0, 0, 0.6);
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 html {
@@ -87,16 +149,337 @@ body {
   @apply font-body;
   background-color: rgb(var(--color-canvas));
   color: rgb(var(--color-text-primary));
+  /* SF is designed for antialiased rendering; without this it looks heavy. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ambient wash under the glass: an extremely subtle wallpaper-like gradient so
+   the blurred materials have light to refract. Fixed so glass "moves over" it
+   when scrolling, exactly like iOS. */
+.canvas-wash {
+  background-image:
+    radial-gradient(52rem 36rem at 12% -6%, rgba(125, 170, 225, 0.4), transparent 60%),
+    radial-gradient(46rem 32rem at 88% 2%, rgba(196, 165, 220, 0.32), transparent 58%),
+    radial-gradient(40rem 30rem at 30% 55%, rgba(150, 200, 235, 0.24), transparent 60%),
+    radial-gradient(58rem 42rem at 78% 108%, rgba(235, 190, 160, 0.3), transparent 62%);
+  background-attachment: fixed;
+}
+
+.dark .canvas-wash {
+  background-image:
+    radial-gradient(52rem 36rem at 12% -6%, rgba(58, 86, 138, 0.5), transparent 60%),
+    radial-gradient(46rem 32rem at 88% 2%, rgba(96, 66, 128, 0.38), transparent 58%),
+    radial-gradient(40rem 30rem at 30% 55%, rgba(44, 88, 120, 0.3), transparent 60%),
+    radial-gradient(58rem 42rem at 78% 108%, rgba(120, 74, 52, 0.32), transparent 62%);
 }
 
 h1,
 h2,
 h3 {
-  letter-spacing: -0.02em;
+  letter-spacing: -0.021em;
 }
 
+/* Apple sets numerals in tabular figures wherever values align in columns. */
+table,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Overlay scrollbars in the style of macOS. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--color-text-subtle) / 0.5) transparent;
+}
+
+*::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--color-text-subtle) / 0.45);
+  border: 3px solid transparent;
+  border-radius: 99px;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--color-text-subtle) / 0.7);
+}
+
+/* ---------------------------------------------------------------------------
+   Materials
+--------------------------------------------------------------------------- */
+
+/* Materials separate with light, not lines: a soft shadow instead of a
+   hairline where glass meets glass. */
+.material-bar {
+  background-color: var(--material-bar);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+  box-shadow: 0 1px 16px rgba(0, 0, 0, 0.06);
+}
+
+.dark .material-bar {
+  box-shadow: 0 1px 16px rgba(0, 0, 0, 0.55);
+}
+
+.material-sidebar {
+  background-color: var(--material-sidebar);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+}
+
+.material-menu {
+  background-color: var(--material-menu);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+}
+
+/* Fallback: without backdrop-filter, translucency turns to mud. Go opaque. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .material-bar,
+  .material-sidebar,
+  .material-menu,
+  .material-glass {
+    background-color: rgb(var(--color-surface));
+  }
+}
+
+/* Home search module: one glass plate, field + actions, like Spotlight. */
+.material-glass {
+  background-color: rgba(255, 255, 255, 0.46);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.45),
+    0 10px 32px rgba(0, 0, 0, 0.06);
+  transition: background-color var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+/* Spotlight bloom: the plate brightens and deepens when it's listening. */
+.material-glass:focus-within {
+  background-color: rgba(255, 255, 255, 0.64);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 1),
+    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55),
+    0 18px 48px rgba(0, 0, 0, 0.1);
+}
+
+.dark .material-glass {
+  background-color: rgba(44, 44, 46, 0.42);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 10px 32px rgba(0, 0, 0, 0.4);
+}
+
+.dark .material-glass:focus-within {
+  background-color: rgba(58, 58, 60, 0.56);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.2),
+    0 0 0 0.5px rgba(255, 255, 255, 0.12),
+    0 18px 48px rgba(0, 0, 0, 0.55);
+}
+
+.home-hero-glow {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: 0;
+  z-index: 0;
+  height: 24rem;
+  width: min(44rem, 100%);
+  transform: translateX(-50%);
+  background: radial-gradient(
+    ellipse 75% 58% at 50% 36%,
+    rgba(255, 255, 255, 0.7),
+    rgba(255, 255, 255, 0.18) 40%,
+    transparent 72%
+  );
+}
+
+.dark .home-hero-glow {
+  display: none;
+}
+
+.home-title {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+}
+
+/* The letters themselves are frost — silver glass fill, not ink. */
+.home-title-stack {
+  position: relative;
+  display: inline-block;
+}
+
+.home-title-stack::before {
+  content: "";
+  position: absolute;
+  inset: -0.18em -0.4em;
+  z-index: -1;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.38) 0%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 0 0 0.5px rgba(255, 255, 255, 0.45);
+}
+
+.home-title-depth,
+.home-title-fill {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    sans-serif;
+  font-size: 2.125rem;
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: -0.028em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.home-title-depth {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: rgba(0, 0, 0, 0.28);
+  transform: translate(0.4px, 1.2px);
+  user-select: none;
+  pointer-events: none;
+}
+
+.home-title-fill {
+  position: relative;
+  color: rgba(161, 161, 166, 0.96);
+  background-image: linear-gradient(
+    185deg,
+    #c8c8cd 0%,
+    rgba(178, 178, 182, 0.94) 36%,
+    rgba(159, 159, 163, 0.92) 62%,
+    #bcbcc1 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.14);
+  filter:
+    drop-shadow(0 0.5px 0 rgba(255, 255, 255, 0.9))
+    drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.16));
+}
+
+.dark .home-title-stack::before {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+}
+
+.dark .home-title-depth {
+  display: none;
+}
+
+.dark .home-title-fill {
+  color: rgba(255, 255, 255, 0.88);
+  background-image: linear-gradient(
+    185deg,
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(220, 220, 224, 0.78) 50%,
+    rgba(255, 255, 255, 0.86) 100%
+  );
+  -webkit-text-stroke: 0;
+  filter: none;
+}
+
+.home-search-field {
+  @apply w-full bg-transparent py-3.5 pl-12 pr-12 text-[17px] font-normal text-ink-primary placeholder:text-ink-muted;
+  letter-spacing: -0.022em;
+}
+
+.home-search-field:focus {
+  outline: none;
+}
+
+.home-action {
+  @apply flex items-center justify-center gap-1.5 rounded-subbox px-2 py-2 text-[12px] font-medium text-ink-secondary;
+  letter-spacing: -0.01em;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.home-action:hover {
+  background-color: rgb(var(--color-surface) / 0.95);
+  color: rgb(var(--color-text-primary));
+  transform: translateY(-1.5px);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.home-action:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.home-action[data-selected="true"] {
+  background-color: rgb(var(--color-accent) / 0.14);
+  color: rgb(var(--color-accent-ink));
+  transform: translateY(-1.5px);
+  box-shadow:
+    0 6px 16px rgb(var(--color-accent) / 0.26),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.home-action[data-selected="true"]:hover {
+  background-color: rgb(var(--color-accent) / 0.22);
+  color: rgb(var(--color-accent-ink));
+  transform: translateY(-2.5px);
+  box-shadow:
+    0 9px 22px rgb(var(--color-accent) / 0.3),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Hairline separators. Apple's dividers are sub-pixel on retina displays. */
+.hairline-b {
+  box-shadow: inset 0 -1px 0 rgb(var(--color-border-subtle) / 0.7);
+}
+
+.hairline-t {
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle) / 0.7);
+}
+
+.hairline-r {
+  box-shadow: inset -1px 0 0 rgb(var(--color-border-subtle) / 0.7);
+}
+
+.hairline-l {
+  box-shadow: inset 1px 0 0 rgb(var(--color-border-subtle) / 0.7);
+}
+
+/* ---------------------------------------------------------------------------
+   Typography helpers
+--------------------------------------------------------------------------- */
+
+/* Apple does not shout in all-caps section headers; sidebar and group headers
+   are small, semibold, and sentence-cased. Kept under the original class name
+   so the ~35 existing call sites inherit the new treatment. */
 .vogue-label {
-  @apply text-[11px] font-bold uppercase tracking-[0.16em] text-ink-muted;
+  @apply text-footnote font-semibold text-ink-muted;
+  letter-spacing: -0.003em;
+  text-transform: none;
 }
 
 .mono-data {
@@ -104,36 +487,329 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
-.rail-gradient {
-  background: var(--rail-grad);
-}
+/* ---------------------------------------------------------------------------
+   Controls
+--------------------------------------------------------------------------- */
 
-.pill-button {
-  @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition;
-}
-
+/* Apple's focus ring: a soft accent halo rather than a hard outline. */
 .focus-ring {
-  @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
+  @apply focus:outline-none focus-visible:ring-[3px] focus-visible:ring-accent/45 focus-visible:ring-offset-1 focus-visible:ring-offset-canvas;
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
 }
 
+/* Controls compress slightly on press — Apple's primary tactile affordance. */
+.pill-button {
+  @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-callout font-medium;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.pill-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* Button hierarchy, mirroring Apple's filled / tinted / bordered / plain. */
+.btn-filled {
+  @apply inline-flex items-center justify-center gap-2 rounded-subbox bg-accent px-4 py-2 text-callout font-medium text-white disabled:opacity-40;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.btn-filled:hover:not(:disabled) {
+  background-color: rgb(var(--color-accent-hover));
+}
+
+.btn-tinted {
+  @apply inline-flex items-center justify-center gap-2 rounded-subbox bg-accent-soft px-4 py-2 text-callout font-medium text-accent-ink disabled:opacity-40;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.btn-bordered {
+  @apply inline-flex items-center justify-center gap-2 rounded-subbox border border-subtle px-4 py-2 text-callout font-medium text-ink-primary disabled:opacity-40;
+  background-color: rgb(var(--color-surface) / 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--glass-edge), var(--shadow-control);
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.btn-bordered:hover:not(:disabled) {
+  background-color: rgb(var(--color-fill-tertiary));
+}
+
+.btn-plain {
+  @apply inline-flex items-center justify-center gap-2 rounded-subbox px-3 py-2 text-callout font-medium text-accent-ink disabled:opacity-40;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.btn-plain:hover:not(:disabled) {
+  background-color: rgb(var(--color-fill-tertiary));
+}
+
+.btn-filled:active:not(:disabled),
+.btn-tinted:active:not(:disabled),
+.btn-bordered:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.icon-btn {
+  @apply inline-flex h-8 w-8 items-center justify-center rounded-subbox text-ink-muted;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.icon-btn:hover {
+  background-color: rgb(var(--color-fill-tertiary));
+  color: rgb(var(--color-text-primary));
+}
+
+.icon-btn:active {
+  transform: scale(0.94);
+}
+
+.icon-btn[aria-pressed="true"] {
+  background-color: rgb(var(--color-fill-tertiary));
+  color: rgb(var(--color-text-primary));
+}
+
+/* iPadOS grouped field: translucent fill, not a heavy outlined box. */
+.field {
+  @apply w-full rounded-subbox border-0 px-3 py-[7px] text-callout text-ink-primary placeholder:text-ink-subtle focus-ring;
+  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-border-subtle) / 0.85);
+}
+
+.field-sm {
+  @apply px-2.5 py-1.5 text-footnote;
+}
+
+/* Compact status / category pill. */
+.chip {
+  @apply inline-flex items-center rounded-pill px-2 py-0.5 text-caption1 font-semibold;
+}
+
+/* Grouped surface on the recessed canvas — frosted glass, like iOS panels. */
+.group-card {
+  @apply rounded-card;
+  background-color: var(--glass-card);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+  box-shadow:
+    var(--glass-edge),
+    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.4),
+    0 8px 24px rgba(0, 0, 0, 0.05);
+}
+
+.dark .group-card {
+  box-shadow:
+    var(--glass-edge),
+    0 0 0 0.5px rgba(255, 255, 255, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .group-card {
+    background-color: rgb(var(--color-surface));
+  }
+}
+
+.banner-warning {
+  @apply rounded-subbox bg-warning-soft px-3 py-2 text-callout text-warning-ink;
+}
+
+.banner-danger {
+  @apply rounded-subbox bg-danger-soft px-3 py-2 text-callout text-danger-ink;
+}
+
+/* Inset grouped table: hairline rows, sentence-case headers. */
+.inset-table {
+  @apply w-full min-w-full text-left text-callout;
+}
+
+.inset-table thead {
+  background-color: rgb(var(--color-fill-tertiary));
+  color: rgb(var(--color-text-muted));
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: -0.003em;
+}
+
+.inset-table th,
+.inset-table td {
+  @apply px-3 py-2.5;
+}
+
+.inset-table tbody tr {
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle) / 0.65);
+}
+
+.inset-table tbody tr:hover {
+  background-color: rgb(var(--color-fill-tertiary) / 0.55);
+}
+
+/* Segmented control: recessed glass track with a raised, sliding thumb. */
+.segmented {
+  @apply inline-flex items-center gap-0.5 rounded-pill p-0.5;
+  background-color: rgb(var(--color-fill) / 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.06);
+}
+
+.segmented-item {
+  @apply rounded-pill px-3 py-1 text-footnote font-medium text-ink-secondary;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.segmented-item[aria-selected="true"],
+.segmented-item[data-selected="true"],
+.segmented-item.router-link-active,
+.segmented-item.router-link-exact-active {
+  background-color: rgb(var(--color-surface));
+  color: rgb(var(--color-text-primary));
+  box-shadow: var(--shadow-control);
+}
+
+/* Source-list rows (sidebar). macOS marks selection with a filled rounded
+   rectangle, not a color change alone. */
+.source-row {
+  @apply flex items-center gap-2.5 rounded-subbox px-2 py-[5px] text-callout text-ink-secondary;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+/* Rows physically lift off the rail on hover — a floating glass chip. */
+.source-row:hover {
+  background-color: rgb(var(--color-surface) / 0.9);
+  color: rgb(var(--color-text-primary));
+  transform: translateY(-1.5px);
+  box-shadow:
+    0 6px 16px rgba(0, 0, 0, 0.14),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.source-row:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Icon rail: center the glyph and drop row padding that assumes a label. */
+aside[data-collapsed="true"] .source-row {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+}
+
+/* Exact-active (not the inclusive `router-link-active`) so the Home row at "/"
+   doesn't read as selected on every route. Vue Router ignores query strings
+   here, which keeps a company selected as its tabs change. */
+/* The selected row levitates permanently — a floating glass chip resting
+   above the rail. */
+.source-row.router-link-active,
+.source-row.router-link-exact-active {
+  background-color: rgb(var(--color-accent) / 0.14);
+  color: rgb(var(--color-accent-ink));
+  font-weight: 600;
+  transform: translateY(-1.5px);
+  box-shadow:
+    0 6px 16px rgb(var(--color-accent) / 0.28),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Hovering the selected row lifts it a touch higher. */
+.source-row.router-link-active:hover,
+.source-row.router-link-exact-active:hover {
+  background-color: rgb(var(--color-accent) / 0.22);
+  color: rgb(var(--color-accent-ink));
+  transform: translateY(-2.5px);
+  box-shadow:
+    0 9px 22px rgb(var(--color-accent) / 0.34),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.toolbar-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  z-index: 50;
+  min-width: 15.5rem;
+  overflow: hidden;
+  border-radius: 10px;
+  padding: 0.25rem 0;
+  background-color: var(--material-menu);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+  box-shadow: var(--shadow-sheet);
+  /* Menus bloom from their anchor, like NSMenu. */
+  transform-origin: top right;
+  animation: menu-in 0.14s var(--ease-emphasized);
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.toolbar-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: rgb(var(--color-text-primary));
+}
+
+.toolbar-menu-item:hover,
+.toolbar-menu-item:focus-visible {
+  background-color: rgb(var(--color-fill-tertiary));
+}
+
+/* Toolbar tabs: Apple underlines the selected item with the accent tint. */
 .workspace-tab {
   position: relative;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .workspace-tab::after {
   background: transparent;
+  border-radius: 99px;
   bottom: -1px;
   content: "";
   height: 2px;
   left: 0;
   position: absolute;
   right: 0;
+  transition: background-color var(--duration-base) var(--ease-standard);
 }
 
 .workspace-tab[aria-selected="true"]::after {
-  background: var(--coral);
+  background: rgb(var(--color-accent));
 }
 
+/* Switch/checkbox in the system style. */
 .memo-checkbox {
   appearance: none;
   background: rgb(var(--color-surface));
@@ -143,6 +819,8 @@ h3 {
   height: 20px;
   place-content: center;
   width: 20px;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
 }
 
 .memo-checkbox::before {
@@ -155,22 +833,59 @@ h3 {
 }
 
 .memo-checkbox:checked {
-  background: var(--tiffany);
-  border-color: var(--tiffany);
+  background: rgb(var(--color-accent));
+  border-color: rgb(var(--color-accent));
 }
 
 .memo-checkbox:checked::before {
   opacity: 1;
 }
 
+/* ---------------------------------------------------------------------------
+   Decorative
+--------------------------------------------------------------------------- */
+
+/* The sidebar is a material now rather than a brand gradient, matching the
+   Finder/Mail source list. Kept as a class for the existing call site. */
+.rail-gradient {
+  background-color: var(--material-sidebar);
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+  box-shadow: 1px 0 18px rgba(0, 0, 0, 0.05);
+}
+
+.dark .rail-gradient {
+  box-shadow: 1px 0 18px rgba(0, 0, 0, 0.5);
+}
+
+/* Vibrancy: secondary ink on materials is translucent primary ink, so the
+   labels pick up the glass behind them instead of sitting flat. */
+.rail-gradient .text-ink-secondary {
+  color: rgb(var(--color-text-primary) / 0.6);
+}
+
+.rail-gradient .text-ink-muted {
+  color: rgb(var(--color-text-primary) / 0.45);
+}
+
+.rail-gradient .text-ink-subtle {
+  color: rgb(var(--color-text-primary) / 0.32);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .rail-gradient {
+    background-color: rgb(var(--color-surface-muted));
+  }
+}
+
 .position-highlight {
   background: linear-gradient(transparent 62%, rgb(var(--color-accent-soft)) 62%);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .position-underline {
-  font-weight: 700;
-  text-decoration-color: var(--coral);
+  font-weight: 600;
+  text-decoration-color: rgb(var(--color-accent));
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
@@ -181,12 +896,67 @@ h3 {
 }
 
 .live-pulse {
-  animation: live-pulse 1.7s ease-in-out infinite;
+  animation: live-pulse 1.7s var(--ease-standard) infinite;
 }
 
-/* Rendered Markdown (assistant answers in the Console transcript, etc.).
+/* Presented sheets (modals). Apple scales them in slightly rather than
+   sliding them from the bottom, matching macOS dialogs. */
+.sheet-scrim {
+  background: var(--scrim);
+  /* Apple defocuses the world behind a sheet rather than just dimming it. */
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  animation: fade-in 0.2s var(--ease-standard);
+}
+
+.sheet-panel {
+  animation: sheet-in 0.32s var(--ease-emphasized);
+  box-shadow: var(--shadow-sheet);
+}
+
+/* Lucide draws at 2px; SF Symbols at these sizes are nearer 1.5. Thinner
+   strokes make the chrome quieter. */
+.lucide {
+  stroke-width: 1.5;
+}
+
+/* Route changes cross-fade with a whisper of scale — content flows,
+   it doesn't page. */
+.view-fade-enter-active {
+  transition: opacity 0.18s var(--ease-standard),
+    transform 0.18s var(--ease-standard);
+}
+
+.view-fade-leave-active {
+  transition: opacity 0.1s var(--ease-standard);
+}
+
+.view-fade-enter-from {
+  opacity: 0;
+  transform: scale(0.995);
+}
+
+.view-fade-leave-to {
+  opacity: 0;
+}
+
+/* Apple treats reduced motion as a hard requirement, not a nicety. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Rendered Markdown (assistant answers in the Console transcript, etc.).
    Tailwind's preflight strips list/heading styling, so restore a compact
-   subset here. Targets the classes emitted by src/markdown.js. */
+   subset here. Targets the classes emitted by src/markdown.js.
+--------------------------------------------------------------------------- */
 .md-body {
   line-height: 1.6;
   word-break: break-word;
@@ -217,6 +987,7 @@ ul.md-list {
   font-weight: 600;
   margin: 0.85rem 0 0.35rem;
   line-height: 1.3;
+  letter-spacing: -0.014em;
 }
 .md-h1 {
   font-size: 1.25rem;
@@ -233,15 +1004,16 @@ ul.md-list {
   font-size: 1rem;
 }
 .md-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875em;
-  background-color: rgb(var(--color-surface-muted));
+  background-color: rgb(var(--color-fill-tertiary));
   padding: 0.1em 0.35em;
   border-radius: 0.25rem;
 }
 .md-link {
-  color: rgb(var(--color-accent));
+  color: rgb(var(--color-accent-ink));
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .md-hr {
   border: 0;
@@ -249,9 +1021,9 @@ ul.md-list {
   margin: 0.85rem 0;
 }
 .md-math {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
-  color: rgb(var(--color-accent));
+  color: rgb(var(--color-accent-ink));
   background-color: rgb(var(--color-accent) / 0.1);
   padding: 0.1em 0.35em;
   border-radius: 0.25rem;

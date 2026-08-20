@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, ref, unref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Search,
@@ -11,15 +11,25 @@ import {
   Download,
   Brain,
   CheckCircle2,
-  AlertCircle,
-  BarChart3,
   ChevronDown,
   ChevronRight,
-  Flame,
-  RefreshCw,
+  Link as LinkIcon,
+  Upload,
+  ScrollText,
+  Library,
+  ArrowUpDown,
+  Check,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import { companyBucket, sortCompanies } from "../companyLists.js";
+import {
+  companySort,
+  companyViews,
+  favoriteCompanyIds,
+  setCompanySort,
+} from "../state.js";
+import CompanyBoardCard from "../components/CompanyBoardCard.vue";
 import CompanyCard from "../components/CompanyCard.vue";
 import SubmitLinkTool from "../components/SubmitLinkTool.vue";
 import UploadResearchTool from "../components/UploadResearchTool.vue";
@@ -31,8 +41,8 @@ const router = useRouter();
 const route = useRoute();
 const query = ref("");
 
-// ?intake=link|upload|note deep-links (and the sidebar Quick Intake
-// buttons, which navigate to those URLs) open the matching Quick Add tool.
+// ?intake=link|upload|note deep-links (and the toolbar Add menu,
+// which navigates to those URLs) open the matching Quick Add tool.
 const linkOpen = ref(false);
 const uploadOpen = ref(false);
 const noteOpen = ref(false);
@@ -52,6 +62,17 @@ watch(
   },
   { immediate: true },
 );
+
+function setIntake(kind) {
+  if (kind === "library") {
+    router.push({ name: "source-library" });
+    return;
+  }
+  const next = { ...route.query };
+  if (next.intake === kind) delete next.intake;
+  else next.intake = kind;
+  router.replace({ query: next });
+}
 const suggestions = ref([]);
 const showSuggestions = ref(false);
 const autocompleting = ref(false);
@@ -62,12 +83,55 @@ const errorMessage = computed(() =>
 
 const searchResults = ref(null); // { source, matches } | null
 const searching = ref(false);
-const refreshingStockViews = ref(false);
-const stockRefreshMessage = ref(null);
-const stockRefreshError = ref(null);
-const regeneratingAll = ref(false);
-const regenAllMessage = ref(null);
-const regenAllError = ref(null);
+
+const companies = inject("workspaceCompanies", ref([]));
+const workspaceLoading = inject("workspaceLoading", ref(false));
+const companyList = computed(() => unref(companies) || []);
+const loadingCompanies = computed(() => Boolean(unref(workspaceLoading)));
+const sortMenuOpen = ref(false);
+const sortOptions = computed(() => [
+  { id: "az", label: t("sidebar.sort_az") },
+  { id: "za", label: t("sidebar.sort_za") },
+  { id: "newest", label: t("sidebar.sort_newest") },
+  { id: "views", label: t("sidebar.sort_views") },
+]);
+const activeSortLabel = computed(() => {
+  if (companySort.value === "za") return t("sidebar.sort_za_short");
+  if (companySort.value === "newest") return t("sidebar.sort_newest_short");
+  if (companySort.value === "oldest") return t("sidebar.sort_oldest_short");
+  if (companySort.value === "views") return t("sidebar.sort_views_short");
+  return t("sidebar.sort_az_short");
+});
+const portfolioCompanies = computed(() =>
+  sortCompanies(
+    companyList.value.filter((company) => companyBucket(company) === "portfolio"),
+    {
+      sort: companySort.value,
+      views: companyViews.value,
+      favorites: favoriteCompanyIds.value,
+    },
+  ),
+);
+const topPlayerCompanies = computed(() =>
+  sortCompanies(
+    companyList.value.filter((company) => companyBucket(company) === "watchlist"),
+    {
+      sort: companySort.value,
+      views: companyViews.value,
+      favorites: favoriteCompanyIds.value,
+    },
+  ),
+);
+const showCompanyBoards = computed(() => !searching.value && !searchResults.value);
+
+function chooseSort(id) {
+  setCompanySort(id);
+  sortMenuOpen.value = false;
+}
+
+function openCompany(company) {
+  router.push({ name: "research", params: { companyId: company.id } });
+}
 
 // Live progress feed during a Claude Code / OpenAI search
 const progressEvents = ref([]); // [{type, action, tool, preview, text, ts}]
@@ -254,68 +318,17 @@ async function runDeepSearch({ refresh = false } = {}) {
   }
 }
 
-async function refreshAllStockViews() {
-  if (refreshingStockViews.value) return;
-  refreshingStockViews.value = true;
-  stockRefreshMessage.value = null;
-  stockRefreshError.value = null;
-  try {
-    const result = await api.trader.refreshAll();
-    const queued = result.queued_count ?? 0;
-    const total = result.total_count ?? 0;
-    if (!total) {
-      stockRefreshMessage.value = t("home.refresh_stock_views_none");
-    } else if (result.status === "already_running") {
-      stockRefreshMessage.value = t("home.refresh_stock_views_running", {
-        total,
-      });
-    } else {
-      stockRefreshMessage.value = t("home.refresh_stock_views_started", {
-        queued,
-        total,
-      });
-    }
-  } catch {
-    stockRefreshError.value = t("home.refresh_stock_views_failed");
-  } finally {
-    refreshingStockViews.value = false;
-  }
-}
-
-async function regenAllCompanies() {
-  if (regeneratingAll.value) return;
-  regeneratingAll.value = true;
-  regenAllMessage.value = null;
-  regenAllError.value = null;
-  try {
-    const result = await api.regenAllCompanies();
-    const total = result.total_count ?? 0;
-    const publicCount = result.public_trader_count ?? 0;
-    if (!total) {
-      regenAllMessage.value = t("home.regen_all_none");
-    } else if (result.checkpoint_status === "backing_off") {
-      regenAllMessage.value = t("home.regen_all_backing_off");
-    } else if (result.status === "already_running") {
-      regenAllMessage.value = t("home.regen_all_running", { total });
-    } else if (result.resumed || result.status === "resumed") {
-      regenAllMessage.value = t("home.regen_all_resumed", {
-        pending: result.pending_count ?? result.queued_count ?? 0,
-        completed: result.completed_count ?? 0,
-      });
-    } else {
-      regenAllMessage.value = t("home.regen_all_started", {
-        total,
-        public: publicCount,
-      });
-    }
-  } catch {
-    regenAllError.value = t("home.regen_all_failed");
-  } finally {
-    regeneratingAll.value = false;
-  }
-}
-
 onBeforeUnmount(closeProgressStream);
+
+watch(
+  () => route.query.q,
+  (q) => {
+    if (typeof q !== "string" || !q.trim()) return;
+    if (query.value !== q) query.value = q;
+    runDeepSearch();
+  },
+  { immediate: true },
+);
 
 // Display helpers for the progress feed.
 function actionIcon(entry) {
@@ -403,44 +416,95 @@ function onBlur() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-6 py-10 md:px-8">
-    <section class="mx-auto max-w-3xl py-8 text-center md:py-14">
-      <div class="vogue-label justify-center">{{ t("home.eyebrow") }}</div>
-      <h1 class="mt-3 font-display text-4xl font-bold text-ink-primary md:text-5xl">
-        {{ t("home.title") }}
+  <div class="relative mx-auto max-w-5xl px-6 py-10 md:px-8">
+    <div class="home-hero-glow" aria-hidden="true" />
+    <section class="relative mx-auto max-w-xl pb-6 pt-10 text-center md:pt-16">
+      <h1 class="home-title">
+        <span class="home-title-stack">
+          <span class="home-title-depth" aria-hidden="true">{{ t("home.title") }}</span>
+          <span class="home-title-fill">{{ t("home.title") }}</span>
+        </span>
       </h1>
-      <p class="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary md:text-base">
+      <p class="mx-auto mt-2 max-w-sm text-[15px] font-normal leading-snug text-ink-muted">
         {{ t("home.subtitle") }}
       </p>
     </section>
 
-    <form @submit.prevent="runDeepSearch" class="relative mx-auto max-w-3xl">
-      <Search
-        class="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-ink-muted"
-      />
-      <input
-        v-model="query"
-        type="search"
-        autofocus
-        :placeholder="t('home.search_placeholder')"
-        class="w-full rounded-full border border-subtle bg-surface py-3 pl-12 pr-16 text-ink-primary placeholder:text-ink-subtle shadow-card focus-ring"
-        @focus="suggestions.length && (showSuggestions = true)"
-        @blur="onBlur"
-      />
-      <button
-        type="submit"
-        :disabled="!query.trim() || searching"
-        class="absolute right-1.5 top-1/2 grid h-[38px] w-[38px] -translate-y-1/2 place-items-center rounded-full bg-accent text-white hover:bg-accent-hover disabled:opacity-50 focus-ring"
-        :aria-label="searching ? t('home.searching') : t('home.search')"
-        :title="searching ? t('home.searching') : t('home.search')"
+    <div class="relative mx-auto w-full max-w-3xl">
+      <form
+        @submit.prevent="runDeepSearch"
+        class="material-glass overflow-hidden rounded-glass"
       >
-        <Loader2 v-if="searching" class="h-4 w-4 animate-spin" />
-        <ArrowRight v-else class="h-4 w-4" />
-      </button>
+        <div class="relative">
+          <Search
+            class="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-ink-muted"
+          />
+          <input
+            v-model="query"
+            type="search"
+            autofocus
+            :placeholder="t('home.search_placeholder')"
+            class="home-search-field"
+            @focus="suggestions.length && (showSuggestions = true)"
+            @blur="onBlur"
+          />
+          <button
+            type="submit"
+            :disabled="!query.trim() || searching"
+            class="focus-ring absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-accent-ink transition hover:bg-accent-soft disabled:text-ink-subtle"
+            :aria-label="searching ? t('home.searching') : t('home.search')"
+            :title="searching ? t('home.searching') : t('home.search')"
+          >
+            <Loader2 v-if="searching" class="h-4 w-4 animate-spin" />
+            <ArrowRight v-else class="h-4 w-4" />
+          </button>
+        </div>
+
+        <div class="grid grid-cols-4 gap-0.5 px-0.5 pb-0.5" role="toolbar" :aria-label="t('toolbar.add')">
+          <button
+            type="button"
+            class="home-action focus-ring"
+            :data-selected="linkOpen ? 'true' : 'false'"
+            :aria-pressed="linkOpen"
+            @click="setIntake('link')"
+          >
+            <LinkIcon class="h-4 w-4" />
+            {{ t("home.action_link") }}
+          </button>
+          <button
+            type="button"
+            class="home-action focus-ring"
+            :data-selected="uploadOpen ? 'true' : 'false'"
+            :aria-pressed="uploadOpen"
+            @click="setIntake('upload')"
+          >
+            <Upload class="h-4 w-4" />
+            {{ t("home.action_file") }}
+          </button>
+          <button
+            type="button"
+            class="home-action focus-ring"
+            :data-selected="noteOpen ? 'true' : 'false'"
+            :aria-pressed="noteOpen"
+            @click="setIntake('note')"
+          >
+            <ScrollText class="h-4 w-4" />
+            {{ t("home.action_note") }}
+          </button>
+          <button
+            type="button"
+            class="home-action focus-ring"
+            @click="setIntake('library')"
+          >
+            <Library class="h-4 w-4" />
+            {{ t("home.action_library") }}
+          </button>
+        </div>
+      </form>
 
       <div
         v-if="showSuggestions && (suggestions.length || autocompleting)"
-        class="absolute left-0 right-0 top-full mt-2 bg-surface border border-subtle rounded-card shadow-card-raised z-10 overflow-hidden"
+        class="material-glass absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-card"
       >
         <div
           v-if="autocompleting && suggestions.length === 0"
@@ -454,7 +518,7 @@ function onBlur() {
           :key="(s.id || '') + (s.ticker || '') + s.name"
           type="button"
           @mousedown.prevent="pickSuggestion(s)"
-          class="w-full text-left px-4 py-2.5 hover:bg-surface-muted focus-ring flex items-center gap-3 border-b border-subtle last:border-b-0"
+          class="w-full text-left px-4 py-2.5 hover:bg-fill-tertiary/80 focus-ring flex items-center gap-3 hairline-b last:shadow-none"
         >
           <Building2 class="h-4 w-4 text-ink-muted shrink-0" />
           <div class="flex-1 min-w-0">
@@ -481,19 +545,13 @@ function onBlur() {
           <ArrowRight class="h-3.5 w-3.5 text-ink-muted shrink-0" />
         </button>
       </div>
-    </form>
+    </div>
 
-    <div ref="quickAddEl" class="mx-auto mt-5 max-w-3xl">
-      <div class="mb-2 flex items-center justify-between px-1">
-        <h2 class="vogue-label">{{ t("home.quick_add") }}</h2>
-        <router-link
-          :to="{ name: 'source-library' }"
-          class="inline-flex items-center gap-1 text-xs font-semibold text-accent-ink hover:text-ink-primary focus-ring rounded"
-        >
-          {{ t("home.source_library") }}
-          <ArrowRight class="h-3.5 w-3.5" />
-        </router-link>
-      </div>
+    <div
+      v-if="linkOpen || uploadOpen || noteOpen"
+      ref="quickAddEl"
+      class="mx-auto mt-4 w-full max-w-3xl"
+    >
       <div class="grid gap-3">
         <SubmitLinkTool v-model:expanded="linkOpen" />
         <UploadResearchTool v-model:expanded="uploadOpen" />
@@ -503,9 +561,90 @@ function onBlur() {
 
     <div v-if="error" class="mt-4 text-sm text-danger">{{ errorMessage }}</div>
 
+    <section v-if="showCompanyBoards" class="mt-12 space-y-10">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div class="vogue-label">{{ t("companies.section_title") }}</div>
+          <h2 class="mt-1 font-display text-title3 text-ink-primary">
+            {{ t("sidebar.portfolio") }}
+          </h2>
+        </div>
+        <div class="relative">
+          <button
+            type="button"
+            class="inline-flex h-8 items-center gap-1.5 rounded-pill px-2.5 text-footnote font-medium text-ink-muted hover:bg-fill-tertiary hover:text-ink-primary focus-ring"
+            :aria-label="t('sidebar.sort')"
+            :aria-expanded="sortMenuOpen"
+            @click="sortMenuOpen = !sortMenuOpen"
+          >
+            <ArrowUpDown class="h-3.5 w-3.5" />
+            <span>{{ t("sidebar.sort") }}</span>
+            <span class="mono-data text-ink-primary">{{ activeSortLabel }}</span>
+          </button>
+          <div
+            v-if="sortMenuOpen"
+            class="toolbar-menu right-0 min-w-[10.5rem]"
+            role="menu"
+            :aria-label="t('sidebar.sort')"
+          >
+            <button
+              v-for="option in sortOptions"
+              :key="option.id"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="companySort === option.id"
+              class="toolbar-menu-item"
+              @click="chooseSort(option.id)"
+            >
+              <Check v-if="companySort === option.id" class="h-3.5 w-3.5 shrink-0" />
+              <span v-else class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <p v-if="loadingCompanies && companyList.length === 0" class="text-callout text-ink-muted">
+        {{ t("common.loading") }}
+      </p>
+      <p
+        v-else-if="portfolioCompanies.length === 0"
+        class="text-callout text-ink-muted"
+      >
+        {{ t("companies.empty") }}
+      </p>
+      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <CompanyBoardCard
+          v-for="company in portfolioCompanies"
+          :key="company.id"
+          :company="company"
+          @select="openCompany"
+        />
+      </div>
+
+      <div>
+        <h2 class="font-display text-title3 text-ink-primary">
+          {{ t("sidebar.top_players") }}
+        </h2>
+        <p
+          v-if="topPlayerCompanies.length === 0"
+          class="mt-3 text-callout text-ink-muted"
+        >
+          {{ t("companies.empty") }}
+        </p>
+        <div v-else class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <CompanyBoardCard
+            v-for="company in topPlayerCompanies"
+            :key="company.id"
+            :company="company"
+            @select="openCompany"
+          />
+        </div>
+      </div>
+    </section>
+
     <div
       v-if="searching"
-      class="mt-10 rounded-card border border-subtle bg-surface shadow-card overflow-hidden"
+      class="mt-10 rounded-card bg-surface shadow-card overflow-hidden"
     >
       <button
         type="button"
@@ -526,7 +665,7 @@ function onBlur() {
         </span>
         <span
           v-if="currentStage?.stage"
-          class="ml-auto text-[10px] uppercase tracking-wide text-ink-muted font-mono shrink-0"
+          class="ml-auto text-caption1 text-ink-muted font-mono shrink-0"
         >
           {{ currentStage.stage }}
         </span>
@@ -551,10 +690,7 @@ function onBlur() {
           v-for="(entry, i) in progressEvents"
           :key="i"
           class="flex items-start gap-2 px-2 py-1 rounded"
-          :class="{
-            'bg-accent-soft/30': entry.type === 'stage',
-            'text-danger': entry.is_error,
-          }"
+          :class="{ 'bg-accent-soft/30': entry.type === 'stage', 'text-danger': entry.is_error, }"
         >
           <component
             v-if="actionIcon(entry)"
@@ -579,7 +715,7 @@ function onBlur() {
 
     <div v-else-if="searchResults" class="mt-10 space-y-3">
       <div class="flex items-center justify-between gap-3 flex-wrap">
-        <h2 class="font-display text-lg font-semibold text-ink-primary">
+        <h2 class="font-display text-title3 text-ink-primary">
           {{
             hasResults
               ? t("home.results_for", { query })
@@ -611,7 +747,7 @@ function onBlur() {
             type="button"
             @click="runDeepSearch({ refresh: true })"
             :disabled="searching"
-            class="text-xs px-2 py-1 rounded border border-subtle hover:bg-surface-muted text-ink-secondary focus-ring"
+            class="btn-bordered btn-sm focus-ring"
           >
             {{ t("common.refresh") }}
           </button>
@@ -619,7 +755,7 @@ function onBlur() {
       </div>
       <div
         v-if="searchResults.source === 'fallback' && searchResults.reason"
-        class="text-sm text-warning-ink bg-warning-soft border border-warning/40 rounded-lg px-3 py-2"
+        class="banner-warning"
       >
         {{ t("home.fallback_unavailable", { reason: searchResults.reason }) }}
       </div>
@@ -631,84 +767,5 @@ function onBlur() {
         @refreshed="(updated) => onCardRefreshed(updated)"
       />
     </div>
-
-    <section class="mt-12 rounded-card border border-subtle bg-surface p-5 shadow-card">
-      <div class="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <div class="vogue-label">{{ t("home.operations") }}</div>
-          <p class="mt-1 text-sm text-ink-muted">
-            {{ t("home.operations_help") }}
-          </p>
-        </div>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <router-link
-          :to="{ name: 'weekly-summary' }"
-          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted focus-ring"
-        >
-          <Flame class="h-4 w-4 text-accent" />
-          {{ t("home.weekly_summary") }}
-        </router-link>
-        <router-link
-          :to="{ name: 'trader-stats' }"
-          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted focus-ring"
-        >
-          <BarChart3 class="h-4 w-4 text-accent" />
-          {{ t("home.trader_stats") }}
-        </router-link>
-        <button
-          type="button"
-          :disabled="regeneratingAll"
-          @click="regenAllCompanies"
-          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
-        >
-          <Loader2
-            v-if="regeneratingAll"
-            class="h-4 w-4 animate-spin text-accent"
-          />
-          <Sparkles v-else class="h-4 w-4 text-accent" />
-          <span>
-            {{
-              regeneratingAll
-                ? t("home.regenerating_all")
-                : t("home.regen_all")
-            }}
-          </span>
-        </button>
-        <button
-          type="button"
-          :disabled="refreshingStockViews"
-          @click="refreshAllStockViews"
-          class="pill-button border border-subtle bg-surface text-ink-primary hover:bg-surface-muted disabled:opacity-60 focus-ring"
-        >
-          <Loader2
-            v-if="refreshingStockViews"
-            class="h-4 w-4 animate-spin text-accent"
-          />
-          <RefreshCw v-else class="h-4 w-4 text-accent" />
-          <span>
-            {{
-              refreshingStockViews
-                ? t("home.refreshing_stock_views")
-                : t("home.refresh_stock_views")
-            }}
-          </span>
-        </button>
-      </div>
-      <div class="mt-3 space-y-1 text-xs">
-        <p v-if="stockRefreshMessage" class="text-ink-muted">
-          {{ stockRefreshMessage }}
-        </p>
-        <p v-if="stockRefreshError" class="text-danger">
-          {{ stockRefreshError }}
-        </p>
-        <p v-if="regenAllMessage" class="text-ink-muted">
-          {{ regenAllMessage }}
-        </p>
-        <p v-if="regenAllError" class="text-danger">
-          {{ regenAllError }}
-        </p>
-      </div>
-    </section>
   </div>
 </template>

@@ -366,6 +366,27 @@ const payload = {
 };
 
 describe("StockResearchView", () => {
+  async function openTab(wrapper, label) {
+    const modeByLabel = {
+      Home: "Pulse",
+      Overview: "Pulse",
+      "Weekly Aggregate": "Pulse",
+      "Strategy Map": "Pulse",
+      Trackers: "Work",
+      Sources: "Work",
+      Runs: "Work",
+      Deliverables: "Work",
+      "Review Queue": "Review",
+      Evaluation: "Review",
+      Hypotheses: "Review",
+    };
+    const mode = modeByLabel[label];
+    if (mode) {
+      await wrapper.findAll("button").find((button) => button.text() === mode).trigger("click");
+    }
+    await wrapper.findAll("button").find((button) => button.text() === label).trigger("click");
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     api.stockResearch.dashboard.mockResolvedValue(payload);
@@ -394,7 +415,7 @@ describe("StockResearchView", () => {
     expect(wrapper.text()).toContain("3");
     expect(wrapper.text()).toContain("Latest Weekly Aggregate");
 
-    await wrapper.findAll("button").find((button) => button.text() === "Trackers").trigger("click");
+    await openTab(wrapper, "Trackers");
     expect(wrapper.text()).toContain("US Macro Tracker");
     expect(wrapper.text()).toContain("NVIDIA");
     expect(wrapper.text()).toContain("Company thesis.");
@@ -404,7 +425,7 @@ describe("StockResearchView", () => {
     const wrapper = mount(StockResearchView);
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "Trackers").trigger("click");
+    await openTab(wrapper, "Trackers");
     const boxes = wrapper.findAll("input[type='checkbox']");
     await boxes[0].setValue(true);
     await wrapper.findAll("button").find((button) => button.text() === "Run Selected").trigger("click");
@@ -418,7 +439,7 @@ describe("StockResearchView", () => {
     const wrapper = mount(StockResearchView);
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "Weekly Aggregate").trigger("click");
+    await openTab(wrapper, "Weekly Aggregate");
     expect(wrapper.text()).toContain("Macro liquidity is watchful.");
     let selects = wrapper.findAll("select");
     await selects[0].setValue("company");
@@ -428,7 +449,7 @@ describe("StockResearchView", () => {
     expect(wrapper.text()).toContain("Official transcript missing.");
     expect(wrapper.text()).toContain("HTML-ready weekly block.");
 
-    await wrapper.findAll("button").find((button) => button.text() === "Strategy Map").trigger("click");
+    await openTab(wrapper, "Strategy Map");
     expect(wrapper.text()).toContain("AI infrastructure");
     expect(wrapper.text()).toContain("Research guidance only");
     expect(wrapper.text()).toContain("Source Inspector");
@@ -436,7 +457,7 @@ describe("StockResearchView", () => {
     expect(wrapper.text()).toContain("supply-chain link");
     expect(wrapper.text()).toContain("Demand signal conflicts with supply-chain checks.");
 
-    await wrapper.findAll("button").find((button) => button.text() === "Work Products").trigger("click");
+    await openTab(wrapper, "Deliverables");
     expect(wrapper.text()).toContain("NVIDIA tracker report");
     selects = wrapper.findAll("select");
     await selects[0].setValue("tracker_report");
@@ -468,7 +489,7 @@ describe("StockResearchView", () => {
       { archived: true, status: "archived" },
     );
 
-    await wrapper.findAll("button").find((button) => button.text() === "Review Queue").trigger("click");
+    await openTab(wrapper, "Review Queue");
     expect(wrapper.text()).toContain("No official source attached");
     selects = wrapper.findAll("select");
     await selects[1].setValue("missing_source");
@@ -482,11 +503,11 @@ describe("StockResearchView", () => {
       { status: "waived", rationale: "Reviewed missing source." },
     );
 
-    await wrapper.findAll("button").find((button) => button.text() === "Evaluation").trigger("click");
+    await openTab(wrapper, "Evaluation");
     expect(wrapper.text()).toContain("42 ms");
     expect(wrapper.text()).toContain("Prefer tracker-owned source manifests.");
 
-    await wrapper.findAll("button").find((button) => button.text() === "Hypotheses").trigger("click");
+    await openTab(wrapper, "Hypotheses");
     expect(wrapper.text()).toContain("AI demand remains resilient.");
     expect(wrapper.text()).toContain("forward_live");
     expect(wrapper.text()).toContain("hit");
@@ -510,7 +531,7 @@ describe("StockResearchView", () => {
     const wrapper = mount(StockResearchView);
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "Sources").trigger("click");
+    await openTab(wrapper, "Sources");
 
     await wrapper.find("input[placeholder='File title']").setValue("Uploaded transcript");
     const file = new File(["source text"], "transcript.txt", { type: "text/plain" });
@@ -561,13 +582,13 @@ describe("StockResearchView", () => {
     const wrapper = mount(StockResearchView);
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "Sources").trigger("click");
+    await openTab(wrapper, "Sources");
     expect(wrapper.text()).toContain("missing");
     expect(wrapper.text()).toContain("Stored file is missing from tracker source folder.");
 
-    await wrapper.findAll("button").find((button) => button.text() === "Runs").trigger("click");
+    await openTab(wrapper, "Runs");
     expect(wrapper.text()).toContain("Latest Report");
-    expect(wrapper.text()).toContain("Normalized Run Ledger");
+    expect(wrapper.text()).toContain("Run history");
     expect(wrapper.text()).toContain("stock tracker");
     expect(wrapper.text()).toContain("Company report body.");
     expect(wrapper.text()).toContain("Current vs Previous");
@@ -588,7 +609,7 @@ describe("StockResearchView", () => {
       { status: "resolved", rationale: "" },
     );
 
-    await wrapper.findAll("button").find((button) => button.text() === "Weekly Aggregate").trigger("click");
+    await openTab(wrapper, "Weekly Aggregate");
     await wrapper.findAll("button").find((button) => button.text() === "Retry").trigger("click");
     await flushPromises();
     expect(api.stockResearch.retryAggregate).toHaveBeenCalledWith("2026-06-08_to_2026-06-14");
@@ -598,7 +619,7 @@ describe("StockResearchView", () => {
     const wrapper = mount(StockResearchView);
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "Evaluation").trigger("click");
+    await openTab(wrapper, "Evaluation");
     const scoreInputs = wrapper.findAll("input[type='number']");
     for (const [index, value] of ["4", "5", "3", "4", "4"].entries()) {
       await scoreInputs[index].setValue(value);

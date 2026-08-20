@@ -29,17 +29,33 @@ import StockTrackerRegistryPanel from "../components/stock/StockTrackerRegistryP
 import StockWorkProductsPanel from "../components/stock/StockWorkProductsPanel.vue";
 
 const tabs = [
-  { id: "home", label: "Home", icon: Gauge },
+  { id: "home", label: "Overview", icon: Gauge },
   { id: "trackers", label: "Trackers", icon: Search },
   { id: "sources", label: "Sources", icon: Upload },
   { id: "runs", label: "Runs", icon: Play },
   { id: "aggregate", label: "Weekly Aggregate", icon: Layers },
   { id: "strategy", label: "Strategy Map", icon: GitBranch },
-  { id: "products", label: "Work Products", icon: FileText },
+  { id: "products", label: "Deliverables", icon: FileText },
   { id: "review", label: "Review Queue", icon: ListChecks },
   { id: "evaluation", label: "Evaluation", icon: Database },
   { id: "hypotheses", label: "Hypotheses", icon: FlaskConical },
 ];
+const MODE_TABS = {
+  pulse: ["home", "aggregate", "strategy"],
+  work: ["trackers", "sources", "runs", "products"],
+  review: ["review", "evaluation", "hypotheses"],
+};
+const modeTabs = [
+  { id: "pulse", label: "Pulse" },
+  { id: "work", label: "Work" },
+  { id: "review", label: "Review" },
+];
+
+function modeForTab(id) {
+  if (MODE_TABS.work.includes(id)) return "work";
+  if (MODE_TABS.review.includes(id)) return "review";
+  return "pulse";
+}
 
 const runReviewScoreFields = [
   { id: "factual_accuracy", label: "Fact" },
@@ -56,7 +72,18 @@ const loading = ref(true);
 const busy = ref(false);
 const error = ref("");
 const statusMessage = ref("");
-const activeTab = ref(route.query.tab || "home");
+const activeTab = ref(
+  tabs.some((item) => item.id === route.query.tab) ? route.query.tab : "home",
+);
+const lastTabByMode = ref({
+  pulse: "home",
+  work: "trackers",
+  review: "review",
+});
+const workspaceMode = computed(() => modeForTab(activeTab.value));
+const modeSubnav = computed(() =>
+  tabs.filter((tab) => MODE_TABS[workspaceMode.value].includes(tab.id)),
+);
 const selectedTrackerIds = ref([]);
 const sourceTrackerIds = ref([]);
 const selectedRunId = ref("");
@@ -94,7 +121,13 @@ const runReviewDrafts = ref({});
 watch(
   () => route.query.tab,
   (tab) => {
-    if (tab && tabs.some((item) => item.id === tab)) activeTab.value = tab;
+    if (tab && tabs.some((item) => item.id === tab)) {
+      activeTab.value = tab;
+      lastTabByMode.value = {
+        ...lastTabByMode.value,
+        [modeForTab(tab)]: tab,
+      };
+    }
   },
 );
 
@@ -305,7 +338,15 @@ const knowledgeReviewRows = computed(() =>
 
 function setTab(id) {
   activeTab.value = id;
+  lastTabByMode.value = {
+    ...lastTabByMode.value,
+    [modeForTab(id)]: id,
+  };
   router.replace({ query: { ...route.query, tab: id } });
+}
+
+function setMode(mode) {
+  setTab(lastTabByMode.value[mode] || MODE_TABS[mode][0]);
 }
 
 function todayIsoDate() {
@@ -594,79 +635,86 @@ onMounted(loadDashboard);
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas text-ink-primary">
-    <header class="border-b border-subtle bg-surface px-6 py-4">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-            Public Equity Research
-          </div>
-          <h1 class="mt-1 font-display text-2xl font-semibold">
-            Stock Research
-          </h1>
-        </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
-            :disabled="busy"
-            @click="loadDashboard"
-          >
-            <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
-            Refresh
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover focus-ring disabled:opacity-50"
-            :disabled="busy || trackers.length === 0"
-            @click="runSelected"
-          >
-            <Play class="h-4 w-4" />
-            Run Selected
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium text-ink-secondary hover:bg-surface-muted focus-ring disabled:opacity-50"
-            :disabled="busy"
-            @click="runAction('Queued due trackers', () => api.stockResearch.runDueTrackers())"
-          >
-            <ListChecks class="h-4 w-4" />
-            Run Due
-          </button>
-        </div>
-      </div>
-      <div
-        v-if="error || statusMessage"
-        class="mt-3 flex items-center gap-2 text-sm"
-        :class="error ? 'text-danger' : 'text-ink-muted'"
-      >
-        <AlertTriangle v-if="error" class="h-4 w-4" />
-        <Loader2 v-else-if="busy" class="h-4 w-4 animate-spin" />
-        <span>{{ error || statusMessage }}</span>
+  <div class="px-6 pb-10 pt-6 md:px-8">
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="font-display text-title3 text-ink-primary">Stock Research</h1>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="icon-btn"
+          :disabled="busy"
+          :aria-label="loading ? 'Refreshing' : 'Refresh'"
+          :title="loading ? 'Refreshing' : 'Refresh'"
+          @click="loadDashboard"
+        >
+          <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+        </button>
+        <button
+          type="button"
+          class="btn-filled focus-ring"
+          :disabled="busy || trackers.length === 0"
+          @click="runSelected"
+        >
+          <Play class="h-4 w-4" />
+          Run Selected
+        </button>
+        <button
+          type="button"
+          class="btn-bordered focus-ring"
+          :disabled="busy"
+          @click="runAction('Queued due trackers', () => api.stockResearch.runDueTrackers())"
+        >
+          <ListChecks class="h-4 w-4" />
+          Run Due
+        </button>
       </div>
     </header>
+    <div
+      v-if="error || statusMessage"
+      class="mt-3 flex items-center gap-2 text-callout"
+      :class="error ? 'text-danger' : 'text-ink-muted'"
+    >
+      <AlertTriangle v-if="error" class="h-4 w-4" />
+      <Loader2 v-else-if="busy" class="h-4 w-4 animate-spin" />
+      <span>{{ error || statusMessage }}</span>
+    </div>
 
-    <nav class="border-b border-subtle bg-surface px-4 py-2">
-      <div class="flex gap-1 overflow-x-auto">
+    <div class="mt-5 space-y-2">
+      <nav class="flex gap-1 hairline-b" role="tablist">
         <button
-          v-for="tab in tabs"
+          v-for="tab in modeTabs"
           :key="tab.id"
           type="button"
-          class="inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium focus-ring"
-          :class="
-            activeTab === tab.id
-              ? 'bg-accent-soft text-accent-ink'
-              : 'text-ink-secondary hover:bg-surface-muted'
-          "
+          class="workspace-tab px-3 py-2.5 text-callout font-medium focus-ring"
+          :class="workspaceMode === tab.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary'"
+          role="tab"
+          :aria-selected="workspaceMode === tab.id"
+          @click="setMode(tab.id)"
+        >
+          {{ tab.label }}
+        </button>
+      </nav>
+      <div
+        class="segmented w-fit max-w-full overflow-x-auto"
+        role="tablist"
+        :aria-label="modeTabs.find((tab) => tab.id === workspaceMode)?.label"
+      >
+        <button
+          v-for="tab in modeSubnav"
+          :key="tab.id"
+          type="button"
+          class="segmented-item focus-ring"
+          :data-selected="activeTab === tab.id"
+          :aria-selected="activeTab === tab.id"
+          role="tab"
           @click="setTab(tab.id)"
         >
-          <component :is="tab.icon" class="h-4 w-4" />
           {{ tab.label }}
         </button>
       </div>
-    </nav>
+    </div>
 
-    <main class="px-6 py-5">
+    <main class="pt-6">
       <div v-if="loading && !payload" class="flex items-center gap-2 text-sm text-ink-muted">
         <Loader2 class="h-4 w-4 animate-spin" />
         Loading Stock Research

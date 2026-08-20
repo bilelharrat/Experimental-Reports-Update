@@ -65,7 +65,7 @@ function qualityLabel(signal) {
         </select>
         <button
           type="button"
-          class="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white focus-ring disabled:opacity-50"
+          class="btn-filled focus-ring"
           :disabled="busy"
           @click="emit('run-aggregate')"
         >
@@ -75,7 +75,7 @@ function qualityLabel(signal) {
         <button
           v-if="aggregate"
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy"
           @click="emit('retry-aggregate')"
         >
@@ -85,7 +85,7 @@ function qualityLabel(signal) {
         <button
           v-if="aggregate"
           type="button"
-          class="inline-flex items-center gap-2 rounded-md border border-subtle px-3 py-2 text-sm font-medium hover:bg-surface-muted focus-ring disabled:opacity-50"
+          class="btn-bordered focus-ring"
           :disabled="busy"
           @click="emit('cancel-aggregate')"
         >
@@ -95,7 +95,7 @@ function qualityLabel(signal) {
       </div>
     </div>
     <div v-if="aggregate" class="space-y-4">
-      <div class="rounded-lg border border-subtle bg-surface p-4 text-sm">
+      <div class="rounded-card bg-surface shadow-card p-4 text-sm">
         <div class="font-medium">{{ aggregate.period_id }}</div>
         <div class="mt-1 text-ink-muted">
           {{ aggregate.included_tracker_run_ids?.length || 0 }} included runs ·
@@ -115,9 +115,9 @@ function qualityLabel(signal) {
           </div>
         </div>
       </div>
-      <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-        <table class="min-w-full text-left text-sm">
-          <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+      <div class="overflow-x-auto rounded-card bg-surface shadow-card">
+        <table class="inset-table">
+          <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
             <tr>
               <th class="px-3 py-2">Module</th>
               <th class="px-3 py-2">Tracker</th>
@@ -142,9 +142,9 @@ function qualityLabel(signal) {
           </tbody>
         </table>
       </div>
-      <div class="overflow-x-auto rounded-lg border border-subtle bg-surface">
-        <table class="min-w-full text-left text-sm">
-          <thead class="border-b border-subtle bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+      <div class="overflow-x-auto rounded-card bg-surface shadow-card">
+        <table class="inset-table">
+          <thead class="border-b border-subtle bg-surface-muted text-footnote font-semibold text-ink-muted">
             <tr>
               <th class="px-3 py-2">Signal</th>
               <th class="px-3 py-2">Tracker</th>
@@ -182,8 +182,8 @@ function qualityLabel(signal) {
           </tbody>
         </table>
       </div>
-      <pre class="max-h-96 overflow-auto rounded-lg border border-subtle bg-surface p-4 text-xs whitespace-pre-wrap">{{ aggregate.markdown }}</pre>
-      <div v-if="aggregate.html_blocks?.length" class="rounded-lg border border-subtle bg-surface p-4">
+      <pre class="max-h-96 overflow-auto rounded-card bg-surface shadow-card p-4 text-xs whitespace-pre-wrap">{{ aggregate.markdown }}</pre>
+      <div v-if="aggregate.html_blocks?.length" class="rounded-card bg-surface shadow-card p-4">
         <h3 class="text-sm font-semibold">HTML-Ready Blocks</h3>
         <div class="mt-3 space-y-2 text-sm text-ink-secondary">
           <div
@@ -197,7 +197,7 @@ function qualityLabel(signal) {
         </div>
       </div>
     </div>
-    <div v-else class="rounded-lg border border-subtle bg-surface p-6 text-sm text-ink-muted">
+    <div v-else class="rounded-card bg-surface shadow-card p-6 text-sm text-ink-muted">
       No weekly aggregate yet.
     </div>
   </section>

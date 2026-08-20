@@ -21,7 +21,7 @@ function promptStatus(prompt) {
   <div class="xl:col-span-2 border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-start justify-between gap-3">
       <div>
-        <h3 class="font-display text-lg font-semibold text-ink-primary">
+        <h3 class="font-display text-title3 text-ink-primary">
           Infographic Source Brief
         </h3>
         <div v-if="sourceBrief?.confidence" class="mt-1 text-xs text-ink-muted">
@@ -30,7 +30,7 @@ function promptStatus(prompt) {
       </div>
       <span
         v-if="sourceBrief?.generated_by"
-        class="rounded bg-surface-muted px-2 py-1 text-[10px] uppercase tracking-wide text-ink-muted"
+        class="rounded bg-surface-muted px-2 py-1 text-caption1 text-ink-muted"
       >
         {{ sourceBrief.generated_by.replaceAll('_', ' ') }}
       </span>
@@ -43,8 +43,8 @@ function promptStatus(prompt) {
         {{ sourceBrief.summary }}
       </p>
       <div class="mt-4 grid xl:grid-cols-3 gap-3">
-        <div class="rounded-lg border border-subtle bg-surface-muted p-3">
-          <div class="text-xs uppercase tracking-wide text-ink-muted">
+        <div class="rounded-subbox bg-fill-tertiary p-3">
+          <div class="text-footnote font-semibold text-ink-muted">
             Claims
           </div>
           <div
@@ -67,8 +67,8 @@ function promptStatus(prompt) {
             </div>
           </div>
         </div>
-        <div class="rounded-lg border border-subtle bg-surface-muted p-3">
-          <div class="text-xs uppercase tracking-wide text-ink-muted">
+        <div class="rounded-subbox bg-fill-tertiary p-3">
+          <div class="text-footnote font-semibold text-ink-muted">
             Metrics & Warnings
           </div>
           <div
@@ -83,7 +83,7 @@ function promptStatus(prompt) {
             <span v-if="metric.period"> · {{ metric.period }}</span>
           </div>
           <div v-if="listItems(sourceBrief.missing_evidence).length" class="mt-3">
-            <div class="text-[11px] uppercase tracking-wide text-warning-ink">
+            <div class="text-[11px] text-warning-ink">
               Missing evidence
             </div>
             <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
@@ -96,7 +96,7 @@ function promptStatus(prompt) {
             </ul>
           </div>
           <div v-if="listItems(sourceBrief.no_go_claims).length" class="mt-3">
-            <div class="text-[11px] uppercase tracking-wide text-danger">
+            <div class="text-[11px] text-danger">
               Unsupported visual claims
             </div>
             <ul class="mt-1 space-y-1 text-xs text-ink-secondary">
@@ -109,8 +109,8 @@ function promptStatus(prompt) {
             </ul>
           </div>
         </div>
-        <div class="rounded-lg border border-subtle bg-surface-muted p-3">
-          <div class="text-xs uppercase tracking-wide text-ink-muted">
+        <div class="rounded-subbox bg-fill-tertiary p-3">
+          <div class="text-footnote font-semibold text-ink-muted">
             Opportunities & Prompts
           </div>
           <div

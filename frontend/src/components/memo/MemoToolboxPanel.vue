@@ -39,7 +39,7 @@ function reviewSeverityClass(severity) {
   <section class="border border-subtle bg-surface rounded-card p-5">
     <div class="flex items-start justify-between gap-4 flex-wrap">
       <div>
-        <h3 class="font-display text-lg font-semibold text-ink-primary">
+        <h3 class="font-display text-title3 text-ink-primary">
           Memo Tools Toolbox
         </h3>
         <div class="mt-1 text-sm text-ink-secondary">
@@ -47,26 +47,26 @@ function reviewSeverityClass(severity) {
         </div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-        <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-          <div class="uppercase tracking-wide text-ink-muted">Readiness</div>
+        <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+          <div class="text-footnote font-semibold text-ink-muted">Readiness</div>
           <div class="mt-1 font-semibold text-ink-primary">
             {{ summary.readiness }}
           </div>
         </div>
-        <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-          <div class="uppercase tracking-wide text-ink-muted">Active Jobs</div>
+        <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+          <div class="text-footnote font-semibold text-ink-muted">Active Jobs</div>
           <div class="mt-1 font-semibold text-ink-primary">
             {{ summary.activeJobs }}
           </div>
         </div>
-        <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-          <div class="uppercase tracking-wide text-ink-muted">Review Items</div>
+        <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+          <div class="text-footnote font-semibold text-ink-muted">Review Items</div>
           <div class="mt-1 font-semibold text-ink-primary">
             {{ summary.reviewItems }}
           </div>
         </div>
-        <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-          <div class="uppercase tracking-wide text-ink-muted">Generated Memos</div>
+        <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+          <div class="text-footnote font-semibold text-ink-muted">Generated Memos</div>
           <div class="mt-1 font-semibold text-ink-primary">
             {{ summary.generatedMemos }}
           </div>
@@ -75,24 +75,24 @@ function reviewSeverityClass(severity) {
     </div>
 
     <div class="mt-4 grid md:grid-cols-5 gap-2 text-xs text-ink-secondary">
-      <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-        <div class="uppercase tracking-wide text-ink-muted">Approval</div>
+      <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+        <div class="text-footnote font-semibold text-ink-muted">Approval</div>
         <div class="mt-1 text-ink-primary">{{ summary.approved }}</div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-        <div class="uppercase tracking-wide text-ink-muted">Thesis</div>
+      <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+        <div class="text-footnote font-semibold text-ink-muted">Thesis</div>
         <div class="mt-1 text-ink-primary">{{ summary.thesis }}</div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-        <div class="uppercase tracking-wide text-ink-muted">Blockers</div>
+      <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+        <div class="text-footnote font-semibold text-ink-muted">Blockers</div>
         <div class="mt-1 text-ink-primary">{{ summary.blockers }}</div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-        <div class="uppercase tracking-wide text-ink-muted">Evidence Exceptions</div>
+      <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+        <div class="text-footnote font-semibold text-ink-muted">Evidence Exceptions</div>
         <div class="mt-1 text-ink-primary">{{ summary.waivers }}</div>
       </div>
-      <div class="rounded-lg border border-subtle bg-surface-muted px-3 py-2">
-        <div class="uppercase tracking-wide text-ink-muted">Recent Outputs</div>
+      <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
+        <div class="text-footnote font-semibold text-ink-muted">Recent Outputs</div>
         <div class="mt-1 text-ink-primary">{{ summary.recentOutputs }}</div>
       </div>
     </div>
@@ -100,12 +100,12 @@ function reviewSeverityClass(severity) {
     <div class="mt-5 grid xl:grid-cols-2 gap-4">
       <div>
         <div class="mb-2 flex items-center justify-between gap-3">
-          <h4 class="text-sm font-semibold text-ink-primary">Work Products</h4>
+          <h4 class="text-sm font-semibold text-ink-primary">Deliverables</h4>
           <span class="text-xs text-ink-muted">{{ workProducts.length }}</span>
         </div>
-        <div class="overflow-x-auto rounded-lg border border-subtle">
+        <div class="overflow-x-auto overflow-hidden rounded-card shadow-card">
           <table class="min-w-full text-sm">
-            <thead class="bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+            <thead>
               <tr>
                 <th class="text-left py-2 px-3">Artifact</th>
                 <th class="text-left py-2 px-3">Type</th>
@@ -130,10 +130,7 @@ function reviewSeverityClass(severity) {
                 <td class="py-2 px-3 text-ink-secondary">{{ product.type }}</td>
                 <td class="py-2 px-3">
                   <span
-                    :class="[
-                      'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                      toolboxStatusClass(product.status),
-                    ]"
+                    :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', toolboxStatusClass(product.status), ]"
                   >
                     {{ statusLabel(product.status) }}
                   </span>
@@ -158,7 +155,7 @@ function reviewSeverityClass(severity) {
         </div>
         <div
           v-if="reviewItems.length === 0"
-          class="rounded-lg border border-subtle bg-surface-muted px-3 py-3 text-sm text-ink-muted"
+          class="rounded-subbox bg-fill-tertiary px-3 py-3 text-sm text-ink-muted"
         >
           No open review items.
         </div>
@@ -166,7 +163,7 @@ function reviewSeverityClass(severity) {
           <div
             v-for="item in reviewItems.slice(0, 16)"
             :key="item.id"
-            class="rounded-lg border border-subtle bg-surface-muted px-3 py-2"
+            class="rounded-subbox bg-fill-tertiary px-3 py-2"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
@@ -176,10 +173,7 @@ function reviewSeverityClass(severity) {
               </div>
               <div class="shrink-0 text-right">
                 <span
-                  :class="[
-                    'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                    reviewSeverityClass(item.severity),
-                  ]"
+                  :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', reviewSeverityClass(item.severity), ]"
                 >
                   {{ item.severity }}
                 </span>
@@ -198,13 +192,13 @@ function reviewSeverityClass(severity) {
       </div>
       <div
         v-if="sourceTraceRows.length === 0"
-        class="rounded-lg border border-subtle bg-surface-muted px-3 py-3 text-sm text-ink-muted"
+        class="rounded-subbox bg-fill-tertiary px-3 py-3 text-sm text-ink-muted"
       >
         No source evidence captured.
       </div>
-      <div v-else class="overflow-x-auto rounded-lg border border-subtle">
+      <div v-else class="overflow-x-auto overflow-hidden rounded-card shadow-card">
         <table class="min-w-full text-sm">
-          <thead class="bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+          <thead>
             <tr>
               <th class="text-left py-2 px-3">Artifact</th>
               <th class="text-left py-2 px-3">Source</th>
@@ -221,7 +215,7 @@ function reviewSeverityClass(severity) {
             >
               <td class="py-2 px-3 text-ink-primary">
                 {{ trace.artifact }}
-                <div class="text-[11px] uppercase tracking-wide text-ink-muted">
+                <div class="text-[11px] text-footnote font-semibold text-ink-muted">
                   {{ String(trace.kind || "source").replace("_", " ") }}
                 </div>
               </td>
@@ -241,9 +235,9 @@ function reviewSeverityClass(severity) {
 
     <div class="mt-5">
       <h4 class="text-sm font-semibold text-ink-primary">Source And Evidence Boundaries</h4>
-      <div class="mt-2 overflow-x-auto rounded-lg border border-subtle">
+      <div class="mt-2 overflow-x-auto overflow-hidden rounded-card shadow-card">
         <table class="min-w-full text-sm">
-          <thead class="bg-surface-muted text-xs uppercase tracking-wide text-ink-muted">
+          <thead>
             <tr>
               <th class="text-left py-2 px-3">Scope</th>
               <th class="text-left py-2 px-3">Location</th>
@@ -264,12 +258,7 @@ function reviewSeverityClass(severity) {
               </td>
               <td class="py-2 px-3">
                 <span
-                  :class="[
-                    'text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide',
-                    row.status === 'included'
-                      ? 'bg-success-soft text-success-ink'
-                      : 'bg-surface-muted text-ink-muted',
-                  ]"
+                  :class="[ 'text-[10px] px-1.5 py-0.5 rounded ', row.status === 'included' ? 'bg-success-soft text-success-ink' : 'bg-surface-muted text-ink-muted', ]"
                 >
                   {{ row.status }}
                 </span>

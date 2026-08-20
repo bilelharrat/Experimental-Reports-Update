@@ -109,6 +109,23 @@ const visibleCount = computed(() =>
   filteredGroups.value.reduce((total, group) => total + group.rows.length, 0),
 );
 
+const filtersActive = computed(
+  () =>
+    categoryFilter.value !== "all" ||
+    sourceClassFilter.value !== "all" ||
+    languageFilter.value !== "all" ||
+    statusFilter.value !== "all" ||
+    Boolean(query.value.trim()),
+);
+
+function clearDocumentFilters() {
+  query.value = "";
+  categoryFilter.value = "all";
+  sourceClassFilter.value = "all";
+  languageFilter.value = "all";
+  statusFilter.value = "all";
+}
+
 function fmtDate(value) {
   return formatIsoDate(value, t("documents.pending_date"));
 }
@@ -339,10 +356,7 @@ function openReport(row) {
             :key="opt"
             type="button"
             @click="uploadLanguage = opt"
-            :class="[
-              'rounded border px-2 py-0.5 uppercase focus-ring',
-              uploadLanguage === opt ? 'border-accent bg-accent-soft text-accent-ink' : 'border-subtle bg-surface text-ink-secondary',
-            ]"
+            :class="[ 'rounded border px-2 py-0.5 uppercase focus-ring', uploadLanguage === opt ? 'border-accent bg-accent-soft text-accent-ink' : 'border-subtle bg-surface text-ink-secondary', ]"
           >
             {{ opt }}
           </button>
@@ -388,39 +402,55 @@ function openReport(row) {
       </div>
     </div>
 
-    <div v-if="uploadError" class="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+    <div v-if="uploadError" class="mt-3 banner-danger">
       {{ uploadErrorMessage }}
     </div>
 
-    <div class="mt-5 grid gap-3 lg:grid-cols-[1.4fr_repeat(4,minmax(0,1fr))]">
-      <label class="relative block">
-        <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+    <div class="mt-5 grid min-w-0 gap-3 lg:grid-cols-[minmax(12rem,1.4fr)_repeat(4,minmax(0,1fr))]">
+      <label class="relative block min-w-0">
+        <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
         <input
           v-model="query"
           type="search"
           :placeholder="t('documents.filter_placeholder')"
-          class="w-full rounded-lg border border-subtle bg-surface-muted py-2 pl-9 pr-3 text-sm text-ink-primary placeholder:text-ink-subtle focus-ring"
+          class="field !pl-9 pr-3 focus-ring"
         />
       </label>
-      <select v-model="categoryFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
+      <select
+        v-model="categoryFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_categories')"
+      >
         <option value="all">{{ t("documents.all_categories") }}</option>
         <option v-for="category in categories" :key="category.id" :value="category.id">
           {{ category.label }}
         </option>
       </select>
-      <select v-model="sourceClassFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
+      <select
+        v-model="sourceClassFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_source_classes')"
+      >
         <option value="all">{{ t("documents.all_source_classes") }}</option>
         <option v-for="sourceClass in sourceClasses" :key="sourceClass" :value="sourceClass">
           {{ sourceClass }}
         </option>
       </select>
-      <select v-model="languageFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
+      <select
+        v-model="languageFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_languages')"
+      >
         <option value="all">{{ t("documents.all_languages") }}</option>
         <option v-for="language in languages" :key="language" :value="language">
           {{ language.toUpperCase() }}
         </option>
       </select>
-      <select v-model="statusFilter" class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-sm text-ink-secondary focus-ring">
+      <select
+        v-model="statusFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_statuses')"
+      >
         <option value="all">{{ t("documents.all_statuses") }}</option>
         <option v-for="status in statuses" :key="status" :value="status">
           {{ humanizeStatus(status, t("memo.pending"), appLanguage) }}
@@ -432,12 +462,20 @@ function openReport(row) {
       <Loader2 class="h-4 w-4 animate-spin" />
       {{ t("documents.loading") }}
     </div>
-    <div v-else-if="error" class="mt-6 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+    <div v-else-if="error" class="mt-6 flex items-start gap-2 banner-danger">
       <AlertCircle class="mt-0.5 h-4 w-4" />
       {{ errorMessage }}
     </div>
     <div v-else-if="visibleCount === 0" class="mt-6 rounded-subbox border border-dashed border-subtle bg-surface-muted p-6 text-sm text-ink-muted">
-      {{ t("documents.empty") }}
+      <p>{{ t("documents.empty") }}</p>
+      <button
+        v-if="payload.unresolved_intake_count && filtersActive"
+        type="button"
+        class="btn-tinted mt-3 text-xs focus-ring"
+        @click="clearDocumentFilters"
+      >
+        {{ t("documents.show_awaiting", { count: payload.unresolved_intake_count }) }}
+      </button>
     </div>
 
     <div v-else class="mt-6 space-y-5">
@@ -534,7 +572,7 @@ function openReport(row) {
                   v-if="row.backend === 'generated_report'"
                   type="button"
                   @click="openReport(row)"
-                  class="inline-flex items-center gap-1 rounded-full bg-ink-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-ink-secondary focus-ring"
+                  class="btn-filled rounded-full px-3 py-1.5 text-xs font-semibold hover:bg-accent-hover focus-ring"
                 >
                   <Eye class="h-3.5 w-3.5" />
                   {{ t("documents.open") }}
@@ -609,7 +647,7 @@ function openReport(row) {
       <div class="flex items-start justify-between gap-3">
         <div>
           <div class="vogue-label">{{ t("documents.source_trace") }}</div>
-          <h3 class="mt-1 font-display text-lg font-semibold text-ink-primary">
+          <h3 class="mt-1 font-display text-title3 text-ink-primary">
             {{ traceRow.title }}
           </h3>
         </div>
@@ -623,19 +661,19 @@ function openReport(row) {
       </div>
       <dl class="mt-5 space-y-3 text-sm">
         <div>
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.source_class") }}</dt>
+          <dt class="text-footnote font-semibold text-ink-muted">{{ t("documents.source_class") }}</dt>
           <dd class="mt-1 text-ink-primary">{{ traceRow.source_class }}</dd>
         </div>
         <div>
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.origin") }}</dt>
+          <dt class="text-footnote font-semibold text-ink-muted">{{ t("documents.origin") }}</dt>
           <dd class="mt-1 text-ink-primary">{{ traceRow.provenance?.origin || t("memo.pending") }}</dd>
         </div>
         <div>
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.captured") }}</dt>
+          <dt class="text-footnote font-semibold text-ink-muted">{{ t("documents.captured") }}</dt>
           <dd class="mono-data mt-1 text-ink-primary">{{ formatIsoDate(traceRow.provenance?.captured_at, t("memo.pending")) }}</dd>
         </div>
         <div v-if="traceRow.provenance?.url">
-          <dt class="text-xs uppercase tracking-wide text-ink-muted">{{ t("documents.url") }}</dt>
+          <dt class="text-footnote font-semibold text-ink-muted">{{ t("documents.url") }}</dt>
           <dd class="mt-1 break-all text-ink-primary">{{ traceRow.provenance.url }}</dd>
         </div>
       </dl>
@@ -665,7 +703,7 @@ function openReport(row) {
           >
             <div class="font-semibold text-ink-primary">{{ trace.locator || trace.label || "Document" }}</div>
             <p class="mt-1 leading-relaxed">{{ trace.excerpt || trace.text }}</p>
-            <div v-if="trace.confidence" class="mt-2 text-[11px] uppercase tracking-wide text-ink-muted">
+            <div v-if="trace.confidence" class="mt-2 text-[11px] text-footnote font-semibold text-ink-muted">
               {{ t("documents.confidence", { value: trace.confidence }) }}
             </div>
           </li>

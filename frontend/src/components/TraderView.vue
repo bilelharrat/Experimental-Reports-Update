@@ -573,7 +573,7 @@ function sourceLabel(section) {
     <!-- Header: refresh CTA + "updated X ago" caption + status banner. -->
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div class="flex items-center gap-2 text-xs text-ink-muted">
-        <span class="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+        <span class="vogue-label">
           {{ t("trader.card.price") }} · {{ t("trader.card.momentum") }} ·
           {{ t("trader.card.sentiment") }}
         </span>
@@ -582,6 +582,7 @@ function sourceLabel(section) {
         </span>
       </div>
       <button
+        v-if="snapshot"
         type="button"
         @click="onRefresh"
         :disabled="refreshing"
@@ -636,9 +637,19 @@ function sourceLabel(section) {
     <!-- Empty state: no snapshot yet. -->
     <div
       v-if="!snapshot"
-      class="rounded-card border border-dashed border-subtle p-6 text-sm text-ink-secondary text-center"
+      class="rounded-card border border-dashed border-subtle p-6 text-center"
     >
-      {{ t("trader.never_refreshed") }}
+      <p class="text-sm text-ink-secondary">{{ t("trader.never_refreshed") }}</p>
+      <button
+        type="button"
+        @click="onRefresh"
+        :disabled="refreshing"
+        class="btn-filled mt-4 text-xs focus-ring"
+      >
+        <Loader2 v-if="refreshing" class="h-3.5 w-3.5 animate-spin" />
+        <RefreshCw v-else class="h-3.5 w-3.5" />
+        {{ refreshing ? t("trader.refreshing") : t("trader.generate_first") }}
+      </button>
     </div>
 
     <!-- Card grid -->
@@ -646,7 +657,7 @@ function sourceLabel(section) {
       <!-- Price -->
       <div class="bg-surface border border-subtle rounded-card p-4 space-y-2">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="flex items-center gap-1.5 vogue-label">
             <Activity class="h-3.5 w-3.5" />
             {{ t("trader.card.price") }}
           </div>
@@ -678,7 +689,7 @@ function sourceLabel(section) {
       <!-- Momentum -->
       <div class="bg-surface border border-subtle rounded-card p-4 space-y-2">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="flex items-center gap-1.5 vogue-label">
             <Gauge class="h-3.5 w-3.5" />
             {{ t("trader.card.momentum") }}
           </div>
@@ -724,7 +735,7 @@ function sourceLabel(section) {
       <!-- Sentiment -->
       <div class="bg-surface border border-subtle rounded-card p-4 space-y-2">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="flex items-center gap-1.5 vogue-label">
             <Users class="h-3.5 w-3.5" />
             {{ t("trader.card.sentiment") }}
           </div>
@@ -768,7 +779,7 @@ function sourceLabel(section) {
           </span>
         </div>
         <div v-if="sentiment?.recent_rating_changes?.length" class="text-xs space-y-0.5">
-          <div class="text-ink-muted text-[10px] uppercase tracking-wide">
+          <div class="text-ink-muted text-caption1">
             {{ t("trader.sentiment.recent_changes") }}
           </div>
           <ul class="text-ink-secondary">
@@ -787,7 +798,7 @@ function sourceLabel(section) {
       <!-- Positioning Structure (heat_card v2) — widest card, 2 cols -->
       <div class="bg-surface border border-subtle rounded-card p-4 space-y-3 md:col-span-2">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="flex items-center gap-1.5 vogue-label">
             <Flame class="h-3.5 w-3.5" />
             {{ t("trader.card.heat.v2") }}
           </div>
@@ -820,7 +831,7 @@ function sourceLabel(section) {
           <!-- 1. Anchored cost basis -->
           <section v-if="heat.anchored_vwaps" class="space-y-1.5">
             <div class="flex items-center justify-between">
-              <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+              <span class="text-caption1 text-ink-muted">
                 {{ t("trader.heat.section.anchored_vwaps") }}
               </span>
               <span
@@ -865,7 +876,7 @@ function sourceLabel(section) {
           <!-- 2. Float turnover zones -->
           <section v-if="heat.float_turnover_zones" class="space-y-1.5">
             <div class="flex items-center justify-between">
-              <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+              <span class="text-caption1 text-ink-muted">
                 {{ t("trader.heat.section.float_turnover_zones") }}
               </span>
               <span
@@ -931,7 +942,7 @@ function sourceLabel(section) {
           >
             <div v-if="heat.holder_mix" class="space-y-1">
               <div class="flex items-center justify-between">
-                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                <span class="text-caption1 text-ink-muted">
                   {{ t("trader.heat.section.holder_mix") }}
                 </span>
                 <span
@@ -967,7 +978,7 @@ function sourceLabel(section) {
 
             <div v-if="heat.options_positioning" class="space-y-1">
               <div class="flex items-center justify-between">
-                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                <span class="text-caption1 text-ink-muted">
                   {{ t("trader.heat.section.options_positioning") }}
                 </span>
                 <span
@@ -1016,7 +1027,7 @@ function sourceLabel(section) {
           >
             <div v-if="heat.short_pressure" class="space-y-1">
               <div class="flex items-center justify-between">
-                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                <span class="text-caption1 text-ink-muted">
                   {{ t("trader.heat.section.short_pressure") }}
                 </span>
                 <span
@@ -1063,7 +1074,7 @@ function sourceLabel(section) {
 
             <div v-if="heat.valuation" class="space-y-1">
               <div class="flex items-center justify-between">
-                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                <span class="text-caption1 text-ink-muted">
                   {{ t("trader.heat.section.valuation") }}
                 </span>
                 <span
@@ -1118,7 +1129,7 @@ function sourceLabel(section) {
           >
             <div v-if="heat.revisions" class="space-y-1">
               <div class="flex items-center justify-between">
-                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                <span class="text-caption1 text-ink-muted">
                   {{ t("trader.heat.section.revisions") }}
                 </span>
                 <span
@@ -1157,7 +1168,7 @@ function sourceLabel(section) {
 
             <div v-if="heat.next_catalyst" class="space-y-1">
               <div class="flex items-center justify-between">
-                <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+                <span class="text-caption1 text-ink-muted">
                   {{ t("trader.heat.section.next_catalyst") }}
                 </span>
                 <span
@@ -1192,7 +1203,7 @@ function sourceLabel(section) {
 
           <!-- Composites: support confidence + fragility + repricing risk -->
           <section v-if="heat.support_confidence" class="space-y-1">
-            <div class="text-[10px] uppercase tracking-wide text-ink-muted">
+            <div class="text-caption1 text-ink-muted">
               {{ t("trader.heat.section.support_confidence") }}
             </div>
             <ul class="space-y-0.5 text-[11px]">
@@ -1218,7 +1229,7 @@ function sourceLabel(section) {
 
           <section v-if="heat.fragility" class="space-y-1">
             <div class="flex items-center justify-between text-[11px]">
-              <span class="text-[10px] uppercase tracking-wide text-ink-muted">
+              <span class="text-caption1 text-ink-muted">
                 {{ t("trader.heat.section.fragility") }}
               </span>
               <span class="font-mono text-ink-primary">
@@ -1237,7 +1248,7 @@ function sourceLabel(section) {
           </section>
 
           <section v-if="heat.repricing_risk" class="space-y-1">
-            <div class="text-[10px] uppercase tracking-wide text-ink-muted">
+            <div class="text-caption1 text-ink-muted">
               {{ t("trader.heat.section.repricing_risk") }}
             </div>
             <div class="flex flex-wrap gap-1 text-[11px]">
@@ -1266,7 +1277,7 @@ function sourceLabel(section) {
       <!-- Upcoming catalysts — 1 col (Positioning Structure takes the other 2) -->
       <div class="bg-surface border border-subtle rounded-card p-4 space-y-2">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="flex items-center gap-1.5 vogue-label">
             <CalendarClock class="h-3.5 w-3.5" />
             {{ t("trader.card.catalysts") }}
           </div>
@@ -1294,7 +1305,7 @@ function sourceLabel(section) {
       <!-- Trader news -->
       <div class="bg-surface border border-subtle rounded-card p-4 space-y-2 md:col-span-3">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="flex items-center gap-1.5 vogue-label">
             <Newspaper class="h-3.5 w-3.5" />
             {{ t("trader.card.news") }}
           </div>
@@ -1329,7 +1340,7 @@ function sourceLabel(section) {
       <!-- Research Overview — second card group with non-tape context. -->
       <section class="md:col-span-3 space-y-3 pt-1">
         <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          <div class="flex items-center gap-1.5 vogue-label">
             <Radar class="h-3.5 w-3.5" />
             {{ t("trader.card.research_overview") }}
           </div>
@@ -1360,7 +1371,7 @@ function sourceLabel(section) {
             class="bg-surface border border-subtle rounded-card p-4 space-y-3 lg:col-span-2"
           >
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-1.5 vogue-label">
                 <Boxes class="h-3.5 w-3.5" />
                 {{ t("trader.research.business_mix") }}
               </div>
@@ -1441,7 +1452,7 @@ function sourceLabel(section) {
             class="bg-surface border border-subtle rounded-card p-4 space-y-3"
           >
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-1.5 vogue-label">
                 <CircleDollarSign class="h-3.5 w-3.5" />
                 {{ t("trader.research.financial_quality") }}
               </div>
@@ -1457,7 +1468,7 @@ function sourceLabel(section) {
                 <div class="text-3xl font-display text-ink-primary leading-none">
                   {{ financialQuality.score ?? "—" }}
                 </div>
-                <div class="text-[10px] uppercase tracking-wide text-ink-muted mt-1">
+                <div class="text-caption1 text-ink-muted mt-1">
                   {{ t("trader.research.quality_score") }}
                 </div>
               </div>
@@ -1499,7 +1510,7 @@ function sourceLabel(section) {
             class="bg-surface border border-subtle rounded-card p-4 space-y-3"
           >
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-1.5 vogue-label">
                 <BarChart3 class="h-3.5 w-3.5" />
                 {{ t("trader.research.growth_durability") }}
               </div>
@@ -1560,7 +1571,7 @@ function sourceLabel(section) {
             class="bg-surface border border-subtle rounded-card p-4 space-y-3 lg:col-span-2"
           >
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-1.5 vogue-label">
                 <Network class="h-3.5 w-3.5" />
                 {{ t("trader.research.peer_context") }}
               </div>
@@ -1622,7 +1633,7 @@ function sourceLabel(section) {
             class="bg-surface border border-subtle rounded-card p-4 space-y-3 lg:col-span-2"
           >
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-1.5 vogue-label">
                 <Target class="h-3.5 w-3.5" />
                 {{ t("trader.research.scenario_matrix") }}
               </div>
@@ -1639,7 +1650,7 @@ function sourceLabel(section) {
             <ul v-if="scenarioMatrix.scenarios?.length" class="space-y-3 text-xs">
               <li v-for="(s, i) in scenarioMatrix.scenarios" :key="`${s.case}-${i}`" class="space-y-1.5">
                 <div class="flex items-center justify-between gap-2">
-                  <span :class="['text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide', scenarioToneClass(s.case)]">
+                  <span :class="['text-[10px] px-1.5 py-0.5 rounded ', scenarioToneClass(s.case)]">
                     {{ scenarioLabel(s) }}
                   </span>
                   <span class="font-mono text-ink-primary">
@@ -1652,12 +1663,7 @@ function sourceLabel(section) {
                 <div class="relative h-2 rounded bg-surface-muted overflow-hidden">
                   <div class="absolute inset-y-0 left-1/2 w-px bg-strong/70" />
                   <div
-                    :class="[
-                      'absolute inset-y-0',
-                      changeBias(s.implied_return_pct) === 'down'
-                        ? 'right-1/2 bg-danger'
-                        : 'left-1/2 bg-success',
-                    ]"
+                    :class="[ 'absolute inset-y-0', changeBias(s.implied_return_pct) === 'down' ? 'right-1/2 bg-danger' : 'left-1/2 bg-success', ]"
                     :style="{ width: signedBarWidth(s.implied_return_pct) + '%' }"
                   />
                 </div>
@@ -1674,7 +1680,7 @@ function sourceLabel(section) {
             class="bg-surface border border-subtle rounded-card p-4 space-y-3"
           >
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <div class="flex items-center gap-1.5 vogue-label">
                 <ClipboardList class="h-3.5 w-3.5" />
                 {{ t("trader.research.diligence_questions") }}
               </div>

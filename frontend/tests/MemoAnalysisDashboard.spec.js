@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   cancelTask: vi.fn(),
   getEvidenceMatrix: vi.fn(),
   runLedger: vi.fn(),
+  refineRisk: vi.fn(),
   approve: vi.fn(),
 }));
 
@@ -518,7 +519,7 @@ describe("MemoAnalysisDashboard", () => {
     const text = wrapper.text();
     expect(text).toContain("Core Memo Workflow");
     expect(text).toContain("Memo Tools Toolbox");
-    expect(text).toContain("Work Products");
+    expect(text).toContain("Deliverables");
     expect(text).toContain("Review Queue");
     expect(text).toContain("Source Evidence Drawer");
     expect(text).toContain("Source And Evidence Boundaries");

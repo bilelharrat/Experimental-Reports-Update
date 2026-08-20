@@ -369,12 +369,7 @@ function turnTime(ts) {
             v-for="s in activeSessions"
             :key="s.id"
             @click="selectSession(s.id)"
-            :class="[
-              'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm focus-ring flex-shrink-0',
-              activeId === s.id
-                ? 'bg-accent text-white'
-                : 'bg-surface-muted text-ink-secondary hover:bg-surface',
-            ]"
+            :class="[ 'inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm focus-ring flex-shrink-0', activeId === s.id ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
           >
             <span
               class="h-1.5 w-1.5 rounded-full"
@@ -385,7 +380,7 @@ function turnTime(ts) {
           <button
             @click="openCreate"
             :disabled="creating || !(ctx && ctx.file_count)"
-            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm bg-surface-muted text-ink-primary hover:bg-surface border border-subtle focus-ring flex-shrink-0 disabled:opacity-50"
+            class="btn-bordered btn-sm focus-ring flex-shrink-0"
           >
             <Loader2 v-if="creating" class="h-3.5 w-3.5 animate-spin" />
             <Plus v-else class="h-3.5 w-3.5" />
@@ -428,7 +423,7 @@ function turnTime(ts) {
 
     <div
       v-if="!hydrationDone"
-      class="rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-muted flex items-center gap-2"
+      class="rounded-subbox bg-fill-tertiary px-3 py-2 text-xs text-ink-muted flex items-center gap-2"
     >
       <Loader2 class="h-3.5 w-3.5 animate-spin" />
       <span>{{ hydrationStage || tr("console.hydrating") }}</span>
@@ -445,7 +440,7 @@ function turnTime(ts) {
         —
       </div>
       <div v-for="t in turns" :key="t.id + ':' + t.role" class="space-y-1">
-        <div class="text-xs uppercase tracking-wide text-ink-muted">
+        <div class="text-footnote font-semibold text-ink-muted">
           <template v-if="t.role === 'user'">▶ {{ tr("console.you") }}</template>
           <template v-else>▶ {{ tr("console.claude") }}</template>
           <span class="ml-2 normal-case tracking-normal">{{ turnTime(t.ts) }}</span>
@@ -468,7 +463,7 @@ function turnTime(ts) {
 
       <div v-if="pendingTurnId" class="space-y-1">
         <div
-          class="text-xs uppercase tracking-wide text-ink-muted flex items-center gap-2"
+          class="text-footnote font-semibold text-ink-muted flex items-center gap-2"
         >
           <Loader2 class="h-3 w-3 animate-spin" />
           ▶ {{ tr("console.claude") }}
@@ -494,7 +489,7 @@ function turnTime(ts) {
         :key="'q:' + q.turn_id"
         class="space-y-1 opacity-70"
       >
-        <div class="text-xs uppercase tracking-wide text-ink-muted">
+        <div class="text-footnote font-semibold text-ink-muted">
           ▶ {{ tr("console.claude") }}
           <span class="normal-case tracking-normal">
             ({{ tr("console.queued_position", { n: q.position }) }})
@@ -519,13 +514,13 @@ function turnTime(ts) {
           rows="2"
           :placeholder="tr('console.input_placeholder')"
           :disabled="!sessionActive || lockSend"
-          class="flex-1 px-3 py-2 rounded-lg border border-subtle bg-surface-muted text-ink-primary placeholder:text-ink-subtle focus-ring text-sm resize-none disabled:opacity-50"
+          class="field resize-none flex-1 disabled:opacity-50 focus-ring"
           @keydown.enter.exact.prevent="send"
         ></textarea>
         <button
           v-if="pendingTurnId"
           @click="stop"
-          class="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-sm bg-surface-muted text-ink-primary hover:bg-surface border border-subtle focus-ring"
+          class="btn-bordered focus-ring"
         >
           <StopCircle class="h-4 w-4" /> Stop
         </button>
@@ -533,7 +528,7 @@ function turnTime(ts) {
           v-else
           @click="send"
           :disabled="!prompt.trim() || !sessionActive || lockSend"
-          class="inline-flex items-center gap-1 px-3 py-2 rounded-lg text-sm bg-accent text-white hover:bg-accent-hover focus-ring disabled:opacity-50"
+          class="btn-filled focus-ring"
         >
           <Send class="h-4 w-4" /> {{ tr("console.send") }}
         </button>
@@ -550,15 +545,15 @@ function turnTime(ts) {
     <Teleport to="body">
       <div
         v-if="showCreate"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        class="sheet-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
         @click.self="showCreate = false"
       >
         <div
-          class="bg-surface rounded-card shadow-card-raised border border-subtle w-full max-w-md p-5 space-y-4"
+          class="sheet-panel bg-surface rounded-sheet w-full max-w-md p-5 space-y-4"
         >
           <div>
             <div class="font-display text-base font-semibold text-ink-primary">
-              New Hormuz console session
+              New source console session
             </div>
             <p class="mt-1 text-xs text-ink-muted">
               <template v-if="ctx && ctx.dates?.length">
@@ -574,7 +569,7 @@ function turnTime(ts) {
 
           <div>
             <div
-              class="text-[11px] uppercase tracking-wide text-ink-muted mb-1.5"
+              class="text-[11px] text-footnote font-semibold text-ink-muted mb-1.5"
             >
               Response language
             </div>
@@ -582,24 +577,14 @@ function turnTime(ts) {
               <button
                 type="button"
                 @click="newLang = 'en'"
-                :class="[
-                  'px-3 py-1.5 rounded-lg text-sm border focus-ring',
-                  newLang === 'en'
-                    ? 'bg-accent text-white border-accent'
-                    : 'bg-surface-muted text-ink-secondary border-subtle hover:bg-surface',
-                ]"
+                :class="[ 'px-3 py-1.5 rounded-lg text-sm border focus-ring', newLang === 'en' ? 'bg-accent text-white border-accent' : 'bg-surface-muted text-ink-secondary border-subtle hover:bg-surface', ]"
               >
                 English
               </button>
               <button
                 type="button"
                 @click="newLang = 'zh'"
-                :class="[
-                  'px-3 py-1.5 rounded-lg text-sm border focus-ring',
-                  newLang === 'zh'
-                    ? 'bg-accent text-white border-accent'
-                    : 'bg-surface-muted text-ink-secondary border-subtle hover:bg-surface',
-                ]"
+                :class="[ 'px-3 py-1.5 rounded-lg text-sm border focus-ring', newLang === 'zh' ? 'bg-accent text-white border-accent' : 'bg-surface-muted text-ink-secondary border-subtle hover:bg-surface', ]"
               >
                 中文
               </button>
@@ -619,7 +604,7 @@ function turnTime(ts) {
               type="button"
               @click="createSession"
               :disabled="creating || !(ctx && ctx.file_count)"
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-accent text-white hover:bg-accent-hover focus-ring disabled:opacity-50"
+              class="btn-filled btn-sm focus-ring"
             >
               <Loader2 v-if="creating" class="h-4 w-4 animate-spin" />
               <Plus v-else class="h-4 w-4" />
