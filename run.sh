@@ -27,13 +27,41 @@ fi
 # Ensure backend deps are installed.
 uv sync --quiet
 
-# Build the frontend if it exists and the dist is missing/stale.
+# Build the frontend if it exists and the dist is missing or stale.
 if [ -d "frontend" ]; then
     if [ ! -d "frontend/node_modules" ]; then
         echo "Installing frontend dependencies..."
         (cd frontend && npm install --silent)
     fi
-    if [ ! -f "frontend/dist/index.html" ] || [ "${REBUILD_FRONTEND:-0}" = "1" ]; then
+
+    # dist/ is gitignored, so a pull or merge updates source without ever
+    # touching the built bundle. Compare every input that changes the build
+    # against dist/index.html; anything newer means the served UI is stale.
+    FRONTEND_SOURCES=(
+        frontend/src
+        frontend/public
+        frontend/index.html
+        frontend/vite.config.js
+        frontend/tailwind.config.cjs
+        frontend/postcss.config.cjs
+        frontend/package.json
+        frontend/package-lock.json
+    )
+    DIST_STALE=0
+    if [ ! -f "frontend/dist/index.html" ]; then
+        DIST_STALE=1
+    else
+        for src in "${FRONTEND_SOURCES[@]}"; do
+            [ -e "$src" ] || continue
+            if [ -n "$(find "$src" -newer frontend/dist/index.html -print -quit 2>/dev/null)" ]; then
+                echo "Frontend build is stale ($src changed since the last build)."
+                DIST_STALE=1
+                break
+            fi
+        done
+    fi
+
+    if [ "$DIST_STALE" = "1" ] || [ "${REBUILD_FRONTEND:-0}" = "1" ]; then
         echo "Building frontend..."
         (cd frontend && npm run build)
     fi
