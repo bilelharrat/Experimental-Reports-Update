@@ -11,9 +11,11 @@ import {
   AlertCircle,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { useT } from "../i18n.js";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import HormuzConsole from "../components/HormuzConsole.vue";
 
+const t = useT();
 const router = useRouter();
 
 const tab = ref("library"); // "library" | "console"
@@ -141,7 +143,7 @@ function openPreview(date, slot, langLabel) {
   previewFile.value = {
     id: `hormuz-${date}-${slot}`,
     kind: "pdf",
-    label: `Hormuz V3 Appendix — ${langLabel} — ${date}`,
+    label: `Bilingual appendix — ${langLabel} — ${date}`,
     filename: `v3_appendix_${slot}_${date}.pdf`,
   };
 }
@@ -157,38 +159,36 @@ function closePreview() {
       @click="router.push({ name: 'home' })"
       class="text-sm text-ink-muted hover:text-ink-primary inline-flex items-center gap-1 focus-ring rounded"
     >
-      <ArrowLeft class="h-4 w-4" /> Back
+      <ArrowLeft class="h-4 w-4" /> {{ t("common.back") }}
     </button>
 
     <header class="border-b border-subtle pb-4">
       <div class="vogue-label">
-        Hormuz research
+        {{ t("hormuz.research_label") }}
       </div>
       <h1 class="font-display text-large-title text-ink-primary mt-0.5">
-        Source library &amp; V3 appendix
+        {{ t("hormuz.library_title") }}
       </h1>
       <p class="mt-1 text-sm text-ink-muted">
-        Upload daily reports — the date is read from the filename
-        (e.g. <code>中东局势每日研判2026-05-13.pdf</code>). Generate the
-        bilingual V3 appendix per date; re-running a date overwrites it.
+        {{ t("hormuz.library_help") }}
       </p>
     </header>
 
     <!-- Tabs -->
     <div class="flex items-center gap-1 hairline-b" role="tablist">
       <button
-        v-for="t in [
-          { id: 'library', label: 'Source library & V3 appendix' },
-          { id: 'console', label: 'Console' },
+        v-for="item in [
+          { id: 'library', label: t('hormuz.library_tab') },
+          { id: 'console', label: t('hormuz.console_tab') },
         ]"
-        :key="t.id"
-        @click="tab = t.id"
+        :key="item.id"
+        @click="tab = item.id"
         class="workspace-tab px-3 py-2.5 text-callout font-medium focus-ring"
-        :class="tab === t.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary'"
+        :class="tab === item.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary'"
         role="tab"
-        :aria-selected="tab === t.id"
+        :aria-selected="tab === item.id"
       >
-        {{ t.label }}
+        {{ item.label }}
       </button>
     </div>
 

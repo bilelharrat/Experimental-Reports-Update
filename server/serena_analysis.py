@@ -28,6 +28,18 @@ from typing import Any
 import yaml
 
 from . import claude_runner, job_progress, research_eval, research_store, run_ledger, storage
+from .risk_workbench import (
+    DISPOSITIONS,
+    FRAMINGS,
+    apply_framing,
+    complete_risk,
+    company_evidence_rows,
+    default_priorities,
+    merge_task_evidence_into_risk,
+    ordered_active_risks,
+    packet_strategic_risk_lines,
+    suggested_disposition,
+)
 
 ANALYSIS_ROOT = storage.DATA_DIR / "serena_analysis"
 TRAINING_ROOT = storage.DATA_DIR / "serena_training"
@@ -831,13 +843,30 @@ def patch_artifact(company_id: str, artifact_name: str, patch: dict) -> dict:
         if artifact_name == "risk_priorities":
             risks = _ensure_risks(company, artifacts)
             priorities = patch.get("priorities") if isinstance(patch, dict) else []
+            normalized = _normalize_priorities(risks, priorities)
+            for row in normalized:
+                row["human_ranked"] = True
             artifacts["risk_priorities"] = {
                 **(current if isinstance(current, dict) else {}),
                 **(patch if isinstance(patch, dict) else {}),
                 "updated_at": _now(),
-                "priorities": _normalize_priorities(risks, priorities),
+                "priorities": normalized,
             }
             _refresh_research_tasks(company, artifacts)
+        elif artifact_name == "strategic_risks":
+            risks = _ensure_risks(company, artifacts)
+            merged = _merge_strategic_risk_patch(company, risks, patch)
+            artifacts["strategic_risks"] = {
+                **(current if isinstance(current, dict) else {}),
+                "generated_at": (
+                    current.get("generated_at") if isinstance(current, dict) else None
+                ) or _now(),
+                "updated_at": _now(),
+                "source_basis": (
+                    current.get("source_basis") if isinstance(current, dict) else None
+                ) or _source_basis(company),
+                "risks": merged,
+            }
         elif artifact_name == "readiness_reviews":
             artifacts["readiness_reviews"] = _merge_readiness_reviews(
                 current,
@@ -847,6 +876,115 @@ def patch_artifact(company_id: str, artifact_name: str, patch: dict) -> dict:
             artifacts[artifact_name] = {**current, **patch}
         else:
             artifacts[artifact_name] = patch
+        _refresh_memo_packet(session)
+        _write_session(session)
+        return _decorate(session)
+
+
+def refine_risk(
+    company_id: str,
+    risk_id: str,
+    *,
+    framing: str = "other",
+    analyst_note: str = "",
+) -> dict:
+    """Apply an analyst framing to one risk and optionally regenerate it."""
+    company = storage.get_company(company_id)
+    if company is None:
+        raise ValueError(f"Unknown company: {company_id}")
+    with _LOCK:
+        session = get_current_session(company_id, create=True)
+        if session is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        session = _strip_decorations(session)
+        artifacts = session.setdefault("artifacts", {})
+        risks = _ensure_risks(company, artifacts)
+        target = next(
+            (
+                copy.deepcopy(risk)
+                for risk in risks
+                if isinstance(risk, dict) and str(risk.get("id") or "") == str(risk_id)
+            ),
+            None,
+        )
+        if target is None:
+            raise ValueError(f"Unknown risk: {risk_id}")
+
+    framed = apply_framing(target, framing, analyst_note)
+    refined: dict | None = None
+    claude_error: str | None = None
+    try:
+        refined, claude_error = claude_runner.run_serena_risk_refine(
+            company=company,
+            risk=framed,
+            framing=framed.get("framing") or framing,
+            analyst_note=analyst_note,
+            research_dir=research_store.RESEARCH_ROOT / company_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("serena risk refine crashed")
+        claude_error = f"{type(exc).__name__}: {exc}"
+
+    merged_source = {
+        **framed,
+        **(refined if isinstance(refined, dict) else {}),
+        "id": target.get("id"),
+        "framing": framed.get("framing"),
+        "edited_by_human": True,
+        "analyst_note": analyst_note or framed.get("analyst_note") or "",
+        "generated_by": (
+            "claude_code" if isinstance(refined, dict) else "deterministic_fallback"
+        ),
+    }
+    if claude_error and not isinstance(refined, dict):
+        merged_source["claude_error"] = claude_error
+    final = complete_risk(merged_source, company, index=1)
+
+    with _LOCK:
+        session = get_current_session(company_id, create=True)
+        if session is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        session = _strip_decorations(session)
+        artifacts = session.setdefault("artifacts", {})
+        risks = _ensure_risks(company, artifacts)
+        updated = []
+        found = False
+        for risk in risks:
+            if str(risk.get("id") or "") == str(risk_id):
+                updated.append(final)
+                found = True
+            else:
+                updated.append(risk)
+        if not found:
+            raise ValueError(f"Unknown risk: {risk_id}")
+        risk_artifact = artifacts.get("strategic_risks")
+        artifacts["strategic_risks"] = {
+            **(risk_artifact if isinstance(risk_artifact, dict) else {}),
+            "risks": updated,
+            "updated_at": _now(),
+        }
+        priority_artifact = artifacts.get("risk_priorities")
+        if isinstance(priority_artifact, dict):
+            rows = priority_artifact.get("priorities")
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict) and str(row.get("risk_id") or "") == str(risk_id):
+                        row["framing"] = final.get("framing")
+                        if analyst_note:
+                            row["analyst_note"] = analyst_note
+                        row["human_ranked"] = True
+                artifacts["risk_priorities"] = {
+                    **priority_artifact,
+                    "priorities": _normalize_priorities(updated, rows),
+                    "updated_at": _now(),
+                }
+        task_artifact = artifacts.get("research_tasks")
+        if isinstance(task_artifact, dict):
+            for task in task_artifact.get("tasks") or []:
+                if isinstance(task, dict) and str(task.get("risk_id") or "") == str(risk_id):
+                    task["prompt"] = final.get("research_prompt")
+                    task["search_plan"] = _research_task_search_plan(final)
+                    task["title"] = f"Research: {final.get('title')}"
         _refresh_memo_packet(session)
         _write_session(session)
         return _decorate(session)
@@ -1202,7 +1340,32 @@ def _run_analysis_tool_job(
         error = f"{type(exc).__name__}: {exc}"
 
     if result and not error:
-        risks = _coerce_strategic_risks(result.get("risks"), company)
+        with _LOCK:
+            session = _load_session(session_path(company_id, session_id))
+            previous_artifact = (
+                session.get("artifacts", {}).get("strategic_risks")
+                if isinstance(session, dict)
+                else None
+            )
+            previous_priority_artifact = (
+                session.get("artifacts", {}).get("risk_priorities")
+                if isinstance(session, dict)
+                else None
+            )
+        previous_risks = (
+            previous_artifact.get("risks")
+            if isinstance(previous_artifact, dict)
+            else []
+        )
+        previous_priorities = (
+            previous_priority_artifact.get("priorities")
+            if isinstance(previous_priority_artifact, dict)
+            else []
+        )
+        risks = _carry_human_risk_edits(
+            previous_risks,
+            _coerce_strategic_risks(result.get("risks"), company),
+        )
         artifact = {
             "generated_at": _now(),
             "risks": risks,
@@ -1217,6 +1380,25 @@ def _run_analysis_tool_job(
             "generated_by": "claude_code",
             "result_payload": result,
         }
+        artifacts_patch: dict[str, Any] = {"strategic_risks": artifact}
+        carried = _carry_human_priorities(previous_risks, previous_priorities, risks)
+        if carried is not None:
+            temp_artifacts = {
+                "strategic_risks": artifact,
+                "risk_priorities": {
+                    **(previous_priority_artifact if isinstance(previous_priority_artifact, dict) else {}),
+                    "updated_at": _now(),
+                    "priorities": carried,
+                },
+                "research_tasks": (
+                    session.get("artifacts", {}).get("research_tasks")
+                    if isinstance(session, dict)
+                    else None
+                ) or {},
+            }
+            _refresh_research_tasks(company, temp_artifacts)
+            artifacts_patch["risk_priorities"] = temp_artifacts["risk_priorities"]
+            artifacts_patch["research_tasks"] = temp_artifacts["research_tasks"]
         summary = f"Generated {len(risks)} strategic risks with Claude."
         _finish_analysis_tool_job(
             company_id,
@@ -1225,7 +1407,7 @@ def _run_analysis_tool_job(
             status="done",
             summary=summary,
             error=None,
-            artifacts_patch={"strategic_risks": artifact},
+            artifacts_patch=artifacts_patch,
         )
         progress.emit("done", tool_name=tool_name, summary=summary)
         return
@@ -1305,6 +1487,8 @@ def _run_thesis_spine_builder_job(
         else False
     )
     risks = _ensure_risks(company, artifacts)
+    priority_rows = _priority_rows(artifacts)
+    artifacts["ordered_strategic_risks"] = ordered_active_risks(risks, priority_rows)
     ensured_patch: dict[str, Any] = {}
     if not had_risks and isinstance(artifacts.get("strategic_risks"), dict):
         ensured_patch["strategic_risks"] = artifacts["strategic_risks"]
@@ -1390,7 +1574,7 @@ def _run_thesis_spine_builder_job(
         message="Using deterministic fallback thesis spine",
         tool_name="thesis_spine_builder",
     )
-    fallback = _thesis_spine(company, risks)
+    fallback = _thesis_spine(company, risks, priority_rows)
     fallback["generated_by"] = "deterministic_fallback"
     fallback["claude_error"] = message
     summary = "Drafted deterministic fallback thesis spine."
@@ -2356,6 +2540,11 @@ def _finish_research_task_job(
             return
         for key, value in patch.items():
             task[key] = value
+        _merge_completed_task_into_parent_risk(
+            storage.get_company(company_id) or {},
+            artifacts,
+            task,
+        )
         _touch_research_tasks(session)
         _refresh_memo_packet(session)
         _write_session(session)
@@ -2403,19 +2592,14 @@ def _run_tool_impl(company: dict, artifacts: dict, tool_name: str) -> str:
             "generated_at": _now(),
             "risks": risks,
             "source_basis": _source_basis(company),
+            "generated_by": "deterministic_fallback",
         }
         return f"Generated {len(risks)} strategic risks."
     if tool_name == "priority_prompt_harness":
         risks = _ensure_risks(company, artifacts)
-        priorities = [
-            {
-                "risk_id": risk["id"],
-                "rank": i + 1,
-                "selected": i < 3,
-                "rationale": "Default priority based on decision impact and memo centrality.",
-            }
-            for i, risk in enumerate(risks)
-        ]
+        previous = artifacts.get("risk_priorities")
+        previous_rows = previous.get("priorities") if isinstance(previous, dict) else None
+        priorities = default_priorities(risks, previous_rows)
         artifacts["risk_priorities"] = {
             "updated_at": _now(),
             "priorities": priorities,
@@ -2425,7 +2609,11 @@ def _run_tool_impl(company: dict, artifacts: dict, tool_name: str) -> str:
         return f"Ranked {len(priorities)} risks and created {len(tasks)} research tasks."
     if tool_name == "thesis_spine_builder":
         risks = _ensure_risks(company, artifacts)
-        artifacts["thesis_spine"] = _thesis_spine(company, risks)
+        artifacts["thesis_spine"] = _thesis_spine(
+            company,
+            risks,
+            _priority_rows(artifacts),
+        )
         return "Drafted investment highlights, risks, recommendation logic, and top gates."
     if tool_name == "infographic_source_brief":
         artifacts["infographic_source_brief"] = _infographic_source_brief(
@@ -2488,16 +2676,194 @@ def _run_tool_impl(company: dict, artifacts: dict, tool_name: str) -> str:
     raise ValueError(f"Unhandled tool: {tool_name}")
 
 
+def _risk_title_key(risk: dict | None) -> str:
+    if not isinstance(risk, dict):
+        return ""
+    return str(risk.get("title") or risk.get("decision_question") or "").strip().lower()
+
+
+def _priority_rows(artifacts: dict) -> list[dict]:
+    artifact = artifacts.get("risk_priorities")
+    rows = artifact.get("priorities") if isinstance(artifact, dict) else []
+    return rows if isinstance(rows, list) else []
+
+
+def _complete_risk_list(company: dict, risks: list[dict]) -> list[dict]:
+    completed: list[dict] = []
+    for index, risk in enumerate(risks):
+        if not isinstance(risk, dict):
+            continue
+        completed.append(complete_risk(risk, company, index=index + 1))
+    return completed
+
+
+def _carry_human_risk_edits(previous: Any, new_risks: list[dict]) -> list[dict]:
+    prev_rows = previous if isinstance(previous, list) else []
+    by_title = {
+        _risk_title_key(risk): risk
+        for risk in prev_rows
+        if isinstance(risk, dict) and _risk_title_key(risk)
+    }
+    out: list[dict] = []
+    for risk in new_risks:
+        prev = by_title.get(_risk_title_key(risk))
+        if not isinstance(prev, dict) or not prev.get("edited_by_human"):
+            out.append(risk)
+            continue
+        merged = dict(risk)
+        for field in ("framing", "analyst_note", "edited_by_human", "status"):
+            if prev.get(field) not in (None, ""):
+                merged[field] = prev[field]
+        if prev.get("research_prompt") and prev.get("framing") not in (None, "", "other"):
+            merged["research_prompt"] = prev["research_prompt"]
+        out.append(merged)
+    return out
+
+
+def _carry_human_priorities(
+    previous_risks: Any,
+    previous_priorities: Any,
+    new_risks: list[dict],
+) -> list[dict] | None:
+    prev_rows = previous_priorities if isinstance(previous_priorities, list) else []
+    if not any(isinstance(row, dict) and row.get("human_ranked") for row in prev_rows):
+        return None
+    old_by_id = {
+        str(risk["id"]): risk
+        for risk in (previous_risks if isinstance(previous_risks, list) else [])
+        if isinstance(risk, dict) and risk.get("id")
+    }
+    new_by_title = {
+        _risk_title_key(risk): risk
+        for risk in new_risks
+        if isinstance(risk, dict) and _risk_title_key(risk)
+    }
+    remapped: list[dict] = []
+    for row in prev_rows:
+        if not isinstance(row, dict):
+            continue
+        old_risk = old_by_id.get(str(row.get("risk_id") or ""))
+        if old_risk is None:
+            continue
+        new_risk = new_by_title.get(_risk_title_key(old_risk))
+        if new_risk is None:
+            continue
+        remapped.append({**row, "risk_id": new_risk["id"], "human_ranked": True})
+    if not remapped:
+        return None
+    return _normalize_priorities(new_risks, remapped)
+
+
+def _merge_strategic_risk_patch(
+    company: dict,
+    risks: list[dict],
+    patch: Any,
+) -> list[dict]:
+    if not isinstance(patch, dict):
+        return _complete_risk_list(company, risks)
+    incoming = patch.get("risks")
+    if isinstance(incoming, list):
+        by_id = {
+            str(row.get("id")): row
+            for row in incoming
+            if isinstance(row, dict) and row.get("id")
+        }
+        merged: list[dict] = []
+        for index, existing in enumerate(risks):
+            if not isinstance(existing, dict):
+                continue
+            update = by_id.get(str(existing.get("id")))
+            if isinstance(update, dict):
+                merged.append(
+                    complete_risk(
+                        {**existing, **update, "id": existing.get("id")},
+                        company,
+                        index=index + 1,
+                    )
+                )
+            else:
+                merged.append(complete_risk(existing, company, index=index + 1))
+        return merged
+    risk_patch = patch.get("risk") if isinstance(patch.get("risk"), dict) else None
+    risk_id = str(
+        patch.get("risk_id")
+        or (risk_patch or {}).get("id")
+        or ""
+    )
+    if not risk_id or not isinstance(risk_patch, dict):
+        if risk_id:
+            risk_patch = {
+                key: value
+                for key, value in patch.items()
+                if key not in {"risk_id", "risks", "risk"}
+            }
+        else:
+            return _complete_risk_list(company, risks)
+    merged = []
+    for index, existing in enumerate(risks):
+        if str(existing.get("id") or "") == risk_id:
+            merged.append(
+                complete_risk(
+                    {**existing, **risk_patch, "id": existing.get("id"), "edited_by_human": True},
+                    company,
+                    index=index + 1,
+                )
+            )
+        else:
+            merged.append(complete_risk(existing, company, index=index + 1))
+    return merged
+
+
+def _merge_completed_task_into_parent_risk(
+    company: dict,
+    artifacts: dict,
+    task: dict,
+) -> None:
+    risk_id = str(task.get("risk_id") or "")
+    if not risk_id:
+        return
+    risk_artifact = artifacts.get("strategic_risks")
+    risks = risk_artifact.get("risks") if isinstance(risk_artifact, dict) else []
+    if not isinstance(risks, list):
+        return
+    updated: list[dict] = []
+    changed = False
+    for index, risk in enumerate(risks):
+        if isinstance(risk, dict) and str(risk.get("id") or "") == risk_id:
+            updated.append(
+                merge_task_evidence_into_risk(
+                    complete_risk(risk, company, index=index + 1),
+                    task,
+                )
+            )
+            changed = True
+        else:
+            updated.append(risk)
+    if not changed:
+        return
+    artifacts["strategic_risks"] = {
+        **(risk_artifact if isinstance(risk_artifact, dict) else {}),
+        "risks": updated,
+        "updated_at": _now(),
+    }
+
+
 def _ensure_risks(company: dict, artifacts: dict) -> list[dict]:
     risk_artifact = artifacts.get("strategic_risks")
     risks = risk_artifact.get("risks") if isinstance(risk_artifact, dict) else None
     if isinstance(risks, list) and risks:
-        return risks
+        completed = _complete_risk_list(company, risks)
+        artifacts["strategic_risks"] = {
+            **risk_artifact,
+            "risks": completed,
+        }
+        return completed
     risks = _strategic_risks(company)
     artifacts["strategic_risks"] = {
         "generated_at": _now(),
         "risks": risks,
         "source_basis": _source_basis(company),
+        "generated_by": "deterministic_fallback",
     }
     return risks
 
@@ -2558,14 +2924,30 @@ def _normalize_priorities(risks: list[dict], priorities: Any) -> list[dict]:
     provided.sort(key=lambda item: (item[0], item[1]))
 
     normalized: list[dict[str, Any]] = []
+    human_ranked = any(
+        bool(row.get("human_ranked")) for _, _, row in provided
+    )
     for _, _, row in provided:
+        risk = risk_by_id[str(row.get("risk_id"))]
+        disposition = str(row.get("disposition") or "").strip() or suggested_disposition(risk)
+        if disposition not in DISPOSITIONS:
+            disposition = suggested_disposition(risk)
+        framing = str(row.get("framing") or risk.get("framing") or "other").strip()
+        if framing not in FRAMINGS:
+            framing = "other"
+        selected = _coerce_selected(row.get("selected")) and disposition != "dismissed"
         item = {
             "risk_id": str(row.get("risk_id")),
             "rank": len(normalized) + 1,
-            "selected": _coerce_selected(row.get("selected")),
+            "selected": selected,
+            "disposition": disposition,
+            "framing": framing,
+            "human_ranked": bool(row.get("human_ranked")) or human_ranked,
         }
         if row.get("rationale") is not None:
             item["rationale"] = str(row.get("rationale") or "")
+        if row.get("analyst_note") is not None:
+            item["analyst_note"] = str(row.get("analyst_note") or "")
         normalized.append(item)
 
     for risk in risks:
@@ -2578,6 +2960,9 @@ def _normalize_priorities(risks: list[dict], priorities: Any) -> list[dict]:
             "risk_id": risk_id,
             "rank": len(normalized) + 1,
             "selected": False,
+            "disposition": suggested_disposition(risk),
+            "framing": risk.get("framing") if risk.get("framing") in FRAMINGS else "other",
+            "human_ranked": human_ranked,
         })
 
     return normalized
@@ -2962,10 +3347,20 @@ def _fallback_research_task_result(
         remaining_limits = [
             "Independent support and disconfirming evidence remain material source-treatment limits."
         ]
+    company_rows = company_evidence_rows(company)
+    supporting = []
+    if isinstance(risk, dict):
+        supporting = list(risk.get("supporting_evidence") or [])
+    if not supporting:
+        supporting = company_rows[:3]
     return {
         "answer": answer,
-        "supporting_evidence": [],
-        "contradicting_evidence": [],
+        "supporting_evidence": supporting,
+        "contradicting_evidence": (
+            list(risk.get("contradicting_evidence") or [])
+            if isinstance(risk, dict)
+            else []
+        ),
         "remaining_evidence_limits": remaining_limits,
         "open_questions": remaining_limits,
         "sources_checked": _normalize_sources_checked(None, source_manifest),
@@ -2996,9 +3391,22 @@ def _company_text(company: dict) -> str:
         company.get("description"),
         company.get("sector"),
         company.get("industry"),
+        company.get("positioning"),
     ]
     parts += [p.get("name") for p in company.get("products") or [] if isinstance(p, dict)]
-    parts += list(company.get("competitors") or [])
+    parts += [
+        item.get("name") if isinstance(item, dict) else item
+        for item in (company.get("competitors") or [])
+    ]
+    for item in list(company.get("recent_news") or company.get("company_news") or [])[:6]:
+        if isinstance(item, dict):
+            parts.append(item.get("headline") or item.get("title"))
+            parts.append(item.get("summary"))
+        else:
+            parts.append(item)
+    funding = company.get("latest_funding") if isinstance(company.get("latest_funding"), dict) else None
+    if funding:
+        parts.extend(funding.values())
     return " ".join(str(p or "") for p in parts).lower()
 
 
@@ -3008,11 +3416,15 @@ def _source_basis(company: dict) -> dict:
             k for k in (
                 "description", "sector", "industry", "products",
                 "competitors", "latest_funding", "total_funding_usd",
-                "notable_contracts", "recent_news",
+                "latest_earnings", "notable_contracts", "recent_news",
+                "company_news", "disclosures", "industry_view",
             )
             if company.get(k)
         ],
         "research_file_count": len(research_store.list_files(str(company.get("id")))),
+        "source_classes_available": [
+            "first_party", "research_file", "news", "filing", "market_data", "third_party",
+        ],
     }
 
 
@@ -3046,7 +3458,6 @@ def _bool_value(value: Any, *, default: bool = False) -> bool:
 
 def _coerce_strategic_risks(value: Any, company: dict) -> list[dict]:
     rows = value if isinstance(value, list) else []
-    company_name = company.get("name") or company.get("id") or "the company"
     risks: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
     for row in rows:
@@ -3060,39 +3471,18 @@ def _coerce_strategic_risks(value: Any, company: dict) -> list[dict]:
         if title_key in seen_titles:
             continue
         seen_titles.add(title_key)
-        evidence = _string_list(
-            row.get("evidence_needed"),
-            fallback=["independent support", "disconfirming evidence"],
+        risks.append(
+            complete_risk(
+                {
+                    **row,
+                    "id": f"risk-{len(risks) + 1}",
+                    "title": title,
+                    "decision_question": decision_question,
+                },
+                company,
+                index=len(risks) + 1,
+            )
         )
-        sources = _string_list(
-            row.get("best_sources"),
-            fallback=["Serena research folder", "public sources"],
-        )
-        why = str(row.get("why_it_matters") or "").strip() or (
-            "This question can materially change the investment recommendation."
-        )
-        risks.append({
-            "id": f"risk-{len(risks) + 1}",
-            "title": title,
-            "decision_question": decision_question,
-            "why_it_matters": why,
-            "bull_case_answer": str(row.get("bull_case_answer") or "").strip() or (
-                f"{company_name} has evidence that this risk is manageable and can "
-                "become an investment advantage."
-            ),
-            "bear_case_answer": str(row.get("bear_case_answer") or "").strip() or (
-                "If the answer is weak, the investment case depends on a "
-                "future state that is not yet visible in source-backed proof."
-            ),
-            "evidence_needed": evidence[:6],
-            "best_sources": sources[:8],
-            "research_prompt": str(row.get("research_prompt") or "").strip() or (
-                f"Research whether {decision_question.lower()} Separate company "
-                "claims from independent evidence and identify disconfirming facts."
-            ),
-            "memo_section": str(row.get("memo_section") or "").strip() or "Investment Risk",
-            "status": str(row.get("status") or "").strip() or "unresearched",
-        })
         if len(risks) >= 8:
             break
 
@@ -3103,16 +3493,16 @@ def _coerce_strategic_risks(value: Any, company: dict) -> list[dict]:
                 continue
             item = copy.deepcopy(fallback)
             item["id"] = f"risk-{len(risks) + 1}"
-            risks.append(item)
+            risks.append(complete_risk(item, company, index=len(risks)))
             seen_titles.add(title.lower())
             if len(risks) >= 5:
                 break
-    return risks[:8]
+    return _complete_risk_list(company, risks[:8])
 
 
 def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
     risks = _ensure_risks(company, artifacts)
-    fallback = _thesis_spine(company, risks)
+    fallback = _thesis_spine(company, risks, _priority_rows(artifacts))
     payload = value if isinstance(value, dict) else {}
 
     def sensitivity_rows(source: dict) -> list:
@@ -3313,24 +3703,36 @@ def _coerce_thesis_spine(value: Any, company: dict, artifacts: dict) -> dict:
 
 def _strategic_risks(company: dict) -> list[dict]:
     name = company.get("name") or company.get("id") or "the company"
-    sector = company.get("sector") or company.get("industry") or "the category"
     text = _company_text(company)
     risks: list[dict[str, Any]] = []
 
-    def add(title: str, decision_question: str, why: str, evidence: list[str],
-            sources: list[str], section: str = "Investment Risk") -> None:
+    def add(
+        title: str,
+        decision_question: str,
+        why: str,
+        evidence: list[str],
+        sources: list[str],
+        section: str = "Investment Risk",
+        *,
+        severity: str = "medium",
+        likelihood: str = "medium",
+        bull: str | None = None,
+        bear: str | None = None,
+        description: str | None = None,
+    ) -> None:
         risks.append({
             "id": f"risk-{len(risks) + 1}",
             "title": title,
+            "description": description or why,
             "decision_question": decision_question,
             "why_it_matters": why,
-            "bull_case_answer": (
-                f"{name} has evidence that this risk is manageable and can "
-                "become an investment advantage."
+            "bull_case_answer": bull or (
+                f"The bull case is that {name} already has source-backed proof "
+                "this is contained and does not change the entry decision."
             ),
-            "bear_case_answer": (
-                "If the answer is weak, the investment case depends on a "
-                "future state that is not yet visible in source-backed proof."
+            "bear_case_answer": bear or (
+                "The bear case is that this is still an unproven future state, "
+                "and a weak answer should cut conviction or valuation support."
             ),
             "evidence_needed": evidence,
             "best_sources": sources,
@@ -3341,6 +3743,9 @@ def _strategic_risks(company: dict) -> list[dict]:
             ),
             "memo_section": section,
             "status": "unresearched",
+            "severity": severity,
+            "likelihood": likelihood,
+            "generated_by": "deterministic_fallback",
         })
 
     if any(k in text for k in ("humanoid", "robot", "embodiment", "embodied")):
@@ -3354,6 +3759,8 @@ def _strategic_risks(company: dict) -> list[dict]:
                 "evidence of repeat usage outside pilots",
             ],
             ["customer case studies", "procurement data", "deployment logs", "competitor docs"],
+            severity="high",
+            likelihood="medium",
         )
         add(
             "Can they achieve economically viable deployment at scale?",
@@ -3366,6 +3773,8 @@ def _strategic_risks(company: dict) -> list[dict]:
                 "repeatable deployment playbook",
             ],
             ["customer contracts", "job postings", "support docs", "unit economics notes"],
+            severity="high",
+            likelihood="high",
         )
         add(
             "Can they build a durable intelligence advantage?",
@@ -3378,6 +3787,8 @@ def _strategic_risks(company: dict) -> list[dict]:
                 "customer-specific adaptation evidence",
             ],
             ["technical docs", "research papers", "customer deployment evidence", "competitor benchmarks"],
+            severity="high",
+            likelihood="medium",
         )
 
     if any(k in text for k in ("ai", "llm", "agent", "model", "automation")):
@@ -3458,7 +3869,26 @@ def _strategic_risks(company: dict) -> list[dict]:
         ["all analysis artifacts", "partner notes", "independent negative searches"],
     )
 
-    return risks[:8]
+    evidence_rows = company_evidence_rows(company)
+    completed: list[dict] = []
+    for index, risk in enumerate(risks[:8], start=1):
+        if evidence_rows and not risk.get("supporting_evidence"):
+            title_l = str(risk.get("title") or "").lower()
+            matched = []
+            for row in evidence_rows:
+                hay = f"{row.get('locator') or ''} {row.get('excerpt') or ''}".lower()
+                if any(token in title_l for token in ("revenue", "valuation", "funding", "mark")):
+                    if row.get("source_class") in {"market_data", "filing"}:
+                        matched.append(row)
+                elif any(token in title_l for token in ("deploy", "customer", "logo", "contract")):
+                    if row.get("source_class") in {"news", "third_party"}:
+                        matched.append(row)
+                elif hay:
+                    matched.append(row)
+            risk["supporting_evidence"] = matched[:3] or evidence_rows[:2]
+            risk["missing_evidence"] = list(risk.get("evidence_needed") or [])[:3]
+        completed.append(complete_risk(risk, company, index=index))
+    return completed
 
 
 def _research_task_search_plan(risk: dict) -> dict:
@@ -3503,11 +3933,13 @@ def _research_tasks(company: dict, risks: list[dict]) -> list[dict]:
     return tasks
 
 
-def _thesis_spine(company: dict, risks: list[dict]) -> dict:
+def _thesis_spine(company: dict, risks: list[dict], priorities: Any = None) -> dict:
     name = company.get("name") or "the company"
     sector = company.get("sector") or company.get("industry") or "its category"
     desc = company.get("description") or f"{name} operates in {sector}."
-    top = risks[:3]
+    top = ordered_active_risks(risks, priorities)[:3]
+    if not top:
+        top = [risk for risk in risks if isinstance(risk, dict)][:3]
     lead_risk = top[0] if top else None
     highlights = [
         {
@@ -3549,10 +3981,11 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
     risks_out = [
         {
             "id": f"memo-risk-{i}",
-            "claim": r["title"],
+            "claim": r.get("title"),
             "detail": (
-                f"{r['why_it_matters']} Valuation support weakens where "
-                f"{_question_to_sensitivity_statement(r['decision_question']).lower()}"
+                f"{r.get('why_it_matters') or r.get('description') or r.get('title')} "
+                f"Bull: {r.get('bull_case_answer') or 'Source-backed proof would contain this.'} "
+                f"Bear: {r.get('bear_case_answer') or 'A weak answer should cut conviction.'}"
             ),
             "source_trace": ["strategic_risks", "risk_priorities"],
             "needs_stronger_evidence": True,
@@ -3563,9 +3996,9 @@ def _thesis_spine(company: dict, risks: list[dict]) -> dict:
         {
             "id": f"sensitivity-{i}",
             "sensitivity": _question_to_sensitivity_statement(
-                r["decision_question"]
+                r.get("decision_question") or r.get("title")
             ),
-            "support_evidence": r["why_it_matters"],
+            "support_evidence": r.get("why_it_matters") or r.get("description") or r.get("title"),
             "evidence_context": r.get("evidence_needed") or [],
             "downside_impact": (
                 "Downside value increases if this sensitivity weakens valuation support."
@@ -5391,13 +5824,12 @@ def _refresh_memo_packet(session: dict) -> None:
             if details:
                 line += " — " + " ".join(details)
             lines.append(line)
-    lines += ["", "## Strategic Risks"]
-    for item in risks.get("risks") or []:
-        statement = _question_to_sensitivity_statement(item.get("decision_question"))
-        detail = item.get("why_it_matters") or statement
-        lines.append(f"- **{item.get('title')}** — {detail}")
-        if statement and statement != detail:
-            lines.append(f"  - Valuation sensitivity: {statement}")
+    lines += packet_strategic_risk_lines(
+        risks.get("risks") or [],
+        (artifacts.get("risk_priorities") or {}).get("priorities")
+        if isinstance(artifacts.get("risk_priorities"), dict)
+        else [],
+    )
     if research_tasks.get("tasks"):
         lines += ["", "## Evidence Review Results"]
         for item in research_tasks.get("tasks") or []:

@@ -544,16 +544,20 @@ function fmtUsd(value) {
   return `$${n.toLocaleString()}`;
 }
 
-function scoreTone(score) {
+function scoreTone(score, unverified = false) {
+  if (unverified) return "text-ink-secondary";
   if (score >= 85) return "text-success-ink";
   if (score >= 70) return "text-warning-ink";
   return "text-ink-secondary";
 }
 
-function scoreRing(score) {
+function scoreRing(score, unverified = false) {
   const clamped = Math.max(0, Math.min(100, Number(score) || 0));
+  const tone = unverified
+    ? "rgb(var(--color-fill-secondary))"
+    : "rgb(var(--color-success))";
   return {
-    background: `conic-gradient(rgb(var(--color-success)) ${clamped * 3.6}deg, rgb(var(--color-surface-muted)) 0deg)`,
+    background: `conic-gradient(${tone} ${clamped * 3.6}deg, rgb(var(--color-surface-muted)) 0deg)`,
   };
 }
 
@@ -611,7 +615,7 @@ onBeforeUnmount(() => {
             {{ ui.updated }} {{ refreshedAtLabel(summary.generated_at) }}
           </span>
         </div>
-        <p class="mt-2 max-w-3xl text-sm text-ink-secondary">
+        <p v-if="!summary?.scan_fallback" class="mt-2 max-w-3xl text-sm text-ink-secondary">
           {{ marketPulse || ui.fallbackPulse }}
         </p>
       </div>
@@ -777,11 +781,11 @@ onBeforeUnmount(() => {
             <div
               v-if="leader"
               class="grid h-20 w-20 shrink-0 place-items-center rounded-full p-1"
-              :style="scoreRing(leader.score)"
+              :style="scoreRing(leader.score, summary.scan_fallback)"
             >
               <div class="grid h-full w-full place-items-center rounded-full bg-surface text-center">
                 <div>
-                  <div class="font-display text-xl font-semibold" :class="scoreTone(leader.score)">
+                  <div class="font-display text-xl font-semibold" :class="scoreTone(leader.score, summary.scan_fallback)">
                     {{ Math.round(leader.score) }}
                   </div>
                   <div class="text-[10px] uppercase text-ink-muted">{{ ui.score }}</div>
@@ -792,7 +796,7 @@ onBeforeUnmount(() => {
           <div class="mt-5 grid gap-3 border-t border-subtle pt-4 sm:grid-cols-3">
             <div>
               <div class="text-xs text-ink-muted">{{ ui.weeklyMove }}</div>
-              <div class="mt-1 text-lg font-semibold text-success-ink">
+              <div class="mt-1 text-lg font-semibold" :class="leader?.weekly_change_pct == null ? 'text-ink-muted' : 'text-success-ink'">
                 {{ fmtPct(leader?.weekly_change_pct) }}
               </div>
             </div>
@@ -888,7 +892,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <div class="text-right">
-                <div class="font-display text-xl font-semibold" :class="scoreTone(stock.score)">
+                <div class="font-display text-xl font-semibold" :class="scoreTone(stock.score, stock.is_fallback || summary.scan_fallback)">
                   {{ Math.round(stock.score) }}
                 </div>
                 <div class="text-[10px] uppercase text-ink-muted">{{ ui.heat }}</div>
@@ -915,7 +919,7 @@ onBeforeUnmount(() => {
             <div class="mt-4 grid grid-cols-3 gap-2 text-center">
               <div>
                 <div class="text-xs text-ink-muted">{{ ui.oneWeek }}</div>
-                <div class="text-sm font-semibold text-success-ink">{{ fmtPct(stock.weekly_change_pct) }}</div>
+                <div class="text-sm font-semibold" :class="stock.weekly_change_pct == null ? 'text-ink-muted' : 'text-success-ink'">{{ fmtPct(stock.weekly_change_pct) }}</div>
               </div>
               <div>
                 <div class="text-xs text-ink-muted">{{ ui.relVol }}</div>

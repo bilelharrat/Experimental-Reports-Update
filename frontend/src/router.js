@@ -19,6 +19,8 @@ const HypothesisLabView = () => import("./views/HypothesisLabView.vue");
 const InnovationLabView = () => import("./views/InnovationLabView.vue");
 const SettingsView = () => import("./views/SettingsView.vue");
 const SourceLibraryView = () => import("./views/SourceLibraryView.vue");
+const TrackingView = () => import("./views/TrackingView.vue");
+const MarketRadarView = () => import("./views/MarketRadarView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 
 function routerHistoryBase() {
@@ -53,6 +55,8 @@ export const router = createRouter({
       meta: { public: true },
     },
     { path: "/", name: "home", component: HomeView },
+    { path: "/tracking", name: "tracking", component: TrackingView },
+    { path: "/market-radar", name: "market-radar", component: MarketRadarView },
     {
       path: "/weekly-summary",
       name: "weekly-summary",

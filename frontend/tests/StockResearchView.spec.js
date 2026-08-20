@@ -369,12 +369,13 @@ describe("StockResearchView", () => {
   async function openTab(wrapper, label) {
     const modeByLabel = {
       Home: "Pulse",
+      Overview: "Pulse",
       "Weekly Aggregate": "Pulse",
       "Strategy Map": "Pulse",
       Trackers: "Work",
       Sources: "Work",
       Runs: "Work",
-      "Work Products": "Work",
+      Deliverables: "Work",
       "Review Queue": "Review",
       Evaluation: "Review",
       Hypotheses: "Review",
@@ -456,7 +457,7 @@ describe("StockResearchView", () => {
     expect(wrapper.text()).toContain("supply-chain link");
     expect(wrapper.text()).toContain("Demand signal conflicts with supply-chain checks.");
 
-    await openTab(wrapper, "Work Products");
+    await openTab(wrapper, "Deliverables");
     expect(wrapper.text()).toContain("NVIDIA tracker report");
     selects = wrapper.findAll("select");
     await selects[0].setValue("tracker_report");
@@ -587,7 +588,7 @@ describe("StockResearchView", () => {
 
     await openTab(wrapper, "Runs");
     expect(wrapper.text()).toContain("Latest Report");
-    expect(wrapper.text()).toContain("Normalized Run Ledger");
+    expect(wrapper.text()).toContain("Run history");
     expect(wrapper.text()).toContain("stock tracker");
     expect(wrapper.text()).toContain("Company report body.");
     expect(wrapper.text()).toContain("Current vs Previous");

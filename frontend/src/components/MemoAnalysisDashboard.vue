@@ -46,6 +46,7 @@ const chartSpecsDraft = ref([]);
 const benchmarkDraft = ref(null);
 const narrativeDraft = ref(null);
 const riskPriorityDraft = ref([]);
+const refiningRiskId = ref(null);
 const readinessReviewDraft = ref({});
 let taskPollId = null;
 let taskPolling = false;
@@ -757,8 +758,12 @@ function normalizedRiskRows(rows) {
   return rows.map((row, index) => ({
     risk_id: row.risk_id,
     rank: index + 1,
-    selected: Boolean(row.selected),
+    selected: Boolean(row.selected) && row.disposition !== "dismissed",
     rationale: row.rationale || "",
+    disposition: row.disposition || "monitoring",
+    framing: row.framing || "other",
+    analyst_note: row.analyst_note || "",
+    human_ranked: Boolean(row.human_ranked),
   }));
 }
 
@@ -775,6 +780,10 @@ function buildRiskPriorityDraft() {
       rank: toRank(row.rank, index + 1),
       selected: Boolean(row.selected),
       rationale: row.rationale || "",
+      disposition: row.disposition || riskById.get(riskId)?.suggested_posture || "monitoring",
+      framing: row.framing || riskById.get(riskId)?.framing || "other",
+      analyst_note: row.analyst_note || "",
+      human_ranked: Boolean(row.human_ranked),
       sourceIndex: index,
     });
   }
@@ -785,6 +794,9 @@ function buildRiskPriorityDraft() {
       risk_id: risk.id,
       selected: false,
       rationale: "",
+      disposition: risk.suggested_posture || "monitoring",
+      framing: risk.framing || "other",
+      analyst_note: "",
     }));
   return normalizedRiskRows([...provided, ...missing]);
 }
@@ -792,6 +804,15 @@ function buildRiskPriorityDraft() {
 function setRiskSelected(riskId, selected) {
   const row = riskPriorityMap.value.get(riskId);
   if (row) row.selected = selected;
+  saveRiskPrioritiesDraft();
+}
+
+function setRiskDisposition(riskId, disposition) {
+  const row = riskPriorityMap.value.get(riskId);
+  if (!row) return;
+  row.disposition = disposition;
+  if (disposition === "dismissed") row.selected = false;
+  saveRiskPrioritiesDraft();
 }
 
 function riskMoveIndex(riskId) {
@@ -811,6 +832,7 @@ function moveRiskPriority(riskId, direction) {
   const nextIndex = index + direction;
   [rows[index], rows[nextIndex]] = [rows[nextIndex], rows[index]];
   riskPriorityDraft.value = normalizedRiskRows(rows);
+  saveRiskPrioritiesDraft();
 }
 
 async function load() {
@@ -1030,6 +1052,22 @@ async function saveRiskPrioritiesDraft() {
   });
 }
 
+async function refineRisk(riskId, framing, analystNote) {
+  if (refiningRiskId.value) return;
+  refiningRiskId.value = riskId;
+  error.value = null;
+  try {
+    session.value = await api.memoAnalysis.refineRisk(props.companyId, riskId, {
+      framing,
+      analyst_note: analystNote || "",
+    });
+  } catch (e) {
+    error.value = e.message || String(e);
+  } finally {
+    refiningRiskId.value = null;
+  }
+}
+
 async function selectMemoForGrading(reportId) {
   await patchArtifact("memo_grader", {
     ...(memoGrader.value || {}),
@@ -1203,20 +1241,22 @@ watch(additionalAreas, (areas) => {
         @save-readiness-review="saveReadinessReview"
       />
 
-      <section class="grid xl:grid-cols-2 gap-4">
-        <MemoRiskPriorityPanel
-          :risks="risks"
-          :prioritized-risks="prioritizedRisks"
-          :risk-priority-map="riskPriorityMap"
-          :risk-priority-draft="riskPriorityDraft"
-          :saving-artifact="savingArtifact"
-          :can-move-risk="canMoveRisk"
-          @save-risk-priorities="saveRiskPrioritiesDraft"
-          @move-risk-priority="moveRiskPriority"
-          @set-risk-selected="setRiskSelected"
-        />
+      <MemoRiskPriorityPanel
+        :risks="risks"
+        :prioritized-risks="prioritizedRisks"
+        :risk-priority-map="riskPriorityMap"
+        :risk-priority-draft="riskPriorityDraft"
+        :saving-artifact="savingArtifact"
+        :refining-risk-id="refiningRiskId"
+        :can-move-risk="canMoveRisk"
+        @save-risk-priorities="saveRiskPrioritiesDraft"
+        @move-risk-priority="moveRiskPriority"
+        @set-risk-selected="setRiskSelected"
+        @set-risk-disposition="setRiskDisposition"
+        @refine-risk="refineRisk"
+      />
 
-        <div class="border border-subtle bg-surface rounded-card p-5">
+      <div class="border border-subtle bg-surface rounded-card p-5">
           <div class="flex items-center justify-between gap-3">
             <h3 class="font-display text-title3 text-ink-primary">
               Investment Highlights & Risks
@@ -1345,7 +1385,6 @@ watch(additionalAreas, (areas) => {
             </div>
           </template>
         </div>
-      </section>
 
       <MemoResearchTasksPanel
         :tasks="tasks"

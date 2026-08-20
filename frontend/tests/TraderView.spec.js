@@ -51,7 +51,7 @@ describe("TraderView empty state", () => {
       id: "amd", name: "AMD", company_type: "public",
       trader_snapshot: null,
     });
-    expect(wrapper.text()).toContain("No trader snapshot yet");
+    expect(wrapper.text()).toContain("No market snapshot yet");
   });
 });
 

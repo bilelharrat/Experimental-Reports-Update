@@ -50,6 +50,9 @@ describe("HomeView M1 layout and search", () => {
     const wrapper = mount(HomeView);
 
     expect(wrapper.text()).toContain("Find a Company");
+    expect(wrapper.text()).toContain("Company Section");
+    expect(wrapper.text()).toContain("Portfolio");
+    expect(wrapper.text()).toContain("Top Players");
     expect(wrapper.text()).toContain("Link");
     expect(wrapper.text()).toContain("File");
     expect(wrapper.text()).toContain("Note");

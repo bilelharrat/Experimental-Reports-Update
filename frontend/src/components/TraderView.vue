@@ -582,6 +582,7 @@ function sourceLabel(section) {
         </span>
       </div>
       <button
+        v-if="snapshot"
         type="button"
         @click="onRefresh"
         :disabled="refreshing"
@@ -636,9 +637,19 @@ function sourceLabel(section) {
     <!-- Empty state: no snapshot yet. -->
     <div
       v-if="!snapshot"
-      class="rounded-card border border-dashed border-subtle p-6 text-sm text-ink-secondary text-center"
+      class="rounded-card border border-dashed border-subtle p-6 text-center"
     >
-      {{ t("trader.never_refreshed") }}
+      <p class="text-sm text-ink-secondary">{{ t("trader.never_refreshed") }}</p>
+      <button
+        type="button"
+        @click="onRefresh"
+        :disabled="refreshing"
+        class="btn-filled mt-4 text-xs focus-ring"
+      >
+        <Loader2 v-if="refreshing" class="h-3.5 w-3.5 animate-spin" />
+        <RefreshCw v-else class="h-3.5 w-3.5" />
+        {{ refreshing ? t("trader.refreshing") : t("trader.generate_first") }}
+      </button>
     </div>
 
     <!-- Card grid -->

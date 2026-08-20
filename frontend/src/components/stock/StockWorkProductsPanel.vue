@@ -48,7 +48,7 @@ function fmtBytes(value) {
   <section class="space-y-4">
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h2 class="text-lg font-semibold">Work Products</h2>
+        <h2 class="text-lg font-semibold">Deliverables</h2>
         <p class="text-sm text-ink-muted">
           Cataloged tracker reports, aggregates, strategy maps, and exports.
         </p>

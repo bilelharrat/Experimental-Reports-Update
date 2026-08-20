@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, ref, unref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Search,
@@ -17,9 +17,19 @@ import {
   Upload,
   ScrollText,
   Library,
+  ArrowUpDown,
+  Check,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { useT } from "../i18n.js";
+import { companyBucket, sortCompanies } from "../companyLists.js";
+import {
+  companySort,
+  companyViews,
+  favoriteCompanyIds,
+  setCompanySort,
+} from "../state.js";
+import CompanyBoardCard from "../components/CompanyBoardCard.vue";
 import CompanyCard from "../components/CompanyCard.vue";
 import SubmitLinkTool from "../components/SubmitLinkTool.vue";
 import UploadResearchTool from "../components/UploadResearchTool.vue";
@@ -73,6 +83,55 @@ const errorMessage = computed(() =>
 
 const searchResults = ref(null); // { source, matches } | null
 const searching = ref(false);
+
+const companies = inject("workspaceCompanies", ref([]));
+const workspaceLoading = inject("workspaceLoading", ref(false));
+const companyList = computed(() => unref(companies) || []);
+const loadingCompanies = computed(() => Boolean(unref(workspaceLoading)));
+const sortMenuOpen = ref(false);
+const sortOptions = computed(() => [
+  { id: "az", label: t("sidebar.sort_az") },
+  { id: "za", label: t("sidebar.sort_za") },
+  { id: "newest", label: t("sidebar.sort_newest") },
+  { id: "views", label: t("sidebar.sort_views") },
+]);
+const activeSortLabel = computed(() => {
+  if (companySort.value === "za") return t("sidebar.sort_za_short");
+  if (companySort.value === "newest") return t("sidebar.sort_newest_short");
+  if (companySort.value === "oldest") return t("sidebar.sort_oldest_short");
+  if (companySort.value === "views") return t("sidebar.sort_views_short");
+  return t("sidebar.sort_az_short");
+});
+const portfolioCompanies = computed(() =>
+  sortCompanies(
+    companyList.value.filter((company) => companyBucket(company) === "portfolio"),
+    {
+      sort: companySort.value,
+      views: companyViews.value,
+      favorites: favoriteCompanyIds.value,
+    },
+  ),
+);
+const topPlayerCompanies = computed(() =>
+  sortCompanies(
+    companyList.value.filter((company) => companyBucket(company) === "watchlist"),
+    {
+      sort: companySort.value,
+      views: companyViews.value,
+      favorites: favoriteCompanyIds.value,
+    },
+  ),
+);
+const showCompanyBoards = computed(() => !searching.value && !searchResults.value);
+
+function chooseSort(id) {
+  setCompanySort(id);
+  sortMenuOpen.value = false;
+}
+
+function openCompany(company) {
+  router.push({ name: "research", params: { companyId: company.id } });
+}
 
 // Live progress feed during a Claude Code / OpenAI search
 const progressEvents = ref([]); // [{type, action, tool, preview, text, ts}]
@@ -501,6 +560,87 @@ function onBlur() {
     </div>
 
     <div v-if="error" class="mt-4 text-sm text-danger">{{ errorMessage }}</div>
+
+    <section v-if="showCompanyBoards" class="mt-12 space-y-10">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div class="vogue-label">{{ t("companies.section_title") }}</div>
+          <h2 class="mt-1 font-display text-title3 text-ink-primary">
+            {{ t("sidebar.portfolio") }}
+          </h2>
+        </div>
+        <div class="relative">
+          <button
+            type="button"
+            class="inline-flex h-8 items-center gap-1.5 rounded-pill px-2.5 text-footnote font-medium text-ink-muted hover:bg-fill-tertiary hover:text-ink-primary focus-ring"
+            :aria-label="t('sidebar.sort')"
+            :aria-expanded="sortMenuOpen"
+            @click="sortMenuOpen = !sortMenuOpen"
+          >
+            <ArrowUpDown class="h-3.5 w-3.5" />
+            <span>{{ t("sidebar.sort") }}</span>
+            <span class="mono-data text-ink-primary">{{ activeSortLabel }}</span>
+          </button>
+          <div
+            v-if="sortMenuOpen"
+            class="toolbar-menu right-0 min-w-[10.5rem]"
+            role="menu"
+            :aria-label="t('sidebar.sort')"
+          >
+            <button
+              v-for="option in sortOptions"
+              :key="option.id"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="companySort === option.id"
+              class="toolbar-menu-item"
+              @click="chooseSort(option.id)"
+            >
+              <Check v-if="companySort === option.id" class="h-3.5 w-3.5 shrink-0" />
+              <span v-else class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <p v-if="loadingCompanies && companyList.length === 0" class="text-callout text-ink-muted">
+        {{ t("common.loading") }}
+      </p>
+      <p
+        v-else-if="portfolioCompanies.length === 0"
+        class="text-callout text-ink-muted"
+      >
+        {{ t("companies.empty") }}
+      </p>
+      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <CompanyBoardCard
+          v-for="company in portfolioCompanies"
+          :key="company.id"
+          :company="company"
+          @select="openCompany"
+        />
+      </div>
+
+      <div>
+        <h2 class="font-display text-title3 text-ink-primary">
+          {{ t("sidebar.top_players") }}
+        </h2>
+        <p
+          v-if="topPlayerCompanies.length === 0"
+          class="mt-3 text-callout text-ink-muted"
+        >
+          {{ t("companies.empty") }}
+        </p>
+        <div v-else class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <CompanyBoardCard
+            v-for="company in topPlayerCompanies"
+            :key="company.id"
+            :company="company"
+            @select="openCompany"
+          />
+        </div>
+      </div>
+    </section>
 
     <div
       v-if="searching"

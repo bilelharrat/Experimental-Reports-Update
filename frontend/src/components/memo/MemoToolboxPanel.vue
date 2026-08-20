@@ -100,7 +100,7 @@ function reviewSeverityClass(severity) {
     <div class="mt-5 grid xl:grid-cols-2 gap-4">
       <div>
         <div class="mb-2 flex items-center justify-between gap-3">
-          <h4 class="text-sm font-semibold text-ink-primary">Work Products</h4>
+          <h4 class="text-sm font-semibold text-ink-primary">Deliverables</h4>
           <span class="text-xs text-ink-muted">{{ workProducts.length }}</span>
         </div>
         <div class="overflow-x-auto overflow-hidden rounded-card shadow-card">

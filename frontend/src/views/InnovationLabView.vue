@@ -3,8 +3,8 @@ import { ArrowRight, FlaskConical } from "lucide-vue-next";
 
 const labs = [
   {
-    title: "Hormuz Source Library",
-    purpose: "Daily source library, Hormuz console, and bilingual appendix.",
+    title: "Daily source reports",
+    purpose: "Upload daily reports, ask questions, and generate the bilingual appendix.",
     route: { name: "hormuz-library" },
   },
   {

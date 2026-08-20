@@ -124,12 +124,12 @@ function appearanceIcon(value) {
   <div class="mx-auto max-w-5xl px-8 py-10">
     <header class="mb-6">
       <h1 class="font-display text-title3 text-ink-primary">
-        Settings
+        {{ t("settings.title") }}
       </h1>
     </header>
 
     <div v-if="loading" class="rounded-card bg-surface p-5 text-callout text-ink-muted">
-      Loading settings…
+      {{ t("settings.loading") }}
     </div>
     <div v-else-if="error" class="rounded-card bg-danger-soft p-5 text-callout text-danger-ink">
       {{ error }}
@@ -143,7 +143,7 @@ function appearanceIcon(value) {
           </div>
           <div class="min-w-0 flex-1">
             <h2 class="font-display text-title3 text-ink-primary">
-              {{ t("app.user_center") }}
+              {{ t("settings.profile") }}
             </h2>
             <div class="mt-0.5 text-callout text-ink-primary">{{ account.name || account.email }}</div>
             <div class="text-footnote text-ink-muted">{{ account.email }}</div>
@@ -157,15 +157,21 @@ function appearanceIcon(value) {
         <dl class="mt-4 grid gap-2 text-callout sm:grid-cols-3">
           <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
             <dt class="text-caption1 text-ink-muted">{{ t("settings.permissions") }}</dt>
-            <dd class="mt-0.5 font-medium text-ink-primary">{{ account.permissions?.length || 0 }}</dd>
+            <dd class="mt-0.5 font-medium text-ink-primary">
+              {{ t("settings.permission_grants", { n: account.permissions?.length || 0 }) }}
+            </dd>
           </div>
           <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
             <dt class="text-caption1 text-ink-muted">{{ t("settings.seats") }}</dt>
-            <dd class="mt-0.5 font-medium text-ink-primary">{{ team.licensed_seats || 0 }}</dd>
+            <dd class="mt-0.5 font-medium text-ink-primary">
+              {{ t("settings.licensed_seats", { n: team.licensed_seats || 0 }) }}
+            </dd>
           </div>
           <div class="rounded-subbox bg-fill-tertiary px-3 py-2">
             <dt class="text-caption1 text-ink-muted">{{ t("settings.usage") }}</dt>
-            <dd class="mt-0.5 font-medium text-ink-primary">{{ usage.analytics_events || 0 }}</dd>
+            <dd class="mt-0.5 font-medium text-ink-primary">
+              {{ t("settings.usage_events", { n: usage.analytics_events || 0 }) }}
+            </dd>
           </div>
         </dl>
       </section>
@@ -175,15 +181,15 @@ function appearanceIcon(value) {
         <div class="flex items-center gap-2">
           <Languages class="h-4 w-4 text-accent" />
           <h2 class="font-display text-title3 text-ink-primary">
-            Preferences
+            {{ t("settings.preferences") }}
           </h2>
         </div>
         <div class="mt-4">
-          <div class="vogue-label mb-2">Language</div>
+          <div class="vogue-label mb-2">{{ t("settings.language") }}</div>
           <div
             class="segmented"
             role="group"
-            aria-label="App language"
+            :aria-label="t('settings.language_group')"
           >
             <button
               type="button"
@@ -223,18 +229,28 @@ function appearanceIcon(value) {
             </button>
           </div>
         </div>
+        <label class="mt-5 flex items-center justify-between gap-3 rounded-subbox px-1 py-2 text-callout text-ink-secondary">
+          <span>{{ t("settings.compact_density") }}</span>
+          <input
+            type="checkbox"
+            :checked="prefs.compact_density"
+            :disabled="saving === 'compact_density'"
+            class="memo-checkbox focus-ring"
+            @change="patchPreference('compact_density', $event.target.checked)"
+          />
+        </label>
       </section>
 
       <section class="rounded-card bg-surface p-5 shadow-card">
         <div class="flex items-center gap-2">
           <Bell class="h-4 w-4 text-accent" />
           <h2 class="font-display text-title3 text-ink-primary">
-            Alerts
+            {{ t("settings.notifications") }}
           </h2>
         </div>
         <div class="mt-4 space-y-1 text-callout text-ink-secondary">
           <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
-            <span>Weekly summary</span>
+            <span>{{ t("settings.weekly_summary") }}</span>
             <input
               type="checkbox"
               :checked="prefs.weekly_summary"
@@ -244,7 +260,7 @@ function appearanceIcon(value) {
             />
           </label>
           <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
-            <span>Stock auto-refresh</span>
+            <span>{{ t("settings.stock_auto_refresh") }}</span>
             <input
               type="checkbox"
               :checked="prefs.stock_auto_refresh"
@@ -254,23 +270,13 @@ function appearanceIcon(value) {
             />
           </label>
           <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
-            <span>Agent task alerts</span>
+            <span>{{ t("settings.agent_alerts") }}</span>
             <input
               type="checkbox"
               :checked="prefs.agent_alerts"
               :disabled="saving === 'agent_alerts'"
               class="memo-checkbox focus-ring"
               @change="patchPreference('agent_alerts', $event.target.checked)"
-            />
-          </label>
-          <label class="flex items-center justify-between gap-3 rounded-subbox px-1 py-2">
-            <span>Compact density</span>
-            <input
-              type="checkbox"
-              :checked="prefs.compact_density"
-              :disabled="saving === 'compact_density'"
-              class="memo-checkbox focus-ring"
-              @change="patchPreference('compact_density', $event.target.checked)"
             />
           </label>
         </div>
@@ -280,49 +286,52 @@ function appearanceIcon(value) {
         <div class="flex items-center gap-2">
           <Database class="h-4 w-4 text-accent" />
           <h2 class="font-display text-title3 text-ink-primary">
-            System Status
+            {{ t("settings.system") }}
           </h2>
         </div>
         <div class="mt-4 grid gap-1.5 text-callout">
-          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
-            <span class="text-ink-secondary">Workspace role</span>
-            <span class="font-semibold text-accent-ink">{{ account.role || "adapter" }}</span>
+          <div class="flex justify-between gap-3 rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">{{ t("settings.workspace_role") }}</span>
+            <span class="min-w-0 truncate font-semibold text-accent-ink">{{ account.role || t("settings.role_adapter") }}</span>
           </div>
-          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
-            <span class="text-ink-secondary">Account</span>
-            <span class="font-semibold text-ink-primary">{{ account.email }}</span>
-          </div>
-          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
-            <span class="text-ink-secondary">Adapter scope</span>
-            <span class="font-semibold text-accent-ink">Ready</span>
+          <div class="flex justify-between gap-3 rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="shrink-0 text-ink-secondary">{{ t("settings.account") }}</span>
+            <span class="min-w-0 truncate font-semibold text-ink-primary">{{ account.email }}</span>
           </div>
         </div>
+        <details class="mt-3">
+          <summary class="cursor-pointer text-footnote text-ink-muted focus-ring rounded-subbox px-1 py-1">
+            {{ t("settings.system_details") }}
+          </summary>
+          <div class="mt-2 space-y-1 text-footnote text-ink-muted">
+            <div v-if="settings?.adapter_scope" class="rounded-row bg-fill-tertiary px-3 py-2">
+              {{ settings.adapter_scope }}
+            </div>
+            <div v-for="(value, key) in status" :key="key" class="flex justify-between gap-3 px-1 py-1">
+              <span>{{ String(key).replaceAll("_", " ") }}</span>
+              <span class="text-ink-primary">{{ value }}</span>
+            </div>
+          </div>
+        </details>
       </section>
 
       <section class="rounded-card bg-surface p-5 shadow-card">
         <div class="flex items-center gap-2">
           <SlidersHorizontal class="h-4 w-4 text-accent" />
           <h2 class="font-display text-title3 text-ink-primary">
-            Usage
+            {{ t("settings.usage") }}
           </h2>
         </div>
         <div class="mt-4 grid gap-1.5 text-callout">
-          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
-            <span class="text-ink-secondary">Plan</span>
-            <span class="font-semibold text-ink-primary">{{ account.plan }}</span>
+          <div class="flex justify-between gap-3 rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">{{ t("settings.plan") }}</span>
+            <span class="min-w-0 truncate font-semibold text-ink-primary">{{ account.plan }}</span>
           </div>
-          <div class="flex justify-between rounded-row bg-fill-tertiary px-3 py-2">
-            <span class="text-ink-secondary">Permissions</span>
-            <span class="mono-data font-semibold text-ink-primary">{{ account.permissions?.length || 0 }}</span>
-          </div>
-          <div class="rounded-row bg-fill-tertiary px-3 py-2 text-footnote text-ink-muted">
-            {{ settings?.adapter_scope }}
-          </div>
-          <div v-if="Object.keys(status).length" class="mt-3 space-y-1 text-footnote text-ink-muted">
-            <div v-for="(value, key) in status" :key="key" class="flex justify-between gap-3">
-              <span>{{ String(key).replaceAll("_", " ") }}</span>
-              <span class="text-ink-primary">{{ value }}</span>
-            </div>
+          <div class="flex justify-between gap-3 rounded-row bg-fill-tertiary px-3 py-2">
+            <span class="text-ink-secondary">{{ t("settings.permissions") }}</span>
+            <span class="mono-data font-semibold text-ink-primary">
+              {{ t("settings.permission_grants", { n: account.permissions?.length || 0 }) }}
+            </span>
           </div>
         </div>
       </section>

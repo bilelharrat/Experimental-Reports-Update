@@ -109,6 +109,23 @@ const visibleCount = computed(() =>
   filteredGroups.value.reduce((total, group) => total + group.rows.length, 0),
 );
 
+const filtersActive = computed(
+  () =>
+    categoryFilter.value !== "all" ||
+    sourceClassFilter.value !== "all" ||
+    languageFilter.value !== "all" ||
+    statusFilter.value !== "all" ||
+    Boolean(query.value.trim()),
+);
+
+function clearDocumentFilters() {
+  query.value = "";
+  categoryFilter.value = "all";
+  sourceClassFilter.value = "all";
+  languageFilter.value = "all";
+  statusFilter.value = "all";
+}
+
 function fmtDate(value) {
   return formatIsoDate(value, t("documents.pending_date"));
 }
@@ -387,35 +404,51 @@ function openReport(row) {
       {{ uploadErrorMessage }}
     </div>
 
-    <div class="mt-5 grid gap-3 lg:grid-cols-[1.4fr_repeat(4,minmax(0,1fr))]">
-      <label class="relative block">
-        <Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+    <div class="mt-5 grid min-w-0 gap-3 lg:grid-cols-[minmax(12rem,1.4fr)_repeat(4,minmax(0,1fr))]">
+      <label class="relative block min-w-0">
+        <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
         <input
           v-model="query"
           type="search"
           :placeholder="t('documents.filter_placeholder')"
-          class="field pl-9 pr-3 focus-ring"
+          class="field !pl-9 pr-3 focus-ring"
         />
       </label>
-      <select v-model="categoryFilter" class="field text-ink-secondary">
+      <select
+        v-model="categoryFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_categories')"
+      >
         <option value="all">{{ t("documents.all_categories") }}</option>
         <option v-for="category in categories" :key="category.id" :value="category.id">
           {{ category.label }}
         </option>
       </select>
-      <select v-model="sourceClassFilter" class="field text-ink-secondary">
+      <select
+        v-model="sourceClassFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_source_classes')"
+      >
         <option value="all">{{ t("documents.all_source_classes") }}</option>
         <option v-for="sourceClass in sourceClasses" :key="sourceClass" :value="sourceClass">
           {{ sourceClass }}
         </option>
       </select>
-      <select v-model="languageFilter" class="field text-ink-secondary">
+      <select
+        v-model="languageFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_languages')"
+      >
         <option value="all">{{ t("documents.all_languages") }}</option>
         <option v-for="language in languages" :key="language" :value="language">
           {{ language.toUpperCase() }}
         </option>
       </select>
-      <select v-model="statusFilter" class="field text-ink-secondary">
+      <select
+        v-model="statusFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_statuses')"
+      >
         <option value="all">{{ t("documents.all_statuses") }}</option>
         <option v-for="status in statuses" :key="status" :value="status">
           {{ humanizeStatus(status, t("memo.pending"), appLanguage) }}
@@ -432,7 +465,15 @@ function openReport(row) {
       {{ errorMessage }}
     </div>
     <div v-else-if="visibleCount === 0" class="mt-6 rounded-subbox border border-dashed border-subtle bg-surface-muted p-6 text-sm text-ink-muted">
-      {{ t("documents.empty") }}
+      <p>{{ t("documents.empty") }}</p>
+      <button
+        v-if="payload.unresolved_intake_count && filtersActive"
+        type="button"
+        class="btn-tinted mt-3 text-xs focus-ring"
+        @click="clearDocumentFilters"
+      >
+        {{ t("documents.show_awaiting", { count: payload.unresolved_intake_count }) }}
+      </button>
     </div>
 
     <div v-else class="mt-6 space-y-5">
@@ -529,7 +570,7 @@ function openReport(row) {
                   v-if="row.backend === 'generated_report'"
                   type="button"
                   @click="openReport(row)"
-                  class="inline-flex items-center gap-1 rounded-full bg-ink-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-ink-secondary focus-ring"
+                  class="btn-filled rounded-full px-3 py-1.5 text-xs font-semibold hover:bg-accent-hover focus-ring"
                 >
                   <Eye class="h-3.5 w-3.5" />
                   {{ t("documents.open") }}

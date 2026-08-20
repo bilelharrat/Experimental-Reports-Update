@@ -216,7 +216,7 @@ describe("Stock Research panel components", () => {
     });
 
     expect(wrapper.text()).toContain("Latest Report");
-    expect(wrapper.text()).toContain("Normalized Run Ledger");
+    expect(wrapper.text()).toContain("Run history");
     expect(wrapper.text()).toContain("stock tracker");
     expect(wrapper.text()).toContain("Current: Now");
     await wrapper.findAll("button").find((button) => button.text() === "Run Aggregate").trigger("click");

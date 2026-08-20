@@ -160,6 +160,53 @@ describe("Memo panel components", () => {
     expect(wrapper.emitted("save-risk-priorities")).toHaveLength(1);
   });
 
+  it("renders bull/bear analysis and emits a per-risk refine", async () => {
+    const risk = {
+      id: "risk-1",
+      title: "Customer proof",
+      status: "unresearched",
+      decision_question: "Is production adoption verified?",
+      why_it_matters: "It gates the memo.",
+      bull_case_answer: "Named production deployments already exist.",
+      bear_case_answer: "Logos are still pilots.",
+      supporting_evidence: [{
+        excerpt: "Customer A reached production in 2025.",
+        source_class: "news",
+        locator: "company news",
+      }],
+      contradicting_evidence: [{
+        excerpt: "The only named logo is still in pilot.",
+        source_class: "third_party",
+      }],
+      missing_evidence: ["Independent usage data"],
+      evidence_that_would_change_assessment: ["A sourced renewal with expansion."],
+    };
+    const wrapper = mount(MemoRiskPriorityPanel, {
+      props: {
+        risks: [risk],
+        prioritizedRisks: [risk],
+        riskPriorityMap: new Map([["risk-1", { rank: 1, selected: false, framing: "other" }]]),
+        riskPriorityDraft: [{ risk_id: "risk-1", rank: 1, selected: false }],
+        savingArtifact: null,
+        canMoveRisk: () => true,
+      },
+    });
+
+    expect(wrapper.text()).toContain("Named production deployments already exist.");
+    expect(wrapper.text()).toContain("Logos are still pilots.");
+    expect(wrapper.text()).toContain("Customer A reached production in 2025.");
+    expect(wrapper.text()).toContain("The only named logo is still in pilot.");
+    await wrapper.findAll("button").find((button) => button.text() === "Competitive / moat problem").trigger("click");
+    await wrapper.find("textarea").setValue("Treat this as a moat question.");
+    await wrapper.findAll("button").find((button) => button.text() === "Refine this risk").trigger("click");
+
+    expect(wrapper.emitted("refine-risk")[0]).toEqual([
+      "risk-1",
+      "competitive_moat",
+      "Treat this as a moat question.",
+    ]);
+  });
+
   it("renders evidence matrix rows and emits filter updates", async () => {
     const wrapper = mount(MemoEvidenceMatrixPanel, {
       props: {

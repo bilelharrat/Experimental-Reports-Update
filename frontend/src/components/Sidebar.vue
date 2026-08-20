@@ -3,7 +3,9 @@ import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
   Activity,
+  ArrowUpDown,
   BarChart3,
+  Check,
   ChevronDown,
   ChevronRight,
   Flame,
@@ -11,10 +13,23 @@ import {
   Home,
   PanelLeft,
   PanelLeftClose,
+  Radar,
+  Star,
 } from "lucide-vue-next";
 import brandLogoUrl from "../assets/berkeley-summit-house.svg";
+import { companyBucket, companyStatusLine, sortCompanies } from "../companyLists.js";
 import { useT } from "../i18n.js";
-import { sidebarCollapsed, toggleSidebar } from "../state.js";
+import {
+  companySort,
+  companyViews,
+  favoriteCompanyIds,
+  setCompanySort,
+  sidebarCollapsed,
+  toggleFavoriteCompany,
+  toggleSidebar,
+  toggleTrackedCompany,
+  trackedCompanyIds,
+} from "../state.js";
 
 const t = useT();
 
@@ -24,7 +39,10 @@ const props = defineProps({
   error: { type: String, default: null },
 });
 
-const expandedBuckets = ref(new Set());
+const showAllPortfolio = ref(false);
+const showAllTopPlayers = ref(false);
+const sortMenuOpen = ref(false);
+const VISIBLE_ROWS = 8;
 
 function monogram(name) {
   return String(name || "?")
@@ -36,64 +54,63 @@ function monogram(name) {
     .toUpperCase();
 }
 
-function bucketFor(company) {
-  const explicit = String(
-    company.investment_bucket || company.bucket || company.pipeline_stage || "",
-  ).toLowerCase();
-  if (explicit.includes("pipeline") || explicit.includes("review")) return "pipeline";
-  if (explicit.includes("watch") || explicit.includes("top")) return "watchlist";
-  if (explicit.includes("portfolio")) return "portfolio";
-  if (company.company_type === "public" || company.status === "public") return "watchlist";
-  return "portfolio";
+function companyCategory(company) {
+  return companyStatusLine(company, t);
 }
 
-const companyBuckets = computed(() => {
-  const buckets = {
-    portfolio: [],
-    pipeline: [],
-    watchlist: [],
-  };
-  for (const company of props.companies || []) {
-    if (!company?.id) continue;
-    const key = bucketFor(company);
-    buckets[key].push(company);
-  }
-  for (const key of Object.keys(buckets)) {
-    buckets[key].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  }
-  return [
-    { id: "portfolio", label: t("sidebar.portfolio"), items: buckets.portfolio },
-    { id: "pipeline", label: t("sidebar.pipeline"), items: buckets.pipeline },
-    { id: "watchlist", label: t("sidebar.top_players"), items: buckets.watchlist },
-  ];
+const activeSortLabel = computed(() => {
+  if (companySort.value === "za") return t("sidebar.sort_za_short");
+  if (companySort.value === "newest") return t("sidebar.sort_newest_short");
+  if (companySort.value === "oldest") return t("sidebar.sort_oldest_short");
+  if (companySort.value === "views") return t("sidebar.sort_views_short");
+  return t("sidebar.sort_az_short");
 });
 
-const populatedBuckets = computed(() =>
-  companyBuckets.value.filter((bucket) => bucket.items.length > 0),
-);
-
-function visibleCompanies(bucket) {
-  if (sidebarCollapsed.value || expandedBuckets.value.has(bucket.id)) return bucket.items;
-  return bucket.items.slice(0, 4);
+function isFavorite(id) {
+  return favoriteCompanyIds.value.has(String(id));
 }
 
-function toggleBucket(id) {
-  const next = new Set(expandedBuckets.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  expandedBuckets.value = next;
+function isTracked(id) {
+  return trackedCompanyIds.value.has(String(id));
 }
 
-function companyCategory(company) {
-  const translated = company.translation || {};
-  return (
-    translated.industry ||
-    translated.sector ||
-    company.industry ||
-    company.sector ||
-    t("sidebar.tracked")
+const sortOptions = computed(() => [
+  { id: "az", label: t("sidebar.sort_az") },
+  { id: "za", label: t("sidebar.sort_za") },
+  { id: "newest", label: t("sidebar.sort_newest") },
+  { id: "oldest", label: t("sidebar.sort_oldest") },
+  { id: "views", label: t("sidebar.sort_views") },
+]);
+
+function chooseSort(id) {
+  setCompanySort(id);
+  sortMenuOpen.value = false;
+}
+
+function sortedBucket(bucket) {
+  return sortCompanies(
+    (props.companies || []).filter((company) => companyBucket(company) === bucket),
+    {
+      sort: companySort.value,
+      views: companyViews.value,
+      favorites: favoriteCompanyIds.value,
+    },
   );
 }
+
+const portfolioCompanies = computed(() => sortedBucket("portfolio"));
+const topPlayerCompanies = computed(() => sortedBucket("watchlist"));
+
+const visiblePortfolio = computed(() =>
+  sidebarCollapsed.value || showAllPortfolio.value
+    ? portfolioCompanies.value
+    : portfolioCompanies.value.slice(0, VISIBLE_ROWS),
+);
+const visibleTopPlayers = computed(() =>
+  sidebarCollapsed.value || showAllTopPlayers.value
+    ? topPlayerCompanies.value
+    : topPlayerCompanies.value.slice(0, VISIBLE_ROWS),
+);
 
 const collapseLabel = computed(() =>
   sidebarCollapsed.value ? t("sidebar.expand") : t("sidebar.collapse"),
@@ -154,10 +171,45 @@ const collapseLabel = computed(() =>
 
       <section class="mt-4">
         <div v-if="!sidebarCollapsed" class="mb-1 flex items-center justify-between px-2.5">
-          <div class="vogue-label">{{ t("sidebar.companies") }}</div>
-          <span class="mono-data text-caption1 text-ink-subtle">{{
-            loading && companies.length === 0 ? "—" : companies.length
-          }}</span>
+          <div class="vogue-label">{{ t("sidebar.portfolio") }}</div>
+          <div class="flex items-center gap-1">
+            <span class="mono-data text-caption1 text-ink-subtle">{{
+              loading && companies.length === 0 ? "—" : portfolioCompanies.length
+            }}</span>
+            <div class="relative">
+              <button
+                type="button"
+                class="inline-flex h-6 items-center gap-1 rounded-pill px-1.5 text-caption1 font-medium text-ink-muted hover:bg-fill-tertiary hover:text-ink-primary focus-ring"
+                :aria-label="t('sidebar.sort')"
+                :title="t('sidebar.sort')"
+                :aria-expanded="sortMenuOpen"
+                @click="sortMenuOpen = !sortMenuOpen"
+              >
+                <ArrowUpDown class="h-3.5 w-3.5" />
+                <span>{{ activeSortLabel }}</span>
+              </button>
+              <div
+                v-if="sortMenuOpen"
+                class="toolbar-menu min-w-[10.5rem]"
+                role="menu"
+                :aria-label="t('sidebar.sort')"
+              >
+                <button
+                  v-for="option in sortOptions"
+                  :key="option.id"
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="companySort === option.id"
+                  class="toolbar-menu-item"
+                  @click="chooseSort(option.id)"
+                >
+                  <Check v-if="companySort === option.id" class="h-3.5 w-3.5 shrink-0" />
+                  <span v-else class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
         <div
           v-if="loading && companies.length === 0 && !sidebarCollapsed"
@@ -169,57 +221,197 @@ const collapseLabel = computed(() =>
           {{ t("sidebar.load_error") }}
         </div>
         <div
-          v-else-if="populatedBuckets.length === 0 && !sidebarCollapsed"
+          v-else-if="portfolioCompanies.length === 0 && !sidebarCollapsed"
           class="rounded-subbox px-2.5 py-1.5 text-footnote text-ink-muted"
         >
           {{ t("sidebar.no_companies") }}
         </div>
-        <div v-else class="space-y-3">
-          <div v-for="bucket in populatedBuckets" :key="bucket.id">
-            <div v-if="!sidebarCollapsed" class="mb-0.5 flex items-center justify-between px-2.5">
-              <div class="text-footnote font-semibold text-ink-secondary">{{ bucket.label }}</div>
-              <span class="mono-data text-caption1 text-ink-subtle">
-                {{ bucket.items.length }}
+        <div v-else class="space-y-0.5">
+          <div
+            v-for="company in visiblePortfolio"
+            :key="company.id"
+            class="group relative"
+          >
+            <RouterLink
+              :to="{ name: 'research', params: { companyId: company.id } }"
+              class="source-row focus-ring"
+              :class="sidebarCollapsed ? '' : 'pr-14'"
+              :title="company.name"
+            >
+              <span
+                class="mono-data grid h-6 w-6 shrink-0 place-items-center rounded-chip bg-fill-tertiary text-caption1 font-semibold text-ink-secondary"
+              >
+                {{ monogram(company.name) }}
               </span>
-            </div>
-            <div class="space-y-0.5">
-              <RouterLink
-                v-for="company in visibleCompanies(bucket)"
-                :key="company.id"
-                :to="{ name: 'research', params: { companyId: company.id } }"
-                class="source-row focus-ring"
-                :title="company.name"
-              >
+              <span v-if="!sidebarCollapsed" class="min-w-0 flex-1">
+                <span class="block truncate font-medium">{{ company.name }}</span>
                 <span
-                  class="mono-data grid h-6 w-6 shrink-0 place-items-center rounded-chip bg-fill-tertiary text-caption1 font-semibold text-ink-secondary"
+                  v-if="companyCategory(company)"
+                  class="block truncate text-caption1 text-ink-muted"
                 >
-                  {{ monogram(company.name) }}
+                  {{ companyCategory(company) }}
                 </span>
-                <span v-if="!sidebarCollapsed" class="min-w-0 flex-1">
-                  <span class="block truncate font-medium">{{ company.name }}</span>
-                  <span class="block truncate text-caption1 text-ink-muted">
-                    {{ companyCategory(company) }}
-                  </span>
-                </span>
-              </RouterLink>
+              </span>
+            </RouterLink>
+            <div
+              v-if="!sidebarCollapsed"
+              class="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5"
+            >
               <button
-                v-if="!sidebarCollapsed && bucket.items.length > 4"
                 type="button"
-                @click="toggleBucket(bucket.id)"
-                class="focus-ring ml-1 inline-flex items-center gap-1 rounded-pill px-2 py-1 text-footnote text-ink-muted hover:bg-fill-tertiary hover:text-ink-primary"
+                class="icon-btn h-6 w-6"
+                :class="
+                  isFavorite(company.id)
+                    ? ''
+                    : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
+                "
+                :aria-label="isFavorite(company.id) ? t('sidebar.unfavorite') : t('sidebar.favorite')"
+                :title="isFavorite(company.id) ? t('sidebar.unfavorite') : t('sidebar.favorite')"
+                :aria-pressed="isFavorite(company.id)"
+                @click.stop.prevent="toggleFavoriteCompany(company.id)"
               >
-                <ChevronDown v-if="expandedBuckets.has(bucket.id)" class="h-3 w-3" />
-                <ChevronRight v-else class="h-3 w-3" />
-                <span>
-                  {{
-                    expandedBuckets.has(bucket.id)
-                      ? t("sidebar.show_less")
-                      : t("sidebar.show_all", { count: bucket.items.length })
-                  }}
-                </span>
+                <Star
+                  class="h-3.5 w-3.5"
+                  :class="isFavorite(company.id) ? 'text-warning' : ''"
+                  :fill="isFavorite(company.id) ? 'currentColor' : 'none'"
+                />
+              </button>
+              <button
+                type="button"
+                class="icon-btn h-6 w-6"
+                :class="
+                  isTracked(company.id)
+                    ? ''
+                    : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
+                "
+                :aria-label="isTracked(company.id) ? t('sidebar.untrack_company') : t('sidebar.track_company')"
+                :title="isTracked(company.id) ? t('sidebar.untrack_company') : t('sidebar.track_company')"
+                :aria-pressed="isTracked(company.id)"
+                @click.stop.prevent="toggleTrackedCompany(company.id)"
+              >
+                <Radar
+                  class="h-3.5 w-3.5"
+                  :class="isTracked(company.id) ? 'text-accent-ink' : ''"
+                />
               </button>
             </div>
           </div>
+          <button
+            v-if="!sidebarCollapsed && portfolioCompanies.length > VISIBLE_ROWS"
+            type="button"
+            @click="showAllPortfolio = !showAllPortfolio"
+            class="focus-ring ml-1 inline-flex items-center gap-1 rounded-pill px-2 py-1 text-footnote text-ink-muted hover:bg-fill-tertiary hover:text-ink-primary"
+          >
+            <ChevronDown v-if="showAllPortfolio" class="h-3 w-3" />
+            <ChevronRight v-else class="h-3 w-3" />
+            <span>
+              {{
+                showAllPortfolio
+                  ? t("sidebar.show_less")
+                  : t("sidebar.show_all", { count: portfolioCompanies.length })
+              }}
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <section class="mt-4">
+        <div v-if="!sidebarCollapsed" class="mb-1 flex items-center justify-between px-2.5">
+          <div class="vogue-label">{{ t("sidebar.top_players") }}</div>
+          <span class="mono-data text-caption1 text-ink-subtle">{{
+            loading && companies.length === 0 ? "—" : topPlayerCompanies.length
+          }}</span>
+        </div>
+        <div
+          v-if="topPlayerCompanies.length === 0 && !sidebarCollapsed"
+          class="rounded-subbox px-2.5 py-1.5 text-footnote text-ink-muted"
+        >
+          {{ t("companies.empty") }}
+        </div>
+        <div v-else-if="topPlayerCompanies.length" class="space-y-0.5">
+          <div
+            v-for="company in visibleTopPlayers"
+            :key="company.id"
+            class="group relative"
+          >
+            <RouterLink
+              :to="{ name: 'research', params: { companyId: company.id } }"
+              class="source-row focus-ring"
+              :class="sidebarCollapsed ? '' : 'pr-14'"
+              :title="company.name"
+            >
+              <span
+                class="mono-data grid h-6 w-6 shrink-0 place-items-center rounded-chip bg-fill-tertiary text-caption1 font-semibold text-ink-secondary"
+              >
+                {{ monogram(company.name) }}
+              </span>
+              <span v-if="!sidebarCollapsed" class="min-w-0 flex-1">
+                <span class="block truncate font-medium">{{ company.name }}</span>
+                <span
+                  v-if="companyCategory(company)"
+                  class="block truncate text-caption1 text-ink-muted"
+                >
+                  {{ companyCategory(company) }}
+                </span>
+              </span>
+            </RouterLink>
+            <div
+              v-if="!sidebarCollapsed"
+              class="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5"
+            >
+              <button
+                type="button"
+                class="icon-btn h-6 w-6"
+                :class="
+                  isFavorite(company.id)
+                    ? ''
+                    : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
+                "
+                :aria-label="isFavorite(company.id) ? t('sidebar.unfavorite') : t('sidebar.favorite')"
+                :aria-pressed="isFavorite(company.id)"
+                @click.stop.prevent="toggleFavoriteCompany(company.id)"
+              >
+                <Star
+                  class="h-3.5 w-3.5"
+                  :class="isFavorite(company.id) ? 'text-warning' : ''"
+                  :fill="isFavorite(company.id) ? 'currentColor' : 'none'"
+                />
+              </button>
+              <button
+                type="button"
+                class="icon-btn h-6 w-6"
+                :class="
+                  isTracked(company.id)
+                    ? ''
+                    : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
+                "
+                :aria-label="isTracked(company.id) ? t('sidebar.untrack_company') : t('sidebar.track_company')"
+                :aria-pressed="isTracked(company.id)"
+                @click.stop.prevent="toggleTrackedCompany(company.id)"
+              >
+                <Radar
+                  class="h-3.5 w-3.5"
+                  :class="isTracked(company.id) ? 'text-accent-ink' : ''"
+                />
+              </button>
+            </div>
+          </div>
+          <button
+            v-if="!sidebarCollapsed && topPlayerCompanies.length > VISIBLE_ROWS"
+            type="button"
+            @click="showAllTopPlayers = !showAllTopPlayers"
+            class="focus-ring ml-1 inline-flex items-center gap-1 rounded-pill px-2 py-1 text-footnote text-ink-muted hover:bg-fill-tertiary hover:text-ink-primary"
+          >
+            <ChevronDown v-if="showAllTopPlayers" class="h-3 w-3" />
+            <ChevronRight v-else class="h-3 w-3" />
+            <span>
+              {{
+                showAllTopPlayers
+                  ? t("sidebar.show_less")
+                  : t("sidebar.show_all", { count: topPlayerCompanies.length })
+              }}
+            </span>
+          </button>
         </div>
       </section>
 

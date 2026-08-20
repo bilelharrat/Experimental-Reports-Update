@@ -15,6 +15,15 @@ fi
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8010}"
 
+# Claude Code installs to ~/.local/bin on macOS; ensure the server can find it
+# even when the launching shell did not inherit that PATH entry.
+if [ -d "${HOME}/.local/bin" ]; then
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+    esac
+fi
+
 # Ensure backend deps are installed.
 uv sync --quiet
 

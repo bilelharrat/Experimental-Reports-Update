@@ -287,7 +287,7 @@ async function setTaskStatus(task, status) {
           type="button"
           @click="projectExport"
           :disabled="exporting || loading"
-          class="inline-flex items-center gap-2 rounded-full bg-ink-primary px-4 py-2 text-xs font-semibold text-white disabled:opacity-60 focus-ring"
+          class="btn-filled rounded-full px-4 py-2 text-xs font-semibold disabled:opacity-60 focus-ring"
         >
           <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
           <Download v-else class="h-4 w-4" />

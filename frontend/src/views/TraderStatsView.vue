@@ -37,6 +37,14 @@ const selectedFailedSections = computed(() => selectedLatest.value?.failed_secti
 const maxLatestTokens = computed(() =>
   Math.max(1, ...items.value.map((item) => totalTokens(latestRecord(item)))),
 );
+const hasRefreshData = computed(() =>
+  items.value.some((item) => {
+    const record = latestRecord(item);
+    return Boolean(
+      record && (record.refreshed_at || record.recorded_at || totalTokens(record)),
+    );
+  }),
+);
 
 onMounted(loadStats);
 
@@ -226,6 +234,7 @@ function selectItem(item) {
     </header>
 
     <div
+      v-if="hasRefreshData"
       class="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
       aria-live="polite"
     >
@@ -280,7 +289,7 @@ function selectItem(item) {
     </div>
 
     <div
-      v-else-if="!items.length"
+      v-else-if="!items.length || !hasRefreshData"
       class="mt-10 rounded-card bg-surface px-6 py-8 text-center shadow-card"
     >
       <BarChart3 class="mx-auto h-8 w-8 text-ink-muted" />

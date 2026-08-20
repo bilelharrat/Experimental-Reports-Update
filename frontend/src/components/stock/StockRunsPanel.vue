@@ -176,7 +176,7 @@ function canRetryRun(run) {
     </div>
     <RunLedgerTable
       :rows="runLedger"
-      title="Normalized Run Ledger"
+      title="Run history"
       description="Cross-workspace shape for tracker jobs, aggregate jobs, strategy jobs, and future Memo Tools rows."
       empty-text="No normalized Stock Research run rows yet."
     />

@@ -1,14 +1,14 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
-  Bell,
   Bot,
   Library,
   Link as LinkIcon,
   LogOut,
   PanelRightClose,
   Plus,
+  Radar,
   ScrollText,
   Search,
   Settings,
@@ -21,7 +21,14 @@ import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import CompanyConsole from "./components/CompanyConsole.vue";
 import { marketRadarItems, radarAge, radarRoute } from "./marketRadar.js";
-import { activeSummaryTarget, closeSummary, setLastCompanyId } from "./state.js";
+import {
+  activeSummaryTarget,
+  closeSummary,
+  companyViews,
+  lastCompanyId,
+  recordCompanyView,
+  setLastCompanyId,
+} from "./state.js";
 import { isAuthenticated, sessionEmail, signOut } from "./auth.js";
 
 const news = ref([]);
@@ -42,6 +49,11 @@ const jumpQuery = ref("");
 const jumpOpen = ref(false);
 const signingOut = ref(false);
 const t = useT();
+
+provide("workspaceCompanies", companies);
+provide("workspaceNews", news);
+provide("workspaceResearch", externalResearch);
+provide("workspaceLoading", loading);
 
 // This feeds the toolbar radar and sidebar company list. Poll slowly;
 // user actions refresh it immediately via @reports-changed.
@@ -237,7 +249,10 @@ onBeforeUnmount(() => {
 });
 
 watch(currentCompanyId, (id) => {
-  if (id) setLastCompanyId(id);
+  if (id) {
+    setLastCompanyId(id);
+    recordCompanyView(id);
+  }
 });
 
 function tabLabel(tab) {
@@ -261,7 +276,9 @@ const toolbarTitle = computed(() => {
 const breadcrumbs = computed(() => {
   const name = String(route.name || "");
   const root = t("nav.research_center");
-  if (name === "home") return [root, t("nav.home")];
+  if (name === "home") return [root, t("companies.section_title")];
+  if (name === "tracking") return [root, t("nav.section_tracking")];
+  if (name === "market-radar") return [root, t("nav.section_radar")];
   if (name === "stock-research") return [root, t("app.stock")];
   if (name === "settings") return [root, t("app.settings")];
   if (name === "user-center") return [root, t("app.user_center")];
@@ -296,6 +313,10 @@ const breadcrumbs = computed(() => {
   return [root];
 });
 
+const showSectionBar = computed(() =>
+  ["home", "tracking", "market-radar"].includes(String(route.name || "")),
+);
+
 const copilotContext = computed(() => {
   if (currentCompany.value?.name) {
     return `${currentCompany.value.name} · ${tabLabel(route.query?.tab)}`;
@@ -308,6 +329,19 @@ const copilotQuickActions = computed(() => [
   t("copilot.quick_thesis"),
   t("copilot.quick_update"),
 ]);
+
+const copilotRecentCompanies = computed(() => {
+  const views = companyViews.value || {};
+  const last = lastCompanyId.value;
+  return [...(companies.value || [])]
+    .filter((company) => company?.id)
+    .sort((a, b) => {
+      if (a.id === last) return -1;
+      if (b.id === last) return 1;
+      return (Number(views[b.id]) || 0) - (Number(views[a.id]) || 0);
+    })
+    .slice(0, 3);
+});
 
 function prefillCopilot(prompt) {
   companyConsoleRef.value?.prefillPrompt(prompt);
@@ -427,7 +461,7 @@ watch(
                 @click="closeChromeMenus"
               >
                 <LinkIcon class="h-4 w-4 shrink-0 text-ink-muted" />
-                {{ t("sidebar.submit_link") }}
+                {{ t("home.action_link") }}
               </RouterLink>
               <RouterLink
                 :to="{ path: '/', query: { intake: 'upload' } }"
@@ -436,7 +470,7 @@ watch(
                 @click="closeChromeMenus"
               >
                 <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
-                {{ t("sidebar.upload_research") }}
+                {{ t("home.action_file") }}
               </RouterLink>
               <RouterLink
                 :to="{ path: '/', query: { intake: 'note' } }"
@@ -445,7 +479,7 @@ watch(
                 @click="closeChromeMenus"
               >
                 <ScrollText class="h-4 w-4 shrink-0 text-ink-muted" />
-                {{ t("sidebar.add_note") }}
+                {{ t("home.action_note") }}
               </RouterLink>
               <RouterLink
                 :to="{ name: 'source-library' }"
@@ -454,7 +488,7 @@ watch(
                 @click="closeChromeMenus"
               >
                 <Library class="h-4 w-4 shrink-0 text-ink-muted" />
-                {{ t("home.source_library") }}
+                {{ t("home.action_library") }}
               </RouterLink>
             </div>
           </div>
@@ -462,13 +496,14 @@ watch(
           <div class="relative">
             <button
               type="button"
-              class="icon-btn relative"
+              class="icon-btn relative lg:h-8 lg:w-auto lg:gap-1.5 lg:px-2"
               :aria-label="t('toolbar.radar')"
               :title="t('toolbar.radar')"
               :aria-expanded="radarMenuOpen"
               @click="toggleRadarMenu"
             >
-              <Bell class="h-[18px] w-[18px]" />
+              <Radar class="h-[18px] w-[18px]" />
+              <span class="hidden text-caption1 font-medium lg:inline">{{ t("toolbar.radar") }}</span>
               <span
                 v-if="radarItems.length"
                 class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent"
@@ -507,13 +542,14 @@ watch(
 
           <button
             type="button"
-            class="icon-btn"
+            class="icon-btn lg:h-8 lg:w-auto lg:gap-1.5 lg:px-2"
             :aria-label="t('copilot.ask')"
             :title="t('copilot.ask')"
             :aria-pressed="copilotOpen"
             @click="setCopilotOpen(!copilotOpen)"
           >
             <Bot class="h-[18px] w-[18px]" />
+            <span class="hidden text-caption1 font-medium lg:inline">{{ t("copilot.title") }}</span>
           </button>
 
           <RouterLink
@@ -571,6 +607,36 @@ watch(
         </div>
       </header>
 
+      <nav
+        v-if="showSectionBar"
+        class="px-3 pt-2 md:px-5"
+        :aria-label="t('nav.section_bar')"
+      >
+        <div class="segmented w-fit">
+          <RouterLink
+            :to="{ name: 'home' }"
+            class="segmented-item focus-ring"
+            :data-selected="route.name === 'home' ? 'true' : 'false'"
+          >
+            {{ t("nav.section_companies") }}
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'tracking' }"
+            class="segmented-item focus-ring"
+            :data-selected="route.name === 'tracking' ? 'true' : 'false'"
+          >
+            {{ t("nav.section_tracking") }}
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'market-radar' }"
+            class="segmented-item focus-ring"
+            :data-selected="route.name === 'market-radar' ? 'true' : 'false'"
+          >
+            {{ t("nav.section_radar") }}
+          </RouterLink>
+        </div>
+      </nav>
+
       <RouterView v-slot="{ Component }">
         <Transition name="view-fade" mode="out-in">
           <component
@@ -582,10 +648,17 @@ watch(
       </RouterView>
     </main>
 
+    <button
+      v-if="copilotOpen"
+      type="button"
+      class="sheet-scrim fixed inset-0 z-40 xl:hidden"
+      :aria-label="t('copilot.collapse')"
+      @click="setCopilotOpen(false)"
+    />
     <aside
       v-if="copilotReady"
       v-show="copilotOpen"
-      class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[320px] flex-col bg-surface hairline-l lg:sticky lg:top-0 lg:z-20 lg:h-screen lg:w-[320px] lg:shrink-0"
+      class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[320px] flex-col bg-surface hairline-l xl:sticky xl:top-0 xl:z-20 xl:h-screen xl:w-[320px] xl:shrink-0"
       :aria-label="t('copilot.title')"
     >
         <header class="flex items-center gap-3 px-4 py-3 hairline-b">
@@ -619,6 +692,18 @@ watch(
             <p class="text-callout leading-relaxed text-ink-muted">
               {{ t("copilot.open_company") }}
             </p>
+            <div v-if="copilotRecentCompanies.length" class="space-y-0.5">
+              <div class="vogue-label px-0.5">{{ t("copilot.recent") }}</div>
+              <button
+                v-for="company in copilotRecentCompanies"
+                :key="company.id"
+                type="button"
+                class="toolbar-menu-item w-full text-left"
+                @click="goToCompany(company)"
+              >
+                <span class="truncate font-medium">{{ company.name }}</span>
+              </button>
+            </div>
             <p class="text-footnote text-ink-subtle">{{ t("copilot.sample_user") }}</p>
           </div>
           <div v-if="currentCompanyId" class="flex flex-wrap gap-1.5 pt-1">

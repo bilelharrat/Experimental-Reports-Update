@@ -328,14 +328,14 @@ test("stock research tabs render and source forms submit against mocked API", as
   await expect(page.getByText("Transcript")).toBeVisible();
   await page.getByRole("button", { name: "Runs" }).click();
   await expect(page.getByText("NVIDIA tracker report")).toBeVisible();
-  await expect(page.getByText("Normalized Run Ledger")).toBeVisible();
+  await expect(page.getByText("Run history")).toBeVisible();
   await page.getByRole("button", { name: "Pulse" }).click();
   await page.getByRole("button", { name: "Weekly Aggregate" }).click();
   await expect(page.getByText("AI infrastructure demand remains the key signal.")).toBeVisible();
   await page.getByRole("button", { name: "Strategy Map" }).click();
   await expect(page.getByText("Demand conflicts with supply-chain checks.")).toBeVisible();
   await page.getByRole("button", { name: "Work" }).click();
-  await page.getByRole("button", { name: "Work Products" }).click();
+  await page.getByRole("button", { name: "Deliverables" }).click();
   await expect(page.getByText("NVIDIA tracker report")).toBeVisible();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page.getByRole("button", { name: "Review Queue" }).click();

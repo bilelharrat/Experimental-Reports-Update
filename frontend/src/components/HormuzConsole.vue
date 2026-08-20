@@ -553,7 +553,7 @@ function turnTime(ts) {
         >
           <div>
             <div class="font-display text-base font-semibold text-ink-primary">
-              New Hormuz console session
+              New source console session
             </div>
             <p class="mt-1 text-xs text-ink-muted">
               <template v-if="ctx && ctx.dates?.length">

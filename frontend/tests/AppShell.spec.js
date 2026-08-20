@@ -21,6 +21,8 @@ function makeRouter(initialPath) {
     routes: [
       { path: "/login", name: "login", component: { template: "<div>Login route</div>" } },
       { path: "/", name: "home", component: { template: "<div>Home route</div>" } },
+      { path: "/tracking", name: "tracking", component: { template: "<div>Tracking route</div>" } },
+      { path: "/market-radar", name: "market-radar", component: { template: "<div>Radar route</div>" } },
       { path: "/settings", name: "settings", component: { template: "<div>Settings route</div>" } },
       { path: "/user", name: "user-center", component: { template: "<div>User route</div>" } },
       { path: "/:companyId", name: "research", component: { template: "<div>Company route</div>" } },

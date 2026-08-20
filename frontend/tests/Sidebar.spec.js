@@ -1,33 +1,48 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import Sidebar from "../src/components/Sidebar.vue";
-import { setSidebarCollapsed } from "../src/state.js";
+import {
+  companyViews,
+  favoriteCompanyIds,
+  setCompanySort,
+  setSidebarCollapsed,
+  trackedCompanyIds,
+} from "../src/state.js";
 
 const RouterLinkStub = {
   props: ["to"],
   template: "<a><slot /></a>",
 };
 
+const companies = [
+  {
+    id: "acme-inc",
+    name: "Acme Inc.",
+    company_type: "private",
+    status: "private",
+    industry: "Industrial AI",
+  },
+  {
+    id: "nvda",
+    name: "NVIDIA",
+    company_type: "public",
+    status: "public",
+    sector: "Semis / AI Infra",
+  },
+  {
+    id: "zeta",
+    name: "Zeta Labs",
+    company_type: "private",
+    status: "private",
+    industry: "Robotics",
+  },
+];
+
 function mountSidebar() {
   return mount(Sidebar, {
     props: {
       loading: false,
-      companies: [
-        {
-          id: "acme-inc",
-          name: "Acme Inc.",
-          company_type: "private",
-          status: "private",
-          industry: "Industrial AI",
-        },
-        {
-          id: "nvda",
-          name: "NVIDIA",
-          company_type: "public",
-          status: "public",
-          sector: "Semis / AI Infra",
-        },
-      ],
+      companies,
     },
     global: {
       stubs: {
@@ -37,12 +52,24 @@ function mountSidebar() {
   });
 }
 
+function nameOrder(wrapper) {
+  const text = wrapper.text();
+  return ["Acme Inc.", "NVIDIA", "Zeta Labs"]
+    .map((name) => [name, text.indexOf(name)])
+    .sort((a, b) => a[1] - b[1])
+    .map(([name]) => name);
+}
+
 describe("Sidebar", () => {
   beforeEach(() => {
     setSidebarCollapsed(false);
+    setCompanySort("az");
+    favoriteCompanyIds.value = new Set();
+    trackedCompanyIds.value = new Set();
+    companyViews.value = {};
   });
 
-  it("renders company buckets and destinations without duplicate add or radar", () => {
+  it("renders one flat portfolio list and the destinations", () => {
     const wrapper = mountSidebar();
 
     expect(wrapper.text()).toContain("Portfolio");
@@ -50,16 +77,51 @@ describe("Sidebar", () => {
     expect(wrapper.text()).toContain("Acme Inc.");
     expect(wrapper.text()).toContain("NVIDIA");
     expect(wrapper.text()).toContain("Weekly Summary");
-    expect(wrapper.text()).toContain("Stock");
+    expect(wrapper.text()).toContain("Stock Research");
     expect(wrapper.text()).toContain("Stats");
     expect(wrapper.text()).toContain("Innovation Lab");
     expect(wrapper.text()).not.toContain("Pipeline");
-    expect(wrapper.text()).not.toContain("Quick Intake");
     expect(wrapper.text()).not.toContain("Market Radar");
+    expect(wrapper.text()).not.toContain("News Board");
     expect(wrapper.text()).not.toContain("Settings");
-    expect(wrapper.text()).not.toContain("Profile");
     expect(wrapper.text()).not.toContain("Sign out");
-    expect(wrapper.text()).not.toContain("Hormuz Research");
+  });
+
+  it("sorts A-Z by default and by views via the sort menu", async () => {
+    companyViews.value = { "acme-inc": 1, zeta: 5 };
+    const wrapper = mountSidebar();
+
+    expect(nameOrder(wrapper)).toEqual(["Acme Inc.", "Zeta Labs", "NVIDIA"]);
+
+    await wrapper.get('button[aria-label="Sort"]').trigger("click");
+    const mostViewed = wrapper
+      .findAll('[role="menuitemradio"]')
+      .find((option) => option.text().includes("Most viewed"));
+    await mostViewed.trigger("click");
+
+    expect(nameOrder(wrapper)).toEqual(["Zeta Labs", "Acme Inc.", "NVIDIA"]);
+  });
+
+  it("pins favorites to the top of the list", async () => {
+    const wrapper = mountSidebar();
+
+    // Favorite Zeta Labs in Portfolio; it should jump above Acme.
+    const favButtons = wrapper.findAll('button[aria-label="Favorite"]');
+    await favButtons[1].trigger("click");
+
+    expect(favoriteCompanyIds.value.has("zeta")).toBe(true);
+    expect(nameOrder(wrapper)).toEqual(["Zeta Labs", "Acme Inc.", "NVIDIA"]);
+  });
+
+  it("tracks a company from the list", async () => {
+    const wrapper = mountSidebar();
+
+    const trackButtons = wrapper.findAll('button[aria-label="Track"]');
+    await trackButtons[trackButtons.length - 1].trigger("click");
+
+    expect(trackedCompanyIds.value.has("nvda")).toBe(true);
+    await wrapper.get('button[aria-label="Stop tracking"]').trigger("click");
+    expect(trackedCompanyIds.value.has("nvda")).toBe(false);
   });
 
   it("collapses to an icon rail and expands again", async () => {

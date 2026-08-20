@@ -72,6 +72,7 @@ vi.mock("../src/api.js", () => ({
       runSelectedTasks: vi.fn(),
       patchArtifact: vi.fn(),
       patchTask: vi.fn(),
+      refineRisk: vi.fn(),
       approve: vi.fn(),
       streamUrl: vi.fn(() => "/stream"),
     },
@@ -364,7 +365,7 @@ describe("route smoke tests", () => {
 
     expect(wrapper.text()).toContain("Stock Research");
     expect(wrapper.text()).toContain("Latest Weekly Aggregate");
-    expect(wrapper.text()).toContain("Data Doctor");
+    expect(wrapper.text()).toContain("Data health");
   });
 
   it("renders the Memo Tools analysis route shell", async () => {
@@ -391,16 +392,16 @@ describe("route smoke tests", () => {
   it("renders new PRD foundation top-level routes", async () => {
     let wrapper = await mountRoute("/innovation-lab");
     expect(wrapper.text()).toContain("Innovation Lab");
-    expect(wrapper.text()).toContain("Hormuz Source Library");
+    expect(wrapper.text()).toContain("Daily source reports");
     wrapper.unmount();
 
     wrapper = await mountRoute("/settings");
     expect(wrapper.text()).toContain("Settings");
-    expect(wrapper.text()).toContain("System Status");
+    expect(wrapper.text()).toContain("System");
     wrapper.unmount();
 
     wrapper = await mountRoute("/user");
-    expect(wrapper.text()).toContain("User Center");
+    expect(wrapper.text()).toContain("Profile");
     wrapper.unmount();
 
     wrapper = await mountRoute("/source-library");

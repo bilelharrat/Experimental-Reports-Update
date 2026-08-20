@@ -10,6 +10,17 @@ defineProps({
 
 const emit = defineEmits(["open-tab"]);
 
+function formatPeriodId(id) {
+  const match = String(id || "").match(
+    /^(\d{4})-(\d{2})-(\d{2})_to_(\d{4})-(\d{2})-(\d{2})$/,
+  );
+  if (!match) return id;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const start = `${months[Number(match[2]) - 1]} ${Number(match[3])}`;
+  const end = `${months[Number(match[5]) - 1]} ${Number(match[6])}, ${match[4]}`;
+  return `${start}–${end}`;
+}
+
 function trackerTypeCount(summary, type) {
   return summary?.tracker_counts_by_type?.[type] || 0;
 }
@@ -44,7 +55,7 @@ function trackerTypeCount(summary, type) {
         </div>
       </div>
       <div class="rounded-card bg-surface shadow-card p-4">
-        <div class="text-footnote font-semibold text-ink-muted">Work Products</div>
+        <div class="text-footnote font-semibold text-ink-muted">Deliverables</div>
         <div class="mt-2 text-2xl font-semibold">{{ summary.work_product_count || 0 }}</div>
         <div class="mt-1 text-xs text-ink-muted">
           {{ summary.source_count || 0 }} assigned sources
@@ -57,13 +68,13 @@ function trackerTypeCount(summary, type) {
       class="grid gap-3 md:grid-cols-3"
     >
       <div class="rounded-card bg-surface shadow-card p-4">
-        <div class="text-footnote font-semibold text-ink-muted">Data Doctor</div>
+        <div class="text-footnote font-semibold text-ink-muted">Data health</div>
         <div class="mt-2 text-sm font-semibold">
           {{ summary.doctor_error_count || 0 }} errors · {{ summary.doctor_warning_count || 0 }} warnings
         </div>
       </div>
       <div class="rounded-card bg-surface shadow-card p-4">
-        <div class="text-footnote font-semibold text-ink-muted">Run Ledger</div>
+        <div class="text-footnote font-semibold text-ink-muted">Run history</div>
         <div class="mt-2 text-sm font-semibold">{{ summary.run_ledger_count || 0 }} tracked jobs</div>
       </div>
       <div class="rounded-card bg-surface shadow-card p-4">
@@ -79,7 +90,7 @@ function trackerTypeCount(summary, type) {
         </div>
         <div class="p-4 text-sm">
           <div v-if="aggregate" class="space-y-2">
-            <div class="font-medium">{{ aggregate.period_id }}</div>
+            <div class="font-medium">{{ formatPeriodId(aggregate.period_id) }}</div>
             <div class="text-ink-muted">
               {{ aggregateSignalCount }} ranked signals ·
               {{ aggregate.excluded_tracker_warnings?.length || 0 }} stale warnings
@@ -103,7 +114,7 @@ function trackerTypeCount(summary, type) {
         </div>
         <div class="p-4 text-sm">
           <div v-if="strategyMap" class="space-y-2">
-            <div class="font-medium">{{ strategyMap.period_id }}</div>
+            <div class="font-medium">{{ formatPeriodId(strategyMap.period_id) }}</div>
             <div class="text-ink-muted">
               {{ strategyNodeCount }} nodes · {{ strategyEdgeCount }} edges
             </div>

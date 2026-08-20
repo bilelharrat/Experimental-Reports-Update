@@ -29,13 +29,13 @@ import StockTrackerRegistryPanel from "../components/stock/StockTrackerRegistryP
 import StockWorkProductsPanel from "../components/stock/StockWorkProductsPanel.vue";
 
 const tabs = [
-  { id: "home", label: "Home", icon: Gauge },
+  { id: "home", label: "Overview", icon: Gauge },
   { id: "trackers", label: "Trackers", icon: Search },
   { id: "sources", label: "Sources", icon: Upload },
   { id: "runs", label: "Runs", icon: Play },
   { id: "aggregate", label: "Weekly Aggregate", icon: Layers },
   { id: "strategy", label: "Strategy Map", icon: GitBranch },
-  { id: "products", label: "Work Products", icon: FileText },
+  { id: "products", label: "Deliverables", icon: FileText },
   { id: "review", label: "Review Queue", icon: ListChecks },
   { id: "evaluation", label: "Evaluation", icon: Database },
   { id: "hypotheses", label: "Hypotheses", icon: FlaskConical },

@@ -1,7 +1,7 @@
 <script setup>
 defineProps({
   rows: { type: Array, default: () => [] },
-  title: { type: String, default: "Run Ledger" },
+  title: { type: String, default: "Run history" },
   description: { type: String, default: "" },
   emptyText: { type: String, default: "No run ledger rows yet." },
 });

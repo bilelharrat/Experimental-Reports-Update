@@ -10,6 +10,8 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  ArrowLeft,
+  Star,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
 import {
@@ -21,7 +23,7 @@ import {
 } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
-import { appLanguage } from "../state.js";
+import { appLanguage, toggleTrackedCompany, trackedCompanyIds } from "../state.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import MemoAnalysisDashboard from "../components/MemoAnalysisDashboard.vue";
@@ -79,6 +81,9 @@ const route = useRoute();
 const router = useRouter();
 
 const company = ref(null);
+const companyTracked = computed(() =>
+  trackedCompanyIds.value.has(String(props.companyId || company.value?.id || "")),
+);
 const companyError = ref(null);
 const options = ref({ report_types: [], audiences: [], languages: [] });
 const newsFeed = ref({ rows: [], filters: { categories: [], tags: [] }, empty_state: "" });
@@ -989,8 +994,33 @@ onUnmounted(stopPolling);
   <div class="w-full space-y-6 px-5 py-5 md:px-8 md:py-6">
     <header v-if="company" class="flex items-start justify-between gap-4">
       <div class="min-w-0">
-        <h1 class="sr-only">{{ company.name }}</h1>
-        <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="icon-btn shrink-0"
+            :aria-label="tr('research.back')"
+            :title="tr('research.back')"
+            @click="router.push({ name: 'home' })"
+          >
+            <ArrowLeft class="h-4 w-4" />
+          </button>
+          <h1 class="font-display text-title2 text-ink-primary">{{ company.name }}</h1>
+          <button
+            type="button"
+            class="icon-btn shrink-0"
+            :aria-label="companyTracked ? tr('research.untrack') : tr('research.track')"
+            :title="companyTracked ? tr('research.untrack') : tr('research.track')"
+            :aria-pressed="companyTracked"
+            @click="toggleTrackedCompany(company.id)"
+          >
+            <Star
+              class="h-4 w-4"
+              :class="companyTracked ? 'text-warning' : ''"
+              :fill="companyTracked ? 'currentColor' : 'none'"
+            />
+          </button>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span
             v-if="company.latest_funding?.round"
             class="text-footnote font-medium text-ink-muted"
