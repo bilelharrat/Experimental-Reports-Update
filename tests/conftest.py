@@ -74,6 +74,29 @@ def _isolate_data_dir(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_claude_cli(request, monkeypatch):
+    """Fail closed on real Claude CLI spawns in unit tests.
+
+    Every spawn path checks ``claude_runner.is_available()`` first, so forcing
+    it False makes an unmocked path return its "claude not on PATH" error
+    instead of silently launching a real (paid, minutes-long) subprocess.
+    This actually happened: on machines with ``claude`` installed, the fast
+    memo pipeline tests reached the real bilingual parallel wrapper, spawned
+    per-section Claude processes, and only then fell back to the patched
+    monolithic fake — one such test took 58s with claude on PATH vs 0.9s
+    without. CI has no claude binary, so this also makes local runs match CI.
+    Tests that need availability monkeypatch ``is_available`` themselves
+    (their patch runs after this one and wins); e2e tests keep the real
+    check.
+    """
+    if request.node.get_closest_marker("e2e"):
+        return
+    from server import claude_runner
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: False)
+
+
+@pytest.fixture(autouse=True)
 def _disable_auth(monkeypatch):
     """Let API tests through without credentials. ``require_api_token`` now
     fails closed, so we clear any shared token AND opt into anonymous dev

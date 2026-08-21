@@ -3480,6 +3480,172 @@ def test_phase3_retries_on_quality_gate_finding(memo_env, monkeypatch):
     assert result.get("ok") is True
 
 
+def test_phase3_surgical_quality_repair_avoids_regeneration(
+    memo_env, monkeypatch
+):
+    """A quality-gate finding on a structurally valid package must first try
+    the ~2-minute surgical repair pass; when the repair clears the findings,
+    NO full regeneration attempt is burned. (The 40-60 minute runs on record
+    were exactly these 10-18 minute quality retries.)"""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    english_calls = []
+
+    def fake_english_package(**kwargs):
+        english_calls.append(kwargs.get("validation_feedback"))
+        return {
+            "analysis_artifacts": {},
+            "memo_package": _memo_package(body_en=_SCAFFOLD_BODY_EN, body_zh=""),
+        }, None
+
+    repair_calls = []
+
+    def fake_repair(**kwargs):
+        repair_calls.append(kwargs.get("validation_errors"))
+        return {"memo_package": _memo_package(body_zh="")}, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_package", fake_english_package
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_package_structure_repair", fake_repair
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        lambda **_kwargs: ({"memo_package": _memo_package()}, None),
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    # ONE generation attempt, ONE cheap repair — no regeneration round.
+    assert len(english_calls) == 1
+    assert len(repair_calls) == 1
+    assert any("scaffold_label" in err for err in repair_calls[0])
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(
+        e.get("stage") == "memo_quality_surgical_repair_succeeded"
+        for e in events
+    )
+    # The persisted attempt file must hold the repaired package.
+    attempt_file = run_dir / "logs" / "memo_package.en.attempt-1.json"
+    assert "scaffold_label" not in attempt_file.read_text(encoding="utf-8")
+
+
+def test_phase3_threads_previous_attempt_into_parallel_retry(
+    memo_env, monkeypatch
+):
+    """A validation retry must hand the parallel synthesizer the previous
+    attempt's package path and error list, so it can regenerate only the
+    implicated sections instead of the whole package."""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    parallel_calls = []
+
+    def fake_parallel(**kwargs):
+        parallel_calls.append(
+            {
+                "previous_package_path": kwargs.get("previous_package_path"),
+                "previous_validation_errors": kwargs.get(
+                    "previous_validation_errors"
+                ),
+            }
+        )
+        body = _SCAFFOLD_BODY_EN if len(parallel_calls) == 1 else None
+        return {
+            "analysis_artifacts": {},
+            "memo_package": _memo_package(body_en=body, body_zh=""),
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        fake_parallel,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        lambda **_kwargs: ({"memo_package": _memo_package()}, None),
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    assert len(parallel_calls) == 2
+    assert parallel_calls[0]["previous_package_path"] is None
+    assert parallel_calls[0]["previous_validation_errors"] is None
+    retry = parallel_calls[1]
+    assert retry["previous_package_path"] == (
+        run_dir / "logs" / "memo_package.en.attempt-1.json"
+    )
+    assert retry["previous_package_path"].exists()
+    assert retry["previous_validation_errors"]
+    assert any(
+        "scaffold_label" in err for err in retry["previous_validation_errors"]
+    )
+
+
 def test_resume_retries_then_delivers_with_warnings_on_quality_findings(
     memo_env, monkeypatch
 ):

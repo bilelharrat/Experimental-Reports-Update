@@ -413,18 +413,19 @@ def _memo_package_render_validation_error(package_path: Path) -> str | None:
     return None
 
 
-def _memo_package_prerender_quality_error(
+def _memo_package_prerender_quality_findings(
     package: dict | Path,
     *,
     check_parity: bool = True,
-) -> str | None:
+) -> list[str]:
     """Render a package to a throwaway dir and run the finalize-time quality
     gates on it, so blocking findings feed the generation retry loop instead
     of surfacing after the run declares success (each post-render miss costs
     a full regeneration round). Applies the same deterministic voice rewrites
     finalize applies, so this can't flag text finalize would have fixed.
 
-    Returns a findings summary, or None when the gates pass. Rendering is
+    Returns the list of finding summaries, empty when the gates pass. A
+    failure of the check itself is returned as one finding. Rendering is
     local and takes about a second, so this is cheap relative to one Claude
     generation pass.
     """
@@ -467,11 +468,111 @@ def _memo_package_prerender_quality_error(
                         f"{finding.location}: \"{finding.snippet}\" — "
                         f"{finding.suggestion}"
                     )
-            if problems:
-                return "; ".join(problems)
+            return problems
     except Exception as exc:  # noqa: BLE001
-        return f"pre-render quality check failed: {type(exc).__name__}: {exc}"
-    return None
+        return [f"pre-render quality check failed: {type(exc).__name__}: {exc}"]
+
+
+def _memo_package_prerender_quality_error(
+    package: dict | Path,
+    *,
+    check_parity: bool = True,
+) -> str | None:
+    """Joined-string form of ``_memo_package_prerender_quality_findings``."""
+    problems = _memo_package_prerender_quality_findings(
+        package, check_parity=check_parity
+    )
+    return "; ".join(problems) if problems else None
+
+
+def _surgical_quality_repair(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    candidate: dict,
+    findings: list[str],
+    attempt: int,
+    progress,
+) -> dict | None:
+    """Fix quality-gate findings on a structurally valid candidate with the
+    ~2-minute surgical repair pass instead of a 10-18 minute full
+    regeneration.
+
+    Quality findings are localized string defects (an em dash, a banned
+    phrase, an untreated disclosure cell) — exactly what the repair pass is
+    built for. Returns the repaired package only when it passes BOTH
+    structural validation and a re-run of the quality gates; any other
+    outcome returns None and the caller falls back to the normal
+    full-regeneration retry, so this can only save time, never lose
+    correctness.
+    """
+    input_path = (
+        run_dir / "logs" / f"memo_package.en.quality-repair.attempt-{attempt}.json"
+    )
+    _write_json(input_path, candidate)
+    progress.emit(
+        "stage",
+        stage="memo_quality_surgical_repair",
+        message=(
+            f"Quality gate flagged {len(findings)} finding(s); trying a "
+            "surgical repair pass before regenerating the package"
+        ),
+        findings=findings[:10],
+        attempt=attempt,
+    )
+    repair_result, repair_error = claude_runner.run_memo_package_structure_repair(
+        run_dir=run_dir,
+        company_name=company_name,
+        run_id=run_id,
+        package_path=input_path,
+        validation_errors=findings,
+        progress=progress,
+    )
+    repaired = (
+        repair_result.get("memo_package")
+        if not repair_error and isinstance(repair_result, dict)
+        else None
+    )
+    if not isinstance(repaired, dict):
+        progress.emit(
+            "stage",
+            stage="memo_quality_surgical_repair_failed",
+            message="Surgical quality repair pass failed; regenerating instead",
+            error=str(repair_error or "no package returned")[:2000],
+            attempt=attempt,
+        )
+        return None
+    repaired, _ = memo_docx_renderer.repair_package_structure(repaired)
+    structural_errors = memo_docx_renderer.english_package_validation_errors(
+        repaired
+    )
+    remaining = (
+        structural_errors
+        or _memo_package_prerender_quality_findings(
+            memo_docx_renderer.fill_blank_zh_placeholders(repaired),
+            check_parity=False,
+        )
+    )
+    if remaining:
+        progress.emit(
+            "stage",
+            stage="memo_quality_surgical_repair_failed",
+            message=(
+                "Surgical quality repair did not clear validation; "
+                "regenerating instead"
+            ),
+            validation_errors=remaining[:10],
+            attempt=attempt,
+        )
+        return None
+    progress.emit(
+        "stage",
+        stage="memo_quality_surgical_repair_succeeded",
+        message="Surgical repair cleared the quality findings",
+        attempt=attempt,
+    )
+    return repaired
 
 
 def _archive_memo_package(package_path: Path, *, label: str) -> Path:
@@ -2511,6 +2612,7 @@ def _run_fast_memo_pipeline(
     last_invalid_candidate: dict | None = None
     last_validation_errors: list[str] = []
     last_attempt_result: dict | None = None
+    last_attempt_path: Path | None = None
     max_attempts = 1 + _memo_fast_english_package_retries()
     phase3_cost_before = phase3_progress.cost_usd
     phase3_duration_before = phase3_progress.duration_ms
@@ -2541,21 +2643,25 @@ def _run_fast_memo_pipeline(
             attempt=attempt,
             max_attempts=max_attempts,
         )
-        attempt_result, attempt_error = claude_runner.run_memo_fast_english_package(
-            run_dir=run_dir,
-            company_name=company_name,
-            company_slug=company_slug,
-            run_id=run_id,
-            settings_path=memo_prep.SETTINGS_FILE,
-            companies_yaml_path=memo_prep.COMPANIES_FILE,
-            memo_paths=memo_paths,
-            research_dir=research_dir,
-            analysis_session_path=analysis_session_path,
-            lessons_path=lessons_path,
-            scope_check=scope_check,
-            warnings=warnings,
-            progress=phase3_progress,
-            validation_feedback=validation_feedback,
+        attempt_result, attempt_error = (
+            claude_runner.run_memo_fast_english_package_parallel(
+                run_dir=run_dir,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                settings_path=memo_prep.SETTINGS_FILE,
+                companies_yaml_path=memo_prep.COMPANIES_FILE,
+                memo_paths=memo_paths,
+                research_dir=research_dir,
+                analysis_session_path=analysis_session_path,
+                lessons_path=lessons_path,
+                scope_check=scope_check,
+                warnings=warnings,
+                progress=phase3_progress,
+                validation_feedback=validation_feedback,
+                previous_validation_errors=last_validation_errors or None,
+                previous_package_path=last_attempt_path,
+            )
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
         attempt_duration = max(
@@ -2608,10 +2714,10 @@ def _run_fast_memo_pipeline(
         if isinstance(candidate, dict):
             # Persist every candidate so a failed run leaves its work product
             # on disk for debugging and surgical repair instead of vanishing.
-            _write_json(
-                run_dir / "logs" / f"memo_package.en.attempt-{attempt}.json",
-                candidate,
+            last_attempt_path = (
+                run_dir / "logs" / f"memo_package.en.attempt-{attempt}.json"
             )
+            _write_json(last_attempt_path, candidate)
             # Mechanical defects (missing callout title, plain strings in
             # bilingual slots, analysis-pass source vocabulary) are fixed
             # deterministically instead of burning a full regeneration.
@@ -2621,6 +2727,10 @@ def _run_fast_memo_pipeline(
             if structure_repairs:
                 candidate = repaired_candidate
                 attempt_result["memo_package"] = repaired_candidate
+                # Keep the on-disk attempt in sync with what validation sees;
+                # a selective section retry splices unchanged sections from
+                # this file.
+                _write_json(last_attempt_path, repaired_candidate)
                 phase3_progress.emit(
                     "stage",
                     stage="memo_package_auto_repair",
@@ -2639,9 +2749,32 @@ def _run_fast_memo_pipeline(
             # gate on a throwaway render, so banned vocabulary retries here
             # with the findings fed back instead of costing a whole
             # regeneration round after the Chinese fill.
-            quality_error = _memo_package_prerender_quality_error(
+            quality_findings = _memo_package_prerender_quality_findings(
                 memo_docx_renderer.fill_blank_zh_placeholders(candidate),
                 check_parity=False,
+            )
+            if quality_findings and isinstance(candidate, dict):
+                # Try the cheap surgical repair first: quality findings are
+                # localized string defects, and a full regeneration costs
+                # 10-18 minutes per round (the 40-60 minute runs on record
+                # were exactly these retries).
+                repaired = _surgical_quality_repair(
+                    run_dir=run_dir,
+                    company_name=company_name,
+                    run_id=run_id,
+                    candidate=candidate,
+                    findings=quality_findings,
+                    attempt=attempt,
+                    progress=phase3_progress,
+                )
+                if repaired is not None:
+                    candidate = repaired
+                    attempt_result["memo_package"] = repaired
+                    if last_attempt_path is not None:
+                        _write_json(last_attempt_path, repaired)
+                    quality_findings = []
+            quality_error = (
+                "; ".join(quality_findings) if quality_findings else None
             )
             if quality_error:
                 if attempt < max_attempts:

@@ -113,6 +113,16 @@ _MODEL_TREATMENT_TERMS = (
     # analytical handling, not a bare blank — treat it as resolved even though
     # the same phrase is one of the gap triggers.
     "not computable",
+    # Morphological stems for treatment verbs writers actually use. Three
+    # consecutive Tenstorrent runs (2026-08-18/20/21) burned 10-18 minute
+    # full-package retries on cells that DID treat the gap but phrased it as
+    # "our downside case assumes ..." or "we value the team ... and take a
+    # discount" — forms the exact-word list above never matched.
+    "assum",
+    "downside",
+    "haircut",
+    "discount",
+    "we value",
 )
 _ALLOWED_SECTION_PATTERNS = (
     re.compile(r"\bsources?\b.*\b(source classes?|fact reference index|references?)\b", re.IGNORECASE),
