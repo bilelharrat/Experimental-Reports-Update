@@ -193,7 +193,7 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bthe base case credits\b", re.IGNORECASE),
     re.compile(r"\bthe investment view is\b", re.IGNORECASE),
     re.compile(r"\bwe invest behind\b", re.IGNORECASE),
-    re.compile(r"\bwe back\b", re.IGNORECASE),
+    re.compile(r"\bwe back\b(?!-)", re.IGNORECASE),
     re.compile(r"\bwe want exposure\b", re.IGNORECASE),
     re.compile(r"\bwhy we want exposure\b", re.IGNORECASE),
     re.compile(r"\bcontrol layer underneath\b", re.IGNORECASE),

@@ -164,6 +164,43 @@ def test_linter_accepts_natural_treatment_verb_forms(tmp_path):
     )
 
 
+def test_linter_accepts_hyphenated_back_verbs(tmp_path):
+    # "we back-solve" / "we back-test" are modeling verbs, not the banned
+    # sell-side "we back <asset>" phrasing. The 2026-08-21 ZaiNar run showed
+    # the voice rewrite mangling "we back-solve" into "BSH invests in-solve";
+    # this lint pattern shared the same word-boundary hole.
+    path = tmp_path / "back-solve.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "II. Company Overview",
+            "We back-solve a prior-year revenue base near $8,600,000 and "
+            "back-test the resulting multiple.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(
+        f.code == "sell_side_voice_violation" for f in result.findings
+    )
+
+
+def test_linter_still_flags_plain_we_back(tmp_path):
+    path = tmp_path / "we-back.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "II. Company Overview",
+            "We back the company because the channel is durable.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+
+
 def test_linter_still_flags_untreated_disclosure_gap(tmp_path):
     # A bare "Not disclosed" cell with no treatment anywhere in its row must
     # still be flagged — the row-aware fix must not neuter the gate.

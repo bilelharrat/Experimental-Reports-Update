@@ -1106,7 +1106,9 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         "BSH invests in",
     ),
     (
-        re.compile(r"\bWe back\b", re.IGNORECASE),
+        # (?!-) keeps hyphenated verbs ("we back-solve", "we back-test")
+        # out of the sell-side rewrite; they are modeling vocabulary.
+        re.compile(r"\bWe back\b(?!-)", re.IGNORECASE),
         "BSH invests in",
     ),
     (

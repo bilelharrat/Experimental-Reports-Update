@@ -1258,6 +1258,24 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert any(e.get("stage") == "memo_package_voice_cleanup" for e in events)
 
 
+def test_memo_package_voice_rewrite_preserves_hyphenated_back_verbs():
+    # The 2026-08-21 ZaiNar run: "\bWe back\b" matched the "we back" inside
+    # "we back-solve" (word boundary at the hyphen) and rewrote two table
+    # cells to "BSH invests in-solve ...". Hyphenated modeling verbs must
+    # survive; the plain sell-side phrase must still be rewritten.
+    text = (
+        "Not disclosed; we back-solve approximately $8,600,000 as of June "
+        "2025 and back-test the forward multiple. We back the company."
+    )
+
+    rewritten = memo_analysis._rewrite_memo_package_voice_text(text)
+
+    assert "we back-solve approximately" in rewritten
+    assert "in-solve" not in rewritten
+    assert "BSH invests in the company" in rewritten
+    assert "We back the company" not in rewritten
+
+
 def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
     memo_env, monkeypatch, tmp_path
 ):
