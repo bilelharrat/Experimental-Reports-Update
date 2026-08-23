@@ -3066,7 +3066,7 @@ risk table. Structure, in order:
      price below the December 2024 mark"), never a category label
      ("Financing risk").
    - a `table` block with `component: "risk_register"`,
-     `"layout": "key_value"`, `"headers": []`, and EXACTLY these four
+     `"layout": "key_value"`, `"headers": []`, and EXACTLY these five
      two-cell rows (label cell first, content cell second):
        1. `Risk Type` / `风险类型` — a 1-4 word category such as Commercial,
           Market, Competition, Technology, Financing, Regulatory, or
@@ -3076,10 +3076,18 @@ risk table. Structure, in order:
           stated explicitly, with numbers wherever they exist.
        3. `What we watch` / `跟踪信号` — 1-3 concrete, observable signals
           that would confirm or defuse the risk, dated where possible.
-       4. `Risk Rating` / `风险评分` — `"N/10: <short reason>"` with N from
-          1-10. Anchors: 9-10 could break the investment case on its own;
-          7-8 could push the outcome below base case; 5-6 meaningful but
-          monitorable; 3-4 real but limited effect; 1-2 minor.
+       4. `Likelihood` / `可能性` — `"High|Medium|Low: <short reason>"`
+          (Chinese `"高|中|低：<简短理由>"`): how likely the risk is to
+          materialize inside the 3-5 year underwriting window. Anchors:
+          High — more likely than not; Medium — a realistic chance,
+          roughly one-in-three; Low — unlikely, but consequential enough
+          to track. Ground the reason in evidence, not vibes.
+       5. `Risk Rating` / `风险评分` — `"N/10: <short reason>"` with N from
+          1-10. This scores impact-weighted importance to the investment
+          case, not probability (Likelihood carries that). Anchors: 9-10
+          could break the investment case on its own; 7-8 could push the
+          outcome below base case; 5-6 meaningful but monitorable; 3-4
+          real but limited effect; 1-2 minor.
 3. Order the cards by Risk Rating, highest first, so the most important risk
    is the first thing the reader sees.
 
@@ -4756,8 +4764,10 @@ Chinese style:
   decision-question labels, `硬 IP 墙`, or `软性工具`.
 - Use these fixed translations for risk-card row labels: Risk Type →
   风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
-  Risk Rating → 风险评分. A card heading "Risk N: <summary>" becomes
-  "风险 N：<一句话概括>". Keep the rating value format `N/10` unchanged.
+  Likelihood → 可能性; Risk Rating → 风险评分. A card heading
+  "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
+  High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
+  rating value format `N/10` unchanged.
 """
     return _run_memo_local_json_artifact(
         prompt=prompt,
@@ -4858,8 +4868,10 @@ Chinese style:
   decision-question labels, `硬 IP 墙`, or `软性工具`.
 - Use these fixed translations for risk-card row labels: Risk Type →
   风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
-  Risk Rating → 风险评分. A card heading "Risk N: <summary>" becomes
-  "风险 N：<一句话概括>". Keep the rating value format `N/10` unchanged.
+  Likelihood → 可能性; Risk Rating → 风险评分. A card heading
+  "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
+  High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
+  rating value format `N/10` unchanged.
 """
 
 

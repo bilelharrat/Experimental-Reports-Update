@@ -278,24 +278,29 @@ _NUMBERED_SECTION_HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 # Per-risk cards in `investment_risk`: a "Risk N: <one-line summary>" heading
-# followed by a key_value table with these four row labels. Enforced at
+# followed by a key_value table with these five row labels. Enforced at
 # generation time only (english_package_validation_errors), so packages from
 # runs that predate the format still re-render.
 _RISK_CARD_HEADING_RE = re.compile(r"^\s*risk\s+(\d+)\s*[:：]\s*\S", re.IGNORECASE)
 _RISK_RATING_VALUE_RE = re.compile(r"^\s*(10|[1-9])\s*/\s*10\b")
+_RISK_LIKELIHOOD_VALUE_RE = re.compile(
+    r"^\s*(high|medium|low|高|中|低)\s*[:：]\s*\S", re.IGNORECASE
+)
 _RISK_CARD_ROW_LABELS = (
     ("risk type", "Risk Type"),
     ("why it matters", "Why it matters"),
     ("what we watch", "What we watch"),
+    ("likelihood", "Likelihood"),
     ("risk rating", "Risk Rating"),
 )
 _RISK_CARD_FORMAT_HINT = (
     "section investment_risk must present risks as per-risk cards: 4-6 "
     "`heading` blocks titled 'Risk N: <one-line summary>', each immediately "
     "followed by a `table` block with component 'risk_register', layout "
-    "'key_value', headers [], and exactly four two-cell rows labeled "
-    "'Risk Type', 'Why it matters', 'What we watch', 'Risk Rating' (the "
-    "rating written as 'N/10: short reason'), ordered highest rating first"
+    "'key_value', headers [], and exactly five two-cell rows labeled "
+    "'Risk Type', 'Why it matters', 'What we watch', 'Likelihood' (written "
+    "as 'High|Medium|Low: short reason'), 'Risk Rating' (written as "
+    "'N/10: short reason'), ordered highest rating first"
 )
 VALUATION_CONTENT_TERMS = (
     "model treatment",
@@ -627,10 +632,11 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                 row_texts.append((_content_text(cells[0]), _content_text(cells[1])))
             else:
                 row_texts.append(None)
-        if len(row_texts) != 4 or any(row is None for row in row_texts):
+        if len(row_texts) != 5 or any(row is None for row in row_texts):
             errors.append(
-                f"{location}: risk card table needs exactly four two-cell rows "
-                "(Risk Type / Why it matters / What we watch / Risk Rating)"
+                f"{location}: risk card table needs exactly five two-cell rows "
+                "(Risk Type / Why it matters / What we watch / Likelihood / "
+                "Risk Rating)"
             )
             continue
         for (prefix, label), row in zip(_RISK_CARD_ROW_LABELS, row_texts):
@@ -641,7 +647,17 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                 )
             elif not value_text.strip():
                 errors.append(f"{location}: row {label!r} must not be empty")
-        rating_row = row_texts[3]
+        likelihood_row = row_texts[3]
+        if (
+            likelihood_row
+            and likelihood_row[0].lower().startswith("likelihood")
+            and not _RISK_LIKELIHOOD_VALUE_RE.match(likelihood_row[1])
+        ):
+            errors.append(
+                f"{location}: Likelihood must be written as "
+                "'High|Medium|Low: short reason'"
+            )
+        rating_row = row_texts[4]
         if rating_row and rating_row[0].lower().startswith("risk rating"):
             match = _RISK_RATING_VALUE_RE.match(rating_row[1])
             if match:
@@ -1376,9 +1392,9 @@ def _add_key_value_card_table(document: Document, rows: list[list[str]], locale:
     """Render a ``layout: "key_value"`` block: label column left, prose right.
 
     This is the risk-card layout — a shaded bold label column so the reader
-    scans Risk Type / Why it matters / What we watch / Risk Rating at a
-    glance. A rating value ("8/10 — …") is bolded so the importance level
-    stands out.
+    scans Risk Type / Why it matters / What we watch / Likelihood / Risk
+    Rating at a glance. Rating ("8/10: …") and likelihood ("High: …")
+    values are bolded so the assessment stands out.
     """
     table = document.add_table(rows=len(rows), cols=2)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -1395,7 +1411,10 @@ def _add_key_value_card_table(document: Document, rows: list[list[str]], locale:
             cells[1],
             value,
             locale=locale,
-            bold=bool(_RISK_RATING_VALUE_RE.match(str(value or ""))),
+            bold=bool(
+                _RISK_RATING_VALUE_RE.match(str(value or ""))
+                or _RISK_LIKELIHOOD_VALUE_RE.match(str(value or ""))
+            ),
         )
     document.add_paragraph().paragraph_format.space_after = Pt(4)
 

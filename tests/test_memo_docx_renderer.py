@@ -346,6 +346,16 @@ def _package() -> dict:
                                 },
                             ],
                             [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": (
+                                        "Medium: every deployment to date has needed "
+                                        "on-site work."
+                                    ),
+                                    "zh": "中：迄今每次部署都需要现场支持。",
+                                },
+                            ],
+                            [
                                 {"en": "Risk Rating", "zh": "风险评分"},
                                 {
                                     "en": "7/10: margin path drives the exit multiple.",
@@ -387,6 +397,16 @@ def _package() -> dict:
                                 {
                                     "en": "Bill-of-materials cost per deployment over 2026.",
                                     "zh": "2026 年内每次部署的物料成本。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": (
+                                        "Low: the reference design has held across "
+                                        "recent sites."
+                                    ),
+                                    "zh": "低：参考设计在近期站点保持稳定。",
                                 },
                             ],
                             [
@@ -434,6 +454,16 @@ def _package() -> dict:
                                 {
                                     "en": "Pilot-to-production conversion rate each quarter.",
                                     "zh": "每季度试点转生产的转化率。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": (
+                                        "Medium: pilot budgets tighten first in a "
+                                        "downturn."
+                                    ),
+                                    "zh": "中：下行周期试点预算最先收缩。",
                                 },
                             ],
                             [
@@ -1180,9 +1210,25 @@ def test_risk_card_missing_layout_is_flagged():
 def test_risk_card_rating_format_is_enforced():
     package = copy.deepcopy(_package())
     card = _risk_section(package)["blocks"][2]
-    card["rows"][3][1] = {"en": "High", "zh": "高"}
+    card["rows"][4][1] = {"en": "High", "zh": "高"}
     errors = memo_docx_renderer.english_package_validation_errors(package)
     assert any("'N/10: short reason'" in error for error in errors)
+
+
+def test_risk_card_likelihood_format_is_enforced():
+    package = copy.deepcopy(_package())
+    card = _risk_section(package)["blocks"][2]
+    card["rows"][3][1] = {"en": "7/10: quite likely.", "zh": "7/10：可能性较高。"}
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert any("'High|Medium|Low: short reason'" in error for error in errors)
+
+
+def test_risk_card_missing_likelihood_row_is_flagged():
+    package = copy.deepcopy(_package())
+    card = _risk_section(package)["blocks"][2]
+    del card["rows"][3]
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert any("exactly five two-cell rows" in error for error in errors)
 
 
 def test_risk_cards_must_be_ordered_by_rating():
@@ -1214,8 +1260,14 @@ def test_key_value_risk_cards_render_label_column(tmp_path):
     assert result["ok"] is True
 
     def _card_tables(path):
-        labels = ["Risk Type", "Why it matters", "What we watch", "Risk Rating"]
-        zh_labels = ["风险类型", "为什么重要", "跟踪信号", "风险评分"]
+        labels = [
+            "Risk Type",
+            "Why it matters",
+            "What we watch",
+            "Likelihood",
+            "Risk Rating",
+        ]
+        zh_labels = ["风险类型", "为什么重要", "跟踪信号", "可能性", "风险评分"]
         found = []
         for table in Document(path).tables:
             first_column = [row.cells[0].text.strip() for row in table.rows]

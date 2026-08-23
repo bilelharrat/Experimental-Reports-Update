@@ -436,6 +436,13 @@ def _memo_package(body_en=None, body_zh=None):
                                 },
                             ],
                             [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Medium: deployments still need on-site work.",
+                                    "zh": "中：部署仍需现场支持。",
+                                },
+                            ],
+                            [
                                 {"en": "Risk Rating", "zh": "风险评分"},
                                 {
                                     "en": "7/10: margin path drives the exit multiple.",
@@ -477,6 +484,13 @@ def _memo_package(body_en=None, body_zh=None):
                                 {
                                     "en": "Bill-of-materials cost per deployment.",
                                     "zh": "每次部署的物料成本。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Low: the reference design has held so far.",
+                                    "zh": "低：参考设计迄今保持稳定。",
                                 },
                             ],
                             [
@@ -525,6 +539,13 @@ def _memo_package(body_en=None, body_zh=None):
                                 {
                                     "en": "Pilot-to-production conversion each quarter.",
                                     "zh": "每季度试点转生产的转化率。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Medium: pilot budgets tighten in downturns.",
+                                    "zh": "中：下行周期试点预算收紧。",
                                 },
                             ],
                             [
