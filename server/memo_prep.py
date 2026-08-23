@@ -369,9 +369,10 @@ def bootstrap_memo_run(
         raise ValueError(f"Unknown company_id: {company_id}")
     if not SETTINGS_FILE.exists():
         raise RuntimeError(
-            f"Settings file missing: {SETTINGS_FILE}. Place serena_background.md "
-            "in data/settings/ before running prep."
-    )
+            f"Settings file missing: {SETTINGS_FILE}. Run `python -m "
+            "server.local_generation` to seed the tracked default background, "
+            "or place your own serena_background.md in data/settings/."
+        )
 
     slug = _company_slug(company)
     company_name = company.get("name") or slug

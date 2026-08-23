@@ -30,6 +30,7 @@ def generate_local_runtime_state(
     company_records_materialized = storage.materialize_seed_company_records(
         include_fixtures=include_fixture_companies,
     )
+    analyst_background_seeded = storage.materialize_analyst_background()
 
     summary: dict[str, Any] = {
         "data_dir": str(storage.DATA_DIR),
@@ -37,6 +38,8 @@ def generate_local_runtime_state(
         "company_records_materialized": company_records_materialized,
         "company_count": len(storage.list_companies()),
         "fixture_companies_included": include_fixture_companies,
+        "analyst_background_file": str(storage.analyst_background_file()),
+        "analyst_background_seeded": analyst_background_seeded,
     }
 
     if include_users:
