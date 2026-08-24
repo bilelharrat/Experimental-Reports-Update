@@ -9,8 +9,8 @@ import {
   Loader2,
   Play,
   ShieldAlert,
-  Sparkles,
 } from "lucide-vue-next";
+import AiMark from "../AiMark.vue";
 import MemoGraderPanel from "./MemoGraderPanel.vue";
 
 const props = defineProps({
@@ -37,7 +37,7 @@ function toolIcon(name) {
   if (name.includes("chart") || name.includes("benchmark")) return BarChart3;
   if (name.includes("readiness")) return Gauge;
   if (name.includes("grader")) return ClipboardCheck;
-  return Sparkles;
+  return AiMark;
 }
 
 const visibleTools = computed(() =>

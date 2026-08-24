@@ -15,10 +15,9 @@ import {
   MousePointerClick,
   Pencil,
   RefreshCw,
-  Search,
-  Sparkles,
   Terminal,
 } from "lucide-vue-next";
+import AiMark from "./AiMark.vue";
 import { useT } from "../i18n.js";
 import {
   activeJobs as jobs,
@@ -115,15 +114,12 @@ function fmtAge(iso) {
 }
 
 function kindIcon(kind) {
-  if (kind === "search") return Search;
   if (kind === "pdf_translation") return Languages;
   if (kind === "summary") return FileText;
   if (kind === "external_research") return FileText;
-  if (kind === "research_summary") return Sparkles;
-  if (kind === "memo") return Sparkles;
   if (kind === "public_snapshot_bulk") return RefreshCw;
   if (kind === "company_regen_all") return RefreshCw;
-  return Sparkles;
+  return AiMark;
 }
 
 function kindLabel(kind) {
@@ -155,7 +151,7 @@ function actionIcon(a) {
   if (a.tool === "Write" || a.tool === "Edit") return Pencil;
   if (a.tool === "Bash") return Terminal;
   if (a.action === "result" && a.is_error) return AlertCircle;
-  return Sparkles;
+  return null;
 }
 
 // Two lines of line-clamp-2 with the rail's font give ~140 chars total
@@ -302,18 +298,13 @@ const visible = computed(() => jobs.value.length > 0);
   <Teleport to="body">
     <aside
       v-if="visible"
-      class="fixed top-4 right-4 z-40 w-80 max-w-[88vw] flex flex-col gap-2"
+      class="fixed top-14 right-4 z-20 w-80 max-w-[88vw] flex flex-col gap-2"
     >
       <header
-        class="flex items-center gap-2 px-3 py-2 rounded-card bg-surface border border-subtle shadow-card"
+        class="flex items-center gap-2 px-3 py-2 rounded-card border border-info/25 bg-info-soft/70 shadow-card"
       >
-        <span class="relative flex h-2 w-2">
-          <span
-            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"
-          ></span>
-          <span class="relative inline-flex h-2 w-2 rounded-full bg-accent"></span>
-        </span>
-        <span class="vogue-label">
+        <AiMark class="h-5 w-5 shrink-0" />
+        <span class="vogue-label text-info-ink">
           {{ t("jobs.rail_title") }} · {{ jobs.length }}
         </span>
         <span class="flex-1"></span>
@@ -343,7 +334,7 @@ const visible = computed(() => jobs.value.length > 0);
             <div class="flex items-start gap-2">
               <component
                 :is="kindIcon(j.kind)"
-                class="h-3.5 w-3.5 text-accent mt-0.5 shrink-0"
+                class="h-3.5 w-3.5 text-info mt-0.5 shrink-0"
               />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
@@ -366,7 +357,7 @@ const visible = computed(() => jobs.value.length > 0);
                   v-if="j.latest_stage"
                   class="mt-1 text-xs text-ink-secondary line-clamp-2 inline-flex items-center gap-1"
                 >
-                  <Loader2 class="h-3 w-3 animate-spin shrink-0 text-accent" />
+                  <Loader2 class="h-3 w-3 animate-spin shrink-0 text-info" />
                   <span>{{ j.latest_stage }}</span>
                 </div>
                 <!-- Latest Claude action — gives the rail a live "stdout"
@@ -387,7 +378,7 @@ const visible = computed(() => jobs.value.length > 0);
                   class="mt-1.5 h-1 w-full rounded-full bg-surface-muted overflow-hidden"
                 >
                   <div
-                    class="h-full bg-accent transition-all"
+                    class="progress-fill h-full transition-all"
                     :style="{ width: pct(j) + '%' }"
                   ></div>
                 </div>
@@ -441,7 +432,7 @@ const visible = computed(() => jobs.value.length > 0);
                   <component
                     :is="threadIcon(thread)"
                     class="h-3 w-3 shrink-0"
-                    :class="{ 'text-success-ink': thread.status === 'done', 'text-danger': thread.status === 'failed', 'text-accent animate-spin': thread.status === 'running', 'text-ink-muted': thread.status === 'not_started', }"
+                    :class="{ 'text-success-ink': thread.status === 'done', 'text-danger': thread.status === 'failed', 'text-info animate-spin': thread.status === 'running', 'text-ink-muted': thread.status === 'not_started', }"
                   />
                   <span class="truncate text-[11px] font-medium text-ink-primary">
                     {{ thread.name }}

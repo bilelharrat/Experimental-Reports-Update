@@ -53,6 +53,27 @@ def test_anon_dev_flag_allows_through(client, monkeypatch):
     assert r.status_code == 200
 
 
+def test_anon_dev_ignores_stale_bearer(client, monkeypatch):
+    """A leftover token from another checkout must not 401 local anon-dev."""
+    monkeypatch.setenv("BSH_ALLOW_ANON_DEV", "1")
+    r = client.get(
+        "/api/health",
+        headers={"Authorization": "Bearer not-a-real-token"},
+    )
+    assert r.status_code == 200
+
+
+def test_anon_dev_me_reports_admin(client, monkeypatch):
+    monkeypatch.setenv("BSH_ALLOW_ANON_DEV", "1")
+    monkeypatch.setenv("BSH_ANON_DEV_NAME", "Bilel Harrat")
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    body = me.json()
+    assert body["auth"] == "anon_dev"
+    assert body["role"] == "admin"
+    assert body["name"] == "Bilel Harrat"
+
+
 def test_garbage_bearer_rejected(client):
     r = client.get("/api/companies", headers={"Authorization": "Bearer not-a-real-token"})
     assert r.status_code == 401
@@ -149,6 +170,22 @@ def test_index_html_has_no_api_token(client, monkeypatch):
     assert "TOP-SECRET-123" not in body
 
 
+def test_index_html_has_anon_dev_meta_when_enabled(client, monkeypatch):
+    monkeypatch.setenv("BSH_ALLOW_ANON_DEV", "1")
+    r = client.get("/")
+    if r.status_code == 503:
+        pytest.skip("frontend build missing")
+    assert 'name="bsh-research-anon-dev"' in r.text
+    assert 'content="1"' in r.text
+
+
+def test_index_html_omits_anon_dev_meta_when_disabled(client):
+    r = client.get("/")
+    if r.status_code == 503:
+        pytest.skip("frontend build missing")
+    assert "bsh-research-anon-dev" not in r.text
+
+
 # --- Login rate limiting -------------------------------------------------
 
 def test_login_rate_limited_after_five_failures(client):
@@ -218,6 +255,7 @@ _SERVICE_403_ROUTES = [
     ("POST", "/api/external/link-preview", {"url": "https://example.com"}),
     ("POST", "/api/external/news", {"url": "https://example.com"}),
     ("POST", "/api/companies/nope/threads", {"question": "x"}),
+    ("POST", "/api/companies/nope/documents/document_library/nope/use-in-report", {"use_in_report": True}),
     # documents:delete
     ("DELETE", "/api/stock-research/trackers/nope/sources/nope", None),
     ("DELETE", "/api/companies/nope/files/nope/summary", None),

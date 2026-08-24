@@ -2268,6 +2268,73 @@ def test_resume_continues_from_quality_failed_archive_after_transport_error(
     )
 
 
+def test_resume_reuses_package_for_chinese_parity_only_warnings(
+    memo_env, monkeypatch
+):
+    """Chinese-parity complete_with_warnings must not force a package regen."""
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(exist_ok=True)
+    (analysis_dir / "pressure_tests.md").write_text("# Notes\n", encoding="utf-8")
+    package_path = _write_memo_package(run_dir)
+    original = package_path.read_text(encoding="utf-8")
+    (run_dir / "logs" / "memo_quality_lint.md").write_text(
+        "# Memo Quality Lint\n\n- status: passed\n- p0_count: 0\n\nNo findings.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "logs" / "memo_chinese_parity.md").write_text(
+        "# Chinese Memo Parity Lint\n\n- status: failed\n- p0_count: 1\n",
+        encoding="utf-8",
+    )
+    # Prior quality_failed archives must not sticky-force regeneration.
+    package_path.with_name(
+        "memo_package.quality_failed.20260820T202415Z.json"
+    ).write_text(original, encoding="utf-8")
+    storage.update_report(
+        report["id"],
+        status="complete_with_warnings",
+        stage="Memo ready (quality warnings)",
+        quality_warnings=[
+            "Chinese memo parity gate found 1 P0 finding. See logs/memo_chinese_parity.md."
+        ],
+        memo_quality_lint={"status": "passed", "p0_count": 0, "findings": []},
+        memo_chinese_parity={"status": "failed", "p0_count": 1},
+        artifacts_available=True,
+        resume_from_status="complete_with_warnings",
+        resume_last_status="complete_with_warnings",
+    )
+    regen_calls = []
+
+    def fake_resume_package(**kwargs):
+        regen_calls.append(kwargs)
+        return {"ok": False, "error": "should not regenerate"}
+
+    monkeypatch.setattr(
+        claude_runner, "run_resume_memo_package", fake_resume_package
+    )
+    monkeypatch.setattr(
+        docx_pdf,
+        "convert_docx_to_pdf",
+        lambda docx_path, pdf_path: (pdf_path.write_bytes(b"%PDF-1.4\n") or True, None),
+    )
+
+    memo_analysis._resume(report["id"])
+
+    assert regen_calls == []
+    assert package_path.read_text(encoding="utf-8") == original
+    updated = storage.get_report(report["id"])
+    assert updated["status"] in {"complete", "complete_with_warnings"}, (
+        f"status={updated.get('status')!r} error={updated.get('error')!r} "
+        f"stage={updated.get('stage')!r} detail={updated.get('failure_detail')!r}"
+    )
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(event.get("stage") == "resume_package_reuse" for event in events)
+    assert not any(
+        event.get("stage") == "resume_package_quality_failed" for event in events
+    )
+
+
 def test_memo_run_completes_with_warnings_when_docx_quality_gate_finds_p0(
     memo_env, monkeypatch
 ):

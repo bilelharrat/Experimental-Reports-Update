@@ -7,12 +7,12 @@ import {
   Loader2,
   Trash2,
   UploadCloud,
-  Sparkles,
   Download,
   Eye,
   ChevronRight,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
+import AiMark from "./AiMark.vue";
 import FilePreviewModal from "./FilePreviewModal.vue";
 import { openSummary } from "../state.js";
 import { useT } from "../i18n.js";
@@ -292,7 +292,7 @@ const counts = computed(() => {
             :key="r.id"
             class="flex items-center gap-3 px-3 py-2 rounded-subbox bg-fill-tertiary hover:bg-surface focus-within:bg-surface"
           >
-            <Sparkles class="h-4 w-4 text-accent shrink-0" />
+            <AiMark class="h-4 w-4 text-accent shrink-0" />
             <button
               type="button"
               @click="emit('open-report', r)"
@@ -404,7 +404,7 @@ const counts = computed(() => {
                   : t('library.summary_generate')
               "
             >
-              <Sparkles
+              <AiMark
                 class="h-4 w-4"
                 :class="f.summary ? 'text-accent' : ''"
               />
@@ -441,7 +441,7 @@ const counts = computed(() => {
               class="w-full text-left px-3 py-2 border-t border-subtle hover:bg-surface focus-ring rounded-b-lg flex items-start gap-2 group"
               :title="t('library.summary_full_tooltip', { file: f.filename })"
             >
-              <Sparkles class="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
+              <AiMark class="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
               <p class="flex-1 text-sm text-ink-secondary leading-snug line-clamp-2">
                 {{ summaryPreview(f.summary) }}
               </p>

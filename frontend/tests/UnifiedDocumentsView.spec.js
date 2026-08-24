@@ -4,6 +4,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 const m = vi.hoisted(() => ({
   listCompanyDocuments: vi.fn(),
   updateDocumentMetadata: vi.fn(),
+  setDocumentUseInReport: vi.fn(),
   uploadFile: vi.fn(),
   uploadResearchFile: vi.fn(),
   deleteFile: vi.fn(),
@@ -53,6 +54,8 @@ function documentsPayload() {
       source_traces: [],
       source_trace_count: 0,
       editable_metadata: true,
+      use_in_report: false,
+      use_in_report_locked: false,
       record: { id: "file-1", filename: "customer-deck.pdf", kind: "pdf", size_bytes: 2048 },
     },
     {
@@ -87,6 +90,8 @@ function documentsPayload() {
       ],
       source_trace_count: 1,
       editable_metadata: true,
+      use_in_report: true,
+      use_in_report_locked: true,
       quick_summary: { summary_en: "Market context summary." },
       record: { id: "bg-1", filename: "market-report.txt", kind: "text", size_bytes: 512 },
     },
@@ -175,9 +180,18 @@ describe("UnifiedDocumentsView", () => {
     expect(wrapper.text()).toContain("Uploaded Documents");
     expect(wrapper.text()).toContain("Source pending");
     expect(wrapper.text()).toContain("third-party market data");
-    expect(wrapper.text()).toContain("1 awaiting review");
-    expect(wrapper.text()).toContain("2026-07-03");
+    expect(wrapper.text()).toContain("Use in report");
+    expect(wrapper.text()).toContain("Add file");
+    expect(wrapper.text()).toContain("Filter");
     expect(wrapper.text()).not.toContain("Document Library upload");
+    expect(wrapper.text()).not.toContain("Memo inputs");
+    expect(wrapper.text()).not.toContain("1 awaiting review");
+
+    const filterToggle = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Filter"));
+    await filterToggle.trigger("click");
+    expect(wrapper.text()).toContain("1 awaiting review");
 
     const sourceClassFilter = wrapper.findAll("select")[1];
     await sourceClassFilter.setValue("third-party market data");
@@ -199,6 +213,11 @@ describe("UnifiedDocumentsView", () => {
     });
     await flushPromises();
 
+    const filterToggle = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Filter"));
+    await filterToggle.trigger("click");
+
     const rowSourceSelect = wrapper
       .findAll("select")
       .find((select) => select.element.value === "unknown/pending");
@@ -210,6 +229,26 @@ describe("UnifiedDocumentsView", () => {
       "document_library",
       "file-1",
       { source_class: "company material" },
+    );
+  });
+
+  it("moves a library file into the report set", async () => {
+    m.setDocumentUseInReport.mockResolvedValue({});
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc" },
+    });
+    await flushPromises();
+
+    const toggle = wrapper.find('input[aria-label="Use in report"]');
+    expect(toggle.exists()).toBe(true);
+    await toggle.setValue(true);
+    await flushPromises();
+
+    expect(m.setDocumentUseInReport).toHaveBeenCalledWith(
+      "zainar-inc",
+      "document_library",
+      "file-1",
+      true,
     );
   });
 });

@@ -260,6 +260,11 @@ export const api = {
       `/api/companies/${companyId}/documents/${encodeURIComponent(backend)}/${encodeURIComponent(documentId)}`,
       { method: "PATCH", body: JSON.stringify(patch) },
     ),
+  setDocumentUseInReport: (companyId, backend, documentId, useInReport) =>
+    request(
+      `/api/companies/${companyId}/documents/${encodeURIComponent(backend)}/${encodeURIComponent(documentId)}/use-in-report`,
+      { method: "POST", body: JSON.stringify({ use_in_report: useInReport }) },
+    ),
   listUnresolvedIntake: (companyId = null) =>
     request(
       `/api/intake/unresolved${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ""}`,

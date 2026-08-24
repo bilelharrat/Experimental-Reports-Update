@@ -47,6 +47,7 @@ def test_console_language_directive_includes_chinese_style():
 def test_markdown_skill_prompts_have_chinese_localization_rules():
     files = [
         "server/skills/bsh_investment_memo_latestage.md",
+        "server/skills/bsh_buffett_investment_memo.md",
         "server/skills/bsh_company_console.md",
         "server/skills/bsh_company_console_public.md",
         "server/skills/bsh_hormuz_console.md",
@@ -66,3 +67,15 @@ def test_investment_memo_skill_has_chinese_localization_rules():
     assert "顺风" in text
     assert "credible second wave" in text
     assert "可信第二波" in text
+
+
+def test_buffett_memo_skill_has_chinese_localization_rules():
+    text = _repo_text("server/skills/bsh_buffett_investment_memo.md")
+    assert "Chinese Localization Quality Bar" in text
+    assert "tailwind" in text
+    assert "顺风" in text
+    assert "credible second wave" in text
+    assert "可信第二波" in text
+    assert "Warren" in text
+    assert "Buy" in text
+    assert "Too Hard" in text

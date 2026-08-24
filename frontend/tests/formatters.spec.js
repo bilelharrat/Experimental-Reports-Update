@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accountInitials,
+  displayNameFromEmail,
   formatCompactNumber,
   formatIsoDate,
   formatMetricValue,
@@ -23,7 +25,16 @@ describe("user-facing formatters", () => {
 
   it("normalizes dates and backend statuses", () => {
     expect(formatIsoDate("2026-07-20T19:22:00Z")).toBe("2026-07-20");
-    expect(humanizeStatus("failed_during_analysis")).toBe("Needs attention");
+    expect(humanizeStatus("failed_during_analysis")).toBe("Failed");
     expect(humanizeStatus("ready_for_input", "待处理", "zh")).toBe("等待输入");
+  });
+
+  it("builds display names and initials from emails", () => {
+    expect(displayNameFromEmail("bilel.harrat@bshventures.com")).toBe("Bilel Harrat");
+    expect(accountInitials("bilel.harrat@bshventures.com")).toBe("BH");
+    expect(accountInitials("Bilel Harrat")).toBe("BH");
+    expect(accountInitials("elina.sun@bshfoundation.org")).toBe("ES");
+    expect(accountInitials("robert@bshventures.com")).toBe("RO");
+    expect(accountInitials("")).toBe("?");
   });
 });

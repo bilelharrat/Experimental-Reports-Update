@@ -51,12 +51,14 @@ from . import (  # noqa: E402
     companies_autocomplete,
     console_session,
     local_generation,
+    buffett_memo_analysis,
     memo_analysis,
 )
 from .api import (  # noqa: E402
     auth_router,
     router as api_router,
     require_api_token,
+    _anon_dev_enabled,
     _expected_token,
     resume_interrupted_memo_runs,
     resume_regen_all_if_needed,
@@ -152,6 +154,12 @@ def _startup() -> None:
             logger.info("Recovered %d stale memo report(s).", n)
     except Exception:  # noqa: BLE001
         logger.exception("Memo recovery sweep failed")
+    try:
+        n = buffett_memo_analysis.recover_stale_reports()
+        if n:
+            logger.info("Recovered %d stale Buffett memo report(s).", n)
+    except Exception:  # noqa: BLE001
+        logger.exception("Buffett memo recovery sweep failed")
     # A restart interrupts daemon-thread memo workers; the sweep above
     # (plus the shutdown hook) marks them failed_during_analysis with
     # failure_phase shutdown/orphaned. Resume those automatically so a
@@ -336,13 +344,16 @@ def diagnostics() -> dict:
 def _serve_index() -> HTMLResponse:
     """Serve the SPA shell.
 
-    One ``<meta>`` tag is spliced into ``<head>`` for the in-browser app:
+    Meta tags spliced into ``<head>`` for the in-browser app:
 
     - ``bsh-research-api-base``: the prefix the app is mounted under
       (``root_path``). The SPA prepends it to every fetched URL so that
       a non-stripping nginx upstream sees the full ``/research/...`` path
       and Starlette's routing matches correctly. Empty when the app is
       served at the root.
+    - ``bsh-research-anon-dev``: present only when ``BSH_ALLOW_ANON_DEV=1``.
+      Lets the SPA skip the login gate for local development. Not a
+      credential.
 
     The page itself is NOT gated (it must load before the user can log
     in), but it no longer carries any credential — the API token is not
@@ -365,6 +376,8 @@ def _serve_index() -> HTMLResponse:
         f'<meta name="bsh-research-api-base" '
         f'content="{_html.escape(app.root_path or "", quote=True)}">'
     )
+    if _anon_dev_enabled():
+        metas.append('<meta name="bsh-research-anon-dev" content="1">')
     if metas:
         block = "\n  ".join(metas)
         if "</head>" in html_text:

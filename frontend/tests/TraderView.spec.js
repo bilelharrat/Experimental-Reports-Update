@@ -45,6 +45,12 @@ function mountWith(company) {
   return mount(TraderView, { props: { company } });
 }
 
+
+async function openMarketDetail(wrapper) {
+  const btn = wrapper.findAll("button").find((b) => /Market detail|市场详情/.test(b.text()));
+  if (btn) await btn.trigger("click");
+}
+
 describe("TraderView empty state", () => {
   it("renders the 'no snapshot yet' hint when trader_snapshot is null", () => {
     const wrapper = mountWith({

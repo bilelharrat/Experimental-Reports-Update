@@ -38,6 +38,7 @@ from . import (
     auth_store,
     cache,
     browser_archive,
+    buffett_memo_analysis,
     claude_runner,
     companies_ai,
     companies_ai_public,
@@ -408,6 +409,12 @@ def require_api_token(request: Request) -> None:
             _enforce_cookie_csrf(request)
             return
 
+    # Stale bearer/cookie from another checkout must not trap a local
+    # operator who opted into anonymous access.
+    if _anon_dev_enabled():
+        request.state.auth_kind = "anon_dev"
+        return
+
     logger.warning(
         "API token rejected path=%s presented={%s} expected={%s} cookie=%s",
         request.url.path,
@@ -564,7 +571,7 @@ def login(request: Request, response: Response, payload: LoginRequest) -> LoginR
 def auth_me(request: Request, response: Response) -> dict:
     """Identify the caller — useful for the SPA to confirm a stored
     token is still valid and to show the logged-in email in the UI.
-    Returns ``{email, auth: 'session' | 'shared', role, permissions}``.
+    Returns ``{email, name, auth: 'session' | 'shared' | 'anon_dev', role, permissions}``.
 
     Also (re)issues the session cookie for header-authenticated callers so
     users who logged in before cookie support gain one without re-login —
@@ -575,9 +582,20 @@ def auth_me(request: Request, response: Response) -> dict:
     if email and presented and auth_store.validate_token(presented):
         _set_session_cookie(request, response, presented)
     role = _caller_role(request)
+    auth_kind = getattr(request.state, "auth_kind", None)
+    if email:
+        auth = "session"
+    elif auth_kind == "anon_dev":
+        auth = "anon_dev"
+    else:
+        auth = "shared"
+    name = product_store.display_name(email) if email else None
+    if not name and auth == "anon_dev":
+        name = (os.environ.get("BSH_ANON_DEV_NAME") or "").strip() or None
     return {
         "email": email,
-        "auth": "session" if email else "shared",
+        "name": name,
+        "auth": auth,
         "role": role,
         "permissions": product_store.permissions_for_role(role),
         "must_reset": auth_store.must_reset(email) if email else False,
@@ -651,6 +669,7 @@ def change_password(
 
 REPORT_TYPES = (
     "Investment Memo (Late-Stage)",
+    "Buffett Investment Memo",
     "Investment Report",
     "Background",
     "Financial Analysis",
@@ -732,7 +751,7 @@ class ReportSummary(BaseModel):
     renderer_contract: dict | None = None
     created_at: str
     updated_at: str
-    # Memo-run extensions (only set for kind=investment_memo_latestage).
+    # Memo-run extensions (set for late-stage and Buffett investment memos).
     kind: str | None = None
     run_id: str | None = None
     run_dir: str | None = None
@@ -847,6 +866,10 @@ class DocumentMetadataPatch(BaseModel):
     status: str | None = None
     confidence: str | None = None
     provenance: dict[str, Any] | None = None
+
+
+class UseInReportPatch(BaseModel):
+    use_in_report: bool
 
 
 class WorkspacePreferencePatch(BaseModel):
@@ -1090,10 +1113,16 @@ def patch_workspace_settings(
 
 @router.get("/workspace/user-center")
 def get_workspace_user_center(request: Request) -> dict:
-    return product_store.workspace_profile(
-        _caller_email(request),
+    email = _caller_email(request)
+    profile = product_store.workspace_profile(
+        email,
         role_override=_caller_role(request),
     )
+    if not email and getattr(request.state, "auth_kind", None) == "anon_dev":
+        anon_name = (os.environ.get("BSH_ANON_DEV_NAME") or "").strip()
+        if anon_name:
+            profile["account"]["name"] = anon_name
+    return profile
 
 
 @router.get("/analytics/summary")
@@ -2209,7 +2238,7 @@ def _supersede_stale_memo_failures(company_id: str, new_report_id: str | None) -
         if (
             old.get("id") == new_report_id
             or old.get("company_id") != company_id
-            or old.get("kind") != "investment_memo_latestage"
+            or not memo_prep.is_memo_kind(old.get("kind"))
             or old.get("superseded_by")
             or not str(old.get("status") or "").startswith("failed")
         ):
@@ -2254,14 +2283,14 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
         )
         raise HTTPException(status_code=400, detail="Invalid language")
 
-    # Investment memos route through the bsh-investment-memo-latestage prep
-    # pipeline (run folder, scope check, input staging) instead of the
-    # legacy placeholder generator.
-    if payload.report_type == memo_prep.REPORT_TYPE:
+    # Investment memos (late-stage and Buffett) route through the prep
+    # pipeline (run folder, scope check) instead of the placeholder generator.
+    if memo_prep.is_memo_report_type(payload.report_type):
         try:
             result = memo_prep.bootstrap_memo_run(
                 payload.company_id,
                 analysis_session_id=payload.analysis_session_id,
+                report_type=payload.report_type,
             )
         except memo_prep.AnalysisSessionNotReadyError as exc:
             _record_report_generation_event(
@@ -2375,6 +2404,9 @@ def _analysis_artifact_label(filename: str) -> str:
     label = claude_runner._MEMO_ANALYSIS_PASSES.get(filename)
     if label:
         return label
+    label = claude_runner._BUFFETT_ANALYSIS_PASSES.get(filename)
+    if label:
+        return label
     return Path(filename).stem.replace("_", " ").replace("-", " ").title()
 
 
@@ -2412,7 +2444,7 @@ def _report_analysis_artifacts(report: dict) -> list[dict]:
 
 
 def _report_resume_available(report: dict) -> bool:
-    if report.get("kind") != "investment_memo_latestage":
+    if not memo_prep.is_memo_kind(report.get("kind")):
         return False
     # A newer run replaced this failure, or the user dismissed it; the
     # record stays for forensics but it must not be auto-surfaced or
@@ -2428,6 +2460,10 @@ def _report_resume_available(report: dict) -> bool:
     run_dir = _memo_run_dir(report)
     if not run_dir or not run_dir.exists():
         return False
+    if memo_prep.is_buffett_kind(report.get("kind")):
+        if (run_dir / "logs" / "memo_package.json").exists():
+            return True
+        return status.startswith("failed") and status not in {"failed_scope_check"}
     if status in ("failed_quality_gate", "complete_with_warnings"):
         # Quality regeneration needs the analysis artifacts to rewrite from.
         return bool(_report_analysis_artifacts(report))
@@ -2480,7 +2516,7 @@ def download_memo(
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.get("kind") != "investment_memo_latestage":
+    if not memo_prep.is_memo_kind(report.get("kind")):
         raise HTTPException(
             status_code=404, detail="Report is not an investment memo"
         )
@@ -2537,7 +2573,7 @@ def preview_memo(
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.get("kind") != "investment_memo_latestage":
+    if not memo_prep.is_memo_kind(report.get("kind")):
         raise HTTPException(
             status_code=404, detail="Report is not an investment memo"
         )
@@ -2584,7 +2620,7 @@ def dismiss_memo_report(request: Request, report_id: str) -> ReportDetail:
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.get("kind") != "investment_memo_latestage":
+    if not memo_prep.is_memo_kind(report.get("kind")):
         raise HTTPException(
             status_code=400,
             detail="Only investment memo reports can be dismissed",
@@ -2620,7 +2656,7 @@ def delete_report(request: Request, report_id: str) -> None:
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.get("kind") == "investment_memo_latestage":
+    if memo_prep.is_memo_kind(report.get("kind")):
         state = _scan_progress_state(_memo_stream_path_for_report(report_id))
         if state.get("exists") and not state.get("terminated"):
             raise HTTPException(
@@ -2637,7 +2673,7 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
     report = storage.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    if report.get("kind") != "investment_memo_latestage":
+    if not memo_prep.is_memo_kind(report.get("kind")):
         raise HTTPException(
             status_code=400,
             detail="Only investment memo reports can be resumed",
@@ -2704,7 +2740,10 @@ def resume_memo_report(request: Request, report_id: str) -> ReportDetail:
         memo_chinese_parity=None,
         quality_warnings=None,
     ) or report
-    memo_analysis.start_resume(report_id)
+    if memo_prep.is_buffett_kind(report.get("kind")):
+        buffett_memo_analysis.start_resume(report_id)
+    else:
+        memo_analysis.start_resume(report_id)
     return ReportDetail(**_report_detail(updated))
 
 
@@ -2726,7 +2765,7 @@ def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
     for report in storage.list_reports():
         if resumed >= max_resumes:
             break
-        if report.get("kind") != "investment_memo_latestage":
+        if not memo_prep.is_memo_kind(report.get("kind")):
             continue
         if str(report.get("status") or "") != "failed_during_analysis":
             continue
@@ -2765,7 +2804,10 @@ def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
             memo_chinese_parity=None,
             quality_warnings=None,
         )
-        memo_analysis.start_resume(report_id)
+        if memo_prep.is_buffett_kind(report.get("kind")):
+            buffett_memo_analysis.start_resume(report_id)
+        else:
+            memo_analysis.start_resume(report_id)
         logger.info("Auto-resumed restart-interrupted memo run %s", report_id)
         resumed += 1
     return resumed
@@ -3487,6 +3529,30 @@ def patch_company_document_metadata(
             backend,
             document_id,
             patch.model_dump(exclude_none=True),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=code, detail=detail) from exc
+
+
+@router.post("/companies/{company_id}/documents/{backend}/{document_id}/use-in-report")
+def post_company_document_use_in_report(
+    company_id: str,
+    backend: str,
+    document_id: str,
+    patch: UseInReportPatch,
+    request: Request,
+) -> dict:
+    _require_permission(request, "sources:edit")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return evidence_store.set_use_in_report(
+            company_id,
+            backend,
+            document_id,
+            patch.use_in_report,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -7084,7 +7150,7 @@ def _company_view(c: dict) -> dict:
 
 def _memo_report_artifact_urls(r: dict) -> tuple[dict[str, str], dict[str, str]]:
     """Return download/preview URLs for memo artifacts that exist on disk."""
-    if r.get("kind") != "investment_memo_latestage" or not r.get("id"):
+    if not memo_prep.is_memo_kind(r.get("kind")) or not r.get("id"):
         return {}, {}
     rid = r["id"]
     repo_root = memo_prep.DATA_DIR.parent
@@ -7154,7 +7220,7 @@ def _report_summary(r: dict) -> dict:
         "analysis_session_approved": bool(r.get("analysis_session_approved")),
         "resume_available": (
             _report_resume_available(r)
-            if r.get("kind") == "investment_memo_latestage"
+            if memo_prep.is_memo_kind(r.get("kind"))
             else False
         ),
         "superseded_by": r.get("superseded_by"),
@@ -7181,7 +7247,7 @@ def _report_detail(r: dict) -> dict:
     # Attach unified-rail URLs and download links for memo runs so the
     # frontend can tail the same JSONL the prep wrote and offer
     # ready-to-click .docx downloads.
-    if r.get("kind") == "investment_memo_latestage" and r.get("id"):
+    if memo_prep.is_memo_kind(r.get("kind")) and r.get("id"):
         rid = r["id"]
         base["stream_url"] = f"/api/memos/{rid}/stream"
         base["log_url"] = f"/api/jobs/log?path=memo:{rid}"

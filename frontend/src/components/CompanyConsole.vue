@@ -76,37 +76,10 @@ const prompt = ref("");
 const stagedFiles = ref([]); // File[]
 const attachmentErrors = ref([]);
 
-// Create-console modal.
-const showCreate = ref(false);
-const includeBg = ref(true);
-const includeLib = ref(true);
-const outputLanguage = ref("en");
+// Create-console: no destination/language modal. New sessions include
+// files flagged for the report (background documents) and speak the UI language.
 const creating = ref(false);
 const sessionLimitError = ref(null);
-const estimate = ref(null);
-const estimateLoading = ref(false);
-let estimateDebounce = null;
-
-function refreshEstimate() {
-  clearTimeout(estimateDebounce);
-  estimateDebounce = setTimeout(async () => {
-    estimateLoading.value = true;
-    try {
-      estimate.value = await api.console.estimate(props.companyId, {
-        include_background_docs: includeBg.value,
-        include_library_docs: includeLib.value,
-      });
-    } catch {
-      estimate.value = null;
-    } finally {
-      estimateLoading.value = false;
-    }
-  }, 150);
-}
-
-watch([includeBg, includeLib, showCreate], () => {
-  if (showCreate.value) refreshEstimate();
-});
 
 const activeSessions = computed(() =>
   sessions.value.filter((s) => s.status === "active"),
@@ -205,27 +178,19 @@ onBeforeUnmount(closeStreams);
 // ---- Create session ----
 
 function openCreate() {
-  sessionLimitError.value = null;
-  estimate.value = null;
-  showCreate.value = true;
-  includeBg.value = true;
-  includeLib.value = true;
-  // Default the session output language to whatever the UI is in. The
-  // user can override per session.
-  outputLanguage.value = appLanguage.value === "zh" ? "zh" : "en";
-  refreshEstimate();
+  confirmCreate();
 }
 
 async function confirmCreate() {
+  if (creating.value) return;
   creating.value = true;
   sessionLimitError.value = null;
   try {
     const meta = await api.console.createSession(props.companyId, {
-      include_background_docs: includeBg.value,
-      include_library_docs: includeLib.value,
-      output_language: outputLanguage.value,
+      include_background_docs: true,
+      include_library_docs: false,
+      output_language: appLanguage.value === "zh" ? "zh" : "en",
     });
-    showCreate.value = false;
     sessions.value = [meta, ...sessions.value];
     activeId.value = meta.id;
     activeMeta.value = meta;
@@ -503,9 +468,11 @@ function attachmentUrl(turn, att) {
           </button>
           <button
             @click="openCreate"
-            class="btn-bordered btn-sm focus-ring flex-shrink-0"
+            :disabled="creating"
+            class="btn-bordered btn-sm focus-ring flex-shrink-0 disabled:opacity-60"
           >
-            <Plus class="h-3.5 w-3.5" />
+            <Loader2 v-if="creating" class="h-3.5 w-3.5 animate-spin" />
+            <Plus v-else class="h-3.5 w-3.5" />
             {{ tr("console.new_console") }}
           </button>
         </div>
@@ -522,8 +489,10 @@ function attachmentUrl(turn, att) {
       class="rounded-card border border-dashed border-subtle p-4 text-sm text-ink-secondary"
     >
       <p>{{ tr("console.empty_help") }}</p>
+      <p v-if="sessionLimitError" class="mt-2 text-xs text-danger">{{ sessionLimitError }}</p>
       <button
         type="button"
+        :disabled="creating"
         @click="openCreate"
         class="mt-3 flex w-full items-center gap-2 rounded-full border border-subtle bg-surface px-3 py-2 text-left text-sm text-ink-muted hover:border-accent focus-ring"
       >
@@ -743,122 +712,7 @@ function attachmentUrl(turn, att) {
     </template>
 
     <div v-if="loadError" class="text-xs text-danger">{{ tr("console.load_failed") }}</div>
-
-    <!-- Create-console modal -->
-    <div
-      v-if="showCreate"
-      class="sheet-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
-      @click.self="showCreate = false"
-    >
-      <div class="sheet-panel bg-surface rounded-sheet p-6 max-w-lg w-full space-y-4 max-h-[80vh] overflow-y-auto">
-        <h3 class="font-display text-title3 text-ink-primary">
-          {{ tr("console.create_console") }}
-        </h3>
-        <p class="text-sm text-ink-secondary">{{ tr("console.empty_help") }}</p>
-
-        <label class="flex items-center gap-2 text-sm text-ink-primary">
-          <input type="checkbox" v-model="includeBg" class="rounded" />
-          {{
-            tr("console.include_background_docs", {
-              count: estimate?.files?.filter((f) => f.kind === "research").length ?? "—",
-            })
-          }}
-        </label>
-        <label class="flex items-center gap-2 text-sm text-ink-primary">
-          <input type="checkbox" v-model="includeLib" class="rounded" />
-          {{
-            tr("console.include_library_docs", {
-              count: estimate?.files?.filter((f) => f.kind === "library").length ?? "—",
-            })
-          }}
-        </label>
-
-        <!-- Output-language toggle. Persisted to meta on create and used
-             by the hydration prompt + every ask's system prompt. -->
-        <div class="space-y-1.5">
-          <div class="text-xs font-medium text-ink-primary">
-            {{ tr("console.output_language_label") }}
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              @click="outputLanguage = 'en'"
-              :class="[ 'px-3 py-1 rounded text-sm focus-ring', outputLanguage === 'en' ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
-            >
-              {{ tr("console.output_language_en") }}
-            </button>
-            <button
-              type="button"
-              @click="outputLanguage = 'zh'"
-              :class="[ 'px-3 py-1 rounded text-sm focus-ring', outputLanguage === 'zh' ? 'bg-accent text-white' : 'bg-surface-muted text-ink-secondary hover:bg-surface', ]"
-            >
-              {{ tr("console.output_language_zh") }}
-            </button>
-          </div>
-          <p class="text-xs text-ink-muted">
-            {{ tr("console.output_language_help") }}
-          </p>
-        </div>
-
-        <!-- File list + cost estimate -->
-        <div
-          v-if="estimateLoading"
-          class="rounded-subbox bg-fill-tertiary p-3 text-xs text-ink-muted"
-        >
-          {{ tr("console.estimate_loading") }}
-        </div>
-        <div
-          v-else-if="estimate && estimate.files?.length"
-          class="rounded-subbox bg-fill-tertiary p-3 space-y-2 text-xs"
-        >
-          <div class="font-medium text-ink-primary text-[10px]">
-            {{ tr("console.estimate_files", { count: estimate.files.length }) }}
-          </div>
-          <ul class="space-y-0.5 text-ink-secondary max-h-40 overflow-y-auto">
-            <li
-              v-for="f in estimate.files"
-              :key="f.kind + ':' + f.id"
-              class="flex items-center justify-between gap-2"
-            >
-              <span class="truncate">{{ f.filename }}</span>
-              <span class="text-ink-muted whitespace-nowrap">{{ Math.round((f.size_bytes || 0) / 1024) }} KB</span>
-            </li>
-          </ul>
-          <div class="border-t border-subtle pt-2 text-ink-secondary">
-            {{
-              tr("console.estimate_tokens", {
-                tokens: formatTokens(estimate.tokens_est || 0),
-                seconds: estimate.duration_est_s || 0,
-              })
-            }}
-          </div>
-        </div>
-        <div
-          v-else-if="estimate"
-          class="rounded-subbox bg-fill-tertiary p-3 text-xs text-ink-muted"
-        >
-          {{ tr("console.estimate_zero") }}
-        </div>
-
-        <div v-if="sessionLimitError" class="text-xs text-danger">
-          {{ sessionLimitError }}
-        </div>
-        <div class="flex justify-end gap-2">
-          <button
-            @click="showCreate = false"
-            class="px-3 py-1.5 rounded-lg bg-surface-muted text-ink-primary hover:bg-surface focus-ring text-sm"
-          >
-            {{ tr("common.cancel") }}
-          </button>
-          <button
-            @click="confirmCreate"
-            :disabled="creating"
-            class="btn-filled btn-sm focus-ring"
-          >
-            {{ tr("console.create_console") }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <div v-else-if="sessionLimitError && activeId" class="text-xs text-danger">{{ sessionLimitError }}</div>
   </div>
 </template>
+

@@ -1,6 +1,11 @@
 # Investment Memo Pipeline
 
-How "Generate Report → Investment Memo (Late-Stage)" works.
+How "Generate Report" investment memos work. There are two Claude-backed
+types:
+
+- **Investment Memo (Late-Stage)** — BSH LP-facing late-stage / pre-IPO memo
+- **Buffett Investment Memo** — first-person Buffett investment analysis and
+  memorandum (Buy / Pass / Too Hard)
 
 > See also: [architecture.md](architecture.md) — the two-feature split.
 > The memo flow is **completely independent** of the Document Library.
@@ -211,3 +216,21 @@ Early-stage scope warnings continue into analysis and must be carried
 as explicit stage-fit caveats in the memo. Hard scope failures, such as
 nonprofit / out-of-scope records, preserve the run folder so the UI can
 show the reason; no Claude invocation is spent.
+
+## Buffett Investment Memo
+
+`POST /api/reports` with `report_type = "Buffett Investment Memo"` uses the
+same prep handshake (`memo_prep.bootstrap_memo_run(..., report_type=...)`)
+and the same run-folder / SSE / DOCX download surface. Differences:
+
+- Report `kind` is `buffett_investment_memo`.
+- Skill: `server/skills/bsh_buffett_investment_memo.md`.
+- Worker: `server/buffett_memo_analysis.py` (one Claude subprocess, not the
+  eight-pass late-stage fast pipeline).
+- Renderer: `server/buffett_memo_renderer.py` turns `logs/memo_package.json`
+  markdown into both `.docx` files. Claude must not write Word files.
+- Voice is first-person Buffett. It does not consume
+  `data/settings/serena_background.md` as an investment thesis.
+- The memo is still bilingual (English + Simplified Chinese).
+- The decision is **Buy**, **Pass**, or **Too Hard**.
+

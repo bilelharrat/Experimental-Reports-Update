@@ -40,7 +40,7 @@ describe("TrackingView", () => {
       },
     });
 
-    expect(wrapper.text()).toContain("Tracking");
+    expect(wrapper.text()).toContain("Following");
     expect(wrapper.text()).toContain("NVIDIA");
     expect(wrapper.text()).toContain("NVIDIA ships a new accelerator");
     expect(wrapper.text()).toContain("News Board");
