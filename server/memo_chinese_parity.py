@@ -14,64 +14,73 @@ REQUIRED_SECTION_IDS = (
     "financial_forecast_valuation",
 )
 
+# Section headings are full-line titles: optional numbering, the title
+# text, an optional trailing colon, end of line. The $ anchor matters —
+# _extract_docx_shape tests EVERY paragraph, not just heading-styled
+# ones, so an unanchored pattern would misread body sentences that merely
+# start with a section word ("Source index follows.") as headings.
 SECTION_PATTERNS = {
     "executive_summary": {
         "en": re.compile(
-            r"^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\b",
+            r"^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
         "zh": re.compile(
-            r"^\s*(?:(?:i|1|一)[\.\、]\s*)?(?:执行摘要|核心摘要)\b",
+            r"^\s*(?:(?:i|1|一)[\.\、]\s*)?(?:执行摘要|核心摘要)\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
     },
     "company_overview": {
         "en": re.compile(
-            r"^\s*(?:(?:ii|2)[\.\、]\s*)?company\s+overview\b",
+            r"^\s*(?:(?:ii|2)[\.\、]\s*)?company\s+overview\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
         "zh": re.compile(
-            r"^\s*(?:(?:ii|2|二)[\.\、]\s*)?(?:公司概览|公司概况|项目简介)\b",
+            r"^\s*(?:(?:ii|2|二)[\.\、]\s*)?(?:公司概览|公司概况|项目简介)\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
     },
     "investment_highlights": {
         "en": re.compile(
-            r"^\s*(?:(?:iii|3)[\.\、]\s*)?investment\s+highlights\b",
+            r"^\s*(?:(?:iii|3)[\.\、]\s*)?investment\s+highlights\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
         "zh": re.compile(
-            r"^\s*(?:(?:iii|3|三)[\.\、]\s*)?投资亮点\b",
+            r"^\s*(?:(?:iii|3|三)[\.\、]\s*)?投资亮点\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
     },
     "investment_risk": {
         "en": re.compile(
-            r"^\s*(?:(?:iv|4)[\.\、]\s*)?investment\s+risks?\b",
+            r"^\s*(?:(?:iv|4)[\.\、]\s*)?investment\s+risks?\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
         "zh": re.compile(
-            r"^\s*(?:(?:iv|4|四)[\.\、]\s*)?投资风险\b",
+            r"^\s*(?:(?:iv|4|四)[\.\、]\s*)?投资风险\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
     },
     "financial_forecast_valuation": {
         "en": re.compile(
-            r"^\s*(?:(?:v|5)[\.\、]\s*)?financial\s+forecast\s+(?:&|and)\s+valuation\b",
+            r"^\s*(?:(?:v|5)[\.\、]\s*)?financial\s+forecast\s+(?:&|and)\s+valuation"
+            r"\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
         "zh": re.compile(
-            r"^\s*(?:(?:v|5|五)[\.\、]\s*)?财务预测与估值\b",
+            r"^\s*(?:(?:v|5|五)[\.\、]\s*)?财务预测与估值\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
     },
     "sources": {
         "en": re.compile(
-            r"^\s*(?:(?:vi|6)[\.\、]\s*)?sources?(?:,\s*source classes,\s*and fact reference index)?\b",
+            r"^\s*(?:(?:vi|6)[\.\、]\s*)?sources?"
+            r"(?:,\s*source\s+classes,\s*and\s+(?:fact\s+reference\s+index|disclosures))?"
+            r"\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
         "zh": re.compile(
-            r"^\s*(?:(?:vi|6|六)[\.\、]\s*)?(?:来源、来源类别与事实索引|来源与事实索引|来源)\b",
+            r"^\s*(?:(?:vi|6|六)[\.\、]\s*)?(?:来源、来源类别与事实索引|来源与事实索引|来源)"
+            r"\s*[:：]?\s*$",
             re.IGNORECASE,
         ),
     },
