@@ -130,7 +130,7 @@ const BASELINE = {
   "views/EvidenceMatrixView.vue": 38,
   "views/HormuzLibraryView.vue": 10,
   "views/HypothesisLabView.vue": 48,
-  "views/InnovationLabView.vue": 6,
+  "views/InnovationLabView.vue": 0,
   "views/MarketPulseView.vue": 40,
   "views/SettingsView.vue": 0,
   "views/SourceLibraryView.vue": 14,

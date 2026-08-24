@@ -70,16 +70,16 @@ export function formatIsoDate(value, fallback = "—") {
 }
 
 const STATUS_LABELS = {
-  complete: "Complete",
-  completed: "Complete",
-  complete_with_warnings: "Complete with notes",
-  failed: "Needs attention",
-  failed_during_analysis: "Needs attention",
-  failed_scope_check: "Needs attention",
-  failed_quality_gate: "Needs attention",
-  failed_orphaned: "Needs attention",
+  complete: "Ready",
+  completed: "Ready",
+  complete_with_warnings: "Needs attention",
+  failed: "Failed",
+  failed_during_analysis: "Failed",
+  failed_scope_check: "Failed",
+  failed_quality_gate: "Failed",
+  failed_orphaned: "Failed",
   memo_task_created: "Task created",
-  in_progress: "In progress",
+  in_progress: "Running",
   ready_for_input: "Needs input",
   not_started: "Not started",
   proposed: "Proposed",
@@ -88,14 +88,14 @@ const STATUS_LABELS = {
 };
 
 const STATUS_LABELS_ZH = {
-  complete: "已完成",
-  completed: "已完成",
-  complete_with_warnings: "已完成（有备注）",
-  failed: "需要处理",
-  failed_during_analysis: "需要处理",
-  failed_scope_check: "需要处理",
-  failed_quality_gate: "需要处理",
-  failed_orphaned: "需要处理",
+  complete: "已就绪",
+  completed: "已就绪",
+  complete_with_warnings: "待处理",
+  failed: "失败",
+  failed_during_analysis: "失败",
+  failed_scope_check: "失败",
+  failed_quality_gate: "失败",
+  failed_orphaned: "失败",
   memo_task_created: "已创建任务",
   in_progress: "进行中",
   ready_for_input: "等待输入",
@@ -124,4 +124,31 @@ export function humanizeStatus(value, fallback = "Pending", language = "en") {
   return normalized
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/** Mirror ``product_store.display_name`` — local-part → Title Case words. */
+export function displayNameFromEmail(email) {
+  const normalized = String(email || "").trim();
+  if (!normalized) return "";
+  const source = normalized.includes("@") ? normalized.split("@", 1)[0] : normalized;
+  const parts = source.split(/[._\-\s]+/).filter(Boolean);
+  return parts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+/** Two-letter initials from a display name or email (e.g. "Bilel Harrat" / bilel.harrat@… → "BH"). */
+export function accountInitials(nameOrEmail, fallback = "?") {
+  const raw = String(nameOrEmail || "").trim();
+  if (!raw) return fallback;
+  const name = raw.includes("@") ? displayNameFromEmail(raw) : raw;
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+  }
+  if (parts.length === 1 && parts[0].length >= 2) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase() || fallback;
+  return fallback;
 }

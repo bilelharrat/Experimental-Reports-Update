@@ -5,11 +5,11 @@ import {
   Building2,
   Loader2,
   RefreshCw,
-  Sparkles,
   TrendingUp,
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import AiMark from "./AiMark.vue";
 import { formatCompactNumber, formatIsoDate, isPendingValue } from "../formatters.js";
 import { useT } from "../i18n.js";
 
@@ -105,7 +105,7 @@ const earningsLine = computed(() => {
         v-if="company.highlight_2026"
         class="mt-3 flex items-start gap-2 text-sm rounded-lg bg-accent-soft/40 border border-accent-soft px-3 py-2"
       >
-        <Sparkles class="h-3.5 w-3.5 text-accent mt-0.5 shrink-0" />
+        <AiMark class="h-3.5 w-3.5 mt-0.5 shrink-0" />
         <div class="min-w-0 flex-1">
           <span class="text-ink-primary">{{ company.highlight_2026.headline }}</span>
           <span v-if="company.highlight_2026.date" class="ml-1 text-ink-muted text-xs">

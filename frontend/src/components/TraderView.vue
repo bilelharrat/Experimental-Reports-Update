@@ -115,9 +115,9 @@ function staleness(cardKey) {
 
 function stalenessClass(bucket) {
   if (bucket === "fresh") return "bg-success-soft text-success-ink";
-  if (bucket === "warn") return "bg-warning-soft text-warning-ink";
-  if (bucket === "stale") return "bg-danger/10 text-danger";
-  return "bg-surface-muted text-ink-muted";
+  if (bucket === "warn") return "bg-notice-soft text-notice-ink";
+  if (bucket === "stale") return "bg-warning-soft text-warning-ink";
+  return "bg-fill-tertiary text-ink-muted";
 }
 
 function stalenessLabel(bucket) {
@@ -289,7 +289,7 @@ function confidenceClass(c) {
   if (c === "high") return "bg-success-soft text-success-ink";
   if (c === "medium") return "bg-warning-soft text-warning-ink";
   if (c === "low") return "bg-surface-muted text-ink-secondary";
-  if (c === "unavailable") return "bg-danger/10 text-danger";
+  if (c === "unavailable") return "bg-fill-tertiary text-ink-muted";
   return "bg-surface-muted text-ink-muted";
 }
 function confidenceLabel(c) {
@@ -434,14 +434,14 @@ function biasLabel(b) {
 
 function biasClass(b) {
   if (b === "positive") return "bg-success-soft text-success-ink";
-  if (b === "negative") return "bg-danger/10 text-danger";
-  return "bg-surface-muted text-ink-secondary";
+  if (b === "negative") return "bg-notice-soft text-notice-ink";
+  return "bg-fill-tertiary text-ink-secondary";
 }
 
 function impactClass(impact) {
-  if (impact === "high") return "bg-danger/10 text-danger";
+  if (impact === "high") return "bg-notice-soft text-notice-ink";
   if (impact === "medium") return "bg-warning-soft text-warning-ink";
-  return "bg-surface-muted text-ink-secondary";
+  return "bg-fill-tertiary text-ink-secondary";
 }
 
 function catalystTypeLabel(typ) {
@@ -495,12 +495,12 @@ function signedBarWidth(v) {
 }
 
 const segmentColors = [
-  "bg-accent",
-  "bg-success",
-  "bg-warning",
-  "bg-danger",
-  "bg-ink-muted",
-  "bg-accent-hover",
+  "bg-accent/70",
+  "bg-success/45",
+  "bg-warning/50",
+  "bg-notice/55",
+  "bg-ink-muted/40",
+  "bg-accent/45",
 ];
 
 function segmentColor(i) {
@@ -509,22 +509,22 @@ function segmentColor(i) {
 
 function scoreToneClass(score) {
   const n = Number(score);
-  if (!Number.isFinite(n)) return "bg-surface-muted text-ink-muted";
+  if (!Number.isFinite(n)) return "bg-fill-tertiary text-ink-muted";
   if (n >= 70) return "bg-success-soft text-success-ink";
-  if (n >= 45) return "bg-warning-soft text-warning-ink";
-  return "bg-danger/10 text-danger";
+  if (n >= 45) return "bg-notice-soft text-notice-ink";
+  return "bg-warning-soft text-warning-ink";
 }
 
 function metricToneClass(direction) {
-  if (direction === "strong") return "bg-success";
-  if (direction === "weak") return "bg-danger";
-  return "bg-warning";
+  if (direction === "strong") return "bg-success/50";
+  if (direction === "weak") return "bg-warning/55";
+  return "bg-ink-muted/35";
 }
 
-function metricTextClass(direction) {
-  if (direction === "strong") return "text-success-ink";
-  if (direction === "weak") return "text-danger";
-  return "text-warning-ink";
+function metricChipClass(direction) {
+  if (direction === "strong") return "bg-success-soft text-success-ink";
+  if (direction === "weak") return "bg-notice-soft text-notice-ink";
+  return "bg-fill-tertiary text-ink-muted";
 }
 
 function mixSignalLabel(signal) {
@@ -546,14 +546,14 @@ function scenarioLabel(scenario) {
 
 function scenarioToneClass(kind) {
   if (kind === "bull") return "bg-success-soft text-success-ink";
-  if (kind === "bear") return "bg-danger/10 text-danger";
+  if (kind === "bear") return "bg-notice-soft text-notice-ink";
   return "bg-accent-soft text-accent-ink";
 }
 
 function severityClass(severity) {
-  if (severity === "critical") return "bg-danger/10 text-danger";
-  if (severity === "important") return "bg-warning-soft text-warning-ink";
-  return "bg-surface-muted text-ink-secondary";
+  if (severity === "critical") return "bg-warning-soft text-warning-ink";
+  if (severity === "important") return "bg-notice-soft text-notice-ink";
+  return "bg-fill-tertiary text-ink-secondary";
 }
 
 function severityLabel(severity) {
@@ -759,10 +759,10 @@ function sourceLabel(section) {
           <span v-if="sentiment.rating_distribution.hold" class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary">
             H · {{ fmtCount(sentiment.rating_distribution.hold) }}
           </span>
-          <span v-if="sentiment.rating_distribution.sell" class="px-1.5 py-0.5 rounded bg-danger/10 text-danger">
+          <span v-if="sentiment.rating_distribution.sell" class="px-1.5 py-0.5 rounded bg-notice-soft text-notice-ink">
             S · {{ fmtCount(sentiment.rating_distribution.sell) }}
           </span>
-          <span v-if="sentiment.rating_distribution.strong_sell" class="px-1.5 py-0.5 rounded bg-danger/10 text-danger">
+          <span v-if="sentiment.rating_distribution.strong_sell" class="px-1.5 py-0.5 rounded bg-warning-soft text-warning-ink">
             SS · {{ fmtCount(sentiment.rating_distribution.strong_sell) }}
           </span>
         </div>
@@ -795,8 +795,8 @@ function sourceLabel(section) {
         </div>
       </div>
 
-      <!-- Positioning Structure (heat_card v2) — widest card, 2 cols -->
-      <div class="bg-surface border border-subtle rounded-card p-4 space-y-3 md:col-span-2">
+      <!-- Positioning Structure (heat_card v2) — full row -->
+      <div class="bg-surface border border-subtle rounded-card p-4 space-y-3 md:col-span-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5 vogue-label">
             <Flame class="h-3.5 w-3.5" />
@@ -1258,7 +1258,7 @@ function sourceLabel(section) {
               <span class="px-1.5 py-0.5 rounded bg-surface-muted text-ink-secondary">
                 {{ heat.repricing_risk.neutral_pct ?? "—" }}% {{ t("trader.heat.repricing.neutral") }}
               </span>
-              <span class="px-1.5 py-0.5 rounded bg-danger/10 text-danger">
+              <span class="px-1.5 py-0.5 rounded bg-warning-soft text-warning-ink">
                 {{ heat.repricing_risk.negative_pct ?? "—" }}% {{ t("trader.heat.repricing.negative") }}
               </span>
             </div>
@@ -1272,31 +1272,37 @@ function sourceLabel(section) {
         </template>
       </div>
 
-      <!-- Catalysts — short list (≤5 items), span 2 columns so the row
-           descriptions don't wrap awkwardly. -->
-      <!-- Upcoming catalysts — 1 col (Positioning Structure takes the other 2) -->
-      <div class="bg-surface border border-subtle rounded-card p-4 space-y-2">
-        <div class="flex items-center justify-between">
+      <!-- Upcoming catalysts — full width; date/impact above copy so summaries read cleanly -->
+      <div class="bg-surface border border-subtle rounded-card p-4 space-y-3 md:col-span-3">
+        <div class="flex items-center justify-between gap-2">
           <div class="flex items-center gap-1.5 vogue-label">
             <CalendarClock class="h-3.5 w-3.5" />
             {{ t("trader.card.catalysts") }}
           </div>
-          <span :class="['text-[10px] px-1.5 py-0.5 rounded', stalenessClass(staleness('catalysts'))]">
+          <span :class="['shrink-0 text-[10px] px-1.5 py-0.5 rounded', stalenessClass(staleness('catalysts'))]">
             {{ stalenessLabel(staleness('catalysts')) }}
           </span>
         </div>
-        <ul v-if="catalysts.length" class="space-y-2 text-xs">
-          <li v-for="(c, i) in catalysts" :key="i" class="flex items-start gap-2">
-            <span class="font-mono text-ink-muted whitespace-nowrap">{{ c.date }}</span>
-            <span :class="['text-[10px] px-1.5 py-0.5 rounded', impactClass(c.est_impact)]" v-if="c.est_impact">
-              {{ impactLabel(c.est_impact) }}
-            </span>
-            <span class="text-ink-primary">
-              {{ catalystTypeLabel(c.type) }} · {{ pickLocalized(c, 'title') }}
-              <span v-if="pickLocalized(c, 'summary')" class="text-ink-secondary block text-[11px] mt-0.5">
-                {{ pickLocalized(c, 'summary') }}
+        <ul v-if="catalysts.length" class="divide-y divide-subtle">
+          <li v-for="(c, i) in catalysts" :key="i" class="space-y-1 py-3 first:pt-0 last:pb-0">
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span class="font-mono text-[11px] text-ink-muted">{{ c.date }}</span>
+              <span
+                v-if="c.est_impact"
+                :class="['text-[10px] px-1.5 py-0.5 rounded', impactClass(c.est_impact)]"
+              >
+                {{ impactLabel(c.est_impact) }}
               </span>
-            </span>
+            </div>
+            <div class="text-sm text-ink-primary">
+              {{ catalystTypeLabel(c.type) }} · {{ pickLocalized(c, 'title') }}
+            </div>
+            <p
+              v-if="pickLocalized(c, 'summary')"
+              class="text-[12px] leading-snug text-ink-secondary"
+            >
+              {{ pickLocalized(c, 'summary') }}
+            </p>
           </li>
         </ul>
         <div v-else class="text-xs text-ink-muted italic">{{ t("trader.catalysts.empty") }}</div>
@@ -1449,7 +1455,7 @@ function sourceLabel(section) {
           <!-- Financial quality -->
           <div
             v-if="financialQuality"
-            class="bg-surface border border-subtle rounded-card p-4 space-y-3"
+            class="bg-surface border border-subtle rounded-card p-4 space-y-3 lg:col-span-2"
           >
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1.5 vogue-label">
@@ -1476,30 +1482,49 @@ function sourceLabel(section) {
                 {{ financialQuality.score != null ? `${financialQuality.score}/100` : "—" }}
               </span>
             </div>
-            <div class="h-1.5 rounded bg-surface-muted overflow-hidden">
+            <div class="h-1.5 rounded bg-fill-tertiary overflow-hidden">
               <div
-                class="h-full bg-accent"
+                class="h-full bg-accent/70"
                 :style="{ width: pctWidth(financialQuality.score) + '%' }"
               />
             </div>
             <p v-if="pickLocalized(financialQuality, 'summary')" class="text-xs text-ink-secondary leading-snug">
               {{ pickLocalized(financialQuality, "summary") }}
             </p>
-            <ul v-if="financialQuality.metrics?.length" class="space-y-2 text-xs">
-              <li v-for="(m, i) in financialQuality.metrics.slice(0, 5)" :key="i" class="space-y-1">
-                <div class="flex items-baseline justify-between gap-2">
-                  <span class="text-ink-muted min-w-0 truncate">{{ pickLocalized(m, "label") }}</span>
-                  <span :class="['font-mono shrink-0', metricTextClass(m.direction)]">{{ m.value || "—" }}</span>
+            <ul v-if="financialQuality.metrics?.length" class="space-y-3 text-xs">
+              <li v-for="(m, i) in financialQuality.metrics.slice(0, 5)" :key="i" class="space-y-1.5">
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span
+                    v-if="pickLocalized(m, 'label')"
+                    class="text-[11px] font-medium text-ink-muted"
+                  >
+                    {{ pickLocalized(m, "label") }}
+                  </span>
+                  <span
+                    v-if="m.direction"
+                    :class="['text-[10px] px-1.5 py-0.5 rounded capitalize', metricChipClass(m.direction)]"
+                  >
+                    {{ m.direction }}
+                  </span>
                 </div>
-                <div class="h-1 rounded bg-surface-muted overflow-hidden">
+                <div class="text-sm leading-snug text-ink-primary break-words">
+                  {{ m.value || "—" }}
+                </div>
+                <div
+                  v-if="m.percentile != null"
+                  class="h-1 rounded bg-fill-tertiary overflow-hidden"
+                >
                   <div
                     :class="['h-full', metricToneClass(m.direction)]"
                     :style="{ width: pctWidth(m.percentile) + '%' }"
                   />
                 </div>
-                <div v-if="pickLocalized(m, 'note')" class="text-[11px] text-ink-secondary leading-snug">
+                <p
+                  v-if="pickLocalized(m, 'note')"
+                  class="text-[12px] leading-snug text-ink-secondary"
+                >
                   {{ pickLocalized(m, "note") }}
-                </div>
+                </p>
               </li>
             </ul>
           </div>
@@ -1541,7 +1566,7 @@ function sourceLabel(section) {
                   <span class="text-[10px] text-ink-muted">{{ t("trader.research.rev") }}</span>
                   <div class="h-1.5 rounded bg-surface-muted overflow-hidden">
                     <div
-                      class="h-full bg-success"
+                      class="h-full bg-success/45"
                       :style="{ width: pctWidth(h.revenue_growth_pct, 4) + '%' }"
                     />
                   </div>
@@ -1663,7 +1688,7 @@ function sourceLabel(section) {
                 <div class="relative h-2 rounded bg-surface-muted overflow-hidden">
                   <div class="absolute inset-y-0 left-1/2 w-px bg-strong/70" />
                   <div
-                    :class="[ 'absolute inset-y-0', changeBias(s.implied_return_pct) === 'down' ? 'right-1/2 bg-danger' : 'left-1/2 bg-success', ]"
+                    :class="[ 'absolute inset-y-0', changeBias(s.implied_return_pct) === 'down' ? 'right-1/2 bg-warning/55' : 'left-1/2 bg-success/45', ]"
                     :style="{ width: signedBarWidth(s.implied_return_pct) + '%' }"
                   />
                 </div>

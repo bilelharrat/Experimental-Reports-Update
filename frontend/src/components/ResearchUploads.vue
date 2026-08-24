@@ -16,11 +16,11 @@ import {
   FileText,
   Image,
   Loader2,
-  Sparkles,
   Trash2,
   UploadCloud,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import AiMark from "./AiMark.vue";
 import {
   activeJobs,
   subscribeActiveJobs,
@@ -429,17 +429,19 @@ function formatCost(c) {
       >
         {{ t("research_uploads.empty") }}
       </div>
-      <ul v-else class="space-y-3">
+      <ul v-else class="overflow-hidden rounded-subbox border border-subtle bg-surface divide-y divide-subtle">
         <li
           v-for="f in files"
           :key="f.id"
-          class="rounded-subbox bg-fill-tertiary px-4 py-3"
+          class="px-4 py-4"
         >
-          <div class="flex items-start gap-3">
-            <component
-              :is="kindIcon(f.kind)"
-              class="h-4 w-4 mt-0.5 text-ink-muted shrink-0"
-            />
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
+            <div
+              class="mono-data grid h-11 w-11 shrink-0 place-items-center rounded-row bg-fill-tertiary text-ink-muted"
+              aria-hidden="true"
+            >
+              <component :is="kindIcon(f.kind)" class="h-4 w-4" />
+            </div>
             <div class="min-w-0 flex-1">
               <!-- Header row. The whole row toggles expand/collapse, but
                    the EN/中 lang switcher inside has @click.stop so it
@@ -472,25 +474,25 @@ function formatCost(c) {
                 :class="[ 'focus-ring rounded', f.quick_summary && !f.quick_summary.error ? 'cursor-pointer' : 'cursor-default', ]"
               >
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-sm font-medium text-ink-primary truncate">
+                  <span class="truncate text-sm font-semibold text-ink-primary">
                     {{ f.filename }}
                   </span>
                   <span
-                    class="text-[10px] font-mono text-footnote font-semibold text-ink-muted bg-surface border border-subtle rounded px-1.5 py-px"
+                    class="rounded-full border border-subtle bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-muted"
                   >
                     {{ f.kind }}
                   </span>
                   <span
                     v-if="sourceLangLabel(f.quick_summary)"
-                    class="text-[10px] font-mono text-accent-ink bg-accent-soft border border-accent-soft rounded px-1.5 py-px"
+                    class="rounded-full border border-accent-soft bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-ink"
                     title="Source language detected from the document"
                   >
                     {{ sourceLangLabel(f.quick_summary) }}
                   </span>
-                  <span v-if="f.size_bytes" class="text-[10px] text-ink-muted">
+                  <span v-if="f.size_bytes" class="text-xs text-ink-muted">
                     {{ formatSize(f.size_bytes) }}
                   </span>
-                  <span v-if="f.uploaded_at" class="text-[10px] text-ink-subtle ml-auto">
+                  <span v-if="f.uploaded_at" class="mono-data ml-auto text-xs text-ink-muted">
                     {{ new Date(f.uploaded_at).toLocaleString() }}
                   </span>
                   <!-- EN / 中 view-language toggle. Always visible on rows
@@ -538,7 +540,7 @@ function formatCost(c) {
                      expands (the full summary takes over). -->
                 <p
                   v-if="!isExpanded(f.id) && oneLinerFor(f)"
-                  class="mt-1 text-xs text-ink-secondary leading-snug line-clamp-2"
+                  class="mt-2 line-clamp-2 text-xs leading-relaxed text-ink-secondary"
                 >
                   {{ oneLinerFor(f) }}
                 </p>
@@ -697,18 +699,18 @@ function formatCost(c) {
               </div>
 
               <!-- Actions -->
-              <div class="mt-3 flex items-center gap-2 flex-wrap">
+              <div class="mt-3 flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   @click="summarize(f)"
                   :disabled="launching.has(f.id)"
-                  :class="[ 'inline-flex items-center gap-1.5 px-2 py-1 rounded', 'text-xs border focus-ring', f.quick_summary && !f.quick_summary.error ? 'border-subtle bg-surface hover:bg-surface-muted text-ink-secondary' : 'border-accent bg-accent text-white hover:bg-accent-hover', launching.has(f.id) && 'opacity-60 cursor-not-allowed', ]"
+                  :class="[ 'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold focus-ring', f.quick_summary && !f.quick_summary.error ? 'border border-subtle bg-surface text-ink-secondary hover:bg-surface-muted' : 'btn-filled', launching.has(f.id) && 'opacity-60 cursor-not-allowed', ]"
                 >
                   <Loader2
                     v-if="launching.has(f.id)"
-                    class="h-3 w-3 animate-spin"
+                    class="h-3.5 w-3.5 animate-spin"
                   />
-                  <Sparkles v-else class="h-3 w-3" />
+                  <AiMark v-else class="h-3.5 w-3.5" />
                   <span>
                     {{
                       launching.has(f.id)
@@ -723,19 +725,19 @@ function formatCost(c) {
                 <button
                   type="button"
                   @click="previewing = f"
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border border-subtle bg-surface hover:bg-surface-muted text-ink-secondary focus-ring"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
                 >
-                  <Eye class="h-3 w-3" />
+                  <Eye class="h-3.5 w-3.5" />
                   <span>{{ t("research_uploads.view") }}</span>
                 </button>
 
                 <button
                   type="button"
                   @click="remove(f)"
-                  class="ml-auto inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border border-subtle bg-surface hover:bg-danger/10 hover:border-danger/40 hover:text-danger text-ink-muted focus-ring"
+                  class="ml-auto inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs font-semibold text-ink-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger focus-ring"
                   :title="t('research_uploads.remove_tooltip', { name: f.filename })"
                 >
-                  <Trash2 class="h-3 w-3" />
+                  <Trash2 class="h-3.5 w-3.5" />
                 </button>
               </div>
 

@@ -1,8 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { Bell, Database, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sparkles, Sun, SunMoon } from "lucide-vue-next";
+import { RouterLink } from "vue-router";
+import { Activity, BarChart3, Bell, Database, FlaskConical, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sun, SunMoon } from "lucide-vue-next";
 import { api } from "../api.js";
+import AiMark from "../components/AiMark.vue";
 import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
+import { accountInitials } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage, setAppLanguage } from "../state.js";
 
@@ -138,8 +141,8 @@ function appearanceIcon(value) {
     <div v-else class="space-y-4">
       <section class="group-card p-5">
         <div class="flex items-start gap-4">
-          <div class="grid h-11 w-11 place-items-center rounded-subbox bg-accent text-caption1 font-semibold uppercase text-white">
-            {{ (account.name || account.email || "?").charAt(0) }}
+          <div class="grid h-11 w-11 place-items-center rounded-subbox bg-fill-tertiary text-callout font-semibold tracking-tight text-ink-secondary">
+            {{ accountInitials(account.name || account.email) }}
           </div>
           <div class="min-w-0 flex-1">
             <h2 class="font-display text-title3 text-ink-primary">
@@ -338,6 +341,36 @@ function appearanceIcon(value) {
 
       <section class="rounded-card bg-surface p-5 shadow-card lg:col-span-2">
         <h2 class="font-display text-title3 text-ink-primary">
+          {{ t("settings.advanced_tools") }}
+        </h2>
+        <p class="mt-1 text-footnote text-ink-muted">{{ t("settings.advanced_tools_help") }}</p>
+        <div class="mt-4 grid gap-2 sm:grid-cols-3">
+          <RouterLink
+            :to="{ name: 'stock-research' }"
+            class="flex items-center gap-3 rounded-row bg-fill-tertiary px-3 py-3 text-callout font-medium text-ink-primary hover:bg-fill-secondary focus-ring"
+          >
+            <Activity class="h-4 w-4 shrink-0 text-accent" />
+            {{ t("sidebar.markets_workbench") }}
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'trader-stats' }"
+            class="flex items-center gap-3 rounded-row bg-fill-tertiary px-3 py-3 text-callout font-medium text-ink-primary hover:bg-fill-secondary focus-ring"
+          >
+            <BarChart3 class="h-4 w-4 shrink-0 text-accent" />
+            {{ t("sidebar.markets_stats") }}
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'innovation-lab' }"
+            class="flex items-center gap-3 rounded-row bg-fill-tertiary px-3 py-3 text-callout font-medium text-ink-primary hover:bg-fill-secondary focus-ring"
+          >
+            <FlaskConical class="h-4 w-4 shrink-0 text-accent" />
+            {{ t("sidebar.markets_labs") }}
+          </RouterLink>
+        </div>
+      </section>
+
+      <section class="rounded-card bg-surface p-5 shadow-card lg:col-span-2">
+        <h2 class="font-display text-title3 text-ink-primary">
           {{ t("settings.operations") }}
         </h2>
         <p class="mt-1 text-footnote text-ink-muted">{{ t("home.operations_help") }}</p>
@@ -349,7 +382,7 @@ function appearanceIcon(value) {
             @click="regenAllCompanies"
           >
             <Loader2 v-if="regeneratingAll" class="h-4 w-4 animate-spin" />
-            <Sparkles v-else class="h-4 w-4" />
+            <AiMark v-else class="h-4 w-4" />
             {{ regeneratingAll ? t("home.regenerating_all") : t("home.regen_all") }}
           </button>
           <button

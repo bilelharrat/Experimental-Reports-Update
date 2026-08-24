@@ -1,8 +1,8 @@
 """Bootstrap an investment-memo run.
 
 This module is the synchronous handshake between
-``POST /api/reports`` (with `report_type = "Investment Memo (Late-Stage)"`)
-and the long-running analysis worker in ``memo_analysis.py``.
+``POST /api/reports`` (late-stage or Buffett memo types)
+and the matching long-running analysis worker.
 
 What this module does:
 
@@ -40,12 +40,38 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 MEMOS_ROOT = DATA_DIR / "memos"
 SETTINGS_FILE = DATA_DIR / "settings" / "serena_background.md"
+SEED_SETTINGS_FILE = (
+    Path(__file__).resolve().parent / "seed_data" / "serena_background.md"
+)
 COMPANIES_FILE = DATA_DIR / "companies.yaml"
 
 SKILL_NAME = "bsh-investment-memo-latestage-v1"
 SKILL_VERSION = 1
 JOB_KIND = "memo"
 REPORT_TYPE = "Investment Memo (Late-Stage)"
+LATESTAGE_KIND = "investment_memo_latestage"
+
+BUFFETT_REPORT_TYPE = "Buffett Investment Memo"
+BUFFETT_KIND = "buffett_investment_memo"
+BUFFETT_SKILL_NAME = "bsh-buffett-investment-memo-v1"
+BUFFETT_SKILL_VERSION = 1
+MEMO_KINDS = frozenset({LATESTAGE_KIND, BUFFETT_KIND})
+
+
+def is_memo_kind(kind: str | None) -> bool:
+    return kind in MEMO_KINDS
+
+
+def is_buffett_kind(kind: str | None) -> bool:
+    return kind == BUFFETT_KIND
+
+
+def is_buffett_report_type(report_type: str | None) -> bool:
+    return report_type == BUFFETT_REPORT_TYPE
+
+
+def is_memo_report_type(report_type: str | None) -> bool:
+    return report_type in {REPORT_TYPE, BUFFETT_REPORT_TYPE}
 
 
 def _env_flag(name: str, *, default: bool = False) -> bool:
@@ -227,8 +253,8 @@ def _validate_analysis_session_for_memo(
         )
 
 
-def _make_run_dir(slug: str, run_id: str) -> Path:
-    base = MEMOS_ROOT / slug / f"{run_id}__{slug}__memo-run"
+def _make_run_dir(slug: str, run_id: str, *, run_suffix: str = "memo-run") -> Path:
+    base = MEMOS_ROOT / slug / f"{run_id}__{slug}__{run_suffix}"
     folder = base
     n = 2
     while folder.exists():
@@ -248,7 +274,17 @@ def stream_path(run_dir: Path | str) -> Path:
 
 # --- Manifest writers ------------------------------------------------------
 
-def _memo_filename(company_name: str, run_id: str, language: str) -> str:
+def _memo_filename(
+    company_name: str,
+    run_id: str,
+    language: str,
+    *,
+    buffett: bool = False,
+) -> str:
+    if buffett:
+        if language == "zh":
+            return f"{company_name} - 巴菲特投资备忘录 - {run_id}.docx"
+        return f"{company_name} - Buffett Investment Memo - {run_id}.docx"
     if language == "zh":
         return f"{company_name} - 投资备忘录 - {run_id}.docx"
     return f"{company_name} - Investment Memo - {run_id}.docx"
@@ -276,12 +312,16 @@ def _write_manifest_skeleton(
     warnings: list[str],
     internal_memo_paths: dict[str, str] | None = None,
     analysis_session_id: str | None = None,
+    skill_name: str = SKILL_NAME,
+    skill_version: int = SKILL_VERSION,
+    title: str = "Investment Memo Run Manifest",
+    include_settings: bool = True,
 ) -> Path:
-    lines: list[str] = ["# Investment Memo Run Manifest", ""]
+    lines: list[str] = [f"# {title}", ""]
     lines.append(f"- run_id: {run_id}")
     lines.append(f"- company: {company.get('name')} ({company.get('id')})")
-    lines.append(f"- skill: {SKILL_NAME}")
-    lines.append(f"- skill_version: {SKILL_VERSION}")
+    lines.append(f"- skill: {skill_name}")
+    lines.append(f"- skill_version: {skill_version}")
     if analysis_session_id:
         lines.append(f"- analysis_session_id: {analysis_session_id}")
     lines.append(f"- created_at: {_now().isoformat()}")
@@ -298,7 +338,8 @@ def _write_manifest_skeleton(
         "stage anything for the skill."
     )
     lines.append("")
-    lines.append("- `data/settings/serena_background.md`")
+    if include_settings:
+        lines.append("- `data/settings/serena_background.md`")
     lines.append(f"- `data/companies.yaml` entry for `{company.get('id')}`")
     if warnings:
         lines += ["", "## Warnings", ""]
@@ -351,10 +392,33 @@ def _write_scope_failure(run_dir: Path, *, company: dict, stage: dict) -> Path:
     return path
 
 
+def ensure_settings_file() -> Path:
+    """Create ``data/settings/serena_background.md`` from the tracked seed
+    when a checkout has never materialized it. Idempotent.
+    """
+    if SETTINGS_FILE.exists():
+        return SETTINGS_FILE
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if SEED_SETTINGS_FILE.exists():
+        SETTINGS_FILE.write_text(
+            SEED_SETTINGS_FILE.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    else:
+        SETTINGS_FILE.write_text(
+            "# Serena Background\n\nDefault BSH late-stage memo context.\n",
+            encoding="utf-8",
+        )
+    return SETTINGS_FILE
+
+
 # --- Public entry ----------------------------------------------------------
 
 def bootstrap_memo_run(
-    company_id: str, *, analysis_session_id: str | None = None
+    company_id: str,
+    *,
+    analysis_session_id: str | None = None,
+    report_type: str | None = None,
 ) -> dict:
     """Run the synchronous prep stage for an investment-memo job.
 
@@ -367,14 +431,26 @@ def bootstrap_memo_run(
     company = storage.get_company(company_id)
     if company is None:
         raise ValueError(f"Unknown company_id: {company_id}")
-    if not SETTINGS_FILE.exists():
-        raise RuntimeError(
-            f"Settings file missing: {SETTINGS_FILE}. Place serena_background.md "
-            "in data/settings/ before running prep."
-    )
+    ensure_settings_file()
+
+    buffett = is_buffett_report_type(report_type)
+    selected_report_type = BUFFETT_REPORT_TYPE if buffett else REPORT_TYPE
+    selected_kind = BUFFETT_KIND if buffett else LATESTAGE_KIND
+    selected_skill = BUFFETT_SKILL_NAME if buffett else SKILL_NAME
+    selected_skill_version = BUFFETT_SKILL_VERSION if buffett else SKILL_VERSION
 
     slug = _company_slug(company)
     company_name = company.get("name") or slug
+    job_title = (
+        f"Buffett memo — {company_name}"
+        if buffett
+        else f"Investment memo — {company_name}"
+    )
+    job_subtitle = (
+        "Owner's investment analysis"
+        if buffett
+        else "Late-stage / pre-IPO"
+    )
     analysis_session = None
     if analysis_session_id:
         analysis_session = serena_analysis.get_session(slug, analysis_session_id)
@@ -392,15 +468,27 @@ def bootstrap_memo_run(
         )
 
     run_id = _run_id()
-    run_dir = _make_run_dir(slug, run_id)
+    run_dir = _make_run_dir(
+        slug,
+        run_id,
+        run_suffix="buffett-memo-run" if buffett else "memo-run",
+    )
     stream = job_progress.ProgressLog(stream_path(run_dir))
     memo_paths = {
-        "en": str(run_dir / "memo" / _memo_filename(company_name, run_id, "en")),
-        "zh": str(run_dir / "memo" / _memo_filename(company_name, run_id, "zh")),
+        "en": str(
+            run_dir
+            / "memo"
+            / _memo_filename(company_name, run_id, "en", buffett=buffett)
+        ),
+        "zh": str(
+            run_dir
+            / "memo"
+            / _memo_filename(company_name, run_id, "zh", buffett=buffett)
+        ),
     }
     internal_memo_files: list[dict] = []
     internal_memo_paths: dict[str, str] | None = None
-    if _internal_diligence_memo_enabled():
+    if (not buffett) and _internal_diligence_memo_enabled():
         internal_md = run_dir / "memo" / _internal_memo_filename(
             company_name,
             run_id,
@@ -428,13 +516,13 @@ def bootstrap_memo_run(
     # we fail downstream.
     report = storage.create_report(
         company_id=slug,
-        report_type=REPORT_TYPE,
+        report_type=selected_report_type,
         audience="Internal",
         language="en",
     )
     storage.update_report(
         report["id"],
-        kind="investment_memo_latestage",
+        kind=selected_kind,
         status="prepping",
         stage="Preparing run",
         run_dir=_rel(run_dir),
@@ -443,8 +531,8 @@ def bootstrap_memo_run(
             {"language": "zh", "path": _rel(memo_paths["zh"])},
         ],
         internal_memo_files=internal_memo_files,
-        skill=SKILL_NAME,
-        skill_version=SKILL_VERSION,
+        skill=selected_skill,
+        skill_version=selected_skill_version,
         run_id=run_id,
         warnings=[],
         analysis_session_id=analysis_session_id,
@@ -458,13 +546,13 @@ def bootstrap_memo_run(
     stream.emit(
         "job_init",
         kind=JOB_KIND,
-        title=f"Investment memo — {company_name}",
-        subtitle="Late-stage / pre-IPO",
+        title=job_title,
+        subtitle=job_subtitle,
         report_id=report["id"],
         company_id=slug,
         run_id=run_id,
         run_dir=str(run_dir),
-        skill=SKILL_NAME,
+        skill=selected_skill,
     )
     stream.emit(
         "stage",
@@ -534,6 +622,14 @@ def bootstrap_memo_run(
         internal_memo_paths=internal_memo_paths,
         warnings=warnings,
         analysis_session_id=analysis_session_id,
+        skill_name=selected_skill,
+        skill_version=selected_skill_version,
+        title=(
+            "Buffett Investment Memo Run Manifest"
+            if buffett
+            else "Investment Memo Run Manifest"
+        ),
+        include_settings=not buffett,
     )
 
     storage.update_report(
@@ -557,8 +653,12 @@ def bootstrap_memo_run(
     # in append mode and emits the real terminal `done` when both .docx
     # files land. Import locally to avoid a circular module import at
     # startup.
-    from . import memo_analysis
-    memo_analysis.start_analysis(report["id"])
+    if buffett:
+        from . import buffett_memo_analysis
+        buffett_memo_analysis.start_analysis(report["id"])
+    else:
+        from . import memo_analysis
+        memo_analysis.start_analysis(report["id"])
 
     return {
         "failed": False,

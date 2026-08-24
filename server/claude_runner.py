@@ -2374,6 +2374,9 @@ Begin now: Read pages="1".
 # --- Investment memo runner ------------------------------------------------
 
 _SKILL_PATH = Path(__file__).resolve().parent / "skills" / "bsh_investment_memo_latestage.md"
+_BUFFETT_SKILL_PATH = (
+    Path(__file__).resolve().parent / "skills" / "bsh_buffett_investment_memo.md"
+)
 
 
 # Maps the analysis artifacts produced by Serena's memo skill to the
@@ -2397,6 +2400,15 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "countercase.md": "Countercase analysis",
     "source_treatment_assumptions.md": "Source treatment and assumptions",
     "risk_sensitivities.md": "Risk and valuation sensitivities",
+}
+
+_BUFFETT_ANALYSIS_PASSES: dict[str, str] = {
+    "business.md": "The business",
+    "economics.md": "Owner's earnings / economics",
+    "moat.md": "Durable advantage",
+    "management.md": "Management and capital allocation",
+    "valuation.md": "Intrinsic value / margin of safety",
+    "permanent_loss.md": "Permanent capital loss",
 }
 
 _MEMO_PHASE1_THREAD = "Phase 1 - Intake and setup"
@@ -3025,6 +3037,12 @@ def _load_skill_text() -> str:
     if not _SKILL_PATH.exists():
         raise RuntimeError(f"Skill file missing: {_SKILL_PATH}")
     return _SKILL_PATH.read_text(encoding="utf-8")
+
+
+def _load_buffett_skill_text() -> str:
+    if not _BUFFETT_SKILL_PATH.exists():
+        raise RuntimeError(f"Skill file missing: {_BUFFETT_SKILL_PATH}")
+    return _BUFFETT_SKILL_PATH.read_text(encoding="utf-8")
 
 
 _HORMUZ_SKILL_PATH = (
@@ -4410,6 +4428,272 @@ def run_investment_memo(
                 "thread_finished",
                 thread=thread_label,
             )
+
+    if result_event and (
+        result_event.get("subtype") == "error" or result_event.get("is_error")
+    ):
+        return {
+            "ok": False,
+            "error": (
+                result_event.get("error")
+                or result_event.get("result")
+                or "Claude skill run failed"
+            ),
+            "cost_usd": result_event.get("total_cost_usd"),
+            "duration_ms": result_event.get("duration_ms"),
+            "usage": result_event.get("usage"),
+            "subtype": result_event.get("subtype"),
+            "api_error_status": result_event.get("api_error_status"),
+        }
+
+    if result_event is None and proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "ok": False,
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            ),
+        }
+
+    out: dict = {"ok": True}
+    if result_event:
+        out["cost_usd"] = result_event.get("total_cost_usd")
+        out["duration_ms"] = result_event.get("duration_ms")
+        out["usage"] = result_event.get("usage")
+        out["subtype"] = result_event.get("subtype")
+    return out
+
+
+def _build_buffett_investment_memo_prompt(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    company_registry_entry_yaml: str | None = None,
+) -> str:
+    """Build the prompt for one Claude subprocess running the Buffett skill."""
+    skill_text = _load_buffett_skill_text()
+    memo_package_path = run_dir / "logs" / "memo_package.json"
+    scope_warning_block = ""
+    if scope_check and scope_check.get("outcome") == "warn":
+        warning_lines = "\n".join(f"- {w}" for w in (warnings or []))
+        scope_warning_block = f"""\
+## Stage note from prep
+
+Prep recorded a non-fatal stage warning:
+
+- classification: `{scope_check.get("classification")}`
+- reason: {scope_check.get("reason") or "(no reason recorded)"}
+
+{warning_lines if warning_lines else "- No additional warnings recorded."}
+
+Proceed. Do not decline solely because the company is early-stage. If the
+economics cannot be understood, the honest call is Too Hard.
+
+"""
+
+    if research_dir and research_dir.exists():
+        research_block = f"""\
+Research materials for this company, if any, live at:
+
+  `{research_dir}`
+
+Read the raw files that are relevant. Do not dump the file inventory into
+the memo. Continue to ignore `data/uploads/` — that is the Document Library
+and is not an input.
+
+"""
+    else:
+        research_block = """\
+No research-folder files are staged for this run. Use the company registry
+entry and independent reasoning. Do not invent undisclosed figures.
+
+"""
+
+    registry_block = ""
+    if company_registry_entry_yaml:
+        registry_block = f"""\
+## Company registry entry (`{company_slug}`)
+
+```yaml
+{company_registry_entry_yaml}
+```
+
+"""
+
+    return f"""\
+You are writing an investment analysis and memorandum as Warren Buffett.
+
+Company: {company_name} (`{company_slug}`)
+Run id: {run_id}
+Run folder: `{run_dir}`
+Package output (required): `{memo_package_path}`
+Predicted Word paths (Python will render these; do not write .docx yourself):
+  - English: `{memo_paths.get("en")}`
+  - Chinese: `{memo_paths.get("zh")}`
+Companies registry file: `{companies_yaml_path}`
+
+{scope_warning_block}{research_block}{registry_block}
+Do not adopt BSH LP sell-side voice, Serena's persona, or any fund mandate
+as your own. The author is Warren Buffett. The deliverable is an investment
+memo with a Buy / Pass / Too Hard call.
+
+Do not write `.docx` files or renderer scripts. Write `logs/memo_package.json`
+and the Markdown working copies the skill specifies.
+
+=================================================================
+SKILL: bsh-buffett-investment-memo-v1 (verbatim — follow this)
+=================================================================
+
+{skill_text}
+"""
+
+
+def run_buffett_investment_memo(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 3600,
+) -> dict:
+    """Spawn `claude -p` to run the Buffett investment-memo skill."""
+    if not is_available():
+        return {
+            "ok": False,
+            "error": (
+                "Claude Code (`claude`) not found on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and run "
+                "`claude` once to authenticate."
+            ),
+        }
+    if not run_dir.exists():
+        return {"ok": False, "error": f"Run folder missing: {run_dir}"}
+    if not companies_yaml_path.exists():
+        return {"ok": False, "error": f"companies.yaml missing: {companies_yaml_path}"}
+
+    prompt = _build_buffett_investment_memo_prompt(
+        run_dir=run_dir,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        companies_yaml_path=companies_yaml_path,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        scope_check=scope_check,
+        warnings=warnings,
+        company_registry_entry_yaml=_extract_company_registry_entry_yaml(
+            companies_yaml_path,
+            company_slug,
+        ),
+    )
+
+    add_dirs = [str(run_dir), str(companies_yaml_path.parent)]
+    if research_dir and research_dir.exists():
+        add_dirs.append(str(research_dir))
+    cmd = [
+        claude_path() or "claude",
+        "-p",
+        prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Write,Edit,Bash,Grep,Glob",
+        "--disallowedTools",
+        "ToolSearch,Task,TaskCreate,TaskUpdate,TaskList,TaskOutput,TaskStop,TodoWrite",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    for d in add_dirs:
+        cmd += ["--add-dir", d]
+
+    if progress:
+        progress.emit(
+            "stage",
+            stage="analysis_starting",
+            message="Running Buffett investment-memo skill",
+            run_dir=str(run_dir),
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = _popen_claude(
+            cmd,
+            cwd=str(run_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": f"Failed to launch claude: {exc}"}
+
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    state: dict[str, Any] = {
+        "thread_map": _BUFFETT_ANALYSIS_PASSES,
+    }
+
+    def _handle_event(event: dict, prog, run_state: dict) -> None:
+        if prog:
+            _process_event(event, prog, run_state)
+
+    _, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_handle_event,
+        timeout_sec=timeout_sec,
+        timeout_label="Buffett memo skill",
+        silence_timeout_sec=300.0,
+        stop_on_result=True,
+    )
+    result_event = state.get("result_event")
+    if stream_error and result_event is None:
+        return {"ok": False, "error": stream_error}
+
+    if progress:
+        finish_ok = bool(result_event) and not (
+            result_event.get("subtype") == "error" or result_event.get("is_error")
+        )
+        final_error = None
+        if result_event and not finish_ok:
+            final_error = (
+                result_event.get("error")
+                or result_event.get("result")
+                or "Claude skill run failed"
+            )
+        finished_threads = state.get("threads_finished") or set()
+        for thread_label in state.get("threads_started") or ():
+            if thread_label in finished_threads:
+                continue
+            if not finish_ok:
+                progress.emit(
+                    "thread_failed",
+                    thread=thread_label,
+                    error=final_error,
+                )
+                continue
+            progress.emit("thread_finished", thread=thread_label)
 
     if result_event and (
         result_event.get("subtype") == "error" or result_event.get("is_error")

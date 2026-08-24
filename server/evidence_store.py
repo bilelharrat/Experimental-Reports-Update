@@ -335,6 +335,8 @@ def _document_row(
         "source_traces": traces,
         "source_trace_count": len(traces),
         "editable_metadata": editable,
+        "use_in_report": backend == "background_documents",
+        "use_in_report_locked": _use_in_report_locked(backend, filename, record),
         "summary": record.get("summary"),
         "quick_summary": record.get("quick_summary"),
         "record": copy.deepcopy(record),
@@ -501,6 +503,142 @@ def _lookup_record(company_id: str, backend: str, record_id: str) -> dict | None
         if record.get("id") == record_id:
             return record
     return None
+
+
+_METADATA_COPY_KEYS = (
+    "label",
+    "language",
+    "source_class",
+    "document_category",
+    "provenance",
+    "source_status",
+    "source_confidence",
+)
+
+
+def _file_ext(filename: str) -> str:
+    name = str(filename or "")
+    if "." not in name:
+        return ""
+    return f".{name.rsplit('.', 1)[-1].lower()}"
+
+
+def _can_store_in_library(filename: str, content_type: str | None = None) -> bool:
+    ext = _file_ext(filename)
+    if ext in files_store.ALLOWED_EXTENSIONS:
+        return True
+    return bool(content_type and content_type in files_store.ALLOWED_TYPES)
+
+
+def _can_store_in_research(filename: str, content_type: str | None = None) -> bool:
+    ext = _file_ext(filename)
+    if ext in research_store.ALLOWED_KINDS_BY_EXT:
+        return True
+    return research_store._kind_from(content_type, filename) is not None
+
+
+def _use_in_report_locked(backend: str, filename: str, record: dict) -> bool:
+    content_type = record.get("content_type")
+    if backend == "background_documents":
+        return not _can_store_in_library(filename, content_type)
+    if backend == "document_library":
+        return not _can_store_in_research(filename, content_type)
+    return True
+
+
+def _copy_metadata(record: dict) -> dict[str, Any]:
+    patch: dict[str, Any] = {}
+    for key in _METADATA_COPY_KEYS:
+        value = record.get(key)
+        if value not in (None, ""):
+            patch[key] = copy.deepcopy(value)
+    return patch
+
+
+def _row_for_record(company_id: str, backend: str, record: dict) -> dict:
+    title = (
+        record.get("external_title")
+        or record.get("label")
+        or record.get("filename")
+        or ("Background document" if backend == "background_documents" else "Document")
+    )
+    return _document_row(
+        company_id=company_id,
+        backend=backend,
+        record=record,
+        record_id=record.get("id") or "",
+        title=title,
+        filename=record.get("filename") or "",
+        kind=record.get("kind") or "",
+        editable=True,
+    )
+
+
+def set_use_in_report(
+    company_id: str,
+    backend: str,
+    record_id: str,
+    use: bool,
+) -> dict:
+    """Move an uploaded file between library and memo-input stores.
+
+    The two folders stay separate on disk (see docs/architecture.md). The
+    investor-facing Files list exposes that boundary as a single
+    "Use in report" flag.
+    """
+    if backend not in {"document_library", "background_documents"}:
+        raise ValueError("Only uploaded documents can change Use in report")
+    current = backend == "background_documents"
+    found = (
+        files_store.get_file(company_id, record_id)
+        if backend == "document_library"
+        else research_store.get_file(company_id, record_id)
+    )
+    if found is None:
+        raise ValueError("Document not found")
+    record, path = found
+    if current == use:
+        return _row_for_record(company_id, backend, record)
+
+    filename = record.get("filename") or "upload"
+    content_type = record.get("content_type")
+    if use and not _can_store_in_research(filename, content_type):
+        raise ValueError(
+            "This file type cannot be used in a report. Convert it to PDF, PPTX, Word, text, or an image."
+        )
+    if not use and not _can_store_in_library(filename, content_type):
+        raise ValueError(
+            "This file type has to stay in the report set. Keep Use in report on, or delete the file."
+        )
+
+    data = path.read_bytes()
+    metadata = _copy_metadata(record)
+    if use:
+        created = research_store.upload_file(
+            company_id,
+            filename=filename,
+            content_type=content_type,
+            data=data,
+            label=record.get("label"),
+        )
+        if metadata:
+            created = research_store.update_record(company_id, created["id"], **metadata) or created
+        files_store.delete_file(company_id, record_id)
+        return _row_for_record(company_id, "background_documents", created)
+
+    language = record.get("language") if record.get("language") in files_store.SUPPORTED_LANGUAGES else "en"
+    created = files_store.upload_file(
+        company_id,
+        filename=filename,
+        content_type=content_type,
+        data=data,
+        label=record.get("label"),
+        language=language,
+    )
+    if metadata:
+        created = files_store.update_record(company_id, created["id"], **metadata) or created
+    research_store.delete_file(company_id, record_id)
+    return _row_for_record(company_id, "document_library", created)
 
 
 def assignment_for_intake(kind: str, payload: dict) -> dict:

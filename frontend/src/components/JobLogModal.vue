@@ -25,9 +25,9 @@ import {
   Globe,
   Languages,
   Loader2,
-  Sparkles,
   X,
 } from "lucide-vue-next";
+import AiMark from "./AiMark.vue";
 
 const props = defineProps({
   job: { type: Object, required: true },
@@ -309,7 +309,7 @@ watch(
 );
 
 function actionIcon(entry) {
-  if (entry.type === "stage") return Sparkles;
+  if (entry.type === "stage") return AiMark;
   if (entry.type === "thread_planned") return Circle;
   if (entry.tool === "WebSearch") return Globe;
   if (entry.tool === "WebFetch") return Download;
