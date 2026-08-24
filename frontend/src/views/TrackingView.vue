@@ -1,13 +1,14 @@
 <script setup>
 import { computed, inject, ref, unref } from "vue";
 import { useRouter, RouterLink } from "vue-router";
-import { Newspaper, Star, TrendingDown, TrendingUp } from "lucide-vue-next";
+import { Newspaper, Radar, TrendingDown, TrendingUp } from "lucide-vue-next";
 import { useT } from "../i18n.js";
 import { latestNewsFor, priceSignal, relatedNews, sortCompanies } from "../companyLists.js";
 import { radarAge } from "../marketRadar.js";
 import {
   companySort,
   companyViews,
+  favoriteCompanyIds,
   toggleTrackedCompany,
   trackedCompanyIds,
 } from "../state.js";
@@ -26,7 +27,7 @@ const trackedCompanies = computed(() =>
     {
       sort: companySort.value,
       views: companyViews.value,
-      favorites: trackedCompanyIds.value,
+      favorites: favoriteCompanyIds.value,
     },
   ),
 );
@@ -86,11 +87,11 @@ function signalLabel(company) {
           </button>
           <button
             type="button"
-            class="icon-btn shrink-0"
-            :aria-label="t('sidebar.unfollow')"
+            class="icon-btn shrink-0 text-accent-ink"
+            :aria-label="t('sidebar.untrack_company')"
             @click="toggleTrackedCompany(company.id)"
           >
-            <Star class="h-4 w-4 text-warning" fill="currentColor" />
+            <Radar class="h-4 w-4" />
           </button>
         </div>
         <p class="mt-4 line-clamp-3 text-footnote leading-relaxed text-ink-secondary">

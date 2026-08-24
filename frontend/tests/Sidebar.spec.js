@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import Sidebar from "../src/components/Sidebar.vue";
 import {
   companyViews,
+  favoriteCompanyIds,
   setCompanySort,
   setSidebarCollapsed,
   trackedCompanyIds,
@@ -63,27 +64,24 @@ describe("Sidebar", () => {
   beforeEach(() => {
     setSidebarCollapsed(false);
     setCompanySort("az");
+    favoriteCompanyIds.value = new Set();
     trackedCompanyIds.value = new Set();
     companyViews.value = {};
   });
 
-  it("renders one company list and parks extra markets", () => {
+  it("renders one flat portfolio list and the destinations", () => {
     const wrapper = mountSidebar();
 
-    expect(wrapper.text()).toContain("Companies");
+    expect(wrapper.text()).toContain("Portfolio");
+    expect(wrapper.text()).toContain("Top Players");
     expect(wrapper.text()).toContain("Acme Inc.");
     expect(wrapper.text()).toContain("NVIDIA");
-    expect(wrapper.text()).toContain("Zeta Labs");
-    expect(wrapper.text()).toContain("Markets");
-    expect(wrapper.text()).toContain("Radar");
-    expect(wrapper.text()).toContain("Pulse");
-    expect(wrapper.text()).not.toContain("Following");
-    expect(wrapper.text()).not.toContain("Portfolio");
-    expect(wrapper.text()).not.toContain("Top Players");
-    expect(wrapper.text()).not.toContain("More markets");
-    expect(wrapper.text()).not.toContain("Workbench");
-    expect(wrapper.text()).not.toContain("Stats");
+    expect(wrapper.text()).toContain("Weekly Summary");
+    expect(wrapper.text()).toContain("Stock Research");
+    expect(wrapper.text()).toContain("Stats");
+    expect(wrapper.text()).toContain("Innovation Lab");
     expect(wrapper.text()).not.toContain("Pipeline");
+    expect(wrapper.text()).not.toContain("Market Radar");
     expect(wrapper.text()).not.toContain("News Board");
     expect(wrapper.text()).not.toContain("Settings");
     expect(wrapper.text()).not.toContain("Sign out");
@@ -93,7 +91,7 @@ describe("Sidebar", () => {
     companyViews.value = { "acme-inc": 1, zeta: 5 };
     const wrapper = mountSidebar();
 
-    expect(nameOrder(wrapper)).toEqual(["Acme Inc.", "NVIDIA", "Zeta Labs"]);
+    expect(nameOrder(wrapper)).toEqual(["Acme Inc.", "Zeta Labs", "NVIDIA"]);
 
     await wrapper.get('button[aria-label="Sort"]').trigger("click");
     const mostViewed = wrapper
@@ -104,24 +102,25 @@ describe("Sidebar", () => {
     expect(nameOrder(wrapper)).toEqual(["Zeta Labs", "Acme Inc.", "NVIDIA"]);
   });
 
-  it("pins followed companies to the top of the list", async () => {
+  it("pins favorites to the top of the list", async () => {
     const wrapper = mountSidebar();
 
-    const followButtons = wrapper.findAll('button[aria-label="Follow"]');
-    await followButtons[2].trigger("click");
+    // Favorite Zeta Labs in Portfolio; it should jump above Acme.
+    const favButtons = wrapper.findAll('button[aria-label="Favorite"]');
+    await favButtons[1].trigger("click");
 
-    expect(trackedCompanyIds.value.has("zeta")).toBe(true);
+    expect(favoriteCompanyIds.value.has("zeta")).toBe(true);
     expect(nameOrder(wrapper)).toEqual(["Zeta Labs", "Acme Inc.", "NVIDIA"]);
   });
 
-  it("follows a company from the list", async () => {
+  it("tracks a company from the list", async () => {
     const wrapper = mountSidebar();
 
-    const followButtons = wrapper.findAll('button[aria-label="Follow"]');
-    await followButtons[1].trigger("click");
+    const trackButtons = wrapper.findAll('button[aria-label="Track"]');
+    await trackButtons[trackButtons.length - 1].trigger("click");
 
     expect(trackedCompanyIds.value.has("nvda")).toBe(true);
-    await wrapper.get('button[aria-label="Unfollow"]').trigger("click");
+    await wrapper.get('button[aria-label="Stop tracking"]').trigger("click");
     expect(trackedCompanyIds.value.has("nvda")).toBe(false);
   });
 
@@ -139,26 +138,6 @@ describe("Sidebar", () => {
 
     expect(wrapper.find("aside").attributes("data-collapsed")).toBe("false");
     expect(wrapper.text()).toContain("Acme Inc.");
-    expect(wrapper.text()).toContain("Pulse");
-  });
-
-  it("shows the full company list in the rail", async () => {
-    const many = Array.from({ length: 6 }, (_, i) => ({
-      id: `co-${i}`,
-      name: `Company ${i}`,
-      company_type: "private",
-      status: "private",
-      industry: "AI",
-    }));
-    const wrapper = mount(Sidebar, {
-      props: { loading: false, companies: many },
-      global: { stubs: { RouterLink: RouterLinkStub } },
-    });
-
-    expect(wrapper.text()).toContain("Company 0");
-    expect(wrapper.text()).toContain("Company 2");
-    expect(wrapper.text()).toContain("Company 3");
-    expect(wrapper.text()).toContain("Company 5");
-    expect(wrapper.text()).not.toContain("Show all");
+    expect(wrapper.text()).toContain("Weekly Summary");
   });
 });

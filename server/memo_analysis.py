@@ -3509,58 +3509,6 @@ def _resume_safe(report_id: str) -> None:
         _unregister_active_run(report_id)
 
 
-def _english_quality_gate_needs_package_regen(
-    report: dict,
-    *,
-    quality_lint_path: Path | None = None,
-) -> bool:
-    """True only when the English DOCX quality gate needs a package rewrite.
-
-    ``complete_with_warnings`` often means Chinese parity alone failed. That
-    must not archive and regenerate the English package — that path is what
-    stranded users on "Regenerating memo package after quality gate failure".
-    """
-    if report.get("failure_phase") == "quality_gate":
-        return True
-    if report.get("resume_last_failure_phase") == "quality_gate":
-        return True
-    if report.get("resume_from_failure_phase") == "quality_gate":
-        return True
-    if str(report.get("status") or "") == "failed_quality_gate":
-        return True
-    if str(report.get("resume_last_status") or "") == "failed_quality_gate":
-        return True
-
-    lint = report.get("memo_quality_lint")
-    if isinstance(lint, dict):
-        if int(lint.get("p0_count") or 0) > 0:
-            return True
-        if str(lint.get("status") or "").lower() == "failed":
-            return True
-
-    for warning in report.get("quality_warnings") or []:
-        text = str(warning).lower()
-        if "chinese" in text or "parity" in text:
-            continue
-        if "quality gate" in text or "memo quality" in text:
-            return True
-
-    if quality_lint_path and quality_lint_path.exists():
-        try:
-            text = quality_lint_path.read_text(encoding="utf-8")
-        except OSError:
-            text = ""
-        if re.search(r"(?im)^-\s*status:\s*failed\b", text):
-            return True
-        if re.search(r"(?im)^-\s*p0_count:\s*[1-9]\d*\b", text):
-            return True
-        # Older lint stubs used in tests / early resumes.
-        if re.search(r"(?im)^\s*p0\b", text) and "status: passed" not in text.lower():
-            return True
-
-    return False
-
-
 def _resolve_run_dir(report: dict) -> Path | None:
     run_dir_rel = report.get("run_dir")
     if not run_dir_rel:
@@ -3877,17 +3825,29 @@ def _resume(report_id: str) -> None:
         raise RuntimeError(
             "Cannot resume: no memo_package.json or analysis artifacts exist"
         )
+    _quality_statuses = ("failed_quality_gate", "complete_with_warnings")
+    quality_failed = (
+        report.get("status") in _quality_statuses
+        or report.get("failure_phase") == "quality_gate"
+        or bool(report.get("quality_warnings"))
+        # The failure THIS resume recovers from (set by the resume endpoint
+        # just before it flips status to "analyzing"). resume_from_* alone
+        # is not enough: it preserves the ORIGINAL failure, so on a chained
+        # resume (renderer failure → resume → quality failure → resume) it
+        # still said "renderer_contract" and the worker reused the very
+        # package the quality gate had just rejected.
+        or report.get("resume_last_status") in _quality_statuses
+        or report.get("resume_last_failure_phase") == "quality_gate"
+        or report.get("resume_from_status") in _quality_statuses
+        or report.get("resume_from_failure_phase") == "quality_gate"
+    )
     quality_lint_path = run_dir / "logs" / "memo_quality_lint.md"
     prior_package_path = _latest_archived_memo_package(
         run_dir,
         label="quality_failed",
     )
-    # Only regenerate the English package when the English DOCX quality gate
-    # actually failed. Chinese-parity-only complete_with_warnings must reuse
-    # the package — regenerating for 30+ minutes was the "keeps happening" loop.
-    quality_failed = _english_quality_gate_needs_package_regen(
-        report,
-        quality_lint_path=quality_lint_path,
+    quality_failed = quality_failed or (
+        quality_lint_path.exists() and prior_package_path is not None
     )
 
     _archive_stream_for_resume(run_dir)

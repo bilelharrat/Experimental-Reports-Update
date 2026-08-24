@@ -7,14 +7,9 @@
 // session. A 401 from any /api/* call dispatches `bsh:unauthorized` —
 // we listen for it here and tear the session down so the router bounces
 // the user to /login on the next navigation.
-//
-// Local exception: when the server injects
-// `<meta name="bsh-research-anon-dev" content="1">` (`BSH_ALLOW_ANON_DEV=1`),
-// the SPA treats the operator as signed in with no stored session.
 
 import { computed, ref } from "vue";
 import { api, withBase } from "./api.js";
-import { accountInitials, displayNameFromEmail } from "./formatters.js";
 
 const SESSION_KEY = "bsh.research.session";
 
@@ -64,44 +59,14 @@ function _clearStoredSession() {
 }
 
 export const session = ref(_readStoredSession());
-export const sessionName = ref(null);
-
-export function isAnonDev() {
-  if (typeof document === "undefined") return false;
-  const el = document.querySelector('meta[name="bsh-research-anon-dev"]');
-  return el?.content?.trim() === "1";
-}
-
-export const isAuthenticated = computed(
-  () => session.value !== null || isAnonDev(),
-);
+export const isAuthenticated = computed(() => session.value !== null);
 export const sessionEmail = computed(() => session.value?.email ?? null);
-export const sessionInitials = computed(() =>
-  accountInitials(sessionName.value || session.value?.email, "?"),
-);
-
-function _applyIdentity(me) {
-  if (!me || typeof me !== "object") return;
-  const email = me.email || null;
-  if (email && session.value && session.value.email !== email) {
-    const next = { ...session.value, email };
-    _writeStoredSession(next);
-    session.value = next;
-  }
-  sessionName.value = me.name || (email ? displayNameFromEmail(email) : null) || null;
-}
 
 export async function signIn(email, password) {
   const res = await api.login(email, password);
   // Shape: { token, email, created_at, expires_at }
   _writeStoredSession(res);
   session.value = res;
-  sessionName.value = displayNameFromEmail(res.email) || null;
-  try {
-    _applyIdentity(await api.me());
-  } catch {
-    // Login succeeded; identity enrichment is best-effort.
-  }
   return res;
 }
 
@@ -111,7 +76,6 @@ export async function signOut() {
   // /login immediately, even if the network call below hangs.
   _clearStoredSession();
   session.value = null;
-  sessionName.value = null;
   if (had?.token) {
     // Post directly with the captured token (local state is already
     // cleared, so apiFetch would send no Authorization header). Include
@@ -128,19 +92,18 @@ export async function signOut() {
   }
 }
 
-// Called by router on boot: confirm a stored token still works, and always
-// hydrate display name/initials (including anon-dev operator identity).
+// Called by router on app boot when a stored session exists; pings /me
+// to confirm the token is still valid (e.g. wasn't revoked in another
+// browser). Silently no-ops when no session or when the network is down.
 export async function validateSession() {
-  if (!session.value && !isAnonDev()) return false;
+  if (!session.value) return false;
   try {
-    const me = await api.me();
-    _applyIdentity(me);
-    return Boolean(session.value);
+    await api.me();
+    return true;
   } catch (e) {
     if (e && e.status === 401) {
       _clearStoredSession();
       session.value = null;
-      sessionName.value = null;
     }
     return false;
   }
@@ -153,7 +116,6 @@ if (typeof window !== "undefined") {
     if (session.value !== null) {
       _clearStoredSession();
       session.value = null;
-      sessionName.value = null;
     }
   });
 }

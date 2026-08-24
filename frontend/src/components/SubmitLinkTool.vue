@@ -7,9 +7,9 @@ import {
   ExternalLink,
   Globe,
   Loader2,
+  Sparkles,
 } from "lucide-vue-next";
 import { api } from "../api.js";
-import AiMark from "./AiMark.vue";
 import { useT } from "../i18n.js";
 
 const t = useT();
@@ -191,7 +191,7 @@ function cancel() {
             :disabled="submitting"
             class="btn-filled btn-sm focus-ring"
           >
-            <AiMark class="h-3 w-3" />
+            <Sparkles class="h-3 w-3" />
             <span>{{ submitting ? t("common.saving") : t("submit_link.accept") }}</span>
           </button>
           <button

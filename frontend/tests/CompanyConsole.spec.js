@@ -117,39 +117,3 @@ describe("CompanyConsole — token meter & lock behavior", () => {
     }
   });
 });
-
-describe("CompanyConsole — create session", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    m.getTurns.mockResolvedValue([]);
-    m.listSessions.mockResolvedValue([]);
-  });
-
-  it("creates a session without a destination modal", async () => {
-    const created = activeMeta();
-    m.createSession.mockResolvedValue(created);
-    m.getSession.mockResolvedValue(created);
-
-    const wrapper = mount(CompanyConsole, {
-      props: { companyId: "ami_labs" },
-    });
-    await flushPromises();
-
-    expect(wrapper.text()).not.toContain("Include memo inputs");
-    expect(wrapper.text()).not.toContain("Create console");
-
-    const newButton = wrapper
-      .findAll("button")
-      .find((button) => button.text().includes("New"));
-    expect(newButton).toBeTruthy();
-    await newButton.trigger("click");
-    await flushPromises();
-
-    expect(m.createSession).toHaveBeenCalledWith("ami_labs", {
-      include_background_docs: true,
-      include_library_docs: false,
-      output_language: "en",
-    });
-    expect(wrapper.text()).toContain("Test session");
-  });
-});

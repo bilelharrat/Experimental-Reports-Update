@@ -1,23 +1,26 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
-  Loader2,
+  Bot,
+  Library,
   Link as LinkIcon,
   LogOut,
   PanelRightClose,
   Plus,
+  Radar,
   ScrollText,
   Search,
+  Settings,
   UploadCloud,
 } from "lucide-vue-next";
 import { api } from "./api.js";
 import { useT } from "./i18n.js";
-import AiMark from "./components/AiMark.vue";
 import Sidebar from "./components/Sidebar.vue";
 import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import CompanyConsole from "./components/CompanyConsole.vue";
+import { marketRadarItems, radarAge, radarRoute } from "./marketRadar.js";
 import {
   activeSummaryTarget,
   closeSummary,
@@ -26,7 +29,7 @@ import {
   recordCompanyView,
   setLastCompanyId,
 } from "./state.js";
-import { isAuthenticated, sessionEmail, sessionInitials, sessionName, signOut } from "./auth.js";
+import { isAuthenticated, sessionEmail, signOut } from "./auth.js";
 
 const news = ref([]);
 const externalResearch = ref([]);
@@ -40,17 +43,12 @@ const copilotReady = ref(false);
 const companyConsoleRef = ref(null);
 const headerRef = ref(null);
 const addMenuOpen = ref(false);
+const radarMenuOpen = ref(false);
 const accountMenuOpen = ref(false);
 const jumpQuery = ref("");
 const jumpOpen = ref(false);
 const signingOut = ref(false);
-const addFileInput = ref(null);
-const addUploading = ref(false);
-const addUploadError = ref("");
 const t = useT();
-
-const FILE_ACCEPT =
-  ".pdf,.pptx,.docx,.doc,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,text/*";
 
 provide("workspaceCompanies", companies);
 provide("workspaceNews", news);
@@ -152,6 +150,8 @@ const currentCompany = computed(() =>
   companies.value.find((c) => c.id === currentCompanyId.value) || null,
 );
 
+const radarItems = computed(() => marketRadarItems(news.value, externalResearch.value));
+
 const jumpHits = computed(() => {
   const q = jumpQuery.value.trim().toLowerCase();
   if (!q) return [];
@@ -165,21 +165,21 @@ const jumpHits = computed(() => {
 
 function closeChromeMenus() {
   addMenuOpen.value = false;
+  radarMenuOpen.value = false;
   accountMenuOpen.value = false;
   jumpOpen.value = false;
 }
 
 function toggleAddMenu() {
-  if (onCompanyPage.value) {
-    addUploadError.value = "";
-    closeChromeMenus();
-    addFileInput.value?.click();
-    return;
-  }
   const next = !addMenuOpen.value;
   closeChromeMenus();
   addMenuOpen.value = next;
-  if (!next) addUploadError.value = "";
+}
+
+function toggleRadarMenu() {
+  const next = !radarMenuOpen.value;
+  closeChromeMenus();
+  radarMenuOpen.value = next;
 }
 
 function toggleAccountMenu() {
@@ -190,43 +190,9 @@ function toggleAccountMenu() {
 
 function openJumpMenu() {
   addMenuOpen.value = false;
+  radarMenuOpen.value = false;
   accountMenuOpen.value = false;
   jumpOpen.value = true;
-}
-
-const onCompanyPage = computed(
-  () => route.name === "research" && Boolean(currentCompanyId.value),
-);
-
-async function onCompanyAddFiles(event) {
-  const input = event.target;
-  const files = Array.from(input?.files || []);
-  if (input) input.value = "";
-  const companyId = currentCompanyId.value;
-  if (!companyId || !files.length) return;
-
-  addUploading.value = true;
-  addUploadError.value = "";
-  closeChromeMenus();
-  try {
-    for (const file of files) {
-      await api.uploadResearchFile(companyId, file);
-    }
-    await router.push({
-      name: "research",
-      params: { companyId },
-      query: {
-        ...route.query,
-        tab: "documents",
-        files: String(Date.now()),
-      },
-    });
-  } catch (err) {
-    addUploadError.value = err?.message || t("toolbar.upload_failed");
-    addMenuOpen.value = true;
-  } finally {
-    addUploading.value = false;
-  }
 }
 
 function onDocPointerDown(event) {
@@ -235,7 +201,7 @@ function onDocPointerDown(event) {
 
 function onChromeKeydown(event) {
   if (event.key !== "Escape") return;
-  if (addMenuOpen.value || accountMenuOpen.value || jumpOpen.value) {
+  if (addMenuOpen.value || radarMenuOpen.value || accountMenuOpen.value || jumpOpen.value) {
     closeChromeMenus();
     return;
   }
@@ -311,9 +277,9 @@ const breadcrumbs = computed(() => {
   const name = String(route.name || "");
   const root = t("nav.research_center");
   if (name === "home") return [root, t("companies.section_title")];
-  if (name === "tracking") return [root, t("sidebar.following")];
-  if (name === "market-radar") return [root, t("nav.markets"), t("sidebar.markets_radar")];
-  if (name === "stock-research") return [root, t("nav.markets"), t("sidebar.markets_workbench")];
+  if (name === "tracking") return [root, t("nav.section_tracking")];
+  if (name === "market-radar") return [root, t("nav.section_radar")];
+  if (name === "stock-research") return [root, t("app.stock")];
   if (name === "settings") return [root, t("app.settings")];
   if (name === "user-center") return [root, t("app.user_center")];
   if (name === "source-library") {
@@ -326,17 +292,17 @@ const breadcrumbs = computed(() => {
       t("app.competitor_detail"),
     ];
   }
-  if (name === "innovation-lab") return [root, t("nav.markets"), t("sidebar.markets_labs")];
+  if (name === "innovation-lab") return [root, t("app.innovation_lab")];
   if (name.startsWith("research-page-") || name.startsWith("innovation-")) {
-    return [root, t("nav.markets"), t("sidebar.markets_labs")];
+    return [root, t("app.innovation_lab")];
   }
   if (name === "hormuz-library" || name === "hormuz-research") {
-    return [root, t("nav.markets"), t("sidebar.markets_labs"), t("app.hormuz")];
+    return [root, t("app.innovation_lab"), t("app.hormuz")];
   }
-  if (name === "external-news") return [root, t("nav.markets"), t("sidebar.markets_radar")];
+  if (name === "external-news") return [root, t("app.market_radar")];
   if (name === "external-research") return [root, t("app.external_research")];
-  if (name === "weekly-summary") return [root, t("nav.markets"), t("sidebar.markets_pulse")];
-  if (name === "trader-stats") return [root, t("nav.markets"), t("sidebar.markets_stats")];
+  if (name === "weekly-summary") return [root, t("app.weekly_summary")];
+  if (name === "trader-stats") return [root, t("app.stats")];
   if (name === "research") {
     return [
       root,
@@ -346,6 +312,10 @@ const breadcrumbs = computed(() => {
   }
   return [root];
 });
+
+const showSectionBar = computed(() =>
+  ["home", "tracking", "market-radar"].includes(String(route.name || "")),
+);
 
 const copilotContext = computed(() => {
   if (currentCompany.value?.name) {
@@ -373,15 +343,6 @@ const copilotRecentCompanies = computed(() => {
     .slice(0, 3);
 });
 
-const accountTitle = computed(() => {
-  const name = sessionName.value?.trim();
-  const email = sessionEmail.value?.trim();
-  if (name && email && name.toLowerCase() !== email.toLowerCase()) {
-    return `${name} · ${email}`;
-  }
-  return name || email || t("toolbar.account");
-});
-
 function prefillCopilot(prompt) {
   companyConsoleRef.value?.prefillPrompt(prompt);
 }
@@ -389,13 +350,6 @@ function prefillCopilot(prompt) {
 function setCopilotOpen(open) {
   if (open) copilotReady.value = true;
   copilotOpen.value = open;
-}
-
-function onOpenCopilot(prompt) {
-  setCopilotOpen(true);
-  if (prompt) {
-    nextTick(() => prefillCopilot(prompt));
-  }
 }
 
 watch(
@@ -441,8 +395,8 @@ watch(
               type="search"
               autocomplete="off"
               class="field h-8 w-full rounded-subbox !py-0 !pl-8 !pr-2 text-footnote"
-              :placeholder="t('home.search_placeholder')"
-              :aria-label="t('home.search_placeholder')"
+              :placeholder="t('toolbar.search_companies')"
+              :aria-label="t('toolbar.search_companies')"
               @focus="openJumpMenu"
               @keydown.escape.prevent="closeChromeMenus"
               @keydown.enter.prevent="onJumpEnter"
@@ -492,122 +446,141 @@ watch(
             <button
               type="button"
               class="icon-btn"
-              :aria-label="
-                onCompanyPage
-                  ? t('toolbar.add_to_company', {
-                      name: currentCompany?.name || t('app.company'),
-                    })
-                  : t('toolbar.add')
-              "
-              :title="
-                onCompanyPage
-                  ? t('toolbar.add_to_company', {
-                      name: currentCompany?.name || t('app.company'),
-                    })
-                  : t('toolbar.add')
-              "
+              :aria-label="t('toolbar.add')"
+              :title="t('toolbar.add')"
               :aria-expanded="addMenuOpen"
-              :disabled="addUploading"
               @click="toggleAddMenu"
             >
-              <Loader2 v-if="addUploading" class="h-[18px] w-[18px] animate-spin" />
-              <Plus v-else class="h-[18px] w-[18px]" />
+              <Plus class="h-[18px] w-[18px]" />
             </button>
             <div v-if="addMenuOpen" class="toolbar-menu" role="menu">
-              <template v-if="onCompanyPage">
-                <p class="px-3 pb-2.5 pt-2.5 text-caption1 text-danger">
-                  {{ addUploadError }}
-                </p>
-                <button
-                  type="button"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  :disabled="addUploading"
-                  @click="addFileInput?.click()"
-                >
-                  <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("documents.add_file") }}
-                </button>
-              </template>
-              <template v-else>
-                <RouterLink
-                  :to="{ path: '/', query: { intake: 'link' } }"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  @click="closeChromeMenus"
-                >
-                  <LinkIcon class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("home.action_link") }}
-                </RouterLink>
-                <RouterLink
-                  :to="{ path: '/', query: { intake: 'upload' } }"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  @click="closeChromeMenus"
-                >
-                  <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("home.action_file") }}
-                </RouterLink>
-                <RouterLink
-                  :to="{ path: '/', query: { intake: 'note' } }"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  @click="closeChromeMenus"
-                >
-                  <ScrollText class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("home.action_note") }}
-                </RouterLink>
-              </template>
+              <RouterLink
+                :to="{ path: '/', query: { intake: 'link' } }"
+                class="toolbar-menu-item"
+                role="menuitem"
+                @click="closeChromeMenus"
+              >
+                <LinkIcon class="h-4 w-4 shrink-0 text-ink-muted" />
+                {{ t("home.action_link") }}
+              </RouterLink>
+              <RouterLink
+                :to="{ path: '/', query: { intake: 'upload' } }"
+                class="toolbar-menu-item"
+                role="menuitem"
+                @click="closeChromeMenus"
+              >
+                <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
+                {{ t("home.action_file") }}
+              </RouterLink>
+              <RouterLink
+                :to="{ path: '/', query: { intake: 'note' } }"
+                class="toolbar-menu-item"
+                role="menuitem"
+                @click="closeChromeMenus"
+              >
+                <ScrollText class="h-4 w-4 shrink-0 text-ink-muted" />
+                {{ t("home.action_note") }}
+              </RouterLink>
+              <RouterLink
+                :to="{ name: 'source-library' }"
+                class="toolbar-menu-item"
+                role="menuitem"
+                @click="closeChromeMenus"
+              >
+                <Library class="h-4 w-4 shrink-0 text-ink-muted" />
+                {{ t("home.action_library") }}
+              </RouterLink>
             </div>
-            <input
-              ref="addFileInput"
-              type="file"
-              multiple
-              :accept="FILE_ACCEPT"
-              class="hidden"
-              @change="onCompanyAddFiles"
-            />
+          </div>
+
+          <div class="relative">
+            <button
+              type="button"
+              class="icon-btn relative lg:h-8 lg:w-auto lg:gap-1.5 lg:px-2"
+              :aria-label="t('toolbar.radar')"
+              :title="t('toolbar.radar')"
+              :aria-expanded="radarMenuOpen"
+              @click="toggleRadarMenu"
+            >
+              <Radar class="h-[18px] w-[18px]" />
+              <span class="hidden text-caption1 font-medium lg:inline">{{ t("toolbar.radar") }}</span>
+              <span
+                v-if="radarItems.length"
+                class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent"
+                aria-hidden="true"
+              />
+            </button>
+            <div v-if="radarMenuOpen" class="toolbar-menu w-[22rem]" role="menu">
+              <div class="px-3 pb-1 pt-2.5 text-caption1 font-semibold uppercase tracking-wide text-ink-subtle">
+                {{ t("toolbar.radar") }}
+              </div>
+              <RouterLink
+                v-for="item in radarItems"
+                :key="item.id"
+                :to="radarRoute(item)"
+                class="toolbar-menu-item items-start"
+                role="menuitem"
+                @click="closeChromeMenus"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate font-medium">{{
+                    item.title || t("sidebar.untitled")
+                  }}</span>
+                  <span class="block truncate text-caption1 text-ink-muted">{{
+                    radarAge(item.captured_at, t)
+                  }}</span>
+                </span>
+              </RouterLink>
+              <p
+                v-if="radarItems.length === 0"
+                class="px-3 py-3 text-footnote text-ink-muted"
+              >
+                {{ t("toolbar.radar_empty") }}
+              </p>
+            </div>
           </div>
 
           <button
             type="button"
-            class="icon-btn"
-            :class="onCompanyPage ? 'lg:h-8 lg:w-auto lg:gap-1.5 lg:px-2' : ''"
+            class="icon-btn lg:h-8 lg:w-auto lg:gap-1.5 lg:px-2"
             :aria-label="t('copilot.ask')"
             :title="t('copilot.ask')"
             :aria-pressed="copilotOpen"
             @click="setCopilotOpen(!copilotOpen)"
           >
-            <AiMark class="h-[18px] w-[18px]" />
-            <span v-if="onCompanyPage" class="hidden text-caption1 font-medium lg:inline">{{ t("copilot.title") }}</span>
+            <Bot class="h-[18px] w-[18px]" />
+            <span class="hidden text-caption1 font-medium lg:inline">{{ t("copilot.title") }}</span>
           </button>
+
+          <RouterLink
+            :to="{ name: 'settings' }"
+            class="icon-btn"
+            :aria-label="t('app.settings')"
+            :title="t('app.settings')"
+          >
+            <Settings class="h-[18px] w-[18px]" />
+          </RouterLink>
 
           <div class="relative">
             <button
               type="button"
               class="icon-btn overflow-hidden p-0"
               :aria-label="t('toolbar.account')"
-              :title="accountTitle"
+              :title="sessionEmail || t('toolbar.account')"
               :aria-expanded="accountMenuOpen"
               @click="toggleAccountMenu"
             >
               <span
-                class="grid h-7 w-7 place-items-center rounded-subbox bg-fill-tertiary text-[11px] font-semibold tracking-tight text-ink-secondary"
+                class="grid h-7 w-7 place-items-center rounded-subbox bg-accent text-caption1 font-semibold uppercase text-white"
                 aria-hidden="true"
               >
-                {{ sessionInitials }}
+                {{ (sessionEmail || "?").charAt(0) }}
               </span>
             </button>
             <div v-if="accountMenuOpen" class="toolbar-menu" role="menu">
               <p
-                v-if="sessionName || sessionEmail"
-                class="truncate px-3 pb-0.5 pt-2.5 text-caption1 font-medium text-ink-primary"
-              >
-                {{ sessionName || sessionEmail }}
-              </p>
-              <p
-                v-if="sessionName && sessionEmail"
-                class="truncate px-3 pb-1 text-caption1 text-ink-muted"
+                v-if="sessionEmail"
+                class="truncate px-3 pb-1 pt-2.5 text-caption1 text-ink-muted"
               >
                 {{ sessionEmail }}
               </p>
@@ -634,32 +607,60 @@ watch(
         </div>
       </header>
 
+      <nav
+        v-if="showSectionBar"
+        class="px-3 pt-2 md:px-5"
+        :aria-label="t('nav.section_bar')"
+      >
+        <div class="segmented w-fit">
+          <RouterLink
+            :to="{ name: 'home' }"
+            class="segmented-item focus-ring"
+            :data-selected="route.name === 'home' ? 'true' : 'false'"
+          >
+            {{ t("nav.section_companies") }}
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'tracking' }"
+            class="segmented-item focus-ring"
+            :data-selected="route.name === 'tracking' ? 'true' : 'false'"
+          >
+            {{ t("nav.section_tracking") }}
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'market-radar' }"
+            class="segmented-item focus-ring"
+            :data-selected="route.name === 'market-radar' ? 'true' : 'false'"
+          >
+            {{ t("nav.section_radar") }}
+          </RouterLink>
+        </div>
+      </nav>
+
       <RouterView v-slot="{ Component }">
         <Transition name="view-fade" mode="out-in">
           <component
             :is="Component"
             @reports-changed="refreshAll"
-            @open-copilot="onOpenCopilot"
+            @open-copilot="setCopilotOpen(true)"
           />
         </Transition>
       </RouterView>
     </main>
 
-    <Transition name="sheet-scrim">
-      <button
-        v-if="copilotOpen"
-        type="button"
-        class="sheet-scrim fixed inset-0 z-40 xl:hidden"
-        :aria-label="t('copilot.collapse')"
-        @click="setCopilotOpen(false)"
-      />
-    </Transition>
-    <Transition name="copilot-drawer">
-      <aside
-        v-if="copilotOpen && copilotReady"
-        class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[320px] flex-col bg-surface hairline-l xl:sticky xl:top-0 xl:z-20 xl:h-screen xl:w-[320px] xl:shrink-0"
-        :aria-label="t('copilot.title')"
-      >
+    <button
+      v-if="copilotOpen"
+      type="button"
+      class="sheet-scrim fixed inset-0 z-40 xl:hidden"
+      :aria-label="t('copilot.collapse')"
+      @click="setCopilotOpen(false)"
+    />
+    <aside
+      v-if="copilotReady"
+      v-show="copilotOpen"
+      class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[320px] flex-col bg-surface hairline-l xl:sticky xl:top-0 xl:z-20 xl:h-screen xl:w-[320px] xl:shrink-0"
+      :aria-label="t('copilot.title')"
+    >
         <header class="flex items-center gap-3 px-4 py-3 hairline-b">
           <div class="min-w-0 flex-1">
             <div class="text-headline text-ink-primary">{{ t("copilot.title") }}</div>
@@ -703,6 +704,7 @@ watch(
                 <span class="truncate font-medium">{{ company.name }}</span>
               </button>
             </div>
+            <p class="text-footnote text-ink-subtle">{{ t("copilot.sample_user") }}</p>
           </div>
           <div v-if="currentCompanyId" class="flex flex-wrap gap-1.5 pt-1">
             <button
@@ -716,8 +718,7 @@ watch(
             </button>
           </div>
         </div>
-      </aside>
-    </Transition>
+    </aside>
 
     <ActiveJobsRail />
     <DeckSummaryModal

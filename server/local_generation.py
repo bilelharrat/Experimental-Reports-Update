@@ -10,7 +10,7 @@ import argparse
 import json
 from typing import Any
 
-from . import auth_store, memo_prep, stock_research, storage, trader_stats
+from . import auth_store, stock_research, storage, trader_stats
 
 
 def generate_local_runtime_state(
@@ -30,7 +30,6 @@ def generate_local_runtime_state(
     company_records_materialized = storage.materialize_seed_company_records(
         include_fixtures=include_fixture_companies,
     )
-    memo_prep.ensure_settings_file()
 
     summary: dict[str, Any] = {
         "data_dir": str(storage.DATA_DIR),

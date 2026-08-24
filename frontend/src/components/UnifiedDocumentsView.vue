@@ -6,14 +6,13 @@ import {
   Download,
   Eye,
   FileText,
-  Filter,
   Loader2,
   Search,
+  Sparkles,
   Trash2,
   UploadCloud,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
-import AiMark from "./AiMark.vue";
 import { formatIsoDate, humanizeStatus, isTerminalReportStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage, openSummary } from "../state.js";
@@ -44,26 +43,24 @@ const languageFilter = ref("all");
 const statusFilter = ref("all");
 const query = ref("");
 
+const libraryFileInput = ref(null);
 const backgroundFileInput = ref(null);
+const libraryUploading = ref(false);
 const backgroundUploading = ref(false);
-const filtersOpen = ref(false);
 const uploadError = ref("");
+const uploadLanguage = ref("en");
 const launchingSummaryId = ref("");
-const togglingId = ref("");
 
 const errorMessage = computed(() =>
   error.value === "load" ? t("documents.load_error") : t("documents.action_error"),
 );
 const uploadErrorMessage = computed(() => t("documents.upload_error"));
-const addFileBusy = computed(() => backgroundUploading.value);
-
-function openAddFile() {
-  backgroundFileInput.value?.click();
-}
 
 const previewing = ref(null);
 const traceRow = ref(null);
 
+const LIBRARY_ACCEPT =
+  ".pdf,.ppt,.pptx,.md,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/markdown,text/x-markdown";
 const BACKGROUND_ACCEPT =
   ".pdf,.pptx,.docx,.doc,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,text/*";
 
@@ -146,14 +143,8 @@ function rowSize(row) {
 
 function sourceBadgeClass(sourceClass) {
   if (sourceClass === "generated memo") return "bg-accent-soft text-accent-ink border-accent/30";
-  if (sourceClass === "unknown/pending") return "bg-notice-soft text-notice-ink border-notice/30";
-  if (sourceClass === "internal note") return "bg-purple-soft text-purple-ink border-purple/30";
-  if (String(sourceClass || "").includes("third-party") || String(sourceClass || "").includes("market")) {
-    return "bg-teal-soft text-teal-ink border-teal/30";
-  }
-  if (String(sourceClass || "").includes("company")) {
-    return "bg-purple-soft text-purple-ink border-purple/30";
-  }
+  if (sourceClass === "unknown/pending") return "bg-warning-soft text-warning-ink border-warning/30";
+  if (sourceClass === "internal note") return "bg-surface-muted text-ink-secondary border-subtle";
   return "bg-surface text-ink-secondary border-subtle";
 }
 
@@ -181,9 +172,6 @@ function fileTileClass(row) {
   if (type === "PDF") return "bg-danger-soft text-danger-ink";
   if (type === "XLSX") return "bg-success-soft text-success-ink";
   if (type === "URL") return "bg-accent-soft text-accent-ink";
-  if (type === "DOCX" || type === "DOC") return "bg-info-soft text-info-ink";
-  if (type === "PPTX" || type === "PPT") return "bg-purple-soft text-purple-ink";
-  if (type === "MD") return "bg-teal-soft text-teal-ink";
   return "bg-surface-muted text-ink-secondary";
 }
 
@@ -282,24 +270,21 @@ async function updateMetadata(row, patch) {
   }
 }
 
-async function setUseInReport(row, useInReport) {
-  if (row.backend === "generated_report") return;
-  if (Boolean(row.use_in_report) === Boolean(useInReport)) return;
-  togglingId.value = row.id;
-  error.value = "";
+async function uploadLibrary(list) {
+  if (!list?.length) return;
+  libraryUploading.value = true;
+  uploadError.value = "";
   try {
-    await api.setDocumentUseInReport(
-      props.companyId,
-      row.backend,
-      row.record_id,
-      useInReport,
-    );
+    for (const file of list) {
+      await api.uploadFile(props.companyId, file, null, uploadLanguage.value);
+    }
     await load();
     emit("files-changed");
   } catch {
-    error.value = "action";
+    uploadError.value = "upload";
   } finally {
-    togglingId.value = "";
+    libraryUploading.value = false;
+    if (libraryFileInput.value) libraryFileInput.value.value = "";
   }
 }
 
@@ -312,7 +297,6 @@ async function uploadBackground(list) {
       await api.uploadResearchFile(props.companyId, file);
     }
     await load();
-    emit("files-changed");
   } catch {
     uploadError.value = "upload";
   } finally {
@@ -328,121 +312,150 @@ function openReport(row) {
 
 <template>
   <section class="bg-surface border border-subtle rounded-card shadow-card p-6">
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
         <div class="vogue-label">{{ t("documents.eyebrow") }}</div>
         <h2 class="font-display text-xl font-semibold text-ink-primary">
           {{ t("documents.title") }}
         </h2>
+        <p class="mt-1 max-w-3xl text-sm text-ink-muted">
+          {{ t("documents.subtitle") }}
+        </p>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          class="btn-bordered focus-ring"
-          :disabled="addFileBusy"
-          :aria-label="t('documents.add_file')"
-          @click="openAddFile"
-        >
-          <Loader2 v-if="addFileBusy" class="h-4 w-4 animate-spin" />
-          <UploadCloud v-else class="h-4 w-4" />
-          {{ t("documents.add_file") }}
-        </button>
-        <button
-          type="button"
-          class="btn-bordered focus-ring"
-          :aria-expanded="filtersOpen"
-          :aria-pressed="filtersOpen || filtersActive"
-          @click="filtersOpen = !filtersOpen"
-        >
-          <Filter class="h-4 w-4" />
-          {{ t("documents.filter_toggle") }}
-          <span
-            v-if="filtersActive"
-            class="mono-data rounded-pill bg-accent-soft px-1.5 text-caption1 text-accent-ink"
+      <div class="rounded-subbox border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-muted">
+        <span class="font-mono text-ink-primary">{{ visibleCount }}</span> {{ t("documents.visible") }}
+        <span v-if="payload.unresolved_intake_count">
+          · <span class="font-mono text-warning-ink">{{ payload.unresolved_intake_count }}</span>
+          {{ t("documents.unresolved") }}
+        </span>
+      </div>
+    </div>
+
+    <div class="mt-5 grid gap-3 lg:grid-cols-2">
+      <div class="rounded-subbox border border-subtle bg-surface-muted p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold text-ink-primary">{{ t("documents.library_upload") }}</div>
+            <p class="mt-1 text-xs text-ink-muted">{{ t("documents.library_upload_help") }}</p>
+          </div>
+          <button
+            type="button"
+            @click="libraryFileInput?.click()"
+            :disabled="libraryUploading"
+            class="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs font-semibold text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
           >
-            {{ visibleCount }}
-          </span>
-        </button>
+            <Loader2 v-if="libraryUploading" class="h-3.5 w-3.5 animate-spin" />
+            <UploadCloud v-else class="h-3.5 w-3.5" />
+            {{ t("documents.upload") }}
+          </button>
+        </div>
+        <div class="mt-3 flex items-center gap-1 text-xs text-ink-muted">
+          <span>{{ t("documents.language") }}</span>
+          <button
+            v-for="opt in ['en', 'zh']"
+            :key="opt"
+            type="button"
+            @click="uploadLanguage = opt"
+            :class="[ 'rounded border px-2 py-0.5 uppercase focus-ring', uploadLanguage === opt ? 'border-accent bg-accent-soft text-accent-ink' : 'border-subtle bg-surface text-ink-secondary', ]"
+          >
+            {{ opt }}
+          </button>
+        </div>
+        <input
+          ref="libraryFileInput"
+          type="file"
+          multiple
+          :accept="LIBRARY_ACCEPT"
+          class="hidden"
+          @change="uploadLibrary(Array.from($event.target.files || []))"
+        />
       </div>
-      <input
-        ref="backgroundFileInput"
-        type="file"
-        multiple
-        :accept="BACKGROUND_ACCEPT"
-        class="hidden"
-        @change="uploadBackground(Array.from($event.target.files || []))"
-      />
+
+      <div class="rounded-subbox border border-subtle bg-surface-muted p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-sm font-semibold text-ink-primary">{{ t("documents.research_upload") }}</div>
+            <p class="mt-1 text-xs text-ink-muted">{{ t("documents.research_upload_help") }}</p>
+          </div>
+          <button
+            type="button"
+            @click="backgroundFileInput?.click()"
+            :disabled="backgroundUploading"
+            class="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs font-semibold text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+          >
+            <Loader2 v-if="backgroundUploading" class="h-3.5 w-3.5 animate-spin" />
+            <UploadCloud v-else class="h-3.5 w-3.5" />
+            {{ t("documents.upload") }}
+          </button>
+        </div>
+        <p class="mt-3 text-xs text-ink-muted">
+          {{ t("documents.research_upload_note") }}
+        </p>
+        <input
+          ref="backgroundFileInput"
+          type="file"
+          multiple
+          :accept="BACKGROUND_ACCEPT"
+          class="hidden"
+          @change="uploadBackground(Array.from($event.target.files || []))"
+        />
+      </div>
     </div>
 
     <div v-if="uploadError" class="mt-3 banner-danger">
       {{ uploadErrorMessage }}
     </div>
 
-    <div
-      v-if="filtersOpen || filtersActive"
-      class="mt-5 space-y-3 rounded-subbox border border-subtle bg-surface-muted/60 p-3"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
-        <span>
-          <span class="font-mono text-ink-primary">{{ visibleCount }}</span>
-          {{ t("documents.visible") }}
-          <span v-if="payload.unresolved_intake_count">
-            · <span class="font-mono text-notice-ink">{{ payload.unresolved_intake_count }}</span>
-            {{ t("documents.unresolved") }}
-          </span>
-        </span>
-      </div>
-      <div class="grid min-w-0 gap-3 lg:grid-cols-[minmax(12rem,1.4fr)_repeat(4,minmax(0,1fr))]">
-        <label class="relative block min-w-0">
-          <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
-          <input
-            v-model="query"
-            type="search"
-            :placeholder="t('documents.filter_placeholder')"
-            class="field !pl-9 pr-3 focus-ring"
-          />
-        </label>
-        <select
-          v-model="categoryFilter"
-          class="field min-w-0 truncate text-ink-secondary"
-          :title="t('documents.all_categories')"
-        >
-          <option value="all">{{ t("documents.all_categories") }}</option>
-          <option v-for="category in categories" :key="category.id" :value="category.id">
-            {{ category.label }}
-          </option>
-        </select>
-        <select
-          v-model="sourceClassFilter"
-          class="field min-w-0 truncate text-ink-secondary"
-          :title="t('documents.all_source_classes')"
-        >
-          <option value="all">{{ t("documents.all_source_classes") }}</option>
-          <option v-for="sourceClass in sourceClasses" :key="sourceClass" :value="sourceClass">
-            {{ sourceClass }}
-          </option>
-        </select>
-        <select
-          v-model="languageFilter"
-          class="field min-w-0 truncate text-ink-secondary"
-          :title="t('documents.all_languages')"
-        >
-          <option value="all">{{ t("documents.all_languages") }}</option>
-          <option v-for="language in languages" :key="language" :value="language">
-            {{ language.toUpperCase() }}
-          </option>
-        </select>
-        <select
-          v-model="statusFilter"
-          class="field min-w-0 truncate text-ink-secondary"
-          :title="t('documents.all_statuses')"
-        >
-          <option value="all">{{ t("documents.all_statuses") }}</option>
-          <option v-for="status in statuses" :key="status" :value="status">
-            {{ humanizeStatus(status, t("memo.pending"), appLanguage) }}
-          </option>
-        </select>
-      </div>
+    <div class="mt-5 grid min-w-0 gap-3 lg:grid-cols-[minmax(12rem,1.4fr)_repeat(4,minmax(0,1fr))]">
+      <label class="relative block min-w-0">
+        <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+        <input
+          v-model="query"
+          type="search"
+          :placeholder="t('documents.filter_placeholder')"
+          class="field !pl-9 pr-3 focus-ring"
+        />
+      </label>
+      <select
+        v-model="categoryFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_categories')"
+      >
+        <option value="all">{{ t("documents.all_categories") }}</option>
+        <option v-for="category in categories" :key="category.id" :value="category.id">
+          {{ category.label }}
+        </option>
+      </select>
+      <select
+        v-model="sourceClassFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_source_classes')"
+      >
+        <option value="all">{{ t("documents.all_source_classes") }}</option>
+        <option v-for="sourceClass in sourceClasses" :key="sourceClass" :value="sourceClass">
+          {{ sourceClass }}
+        </option>
+      </select>
+      <select
+        v-model="languageFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_languages')"
+      >
+        <option value="all">{{ t("documents.all_languages") }}</option>
+        <option v-for="language in languages" :key="language" :value="language">
+          {{ language.toUpperCase() }}
+        </option>
+      </select>
+      <select
+        v-model="statusFilter"
+        class="field min-w-0 truncate text-ink-secondary"
+        :title="t('documents.all_statuses')"
+      >
+        <option value="all">{{ t("documents.all_statuses") }}</option>
+        <option v-for="status in statuses" :key="status" :value="status">
+          {{ humanizeStatus(status, t("memo.pending"), appLanguage) }}
+        </option>
+      </select>
     </div>
 
     <div v-if="loading" class="mt-6 flex items-center gap-2 text-sm text-ink-muted">
@@ -520,22 +533,6 @@ function openReport(row) {
                   <span v-if="row.provenance?.origin">{{ t("documents.source") }}: {{ row.provenance.origin }}</span>
                   <span v-if="row.source_trace_count">{{ row.source_trace_count }} {{ t("documents.traces") }}</span>
                 </div>
-                <label
-                  v-if="row.backend !== 'generated_report'"
-                  class="mt-2 inline-flex items-center gap-2 text-xs font-medium text-ink-secondary"
-                  :title="row.use_in_report_locked ? t('documents.use_in_report_locked') : t('documents.use_in_report_help')"
-                >
-                  <input
-                    type="checkbox"
-                    class="memo-checkbox focus-ring"
-                    :checked="row.use_in_report ?? row.backend === 'background_documents'"
-                    :disabled="togglingId === row.id || row.use_in_report_locked"
-                    :aria-label="t('documents.use_in_report')"
-                    @change="setUseInReport(row, $event.target.checked)"
-                  />
-                  {{ t("documents.use_in_report") }}
-                  <Loader2 v-if="togglingId === row.id" class="h-3 w-3 animate-spin text-ink-muted" />
-                </label>
                 <p
                   v-if="row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary"
                   class="mt-2 line-clamp-2 text-xs leading-relaxed text-ink-secondary"
@@ -596,7 +593,7 @@ function openReport(row) {
                   class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
                 >
                   <Loader2 v-if="launchingSummaryId === row.id" class="h-3.5 w-3.5 animate-spin" />
-                  <AiMark v-else class="h-3.5 w-3.5" />
+                  <Sparkles v-else class="h-3.5 w-3.5" />
                   {{ t("documents.summarize") }}
                 </button>
                 <button

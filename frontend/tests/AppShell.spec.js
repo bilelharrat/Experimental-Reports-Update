@@ -12,8 +12,6 @@ vi.mock("../src/api.js", () => ({
     externalFeed: vi.fn(),
     listHormuz: vi.fn(),
     listCompanies: vi.fn(),
-    uploadFile: vi.fn(),
-    uploadResearchFile: vi.fn(),
   },
 }));
 
@@ -97,17 +95,9 @@ describe("App global shell", () => {
     expect(wrapper.text()).toContain("Home route");
     expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Add"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="Settings"]').exists()).toBe(false);
-    expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Account"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="Account"]').text()).toContain("ES");
     expect(wrapper.find('[aria-label="App language"]').exists()).toBe(false);
-
-    await wrapper.find('[aria-label="Add"]').trigger("click");
-    expect(wrapper.text()).toContain("Link");
-    expect(wrapper.text()).toContain("File");
-    expect(wrapper.text()).toContain("Note");
-    expect(wrapper.text()).not.toContain("Company files");
   });
 
   it("renders authenticated chrome and opens the company co-pilot drawer", async () => {
@@ -123,18 +113,10 @@ describe("App global shell", () => {
     expect(wrapper.find("[data-testid='left-rail']").text()).toContain("Rail 1");
     expect(wrapper.text()).toContain("ZaiNar, Inc.");
     expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="Add to ZaiNar, Inc."]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="Settings"]').exists()).toBe(false);
-    expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Add"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Account"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="Account"]').text()).toContain("ES");
     expect(wrapper.find('[aria-label="App language"]').exists()).toBe(false);
-    expect(wrapper.find(`[aria-label="Search or add a company…"]`).exists()).toBe(true);
-
-    await wrapper.find('[aria-label="Add to ZaiNar, Inc."]').trigger("click");
-    expect(wrapper.text()).not.toContain("Company files");
-    expect(wrapper.text()).not.toContain("Memo inputs");
-    expect(wrapper.text()).not.toContain("Link");
 
     const openButton = wrapper.find('[aria-label="Ask Co-Pilot"]');
     await openButton.trigger("click");

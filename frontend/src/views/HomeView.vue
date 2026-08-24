@@ -5,6 +5,7 @@ import {
   Search,
   Loader2,
   ArrowRight,
+  Sparkles,
   Building2,
   Globe,
   Download,
@@ -15,11 +16,19 @@ import {
   Link as LinkIcon,
   Upload,
   ScrollText,
+  Library,
+  ArrowUpDown,
+  Check,
 } from "lucide-vue-next";
 import { api } from "../api.js";
-import AiMark from "../components/AiMark.vue";
 import { useT } from "../i18n.js";
-import { companyViews } from "../state.js";
+import { companyBucket, sortCompanies } from "../companyLists.js";
+import {
+  companySort,
+  companyViews,
+  favoriteCompanyIds,
+  setCompanySort,
+} from "../state.js";
 import CompanyBoardCard from "../components/CompanyBoardCard.vue";
 import CompanyCard from "../components/CompanyCard.vue";
 import SubmitLinkTool from "../components/SubmitLinkTool.vue";
@@ -79,16 +88,46 @@ const companies = inject("workspaceCompanies", ref([]));
 const workspaceLoading = inject("workspaceLoading", ref(false));
 const companyList = computed(() => unref(companies) || []);
 const loadingCompanies = computed(() => Boolean(unref(workspaceLoading)));
-const recentCompanies = computed(() => {
-  const views = companyViews.value || {};
-  return [...companyList.value]
-    .filter((company) => Number(views[company.id] || 0) > 0)
-    .sort((a, b) => Number(views[b.id] || 0) - Number(views[a.id] || 0))
-    .slice(0, 8);
+const sortMenuOpen = ref(false);
+const sortOptions = computed(() => [
+  { id: "az", label: t("sidebar.sort_az") },
+  { id: "za", label: t("sidebar.sort_za") },
+  { id: "newest", label: t("sidebar.sort_newest") },
+  { id: "views", label: t("sidebar.sort_views") },
+]);
+const activeSortLabel = computed(() => {
+  if (companySort.value === "za") return t("sidebar.sort_za_short");
+  if (companySort.value === "newest") return t("sidebar.sort_newest_short");
+  if (companySort.value === "oldest") return t("sidebar.sort_oldest_short");
+  if (companySort.value === "views") return t("sidebar.sort_views_short");
+  return t("sidebar.sort_az_short");
 });
-const showRecentCompanies = computed(
-  () => !searching.value && !searchResults.value && recentCompanies.value.length > 0,
+const portfolioCompanies = computed(() =>
+  sortCompanies(
+    companyList.value.filter((company) => companyBucket(company) === "portfolio"),
+    {
+      sort: companySort.value,
+      views: companyViews.value,
+      favorites: favoriteCompanyIds.value,
+    },
+  ),
 );
+const topPlayerCompanies = computed(() =>
+  sortCompanies(
+    companyList.value.filter((company) => companyBucket(company) === "watchlist"),
+    {
+      sort: companySort.value,
+      views: companyViews.value,
+      favorites: favoriteCompanyIds.value,
+    },
+  ),
+);
+const showCompanyBoards = computed(() => !searching.value && !searchResults.value);
+
+function chooseSort(id) {
+  setCompanySort(id);
+  sortMenuOpen.value = false;
+}
 
 function openCompany(company) {
   router.push({ name: "research", params: { companyId: company.id } });
@@ -421,7 +460,7 @@ function onBlur() {
           </button>
         </div>
 
-        <div class="grid grid-cols-3 gap-0.5 px-0.5 pb-0.5" role="toolbar" :aria-label="t('toolbar.add')">
+        <div class="grid grid-cols-4 gap-0.5 px-0.5 pb-0.5" role="toolbar" :aria-label="t('toolbar.add')">
           <button
             type="button"
             class="home-action focus-ring"
@@ -451,6 +490,14 @@ function onBlur() {
           >
             <ScrollText class="h-4 w-4" />
             {{ t("home.action_note") }}
+          </button>
+          <button
+            type="button"
+            class="home-action focus-ring"
+            @click="setIntake('library')"
+          >
+            <Library class="h-4 w-4" />
+            {{ t("home.action_library") }}
           </button>
         </div>
       </form>
@@ -484,7 +531,7 @@ function onBlur() {
               <span v-if="s.category || s.sector"> · {{ s.category || s.sector }}</span>
               <span
                 v-if="s.source === 'local'"
-                class="ml-2 px-1 py-0.5 rounded bg-notice-soft text-notice-ink"
+                class="ml-2 px-1 py-0.5 rounded bg-accent-soft text-accent-ink"
                 >{{ t("home.tag_tracked") }}</span
               >
               <span
@@ -514,25 +561,84 @@ function onBlur() {
 
     <div v-if="error" class="mt-4 text-sm text-danger">{{ errorMessage }}</div>
 
-    <section v-if="showRecentCompanies" class="mt-12 space-y-4">
-      <div>
-        <h2 class="font-display text-title3 text-ink-primary">
-          {{ t("home.recent_companies") }}
-        </h2>
-        <p class="mt-1 max-w-xl text-footnote text-ink-muted">
-          {{ t("home.recent_hint") }}
-        </p>
+    <section v-if="showCompanyBoards" class="mt-12 space-y-10">
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div class="vogue-label">{{ t("companies.section_title") }}</div>
+          <h2 class="mt-1 font-display text-title3 text-ink-primary">
+            {{ t("sidebar.portfolio") }}
+          </h2>
+        </div>
+        <div class="relative">
+          <button
+            type="button"
+            class="inline-flex h-8 items-center gap-1.5 rounded-pill px-2.5 text-footnote font-medium text-ink-muted hover:bg-fill-tertiary hover:text-ink-primary focus-ring"
+            :aria-label="t('sidebar.sort')"
+            :aria-expanded="sortMenuOpen"
+            @click="sortMenuOpen = !sortMenuOpen"
+          >
+            <ArrowUpDown class="h-3.5 w-3.5" />
+            <span>{{ t("sidebar.sort") }}</span>
+            <span class="mono-data text-ink-primary">{{ activeSortLabel }}</span>
+          </button>
+          <div
+            v-if="sortMenuOpen"
+            class="toolbar-menu right-0 min-w-[10.5rem]"
+            role="menu"
+            :aria-label="t('sidebar.sort')"
+          >
+            <button
+              v-for="option in sortOptions"
+              :key="option.id"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="companySort === option.id"
+              class="toolbar-menu-item"
+              @click="chooseSort(option.id)"
+            >
+              <Check v-if="companySort === option.id" class="h-3.5 w-3.5 shrink-0" />
+              <span v-else class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
       </div>
       <p v-if="loadingCompanies && companyList.length === 0" class="text-callout text-ink-muted">
         {{ t("common.loading") }}
       </p>
+      <p
+        v-else-if="portfolioCompanies.length === 0"
+        class="text-callout text-ink-muted"
+      >
+        {{ t("companies.empty") }}
+      </p>
       <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <CompanyBoardCard
-          v-for="company in recentCompanies"
+          v-for="company in portfolioCompanies"
           :key="company.id"
           :company="company"
           @select="openCompany"
         />
+      </div>
+
+      <div>
+        <h2 class="font-display text-title3 text-ink-primary">
+          {{ t("sidebar.top_players") }}
+        </h2>
+        <p
+          v-if="topPlayerCompanies.length === 0"
+          class="mt-3 text-callout text-ink-muted"
+        >
+          {{ t("companies.empty") }}
+        </p>
+        <div v-else class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <CompanyBoardCard
+            v-for="company in topPlayerCompanies"
+            :key="company.id"
+            :company="company"
+            @select="openCompany"
+          />
+        </div>
       </div>
     </section>
 
@@ -591,9 +697,9 @@ function onBlur() {
             :is="actionIcon(entry)"
             class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted"
           />
-          <AiMark
+          <Sparkles
             v-else-if="entry.type === 'stage'"
-            class="h-3.5 w-3.5 mt-0.5 shrink-0"
+            class="h-3.5 w-3.5 mt-0.5 shrink-0 text-accent"
           />
           <span
             v-else

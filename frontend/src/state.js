@@ -106,7 +106,7 @@ export function setLastCompanyId(id) {
   }
 }
 
-// Sidebar company-list preferences: sort order, follow set (Tracking), and
+// Sidebar company-list preferences: sort order, favorites, tracked set, and
 // per-company view counts. All persisted so the rail feels personal.
 const COMPANY_SORT_KEY = "bsh.companySort";
 const FAVORITES_KEY = "bsh.favoriteCompanies";
@@ -152,25 +152,7 @@ function _initialIdSet(key) {
 }
 
 export const favoriteCompanyIds = ref(_initialIdSet(FAVORITES_KEY));
-
-const FOLLOW_MERGED_KEY = "bsh.followMergedV1";
-
-function _initialFollowedIds() {
-  const tracked = _initialIdSet(TRACKED_KEY);
-  try {
-    if (window.localStorage.getItem(FOLLOW_MERGED_KEY) === "1") return tracked;
-    for (const id of _initialIdSet(FAVORITES_KEY)) {
-      if (id) tracked.add(String(id));
-    }
-    _writeJson(TRACKED_KEY, [...tracked]);
-    window.localStorage.setItem(FOLLOW_MERGED_KEY, "1");
-  } catch {
-    // ignore — localStorage unavailable
-  }
-  return tracked;
-}
-
-export const trackedCompanyIds = ref(_initialFollowedIds());
+export const trackedCompanyIds = ref(_initialIdSet(TRACKED_KEY));
 
 function _toggleIdIn(refSet, key, id) {
   const target = String(id || "").trim();
@@ -188,10 +170,6 @@ export function toggleFavoriteCompany(id) {
 
 export function toggleTrackedCompany(id) {
   _toggleIdIn(trackedCompanyIds, TRACKED_KEY, id);
-}
-
-export function toggleFollowCompany(id) {
-  toggleTrackedCompany(id);
 }
 
 export const companyViews = ref(_readJson(VIEWS_KEY, {}));

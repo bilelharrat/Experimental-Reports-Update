@@ -50,7 +50,7 @@ async function onSubmit() {
         <img
           :src="brandLogoUrl"
           alt="Berkeley Summit House"
-          class="h-auto w-[140px] max-w-full"
+          class="h-auto w-[56px] max-w-full"
         />
         <div class="mt-4 min-w-0">
           <h1 class="font-display text-title2 text-ink-primary">

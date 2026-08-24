@@ -257,10 +257,7 @@ def completed_memo_runs(company_id: str) -> list[dict]:
             continue
         if report.get("status") != "complete":
             continue
-        if report.get("kind") not in {
-            "investment_memo_latestage",
-            "buffett_investment_memo",
-        }:
+        if report.get("kind") != "investment_memo_latestage":
             continue
         rows.append({
             "id": report.get("id"),

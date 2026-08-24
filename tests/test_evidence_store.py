@@ -82,10 +82,7 @@ def test_evidence_groups_documents_and_persists_metadata(monkeypatch, tmp_path):
     assert grouped["groups"][0]["id"] == "memos"
     assert grouped["groups"][0]["rows"][0]["source_class"] == "generated memo"
     assert next(row for row in rows if row["record_id"] == library["id"])["source_class"] == "unknown/pending"
-    assert next(row for row in rows if row["record_id"] == library["id"])["use_in_report"] is False
     assert next(row for row in rows if row["record_id"] == background["id"])["category"] == "external_reports"
-    assert next(row for row in rows if row["record_id"] == background["id"])["use_in_report"] is True
-    assert next(row for row in rows if row["record_id"] == background["id"])["use_in_report_locked"] is True
 
     updated = evidence_store.update_document_metadata(
         "zainar-inc",
@@ -196,95 +193,3 @@ def test_documents_api_returns_grouped_rows(monkeypatch, tmp_path):
     assert patch.status_code == 200, patch.text
     assert patch.json()["document_category"] == "legal_corporate"
     assert patch.json()["source_class"] == "public filing"
-
-
-def _patch_stores(monkeypatch, tmp_path):
-    data_root = tmp_path / "data"
-    monkeypatch.setattr(storage, "DATA_DIR", data_root)
-    monkeypatch.setattr(storage, "COMPANIES_FILE", data_root / "companies.yaml")
-    monkeypatch.setattr(storage, "REPORTS_DIR", data_root / "reports")
-    monkeypatch.setattr(storage, "THREADS_DIR", data_root / "threads")
-    monkeypatch.setattr(files_store, "UPLOADS_ROOT", data_root / "uploads")
-    monkeypatch.setattr(research_store, "RESEARCH_ROOT", data_root / "research")
-    monkeypatch.setattr(external_store, "EXTERNAL_ROOT", data_root / "external")
-    _write_companies(data_root / "companies.yaml")
-    return data_root
-
-
-def test_use_in_report_moves_pdf_between_stores(monkeypatch, tmp_path):
-    _patch_stores(monkeypatch, tmp_path)
-    library = files_store.upload_file(
-        "zainar-inc",
-        filename="customer deck.pdf",
-        content_type="application/pdf",
-        data=b"%PDF-1.4\n%%EOF\n",
-        label="Customer deck",
-    )
-    files_store.update_record(
-        "zainar-inc",
-        library["id"],
-        source_class="company material",
-        document_category="company_materials",
-    )
-
-    moved = evidence_store.set_use_in_report(
-        "zainar-inc",
-        "document_library",
-        library["id"],
-        True,
-    )
-    assert moved["backend"] == "background_documents"
-    assert moved["use_in_report"] is True
-    assert moved["source_class"] == "company material"
-    assert files_store.get_file("zainar-inc", library["id"]) is None
-    assert research_store.get_file("zainar-inc", moved["record_id"]) is not None
-
-    demoted = evidence_store.set_use_in_report(
-        "zainar-inc",
-        "background_documents",
-        moved["record_id"],
-        False,
-    )
-    assert demoted["backend"] == "document_library"
-    assert demoted["use_in_report"] is False
-    assert research_store.get_file("zainar-inc", moved["record_id"]) is None
-
-
-def test_use_in_report_rejects_txt_leaving_report_set(monkeypatch, tmp_path):
-    _patch_stores(monkeypatch, tmp_path)
-    background = research_store.upload_file(
-        "zainar-inc",
-        filename="notes.txt",
-        content_type="text/plain",
-        data=b"notes",
-    )
-    try:
-        evidence_store.set_use_in_report(
-            "zainar-inc",
-            "background_documents",
-            background["id"],
-            False,
-        )
-        raise AssertionError("expected ValueError")
-    except ValueError as exc:
-        assert "stay in the report set" in str(exc)
-
-
-def test_use_in_report_api_promotes_library_pdf(monkeypatch, tmp_path):
-    _patch_stores(monkeypatch, tmp_path)
-    library = files_store.upload_file(
-        "zainar-inc",
-        filename="model.pdf",
-        content_type="application/pdf",
-        data=b"%PDF-1.4\n%%EOF\n",
-    )
-    client = TestClient(app)
-    response = client.post(
-        f"/api/companies/zainar-inc/documents/document_library/{library['id']}/use-in-report",
-        json={"use_in_report": True},
-    )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["backend"] == "background_documents"
-    assert body["use_in_report"] is True
-

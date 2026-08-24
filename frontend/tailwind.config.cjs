@@ -98,26 +98,6 @@ module.exports = {
           soft: "rgb(var(--color-danger-soft) / <alpha-value>)",
           ink: "rgb(var(--color-danger-ink) / <alpha-value>)",
         },
-        info: {
-          DEFAULT: "rgb(var(--color-info) / <alpha-value>)",
-          soft: "rgb(var(--color-info-soft) / <alpha-value>)",
-          ink: "rgb(var(--color-info-ink) / <alpha-value>)",
-        },
-        notice: {
-          DEFAULT: "rgb(var(--color-notice) / <alpha-value>)",
-          soft: "rgb(var(--color-notice-soft) / <alpha-value>)",
-          ink: "rgb(var(--color-notice-ink) / <alpha-value>)",
-        },
-        teal: {
-          DEFAULT: "rgb(var(--color-teal) / <alpha-value>)",
-          soft: "rgb(var(--color-teal-soft) / <alpha-value>)",
-          ink: "rgb(var(--color-teal-ink) / <alpha-value>)",
-        },
-        purple: {
-          DEFAULT: "rgb(var(--color-purple) / <alpha-value>)",
-          soft: "rgb(var(--color-purple-soft) / <alpha-value>)",
-          ink: "rgb(var(--color-purple-ink) / <alpha-value>)",
-        },
       },
       // Apple's concentric corner radii. Values stay conservative because CSS
       // rounds circularly rather than with SF Symbols' continuous curvature —

@@ -7,12 +7,13 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  MoreHorizontal,
   RefreshCw,
   Send,
+  Sparkles,
+  ArrowLeft,
+  Star,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
-import AiMark from "../components/AiMark.vue";
 import {
   formatCompactNumber,
   formatIsoDate,
@@ -23,9 +24,8 @@ import {
 } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
-import { appLanguage } from "../state.js";
+import { appLanguage, toggleTrackedCompany, trackedCompanyIds } from "../state.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
-import CompanyFollowButton from "../components/CompanyFollowButton.vue";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import MemoAnalysisDashboard from "../components/MemoAnalysisDashboard.vue";
 import MemoStudioEditor from "../components/MemoStudioEditor.vue";
@@ -38,7 +38,6 @@ const tr = useT();
 // through to the raw string so new server-side options keep working.
 const REPORT_TYPE_ZH = {
   "Investment Memo (Late-Stage)": "投资备忘录（Late-Stage / Pre-IPO）",
-  "Buffett Investment Memo": "巴菲特投资备忘录",
   "Investment Report": "投资报告",
   Background: "背景研究",
   "Financial Analysis": "财务分析",
@@ -63,10 +62,6 @@ const FUNDING_ROUND_ZH = {
   Public: "已上市",
 };
 const MEMO_REPORT_TYPE = "Investment Memo (Late-Stage)";
-const PRIMARY_REPORT_TYPES = new Set([
-  "Investment Memo (Late-Stage)",
-  "Buffett Investment Memo",
-]);
 function reportTypeLabel(val) {
   if (appLanguage.value === "zh") return REPORT_TYPE_ZH[val] || val;
   return val;
@@ -87,6 +82,9 @@ const route = useRoute();
 const router = useRouter();
 
 const company = ref(null);
+const companyTracked = computed(() =>
+  trackedCompanyIds.value.has(String(props.companyId || company.value?.id || "")),
+);
 const companyError = ref(null);
 const options = ref({ report_types: [], audiences: [], languages: [] });
 const newsFeed = ref({ rows: [], filters: { categories: [], tags: [] }, empty_state: "" });
@@ -113,7 +111,6 @@ const canShowMemoStudio = computed(() =>
 // pipeline. Other types still route through the legacy stub generator.
 const reportType = ref(MEMO_REPORT_TYPE);
 const audience = ref("Internal");
-const memoStage = ref("generate");
 
 const activeReport = ref(null);
 const companyReports = ref([]);
@@ -139,12 +136,9 @@ const generating = computed(() => {
 
 // Memo report — language toggle for the preview pane.
 const previewLanguage = ref("en");
-function isMemoKind(kind) {
-  return (
-    kind === "investment_memo_latestage" || kind === "buffett_investment_memo"
-  );
-}
-const isMemo = computed(() => isMemoKind(activeReport.value?.kind));
+const isMemo = computed(
+  () => activeReport.value?.kind === "investment_memo_latestage",
+);
 const memoPreview = computed(() => {
   const r = activeReport.value;
   if (!r) return "";
@@ -196,8 +190,7 @@ const latestResumableMemoReport = computed(() => {
   return [...reports]
     .filter(
       (report) =>
-        report?.kind &&
-        isMemoKind(report.kind) &&
+        report?.kind === "investment_memo_latestage" &&
         report?.resume_available &&
         (String(report?.status || "").startsWith("failed") ||
           String(report?.status || "") === "complete_with_warnings"),
@@ -236,26 +229,11 @@ const reportHeadline = computed(() => {
   const r = activeReport.value;
   if (!r) return "";
   if (reportIsFailed.value) return reportFailureTitle.value;
-  if (reportInProgress.value || generating.value) return tr("research.status_running");
-  if (reportHasWarnings.value) return tr("research.status_needs_attention");
-  if (r.status === "complete") return tr("research.status_ready");
   return r.stage || humanizeStatus(r.status) || "";
 });
-const reportUserStatus = computed(() => {
-  if (generating.value || reportInProgress.value) return "running";
-  if (reportIsFailed.value) return "failed";
-  if (reportHasWarnings.value) return "needs_attention";
-  if (activeReport.value?.status === "complete") return "ready";
-  return "";
-});
-const reportUserStatusLabel = computed(() => {
-  const status = reportUserStatus.value;
-  if (status === "running") return tr("research.status_running");
-  if (status === "failed") return tr("research.status_failed");
-  if (status === "needs_attention") return tr("research.status_needs_attention");
-  if (status === "ready") return tr("research.status_ready");
-  return "";
-});
+const displayedReportProgress = computed(() =>
+  reportIsFailed.value ? 0 : Math.max(0, Math.min(100, Number(activeReport.value?.progress || 0))),
+);
 const analysisArtifacts = computed(() => {
   const artifacts = activeReport.value?.analysis_artifacts;
   return Array.isArray(artifacts) ? artifacts : [];
@@ -348,12 +326,10 @@ const submitThreadError = ref("");
 
 const libraryRefresh = ref(0);
 
-const TAB_IDS = ["overview", "documents", "memo"];
+const TAB_IDS = ["overview", "documents", "memo", "news", "industry"];
+const EVIDENCE_TABS = ["documents", "news", "industry"];
 function normalizeTabName(raw) {
-  // Legacy Evidence umbrella → Files. Analysis/console deep-links open Report.
-  if (raw === "evidence") return "documents";
   if (raw === "analysis") return "memo";
-  if (raw === "news" || raw === "industry") return "overview";
   if (raw === "console") {
     emit("open-copilot");
     return "memo";
@@ -363,19 +339,19 @@ function normalizeTabName(raw) {
 }
 
 const activeTab = ref(normalizeTabName(route.query.tab));
+const lastEvidenceTab = ref(
+  EVIDENCE_TABS.includes(activeTab.value) ? activeTab.value : "documents",
+);
 function switchTab(name) {
   const nextTab =
     name === "memo" && company.value && !canShowMemoStudio.value
       ? "overview"
       : name;
   activeTab.value = nextTab;
-  const nextQuery = { ...route.query };
-  if (nextTab === "overview") delete nextQuery.tab;
-  else nextQuery.tab = nextTab;
   router.replace({
     name: "research",
     params: { companyId: props.companyId },
-    query: nextQuery,
+    query: { ...route.query, tab: nextTab === "overview" ? undefined : nextTab },
   });
 }
 watch(
@@ -384,12 +360,9 @@ watch(
     activeTab.value = normalizeTabName(tab);
   },
 );
-watch(
-  () => route.query.files,
-  (token) => {
-    if (token) libraryRefresh.value += 1;
-  },
-);
+watch(activeTab, (tab) => {
+  if (EVIDENCE_TABS.includes(tab)) lastEvidenceTab.value = tab;
+});
 function normalizeActiveTabForCompany() {
   if (activeTab.value === "memo" && company.value && !canShowMemoStudio.value) {
     switchTab("overview");
@@ -400,127 +373,31 @@ watch(
   normalizeActiveTabForCompany,
 );
 
-// Flat company strip — no nested Evidence sub-tabs.
+const workspaceMode = computed(() => {
+  if (activeTab.value === "memo") return "memo";
+  if (EVIDENCE_TABS.includes(activeTab.value)) return "evidence";
+  return "overview";
+});
+
 const workspaceTabs = computed(() => [
   { id: "overview", label: tr("research.tab_overview"), show: true },
-  { id: "documents", label: tr("research.tab_documents"), show: true },
+  { id: "evidence", label: tr("research.tab_evidence"), show: true },
   { id: "memo", label: tr("research.tab_memo"), show: canShowMemoStudio.value },
 ]);
 
-const primaryReportTypes = computed(() => {
-  const types = options.value.report_types || [];
-  const primary = types.filter((type) => PRIMARY_REPORT_TYPES.has(type));
-  return primary.length ? primary : types;
-});
-const moreReportTypes = computed(() => {
-  const types = options.value.report_types || [];
-  if (!types.some((type) => PRIMARY_REPORT_TYPES.has(type))) return [];
-  return types.filter((type) => !PRIMARY_REPORT_TYPES.has(type));
-});
-
-const hasReportContext = computed(() => {
-  if (activeReport.value) return true;
-  return (companyReports.value || []).some((report) => isMemoKind(report?.kind));
-});
-
-const memoStages = computed(() => [
-  {
-    id: "generate",
-    label: tr("research.memo_stage_generate"),
-    enabled: true,
-  },
-  {
-    id: "preview",
-    label: tr("research.memo_stage_preview"),
-    enabled: hasReportContext.value,
-  },
+const evidenceTabs = computed(() => [
+  { id: "documents", label: tr("research.tab_documents") },
+  { id: "news", label: tr("research.tab_news") },
+  { id: "industry", label: tr("research.tab_industry") },
 ]);
 
-const memoMoreStages = computed(() => [
-  {
-    id: "edit",
-    label: tr("research.memo_stage_edit"),
-    enabled: hasReportContext.value,
-  },
-  {
-    id: "analysis",
-    label: tr("research.memo_stage_analysis"),
-    enabled: hasReportContext.value,
-  },
-  {
-    id: "notes",
-    label: tr("research.memo_stage_notes"),
-    enabled: true,
-  },
-]);
-
-const generateOptionsOpen = ref(false);
-const memoMoreOpen = ref(false);
-const moreStageActive = computed(
-  () => ["edit", "analysis", "notes"].includes(memoStage.value),
-);
-
-function memoStageEnabled(id) {
-  const stage = [...memoStages.value, ...memoMoreStages.value].find((item) => item.id === id);
-  return Boolean(stage?.enabled);
-}
-
-function defaultMemoStage() {
-  if (reportIsFailed.value || reportHasWarnings.value) return "generate";
-  if (memoArtifactsVisible.value && !generating.value) return "preview";
-  return "generate";
-}
-
-function askCopilotPrompt() {
-  const name = company.value?.name || tr("app.company");
-  const report = activeReport.value;
-  if (report?.report_type) {
-    return tr("research.ask_copilot_prompt_report", {
-      name,
-      type: reportTypeLabel(report.report_type),
-    });
+function switchMode(mode) {
+  if (mode === "evidence") {
+    switchTab(lastEvidenceTab.value);
+    return;
   }
-  return tr("research.ask_copilot_prompt", { name });
+  switchTab(mode);
 }
-
-function openAskInCopilot() {
-  emit("open-copilot", askCopilotPrompt());
-}
-
-function setMemoStage(id) {
-  if (!memoStageEnabled(id)) return;
-  memoMoreOpen.value = false;
-  memoStage.value = id;
-}
-
-watch(
-  [activeTab, () => route.query.tab, () => activeReport.value?.id, hasReportContext],
-  () => {
-    if (activeTab.value !== "memo") return;
-    if (route.query.tab === "analysis") {
-      memoStage.value = memoStageEnabled("analysis") ? "analysis" : "generate";
-      return;
-    }
-    if (route.query.tab === "console") {
-      openAskInCopilot();
-      memoStage.value = defaultMemoStage();
-      return;
-    }
-    const next = defaultMemoStage();
-    memoStage.value = memoStageEnabled(next) ? next : "generate";
-  },
-  { immediate: true },
-);
-watch(generating, (isGenerating, wasGenerating) => {
-  if (wasGenerating && !isGenerating && activeTab.value === "memo") {
-    if (activeReport.value?.status === "complete" || reportHasWarnings.value) {
-      setMemoStage("preview");
-    }
-  }
-});
-watch(memoStage, (stage) => {
-  if (!memoStageEnabled(stage)) memoStage.value = "generate";
-});
 
 const companyNews = computed(() => {
   const c = company.value || {};
@@ -583,11 +460,30 @@ let pollId = null;
 let pollActive = false;
 let pollFailures = 0;
 const pollConnectionLost = ref(false);
+// A ticker so elapsed/ETA labels keep moving even between poll responses.
+const nowTick = ref(Date.now());
+let nowTickId = null;
+
+// Memo generation legitimately runs ~19–34 minutes end-to-end; surface
+// elapsed + a rough ETA so an in-flight run is distinguishable from a hang.
+const MEMO_TYPICAL_MAX_MIN = 34;
 
 const reportInProgress = computed(() =>
   Boolean(activeReport.value) &&
   !isTerminalReportStatus(activeReport.value?.status),
 );
+const reportElapsedMin = computed(() => {
+  const created = activeReport.value?.created_at;
+  if (!created) return null;
+  const started = Date.parse(created);
+  if (Number.isNaN(started)) return null;
+  return Math.max(0, Math.round((nowTick.value - started) / 60000));
+});
+const reportEtaMin = computed(() => {
+  const elapsed = reportElapsedMin.value;
+  if (elapsed == null) return null;
+  return Math.max(1, MEMO_TYPICAL_MAX_MIN - elapsed);
+});
 
 // Map the HTTP status onto a localized title + body. 404 keeps the
 // existing "Company not found" copy; 401/403 explain the session
@@ -894,17 +790,25 @@ function startPolling() {
   pollConnectionLost.value = false;
   openMemoStream();
   scheduleNextPoll();
+  if (!nowTickId) nowTickId = setInterval(() => { nowTick.value = Date.now(); }, 15000);
 }
 function stopPolling() {
   pollActive = false;
   closeMemoStream();
   if (pollId) clearTimeout(pollId);
   pollId = null;
+  if (nowTickId) clearInterval(nowTickId);
+  nowTickId = null;
 }
 
-async function generate(analysisSessionId = null) {
+async function generate(analysisSessionId = null, options = {}) {
   const memoAnalysisSessionId =
     typeof analysisSessionId === "string" ? analysisSessionId : null;
+  const forceFresh = Boolean(options?.forceFresh);
+  if (canResumeMemo.value && !forceFresh) {
+    await resumeReport();
+    return;
+  }
   generationError.value = null;
   startingFresh.value = true;
   try {
@@ -1093,8 +997,30 @@ onUnmounted(stopPolling);
     <header v-if="company" class="flex items-start justify-between gap-4">
       <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="icon-btn shrink-0"
+            :aria-label="tr('research.back')"
+            :title="tr('research.back')"
+            @click="router.push({ name: 'home' })"
+          >
+            <ArrowLeft class="h-4 w-4" />
+          </button>
           <h1 class="font-display text-title2 text-ink-primary">{{ company.name }}</h1>
-          <CompanyFollowButton :company-id="company.id" size="md" />
+          <button
+            type="button"
+            class="icon-btn shrink-0"
+            :aria-label="companyTracked ? tr('research.untrack') : tr('research.track')"
+            :title="companyTracked ? tr('research.untrack') : tr('research.track')"
+            :aria-pressed="companyTracked"
+            @click="toggleTrackedCompany(company.id)"
+          >
+            <Star
+              class="h-4 w-4"
+              :class="companyTracked ? 'text-warning' : ''"
+              :fill="companyTracked ? 'currentColor' : 'none'"
+            />
+          </button>
         </div>
         <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span
@@ -1195,7 +1121,7 @@ onUnmounted(stopPolling);
     </div>
     <div v-else class="text-sm text-ink-muted">{{ tr("common.loading") }}</div>
 
-    <!-- Flat company strip: Overview · Files · Report -->
+    <!-- Three workspace modes. Legacy tab=documents|news|industry stay as Evidence. -->
     <div v-if="company" class="space-y-2">
       <div
         class="hairline-b flex max-w-full flex-wrap items-center gap-x-1 gap-y-2 pb-px"
@@ -1204,18 +1130,33 @@ onUnmounted(stopPolling);
         <button
           v-for="tab in workspaceTabs.filter((item) => item.show)"
           :key="tab.id"
-          type="button"
-          @click="switchTab(tab.id)"
-          :class="[ 'workspace-tab px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm', activeTab === tab.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary', ]"
+          @click="switchMode(tab.id)"
+          :class="[ 'workspace-tab px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm', workspaceMode === tab.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary', ]"
           role="tab"
-          :aria-selected="activeTab === tab.id"
+          :aria-selected="workspaceMode === tab.id"
         >
           {{ tab.label }}
         </button>
       </div>
-      <p v-if="isPublicCompany" class="text-caption1 text-ink-muted">
-        {{ tr("research.public_no_reports") }}
-      </p>
+      <div
+        v-if="workspaceMode === 'evidence'"
+        class="segmented w-fit"
+        role="tablist"
+        :aria-label="tr('research.tab_evidence')"
+      >
+        <button
+          v-for="tab in evidenceTabs"
+          :key="tab.id"
+          type="button"
+          class="segmented-item focus-ring"
+          :data-selected="activeTab === tab.id"
+          :aria-selected="activeTab === tab.id"
+          role="tab"
+          @click="switchTab(tab.id)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
     </div>
 
     <CompanyDetail
@@ -1226,99 +1167,9 @@ onUnmounted(stopPolling);
 
     <section
       v-if="company && activeTab === 'memo'"
-      class="space-y-4"
+      class="flex flex-wrap items-end gap-3"
     >
-      <div class="flex flex-wrap items-center gap-2">
-      <div
-        class="segmented w-fit"
-        role="tablist"
-        :aria-label="tr('research.tab_memo')"
-      >
-        <button
-          v-for="stage in memoStages"
-          :key="stage.id"
-          type="button"
-          class="segmented-item focus-ring"
-          :class="stage.enabled ? '' : 'segmented-item-muted'"
-          :data-selected="memoStage === stage.id"
-          :aria-selected="memoStage === stage.id"
-          :aria-disabled="stage.enabled ? undefined : 'true'"
-          :disabled="!stage.enabled"
-          :title="stage.enabled ? undefined : tr('research.memo_stage_locked')"
-          role="tab"
-          @click="setMemoStage(stage.id)"
-        >
-          {{ stage.label }}
-        </button>
-        <div class="relative">
-          <button
-            type="button"
-            class="segmented-item focus-ring"
-            :data-selected="moreStageActive"
-            :aria-expanded="memoMoreOpen"
-            :aria-haspopup="true"
-            @click="memoMoreOpen = !memoMoreOpen"
-          >
-            <MoreHorizontal class="h-3.5 w-3.5" />
-            {{ tr("research.memo_more") }}
-          </button>
-          <div v-if="memoMoreOpen" class="toolbar-menu left-0 right-auto min-w-[10rem]" role="menu">
-            <button
-              v-for="stage in memoMoreStages"
-              :key="stage.id"
-              type="button"
-              role="menuitem"
-              class="toolbar-menu-item"
-              :disabled="!stage.enabled"
-              :title="stage.enabled ? undefined : tr('research.memo_stage_locked')"
-              @click="setMemoStage(stage.id)"
-            >
-              {{ stage.label }}
-            </button>
-          </div>
-        </div>
-      </div>
-      <button
-        type="button"
-        class="btn-bordered btn-sm focus-ring"
-        @click="openAskInCopilot"
-      >
-        {{ tr("research.ask_copilot_open") }}
-      </button>
-      </div>
-
-      <div
-        v-if="memoStage === 'generate'"
-        class="flex flex-wrap items-end gap-3"
-      >
-      <div class="flex flex-wrap items-center gap-2 pb-0.5">
-        <button
-          @click="generate()"
-          :disabled="generating || resuming"
-          class="btn-filled disabled:cursor-not-allowed focus-ring"
-        >
-          <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
-          <AiMark v-else class="h-4 w-4" />
-          <span>
-            {{ generating ? tr("research.generating") : tr("research.generate_button") }}
-          </span>
-        </button>
-        <button
-          type="button"
-          class="btn-bordered focus-ring"
-          :aria-expanded="generateOptionsOpen"
-          @click="generateOptionsOpen = !generateOptionsOpen"
-        >
-          {{ tr("research.memo_options") }}
-        </button>
-        <span v-if="generating" class="text-xs text-ink-muted">
-          {{ tr("research.progress_in_jobs") }}
-        </span>
-        <span v-else-if="!generateOptionsOpen" class="text-xs text-ink-muted">
-          {{ reportTypeLabel(reportType) }} · {{ audienceLabel(audience) }}
-        </span>
-      </div>
-      <label v-if="generateOptionsOpen" class="min-w-[12rem] flex-1">
+      <label class="min-w-[12rem] flex-1">
         <div class="vogue-label mb-1.5">
           {{ tr("research.label_report_type") }}
         </div>
@@ -1326,17 +1177,12 @@ onUnmounted(stopPolling);
           v-model="reportType"
           class="field focus-ring"
         >
-          <option v-for="t in primaryReportTypes" :key="t" :value="t">
+          <option v-for="t in options.report_types" :key="t" :value="t">
             {{ reportTypeLabel(t) }}
           </option>
-          <optgroup v-if="moreReportTypes.length" :label="tr('research.report_type_more')">
-            <option v-for="t in moreReportTypes" :key="t" :value="t">
-              {{ reportTypeLabel(t) }}
-            </option>
-          </optgroup>
         </select>
       </label>
-      <label v-if="generateOptionsOpen" class="min-w-[10rem] flex-1">
+      <label class="min-w-[10rem] flex-1">
         <div class="vogue-label mb-1.5">
           {{ tr("research.label_audience") }}
         </div>
@@ -1349,9 +1195,49 @@ onUnmounted(stopPolling);
           </option>
         </select>
       </label>
+      <div class="flex flex-wrap items-center gap-2 pb-0.5">
+        <button
+          @click="generate()"
+          :disabled="generating || resuming"
+          class="btn-filled disabled:cursor-not-allowed focus-ring"
+        >
+          <Loader2 v-if="generating || resuming" class="h-4 w-4 animate-spin" />
+          <Sparkles v-else class="h-4 w-4" />
+          <span>
+            {{
+              canResumeMemo
+                ? resuming
+                  ? tr("research.resuming_memo")
+                  : tr("research.resume_memo")
+                : generating
+                  ? tr("research.generating")
+                  : tr("research.generate_button")
+            }}
+          </span>
+        </button>
+        <button
+          v-if="canResumeMemo"
+          type="button"
+          @click="generate(null, { forceFresh: true })"
+          :disabled="generating || resuming"
+          class="btn-bordered disabled:cursor-not-allowed focus-ring"
+        >
+          <Sparkles class="h-4 w-4" />
+          <span>{{ tr("research.redo_memo") }}</span>
+        </button>
+        <span v-if="generating" class="text-xs text-ink-muted">
+          {{ tr("research.generating_hint") }}
+        </span>
+        <span
+          v-else-if="canResumeMemo"
+          class="text-xs text-ink-muted"
+        >
+          {{ tr("research.resume_or_start_fresh_hint") }}
+        </span>
+      </div>
       <div
         v-if="generationError"
-        class="mt-4 w-full rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-ink-primary"
+        class="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-ink-primary"
       >
         <div class="font-semibold text-danger">
           {{ tr("research.generation_request_failed") }}
@@ -1360,11 +1246,10 @@ onUnmounted(stopPolling);
           {{ tr("research.generation_error_body") }}
         </p>
       </div>
-      </div>
     </section>
 
     <section
-      v-if="activeReport && activeTab === 'memo' && (memoStage === 'generate' || memoStage === 'preview')"
+      v-if="activeReport && activeTab === 'memo'"
       class="rounded-card bg-surface shadow-card p-6"
     >
       <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -1379,35 +1264,51 @@ onUnmounted(stopPolling);
           </div>
         </div>
         <span
-          v-if="reportUserStatus === 'ready'"
+          v-if="activeReport.status === 'complete'"
           class="text-xs px-2 py-1 rounded bg-success-soft text-success-ink"
-          >{{ reportUserStatusLabel }}</span
+          >{{ tr("research.status_complete") }}</span
         >
         <span
-          v-else-if="reportUserStatus === 'needs_attention'"
-          class="text-xs px-2 py-1 rounded bg-notice-soft text-notice-ink"
-          >{{ reportUserStatusLabel }}</span
+          v-else-if="activeReport.status === 'complete_with_warnings'"
+          class="text-xs px-2 py-1 rounded bg-warning-soft text-warning-ink"
+          >{{ tr("research.status_complete_warnings") }}</span
         >
         <span
-          v-else-if="reportUserStatus === 'failed'"
+          v-else-if="reportIsFailed"
           class="text-xs px-2 py-1 rounded bg-danger/10 text-danger"
-          >{{ reportUserStatusLabel }}</span
+          >{{ tr("research.status_failed") }}</span
         >
         <span
-          v-else-if="reportUserStatus === 'running'"
-          class="text-xs px-2 py-1 rounded bg-info-soft text-info-ink inline-flex items-center gap-1"
+          v-else
+          class="text-xs px-2 py-1 rounded bg-warning-soft text-warning-ink inline-flex items-center gap-1"
         >
           <Loader2 class="h-3 w-3 animate-spin" />
-          {{ reportUserStatusLabel }}
+          {{ displayedReportProgress }}%
         </span>
       </div>
 
-      <p
-        v-if="reportUserStatus === 'running'"
-        class="mt-3 text-xs text-ink-muted"
+      <div class="mt-4 h-2 w-full rounded-full bg-surface-muted overflow-hidden">
+        <div
+          class="h-full bg-accent transition-all"
+          :style="{ width: displayedReportProgress + '%' }"
+        ></div>
+      </div>
+
+      <div
+        v-if="isMemo && reportInProgress"
+        class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted"
       >
-        {{ tr("research.progress_in_jobs") }}
-      </p>
+        <span v-if="activeReport.stage" class="text-ink-secondary font-medium">
+          {{ activeReport.stage }}
+        </span>
+        <span v-if="reportElapsedMin != null">
+          {{ tr("research.progress_elapsed", { minutes: reportElapsedMin }) }}
+        </span>
+        <span v-if="reportEtaMin != null">
+          {{ tr("research.progress_eta", { minutes: reportEtaMin }) }}
+        </span>
+        <span>{{ tr("research.progress_safe_to_close") }}</span>
+      </div>
 
       <div
         v-if="pollConnectionLost"
@@ -1441,11 +1342,26 @@ onUnmounted(stopPolling);
         <p>{{ activeReport.scope_check.reason }}</p>
       </div>
 
+      <ul
+        v-if="!reportIsFailed && activeReport.stages && activeReport.stages.length"
+        class="mt-4 space-y-1 text-sm"
+      >
+        <li
+          v-for="(s, i) in activeReport.stages"
+          :key="i"
+          class="flex items-center gap-2 text-ink-secondary"
+        >
+          <span class="h-1.5 w-1.5 rounded-full bg-accent"></span>
+          <span>{{ s.label }}</span>
+          <span class="text-ink-muted">— {{ s.progress }}%</span>
+        </li>
+      </ul>
+
       <!-- Memo-specific affordances: downloads, partial analysis artifacts,
            and bilingual preview. Shown for complete runs and for failed
            runs when any generated output exists for QA. -->
       <div
-        v-if="memoArtifactsVisible && (memoStage === 'preview' || reportIsFailed)"
+        v-if="memoArtifactsVisible"
         class="mt-6 space-y-4"
       >
         <div
@@ -1577,8 +1493,8 @@ onUnmounted(stopPolling);
            the quality findings listed and Resume available to regenerate
            toward a clean memo. -->
       <div
-        v-if="isMemo && reportHasWarnings && memoStage === 'generate'"
-        class="mt-6 rounded-lg border border-notice/40 bg-notice-soft/40 p-4 text-sm text-ink-primary"
+        v-if="isMemo && reportHasWarnings"
+        class="mt-6 rounded-lg border border-warning/40 bg-warning-soft/40 p-4 text-sm text-ink-primary"
       >
         <div class="font-semibold text-warning-ink mb-1">
           {{ tr("research.complete_with_warnings_title") }}
@@ -1609,7 +1525,7 @@ onUnmounted(stopPolling);
           class="btn-bordered mt-3 disabled:cursor-not-allowed focus-ring"
         >
           <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
-          <AiMark v-else class="h-4 w-4" />
+          <Sparkles v-else class="h-4 w-4" />
           <span>{{ resuming ? tr("research.resuming_memo") : tr("research.resume_memo_improve") }}</span>
         </button>
       </div>
@@ -1619,7 +1535,6 @@ onUnmounted(stopPolling);
       <div
         v-if="
           isMemo &&
-          memoStage === 'generate' &&
           String(activeReport.status || '').startsWith('failed') &&
           activeReport.status !== 'failed_scope_check' &&
           !activeReport.dismissed_at
@@ -1697,17 +1612,8 @@ onUnmounted(stopPolling);
             class="btn-bordered disabled:cursor-not-allowed focus-ring"
           >
             <Loader2 v-if="resuming" class="h-4 w-4 animate-spin" />
-            <AiMark v-else class="h-4 w-4" />
+            <Sparkles v-else class="h-4 w-4" />
             <span>{{ resuming ? tr("research.resuming_memo") : tr("research.resume_memo") }}</span>
-          </button>
-          <button
-            type="button"
-            @click="generate()"
-            :disabled="generating || resuming || dismissing"
-            class="btn-bordered text-ink-muted disabled:cursor-not-allowed focus-ring"
-          >
-            <AiMark class="h-4 w-4" />
-            <span>{{ tr("research.redo_memo") }}</span>
           </button>
           <button
             type="button"
@@ -1753,86 +1659,86 @@ onUnmounted(stopPolling);
     />
 
     <MemoStudioEditor
-      v-if="canShowMemoStudio && activeTab === 'memo' && memoStage === 'edit'"
+      v-if="canShowMemoStudio && activeTab === 'memo'"
       :company-id="companyId"
       @discuss="openMemoEditorDiscuss"
     />
 
     <section
-      v-if="canShowMemoStudio && activeTab === 'memo' && memoStage === 'analysis'"
+      v-if="canShowMemoStudio && activeTab === 'memo'"
       class="mt-6 rounded-card bg-surface shadow-card p-6"
     >
-      <h2 class="font-display text-title3 text-ink-primary mb-1">
-        {{ tr("research.advanced_tools") }}
-      </h2>
-      <div class="mt-4">
-        <MemoAnalysisDashboard
-          :company-id="companyId"
-          @generate-memo="generate"
-        />
-      </div>
+      <details>
+        <summary class="cursor-pointer text-sm font-semibold text-ink-primary focus-ring rounded">
+          {{ tr("research.advanced_tools") }}
+        </summary>
+        <div class="mt-4">
+          <MemoAnalysisDashboard
+            :company-id="companyId"
+            @generate-memo="generate"
+          />
+        </div>
+      </details>
     </section>
 
     <section
-      v-if="company && activeTab === 'memo' && memoStage === 'notes'"
+      v-if="company && activeTab === 'memo'"
       class="rounded-card bg-surface shadow-card p-6"
     >
       <h2 class="font-display text-title3 text-ink-primary mb-1">
-        {{ tr("research.ask_saved_notes") }}
+        {{ tr("research.knowledge_base") }}
       </h2>
       <p class="text-sm text-ink-muted mb-4">
-        {{ tr("research.ask_copilot_body") }}
+        {{ tr("research.knowledge_base_subtitle") }}
       </p>
-        <form @submit.prevent="submitThread" class="mt-3 space-y-2">
-          <input
-            v-model="newQuestion"
-            :placeholder="tr('research.ask_question_placeholder')"
-            class="field focus-ring"
-          />
-          <textarea
-            v-model="newAnswer"
-            rows="2"
-            :placeholder="tr('research.optional_notes_placeholder')"
-            class="field resize-y focus-ring"
-          ></textarea>
-          <div class="flex items-center justify-end gap-3">
-            <span v-if="submitThreadError" class="text-xs text-danger">
-              {{ submitThreadError }}
-            </span>
-            <button
-              type="submit"
-              :disabled="!newQuestion.trim() || submittingThread"
-              class="btn-bordered btn-sm focus-ring"
-            >
-              <Send class="h-3.5 w-3.5" />
-              {{ tr("research.save_thread") }}
-            </button>
-          </div>
-        </form>
 
-        <div v-if="threads.length === 0" class="mt-3 text-sm text-ink-muted">
-          {{ tr("research.no_threads") }}
-        </div>
-        <ul class="mt-3 space-y-3">
-          <li
-            v-for="thread in threads"
-            :key="thread.id"
-            class="border border-subtle rounded-lg p-3 bg-surface-muted"
+      <form @submit.prevent="submitThread" class="space-y-2 mb-5">
+        <input
+          v-model="newQuestion"
+          :placeholder="tr('research.ask_question_placeholder')"
+          class="field focus-ring"
+        />
+        <textarea
+          v-model="newAnswer"
+          rows="2"
+          :placeholder="tr('research.optional_notes_placeholder')"
+          class="field resize-y focus-ring"
+        ></textarea>
+        <div class="flex items-center justify-end gap-3">
+          <span v-if="submitThreadError" class="text-xs text-danger">
+            {{ submitThreadError }}
+          </span>
+          <button
+            type="submit"
+            :disabled="!newQuestion.trim() || submittingThread"
+            class="btn-filled btn-sm focus-ring"
           >
-            <div class="text-sm font-medium text-ink-primary">{{ thread.question }}</div>
-            <div
-              v-if="thread.answer"
-              class="mt-1 text-sm text-ink-secondary whitespace-pre-wrap"
-            >
-              {{ thread.answer }}
-            </div>
-            <div class="mt-1 text-xs text-ink-muted">{{ thread.created_at }}</div>
-          </li>
-        </ul>
+            <Send class="h-3.5 w-3.5" />
+            {{ tr("research.save_thread") }}
+          </button>
+        </div>
+      </form>
+
+      <div v-if="threads.length === 0" class="text-sm text-ink-muted">
+        {{ tr("research.no_threads") }}
+      </div>
+      <ul class="space-y-3">
+        <li
+          v-for="t in threads"
+          :key="t.id"
+          class="border border-subtle rounded-lg p-3 bg-surface-muted"
+        >
+          <div class="text-sm font-medium text-ink-primary">{{ t.question }}</div>
+          <div v-if="t.answer" class="mt-1 text-sm text-ink-secondary whitespace-pre-wrap">
+            {{ t.answer }}
+          </div>
+          <div class="mt-1 text-xs text-ink-muted">{{ t.created_at }}</div>
+        </li>
+      </ul>
     </section>
 
     <section
-      v-if="company && activeTab === 'overview'"
+      v-if="company && activeTab === 'news'"
       class="rounded-card bg-surface shadow-card p-6"
     >
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -1933,7 +1839,7 @@ onUnmounted(stopPolling);
     </section>
 
     <section
-      v-if="company && activeTab === 'overview'"
+      v-if="company && activeTab === 'industry'"
       class="space-y-5"
     >
       <div class="rounded-card bg-surface p-6 shadow-card">

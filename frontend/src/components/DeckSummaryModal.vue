@@ -8,10 +8,10 @@ import {
   Languages,
   Loader2,
   RefreshCw,
+  Sparkles,
   X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
-import AiMark from "./AiMark.vue";
 
 const props = defineProps({
   companyId: { type: String, required: true },
@@ -399,7 +399,11 @@ const lastStage = computed(
         <header
           class="flex items-center gap-3 px-5 py-3 border-b border-subtle bg-surface"
         >
-          <AiMark class="h-8 w-8" />
+          <div
+            class="h-8 w-8 rounded-lg bg-accent-soft text-accent grid place-items-center shrink-0"
+          >
+            <Sparkles class="h-4 w-4" />
+          </div>
           <div class="flex-1 min-w-0">
             <div class="text-sm font-medium text-ink-primary truncate">
               {{ fileLabel }}
@@ -496,7 +500,14 @@ const lastStage = computed(
                 <div
                   class="absolute inset-0 rounded-full bg-accent-soft animate-ping"
                 ></div>
-                <AiMark class="relative h-14 w-14" />
+                <div
+                  class="absolute inset-2 rounded-full bg-accent/20 animate-pulse"
+                ></div>
+                <div
+                  class="relative h-14 w-14 rounded-full bg-accent text-white grid place-items-center"
+                >
+                  <Sparkles class="h-6 w-6" />
+                </div>
               </div>
               <div class="font-display text-xl text-ink-primary">
                 Reading the deck

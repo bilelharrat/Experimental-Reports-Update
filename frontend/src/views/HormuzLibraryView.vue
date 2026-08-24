@@ -6,11 +6,11 @@ import {
   FileText,
   Eye,
   Loader2,
+  Sparkles,
   Upload,
   AlertCircle,
 } from "lucide-vue-next";
 import { api } from "../api.js";
-import AiMark from "../components/AiMark.vue";
 import { useT } from "../i18n.js";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import HormuzConsole from "../components/HormuzConsole.vue";
@@ -314,7 +314,7 @@ function closePreview() {
             v-if="busyDate === e.date || appendixState(e).tone === 'run'"
             class="h-4 w-4 animate-spin"
           />
-          <AiMark v-else class="h-4 w-4" />
+          <Sparkles v-else class="h-4 w-4" />
           <span>
             {{
               e.appendix?.complete

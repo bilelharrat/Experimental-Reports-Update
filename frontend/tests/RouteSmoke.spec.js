@@ -50,7 +50,6 @@ vi.mock("../src/api.js", () => ({
     listFiles: vi.fn(),
     listCompanyDocuments: vi.fn(),
     updateDocumentMetadata: vi.fn(),
-    setDocumentUseInReport: vi.fn(),
     uploadFile: vi.fn(),
     deleteFile: vi.fn(),
     fileUrl: vi.fn((companyId, fileId) => `/api/companies/${companyId}/files/${fileId}`),
@@ -161,7 +160,6 @@ async function mountRouteWithRouter(path) {
     history: createMemoryHistory(),
     routes: [
       { path: "/stock-research", name: "stock-research", component: StockResearchView },
-      { path: "/trader-stats", name: "trader-stats", component: { template: "<div>Stats</div>" } },
       { path: "/innovation-lab", name: "innovation-lab", component: InnovationLabView },
       { path: "/settings", name: "settings", component: SettingsView },
       { path: "/user", name: "user-center", redirect: { name: "settings" } },
@@ -371,47 +369,20 @@ describe("route smoke tests", () => {
   });
 
   it("renders the Memo Tools analysis route shell", async () => {
-    api.listCompanyReports.mockResolvedValue([
-      {
-        id: "memo-1",
-        kind: "investment_memo_latestage",
-        status: "complete",
-        report_type: "Investment Memo (Late-Stage)",
-        audience: "Internal",
-        language: "en",
-        updated_at: "2026-08-01T00:00:00Z",
-        resume_available: false,
-      },
-    ]);
     const wrapper = await mountRoute("/research/generalist?tab=analysis");
 
     expect(wrapper.text()).toContain("Generalist");
     expect(wrapper.text()).toContain("Overview");
-    expect(wrapper.text()).toContain("Files");
-    expect(wrapper.text()).toContain("Report");
-    const topTabs = wrapper
-      .findAll('[role="tablist"]')
-      .at(0)
-      ?.findAll('[role="tab"]')
-      .map((tab) => tab.text());
-    expect(topTabs).toEqual(["Overview", "Files", "Report"]);
+    expect(wrapper.text()).toContain("Evidence");
+    expect(wrapper.text()).toContain("Memo Studio");
+    expect(wrapper.text()).not.toContain("Documents");
+    expect(wrapper.text()).not.toContain("Company News");
+    expect(wrapper.text()).not.toContain("Industry Views");
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
   });
 
   it("renders company pages at the production base-relative URL", async () => {
-    api.listCompanyReports.mockResolvedValue([
-      {
-        id: "memo-1",
-        kind: "investment_memo_latestage",
-        status: "complete",
-        report_type: "Investment Memo (Late-Stage)",
-        audience: "Internal",
-        language: "en",
-        updated_at: "2026-08-01T00:00:00Z",
-        resume_available: false,
-      },
-    ]);
     const wrapper = await mountRoute("/generalist?tab=analysis");
 
     expect(wrapper.text()).toContain("Generalist");
@@ -420,17 +391,13 @@ describe("route smoke tests", () => {
 
   it("renders new PRD foundation top-level routes", async () => {
     let wrapper = await mountRoute("/innovation-lab");
-    expect(wrapper.text()).toContain("Labs");
-    expect(wrapper.text()).toContain("Daily sources");
+    expect(wrapper.text()).toContain("Innovation Lab");
+    expect(wrapper.text()).toContain("Daily source reports");
     wrapper.unmount();
 
     wrapper = await mountRoute("/settings");
     expect(wrapper.text()).toContain("Settings");
     expect(wrapper.text()).toContain("System");
-    expect(wrapper.text()).toContain("Advanced tools");
-    expect(wrapper.text()).toContain("Workbench");
-    expect(wrapper.text()).toContain("Stats");
-    expect(wrapper.text()).toContain("Labs");
     wrapper.unmount();
 
     wrapper = await mountRoute("/user");
@@ -481,7 +448,7 @@ describe("route smoke tests", () => {
     expect(wrapper.findAll("a").map((a) => a.attributes("href"))).toContain(
       "/api/reports/report-1/download?artifact=analysis&file=pressure_tests.md",
     );
-    expect(wrapper.text()).toContain("Start fresh");
+    expect(wrapper.text()).toContain("Redo from scratch");
     api.resumeReport.mockResolvedValue({
       id: "report-1",
       company_id: "generalist",
@@ -498,7 +465,7 @@ describe("route smoke tests", () => {
 
     const resumeButton = wrapper
       .findAll("button")
-      .find((button) => button.text().includes("Resume"));
+      .find((button) => button.text().includes("Resume memo run"));
     expect(resumeButton).toBeTruthy();
     await resumeButton.trigger("click");
     await flushPromises();
@@ -549,12 +516,12 @@ describe("route smoke tests", () => {
       ],
     });
 
-    const wrapper = await mountRoute("/research/generalist?tab=memo");
+    const wrapper = await mountRoute("/research/generalist?tab=analysis");
 
     expect(api.listCompanyReports).toHaveBeenCalledWith("generalist");
     expect(api.getReport).toHaveBeenCalledWith("report-1");
-    expect(wrapper.text()).toContain("Resume");
-    expect(wrapper.text()).toContain("Start fresh");
+    expect(wrapper.text()).toContain("Resume memo run");
+    expect(wrapper.text()).toContain("Redo from scratch");
     wrapper.unmount();
   });
 
@@ -774,7 +741,7 @@ describe("route smoke tests", () => {
     const wrapper = await mountRoute("/research/generalist?report=report-1");
     const redoButton = wrapper
       .findAll("button")
-      .find((button) => button.text().includes("Start fresh"));
+      .find((button) => button.text().includes("Redo from scratch"));
 
     expect(redoButton).toBeTruthy();
     await redoButton.trigger("click");
@@ -801,7 +768,7 @@ describe("route smoke tests", () => {
     const wrapper = await mountRoute("/research/generalist");
     const memoTab = wrapper
       .findAll("button")
-      .find((button) => button.text() === "Report");
+      .find((button) => button.text().includes("Memo Studio"));
     expect(memoTab).toBeTruthy();
     await memoTab.trigger("click");
     await flushPromises();
@@ -850,24 +817,12 @@ describe("route smoke tests", () => {
       status: "private",
       files: [],
     });
-    api.listCompanyReports.mockResolvedValue([
-      {
-        id: "memo-1",
-        kind: "investment_memo_latestage",
-        status: "complete",
-        report_type: "Investment Memo (Late-Stage)",
-        audience: "Internal",
-        language: "en",
-        updated_at: "2026-08-01T00:00:00Z",
-        resume_available: false,
-      },
-    ]);
 
     const wrapper = await mountRoute("/research/private-with-ticker?tab=analysis");
     await flushPromises();
 
     expect(wrapper.text()).toContain("Private Ticker Co");
-    expect(wrapper.text()).toContain("Report");
+    expect(wrapper.text()).toContain("Memo Studio");
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(api.memoAnalysis.get).toHaveBeenCalledWith("private-with-ticker");
   });

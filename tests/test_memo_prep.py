@@ -1250,15 +1250,3 @@ def test_resume_memo_package_runner_keeps_standard_memo_tooling(tmp_path, monkey
     assert "ToolSearch" in denied
     assert "TaskCreate" in denied
     assert "TodoWrite" in denied
-
-
-def test_ensure_settings_file_copies_tracked_seed(tmp_path, monkeypatch):
-    dest = tmp_path / "settings" / "serena_background.md"
-    monkeypatch.setattr(memo_prep, "SETTINGS_FILE", dest)
-    assert not dest.exists()
-    path = memo_prep.ensure_settings_file()
-    assert path == dest
-    assert dest.is_file()
-    assert "Berkeley Summit House" in dest.read_text(encoding="utf-8")
-    again = memo_prep.ensure_settings_file()
-    assert again == dest

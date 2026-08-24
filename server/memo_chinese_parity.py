@@ -16,64 +16,34 @@ REQUIRED_SECTION_IDS = (
 
 SECTION_PATTERNS = {
     "executive_summary": {
-        "en": re.compile(
-            r"^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\b",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:i|1|一)[\.\、]\s*)?(?:执行摘要|核心摘要)\b",
-            re.IGNORECASE,
-        ),
+        "en": re.compile(r"^\s*i\.\s+executive summary\b", re.IGNORECASE),
+        "zh": re.compile(r"^\s*i\.\s*执行摘要", re.IGNORECASE),
     },
     "company_overview": {
-        "en": re.compile(
-            r"^\s*(?:(?:ii|2)[\.\、]\s*)?company\s+overview\b",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:ii|2|二)[\.\、]\s*)?(?:公司概览|公司概况|项目简介)\b",
-            re.IGNORECASE,
-        ),
+        "en": re.compile(r"^\s*ii\.\s+company overview\b", re.IGNORECASE),
+        "zh": re.compile(r"^\s*ii\.\s*公司概览", re.IGNORECASE),
     },
     "investment_highlights": {
-        "en": re.compile(
-            r"^\s*(?:(?:iii|3)[\.\、]\s*)?investment\s+highlights\b",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:iii|3|三)[\.\、]\s*)?投资亮点\b",
-            re.IGNORECASE,
-        ),
+        "en": re.compile(r"^\s*iii\.\s+investment highlights\b", re.IGNORECASE),
+        "zh": re.compile(r"^\s*iii\.\s*投资亮点", re.IGNORECASE),
     },
     "investment_risk": {
-        "en": re.compile(
-            r"^\s*(?:(?:iv|4)[\.\、]\s*)?investment\s+risks?\b",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:iv|4|四)[\.\、]\s*)?投资风险\b",
-            re.IGNORECASE,
-        ),
+        "en": re.compile(r"^\s*iv\.\s+investment risk\b", re.IGNORECASE),
+        "zh": re.compile(r"^\s*iv\.\s*投资风险", re.IGNORECASE),
     },
     "financial_forecast_valuation": {
         "en": re.compile(
-            r"^\s*(?:(?:v|5)[\.\、]\s*)?financial\s+forecast\s+(?:&|and)\s+valuation\b",
+            r"^\s*v\.\s+financial forecast (?:&|and) valuation\b",
             re.IGNORECASE,
         ),
-        "zh": re.compile(
-            r"^\s*(?:(?:v|5|五)[\.\、]\s*)?财务预测与估值\b",
-            re.IGNORECASE,
-        ),
+        "zh": re.compile(r"^\s*v\.\s*财务预测与估值", re.IGNORECASE),
     },
     "sources": {
         "en": re.compile(
-            r"^\s*(?:(?:vi|6)[\.\、]\s*)?sources?(?:,\s*source classes,\s*and fact reference index)?\b",
+            r"^\s*vi\.\s+sources,\s+source classes,\s+and fact reference index\b",
             re.IGNORECASE,
         ),
-        "zh": re.compile(
-            r"^\s*(?:(?:vi|6|六)[\.\、]\s*)?(?:来源、来源类别与事实索引|来源与事实索引|来源)\b",
-            re.IGNORECASE,
-        ),
+        "zh": re.compile(r"^\s*vi\.\s*来源、来源类别与事实索引", re.IGNORECASE),
     },
 }
 
@@ -151,10 +121,7 @@ class _DocShape:
 
     @property
     def section_count(self) -> int:
-        # English DOCX often restates the Sources heading (TOC / disclosures /
-        # fact index). Count unique section ids so those duplicates do not
-        # falsely trip section_heading_count_mismatch vs Chinese.
-        return len(dict.fromkeys(self.section_ids))
+        return len(self.section_ids)
 
 
 def lint_chinese_memo_pair(

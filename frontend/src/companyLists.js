@@ -1,4 +1,4 @@
-/** Shared company grouping and sort for Tracking and the sidebar Companies list. */
+/** Shared Portfolio / Top Players grouping and sort for the section pages and sidebar. */
 
 export function companyBucket(company) {
   const type = String(company?.company_type || "").toLowerCase();
