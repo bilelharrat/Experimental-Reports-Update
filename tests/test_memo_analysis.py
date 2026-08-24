@@ -436,6 +436,13 @@ def _memo_package(body_en=None, body_zh=None):
                                 },
                             ],
                             [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Medium: deployments still need on-site work.",
+                                    "zh": "中：部署仍需现场支持。",
+                                },
+                            ],
+                            [
                                 {"en": "Risk Rating", "zh": "风险评分"},
                                 {
                                     "en": "7/10: margin path drives the exit multiple.",
@@ -477,6 +484,13 @@ def _memo_package(body_en=None, body_zh=None):
                                 {
                                     "en": "Bill-of-materials cost per deployment.",
                                     "zh": "每次部署的物料成本。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Low: the reference design has held so far.",
+                                    "zh": "低：参考设计迄今保持稳定。",
                                 },
                             ],
                             [
@@ -525,6 +539,13 @@ def _memo_package(body_en=None, body_zh=None):
                                 {
                                     "en": "Pilot-to-production conversion each quarter.",
                                     "zh": "每季度试点转生产的转化率。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Medium: pilot budgets tighten in downturns.",
+                                    "zh": "中：下行周期试点预算收紧。",
                                 },
                             ],
                             [
@@ -1256,6 +1277,24 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     )
     events = _events(memo_prep.stream_path(run_dir))
     assert any(e.get("stage") == "memo_package_voice_cleanup" for e in events)
+
+
+def test_memo_package_voice_rewrite_preserves_hyphenated_back_verbs():
+    # The 2026-08-21 ZaiNar run: "\bWe back\b" matched the "we back" inside
+    # "we back-solve" (word boundary at the hyphen) and rewrote two table
+    # cells to "BSH invests in-solve ...". Hyphenated modeling verbs must
+    # survive; the plain sell-side phrase must still be rewritten.
+    text = (
+        "Not disclosed; we back-solve approximately $8,600,000 as of June "
+        "2025 and back-test the forward multiple. We back the company."
+    )
+
+    rewritten = memo_analysis._rewrite_memo_package_voice_text(text)
+
+    assert "we back-solve approximately" in rewritten
+    assert "in-solve" not in rewritten
+    assert "BSH invests in the company" in rewritten
+    assert "We back the company" not in rewritten
 
 
 def test_memo_fast_pipeline_packet_mode_skips_parallel_passes(
@@ -3545,6 +3584,172 @@ def test_phase3_retries_on_quality_gate_finding(memo_env, monkeypatch):
     assert english_calls[0] is None
     assert "scaffold_label" in english_calls[1]
     assert result.get("ok") is True
+
+
+def test_phase3_surgical_quality_repair_avoids_regeneration(
+    memo_env, monkeypatch
+):
+    """A quality-gate finding on a structurally valid package must first try
+    the ~2-minute surgical repair pass; when the repair clears the findings,
+    NO full regeneration attempt is burned. (The 40-60 minute runs on record
+    were exactly these 10-18 minute quality retries.)"""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    english_calls = []
+
+    def fake_english_package(**kwargs):
+        english_calls.append(kwargs.get("validation_feedback"))
+        return {
+            "analysis_artifacts": {},
+            "memo_package": _memo_package(body_en=_SCAFFOLD_BODY_EN, body_zh=""),
+        }, None
+
+    repair_calls = []
+
+    def fake_repair(**kwargs):
+        repair_calls.append(kwargs.get("validation_errors"))
+        return {"memo_package": _memo_package(body_zh="")}, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_package", fake_english_package
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_package_structure_repair", fake_repair
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        lambda **_kwargs: ({"memo_package": _memo_package()}, None),
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    # ONE generation attempt, ONE cheap repair — no regeneration round.
+    assert len(english_calls) == 1
+    assert len(repair_calls) == 1
+    assert any("scaffold_label" in err for err in repair_calls[0])
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(
+        e.get("stage") == "memo_quality_surgical_repair_succeeded"
+        for e in events
+    )
+    # The persisted attempt file must hold the repaired package.
+    attempt_file = run_dir / "logs" / "memo_package.en.attempt-1.json"
+    assert "scaffold_label" not in attempt_file.read_text(encoding="utf-8")
+
+
+def test_phase3_threads_previous_attempt_into_parallel_retry(
+    memo_env, monkeypatch
+):
+    """A validation retry must hand the parallel synthesizer the previous
+    attempt's package path and error list, so it can regenerate only the
+    implicated sections instead of the whole package."""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    parallel_calls = []
+
+    def fake_parallel(**kwargs):
+        parallel_calls.append(
+            {
+                "previous_package_path": kwargs.get("previous_package_path"),
+                "previous_validation_errors": kwargs.get(
+                    "previous_validation_errors"
+                ),
+            }
+        )
+        body = _SCAFFOLD_BODY_EN if len(parallel_calls) == 1 else None
+        return {
+            "analysis_artifacts": {},
+            "memo_package": _memo_package(body_en=body, body_zh=""),
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        fake_parallel,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        lambda **_kwargs: ({"memo_package": _memo_package()}, None),
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    assert len(parallel_calls) == 2
+    assert parallel_calls[0]["previous_package_path"] is None
+    assert parallel_calls[0]["previous_validation_errors"] is None
+    retry = parallel_calls[1]
+    assert retry["previous_package_path"] == (
+        run_dir / "logs" / "memo_package.en.attempt-1.json"
+    )
+    assert retry["previous_package_path"].exists()
+    assert retry["previous_validation_errors"]
+    assert any(
+        "scaffold_label" in err for err in retry["previous_validation_errors"]
+    )
 
 
 def test_resume_retries_then_delivers_with_warnings_on_quality_findings(

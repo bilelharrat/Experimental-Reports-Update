@@ -2607,6 +2607,71 @@ MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA: dict[str, Any] = {
     "required": ["memo_package"],
 }
 
+# Canonical renderer section ids, in package order. Mirrors
+# memo_docx_renderer.REQUIRED_SECTION_IDS (kept literal here so claude_runner
+# stays import-free of the renderer).
+MEMO_PACKAGE_SECTION_IDS: tuple[str, ...] = (
+    "executive_summary",
+    "company_overview",
+    "investment_highlights",
+    "investment_risk",
+    "financial_forecast_valuation",
+)
+
+MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "analysis_artifacts": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "claim_register_md": {"type": "string"},
+                "scenario_swim_lanes_md": {"type": "string"},
+                "downside_scenario_md": {"type": "string"},
+                "countercase_md": {"type": "string"},
+                "source_treatment_assumptions_md": {"type": "string"},
+                "risk_sensitivities_md": {"type": "string"},
+                "content_coverage_md": {"type": "string"},
+            },
+            "required": [
+                "claim_register_md",
+                "scenario_swim_lanes_md",
+                "downside_scenario_md",
+                "countercase_md",
+                "source_treatment_assumptions_md",
+                "risk_sensitivities_md",
+            ],
+        },
+        "package_skeleton": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+        "section_briefs": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                section_id: {"type": "string"}
+                for section_id in MEMO_PACKAGE_SECTION_IDS
+            },
+            "required": list(MEMO_PACKAGE_SECTION_IDS),
+        },
+    },
+    "required": ["analysis_artifacts", "package_skeleton", "section_briefs"],
+}
+
+_MEMO_ENGLISH_SECTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "section": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    },
+    "required": ["section"],
+}
+
 MEMO_PACKAGE_SOURCES_CONTRACT = """\
 ## Renderer Sources Contract (hard requirement — validated before rendering)
 
@@ -2685,8 +2750,18 @@ Final memo prose must:
   including table cells: never leave a bare "Not disclosed" or "not
   computable" — the same cell (or its row) must state the treatment, e.g.
   "Not disclosed; modeled via customer-count proxy" or "Not disclosed;
-  treated as a valuation sensitivity". A terse untreated cell fails the
-  quality gate;
+  treated as a valuation sensitivity". The quality gate recognizes treatment
+  through this vocabulary (any form): model, treat, assume, proxy, estimate,
+  conversion, range, scenario, sensitivity, valuation, risk, credit,
+  discount, haircut, downside, "we value". Use at least one of these words
+  in the same cell or row as every "not disclosed" / "not computable" —
+  a terse untreated cell fails the quality gate and costs a retry;
+- never bridge clauses with an em dash ANYWHERE in the package — body prose,
+  table cells, headings, the company descriptor, and source titles and
+  treatments all included. Use a colon, semicolon, or two sentences instead
+  ("Information Technology: semiconductors", never "Information Technology —
+  semiconductors"). The quality gate blocks em-dash bridging and each miss
+  costs a retry;
 - express data vintage with absolute dates only: "figures are as of March
   2026", "no disclosure since the January launch window". NEVER anchor
   staleness to the memo itself — phrases like "at the memo date", "as of
@@ -3003,7 +3078,7 @@ risk table. Structure, in order:
      price below the December 2024 mark"), never a category label
      ("Financing risk").
    - a `table` block with `component: "risk_register"`,
-     `"layout": "key_value"`, `"headers": []`, and EXACTLY these four
+     `"layout": "key_value"`, `"headers": []`, and EXACTLY these five
      two-cell rows (label cell first, content cell second):
        1. `Risk Type` / `风险类型` — a 1-4 word category such as Commercial,
           Market, Competition, Technology, Financing, Regulatory, or
@@ -3013,10 +3088,18 @@ risk table. Structure, in order:
           stated explicitly, with numbers wherever they exist.
        3. `What we watch` / `跟踪信号` — 1-3 concrete, observable signals
           that would confirm or defuse the risk, dated where possible.
-       4. `Risk Rating` / `风险评分` — `"N/10: <short reason>"` with N from
-          1-10. Anchors: 9-10 could break the investment case on its own;
-          7-8 could push the outcome below base case; 5-6 meaningful but
-          monitorable; 3-4 real but limited effect; 1-2 minor.
+       4. `Likelihood` / `可能性` — `"High|Medium|Low: <short reason>"`
+          (Chinese `"高|中|低：<简短理由>"`): how likely the risk is to
+          materialize inside the 3-5 year underwriting window. Anchors:
+          High — more likely than not; Medium — a realistic chance,
+          roughly one-in-three; Low — unlikely, but consequential enough
+          to track. Ground the reason in evidence, not vibes.
+       5. `Risk Rating` / `风险评分` — `"N/10: <short reason>"` with N from
+          1-10. This scores impact-weighted importance to the investment
+          case, not probability (Likelihood carries that). Anchors: 9-10
+          could break the investment case on its own; 7-8 could push the
+          outcome below base case; 5-6 meaningful but monitorable; 3-4
+          real but limited effect; 1-2 minor.
 3. Order the cards by Risk Rating, highest first, so the most important risk
    is the first thing the reader sees.
 
@@ -3863,6 +3946,800 @@ Return only the JSON matching the attached schema.
     )
 
 
+# ---- Parallel English package synthesis ---------------------------------
+#
+# The monolithic English package call writes ~80K output tokens in one
+# 10-17 minute Claude invocation, and a single validation failure regenerates
+# all of it. The parallel path splits phase 3 into:
+#   1. a "spine" call — synthesis artifacts, the package envelope (company /
+#      run / sources), and one brief per section that pins the shared
+#      numbers, the recommendation, and the risk list so parallel sections
+#      cannot drift apart;
+#   2. five per-section calls on a thread pool, each authoring one section
+#      from the spine brief and the fast-pass artifacts;
+#   3. on a validation retry, only the sections implicated by the errors are
+#      regenerated — the rest of the package is spliced from the previous
+#      attempt.
+# Any spine/section failure falls back to the monolithic call, so the worst
+# case is exactly as slow and as correct as before.
+
+_MEMO_ENGLISH_UNITS_DIRNAME = "english_units"
+
+# Which renderer coverage component belongs to which section, per the skill
+# and every accepted package on record. Used to route "missing required memo
+# component" validation errors to the owning section, and to tell each
+# section worker which component slugs it must produce.
+_MEMO_COMPONENT_SECTION: dict[str, str] = {
+    "key_metrics_snapshot": "executive_summary",
+    "board": "company_overview",
+    "revenue": "company_overview",
+    "key_operating_metrics": "company_overview",
+    "competitive_analysis": "investment_highlights",
+    "replacement_coexistence": "investment_highlights",
+    "moat": "investment_highlights",
+    "risk_register": "investment_risk",
+    "disconfirming_evidence": "investment_risk",
+    "time_base_integrity": "financial_forecast_valuation",
+    "growth_bridge": "financial_forecast_valuation",
+    "scenario_analysis": "financial_forecast_valuation",
+    "deal_terms": "financial_forecast_valuation",
+    "evidence_thresholds": "financial_forecast_valuation",
+    "investment_decision": "financial_forecast_valuation",
+    "disclosures": "financial_forecast_valuation",
+}
+
+_MEMO_SECTION_TITLE_WORDS: dict[str, str] = {
+    "executive summary": "executive_summary",
+    "company overview": "company_overview",
+    "investment highlights": "investment_highlights",
+    "investment risk": "investment_risk",
+    "financial forecast & valuation": "financial_forecast_valuation",
+    "financial forecast and valuation": "financial_forecast_valuation",
+}
+
+_MEMO_SECTION_SPECS: dict[str, str] = {
+    "executive_summary": """\
+Open from the sponsor thesis, not a tombstone. At least two substantive
+content blocks. Must include the Key Metrics Snapshot table with
+`component: "key_metrics_snapshot"`. State the recommendation exactly as the
+spine brief fixes it.""",
+    "company_overview": """\
+Must include three tables, each carrying its component slug:
+`component: "revenue"` (revenue picture), `component: "key_operating_metrics"`
+(key operating metrics), and `component: "board"` (Board of Directors with
+strategic value).""",
+    "investment_highlights": """\
+At least two substantive bullets, or explanatory prose plus a substantive
+table/callout. Must include tables with `component: "competitive_analysis"`,
+`component: "replacement_coexistence"` (replacement vs. coexistence), and
+`component: "moat"` (moat / defensibility).""",
+    "investment_risk": """\
+Present risks as per-risk cards (contract below), every card table carrying
+`component: "risk_register"`, plus a disconfirming-evidence treatment block
+with `component: "disconfirming_evidence"`. Use exactly the risk list and
+ratings the spine brief fixes.""",
+    "financial_forecast_valuation": """\
+Must reference model treatment, scenario ranges, valuation, revenue, margins,
+or valuation sensitivities, and include blocks carrying these component
+slugs: `time_base_integrity` (valuation/date/multiple timing table),
+`growth_bridge`, `scenario_analysis` (bear/base/bull), `deal_terms`
+(headline terms / deal mechanics), `evidence_thresholds` (written as
+valuation sensitivities), `investment_decision` (final Investment Decision /
+Closing View, first-person sponsor voice), and `disclosures` (concise
+legal/offering disclosure language).""",
+}
+
+
+def _memo_english_units_dir(run_dir: Path) -> Path:
+    return run_dir / "logs" / _MEMO_ENGLISH_UNITS_DIRNAME
+
+
+def _memo_english_common_context(
+    *,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    run_dir: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None,
+    analysis_session_path: Path | None,
+    scope_check: dict | None,
+    warnings: list[str] | None,
+) -> str:
+    """Shared prompt context for the spine and every section worker. Kept
+    identical across the parallel calls so their prompts share a long common
+    prefix (prompt-cache friendly)."""
+    registry_entry = _extract_company_registry_entry_yaml(
+        companies_yaml_path,
+        company_slug,
+    )
+    registry_block = (
+        f"```yaml\n{registry_entry}\n```"
+        if registry_entry
+        else f"Read the `{company_slug}` entry from `{companies_yaml_path}`."
+    )
+    analysis_dir = run_dir / "analysis"
+    fast_dir = analysis_dir / "fast"
+    source_mode = (
+        "Use the approved Memo Studio packet as the primary synthesis."
+        if analysis_session_path and analysis_session_path.exists()
+        else "Use the fast parallel analysis artifacts as the primary synthesis."
+    )
+    return f"""\
+This is the fast-path synthesis for a BSH LP-facing sell-side investment
+memo about {company_name}. {source_mode}
+
+{HUMAN_EXEC_MEMO_VOICE_CONTRACT}
+
+{MEMO_PACKAGE_BLOCK_CONTRACT}
+
+Company registry entry:
+{registry_block}
+
+Run context:
+- run_id: {run_id}
+- run_dir: `{run_dir}`
+- English DOCX later rendered by server: `{memo_paths.get('en')}`
+- Chinese DOCX later rendered by server: `{memo_paths.get('zh')}`
+- scope_check: `{json.dumps(scope_check or {}, ensure_ascii=False)}`
+- warnings: `{json.dumps(warnings or [], ensure_ascii=False)}`
+
+Research folder:
+`{research_dir if research_dir else '(none)'}`
+Files:
+{_research_file_listing(research_dir)}
+
+Memo Studio packet:
+`{analysis_session_path if analysis_session_path else '(none)'}`
+Files:
+{_analysis_session_file_listing(analysis_session_path)}
+
+Fast analysis artifacts:
+- JSON directory: `{fast_dir}`
+- Markdown directory: `{analysis_dir}`
+
+Read the relevant packet/artifact files. Do not rerun the eight analysis
+passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
+they already contain the structured results from each pass. Read markdown
+artifacts only when a JSON artifact is missing, contradictory, or needs a
+short source-specific detail; when reading markdown, use targeted reads
+rather than loading every full artifact.
+
+Every user-facing string must be a bilingual object `{{"en": "...", "zh": ""}}`
+with `zh` left blank; a separate subprocess fills Chinese. Do not write final
+DOCX files, and do not write any files — return only JSON.
+"""
+
+
+def _memo_english_add_dirs(
+    *,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    run_dir: Path,
+    research_dir: Path | None,
+    analysis_session_path: Path | None,
+    lessons_path: Path | None,
+) -> list[Path]:
+    add_dirs = [settings_path.parent, companies_yaml_path.parent, run_dir]
+    if research_dir and research_dir.exists():
+        add_dirs.append(research_dir)
+    if analysis_session_path and analysis_session_path.exists():
+        add_dirs.append(analysis_session_path)
+    if lessons_path and lessons_path.exists():
+        add_dirs.append(lessons_path.parent)
+    return add_dirs
+
+
+def run_memo_fast_english_spine(
+    *,
+    run_dir: Path,
+    company_name: str,
+    common_context: str,
+    add_dirs: list[Path],
+    progress=None,
+    timeout_sec: int = 1200,
+    validation_feedback: str | None = None,
+) -> tuple[dict | None, str | None]:
+    """Synthesize the shared spine: analysis artifacts, package envelope, and
+    one brief per section for the parallel section workers."""
+    feedback_block = (
+        (
+            "\n## Previous attempts failed renderer validation\n"
+            "Fix EVERY error below that concerns the package envelope\n"
+            "(company, run, sources) or the shared numbers, and make the\n"
+            "section briefs prevent the rest from recurring:\n"
+            f"{validation_feedback}\n"
+        )
+        if validation_feedback
+        else ""
+    )
+    section_list = "\n".join(f"- `{sid}`" for sid in MEMO_PACKAGE_SECTION_IDS)
+    prompt = f"""\
+You are drafting the SHARED SPINE of the English source package. Five section
+workers will author the memo sections in parallel from your output; they see
+your spine and the analysis artifacts, but not each other. Anything the
+sections must agree on — numbers, the recommendation, the risk list — must be
+pinned in your briefs.
+
+{common_context}
+
+{MEMO_PACKAGE_SOURCES_CONTRACT}
+
+Produce ONE JSON object with:
+1. `analysis_artifacts`: concise markdown strings for claim register,
+   scenario swim lanes, downside scenario, countercase, source-treatment log,
+   risk and valuation sensitivities, and content coverage against the
+   reusable component slugs. Keep each artifact useful but short.
+2. `package_skeleton`: the package envelope WITHOUT sections:
+   - `schema_version: 1`
+   - `company`: name, descriptor, sector, stage, round, location
+   - `run`: run_id, language, as_of, evidence_cutoff
+   - `sources`: the COMPLETE non-empty source list for the whole memo,
+     following the sources contract above. Sections cite these by id and
+     cannot add sources, so include every source any section will need.
+3. `section_briefs`: one markdown brief per section id:
+{section_list}
+   Each brief pins what that section must say so parallel workers cannot
+   contradict each other: the exact recommendation sentence, the metric
+   values to repeat, the scenario numbers (bear/base/bull), the full risk
+   list with a one-line summary and an N/10 rating per risk (ordered highest
+   first), and which source ids support which claims. Briefs are working
+   notes for the writers, not memo prose.
+{feedback_block}
+Return only the JSON matching the attached schema.
+"""
+    return _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Synthesizing memo spine and section briefs",
+        timeout_label="memo English spine",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=add_dirs,
+    )
+
+
+def _run_english_section(
+    *,
+    run_dir: Path,
+    section_id: str,
+    common_context: str,
+    brief: str,
+    spine_path: Path,
+    add_dirs: list[Path],
+    progress,
+    timeout_sec: int,
+    validation_errors: list[str] | None = None,
+    previous_section_path: Path | None = None,
+) -> tuple[dict | None, str | None]:
+    """Author (or repair) ONE package section from the shared spine."""
+    spec = _MEMO_SECTION_SPECS.get(section_id, "")
+    risk_contract = (
+        f"\n{MEMO_RISK_REGISTER_CONTRACT}\n"
+        if section_id == "investment_risk"
+        else ""
+    )
+    repair_block = ""
+    if previous_section_path is not None and validation_errors:
+        error_lines = "\n".join(f"- {err}" for err in validation_errors[:20])
+        repair_block = f"""
+## Repair mode
+A previous draft of this section is at `{previous_section_path}`. It failed
+renderer validation with the errors below. Return the SAME section with ONLY
+these defects fixed — preserve every other block, claim, number, table row,
+and source reference exactly as-is:
+{error_lines}
+"""
+    elif validation_errors:
+        error_lines = "\n".join(f"- {err}" for err in validation_errors[:20])
+        repair_block = f"""
+## Previous attempt failed renderer validation
+A previous attempt at this section failed validation. Do not repeat these
+defects:
+{error_lines}
+"""
+    prompt = f"""\
+You are drafting ONE SECTION of the English source package: `{section_id}`.
+Sibling workers draft the other sections in parallel; the shared spine below
+fixes everything the sections must agree on. Follow your brief exactly for
+shared numbers, the recommendation, and the risk list.
+
+{common_context}
+
+## Shared spine
+The package envelope and every section brief: `{spine_path}`.
+Cite sources by the ids in the spine's `sources` list using source-class
+language in prose; do not add, drop, or renumber sources.
+
+## Your section: `{section_id}`
+{spec}
+{risk_contract}
+## Your section brief
+{brief}
+{repair_block}
+Return only JSON: {{"section": {{"id": "{section_id}", "blocks": [...]}}}}
+matching the attached schema.
+"""
+    result, error = _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=_MEMO_ENGLISH_SECTION_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message=f"Drafting section {section_id}",
+        timeout_label=f"memo English section ({section_id})",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=add_dirs,
+    )
+    if error:
+        return None, error
+    section = (result or {}).get("section")
+    if not isinstance(section, dict):
+        return None, f"section {section_id} pass did not return a section object"
+    section["id"] = section_id
+    return (
+        {
+            "section": section,
+            "claude_cost_usd": result.get("claude_cost_usd"),
+            "claude_duration_ms": result.get("claude_duration_ms"),
+        },
+        None,
+    )
+
+
+def _iter_package_strings(value: Any):
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_package_strings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _iter_package_strings(item)
+    elif isinstance(value, str):
+        yield value
+
+
+def _section_for_validation_error(package: dict, error: str) -> str | None:
+    """Map one validation error string to the package section that owns it.
+
+    Returns None when the error is not attributable to a single section
+    (envelope/sources defects, or text we cannot locate) — the caller then
+    falls back to a full regeneration.
+    """
+    lowered = error.lower()
+    sections = package.get("sections") if isinstance(package, dict) else None
+    sections = sections if isinstance(sections, list) else []
+
+    match = re.search(r"sections\[(\d+)\]", error)
+    if match:
+        index = int(match.group(1))
+        if 0 <= index < len(sections) and isinstance(sections[index], dict):
+            section_id = str(sections[index].get("id") or "")
+            if section_id in MEMO_PACKAGE_SECTION_IDS:
+                return section_id
+        return None
+
+    for section_id in MEMO_PACKAGE_SECTION_IDS:
+        if section_id in lowered:
+            return section_id
+
+    match = re.search(r"missing required memo component (\w+)", lowered)
+    if match:
+        return _MEMO_COMPONENT_SECTION.get(match.group(1))
+
+    context_match = re.search(r" at [^():]*\(([^)]+)\)", error)
+    if context_match:
+        context = context_match.group(1).strip().lower()
+        context = re.sub(r"^[ivx]+\.\s*", "", context)
+        mapped = _MEMO_SECTION_TITLE_WORDS.get(context)
+        if mapped:
+            return mapped
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            section_id = str(section.get("id") or "")
+            if section_id not in MEMO_PACKAGE_SECTION_IDS:
+                continue
+            for block in section.get("blocks") or []:
+                if not isinstance(block, dict):
+                    continue
+                labels = [block.get("text"), block.get("title")]
+                for label in labels:
+                    en = (
+                        str(label.get("en") or "")
+                        if isinstance(label, dict)
+                        else str(label or "")
+                    )
+                    if en and context in en.lower():
+                        return section_id
+
+    snippet_match = re.search(r'"([^"]{12,})"', error)
+    if snippet_match:
+        fragments = [
+            fragment.strip()
+            for fragment in snippet_match.group(1).split("...")
+            if len(fragment.strip()) >= 12
+        ]
+        needle = max(fragments, key=len, default="").lower()
+        if needle:
+            for section in sections:
+                if not isinstance(section, dict):
+                    continue
+                section_id = str(section.get("id") or "")
+                if section_id not in MEMO_PACKAGE_SECTION_IDS:
+                    continue
+                for text in _iter_package_strings(section):
+                    if needle in text.lower():
+                        return section_id
+    return None
+
+
+def _map_validation_errors_to_sections(
+    package: dict,
+    errors: list[str],
+) -> dict[str, list[str]] | None:
+    """Group validation errors by owning section. Returns None when any error
+    cannot be attributed to a single section."""
+    mapping: dict[str, list[str]] = {}
+    for error in errors:
+        section_id = _section_for_validation_error(package, error)
+        if section_id is None:
+            return None
+        mapping.setdefault(section_id, []).append(error)
+    return mapping
+
+
+def run_memo_fast_english_package_parallel(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 1200,
+    validation_feedback: str | None = None,
+    previous_validation_errors: list[str] | None = None,
+    previous_package_path: Path | None = None,
+    max_workers: int | None = None,
+) -> tuple[dict | None, str | None]:
+    """Spine + parallel per-section synthesis of the English package.
+
+    Same result shape as ``run_memo_fast_english_package``. Falls back to the
+    monolithic call when disabled or when the spine/section machinery fails.
+    On a validation retry with attributable errors, regenerates only the
+    implicated sections and splices the rest from the previous attempt.
+
+    Default OFF: the 2026-08-21 NVIDIA validation run showed a parallel
+    attempt is no faster than a monolithic one (the spine call alone takes
+    ~9 minutes) and costs ~5x per attempt (six uncached contexts instead of
+    one), while the dominant failures were spine-authored envelope strings
+    that the selective section retry cannot scope. Kept behind the flag for
+    future tuning (lighter spine, envelope-scoped repair).
+    """
+    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+        return run_memo_fast_english_package(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            settings_path=settings_path,
+            companies_yaml_path=companies_yaml_path,
+            memo_paths=memo_paths,
+            research_dir=research_dir,
+            analysis_session_path=analysis_session_path,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            progress=progress,
+            timeout_sec=timeout_sec,
+            validation_feedback=validation_feedback,
+        )
+
+    def _fallback(reason: str) -> tuple[dict | None, str | None]:
+        logger.warning(
+            "parallel English package falling back to monolithic: %s", reason
+        )
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_fast_english_parallel_fallback",
+                message=(
+                    f"Parallel English synthesis unavailable ({reason[:500]}); "
+                    "running monolithic pass"
+                ),
+            )
+        return run_memo_fast_english_package(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            settings_path=settings_path,
+            companies_yaml_path=companies_yaml_path,
+            memo_paths=memo_paths,
+            research_dir=research_dir,
+            analysis_session_path=analysis_session_path,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            progress=progress,
+            timeout_sec=timeout_sec,
+            validation_feedback=validation_feedback,
+        )
+
+    common_context = _memo_english_common_context(
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        run_dir=run_dir,
+        companies_yaml_path=companies_yaml_path,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
+    add_dirs = _memo_english_add_dirs(
+        settings_path=settings_path,
+        companies_yaml_path=companies_yaml_path,
+        run_dir=run_dir,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+    )
+    units_dir = _memo_english_units_dir(run_dir)
+    units_dir.mkdir(parents=True, exist_ok=True)
+    spine_path = units_dir / "spine.json"
+    artifacts_path = units_dir / "analysis_artifacts.json"
+    workers = max_workers or int(
+        os.environ.get("BSH_MEMO_ENGLISH_SECTION_WORKERS", "5") or 5
+    )
+    workers = max(1, min(workers, len(MEMO_PACKAGE_SECTION_IDS)))
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _run_sections(
+        section_jobs: dict[str, dict],
+    ) -> tuple[dict[str, dict], list[str]]:
+        """Run section workers concurrently. Each job dict carries the
+        _run_english_section kwargs beyond the shared ones."""
+        results: dict[str, dict] = {}
+        errors: list[str] = []
+        with ThreadPoolExecutor(
+            max_workers=min(workers, len(section_jobs)),
+            thread_name_prefix="memo-english",
+        ) as pool:
+            futures = {
+                pool.submit(
+                    _run_english_section,
+                    run_dir=run_dir,
+                    section_id=section_id,
+                    common_context=common_context,
+                    spine_path=spine_path,
+                    add_dirs=add_dirs,
+                    progress=progress,
+                    timeout_sec=timeout_sec,
+                    **job,
+                ): section_id
+                for section_id, job in section_jobs.items()
+            }
+            for future, section_id in futures.items():
+                try:
+                    result, error = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    result, error = None, f"section {section_id} crashed: {exc}"
+                if error or not isinstance(result, dict):
+                    errors.append(f"{section_id}: {error or 'no result'}")
+                else:
+                    results[section_id] = result
+        return results, errors
+
+    # ---- Selective retry: regenerate only the sections the errors name ----
+    if (
+        previous_validation_errors
+        and previous_package_path is not None
+        and previous_package_path.exists()
+        and spine_path.exists()
+        and artifacts_path.exists()
+    ):
+        try:
+            previous_package = json.loads(
+                previous_package_path.read_text(encoding="utf-8")
+            )
+            spine = json.loads(spine_path.read_text(encoding="utf-8"))
+            artifacts = json.loads(artifacts_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            previous_package = None
+            spine = None
+            artifacts = None
+        mapping = (
+            _map_validation_errors_to_sections(
+                previous_package, list(previous_validation_errors)
+            )
+            if isinstance(previous_package, dict) and isinstance(spine, dict)
+            else None
+        )
+        if mapping:
+            briefs = spine.get("section_briefs") or {}
+            previous_sections = {
+                str(section.get("id") or ""): section
+                for section in previous_package.get("sections") or []
+                if isinstance(section, dict)
+            }
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_fast_english_section_retry",
+                    message=(
+                        "Regenerating only the sections named by validation "
+                        f"errors: {', '.join(sorted(mapping))}"
+                    ),
+                    sections=sorted(mapping),
+                )
+            section_jobs: dict[str, dict] = {}
+            for section_id, section_errors in mapping.items():
+                previous_section = previous_sections.get(section_id)
+                previous_section_path = None
+                if isinstance(previous_section, dict):
+                    previous_section_path = (
+                        units_dir / f"{section_id}.previous.json"
+                    )
+                    previous_section_path.write_text(
+                        json.dumps(
+                            previous_section, ensure_ascii=False, indent=2
+                        ),
+                        encoding="utf-8",
+                    )
+                section_jobs[section_id] = {
+                    "brief": str(briefs.get(section_id) or ""),
+                    "validation_errors": section_errors,
+                    "previous_section_path": previous_section_path,
+                }
+            results, errors = _run_sections(section_jobs)
+            if not errors:
+                package = dict(previous_package)
+                package["sections"] = [
+                    results[section_id]["section"]
+                    if section_id in results
+                    else previous_sections.get(section_id)
+                    for section_id in MEMO_PACKAGE_SECTION_IDS
+                    if section_id in results
+                    or previous_sections.get(section_id) is not None
+                ]
+                cost = sum(
+                    _to_float(result.get("claude_cost_usd"))
+                    for result in results.values()
+                )
+                duration = max(
+                    (
+                        _to_int(result.get("claude_duration_ms"))
+                        for result in results.values()
+                    ),
+                    default=0,
+                )
+                return (
+                    {
+                        "analysis_artifacts": artifacts
+                        if isinstance(artifacts, dict)
+                        else {},
+                        "memo_package": package,
+                        "claude_cost_usd": round(cost, 6) if cost else None,
+                        "claude_duration_ms": duration or None,
+                        "claude_usage": None,
+                    },
+                    None,
+                )
+            logger.warning(
+                "selective section retry failed (%s); running full parallel pass",
+                "; ".join(errors[:3]),
+            )
+
+    # ---- Full parallel pass: spine, then every section --------------------
+    spine_result, spine_error = run_memo_fast_english_spine(
+        run_dir=run_dir,
+        company_name=company_name,
+        common_context=common_context,
+        add_dirs=add_dirs,
+        progress=progress,
+        timeout_sec=timeout_sec,
+        validation_feedback=validation_feedback,
+    )
+    if spine_error or not isinstance(spine_result, dict):
+        return _fallback(spine_error or "spine pass returned no data")
+    skeleton = spine_result.get("package_skeleton")
+    briefs = spine_result.get("section_briefs")
+    artifacts = spine_result.get("analysis_artifacts")
+    if (
+        not isinstance(skeleton, dict)
+        or not isinstance(skeleton.get("company"), dict)
+        or not isinstance(skeleton.get("sources"), list)
+        or not skeleton.get("sources")
+        or not isinstance(briefs, dict)
+    ):
+        return _fallback("spine returned an unusable skeleton or briefs")
+    spine_payload = {
+        "package_skeleton": skeleton,
+        "section_briefs": briefs,
+    }
+    spine_path.write_text(
+        json.dumps(spine_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    artifacts_path.write_text(
+        json.dumps(
+            artifacts if isinstance(artifacts, dict) else {},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_fast_english_parallel_dispatch",
+            message=(
+                f"Drafting {len(MEMO_PACKAGE_SECTION_IDS)} memo sections with "
+                f"up to {workers} parallel workers"
+            ),
+            sections=list(MEMO_PACKAGE_SECTION_IDS),
+            worker_count=workers,
+        )
+    feedback_errors: list[str] | None = None
+    if validation_feedback:
+        feedback_errors = [
+            line[2:].strip() if line.startswith("- ") else line.strip()
+            for line in validation_feedback.splitlines()
+            if line.strip()
+        ]
+    section_jobs = {
+        section_id: {
+            "brief": str(briefs.get(section_id) or ""),
+            "validation_errors": feedback_errors,
+            "previous_section_path": None,
+        }
+        for section_id in MEMO_PACKAGE_SECTION_IDS
+    }
+    results, errors = _run_sections(section_jobs)
+    if errors:
+        return _fallback("; ".join(errors[:3]))
+
+    sections = [
+        results[section_id]["section"]
+        for section_id in MEMO_PACKAGE_SECTION_IDS
+    ]
+    package = dict(skeleton)
+    package.setdefault("schema_version", 1)
+    package["sections"] = sections
+    cost = _to_float(spine_result.get("claude_cost_usd")) + sum(
+        _to_float(result.get("claude_cost_usd")) for result in results.values()
+    )
+    duration = _to_int(spine_result.get("claude_duration_ms")) + max(
+        (
+            _to_int(result.get("claude_duration_ms"))
+            for result in results.values()
+        ),
+        default=0,
+    )
+    return (
+        {
+            "analysis_artifacts": artifacts if isinstance(artifacts, dict) else {},
+            "memo_package": package,
+            "claude_cost_usd": round(cost, 6) if cost else None,
+            "claude_duration_ms": duration or None,
+            "claude_usage": None,
+        },
+        None,
+    )
+
+
 def run_memo_fast_bilingual_package(
     *,
     run_dir: Path,
@@ -3905,8 +4782,10 @@ Chinese style:
   decision-question labels, `硬 IP 墙`, or `软性工具`.
 - Use these fixed translations for risk-card row labels: Risk Type →
   风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
-  Risk Rating → 风险评分. A card heading "Risk N: <summary>" becomes
-  "风险 N：<一句话概括>". Keep the rating value format `N/10` unchanged.
+  Likelihood → 可能性; Risk Rating → 风险评分. A card heading
+  "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
+  High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
+  rating value format `N/10` unchanged.
 """
     return _run_memo_local_json_artifact(
         prompt=prompt,
@@ -4007,8 +4886,10 @@ Chinese style:
   decision-question labels, `硬 IP 墙`, or `软性工具`.
 - Use these fixed translations for risk-card row labels: Risk Type →
   风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
-  Risk Rating → 风险评分. A card heading "Risk N: <summary>" becomes
-  "风险 N：<一句话概括>". Keep the rating value format `N/10` unchanged.
+  Likelihood → 可能性; Risk Rating → 风险评分. A card heading
+  "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
+  High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
+  rating value format `N/10` unchanged.
 """
 
 

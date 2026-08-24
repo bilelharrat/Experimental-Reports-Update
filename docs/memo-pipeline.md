@@ -66,7 +66,10 @@ memo_analysis._run(report_id)                      # long-running
 **Always:**
 
 - `data/settings/serena_background.md` — BSH investment thesis (Serena's
-  voice + decision style + late-stage criteria).
+  voice + decision style + late-stage criteria). On a fresh checkout this
+  is seeded at startup from the Git-tracked
+  `server/seed_data/default_analyst_background.md`; an existing local
+  file always wins.
 - `data/companies.yaml` — the company's registry record (the entry whose
   `id` matches the slug). This carries description, sector, stage,
   status, exchange, founded year, website, key people, latest funding,

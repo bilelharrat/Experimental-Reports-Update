@@ -1219,7 +1219,8 @@ these slugs and writes content coverage into `logs/validation.txt`.
 - `replacement_coexistence`: replacement-vs-coexistence treatment.
 - `moat`: moat / defensibility table.
 - `risk_register`: per-risk card tables (Risk Type / Why it matters / What we
-  watch / Risk Rating), one card per risk under a "Risk N: …" heading.
+  watch / Likelihood / Risk Rating), one card per risk under a "Risk N: …"
+  heading.
 - `disconfirming_evidence`: bear-case or disconfirming evidence treatment.
 - `time_base_integrity`: valuation/date/multiple timing table.
 - `growth_bridge`: growth bridge table.
@@ -1641,6 +1642,7 @@ Render as 4–6 per-risk cards, NOT one wide risk table. Each card is a
 |---|---|
 | Why it matters | 2–4 plain sentences: what the risk is, the evidence behind it, and the effect on valuation stated explicitly with numbers. |
 | What we watch | 1–3 concrete, observable signals that would confirm or defuse the risk, dated where possible. |
+| Likelihood | Medium: one short clause on why this likelihood. |
 | Risk Rating | 8/10: one short clause on why it earns this rating. |
 
 Rules for the cards:
@@ -1650,9 +1652,15 @@ Rules for the cards:
   label ("Financing risk" is a Risk Type, not a summary).
 - Risk Type is a 1–4 word category: Commercial, Market, Competition,
   Technology, Financing, Regulatory, Execution, or another short label.
+- Likelihood is `High|Medium|Low: <short reason>` — how likely the risk is
+  to materialize inside the 3–5 year underwriting window. Anchors: High —
+  more likely than not; Medium — a realistic chance, roughly one-in-three;
+  Low — unlikely, but consequential enough to track. Ground the reason in
+  evidence, not vibes.
 - Risk Rating anchors: 9–10 could break the investment case on its own;
   7–8 could push the outcome below base case; 5–6 meaningful but
-  monitorable; 3–4 real but limited effect; 1–2 minor.
+  monitorable; 3–4 real but limited effect; 1–2 minor. The rating scores
+  impact-weighted importance, not probability — Likelihood carries that.
 - Order the cards by Risk Rating, highest first — the most important risk
   is the first thing the reader sees.
 - Write like a person, not a report generator: short declarative sentences,
@@ -1858,6 +1866,7 @@ Rules:
 | Risk Type | 风险类型 |
 | Why it matters | 为什么重要 |
 | What we watch | 跟踪信号 |
+| Likelihood | 可能性 |
 | Risk Rating | 风险评分 |
 | Key Disconfirming Evidence | 关键反证 |
 | Downside Scenario | 下行情景 |

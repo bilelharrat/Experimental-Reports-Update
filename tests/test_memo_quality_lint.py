@@ -129,6 +129,78 @@ def test_linter_treats_disclosure_gap_via_sibling_note_cell(tmp_path):
     )
 
 
+def test_linter_accepts_natural_treatment_verb_forms(tmp_path):
+    # Real cells from the 2026-08-21 Tenstorrent run: attempt 1 treated its
+    # gaps with "our downside case assumes ..." and "we value ... take a
+    # discount", which the exact-word term list missed, costing a 12-minute
+    # full-package retry. Stemmed terms must accept these.
+    path = tmp_path / "verb-forms.docx"
+    _save_docx(
+        path,
+        paragraphs=["II. Company Overview"],
+        tables=[
+            [
+                ["Topic", "Treatment"],
+                [
+                    "Preference stack",
+                    "Detailed seniority is not disclosed, and our downside "
+                    "case assumes the preference absorbs most of a weak "
+                    "outcome.",
+                ],
+                [
+                    "Team premium",
+                    "Retention terms are not disclosed. We value the team as "
+                    "an execution input and take a discount rather than a "
+                    "premium when pricing it.",
+                ],
+            ],
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(
+        f.code == "disclosure_gap_without_treatment" for f in result.findings
+    )
+
+
+def test_linter_accepts_hyphenated_back_verbs(tmp_path):
+    # "we back-solve" / "we back-test" are modeling verbs, not the banned
+    # sell-side "we back <asset>" phrasing. The 2026-08-21 ZaiNar run showed
+    # the voice rewrite mangling "we back-solve" into "BSH invests in-solve";
+    # this lint pattern shared the same word-boundary hole.
+    path = tmp_path / "back-solve.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "II. Company Overview",
+            "We back-solve a prior-year revenue base near $8,600,000 and "
+            "back-test the resulting multiple.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(
+        f.code == "sell_side_voice_violation" for f in result.findings
+    )
+
+
+def test_linter_still_flags_plain_we_back(tmp_path):
+    path = tmp_path / "we-back.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "II. Company Overview",
+            "We back the company because the channel is durable.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+
+
 def test_linter_still_flags_untreated_disclosure_gap(tmp_path):
     # A bare "Not disclosed" cell with no treatment anywhere in its row must
     # still be flagged — the row-aware fix must not neuter the gate.

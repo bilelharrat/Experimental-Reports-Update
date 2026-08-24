@@ -75,6 +75,7 @@ company records that must survive a GitHub checkout live in tracked seed files:
 |---|---|---|
 | `server/seed_data/company_records.yaml` | Git-tracked product data | Curated company profile and PRD overview fields, including the ZaiNar v2 demo record. |
 | `server/seed_data/company_fixtures.yaml` | Git-tracked QA data | Opt-in deterministic fixtures for Databricks, Stripe, NextNav, and empty company states. |
+| `server/seed_data/default_analyst_background.md` | Git-tracked product data | AI-generated default analyst background, copied to `data/settings/serena_background.md` at startup when no background exists, so a fresh checkout can generate memos immediately. A locally present background is never overwritten. |
 | `data/companies.yaml` | Server-local runtime data | Materialized company registry consumed by the API, memo generation, translations, trader snapshots, and local edits. |
 
 Startup runs `local_generation.generate_local_runtime_state()`, which calls

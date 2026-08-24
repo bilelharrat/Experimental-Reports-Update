@@ -25,6 +25,9 @@ COMPANY_SEED_FILE = (
 COMPANY_FIXTURE_FILE = (
     Path(__file__).resolve().parent / "seed_data" / "company_fixtures.yaml"
 )
+ANALYST_BACKGROUND_SEED_FILE = (
+    Path(__file__).resolve().parent / "seed_data" / "default_analyst_background.md"
+)
 
 _LOCAL_GENERATED_COMPANY_FIELDS: frozenset[str] = frozenset({
     "audit_records",
@@ -939,6 +942,33 @@ def bootstrap_seed_data() -> None:
         if not COMPANIES_FILE.exists():
             _write_yaml(COMPANIES_FILE, _SEED_COMPANIES)
         _backfill_company_types()
+
+
+def analyst_background_file() -> Path:
+    # Derived per call: tests monkeypatch ``storage.DATA_DIR``.
+    return DATA_DIR / "settings" / "serena_background.md"
+
+
+def materialize_analyst_background(
+    seed_file: Path = ANALYST_BACKGROUND_SEED_FILE,
+) -> bool:
+    """Seed ``data/settings/serena_background.md`` from the tracked default.
+
+    The memo pipeline refuses to run without an analyst background. The
+    Git-tracked default (an AI-generated generic BSH profile) fills that
+    gap on a fresh checkout. A background that already exists locally is
+    never touched — a real per-analyst file always wins over the shipped
+    default. Returns True when the default was written.
+    """
+    target = analyst_background_file()
+    if target.exists() or not seed_file.exists():
+        return False
+    with _LOCK:
+        if target.exists():
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(seed_file.read_text(encoding="utf-8"), encoding="utf-8")
+    return True
 
 
 def _load_company_seed_records(seed_file: Path = COMPANY_SEED_FILE) -> list[dict]:
