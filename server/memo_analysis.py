@@ -79,6 +79,18 @@ def _memo_fast_pipeline_enabled() -> bool:
     return _env_flag("BSH_MEMO_FAST_PIPELINE", default=True)
 
 
+def _memo_zh_chasing_enabled() -> bool:
+    """Speculative Chinese translation of English sections as they finish.
+
+    Only meaningful when the parallel English path is on — without it there
+    are no per-section English drafts to chase.
+    """
+    return (
+        os.environ.get("BSH_MEMO_ZH_CHASING", "0") == "1"
+        and os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
+    )
+
+
 def _memo_fast_max_workers() -> int:
     raw = os.environ.get("BSH_MEMO_FAST_MAX_WORKERS")
     try:
@@ -2621,6 +2633,14 @@ def _run_fast_memo_pipeline(
     last_attempt_result: dict | None = None
     last_attempt_path: Path | None = None
     max_attempts = 1 + _memo_fast_english_package_retries()
+    zh_chaser = None
+    if _memo_zh_chasing_enabled():
+        zh_chaser = claude_runner.BilingualChaser(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            stream=stream,
+        )
     phase3_cost_before = phase3_progress.cost_usd
     phase3_duration_before = phase3_progress.duration_ms
     for attempt in range(1, max_attempts + 1):
@@ -2670,6 +2690,23 @@ def _run_fast_memo_pipeline(
                 previous_package_path=last_attempt_path,
                 stream=stream,
                 attempt=attempt,
+                # Chase only the clean first attempt: retries and repairs
+                # rewrite English, which would strand the speculative
+                # translations (bounded-waste rule).
+                on_spine=(
+                    zh_chaser.on_spine
+                    if zh_chaser is not None
+                    and attempt == 1
+                    and not validation_feedback
+                    else None
+                ),
+                on_section=(
+                    zh_chaser.on_section
+                    if zh_chaser is not None
+                    and attempt == 1
+                    and not validation_feedback
+                    else None
+                ),
             )
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
@@ -2969,6 +3006,8 @@ def _run_fast_memo_pipeline(
     )
     if english_error or not isinstance(english_result, dict):
         message = english_error or "English package pass returned no data."
+        if zh_chaser is not None:
+            zh_chaser.shutdown()
         phase3_progress.emit("thread_failed", error=message)
         _emit_phase_timing(
             stream,
@@ -3010,6 +3049,8 @@ def _run_fast_memo_pipeline(
     english_package = english_result.get("memo_package")
     if not isinstance(english_package, dict):
         message = "English package pass did not return memo_package."
+        if zh_chaser is not None:
+            zh_chaser.shutdown()
         phase3_progress.emit("thread_failed", error=message)
         _emit_phase_timing(
             stream,
@@ -3059,14 +3100,70 @@ def _run_fast_memo_pipeline(
         started_at=phase4_started_at,
         started_monotonic=phase4_started,
     )
+    # Chinese chasing: join the speculative per-section translations that
+    # raced Phase 3, merge whatever still matches the accepted English
+    # (repaired strings are silently dropped by the exact-en-match rule),
+    # and let the normal pass below gap-fill the rest. memo_package.en.json
+    # stays the pure accepted-English artifact; the merged input gets its
+    # own file.
+    bilingual_input_path = english_package_path
+    if zh_chaser is not None and zh_chaser.has_units:
+        chase_started_at = _now_iso()
+        chase_started = time.monotonic()
+        phase4_progress.emit(
+            "stage",
+            stage="memo_zh_chase_join",
+            message=(
+                f"Joining {zh_chaser.unit_count} speculative Chinese "
+                "chase units"
+            ),
+        )
+        chase_outcome = zh_chaser.collect()
+        chase_stats = zh_chaser.merge_into(
+            english_package, chase_outcome["units"]
+        )
+        cost_usd += _as_float(chase_outcome.get("cost_usd"))
+        worker_duration_ms += _as_int(chase_outcome.get("duration_ms"))
+        _emit_phase_timing(
+            stream,
+            phase="memo_zh_chase",
+            status="finished",
+            started_at=chase_started_at,
+            started_monotonic=chase_started,
+            cost_usd=chase_outcome.get("cost_usd"),
+            units_chased=len(chase_outcome["units"]),
+            units_missed=len(chase_outcome["missed"])
+            + len(chase_outcome["failed"]),
+            strings_adopted=chase_stats["adopted"],
+            strings_blank_remaining=chase_stats["blank_after"],
+        )
+        phase4_progress.emit(
+            "stage",
+            stage="memo_zh_chase_merge",
+            message=(
+                f"Adopted {chase_stats['adopted']} chased translations; "
+                f"{chase_stats['blank_after']} strings left for the gap-fill"
+            ),
+            units_chased=len(chase_outcome["units"]),
+            units_missed=len(chase_outcome["missed"])
+            + len(chase_outcome["failed"]),
+            strings_adopted=chase_stats["adopted"],
+            strings_blank_remaining=chase_stats["blank_after"],
+        )
+        bilingual_input_path = run_dir / "logs" / "memo_package.en.chased.json"
+        _write_json(bilingual_input_path, english_package)
+    if zh_chaser is not None:
+        zh_chaser.shutdown()
     # Fan the pure-translation Chinese pass out per-section (R6d); it
     # falls back to the monolithic pass on any unexpected shape/failure.
+    # With only_missing=True this is the gap-fill when chasing ran, and
+    # exactly the historical full translation when it didn't.
     bilingual_result, bilingual_error = (
         claude_runner.run_memo_fast_bilingual_package_parallel(
             run_dir=run_dir,
             company_name=company_name,
             run_id=run_id,
-            english_package_path=english_package_path,
+            english_package_path=bilingual_input_path,
             progress=phase4_progress,
             stream=stream,
         )

@@ -5485,6 +5485,292 @@ Task:
     return unit, None
 
 
+def _memo_zh_chase_workers() -> int:
+    raw = os.environ.get("BSH_MEMO_ZH_CHASE_WORKERS")
+    try:
+        value = int(raw) if raw is not None else 2
+    except (TypeError, ValueError):
+        value = 2
+    return max(1, min(value, 6))
+
+
+def _memo_zh_chase_join_timeout_sec() -> float:
+    raw = os.environ.get("BSH_MEMO_ZH_CHASE_JOIN_TIMEOUT_SEC")
+    try:
+        value = float(raw) if raw is not None else 900.0
+    except (TypeError, ValueError):
+        value = 900.0
+    return max(0.0, min(value, 1800.0))
+
+
+class BilingualChaser:
+    """Speculative Chinese translation racing the English synthesis.
+
+    When the parallel English path is on, `on_spine`/`on_section` hooks
+    snapshot each finished English unit to disk and immediately start its
+    translation on a private pool — while other sections are still being
+    written. After the English package is ACCEPTED, `collect()` joins the
+    in-flight units (bounded wait) and `merge_into()` adopts translations
+    via `_adopt_zh_translations`, whose exact-``en``-match rule silently
+    drops anything a later repair or regeneration invalidated. Whatever is
+    still blank falls to the normal gap-fill pass, so staleness can only
+    ever waste money, never corrupt the memo.
+
+    Hooks fire on attempt 1 of the full parallel pass only (the caller
+    enforces this), bounding the worst-case waste at one translation round.
+    A unit that misses the join deadline keeps running until its own
+    subprocess timeout; its result is simply unused.
+    """
+
+    def __init__(
+        self,
+        *,
+        run_dir: Path,
+        company_name: str,
+        run_id: str,
+        stream=None,
+        max_workers: int | None = None,
+        unit_timeout_sec: int = 1200,
+    ):
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._run_dir = run_dir
+        self._company_name = company_name
+        self._run_id = run_id
+        self._stream = stream
+        self._timeout_sec = unit_timeout_sec
+        self._units_dir = run_dir / "logs" / "bilingual_units" / "chase"
+        self._pool = ThreadPoolExecutor(
+            max_workers=max_workers or _memo_zh_chase_workers(),
+            thread_name_prefix="memo-zh-chase",
+        )
+        self._lock = threading.Lock()
+        self._futures: dict[str, Any] = {}
+        self._starts: dict[str, tuple[str, float]] = {}
+
+    @property
+    def has_units(self) -> bool:
+        return bool(self._futures)
+
+    @property
+    def unit_count(self) -> int:
+        return len(self._futures)
+
+    def on_spine(self, spine_payload: dict) -> None:
+        """Hook: the envelope (company/run/sources) is stable once the spine
+        lands — start its translation immediately."""
+        try:
+            skeleton = (spine_payload or {}).get("package_skeleton")
+            if isinstance(skeleton, dict) and skeleton:
+                self._submit(
+                    "envelope", "package envelope (chase)", skeleton, 4.01
+                )
+        except Exception:  # noqa: BLE001
+            logger.warning("zh chase spine hook failed", exc_info=True)
+
+    def on_section(self, section_id: str, section: dict) -> None:
+        try:
+            if not isinstance(section, dict):
+                return
+            try:
+                index = MEMO_PACKAGE_SECTION_IDS.index(str(section_id))
+            except ValueError:
+                index = len(MEMO_PACKAGE_SECTION_IDS)
+            self._submit(
+                str(section_id),
+                f"section {section_id} (chase)",
+                section,
+                round(4.02 + index / 100, 4),
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "zh chase section hook failed for %s", section_id, exc_info=True
+            )
+
+    def _submit(
+        self, unit_id: str, label: str, payload: dict, phase_index: float
+    ) -> None:
+        with self._lock:
+            if unit_id in self._futures:
+                return
+            self._units_dir.mkdir(parents=True, exist_ok=True)
+            # Snapshot to disk NOW: later structure/quality repairs mutate
+            # the live section objects, and the unit prompt reads a path.
+            unit_path = self._units_dir / f"{unit_id}.en.json"
+            unit_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            row_label = f"Chinese chase - {unit_id}"
+            started_at = datetime.now(timezone.utc).isoformat()
+            self._starts[unit_id] = (started_at, time.monotonic())
+            unit_progress = None
+            if self._stream is not None:
+                self._stream.emit(
+                    "thread_planned",
+                    thread=row_label,
+                    title=row_label,
+                    phase_index=phase_index,
+                    parent_thread=_MEMO_PHASE4_THREAD,
+                    group="memo_zh_chase",
+                    unit_id=unit_id,
+                    estimate_ms=300_000,
+                    description=f"Speculatively translate the {label}",
+                )
+                self._stream.emit(
+                    "thread_started",
+                    thread=row_label,
+                    title=row_label,
+                    unit_id=unit_id,
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase=f"zh_chase:{unit_id}",
+                    status="started",
+                    started_at=started_at,
+                    thread=row_label,
+                )
+                unit_progress = job_progress.ThreadProgress(
+                    self._stream, row_label
+                )
+            self._futures[unit_id] = self._pool.submit(
+                _run_bilingual_unit,
+                run_dir=self._run_dir,
+                company_name=self._company_name,
+                run_id=self._run_id,
+                unit_label=label,
+                unit_path=unit_path,
+                progress=unit_progress,
+                timeout_sec=self._timeout_sec,
+            )
+
+    def collect(self, join_timeout_sec: float | None = None) -> dict:
+        """Join in-flight units under one shared deadline.
+
+        Returns ``{"units": {unit_id: unit}, "missed": [...], "failed":
+        [...], "cost_usd": float, "duration_ms": int}``. Missed units (still
+        running at the deadline) are left to finish on their own; their
+        results are unused and their cost is not captured here.
+        """
+        if join_timeout_sec is None:
+            join_timeout_sec = _memo_zh_chase_join_timeout_sec()
+        deadline = time.monotonic() + join_timeout_sec
+        units: dict[str, dict] = {}
+        missed: list[str] = []
+        failed: list[str] = []
+        cost = 0.0
+        duration = 0
+        for unit_id, future in list(self._futures.items()):
+            row_label = f"Chinese chase - {unit_id}"
+            started_at, started_monotonic = self._starts.get(
+                unit_id, (datetime.now(timezone.utc).isoformat(), time.monotonic())
+            )
+            remaining = max(0.0, deadline - time.monotonic())
+            error: str | None = None
+            unit: dict | None = None
+            timed_out = False
+            try:
+                unit, error = future.result(timeout=remaining)
+            except TimeoutError:
+                timed_out = True
+                error = (
+                    f"chase unit {unit_id} not finished before the join "
+                    "deadline; result unused"
+                )
+            except Exception as exc:  # noqa: BLE001
+                error = f"chase unit {unit_id} crashed: {exc}"
+            duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+            if error is None and isinstance(unit, dict):
+                units[unit_id] = unit
+                cost += _to_float(unit.get("claude_cost_usd"))
+                duration += _to_int(unit.get("claude_duration_ms"))
+                if self._stream is not None:
+                    self._stream.emit(
+                        "thread_finished",
+                        thread=row_label,
+                        unit_id=unit_id,
+                        duration_ms=duration_ms,
+                    )
+                    self._stream.emit(
+                        "phase_timing",
+                        phase=f"zh_chase:{unit_id}",
+                        status="finished",
+                        started_at=started_at,
+                        finished_at=datetime.now(timezone.utc).isoformat(),
+                        duration_ms=duration_ms,
+                        thread=row_label,
+                        cost_usd=unit.get("claude_cost_usd"),
+                        claude_duration_ms=unit.get("claude_duration_ms"),
+                    )
+            else:
+                (missed if timed_out else failed).append(unit_id)
+                if self._stream is not None:
+                    self._stream.emit(
+                        "thread_failed",
+                        thread=row_label,
+                        unit_id=unit_id,
+                        duration_ms=duration_ms,
+                        error=str(error)[:500],
+                    )
+                    self._stream.emit(
+                        "phase_timing",
+                        phase=f"zh_chase:{unit_id}",
+                        status="failed",
+                        started_at=started_at,
+                        finished_at=datetime.now(timezone.utc).isoformat(),
+                        duration_ms=duration_ms,
+                        thread=row_label,
+                        error=str(error)[:500],
+                    )
+        return {
+            "units": units,
+            "missed": missed,
+            "failed": failed,
+            "cost_usd": round(cost, 6),
+            "duration_ms": duration,
+        }
+
+    def merge_into(self, package: dict, units: dict[str, dict]) -> dict:
+        """Adopt chased translations into the accepted English package.
+
+        The envelope unit merges at the package root; section units merge
+        into the matching ``sections[]`` entry by id (unmatched units are
+        dropped). All adoption goes through ``_adopt_zh_translations`` —
+        exact-``en``-match, blank-``zh``-only — so stale chases cannot
+        corrupt anything. Returns ``{"adopted", "dropped_units",
+        "blank_before", "blank_after"}``.
+        """
+        blank_before = _count_blank_zh(package)
+        dropped_units = 0
+        sections_by_id = {
+            str(section.get("id") or ""): section
+            for section in package.get("sections") or []
+            if isinstance(section, dict)
+        }
+        for unit_id, unit in units.items():
+            if not isinstance(unit, dict):
+                dropped_units += 1
+                continue
+            if unit_id == "envelope":
+                _adopt_zh_translations(package, unit)
+                continue
+            section = sections_by_id.get(unit_id)
+            if isinstance(section, dict):
+                _adopt_zh_translations(section, unit)
+            else:
+                dropped_units += 1
+        blank_after = _count_blank_zh(package)
+        return {
+            "adopted": blank_before - blank_after,
+            "dropped_units": dropped_units,
+            "blank_before": blank_before,
+            "blank_after": blank_after,
+        }
+
+    def shutdown(self) -> None:
+        self._pool.shutdown(wait=False)
+
+
 def _has_blank_zh(obj: Any) -> bool:
     """True when any localized {en, zh} leaf has English but a blank zh."""
     if isinstance(obj, dict):

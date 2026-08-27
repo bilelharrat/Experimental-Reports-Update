@@ -3985,3 +3985,257 @@ def test_full_fast_pipeline_end_to_end_survives_adversarial_generation(
     events = _events(memo_prep.stream_path(run_dir))
     assert events[-1]["type"] == "done"
     assert events[-1]["quality_warnings"]
+
+
+# ---- Chinese chasing (Stage 3 of report-speedup) ---------------------------
+
+
+def _chasing_fake_pass(**kwargs):
+    return {
+        "summary": f"{kwargs['pass_label']} summary.",
+        "key_findings": [
+            {
+                "claim": "Commercial proof",
+                "finding": "Evidence supports a scoped diligence path.",
+                "evidence_class": "company-reported",
+                "implication": "Use as conditional support.",
+                "confidence": "medium",
+            }
+        ],
+        "supporting_evidence": [],
+        "disconfirming_evidence": [],
+        "open_questions": [],
+        "memo_uses": ["Use in the investment case."],
+        "claude_cost_usd": 0.01,
+        "claude_duration_ms": 100,
+    }, None
+
+
+def _chasing_artifacts() -> dict:
+    return {
+        "claim_register_md": "# Claim Register\n\n- Commercial proof: supported.",
+        "scenario_swim_lanes_md": "# Scenario Swim Lanes\n\n- Base case.",
+        "downside_scenario_md": "# Downside Scenario\n\n- Stall.",
+        "countercase_md": "# Countercase\n\n- Pass conditions.",
+        "source_treatment_assumptions_md": (
+            "# Source Treatment And Assumptions\n\n- Revenue: not disclosed."
+        ),
+        "risk_sensitivities_md": "# Risk Sensitivities\n\n1. Conversion.",
+    }
+
+
+def _fill_zh_unit(unit: dict) -> dict:
+    def fill(node):
+        if isinstance(node, dict):
+            if "en" in node and "zh" in node and not node["zh"]:
+                node["zh"] = f"中文:{node['en']}"
+            for value in node.values():
+                fill(value)
+        elif isinstance(node, list):
+            for value in node:
+                fill(value)
+
+    fill(unit)
+    return unit
+
+
+def _chasing_env(memo_env, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    monkeypatch.setenv("BSH_MEMO_ZH_CHASING", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit(
+        "job_init",
+        kind="memo",
+        title="Investment memo — Generalist, Inc.",
+        report_id=report["id"],
+        company_id="generalist-inc",
+        run_id=report["run_id"],
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", _chasing_fake_pass
+    )
+
+    def fake_unit(*, unit_path, **kwargs):
+        unit = _fill_zh_unit(json.loads(unit_path.read_text(encoding="utf-8")))
+        unit["claude_cost_usd"] = 0.02
+        unit["claude_duration_ms"] = 50
+        return unit, None
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+    return report, run_dir
+
+
+def test_fast_pipeline_chasing_end_to_end(memo_env, monkeypatch):
+    report, run_dir = _chasing_env(memo_env, monkeypatch)
+    package = _memo_package(body_zh="")
+
+    def fake_parallel_english(**kwargs):
+        assert callable(kwargs["on_spine"]), "attempt 1 must receive hooks"
+        assert callable(kwargs["on_section"])
+        kwargs["on_spine"](
+            {
+                "package_skeleton": {
+                    k: v for k, v in package.items() if k != "sections"
+                }
+            }
+        )
+        for section in package["sections"]:
+            kwargs["on_section"](section["id"], section)
+        return {
+            "analysis_artifacts": _chasing_artifacts(),
+            "memo_package": package,
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+            "claude_wall_ms": 700,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        fake_parallel_english,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "fully chased package must not need the monolithic fallback"
+            )
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    chased_path = run_dir / "logs" / "memo_package.en.chased.json"
+    assert chased_path.exists()
+    # memo_package.en.json stays the pure accepted-English artifact.
+    english = json.loads(
+        (run_dir / "logs" / "memo_package.en.json").read_text(encoding="utf-8")
+    )
+    assert english["sections"][0]["blocks"][0]["text"]["zh"] == ""
+    final = json.loads(
+        (run_dir / "logs" / "memo_package.json").read_text(encoding="utf-8")
+    )
+    assert final["sections"][0]["blocks"][0]["text"]["zh"].startswith("中文:")
+    events = _events(memo_prep.stream_path(run_dir))
+    chase_rows = [
+        e
+        for e in events
+        if e.get("type") == "phase_timing" and e.get("phase") == "memo_zh_chase"
+    ]
+    assert chase_rows and chase_rows[-1]["strings_adopted"] >= 1
+    assert any(
+        e.get("phase") == "zh_chase:envelope" and e.get("status") == "finished"
+        for e in events
+        if e.get("type") == "phase_timing"
+    )
+    assert any(e.get("stage") == "memo_zh_chase_merge" for e in events)
+
+
+def test_fast_pipeline_chasing_flag_off_passes_no_hooks(memo_env, monkeypatch):
+    report, run_dir = _chasing_env(memo_env, monkeypatch)
+    monkeypatch.delenv("BSH_MEMO_ZH_CHASING", raising=False)
+    package = _memo_package(body_zh="")
+
+    def fake_parallel_english(**kwargs):
+        assert kwargs["on_spine"] is None
+        assert kwargs["on_section"] is None
+        return {
+            "analysis_artifacts": _chasing_artifacts(),
+            "memo_package": package,
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        fake_parallel_english,
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert not (run_dir / "logs" / "memo_package.en.chased.json").exists()
+
+
+def test_fast_pipeline_chasing_not_used_on_retry_attempts(memo_env, monkeypatch):
+    report, run_dir = _chasing_env(memo_env, monkeypatch)
+    valid_package = _memo_package(body_zh="")
+    hook_states: list[bool] = []
+
+    def fake_parallel_english(**kwargs):
+        hook_states.append(kwargs["on_section"] is not None)
+        if len(hook_states) == 1:
+            if callable(kwargs["on_section"]):
+                for section in valid_package["sections"][1:]:
+                    kwargs["on_section"](section["id"], section)
+            invalid = dict(valid_package)
+            invalid["sections"] = valid_package["sections"][1:]
+            return {
+                "analysis_artifacts": _chasing_artifacts(),
+                "memo_package": invalid,
+                "claude_cost_usd": 0.10,
+                "claude_duration_ms": 500,
+            }, None
+        return {
+            "analysis_artifacts": _chasing_artifacts(),
+            "memo_package": valid_package,
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        fake_parallel_english,
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert hook_states[0] is True
+    assert all(state is False for state in hook_states[1:])
+    assert len(hook_states) >= 2, "the invalid attempt must have retried"
+
+
+def test_fast_pipeline_chasing_monolithic_fallback_discards_cleanly(
+    memo_env, monkeypatch
+):
+    """If the English path fell back to monolithic, no hooks ever fired —
+    Phase 4 must run exactly as it does without chasing."""
+    report, run_dir = _chasing_env(memo_env, monkeypatch)
+    package = _memo_package(body_zh="")
+
+    def fake_parallel_english(**kwargs):
+        # Simulates the internal monolithic fallback: hooks never invoked.
+        return {
+            "analysis_artifacts": _chasing_artifacts(),
+            "memo_package": package,
+            "claude_cost_usd": 0.10,
+            "claude_duration_ms": 500,
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        fake_parallel_english,
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert not (run_dir / "logs" / "memo_package.en.chased.json").exists()
+    final = json.loads(
+        (run_dir / "logs" / "memo_package.json").read_text(encoding="utf-8")
+    )
+    assert final["sections"][0]["blocks"][0]["text"]["zh"].startswith("中文:")
