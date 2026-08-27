@@ -186,9 +186,12 @@ def _memo_package(body_en=None, body_zh=None):
                                 "We recommend participating where deployment depth "
                                 "and valuation support are visible."
                             ),
+                            # body_zh="" must stay blank (an untranslated
+                            # English package) — only None takes the default.
                             "zh": (
                                 body_zh
-                                or (
+                                if body_zh is not None
+                                else (
                                     "Generalist 构建自动化基础设施。BSH 只有在确认部署深度"
                                     "和估值支撑后才应继续推进。"
                                 )

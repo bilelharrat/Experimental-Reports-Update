@@ -217,3 +217,287 @@ def test_parallel_bilingual_pass_env_kill_switch(monkeypatch, tmp_path):
         english_package_path=tmp_path / "missing.json",
     )
     assert error is None and len(calls) == 1
+
+
+# ---- Per-role model/effort knobs ----
+
+
+def _clear_role_env(monkeypatch):
+    for key in list(__import__("os").environ):
+        if key.startswith("BSH_MEMO_MODEL") or key.startswith("BSH_MEMO_EFFORT"):
+            monkeypatch.delenv(key, raising=False)
+
+
+def test_model_effort_flags_added_to_argv(monkeypatch, tmp_path):
+    captured_cmd: list = []
+
+    def fake_popen(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        raise FileNotFoundError("stop here — we only need the cmd")
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner.subprocess, "Popen", fake_popen)
+
+    claude_runner._run_memo_local_json_artifact(
+        prompt="p",
+        schema={"type": "object"},
+        run_dir=tmp_path,
+        progress=None,
+        progress_message="m",
+        timeout_label="memo test",
+        timeout_sec=10,
+        model="claude-sonnet-5",
+        effort="medium",
+        append_system_prompt="SHARED CONTEXT",
+    )
+    joined = " ".join(captured_cmd)
+    assert "--model claude-sonnet-5" in joined
+    assert "--effort medium" in joined
+    assert "--append-system-prompt SHARED CONTEXT" in joined
+
+
+def test_model_effort_flags_absent_by_default(monkeypatch, tmp_path):
+    captured_cmd: list = []
+
+    def fake_popen(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        raise FileNotFoundError("stop here")
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner.subprocess, "Popen", fake_popen)
+
+    claude_runner._run_memo_local_json_artifact(
+        prompt="p",
+        schema={"type": "object"},
+        run_dir=tmp_path,
+        progress=None,
+        progress_message="m",
+        timeout_label="memo test",
+        timeout_sec=10,
+    )
+    assert "--model" not in captured_cmd
+    assert "--effort" not in captured_cmd
+    assert "--append-system-prompt" not in captured_cmd
+
+
+def test_role_env_precedence(monkeypatch):
+    _clear_role_env(monkeypatch)
+    assert claude_runner._memo_role_model("TRANSLATION") is None
+    monkeypatch.setenv("BSH_MEMO_MODEL", "opus")
+    assert claude_runner._memo_role_model("TRANSLATION") == "opus"
+    monkeypatch.setenv("BSH_MEMO_MODEL_TRANSLATION", "claude-sonnet-5")
+    assert claude_runner._memo_role_model("TRANSLATION") == "claude-sonnet-5"
+    assert claude_runner._memo_role_model("ENGLISH") == "opus"
+    monkeypatch.setenv("BSH_MEMO_EFFORT_TRANSLATION", "  ")
+    assert claude_runner._memo_role_effort("TRANSLATION") is None
+
+
+def test_translation_units_receive_model_env(monkeypatch, tmp_path):
+    _clear_role_env(monkeypatch)
+    monkeypatch.setenv("BSH_MEMO_MODEL_TRANSLATION", "claude-sonnet-5")
+    captured = _capture(monkeypatch)
+    claude_runner.run_memo_fast_bilingual_package(
+        run_dir=tmp_path,
+        company_name="Test Co",
+        run_id="run-1",
+        english_package_path=tmp_path / "english.json",
+    )
+    assert captured["model"] == "claude-sonnet-5"
+
+
+# ---- Gap-fill (only_missing) ----
+
+
+def _translated_package():
+    package = _english_package()
+
+    def fill(node):
+        if isinstance(node, dict):
+            if "en" in node and "zh" in node and not node["zh"]:
+                node["zh"] = f"中文:{node['en']}"
+            for value in node.values():
+                fill(value)
+        elif isinstance(node, list):
+            for value in node:
+                fill(value)
+
+    fill(package)
+    return package
+
+
+def test_gap_fill_skips_complete_units(monkeypatch, tmp_path):
+    package = _translated_package()
+    # One blank string left, in the second section only.
+    package["sections"][1]["blocks"][0]["text"]["zh"] = ""
+    package_path = tmp_path / "memo_package.en.json"
+    package_path.write_text(json.dumps(package), encoding="utf-8")
+
+    unit_labels: list[str] = []
+
+    def fake_unit(*, unit_path, unit_label, **kwargs):
+        unit_labels.append(unit_label)
+        unit = json.loads(unit_path.read_text(encoding="utf-8"))
+        unit["blocks"][0]["text"]["zh"] = "中文:Beta."
+        unit["claude_cost_usd"] = 0.5
+        unit["claude_duration_ms"] = 1000
+        return unit, None
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+    result, error = claude_runner.run_memo_fast_bilingual_package_parallel(
+        run_dir=tmp_path,
+        company_name="Test Co",
+        run_id="run-1",
+        english_package_path=package_path,
+    )
+    assert error is None
+    assert unit_labels == ["section risks"]
+    assert result["claude_cost_usd"] == 0.5
+    assert result["memo_package"]["sections"][1]["blocks"][0]["text"]["zh"] == (
+        "中文:Beta."
+    )
+
+
+def test_gap_fill_spawns_nothing_when_fully_translated(monkeypatch, tmp_path):
+    package = _translated_package()
+    package_path = tmp_path / "memo_package.en.json"
+    package_path.write_text(json.dumps(package), encoding="utf-8")
+
+    def fail_unit(**kwargs):
+        raise AssertionError("no unit should be spawned")
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fail_unit)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("no fallback")),
+    )
+    result, error = claude_runner.run_memo_fast_bilingual_package_parallel(
+        run_dir=tmp_path,
+        company_name="Test Co",
+        run_id="run-1",
+        english_package_path=package_path,
+    )
+    assert error is None
+    assert result["claude_cost_usd"] is None
+    assert result["memo_package"]["sections"][0]["title"]["zh"].startswith("中文:")
+
+
+def test_gap_fill_unit_failure_still_falls_back_monolithic_once(
+    monkeypatch, tmp_path
+):
+    package = _translated_package()
+    package["sections"][0]["title"]["zh"] = ""
+    package_path = tmp_path / "memo_package.en.json"
+    package_path.write_text(json.dumps(package), encoding="utf-8")
+
+    monkeypatch.setattr(
+        claude_runner, "_run_bilingual_unit", lambda **kwargs: (None, "boom")
+    )
+    fallback_calls = []
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package",
+        lambda **kwargs: (
+            fallback_calls.append(kwargs) or ({"memo_package": {}}, None)
+        ),
+    )
+    result, error = claude_runner.run_memo_fast_bilingual_package_parallel(
+        run_dir=tmp_path,
+        company_name="Test Co",
+        run_id="run-1",
+        english_package_path=package_path,
+    )
+    assert error is None and len(fallback_calls) == 1
+
+
+def test_parallel_bilingual_emits_per_unit_thread_rows(monkeypatch, tmp_path):
+    package = _english_package()
+    package_path = tmp_path / "memo_package.en.json"
+    package_path.write_text(json.dumps(package), encoding="utf-8")
+
+    def fake_unit(*, unit_path, **kwargs):
+        unit = json.loads(unit_path.read_text(encoding="utf-8"))
+        unit["claude_cost_usd"] = 0.1
+        unit["claude_duration_ms"] = 10
+        return unit, None
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+
+    events: list[dict] = []
+
+    class FakeStream:
+        def emit(self, type_, **fields):
+            events.append({"type": type_, **fields})
+
+    result, error = claude_runner.run_memo_fast_bilingual_package_parallel(
+        run_dir=tmp_path,
+        company_name="Test Co",
+        run_id="run-1",
+        english_package_path=package_path,
+        stream=FakeStream(),
+    )
+    assert error is None
+    planned = [e for e in events if e["type"] == "thread_planned"]
+    assert {e["thread"] for e in planned} == {
+        "Chinese - package envelope",
+        "Chinese - section executive_summary",
+        "Chinese - section risks",
+    }
+    assert all(e["parent_thread"] == claude_runner._MEMO_PHASE4_THREAD for e in planned)
+    timings = [
+        e
+        for e in events
+        if e["type"] == "phase_timing" and e["status"] == "finished"
+    ]
+    assert {e["phase"] for e in timings} == {
+        "zh_section:envelope",
+        "zh_section:executive_summary",
+        "zh_section:risks",
+    }
+    finished = [e for e in events if e["type"] == "thread_finished"]
+    assert len(finished) == 3
+
+
+# ---- Shared ThreadProgress and worker defaults ----
+
+
+def test_thread_progress_locked_accumulation():
+    import threading as _threading
+
+    from server import job_progress
+
+    class NullBase:
+        def emit(self, type_, **fields):
+            pass
+
+    progress = job_progress.ThreadProgress(NullBase(), "t")
+
+    def hammer():
+        for _ in range(200):
+            progress.emit(
+                "claude_action", action="result", cost_usd=0.01, duration_ms=1
+            )
+
+    threads = [_threading.Thread(target=hammer) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert abs(progress.cost_usd - 8 * 200 * 0.01) < 1e-6
+    assert progress.duration_ms == 8 * 200
+
+
+def test_memo_fast_max_workers_default_is_8(monkeypatch):
+    from server import memo_analysis
+
+    monkeypatch.delenv("BSH_MEMO_FAST_MAX_WORKERS", raising=False)
+    assert memo_analysis._memo_fast_max_workers() == 8
+    assert claude_runner._memo_bilingual_max_workers() == 8
+    monkeypatch.setenv("BSH_MEMO_FAST_MAX_WORKERS", "4")
+    assert memo_analysis._memo_fast_max_workers() == 4
+    assert claude_runner._memo_bilingual_max_workers() == 4
+    monkeypatch.setenv("BSH_MEMO_FAST_MAX_WORKERS", "99")
+    assert memo_analysis._memo_fast_max_workers() == 8
+    monkeypatch.setenv("BSH_MEMO_FAST_MAX_WORKERS", "garbage")
+    assert memo_analysis._memo_fast_max_workers() == 8
+    assert claude_runner._memo_bilingual_max_workers() == 8

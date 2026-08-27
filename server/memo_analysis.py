@@ -82,9 +82,9 @@ def _memo_fast_pipeline_enabled() -> bool:
 def _memo_fast_max_workers() -> int:
     raw = os.environ.get("BSH_MEMO_FAST_MAX_WORKERS")
     try:
-        value = int(raw) if raw is not None else 4
+        value = int(raw) if raw is not None else 8
     except ValueError:
-        value = 4
+        value = 8
     return max(1, min(value, 8))
 
 
@@ -208,12 +208,17 @@ class _ThreadProgress:
         self._thread = thread
         self.cost_usd = 0.0
         self.duration_ms = 0
+        # Several worker threads can share one _ThreadProgress (the parallel
+        # English sections, the bilingual units); the accumulation must not
+        # lose updates.
+        self._totals_lock = threading.Lock()
 
     def emit(self, type_: str, **fields: Any) -> None:
         fields.setdefault("thread", self._thread)
         if type_ == "claude_action" and fields.get("action") == "result":
-            self.cost_usd += _as_float(fields.get("cost_usd"))
-            self.duration_ms += _as_int(fields.get("duration_ms"))
+            with self._totals_lock:
+                self.cost_usd += _as_float(fields.get("cost_usd"))
+                self.duration_ms += _as_int(fields.get("duration_ms"))
         self._base.emit(type_, **fields)
 
     @property
@@ -3054,6 +3059,7 @@ def _run_fast_memo_pipeline(
             run_id=run_id,
             english_package_path=english_package_path,
             progress=phase4_progress,
+            stream=stream,
         )
     )
     if bilingual_error or not isinstance(bilingual_result, dict):

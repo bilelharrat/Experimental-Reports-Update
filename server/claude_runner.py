@@ -34,6 +34,7 @@ from typing import Any
 
 import yaml
 
+from . import job_progress
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
 
@@ -3608,6 +3609,28 @@ def _analysis_session_file_listing(analysis_session_path: Path | None) -> str:
 MEMO_PACKAGE_SILENCE_TIMEOUT_SEC = 600
 
 
+def _memo_role_env(kind: str, role: str) -> str | None:
+    """Per-role subprocess override: BSH_MEMO_<kind>_<role>, else BSH_MEMO_<kind>.
+
+    Returns None when neither is set (or both are blank), which leaves the
+    spawned `claude` argv byte-identical to the historical behavior — the CLI
+    default model/effort applies.
+    """
+    value = os.environ.get(f"BSH_MEMO_{kind}_{role}") or os.environ.get(
+        f"BSH_MEMO_{kind}"
+    )
+    value = (value or "").strip()
+    return value or None
+
+
+def _memo_role_model(role: str) -> str | None:
+    return _memo_role_env("MODEL", role)
+
+
+def _memo_role_effort(role: str) -> str | None:
+    return _memo_role_env("EFFORT", role)
+
+
 def _run_memo_local_json_artifact(
     *,
     prompt: str,
@@ -3620,6 +3643,9 @@ def _run_memo_local_json_artifact(
     silence_timeout_sec: int = 180,
     add_dirs: list[Path] | None = None,
     allowed_tools: str = "Read,Bash,Grep,Glob",
+    model: str | None = None,
+    effort: str | None = None,
+    append_system_prompt: str | None = None,
 ) -> tuple[dict | None, str | None]:
     if not is_available():
         return None, (
@@ -3647,6 +3673,16 @@ def _run_memo_local_json_artifact(
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
+    if model:
+        cmd.extend(["--model", model])
+    if effort:
+        cmd.extend(["--effort", effort])
+    if append_system_prompt:
+        # Shared context appended to the system prompt lands on the CLI's
+        # system-prompt cache breakpoint, so concurrent subprocesses with the
+        # same appended block share one prompt-cache entry instead of each
+        # paying for it in their user message.
+        cmd.extend(["--append-system-prompt", append_system_prompt])
     for directory in add_dirs or []:
         if directory.exists():
             cmd.extend(["--add-dir", str(directory)])
@@ -3802,6 +3838,8 @@ Rules:
         timeout_label=f"memo pass {pass_id}",
         timeout_sec=timeout_sec,
         add_dirs=add_dirs,
+        model=_memo_role_model("ANALYSIS_PASS"),
+        effort=_memo_role_effort("ANALYSIS_PASS"),
     )
 
 
@@ -3943,6 +3981,8 @@ Return only the JSON matching the attached schema.
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
+        model=_memo_role_model("ENGLISH"),
+        effort=_memo_role_effort("ENGLISH"),
     )
 
 
@@ -4199,6 +4239,8 @@ Return only the JSON matching the attached schema.
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
+        model=_memo_role_model("SPINE"),
+        effort=_memo_role_effort("SPINE"),
     )
 
 
@@ -4273,6 +4315,8 @@ matching the attached schema.
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
+        model=_memo_role_model("SECTION"),
+        effort=_memo_role_effort("SECTION"),
     )
     if error:
         return None, error
@@ -4797,6 +4841,8 @@ Chinese style:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
+        model=_memo_role_model("TRANSLATION"),
+        effort=_memo_role_effort("TRANSLATION"),
     )
 
 
@@ -4858,6 +4904,8 @@ Task:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
+        model=_memo_role_model("REPAIR"),
+        effort=_memo_role_effort("REPAIR"),
     )
 
 
@@ -4959,6 +5007,8 @@ Task:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
+        model=_memo_role_model("TRANSLATION"),
+        effort=_memo_role_effort("TRANSLATION"),
     )
     if error:
         return None, error
@@ -4970,6 +5020,44 @@ Task:
     return unit, None
 
 
+def _has_blank_zh(obj: Any) -> bool:
+    """True when any localized {en, zh} leaf has English but a blank zh."""
+    if isinstance(obj, dict):
+        if "en" in obj and "zh" in obj:
+            en = str(obj.get("en") or "").strip()
+            zh = str(obj.get("zh") or "").strip()
+            if en and not zh:
+                return True
+        return any(_has_blank_zh(value) for value in obj.values())
+    if isinstance(obj, list):
+        return any(_has_blank_zh(value) for value in obj)
+    return False
+
+
+def _count_blank_zh(obj: Any) -> int:
+    """Count localized {en, zh} leaves whose zh is still blank."""
+    if isinstance(obj, dict):
+        own = 0
+        if "en" in obj and "zh" in obj:
+            en = str(obj.get("en") or "").strip()
+            zh = str(obj.get("zh") or "").strip()
+            if en and not zh:
+                own = 1
+        return own + sum(_count_blank_zh(value) for value in obj.values())
+    if isinstance(obj, list):
+        return sum(_count_blank_zh(value) for value in obj)
+    return 0
+
+
+def _memo_bilingual_max_workers() -> int:
+    raw = os.environ.get("BSH_MEMO_FAST_MAX_WORKERS")
+    try:
+        value = int(raw) if raw is not None else 8
+    except (TypeError, ValueError):
+        value = 8
+    return max(1, min(value, 8))
+
+
 def run_memo_fast_bilingual_package_parallel(
     *,
     run_dir: Path,
@@ -4979,6 +5067,8 @@ def run_memo_fast_bilingual_package_parallel(
     progress=None,
     timeout_sec: int = 1200,
     max_workers: int | None = None,
+    stream=None,
+    only_missing: bool = True,
 ) -> tuple[dict | None, str | None]:
     """Per-section fan-out of the bilingual pass (R6d).
 
@@ -4987,6 +5077,13 @@ def run_memo_fast_bilingual_package_parallel(
     per section plus an envelope (everything else: company block, sources,
     top-level strings), translate the units on the shared thread pool, and
     reassemble with a zh-only merge that cannot alter English content.
+
+    ``only_missing`` (default on) skips units whose strings are already
+    fully translated — a no-op for a fresh English package (all zh blank),
+    and the gap-fill behavior the chasing path relies on. ``stream`` is the
+    run's ProgressLog; when provided, each unit gets its own thread row and
+    ``zh_section:<unit_id>`` phase timings instead of collapsing into the
+    single Phase 4 rail.
 
     Falls back to the monolithic ``run_memo_fast_bilingual_package`` when
     the package shape is unexpected or any unit fails — worst case this is
@@ -5032,27 +5129,152 @@ def run_memo_fast_bilingual_package_parallel(
 
     units_dir = run_dir / "logs" / "bilingual_units"
     units_dir.mkdir(parents=True, exist_ok=True)
+    # (unit_id, unit_label, unit_path, source_object)
+    units: list[tuple[str, str, Path, Any]] = []
+    skipped = 0
     envelope = {k: v for k, v in package.items() if k != "sections"}
-    units: list[tuple[str, Path, Any]] = []
-    envelope_path = units_dir / "envelope.en.json"
-    envelope_path.write_text(
-        json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    units.append(("package envelope", envelope_path, envelope))
+    if only_missing and not _has_blank_zh(envelope):
+        skipped += 1
+    else:
+        envelope_path = units_dir / "envelope.en.json"
+        envelope_path.write_text(
+            json.dumps(envelope, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        units.append(("envelope", "package envelope", envelope_path, envelope))
     for index, section in enumerate(sections):
         section_id = (
             str(section.get("id") or f"section-{index}")
             if isinstance(section, dict)
             else f"section-{index}"
         )
+        if only_missing and not _has_blank_zh(section):
+            skipped += 1
+            continue
         path = units_dir / f"{index:02d}_{section_id}.en.json"
         path.write_text(
             json.dumps(section, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        units.append((f"section {section_id}", path, section))
+        units.append((section_id, f"section {section_id}", path, section))
 
-    workers = max_workers or int(os.environ.get("BSH_MEMO_FAST_MAX_WORKERS", "4") or 4)
+    if not units:
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_zh_units_skipped",
+                message=(
+                    f"All {skipped} package units are already translated; "
+                    "no Chinese fill needed"
+                ),
+            )
+        return (
+            {
+                "memo_package": package,
+                "claude_cost_usd": None,
+                "claude_duration_ms": None,
+                "claude_usage": None,
+            },
+            None,
+        )
+
+    workers = max_workers or _memo_bilingual_max_workers()
     workers = max(1, min(workers, len(units)))
+
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_zh_parallel_dispatch",
+            message=(
+                f"Translating {len(units)} package units on "
+                f"{workers} workers"
+            ),
+            units=[label for _, label, _, _ in units],
+            max_workers=workers,
+            skipped_complete=skipped,
+        )
+    if stream is not None:
+        for index, (unit_id, label, _, _) in enumerate(units):
+            row_label = f"Chinese - {label}"
+            stream.emit(
+                "thread_planned",
+                thread=row_label,
+                title=row_label,
+                phase_index=round(4.11 + index / 100, 4),
+                parent_thread=_MEMO_PHASE4_THREAD,
+                group="memo_zh_unit",
+                unit_id=unit_id,
+                estimate_ms=300_000,
+                description=f"Translate the {label} into Simplified Chinese",
+            )
+
+    def _run_unit_with_events(
+        unit_id: str, label: str, path: Path
+    ) -> tuple[dict | None, str | None]:
+        row_label = f"Chinese - {label}"
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        unit_progress = progress
+        if stream is not None:
+            unit_progress = job_progress.ThreadProgress(stream, row_label)
+            stream.emit(
+                "thread_started", thread=row_label, title=row_label, unit_id=unit_id
+            )
+            stream.emit(
+                "phase_timing",
+                phase=f"zh_section:{unit_id}",
+                status="started",
+                started_at=started_at,
+                thread=row_label,
+            )
+        unit, error = _run_bilingual_unit(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            unit_label=label,
+            unit_path=path,
+            progress=unit_progress,
+            timeout_sec=timeout_sec,
+        )
+        if stream is not None:
+            duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+            finished_at = datetime.now(timezone.utc).isoformat()
+            if error is None:
+                stream.emit(
+                    "thread_finished",
+                    thread=row_label,
+                    unit_id=unit_id,
+                    duration_ms=duration_ms,
+                )
+                stream.emit(
+                    "phase_timing",
+                    phase=f"zh_section:{unit_id}",
+                    status="finished",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row_label,
+                    cost_usd=(unit or {}).get("claude_cost_usd"),
+                    claude_duration_ms=(unit or {}).get("claude_duration_ms"),
+                )
+            else:
+                stream.emit(
+                    "thread_failed",
+                    thread=row_label,
+                    unit_id=unit_id,
+                    duration_ms=duration_ms,
+                    error=str(error)[:500],
+                )
+                stream.emit(
+                    "phase_timing",
+                    phase=f"zh_section:{unit_id}",
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row_label,
+                    error=str(error)[:500],
+                )
+        return unit, error
+
     from concurrent.futures import ThreadPoolExecutor
 
     results: list[tuple[str, dict | None, str | None]] = []
@@ -5060,17 +5282,8 @@ def run_memo_fast_bilingual_package_parallel(
         max_workers=workers, thread_name_prefix="memo-bilingual"
     ) as pool:
         futures = {
-            pool.submit(
-                _run_bilingual_unit,
-                run_dir=run_dir,
-                company_name=company_name,
-                run_id=run_id,
-                unit_label=label,
-                unit_path=path,
-                progress=progress,
-                timeout_sec=timeout_sec,
-            ): (label, source)
-            for label, path, source in units
+            pool.submit(_run_unit_with_events, unit_id, label, path): (label, source)
+            for unit_id, label, path, source in units
         }
         for future, (label, source) in futures.items():
             try:

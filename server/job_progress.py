@@ -87,6 +87,52 @@ class ProgressLog:
         return False
 
 
+def _coerce_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+class ThreadProgress:
+    """Stamp every emitted event with a stable `thread` label.
+
+    Wraps a ProgressLog (or another emitter) so one worker's events group
+    into one thread row in the job UI, and accumulates that worker's
+    cost/duration from `claude_action result` events. The accumulation is
+    lock-guarded because several worker threads may share one instance.
+    """
+
+    def __init__(self, base, thread: str):
+        self._base = base
+        self._thread = thread
+        self.cost_usd = 0.0
+        self.duration_ms = 0
+        self._totals_lock = threading.Lock()
+
+    def emit(self, type_: str, **fields: Any) -> None:
+        fields.setdefault("thread", self._thread)
+        if type_ == "claude_action" and fields.get("action") == "result":
+            with self._totals_lock:
+                self.cost_usd += _coerce_float(fields.get("cost_usd"))
+                self.duration_ms += _coerce_int(fields.get("duration_ms"))
+        self._base.emit(type_, **fields)
+
+    @property
+    def is_terminated(self) -> bool:
+        try:
+            return self._base.is_terminated
+        except Exception:  # noqa: BLE001
+            return False
+
+
 def scan_progress_state(path: Path) -> dict:
     """Scan a progress JSONL and summarize where the job stands.
 
