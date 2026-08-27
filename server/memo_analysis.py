@@ -2668,6 +2668,8 @@ def _run_fast_memo_pipeline(
                 validation_feedback=validation_feedback,
                 previous_validation_errors=last_validation_errors or None,
                 previous_package_path=last_attempt_path,
+                stream=stream,
+                attempt=attempt,
             )
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
@@ -2990,8 +2992,15 @@ def _run_fast_memo_pipeline(
     phase3_added_cost = phase3_cost_delta or _as_float(
         english_result.get("claude_cost_usd")
     )
-    phase3_added_duration = phase3_duration_delta or _as_int(
-        english_result.get("claude_duration_ms")
+    # Duration prefers the parallel path's true wall-clock: the side-channel
+    # delta SUMS the concurrent workers' durations (spine + artifacts + five
+    # sections), which reported phase 3 as ~6x its real length. Cost keeps
+    # the side-channel-first precedence — it must include failed attempts
+    # and repair passes the final return value cannot see.
+    phase3_added_duration = (
+        _as_int(english_result.get("claude_wall_ms"))
+        or phase3_duration_delta
+        or _as_int(english_result.get("claude_duration_ms"))
     )
     cost_usd += phase3_added_cost
     worker_duration_ms += phase3_added_duration

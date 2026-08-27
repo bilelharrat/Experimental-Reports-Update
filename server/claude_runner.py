@@ -2619,7 +2619,102 @@ MEMO_PACKAGE_SECTION_IDS: tuple[str, ...] = (
     "financial_forecast_valuation",
 )
 
+# The "spine-lite" contract: the spine pins ONLY the envelope and the shared
+# facts every section must agree on. The seven analysis artifacts moved to a
+# dedicated side agent (MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA below) — writing
+# them inside the spine was most of the old spine's ~9-minute runtime. The
+# maxLength/maxItems bounds are hard schema limits so the spine physically
+# cannot regrow into an essay writer.
 MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "package_skeleton": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+        "shared_facts": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "recommendation_sentence": {"type": "string", "maxLength": 300},
+                "key_metrics": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "name": {"type": "string", "maxLength": 80},
+                            "value": {"type": "string", "maxLength": 120},
+                            "as_of": {"type": "string", "maxLength": 40},
+                            "source_ids": {
+                                "type": "array",
+                                "maxItems": 4,
+                                "items": {"type": "string", "maxLength": 8},
+                            },
+                        },
+                        "required": ["name", "value", "as_of"],
+                    },
+                },
+                "scenarios": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "bear": {"type": "string", "maxLength": 240},
+                        "base": {"type": "string", "maxLength": 240},
+                        "bull": {"type": "string", "maxLength": 240},
+                    },
+                    "required": ["bear", "base", "bull"],
+                },
+                "risks": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "summary": {"type": "string", "maxLength": 160},
+                            "rating": {
+                                "type": "string",
+                                "pattern": "^(10|[1-9])/10$",
+                            },
+                            "likelihood": {
+                                "type": "string",
+                                "enum": ["High", "Medium", "Low"],
+                            },
+                        },
+                        "required": ["summary", "rating"],
+                    },
+                },
+                "source_topics": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string", "maxLength": 120},
+                },
+            },
+            "required": [
+                "recommendation_sentence",
+                "key_metrics",
+                "scenarios",
+                "risks",
+            ],
+        },
+        "section_notes": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                section_id: {"type": "string", "maxLength": 400}
+                for section_id in MEMO_PACKAGE_SECTION_IDS
+            },
+        },
+    },
+    "required": ["package_skeleton", "shared_facts"],
+}
+
+# The seven private analysis artifacts, authored by a side agent that runs
+# concurrently with the section workers (they never read these).
+MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
@@ -2627,13 +2722,16 @@ MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "claim_register_md": {"type": "string"},
-                "scenario_swim_lanes_md": {"type": "string"},
-                "downside_scenario_md": {"type": "string"},
-                "countercase_md": {"type": "string"},
-                "source_treatment_assumptions_md": {"type": "string"},
-                "risk_sensitivities_md": {"type": "string"},
-                "content_coverage_md": {"type": "string"},
+                "claim_register_md": {"type": "string", "maxLength": 8000},
+                "scenario_swim_lanes_md": {"type": "string", "maxLength": 8000},
+                "downside_scenario_md": {"type": "string", "maxLength": 8000},
+                "countercase_md": {"type": "string", "maxLength": 8000},
+                "source_treatment_assumptions_md": {
+                    "type": "string",
+                    "maxLength": 8000,
+                },
+                "risk_sensitivities_md": {"type": "string", "maxLength": 8000},
+                "content_coverage_md": {"type": "string", "maxLength": 8000},
             },
             "required": [
                 "claim_register_md",
@@ -2644,21 +2742,8 @@ MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
                 "risk_sensitivities_md",
             ],
         },
-        "package_skeleton": {
-            "type": "object",
-            "additionalProperties": True,
-        },
-        "section_briefs": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                section_id: {"type": "string"}
-                for section_id in MEMO_PACKAGE_SECTION_IDS
-            },
-            "required": list(MEMO_PACKAGE_SECTION_IDS),
-        },
     },
-    "required": ["analysis_artifacts", "package_skeleton", "section_briefs"],
+    "required": ["analysis_artifacts"],
 }
 
 _MEMO_ENGLISH_SECTION_SCHEMA: dict[str, Any] = {
@@ -3990,18 +4075,21 @@ Return only the JSON matching the attached schema.
 #
 # The monolithic English package call writes ~80K output tokens in one
 # 10-17 minute Claude invocation, and a single validation failure regenerates
-# all of it. The parallel path splits phase 3 into:
-#   1. a "spine" call — synthesis artifacts, the package envelope (company /
-#      run / sources), and one brief per section that pins the shared
-#      numbers, the recommendation, and the risk list so parallel sections
-#      cannot drift apart;
-#   2. five per-section calls on a thread pool, each authoring one section
-#      from the spine brief and the fast-pass artifacts;
+# all of it. The parallel "spine-lite" path splits phase 3 into:
+#   1. a fast spine call — ONLY the package envelope (company / run / the
+#      complete sources list) plus a schema-bounded shared-facts pin sheet
+#      (recommendation sentence, key metrics, bear/base/bull, the ordered
+#      risk list) so parallel sections cannot drift apart;
+#   2. five per-section calls plus one analysis-artifacts side agent on a
+#      thread pool, all sharing the common context through
+#      --append-system-prompt (one prompt-cache entry instead of seven cold
+#      contexts);
 #   3. on a validation retry, only the sections implicated by the errors are
 #      regenerated — the rest of the package is spliced from the previous
 #      attempt.
 # Any spine/section failure falls back to the monolithic call, so the worst
-# case is exactly as slow and as correct as before.
+# case is exactly as slow and as correct as before. Artifacts-agent failure
+# only degrades to stub artifacts.
 
 _MEMO_ENGLISH_UNITS_DIRNAME = "english_units"
 
@@ -4074,6 +4162,57 @@ def _memo_english_units_dir(run_dir: Path) -> Path:
     return run_dir / "logs" / _MEMO_ENGLISH_UNITS_DIRNAME
 
 
+def _render_shared_facts_block(shared_facts: dict) -> str:
+    """Deterministic markdown rendering of the spine's shared-facts pin
+    sheet. Rendered once per attempt and handed byte-identical to every
+    section worker, so the sections cannot disagree on the pinned facts."""
+    lines: list[str] = ["## Shared fact sheet (pinned — repeat these exactly)"]
+    recommendation = str(shared_facts.get("recommendation_sentence") or "").strip()
+    if recommendation:
+        lines.append(f"Recommendation sentence: {recommendation}")
+    metrics = shared_facts.get("key_metrics")
+    if isinstance(metrics, list) and metrics:
+        lines.append("Key metrics:")
+        for metric in metrics:
+            if not isinstance(metric, dict):
+                continue
+            source_ids = metric.get("source_ids")
+            source_note = (
+                f"; {', '.join(str(s) for s in source_ids)}"
+                if isinstance(source_ids, list) and source_ids
+                else ""
+            )
+            lines.append(
+                f"- {metric.get('name')}: {metric.get('value')} "
+                f"(as of {metric.get('as_of')}{source_note})"
+            )
+    scenarios = shared_facts.get("scenarios")
+    if isinstance(scenarios, dict):
+        lines.append("Scenarios:")
+        for key in ("bear", "base", "bull"):
+            value = str(scenarios.get(key) or "").strip()
+            if value:
+                lines.append(f"- {key}: {value}")
+    risks = shared_facts.get("risks")
+    if isinstance(risks, list) and risks:
+        lines.append("Risk list (ordered by rating, highest first):")
+        for index, risk in enumerate(risks, start=1):
+            if not isinstance(risk, dict):
+                continue
+            likelihood = str(risk.get("likelihood") or "").strip()
+            likelihood_note = f" ({likelihood})" if likelihood else ""
+            lines.append(
+                f"{index}. {risk.get('summary')} — "
+                f"{risk.get('rating')}{likelihood_note}"
+            )
+    source_topics = shared_facts.get("source_topics")
+    if isinstance(source_topics, dict) and source_topics:
+        lines.append("Source coverage:")
+        for source_id in sorted(source_topics):
+            lines.append(f"- {source_id}: {source_topics[source_id]}")
+    return "\n".join(lines)
+
+
 def _memo_english_common_context(
     *,
     company_name: str,
@@ -4087,9 +4226,14 @@ def _memo_english_common_context(
     scope_check: dict | None,
     warnings: list[str] | None,
 ) -> str:
-    """Shared prompt context for the spine and every section worker. Kept
-    identical across the parallel calls so their prompts share a long common
-    prefix (prompt-cache friendly)."""
+    """Shared context for the spine, artifacts agent, and section workers.
+
+    Passed to every parallel call as ``--append-system-prompt`` so the block
+    lands on the CLI's system-prompt cache breakpoint: the first call writes
+    one cache entry and the rest read it, instead of each paying for ~21KB of
+    identical context in its user message. Keep it byte-identical across the
+    calls of one invocation.
+    """
     registry_entry = _extract_company_registry_entry_yaml(
         companies_yaml_path,
         company_slug,
@@ -4113,6 +4257,14 @@ memo about {company_name}. {source_mode}
 {HUMAN_EXEC_MEMO_VOICE_CONTRACT}
 
 {MEMO_PACKAGE_BLOCK_CONTRACT}
+
+{MEMO_PACKAGE_SOURCES_CONTRACT}
+
+{MEMO_CONTENT_PARITY_CONTRACT}
+
+Use first-person sponsor voice: "we recommend participating", "we are being
+offered", and "we are participating through". Never use detached
+recommendation, opportunity, access, or base-case framing.
 
 Company registry entry:
 {registry_block}
@@ -4181,14 +4333,15 @@ def run_memo_fast_english_spine(
     timeout_sec: int = 1200,
     validation_feedback: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    """Synthesize the shared spine: analysis artifacts, package envelope, and
-    one brief per section for the parallel section workers."""
+    """Synthesize the lite spine: package envelope plus the shared-facts pin
+    sheet. No analysis artifacts, no memo prose — those belong to the side
+    agent and the section workers."""
     feedback_block = (
         (
             "\n## Previous attempts failed renderer validation\n"
             "Fix EVERY error below that concerns the package envelope\n"
             "(company, run, sources) or the shared numbers, and make the\n"
-            "section briefs prevent the rest from recurring:\n"
+            "shared facts prevent the rest from recurring:\n"
             f"{validation_feedback}\n"
         )
         if validation_feedback
@@ -4197,35 +4350,36 @@ def run_memo_fast_english_spine(
     section_list = "\n".join(f"- `{sid}`" for sid in MEMO_PACKAGE_SECTION_IDS)
     prompt = f"""\
 You are drafting the SHARED SPINE of the English source package. Five section
-workers will author the memo sections in parallel from your output; they see
-your spine and the analysis artifacts, but not each other. Anything the
-sections must agree on — numbers, the recommendation, the risk list — must be
-pinned in your briefs.
-
-{common_context}
-
-{MEMO_PACKAGE_SOURCES_CONTRACT}
+workers will author the memo sections in parallel from your output, and a
+side agent writes the private analysis artifacts; none of them see each
+other. Your job is ONLY the package envelope and the shared facts every
+section must agree on — no memo prose, no analysis artifacts.
 
 Produce ONE JSON object with:
-1. `analysis_artifacts`: concise markdown strings for claim register,
-   scenario swim lanes, downside scenario, countercase, source-treatment log,
-   risk and valuation sensitivities, and content coverage against the
-   reusable component slugs. Keep each artifact useful but short.
-2. `package_skeleton`: the package envelope WITHOUT sections:
+1. `package_skeleton`: the package envelope WITHOUT sections:
    - `schema_version: 1`
    - `company`: name, descriptor, sector, stage, round, location
    - `run`: run_id, language, as_of, evidence_cutoff
    - `sources`: the COMPLETE non-empty source list for the whole memo,
-     following the sources contract above. Sections cite these by id and
-     cannot add sources, so include every source any section will need.
-3. `section_briefs`: one markdown brief per section id:
+     following the sources contract in your instructions. Sections cite
+     these by id and cannot add sources, so include every source any
+     section will need.
+2. `shared_facts`: the compact pin sheet handed to every section worker:
+   - `recommendation_sentence`: the exact first-person recommendation
+     sentence, verbatim as the executive summary must state it.
+   - `key_metrics`: the metric values sections repeat (name, value, as_of,
+     supporting source ids).
+   - `scenarios`: one line of numbers each for bear, base, and bull.
+   - `risks`: the full risk list, ordered by rating highest first — one-line
+     summary, `N/10` rating, and High/Medium/Low likelihood per risk.
+   - `source_topics`: source id -> one line on what it supports.
+3. `section_notes` (optional): at most one or two short sentences per
+   section id, only for section-specific pointers the standing section
+   requirements do not already cover:
 {section_list}
-   Each brief pins what that section must say so parallel workers cannot
-   contradict each other: the exact recommendation sentence, the metric
-   values to repeat, the scenario numbers (bear/base/bull), the full risk
-   list with a one-line summary and an N/10 rating per risk (ordered highest
-   first), and which source ids support which claims. Briefs are working
-   notes for the writers, not memo prose.
+
+The schema limits are hard: exceeding any maxLength or maxItems rejects the
+whole response. Keep every value tight — this is a fact sheet, not a draft.
 {feedback_block}
 Return only the JSON matching the attached schema.
 """
@@ -4234,13 +4388,60 @@ Return only the JSON matching the attached schema.
         schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA,
         run_dir=run_dir,
         progress=progress,
-        progress_message="Synthesizing memo spine and section briefs",
+        progress_message="Pinning memo spine: envelope and shared facts",
         timeout_label="memo English spine",
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
         model=_memo_role_model("SPINE"),
         effort=_memo_role_effort("SPINE"),
+        append_system_prompt=common_context,
+    )
+
+
+def run_memo_fast_english_artifacts(
+    *,
+    run_dir: Path,
+    company_name: str,
+    common_context: str,
+    add_dirs: list[Path],
+    progress=None,
+    timeout_sec: int = 1200,
+) -> tuple[dict | None, str | None]:
+    """Author the seven private analysis artifacts on a side agent.
+
+    Runs concurrently with the section workers; the sections never read
+    these. Failures degrade to stub artifacts downstream — this call must
+    never sink the whole parallel pass.
+    """
+    prompt = f"""\
+You are writing the PRIVATE analysis artifacts for this memo run — internal
+records saved under `analysis/`. The memo sections are written by other
+workers and never read these; do not write memo prose or address the LP
+reader.
+
+Produce ONE JSON object with `analysis_artifacts` holding concise markdown
+strings for: claim register, scenario swim lanes, downside scenario,
+countercase, source-treatment and assumptions log, risk and valuation
+sensitivities, and content coverage against the reusable component slugs.
+Derive them from `analysis/fast/*.json`. The schema length limits are hard;
+keep each artifact tight and useful.
+
+Return only the JSON matching the attached schema.
+"""
+    return _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Writing private analysis artifacts",
+        timeout_label="memo English artifacts",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=add_dirs,
+        model=_memo_role_model("ARTIFACTS"),
+        effort=_memo_role_effort("ARTIFACTS"),
+        append_system_prompt=common_context,
     )
 
 
@@ -4249,11 +4450,12 @@ def _run_english_section(
     run_dir: Path,
     section_id: str,
     common_context: str,
-    brief: str,
+    shared_facts_block: str,
     spine_path: Path,
     add_dirs: list[Path],
     progress,
     timeout_sec: int,
+    section_note: str = "",
     validation_errors: list[str] | None = None,
     previous_section_path: Path | None = None,
 ) -> tuple[dict | None, str | None]:
@@ -4263,6 +4465,9 @@ def _run_english_section(
         f"\n{MEMO_RISK_REGISTER_CONTRACT}\n"
         if section_id == "investment_risk"
         else ""
+    )
+    note_block = (
+        f"\n## Spine note for this section\n{section_note}\n" if section_note else ""
     )
     repair_block = ""
     if previous_section_path is not None and validation_errors:
@@ -4283,25 +4488,25 @@ A previous attempt at this section failed validation. Do not repeat these
 defects:
 {error_lines}
 """
+    # Section-specific content stays at the tail so the five section prompts
+    # share their whole leading region (the system prompt already carries the
+    # common context via --append-system-prompt).
     prompt = f"""\
-You are drafting ONE SECTION of the English source package: `{section_id}`.
-Sibling workers draft the other sections in parallel; the shared spine below
-fixes everything the sections must agree on. Follow your brief exactly for
-shared numbers, the recommendation, and the risk list.
+You are drafting ONE SECTION of the English source package. Sibling workers
+draft the other sections in parallel; the shared fact sheet below pins
+everything the sections must agree on. Repeat the pinned recommendation,
+numbers, and risk list exactly.
 
-{common_context}
+{shared_facts_block}
 
 ## Shared spine
-The package envelope and every section brief: `{spine_path}`.
+The package envelope (company, run, complete sources list): `{spine_path}`.
 Cite sources by the ids in the spine's `sources` list using source-class
 language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{risk_contract}
-## Your section brief
-{brief}
-{repair_block}
+{risk_contract}{note_block}{repair_block}
 Return only JSON: {{"section": {{"id": "{section_id}", "blocks": [...]}}}}
 matching the attached schema.
 """
@@ -4317,6 +4522,7 @@ matching the attached schema.
         add_dirs=add_dirs,
         model=_memo_role_model("SECTION"),
         effort=_memo_role_effort("SECTION"),
+        append_system_prompt=common_context,
     )
     if error:
         return None, error
@@ -4329,6 +4535,7 @@ matching the attached schema.
             "section": section,
             "claude_cost_usd": result.get("claude_cost_usd"),
             "claude_duration_ms": result.get("claude_duration_ms"),
+            "claude_usage": result.get("claude_usage"),
         },
         None,
     )
@@ -4455,20 +4662,35 @@ def run_memo_fast_english_package_parallel(
     previous_validation_errors: list[str] | None = None,
     previous_package_path: Path | None = None,
     max_workers: int | None = None,
+    stream=None,
+    attempt: int | None = None,
+    on_spine=None,
+    on_section=None,
 ) -> tuple[dict | None, str | None]:
-    """Spine + parallel per-section synthesis of the English package.
+    """Spine-lite + parallel per-section synthesis of the English package.
 
-    Same result shape as ``run_memo_fast_english_package``. Falls back to the
-    monolithic call when disabled or when the spine/section machinery fails.
-    On a validation retry with attributable errors, regenerates only the
-    implicated sections and splices the rest from the previous attempt.
+    A fast spine call pins the package envelope (company/run/sources) and a
+    compact shared-facts sheet; five section workers then draft the memo
+    sections in parallel while a side agent writes the private analysis
+    artifacts. All post-spine calls share the common context through
+    ``--append-system-prompt`` so they read one prompt-cache entry instead
+    of six cold contexts. Same result shape as
+    ``run_memo_fast_english_package`` plus ``claude_wall_ms`` (true
+    wall-clock of the parallel pass). Falls back to the monolithic call when
+    disabled or when the spine/section machinery fails. On a validation
+    retry with attributable errors, regenerates only the implicated sections
+    and splices the rest from the previous attempt.
 
-    Default OFF: the 2026-08-21 NVIDIA validation run showed a parallel
-    attempt is no faster than a monolithic one (the spine call alone takes
-    ~9 minutes) and costs ~5x per attempt (six uncached contexts instead of
-    one), while the dominant failures were spine-authored envelope strings
-    that the selective section retry cannot scope. Kept behind the flag for
-    future tuning (lighter spine, envelope-scoped repair).
+    ``stream`` (the run's ProgressLog) adds one lifecycle thread row per
+    worker under Phase 3; ``attempt`` suffixes the row labels so retries get
+    fresh rows. ``on_spine(spine_payload)`` fires once after the spine is
+    validated and written; ``on_section(section_id, section)`` fires in the
+    worker thread on each successful section — full pass only, never the
+    selective retry. Both hooks are exception-guarded (the Chinese chasing
+    seam).
+
+    Default OFF behind BSH_MEMO_ENGLISH_PARALLEL — experimental; benchmark
+    per docs/memo-benchmarks.md before enabling.
     """
     if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
         return run_memo_fast_english_package(
@@ -4520,6 +4742,7 @@ def run_memo_fast_english_package_parallel(
             validation_feedback=validation_feedback,
         )
 
+    wall_start = time.monotonic()
     common_context = _memo_english_common_context(
         company_name=company_name,
         company_slug=company_slug,
@@ -4544,37 +4767,182 @@ def run_memo_fast_english_package_parallel(
     units_dir.mkdir(parents=True, exist_ok=True)
     spine_path = units_dir / "spine.json"
     artifacts_path = units_dir / "analysis_artifacts.json"
-    workers = max_workers or int(
-        os.environ.get("BSH_MEMO_ENGLISH_SECTION_WORKERS", "5") or 5
-    )
-    workers = max(1, min(workers, len(MEMO_PACKAGE_SECTION_IDS)))
+    try:
+        env_workers = int(
+            os.environ.get("BSH_MEMO_ENGLISH_SECTION_WORKERS", "6") or 6
+        )
+    except ValueError:
+        env_workers = 6
+    workers = max_workers or env_workers
+    # +1: the analysis-artifacts side agent shares the pool with the five
+    # section workers.
+    workers = max(1, min(workers, len(MEMO_PACKAGE_SECTION_IDS) + 1))
     from concurrent.futures import ThreadPoolExecutor
+
+    attempt_suffix = f" (attempt {attempt})" if attempt and attempt > 1 else ""
+
+    def _row(label: str) -> str:
+        # job_progress keeps finished rows finished, so retries need fresh
+        # labels.
+        return f"{label}{attempt_suffix}"
+
+    def _plan_row(label: str, phase_index: float, description: str) -> None:
+        if stream is None:
+            return
+        stream.emit(
+            "thread_planned",
+            thread=_row(label),
+            title=_row(label),
+            phase_index=phase_index,
+            parent_thread=_MEMO_PHASE3_THREAD,
+            group="memo_english_unit",
+            estimate_ms=300_000,
+            description=description,
+        )
+
+    def _start_row(label: str, phase_name: str):
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        if stream is not None:
+            stream.emit("thread_started", thread=_row(label), title=_row(label))
+            stream.emit(
+                "phase_timing",
+                phase=phase_name,
+                status="started",
+                started_at=started_at,
+                thread=_row(label),
+                **({"attempt": attempt} if attempt else {}),
+            )
+        return started_at, started_monotonic
+
+    def _finish_row(
+        label: str,
+        phase_name: str,
+        started,
+        *,
+        error=None,
+        result: dict | None = None,
+    ) -> None:
+        if stream is None:
+            return
+        started_at, started_monotonic = started
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        extra = {"attempt": attempt} if attempt else {}
+        if error is None:
+            usage = (result or {}).get("claude_usage")
+            cache_read = (
+                usage.get("cache_read_input_tokens")
+                if isinstance(usage, dict)
+                else None
+            )
+            stream.emit(
+                "thread_finished",
+                thread=_row(label),
+                duration_ms=duration_ms,
+            )
+            stream.emit(
+                "phase_timing",
+                phase=phase_name,
+                status="finished",
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_ms=duration_ms,
+                thread=_row(label),
+                cost_usd=(result or {}).get("claude_cost_usd"),
+                claude_duration_ms=(result or {}).get("claude_duration_ms"),
+                cache_read_input_tokens=cache_read,
+                **extra,
+            )
+        else:
+            stream.emit(
+                "thread_failed",
+                thread=_row(label),
+                duration_ms=duration_ms,
+                error=str(error)[:500],
+            )
+            stream.emit(
+                "phase_timing",
+                phase=phase_name,
+                status="failed",
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_ms=duration_ms,
+                thread=_row(label),
+                error=str(error)[:500],
+                **extra,
+            )
 
     def _run_sections(
         section_jobs: dict[str, dict],
-    ) -> tuple[dict[str, dict], list[str]]:
-        """Run section workers concurrently. Each job dict carries the
-        _run_english_section kwargs beyond the shared ones."""
+        *,
+        section_hook=None,
+        run_artifacts: bool = False,
+    ) -> tuple[dict[str, dict], list[str], dict | None, str | None]:
+        """Run section workers (plus, optionally, the artifacts side agent)
+        concurrently. Each job dict carries the _run_english_section kwargs
+        beyond the shared ones. The artifacts agent's failure is returned
+        separately — it must never count as a section failure."""
         results: dict[str, dict] = {}
         errors: list[str] = []
+        artifacts_result: dict | None = None
+        artifacts_error: str | None = None
+
+        def _run_one(section_id: str, job: dict):
+            row = f"Section - {section_id}"
+            phase_name = f"english_section:{section_id}"
+            started = _start_row(row, phase_name)
+            result, error = _run_english_section(
+                run_dir=run_dir,
+                section_id=section_id,
+                common_context=common_context,
+                spine_path=spine_path,
+                add_dirs=add_dirs,
+                progress=progress,
+                timeout_sec=timeout_sec,
+                **job,
+            )
+            _finish_row(row, phase_name, started, error=error, result=result)
+            if error is None and isinstance(result, dict) and section_hook:
+                try:
+                    section_hook(section_id, result["section"])
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "section hook failed for %s", section_id, exc_info=True
+                    )
+            return result, error
+
+        def _run_artifacts_agent():
+            started = _start_row("English artifacts", "english_artifacts")
+            result, error = run_memo_fast_english_artifacts(
+                run_dir=run_dir,
+                company_name=company_name,
+                common_context=common_context,
+                add_dirs=add_dirs,
+                progress=progress,
+                timeout_sec=timeout_sec,
+            )
+            _finish_row(
+                "English artifacts",
+                "english_artifacts",
+                started,
+                error=error,
+                result=result,
+            )
+            return result, error
+
+        job_count = len(section_jobs) + (1 if run_artifacts else 0)
         with ThreadPoolExecutor(
-            max_workers=min(workers, len(section_jobs)),
+            max_workers=max(1, min(workers, job_count)),
             thread_name_prefix="memo-english",
         ) as pool:
             futures = {
-                pool.submit(
-                    _run_english_section,
-                    run_dir=run_dir,
-                    section_id=section_id,
-                    common_context=common_context,
-                    spine_path=spine_path,
-                    add_dirs=add_dirs,
-                    progress=progress,
-                    timeout_sec=timeout_sec,
-                    **job,
-                ): section_id
+                pool.submit(_run_one, section_id, job): section_id
                 for section_id, job in section_jobs.items()
             }
+            artifacts_future = (
+                pool.submit(_run_artifacts_agent) if run_artifacts else None
+            )
             for future, section_id in futures.items():
                 try:
                     result, error = future.result()
@@ -4584,7 +4952,29 @@ def run_memo_fast_english_package_parallel(
                     errors.append(f"{section_id}: {error or 'no result'}")
                 else:
                     results[section_id] = result
-        return results, errors
+            if artifacts_future is not None:
+                try:
+                    artifacts_result, artifacts_error = artifacts_future.result()
+                except Exception as exc:  # noqa: BLE001
+                    artifacts_result = None
+                    artifacts_error = f"artifacts agent crashed: {exc}"
+        return results, errors, artifacts_result, artifacts_error
+
+    def _degraded_artifacts(artifacts_error: str | None) -> dict:
+        """Warn and return empty artifacts — downstream writes stub files."""
+        logger.warning(
+            "analysis-artifacts agent degraded to stubs: %s", artifacts_error
+        )
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_fast_english_artifacts_degraded",
+                message=(
+                    "Analysis-artifacts agent failed; writing stub artifacts "
+                    f"({str(artifacts_error)[:300]})"
+                ),
+            )
+        return {}
 
     # ---- Selective retry: regenerate only the sections the errors name ----
     if (
@@ -4608,11 +4998,19 @@ def run_memo_fast_english_package_parallel(
             _map_validation_errors_to_sections(
                 previous_package, list(previous_validation_errors)
             )
-            if isinstance(previous_package, dict) and isinstance(spine, dict)
+            if isinstance(previous_package, dict)
+            and isinstance(spine, dict)
+            # A cached spine.json from the pre-spine-lite format (no
+            # shared_facts) cannot brief the section workers — run the full
+            # pass instead of mis-splicing.
+            and isinstance(spine.get("shared_facts"), dict)
             else None
         )
         if mapping:
-            briefs = spine.get("section_briefs") or {}
+            facts_block = _render_shared_facts_block(spine["shared_facts"])
+            section_notes = spine.get("section_notes")
+            if not isinstance(section_notes, dict):
+                section_notes = {}
             previous_sections = {
                 str(section.get("id") or ""): section
                 for section in previous_package.get("sections") or []
@@ -4643,12 +5041,30 @@ def run_memo_fast_english_package_parallel(
                         encoding="utf-8",
                     )
                 section_jobs[section_id] = {
-                    "brief": str(briefs.get(section_id) or ""),
+                    "shared_facts_block": facts_block,
+                    "section_note": str(section_notes.get(section_id) or ""),
                     "validation_errors": section_errors,
                     "previous_section_path": previous_section_path,
                 }
-            results, errors = _run_sections(section_jobs)
+            cached_artifacts = artifacts if isinstance(artifacts, dict) else {}
+            results, errors, artifacts_result, artifacts_error = _run_sections(
+                section_jobs,
+                run_artifacts=not cached_artifacts,
+            )
             if not errors:
+                if not cached_artifacts:
+                    if isinstance(artifacts_result, dict) and isinstance(
+                        artifacts_result.get("analysis_artifacts"), dict
+                    ):
+                        cached_artifacts = artifacts_result["analysis_artifacts"]
+                    else:
+                        cached_artifacts = _degraded_artifacts(artifacts_error)
+                    artifacts_path.write_text(
+                        json.dumps(
+                            cached_artifacts, ensure_ascii=False, indent=2
+                        ),
+                        encoding="utf-8",
+                    )
                 package = dict(previous_package)
                 package["sections"] = [
                     results[section_id]["section"]
@@ -4661,7 +5077,7 @@ def run_memo_fast_english_package_parallel(
                 cost = sum(
                     _to_float(result.get("claude_cost_usd"))
                     for result in results.values()
-                )
+                ) + _to_float((artifacts_result or {}).get("claude_cost_usd"))
                 duration = max(
                     (
                         _to_int(result.get("claude_duration_ms"))
@@ -4671,13 +5087,14 @@ def run_memo_fast_english_package_parallel(
                 )
                 return (
                     {
-                        "analysis_artifacts": artifacts
-                        if isinstance(artifacts, dict)
-                        else {},
+                        "analysis_artifacts": cached_artifacts,
                         "memo_package": package,
                         "claude_cost_usd": round(cost, 6) if cost else None,
                         "claude_duration_ms": duration or None,
                         "claude_usage": None,
+                        "claude_wall_ms": int(
+                            (time.monotonic() - wall_start) * 1000
+                        ),
                     },
                     None,
                 )
@@ -4686,7 +5103,13 @@ def run_memo_fast_english_package_parallel(
                 "; ".join(errors[:3]),
             )
 
-    # ---- Full parallel pass: spine, then every section --------------------
+    # ---- Full parallel pass: spine, then sections + artifacts -------------
+    _plan_row(
+        "English spine",
+        3.01,
+        "Pin the package envelope and shared facts",
+    )
+    spine_row_started = _start_row("English spine", "english_spine")
     spine_result, spine_error = run_memo_fast_english_spine(
         run_dir=run_dir,
         company_name=company_name,
@@ -4696,42 +5119,60 @@ def run_memo_fast_english_package_parallel(
         timeout_sec=timeout_sec,
         validation_feedback=validation_feedback,
     )
+    _finish_row(
+        "English spine",
+        "english_spine",
+        spine_row_started,
+        error=spine_error,
+        result=spine_result if isinstance(spine_result, dict) else None,
+    )
     if spine_error or not isinstance(spine_result, dict):
         return _fallback(spine_error or "spine pass returned no data")
     skeleton = spine_result.get("package_skeleton")
-    briefs = spine_result.get("section_briefs")
-    artifacts = spine_result.get("analysis_artifacts")
+    shared_facts = spine_result.get("shared_facts")
+    section_notes = spine_result.get("section_notes")
+    if not isinstance(section_notes, dict):
+        section_notes = {}
     if (
         not isinstance(skeleton, dict)
         or not isinstance(skeleton.get("company"), dict)
         or not isinstance(skeleton.get("sources"), list)
         or not skeleton.get("sources")
-        or not isinstance(briefs, dict)
+        or not isinstance(shared_facts, dict)
     ):
-        return _fallback("spine returned an unusable skeleton or briefs")
+        return _fallback("spine returned an unusable skeleton or shared facts")
     spine_payload = {
         "package_skeleton": skeleton,
-        "section_briefs": briefs,
+        "shared_facts": shared_facts,
+        "section_notes": section_notes,
     }
     spine_path.write_text(
         json.dumps(spine_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    artifacts_path.write_text(
-        json.dumps(
-            artifacts if isinstance(artifacts, dict) else {},
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
+    if on_spine is not None:
+        try:
+            on_spine(spine_payload)
+        except Exception:  # noqa: BLE001
+            logger.warning("spine hook failed", exc_info=True)
+    _plan_row(
+        "English artifacts",
+        3.02,
+        "Write the seven private analysis artifacts",
     )
+    for index, section_id in enumerate(MEMO_PACKAGE_SECTION_IDS):
+        _plan_row(
+            f"Section - {section_id}",
+            round(3.03 + index / 100, 4),
+            f"Draft the {section_id} section",
+        )
     if progress is not None:
         progress.emit(
             "stage",
             stage="memo_fast_english_parallel_dispatch",
             message=(
-                f"Drafting {len(MEMO_PACKAGE_SECTION_IDS)} memo sections with "
-                f"up to {workers} parallel workers"
+                f"Drafting {len(MEMO_PACKAGE_SECTION_IDS)} memo sections and "
+                f"the analysis artifacts with up to {workers} parallel workers"
             ),
             sections=list(MEMO_PACKAGE_SECTION_IDS),
             worker_count=workers,
@@ -4743,17 +5184,33 @@ def run_memo_fast_english_package_parallel(
             for line in validation_feedback.splitlines()
             if line.strip()
         ]
+    facts_block = _render_shared_facts_block(shared_facts)
     section_jobs = {
         section_id: {
-            "brief": str(briefs.get(section_id) or ""),
+            "shared_facts_block": facts_block,
+            "section_note": str(section_notes.get(section_id) or ""),
             "validation_errors": feedback_errors,
             "previous_section_path": None,
         }
         for section_id in MEMO_PACKAGE_SECTION_IDS
     }
-    results, errors = _run_sections(section_jobs)
+    results, errors, artifacts_result, artifacts_error = _run_sections(
+        section_jobs,
+        section_hook=on_section,
+        run_artifacts=True,
+    )
     if errors:
         return _fallback("; ".join(errors[:3]))
+    if isinstance(artifacts_result, dict) and isinstance(
+        artifacts_result.get("analysis_artifacts"), dict
+    ):
+        artifacts = artifacts_result["analysis_artifacts"]
+    else:
+        artifacts = _degraded_artifacts(artifacts_error)
+    artifacts_path.write_text(
+        json.dumps(artifacts, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
     sections = [
         results[section_id]["section"]
@@ -4762,23 +5219,31 @@ def run_memo_fast_english_package_parallel(
     package = dict(skeleton)
     package.setdefault("schema_version", 1)
     package["sections"] = sections
-    cost = _to_float(spine_result.get("claude_cost_usd")) + sum(
-        _to_float(result.get("claude_cost_usd")) for result in results.values()
+    cost = (
+        _to_float(spine_result.get("claude_cost_usd"))
+        + _to_float((artifacts_result or {}).get("claude_cost_usd"))
+        + sum(
+            _to_float(result.get("claude_cost_usd"))
+            for result in results.values()
+        )
+    )
+    worker_durations = [
+        _to_int(result.get("claude_duration_ms")) for result in results.values()
+    ]
+    worker_durations.append(
+        _to_int((artifacts_result or {}).get("claude_duration_ms"))
     )
     duration = _to_int(spine_result.get("claude_duration_ms")) + max(
-        (
-            _to_int(result.get("claude_duration_ms"))
-            for result in results.values()
-        ),
-        default=0,
+        worker_durations, default=0
     )
     return (
         {
-            "analysis_artifacts": artifacts if isinstance(artifacts, dict) else {},
+            "analysis_artifacts": artifacts,
             "memo_package": package,
             "claude_cost_usd": round(cost, 6) if cost else None,
             "claude_duration_ms": duration or None,
             "claude_usage": None,
+            "claude_wall_ms": int((time.monotonic() - wall_start) * 1000),
         },
         None,
     )
