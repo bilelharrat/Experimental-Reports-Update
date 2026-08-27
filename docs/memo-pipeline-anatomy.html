@@ -1,0 +1,456 @@
+<title>Memo Pipeline Anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #F1F4F4;
+    --surface: #FFFFFF;
+    --surface-2: #E9EEEE;
+    --ink: #1D2B2D;
+    --muted: #5C6F71;
+    --line: #D4DCDC;
+    --accent: #0E7C86;
+    --accent-soft: #DCEDEE;
+    --money: #A66A12;
+    --money-soft: #F4E8D4;
+    --hot: #B23A2E;
+    --hot-soft: #F5E0DC;
+    --ok: #3B7A3F;
+    --code-bg: #E7EDED;
+    --shadow: 0 1px 2px rgba(29,43,45,.06), 0 8px 24px rgba(29,43,45,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101718;
+      --surface: #172021;
+      --surface-2: #1D2829;
+      --ink: #E6ECEC;
+      --muted: #94A6A7;
+      --line: #2A3839;
+      --accent: #4CB8C0;
+      --accent-soft: #133A3E;
+      --money: #DFA84F;
+      --money-soft: #3A2E17;
+      --hot: #E27364;
+      --hot-soft: #43201C;
+      --ok: #7CBB80;
+      --code-bg: #1E2B2C;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101718;
+    --surface: #172021;
+    --surface-2: #1D2829;
+    --ink: #E6ECEC;
+    --muted: #94A6A7;
+    --line: #2A3839;
+    --accent: #4CB8C0;
+    --accent-soft: #133A3E;
+    --money: #DFA84F;
+    --money-soft: #3A2E17;
+    --hot: #E27364;
+    --hot-soft: #43201C;
+    --ok: #7CBB80;
+    --code-bg: #1E2B2C;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
+
+  h1, h2, h3 {
+    font-family: "Bricolage Grotesque", "Avenir Next", "Trebuchet MS", sans-serif;
+    line-height: 1.15;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; margin: 0 0 .6rem; }
+  h2 { font-size: 1.55rem; font-weight: 700; margin: 0 0 1rem; }
+  h3 { font-size: 1.12rem; font-weight: 600; margin: 2rem 0 .6rem; }
+  p { max-width: 68ch; margin: 0 0 1rem; }
+  li { max-width: 66ch; margin-bottom: .35rem; }
+  a { color: var(--accent); }
+  strong { font-weight: 600; }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: .86em;
+  }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: .1em .35em;
+    white-space: nowrap;
+  }
+  td code, li code { white-space: normal; }
+
+  header.masthead { padding: 4rem 0 2.25rem; border-bottom: 2px solid var(--ink); margin-bottom: 2.5rem; }
+  .kicker {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .74rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1rem;
+  }
+  .lede { font-size: 1.08rem; color: var(--muted); max-width: 62ch; }
+
+  .statrow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 2rem 0 0;
+  }
+  .stat { background: var(--surface); padding: 1rem 1.1rem; }
+  .stat .n {
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-size: 1.7rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    display: block;
+    line-height: 1.1;
+  }
+  .stat .l { font-size: .78rem; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+  .stat.hotstat .n { color: var(--hot); }
+  .stat.moneystat .n { color: var(--money); }
+
+  section { margin: 3.5rem 0; }
+  .phase-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: .55rem;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .74rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: .5rem;
+  }
+  .phase-eyebrow::before {
+    content: "";
+    width: 1.6rem;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); margin: 1.25rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th {
+    text-align: left;
+    font-size: .74rem;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    padding: .7rem .9rem;
+    border-bottom: 2px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: .6rem .9rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; font-family: "IBM Plex Mono", monospace; font-size: .84rem; white-space: nowrap; }
+  td.hotcell { color: var(--hot); font-weight: 600; }
+
+  .pill {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .72rem;
+    padding: .12rem .55rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  .pill.acc { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+  .pill.hot { background: var(--hot-soft); border-color: transparent; color: var(--hot); }
+  .pill.money { background: var(--money-soft); border-color: transparent; color: var(--money); }
+
+  /* Pipeline flow */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 1.5rem 0; }
+  .flow-stage {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 8rem 1fr auto;
+    gap: 1rem;
+    align-items: baseline;
+  }
+  .flow-stage.bottleneck { border-color: var(--hot); border-width: 2px; }
+  .flow-arrow {
+    text-align: center;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .72rem;
+    padding: .3rem 0;
+    letter-spacing: .1em;
+  }
+  .flow-phase { font-family: "IBM Plex Mono", monospace; font-size: .74rem; color: var(--accent); letter-spacing: .08em; text-transform: uppercase; }
+  .flow-name { font-weight: 600; }
+  .flow-desc { color: var(--muted); font-size: .9rem; display: block; font-weight: 400; }
+  .flow-time { font-family: "IBM Plex Mono", monospace; font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  @media (max-width: 640px) {
+    .flow-stage { grid-template-columns: 1fr; gap: .2rem; }
+  }
+
+  /* Wall-clock bar */
+  .clockbar { display: flex; height: 2.4rem; border-radius: 8px; overflow: hidden; margin: .75rem 0 .35rem; border: 1px solid var(--line); }
+  .clockbar > div {
+    display: flex; align-items: center; justify-content: center;
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem; font-weight: 600;
+    color: #fff; white-space: nowrap; overflow: hidden;
+  }
+  .seg-a { background: #3E8E96; }
+  .seg-b { background: var(--hot); }
+  .seg-c { background: #6B8F4E; }
+  .clockbar-caption { font-size: .8rem; color: var(--muted); font-family: "IBM Plex Mono", monospace; margin-bottom: 1.25rem; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 10px 10px 0;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    box-shadow: var(--shadow);
+    max-width: 70ch;
+  }
+  .callout.warn { border-left-color: var(--hot); }
+  .callout.money { border-left-color: var(--money); }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .co-title { font-weight: 600; font-size: .95rem; margin-bottom: .3rem; display: block; }
+
+  .lever { counter-increment: lever; position: relative; padding-left: 3rem; margin: 1.6rem 0; max-width: 70ch; }
+  .levers { counter-reset: lever; }
+  .lever::before {
+    content: counter(lever);
+    position: absolute; left: 0; top: .1rem;
+    width: 2rem; height: 2rem;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-weight: 700;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .lever h3 { margin: 0 0 .35rem; }
+  .lever p { margin-bottom: .5rem; }
+
+  .footnote { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: 1.25rem; margin-top: 4rem; max-width: 70ch; }
+  ul, ol { padding-left: 1.3rem; }
+</style>
+
+<div class="wrap">
+<header class="masthead">
+  <div class="kicker">BSH Research Center · engineering reference · 2026-08-26</div>
+  <h1>Memo Pipeline Anatomy</h1>
+  <p class="lede">How an Investment Memo (Late-Stage) run actually executes — every agent it spawns, what each one reads, how the document is assembled, and where the 30+ minutes and ~$15 go. Grounded in the code and in seven recorded runs on disk.</p>
+  <div class="statrow">
+    <div class="stat"><span class="n">~18</span><span class="l">Claude subprocesses per run</span></div>
+    <div class="stat"><span class="n">31–44 min</span><span class="l">clean-run wall clock</span></div>
+    <div class="stat moneystat"><span class="n">$13–23</span><span class="l">clean-run cost</span></div>
+    <div class="stat hotstat"><span class="n">57–78%</span><span class="l">of time in one call (English synthesis)</span></div>
+    <div class="stat"><span class="n">0.6 s</span><span class="l">to render both DOCX files</span></div>
+  </div>
+</header>
+
+<section>
+  <div class="phase-eyebrow">Overview</div>
+  <h2>The run at a glance</h2>
+  <p>Every agent is a <code>claude -p</code> CLI subprocess spawned by Python (never the API SDK), streaming JSON events back to the server. The pipeline is a chain of <strong>hard barriers</strong>: each phase must fully finish before the next starts. Only two phases run anything in parallel.</p>
+
+  <div class="flow">
+    <div class="flow-stage">
+      <span class="flow-phase">Prep</span>
+      <span class="flow-name">Bootstrap <span class="flow-desc">Pure Python: resolve the company in <code>companies.yaml</code>, scope-check the stage via deterministic rules, mint the run folder, create the report record. No AI at run time — the company profile itself was typically AI-researched earlier, when the company was first added via deep search.</span></span>
+      <span class="flow-time">seconds · $0</span>
+    </div>
+    <div class="flow-arrow">▼ barrier</div>
+    <div class="flow-stage">
+      <span class="flow-phase">Phase 2</span>
+      <span class="flow-name">8 parallel analysis passes <span class="flow-desc">Independent narrow agents (pressure tests, time-base, growth bridge, adoption, GTM, replacement, competitive, disconfirming). 4 workers → two waves. Each returns schema-validated JSON; Python writes the markdown.</span></span>
+      <span class="flow-time">5–11 min · ~$4–5</span>
+    </div>
+    <div class="flow-arrow">▼ barrier — synthesis reads all 8 outputs</div>
+    <div class="flow-stage bottleneck">
+      <span class="flow-phase">Phase 3</span>
+      <span class="flow-name">English synthesis — the bottleneck <span class="flow-desc">One monolithic agent reads the 8 JSON outputs and writes the <em>entire memo</em> as one JSON package (~80K output tokens, 10–18 min per attempt). Validation gates can force up to 3 attempts; a cheaper “surgical repair” agent patches small defects instead.</span></span>
+      <span class="flow-time">19–52 min · $3.5–8/attempt</span>
+    </div>
+    <div class="flow-arrow">▼ barrier</div>
+    <div class="flow-stage">
+      <span class="flow-phase">Phase 4</span>
+      <span class="flow-name">Chinese fill <span class="flow-desc">The package is split into ~6–8 units (envelope + one per section) translated in parallel, then merged. The merge is one-way: translation can never alter the English.</span></span>
+      <span class="flow-time">6–8 min · ~$2–3</span>
+    </div>
+    <div class="flow-arrow">▼ barrier</div>
+    <div class="flow-stage">
+      <span class="flow-phase">Phase 5</span>
+      <span class="flow-name">Deterministic render + gates <span class="flow-desc">Pure Python turns the package into both DOCX files, in section order, with validation reports. Chinese-parity and English-quality gates run here — as warnings, never blockers.</span></span>
+      <span class="flow-time">0.6 s · $0</span>
+    </div>
+  </div>
+
+  <p>Where a clean run's wall clock goes (tenstorrent, 2026-08-21, 31.3 min total):</p>
+  <div class="clockbar" role="img" aria-label="Wall clock share: analysis 18%, English synthesis 61%, Chinese 21%">
+    <div class="seg-a" style="width:18%">18%</div>
+    <div class="seg-b" style="width:61%">English synthesis · 61%</div>
+    <div class="seg-c" style="width:21%">21%</div>
+  </div>
+  <div class="clockbar-caption">■ analysis passes&nbsp;&nbsp;■ English synthesis&nbsp;&nbsp;■ Chinese fill&nbsp;&nbsp;(render ≈ 0%)</div>
+
+  <div class="callout">
+    <span class="co-title">Two facts frame every optimization conversation</span>
+    <p>① The memo never exists as a document until the final half-second — it lives as one JSON “package” that a deterministic Python renderer turns into DOCX. Agents write data; Python writes files. ② Every one of the ~18 subprocesses — including the 8 pure-translation units — runs on the same top-tier model (<code>claude-opus-5[1m]</code>). There is no <code>--model</code> flag anywhere in the repo.</p>
+  </div>
+</section>
+
+<section>
+  <div class="phase-eyebrow">Phase 2</div>
+  <h2>The eight analysis passes</h2>
+  <p>Defined in <code>memo_analysis.py:249-332</code>, run on a thread pool capped at <strong>4 workers</strong> (<code>BSH_MEMO_FAST_MAX_WORKERS</code>), so the 8 passes execute in two waves. They are <strong>genuinely independent</strong>: every pass receives identical inputs, none reads another's output, and their prompts differ only in a one-paragraph <em>focus</em> string. There is no per-pass skill file — one shared inline template in <code>claude_runner.py:3705-3805</code> drives all eight. The big 112&nbsp;KB memo skill is <em>not</em> used by the fast pipeline at all (legacy path only).</p>
+
+  <div class="tablewrap"><table>
+    <tr><th>Pass</th><th>Focus</th><th>Artifact it produces</th></tr>
+    <tr><td class="mono">arithmetic_denominators</td><td>Pressure-test the numbers, per-unit math</td><td class="mono">pressure_tests.md</td></tr>
+    <tr><td class="mono">time_base</td><td>Are growth claims measured over honest time windows</td><td class="mono">time_base_checks.md</td></tr>
+    <tr><td class="mono">growth_bridge</td><td>What has to be true to get from today's revenue to the projection</td><td class="mono">growth_bridge.md</td></tr>
+    <tr><td class="mono">deployment_behavior</td><td>Adoption ladder — pilots vs production usage</td><td class="mono">adoption_ladder.md</td></tr>
+    <tr><td class="mono">gtm_operating_burden</td><td>Distribution model and cost to sell/serve</td><td class="mono">distribution_notes.md</td></tr>
+    <tr><td class="mono">replacement_coexistence</td><td>Does the product replace incumbents or live beside them</td><td class="mono">replacement_vs_coexistence.md</td></tr>
+    <tr><td class="mono">competitive_rights</td><td>Competitive compression, rights/licensing dependencies</td><td class="mono">competitive_notes.md</td></tr>
+    <tr><td class="mono">alternative_explanations</td><td>Disconfirming evidence, bear-case explanations for the data</td><td class="mono">disconfirming_evidence.md</td></tr>
+  </table></div>
+
+  <p><strong>Output contract:</strong> each pass must return one JSON object (schema-enforced by the CLI's <code>--json-schema</code>): summary, ≤8 key findings with confidence levels, ≤8 supporting-evidence items, ≤6 disconfirming items, ≤5 evidence limits, ≤6 investment implications. Brevity is framed as a correctness requirement. Python renders the markdown from that JSON — the agent writes no files.</p>
+  <p><strong>Failure semantics:</strong> passes get one attempt, no retries (15-min hard timeout, 3-min silence guard). A failed pass writes a “Pass failed — treat as explicit evidence gap” stub; the run only dies if <em>all eight</em> fail. Each pass's JSON records its own <code>duration_ms</code>, <code>cost_usd</code>, and full token usage — observed $0.30–$1.78 per pass.</p>
+  <p><strong>Skip path:</strong> if an approved Memo Studio packet exists for the company, Phase 2 is skipped entirely and the packet becomes the synthesis input — the fastest configuration the pipeline has.</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">Phase 3</div>
+  <h2>English synthesis — one giant call, heavily policed</h2>
+  <p>One agent (<code>run_memo_fast_english_package</code>) reads <code>analysis/fast/*.json</code> as its primary input — the pass outputs are <em>not</em> pasted into the prompt; the agent is handed directory paths and told to read them. What <em>is</em> inlined: the company's registry entry as YAML, and four hard-coded contracts — voice (exec sell-side language rules), sources, block format, the 17 required memo components, and the risk-register format (the 5-row cards including our new Likelihood row).</p>
+  <p>It returns a single JSON object with two halves: seven <strong>synthesis artifacts</strong> (claim register, countercase, downside scenario, scenario swim lanes, source treatment, risk sensitivities, content coverage — these are <em>written here</em>, not in Phase 2) and the <strong>memo package</strong> — five fixed sections (<span class="pill">executive_summary</span> <span class="pill">company_overview</span> <span class="pill">investment_highlights</span> <span class="pill">investment_risk</span> <span class="pill">financial_forecast_valuation</span>) each built from typed blocks (heading / paragraph / bullets / callout / table), every string bilingual with <code>zh</code> deliberately left blank.</p>
+
+  <h3>The gate gauntlet (per attempt, in order)</h3>
+  <ol>
+    <li><strong>Deterministic auto-repair</strong> — pure Python fixes known shape drift (key synonyms, missing IDs, prose-in-title) before judging.</li>
+    <li><strong>Structural validation</strong> — schema, 5 required sections, per-section content floors, 17 required components, non-empty sources, and the risk-card format gate (5 labeled rows, <code>High|Medium|Low:</code> likelihood, <code>N/10</code> rating, cards ordered by rating).</li>
+    <li><strong>Pre-render quality lint</strong> — the package is rendered to a throwaway DOCX and linted: source-ID leaks outside Section VI, internal artifact names, ~90 sell-side voice violations, em-dash bridges, disclosure gaps without a stated treatment.</li>
+    <li><strong>Surgical repair</strong> — quality findings first go to a cheap patch agent (“same package, only the listed defects fixed”, ~2–8 min). Accepted only if both gates re-pass clean.</li>
+    <li><strong>Full regeneration</strong> — structural failures, or quality findings surgical repair couldn't clear, regenerate the <em>entire</em> package with the cumulative error list fed back. Up to 3 attempts; on the last attempt residual quality findings downgrade to warnings so the memo still ships.</li>
+  </ol>
+
+  <div class="callout money">
+    <span class="co-title">Why this phase dominates</span>
+    <p>Each attempt is ~80K output tokens in one 10–18 minute uninterruptible generation at $3.50–8. The 40–60-minute runs on record were exactly these retries. The surgical-repair change (shipped 2026-08-21) is what cut the typical run from ~45–60 min to ~31–36 min. A parallel-English variant (spine + 5 section writers) exists behind <code>BSH_MEMO_ENGLISH_PARALLEL</code> but is off by default: the live NVIDIA validation run showed <strong>no wall-clock win at ~5× cost per attempt</strong> (66 min, $60.87) because the spine call alone takes ~9 minutes and the dominant failures were envelope strings the selective retry can't scope.</p>
+  </div>
+</section>
+
+<section>
+  <div class="phase-eyebrow">Phase 4–5</div>
+  <h2>Chinese fill, then a half-second of rendering</h2>
+  <p><strong>Chinese:</strong> the English package is split into an envelope unit plus one unit per section; each unit is a pure-translation agent with pinned terminology (Likelihood→可能性, High/Medium/Low→高/中/低, ratings untouched). Units run 4-wide in parallel — this fan-out shipped earlier and <em>did</em> pay off, unlike the English one. The merge only copies a translation in when the English matches exactly and the slot is still blank, so translation can never corrupt the English. Any unit failure falls back to one monolithic translation call.</p>
+  <p><strong>Render:</strong> Python applies a ~112-pattern deterministic voice cleanup to every English string, then <code>memo_docx_renderer</code> builds both DOCX files: cover page, TOC, sections strictly in package order with auto-numbered titles (I.–V.), risk cards as shaded key-value tables, and an appended “VI. Sources, Source Classes, and Fact Reference Index”. Claude is structurally banned from writing any renderer script — the run fails if one appears in the folder. Total render time: <strong>0.6 seconds</strong>. There is nothing to optimize here.</p>
+  <p><strong>Post-render gates are warnings, not blockers:</strong> the Chinese-parity gate (section shape/count/CJK checks) and the English quality lint both write reports and mark the run <code>complete_with_warnings</code> at worst. Resume is smart about this now: a Chinese-parity-only warning no longer triggers a 30-minute English regeneration.</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">Sources</div>
+  <h2>What the agents actually read — and the web problem</h2>
+  <p>Four input classes, in every pass's prompt:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Input</th><th>On disk</th><th>How it reaches the agent</th></tr>
+    <tr><td>Company registry entry</td><td class="mono">data/companies.yaml</td><td><strong>Inlined as YAML</strong> — the only content pasted into prompts</td></tr>
+    <tr><td>Analyst background</td><td class="mono">data/settings/serena_background.md</td><td>Path only; agent must choose to read it</td></tr>
+    <tr><td>Research corpus</td><td class="mono">data/research/&lt;slug&gt;/</td><td>Directory access + a filename listing (capped at 80 names); agent reads what it wants</td></tr>
+    <tr><td>Memo Studio packet <span class="pill">optional</span></td><td class="mono">data/serena_analysis/&lt;slug&gt;/</td><td>Directory access + listing, only when approved</td></tr>
+  </table></div>
+  <p>The Document Library (<code>data/uploads/</code>) is <strong>deliberately excluded</strong>. The “Use in report” toggle in the Files tab isn't a flag — it <em>physically moves</em> the file between the two stores. Folder membership is the filter; there is no selection, excerpting, token budgeting, or dedup inside the corpus (a re-uploaded identical file is stored twice — its SHA-256 is computed but never compared).</p>
+
+  <div class="callout warn">
+    <span class="co-title">Web retrieval is uncontrolled — confirmed</span>
+    <p>No memo agent is ever <em>granted</em> WebSearch/WebFetch in <code>--allowedTools</code> — but every agent runs with <code>--permission-mode bypassPermissions</code>, so the allowlist doesn't actually bind. The fast-pass prompts say nothing about the web either way, so each pass decides on its own. Real run logs show the result: <strong>121, 58, 52, 14, 0, 0</strong> web calls across six runs — in one run only 2 of 8 passes searched the web while the other 6 abstained. Nothing anywhere records whether a cited fact came from the corpus or the live web; every gate checks citation <em>format</em>, never origin. This is the root cause of the mixed provenance labels.</p>
+  </div>
+
+  <p><strong>Citation model:</strong> memo body (Sections I–V) may use only source-<em>class</em> language (“company-reported”, “public third-party”); bracketed source IDs are legal solely in Section VI. The lint enforces this at P0. The <code>sources[]</code> array requires id / title / class / treatment / as-of per entry — but <code>class</code> is free text, unconnected to the 7 canonical source classes the document store uses.</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">Measured</div>
+  <h2>Every recorded run</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Run</th><th>Analysis</th><th>English</th><th>Chinese</th><th>Total</th><th>Cost</th><th>Note</th></tr>
+    <tr><td>tenstorrent 08-21 (late)</td><td class="num">331s</td><td class="num hotcell">1140s · 61%</td><td class="num">406s</td><td class="num">31.3m</td><td class="num">$13.58</td><td>clean, 1 attempt — the post-fix benchmark</td></tr>
+    <tr><td>figure-ai 08-24</td><td class="num">509s</td><td class="num hotcell">1182s · 58%</td><td class="num">358s</td><td class="num">34.2m</td><td class="num">$16.78</td><td>clean</td></tr>
+    <tr><td>zainar 08-21</td><td class="num">341s</td><td class="num hotcell">1478s · 68%</td><td class="num">370s</td><td class="num">36.5m</td><td class="num">$16.58</td><td>clean</td></tr>
+    <tr><td>nvda 08-25</td><td class="num">648s</td><td class="num hotcell">1503s · 57%</td><td class="num">470s</td><td class="num">43.7m</td><td class="num">$23.07</td><td>heavy corpus/web run</td></tr>
+    <tr><td>tenstorrent 08-21 (early)</td><td class="num">486s</td><td class="num hotcell">1703s · 65%</td><td class="num">436s</td><td class="num">43.8m</td><td class="num">$18.62</td><td>2 synthesis attempts</td></tr>
+    <tr><td>tenstorrent 08-18</td><td class="num">483s</td><td class="num hotcell">2438s · 73%</td><td class="num">431s</td><td class="num">55.9m</td><td class="num">$20.47</td><td>3 attempts — pre-fix worst case</td></tr>
+    <tr><td>nvda 08-21 (experiment)</td><td class="num">420s</td><td class="num hotcell">3095s · 78%</td><td class="num">441s</td><td class="num">66.0m</td><td class="num">$60.87</td><td>parallel-English ON, 3 attempts — why it's off</td></tr>
+  </table></div>
+  <p class="clockbar-caption">Source: <code>phase_timing</code> events in each run's <code>logs/stream.jsonl</code>. Per-pass token detail lives in <code>analysis/fast/*.json</code>; whole-run totals in <code>data/reports/&lt;id&gt;.yaml</code>. No dashboard rolls these up yet — the numbers above were reconstructed by parsing the JSONL.</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">Levers</div>
+  <h2>Where optimization is actually available</h2>
+  <div class="levers">
+    <div class="lever">
+      <h3>Model tiering — the untouched cost lever</h3>
+      <p>Everything runs on <code>claude-opus-5[1m]</code>: the 8 narrow schema-bounded passes, and — hardest to justify — the 8 pure-translation Chinese units. A <code>--model</code> parameter doesn't exist in the code. Routing translation (and possibly some passes) to a cheaper model is the largest cost cut available, likely with a latency side-benefit, and it's a small code change. The risk to manage: pass quality feeds synthesis quality feeds retry count.</p>
+    </div>
+    <div class="lever">
+      <h3>Keep synthesis to one attempt — retries are the whole story</h3>
+      <p>The spread between a 31-minute and a 56-minute run is purely synthesis attempts. The winning pattern so far has been making the first attempt pass: surgical repair, cumulative validation feedback, and writer/validator alignment (the disclosure gate went from striking 3-of-3 runs to zero). Continuing that — auditing what still triggers regenerations and aligning the prompt contract with each gate — is cheaper than any architectural change.</p>
+    </div>
+    <div class="lever">
+      <h3>Analysis workers 4 → 8</h3>
+      <p>8 passes over 4 workers means two waves; the slowest pass gates each wave. Setting <code>BSH_MEMO_FAST_MAX_WORKERS=8</code> collapses Phase 2 to one wave — plausibly 3–5 minutes off a run for a config change. (Note: <code>.env.example</code> already claims 8 is the default; the code default is actually 4. The docs' own timing-calibration task for this comparison was never run.)</p>
+    </div>
+    <div class="lever">
+      <h3>Memo Studio packet mode — skip Phase 2 entirely</h3>
+      <p>An approved studio packet already bypasses all 8 analysis subprocesses. This is the fastest existing path and it's exactly the memo-run→studio bridge on our roadmap: the more analysis happens interactively before the run, the less the run has to do.</p>
+    </div>
+    <div class="lever">
+      <h3>Decide the web policy — quality lever, not latency</h3>
+      <p>Either grant web tools explicitly with prompt rules about when to search and how to label web-sourced facts, or forbid them and run corpus-only. Today's silent nondeterminism (0–121 web calls per run) makes provenance unauditable. Also worth recording source origin per fact so the gates can check it.</p>
+    </div>
+    <div class="lever">
+      <h3>Restructuring the English monolith — approach with evidence</h3>
+      <p>The obvious move (parallel per-section writers) was built, measured, and rejected: no wall-clock win at 5× cost. The flag stays for future tuning (a lighter spine, envelope-scoped repair). Before re-attempting, the cheaper experiments are shrinking the package the model must emit and pruning what the synthesis prompt asks for.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="phase-eyebrow">Findings</div>
+  <h2>Loose ends the investigation surfaced</h2>
+  <ul>
+    <li><strong><code>docs/memo-pipeline.md</code> is stale</strong> — it omits <code>data/research/</code> entirely and lists the “use in report” toggle as <em>planned but not built</em>, though both shipped. <code>docs/architecture.md</code> is the accurate one.</li>
+    <li><strong>The analyst background never reaches the memo's actual author.</strong> The Phase 3 synthesis prompt (and the parallel section writers) are granted read access to <code>serena_background.md</code> but never told it exists; voice comes from a hard-coded contract duplicating its content in Python. Only the 8 analysis passes are pointed at the file.</li>
+    <li><strong>The prompt promises a <code>translation</code> block in the registry entry that doesn't exist</strong> in <code>companies.yaml</code> — all Chinese comes from the translation pass.</li>
+    <li><strong><code>.env.example</code> defaults disagree with the code</strong> (workers 8 vs 4, retries 1 vs 2, backoff 20s vs 0s). The code defaults are live.</li>
+    <li><strong>Resume silently drops binary sources:</strong> a resumed run's allowed-read list excludes PDFs/DOCX/images from the corpus, so it can cite fewer sources than the original run.</li>
+    <li><strong>Cancel doesn't cancel:</strong> the termination hook for in-flight passes exists but nothing consumes it — a user cancel lets running subprocesses finish (and bill).</li>
+  </ul>
+</section>
+
+<p class="footnote">Compiled 2026-08-26 from <code>server/memo_analysis.py</code>, <code>server/claude_runner.py</code>, <code>server/memo_docx_renderer.py</code>, <code>server/memo_prep.py</code>, <code>server/memo_quality_lint.py</code>, <code>server/memo_chinese_parity.py</code>, and the recorded run logs under <code>data/memos/*/*/logs/</code>. The Buffett memo type is a separate, simpler worker: one subprocess, its own skill and renderer, no analysis fan-out, no Serena background.</p>
+</div>

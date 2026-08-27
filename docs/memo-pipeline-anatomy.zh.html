@@ -1,0 +1,453 @@
+<title>备忘录生成管线剖析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #F1F4F4;
+    --surface: #FFFFFF;
+    --surface-2: #E9EEEE;
+    --ink: #1D2B2D;
+    --muted: #5C6F71;
+    --line: #D4DCDC;
+    --accent: #0E7C86;
+    --accent-soft: #DCEDEE;
+    --money: #A66A12;
+    --money-soft: #F4E8D4;
+    --hot: #B23A2E;
+    --hot-soft: #F5E0DC;
+    --ok: #3B7A3F;
+    --code-bg: #E7EDED;
+    --shadow: 0 1px 2px rgba(29,43,45,.06), 0 8px 24px rgba(29,43,45,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101718;
+      --surface: #172021;
+      --surface-2: #1D2829;
+      --ink: #E6ECEC;
+      --muted: #94A6A7;
+      --line: #2A3839;
+      --accent: #4CB8C0;
+      --accent-soft: #133A3E;
+      --money: #DFA84F;
+      --money-soft: #3A2E17;
+      --hot: #E27364;
+      --hot-soft: #43201C;
+      --ok: #7CBB80;
+      --code-bg: #1E2B2C;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101718;
+    --surface: #172021;
+    --surface-2: #1D2829;
+    --ink: #E6ECEC;
+    --muted: #94A6A7;
+    --line: #2A3839;
+    --accent: #4CB8C0;
+    --accent-soft: #133A3E;
+    --money: #DFA84F;
+    --money-soft: #3A2E17;
+    --hot: #E27364;
+    --hot-soft: #43201C;
+    --ok: #7CBB80;
+    --code-bg: #1E2B2C;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.25);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.75;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
+
+  h1, h2, h3 {
+    font-family: "Bricolage Grotesque", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.25;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  h1 { font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 700; margin: 0 0 .6rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; margin: 0 0 1rem; }
+  h3 { font-size: 1.12rem; font-weight: 600; margin: 2rem 0 .6rem; }
+  p { max-width: 42em; margin: 0 0 1rem; }
+  li { max-width: 40em; margin-bottom: .35rem; }
+  a { color: var(--accent); }
+  strong { font-weight: 600; }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: .86em;
+  }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: .1em .35em;
+    white-space: nowrap;
+  }
+  td code, li code { white-space: normal; }
+
+  header.masthead { padding: 4rem 0 2.25rem; border-bottom: 2px solid var(--ink); margin-bottom: 2.5rem; }
+  .kicker {
+    font-family: "IBM Plex Mono", "Noto Sans SC", monospace;
+    font-size: .78rem;
+    letter-spacing: .14em;
+    color: var(--accent);
+    margin-bottom: 1rem;
+  }
+  .lede { font-size: 1.08rem; color: var(--muted); max-width: 40em; }
+
+  .statrow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 2rem 0 0;
+  }
+  .stat { background: var(--surface); padding: 1rem 1.1rem; }
+  .stat .n {
+    font-family: "Bricolage Grotesque", "Noto Sans SC", sans-serif;
+    font-size: 1.7rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    display: block;
+    line-height: 1.2;
+  }
+  .stat .l { font-size: .8rem; color: var(--muted); letter-spacing: .04em; }
+  .stat.hotstat .n { color: var(--hot); }
+  .stat.moneystat .n { color: var(--money); }
+
+  section { margin: 3.5rem 0; }
+  .phase-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: .55rem;
+    font-family: "IBM Plex Mono", "Noto Sans SC", monospace;
+    font-size: .78rem;
+    letter-spacing: .12em;
+    color: var(--muted);
+    margin-bottom: .5rem;
+  }
+  .phase-eyebrow::before {
+    content: "";
+    width: 1.6rem;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); margin: 1.25rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; }
+  th {
+    text-align: left;
+    font-size: .78rem;
+    letter-spacing: .07em;
+    color: var(--muted);
+    font-weight: 600;
+    padding: .7rem .9rem;
+    border-bottom: 2px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: .6rem .9rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; font-family: "IBM Plex Mono", monospace; font-size: .84rem; white-space: nowrap; }
+  td.hotcell { color: var(--hot); font-weight: 600; }
+
+  .pill {
+    display: inline-block;
+    font-family: "IBM Plex Mono", "Noto Sans SC", monospace;
+    font-size: .72rem;
+    padding: .12rem .55rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  .pill.acc { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+  .pill.hot { background: var(--hot-soft); border-color: transparent; color: var(--hot); }
+  .pill.money { background: var(--money-soft); border-color: transparent; color: var(--money); }
+
+  /* 管线流程图 */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 1.5rem 0; }
+  .flow-stage {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 8rem 1fr auto;
+    gap: 1rem;
+    align-items: baseline;
+  }
+  .flow-stage.bottleneck { border-color: var(--hot); border-width: 2px; }
+  .flow-arrow {
+    text-align: center;
+    color: var(--muted);
+    font-family: "IBM Plex Mono", "Noto Sans SC", monospace;
+    font-size: .74rem;
+    padding: .3rem 0;
+    letter-spacing: .1em;
+  }
+  .flow-phase { font-family: "IBM Plex Mono", "Noto Sans SC", monospace; font-size: .76rem; color: var(--accent); letter-spacing: .08em; }
+  .flow-name { font-weight: 600; }
+  .flow-desc { color: var(--muted); font-size: .9rem; display: block; font-weight: 400; }
+  .flow-time { font-family: "IBM Plex Mono", "Noto Sans SC", monospace; font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  @media (max-width: 640px) {
+    .flow-stage { grid-template-columns: 1fr; gap: .2rem; }
+  }
+
+  /* 耗时占比条 */
+  .clockbar { display: flex; height: 2.4rem; border-radius: 8px; overflow: hidden; margin: .75rem 0 .35rem; border: 1px solid var(--line); }
+  .clockbar > div {
+    display: flex; align-items: center; justify-content: center;
+    font-family: "IBM Plex Mono", "Noto Sans SC", monospace; font-size: .74rem; font-weight: 600;
+    color: #fff; white-space: nowrap; overflow: hidden;
+  }
+  .seg-a { background: #3E8E96; }
+  .seg-b { background: var(--hot); }
+  .seg-c { background: #6B8F4E; }
+  .clockbar-caption { font-size: .8rem; color: var(--muted); font-family: "IBM Plex Mono", "Noto Sans SC", monospace; margin-bottom: 1.25rem; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 10px 10px 0;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    box-shadow: var(--shadow);
+    max-width: 44em;
+  }
+  .callout.warn { border-left-color: var(--hot); }
+  .callout.money { border-left-color: var(--money); }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout .co-title { font-weight: 600; font-size: .95rem; margin-bottom: .3rem; display: block; }
+
+  .lever { counter-increment: lever; position: relative; padding-left: 3rem; margin: 1.6rem 0; max-width: 44em; }
+  .levers { counter-reset: lever; }
+  .lever::before {
+    content: counter(lever);
+    position: absolute; left: 0; top: .1rem;
+    width: 2rem; height: 2rem;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Bricolage Grotesque", "Noto Sans SC", sans-serif;
+    font-weight: 700;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .lever h3 { margin: 0 0 .35rem; }
+  .lever p { margin-bottom: .5rem; }
+
+  .footnote { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: 1.25rem; margin-top: 4rem; max-width: 44em; }
+  ul, ol { padding-left: 1.3rem; }
+</style>
+
+<div class="wrap">
+<header class="masthead">
+  <div class="kicker">BSH Research Center · 工程参考文档 · 2026-08-26</div>
+  <h1>备忘录生成管线剖析</h1>
+  <p class="lede">一次「投资备忘录（后期阶段）」生成任务究竟是如何执行的——它会启动哪些 Agent、每个 Agent 读什么、文档如何拼装成型、30 多分钟和约 15 美元花在了哪里。所有结论均来自代码本身与磁盘上留存的七次真实运行记录。</p>
+  <div class="statrow">
+    <div class="stat"><span class="n">~18 个</span><span class="l">每次运行启动的 Claude 子进程</span></div>
+    <div class="stat"><span class="n">31–44 分钟</span><span class="l">正常运行总耗时</span></div>
+    <div class="stat moneystat"><span class="n">$13–23</span><span class="l">正常运行成本</span></div>
+    <div class="stat hotstat"><span class="n">57–78%</span><span class="l">的时间耗在一次调用上（英文合成）</span></div>
+    <div class="stat"><span class="n">0.6 秒</span><span class="l">渲染两份 DOCX 所需时间</span></div>
+  </div>
+</header>
+
+<section>
+  <div class="phase-eyebrow">总览</div>
+  <h2>一次运行的全貌</h2>
+  <p>每个 Agent 都是由 Python 启动的 <code>claude -p</code> 命令行子进程（从不走 API SDK），以 JSON 事件流的方式向服务端回报进度。整条管线是一串<strong>硬性屏障</strong>：每个阶段必须完全结束，下一阶段才能开始。全程只有两个阶段存在并行。</p>
+
+  <div class="flow">
+    <div class="flow-stage">
+      <span class="flow-phase">准备阶段</span>
+      <span class="flow-name">初始化 <span class="flow-desc">纯 Python：在 <code>companies.yaml</code> 中解析公司、用确定性规则校验投资阶段是否符合范围、创建运行目录、建立报告记录。运行时不涉及 AI——但公司档案本身通常是更早添加公司时由 AI 深度搜索生成的。</span></span>
+      <span class="flow-time">数秒 · $0</span>
+    </div>
+    <div class="flow-arrow">▼ 屏障</div>
+    <div class="flow-stage">
+      <span class="flow-phase">阶段 2</span>
+      <span class="flow-name">8 条并行分析通道 <span class="flow-desc">相互独立的窄域 Agent（数字压力测试、时间基准、增长桥、采用阶梯、GTM 负担、替代与共存、竞争压缩、反证证据）。4 个并发工作线程 → 分两批执行。每条通道返回经 Schema 校验的 JSON，Markdown 由 Python 落盘。</span></span>
+      <span class="flow-time">5–11 分钟 · 约 $4–5</span>
+    </div>
+    <div class="flow-arrow">▼ 屏障 —— 合成阶段读取全部 8 份输出</div>
+    <div class="flow-stage bottleneck">
+      <span class="flow-phase">阶段 3</span>
+      <span class="flow-name">英文合成——整条管线的瓶颈 <span class="flow-desc">单个巨型 Agent 读取 8 份 JSON 输出，一次性写出<em>整份备忘录</em>的 JSON「包」（约 8 万输出 token，每次尝试 10–18 分钟）。校验门可强制最多重试 3 次；较便宜的「外科手术式修复」Agent 可替代整包重做。</span></span>
+      <span class="flow-time">19–52 分钟 · 每次尝试 $3.5–8</span>
+    </div>
+    <div class="flow-arrow">▼ 屏障</div>
+    <div class="flow-stage">
+      <span class="flow-phase">阶段 4</span>
+      <span class="flow-name">中文填充 <span class="flow-desc">英文包被切分为约 6–8 个单元（信封 + 每个章节一个）并行翻译，再合并回包。合并是单向的：翻译永远无法改动英文内容。</span></span>
+      <span class="flow-time">6–8 分钟 · 约 $2–3</span>
+    </div>
+    <div class="flow-arrow">▼ 屏障</div>
+    <div class="flow-stage">
+      <span class="flow-phase">阶段 5</span>
+      <span class="flow-name">确定性渲染 + 质量门 <span class="flow-desc">纯 Python 按章节顺序把包渲染成两份 DOCX，并输出校验报告。中英文对齐门和英文质量门在这里运行——只发警告，从不拦截。</span></span>
+      <span class="flow-time">0.6 秒 · $0</span>
+    </div>
+  </div>
+
+  <p>一次正常运行的总耗时分布（tenstorrent，2026-08-21，共 31.3 分钟）：</p>
+  <div class="clockbar" role="img" aria-label="耗时占比：分析 18%，英文合成 61%，中文 21%">
+    <div class="seg-a" style="width:18%">18%</div>
+    <div class="seg-b" style="width:61%">英文合成 · 61%</div>
+    <div class="seg-c" style="width:21%">21%</div>
+  </div>
+  <div class="clockbar-caption">■ 分析通道&nbsp;&nbsp;■ 英文合成&nbsp;&nbsp;■ 中文填充&nbsp;&nbsp;（渲染 ≈ 0%）</div>
+
+  <div class="callout">
+    <span class="co-title">两条事实框定所有优化讨论</span>
+    <p>① 备忘录在最后那半秒之前从未以「文档」形态存在——它一直是一个 JSON「包」，由确定性的 Python 渲染器转成 DOCX。Agent 只产出数据，文件由 Python 写。② 全部约 18 个子进程——包括 8 个纯翻译单元——运行在同一个顶级模型（<code>claude-opus-5[1m]</code>）上。整个仓库里不存在 <code>--model</code> 参数。</p>
+  </div>
+</section>
+
+<section>
+  <div class="phase-eyebrow">阶段 2</div>
+  <h2>八条分析通道</h2>
+  <p>定义在 <code>memo_analysis.py:249-332</code>，在上限为 <strong>4 个工作线程</strong>的线程池上运行（<code>BSH_MEMO_FAST_MAX_WORKERS</code>），因此 8 条通道分两批执行。它们是<strong>真正相互独立的</strong>：每条通道拿到完全相同的输入，谁也不读别人的输出，Prompt 之间只差一段「关注点」描述。不存在按通道划分的技能文件——<code>claude_runner.py:3705-3805</code> 里的一个共享内联模板驱动全部八条。那份 112&nbsp;KB 的备忘录大技能文件在快速管线里<em>完全不被使用</em>（仅遗留路径使用）。</p>
+
+  <div class="tablewrap"><table>
+    <tr><th>通道</th><th>关注点</th><th>产出文件</th></tr>
+    <tr><td class="mono">arithmetic_denominators</td><td>对数字做压力测试、单位经济核算</td><td class="mono">pressure_tests.md</td></tr>
+    <tr><td class="mono">time_base</td><td>增长断言的时间窗口是否诚实</td><td class="mono">time_base_checks.md</td></tr>
+    <tr><td class="mono">growth_bridge</td><td>从当前收入到预测值之间必须成立什么</td><td class="mono">growth_bridge.md</td></tr>
+    <tr><td class="mono">deployment_behavior</td><td>采用阶梯——试点 vs 生产环境实际使用</td><td class="mono">adoption_ladder.md</td></tr>
+    <tr><td class="mono">gtm_operating_burden</td><td>分销模式及销售/服务成本</td><td class="mono">distribution_notes.md</td></tr>
+    <tr><td class="mono">replacement_coexistence</td><td>产品是替代现有方案还是与其共存</td><td class="mono">replacement_vs_coexistence.md</td></tr>
+    <tr><td class="mono">competitive_rights</td><td>竞争压缩、权利/授权依赖</td><td class="mono">competitive_notes.md</td></tr>
+    <tr><td class="mono">alternative_explanations</td><td>反证证据、对数据的空头解释</td><td class="mono">disconfirming_evidence.md</td></tr>
+  </table></div>
+
+  <p><strong>输出契约：</strong>每条通道必须返回一个 JSON 对象（由 CLI 的 <code>--json-schema</code> 强制校验）：摘要、≤8 条带置信度的关键发现、≤8 条支持性证据、≤6 条反证、≤5 条证据局限、≤6 条投资含义。「简洁」被定义为正确性要求的一部分。Markdown 由 Python 从该 JSON 渲染——Agent 不写任何文件。</p>
+  <p><strong>失败语义：</strong>每条通道只有一次机会，不重试（15 分钟硬超时，3 分钟静默保护）。失败的通道会写入一个「通道失败——按明确的证据缺口处理」占位文件；只有<em>八条全部</em>失败才会终止整次运行。每条通道的 JSON 各自记录 <code>duration_ms</code>、<code>cost_usd</code> 和完整 token 用量——实测每条 $0.30–$1.78。</p>
+  <p><strong>跳过路径：</strong>如果该公司存在已批准的 Memo Studio 分析包，阶段 2 会被整体跳过，分析包直接作为合成输入——这是当前管线里最快的配置。</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">阶段 3</div>
+  <h2>英文合成——一次巨型调用，层层设卡</h2>
+  <p>单个 Agent（<code>run_memo_fast_english_package</code>）以 <code>analysis/fast/*.json</code> 为主要输入——通道输出<em>不会</em>被粘贴进 Prompt，Agent 只拿到目录路径并被要求自行读取。真正内联进 Prompt 的是：公司注册表条目（YAML 格式），以及几份硬编码契约——行文语气（高管级卖方语言规范）、来源、区块格式、17 个必备备忘录组件，以及风险登记格式（含我们新加 Likelihood 行的五行风险卡）。</p>
+  <p>它返回单个 JSON 对象，分为两半：七份<strong>合成产物</strong>（声明登记、反方论证、下行情景、情景泳道、来源处理、风险敏感性、内容覆盖——这些是<em>在这里</em>写出的，不在阶段 2），以及<strong>备忘录包</strong>——五个固定章节（<span class="pill">executive_summary</span> <span class="pill">company_overview</span> <span class="pill">investment_highlights</span> <span class="pill">investment_risk</span> <span class="pill">financial_forecast_valuation</span>），每个章节由带类型的区块组成（标题 / 段落 / 列表 / 提示框 / 表格），所有字符串均为双语结构、<code>zh</code> 一栏刻意留空。</p>
+
+  <h3>校验关卡（每次尝试按序执行）</h3>
+  <ol>
+    <li><strong>确定性自动修复</strong>——纯 Python 先修掉已知的结构漂移（键名同义词、缺失 ID、标题里混入正文），再进入评判。</li>
+    <li><strong>结构校验</strong>——Schema、5 个必备章节、各章节内容下限、17 个必备组件、来源非空，以及风险卡格式门（5 个带标签的行、<code>High|Medium|Low:</code> 格式的可能性、<code>N/10</code> 格式的评分、卡片按评分从高到低排列）。</li>
+    <li><strong>渲染前质量检查</strong>——先把包渲染成一次性 DOCX 再做静态检查：来源 ID 泄漏到第 VI 章之外、内部工件名称外泄、约 90 条卖方语气违规、破折号桥接句、缺少处理说明的披露缺口。</li>
+    <li><strong>外科手术式修复</strong>——质量问题先交给一个廉价的补丁 Agent（「同一个包，只修列出的缺陷」，约 2–8 分钟）。只有两道门重新全部通过才会被采纳。</li>
+    <li><strong>整包重做</strong>——结构性失败、或手术修复清不掉的质量问题，会带着累积的错误清单重新生成<em>整个</em>包。最多 3 次尝试；最后一次尝试中残留的质量问题降级为警告，备忘录照常交付。</li>
+  </ol>
+
+  <div class="callout money">
+    <span class="co-title">为什么这个阶段占大头</span>
+    <p>每次尝试都是约 8 万输出 token 的单次不可中断生成，耗时 10–18 分钟、花费 $3.50–8。历史上那些 40–60 分钟的运行正是这些重试造成的。「外科手术式修复」（2026-08-21 上线）正是把典型运行从约 45–60 分钟压到约 31–36 分钟的那次改动。并行英文变体（骨架 + 5 个章节写手）藏在 <code>BSH_MEMO_ENGLISH_PARALLEL</code> 开关后，默认关闭：NVIDIA 实测运行显示<strong>总耗时毫无优势、单次尝试成本约 5 倍</strong>（66 分钟，$60.87），因为仅骨架调用就要约 9 分钟，且主要失败出在选择性重试无法定位的信封字符串上。</p>
+  </div>
+</section>
+
+<section>
+  <div class="phase-eyebrow">阶段 4–5</div>
+  <h2>中文填充，然后是半秒钟的渲染</h2>
+  <p><strong>中文：</strong>英文包被切分为一个信封单元加每章节一个单元；每个单元是一个纯翻译 Agent，术语被钉死（Likelihood→可能性、High/Medium/Low→高/中/低、评分原样保留）。单元以 4 路并行运行——这次拆分早已上线且<em>确实</em>见效，与英文那次不同。合并时只有当英文完全一致且中文槽位仍为空才会写入译文，因此翻译永远不可能污染英文。任何单元失败都会回退为一次整包翻译调用。</p>
+  <p><strong>渲染：</strong>Python 先对所有英文字符串执行约 112 条规则的确定性语气清理，然后由 <code>memo_docx_renderer</code> 构建两份 DOCX：封面、目录、严格按包内顺序排列并自动编号的章节（I.–V.）、以底纹键值表呈现的风险卡，以及追加的「VI. 来源、来源类别与事实索引」。Claude 被结构性禁止编写任何渲染脚本——运行目录里一旦出现此类脚本，整次运行直接判失败。总渲染耗时：<strong>0.6 秒</strong>。这里没有任何可优化的空间。</p>
+  <p><strong>渲染后的质量门只警告、不拦截：</strong>中英文对齐门（章节形态/数量/中文字符检查）和英文质量检查都会写出报告，最坏也只是把运行标记为 <code>complete_with_warnings</code>。续跑逻辑现在也变聪明了：仅有中英文对齐警告时，不会再触发 30 分钟的英文重做。</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">来源</div>
+  <h2>Agent 究竟读了什么——以及联网检索问题</h2>
+  <p>每条通道的 Prompt 中包含四类输入：</p>
+  <div class="tablewrap"><table>
+    <tr><th>输入</th><th>磁盘位置</th><th>抵达 Agent 的方式</th></tr>
+    <tr><td>公司注册表条目</td><td class="mono">data/companies.yaml</td><td><strong>以 YAML 内联</strong>——唯一被粘贴进 Prompt 的内容</td></tr>
+    <tr><td>分析师背景</td><td class="mono">data/settings/serena_background.md</td><td>仅给路径；是否读取由 Agent 自行决定</td></tr>
+    <tr><td>研究语料库</td><td class="mono">data/research/&lt;slug&gt;/</td><td>目录访问权 + 文件名列表（上限 80 个）；读什么由 Agent 自选</td></tr>
+    <tr><td>Memo Studio 分析包 <span class="pill">可选</span></td><td class="mono">data/serena_analysis/&lt;slug&gt;/</td><td>目录访问权 + 文件列表，仅在已批准时提供</td></tr>
+  </table></div>
+  <p>文档库（<code>data/uploads/</code>）被<strong>刻意排除在外</strong>。Files 页里的「用于报告」开关不是一个标记位——它会把文件在两个存储之间<em>物理搬移</em>。「在不在那个文件夹里」就是唯一的筛选条件；语料库内部没有任何挑选、摘录、token 预算或去重逻辑（重复上传同一文件会存两份——SHA-256 算了但从不比对）。</p>
+
+  <div class="callout warn">
+    <span class="co-title">联网检索处于失控状态——已证实</span>
+    <p>没有任何备忘录 Agent 的 <code>--allowedTools</code> 里<em>授予过</em> WebSearch/WebFetch——但所有 Agent 都运行在 <code>--permission-mode bypassPermissions</code> 之下，所以这份白名单实际上并不生效。快速通道的 Prompt 对联网只字未提，于是每条通道各自随意决定。真实运行日志给出的结果是：六次运行的联网调用次数分别为 <strong>121、58、52、14、0、0</strong>——其中一次运行里只有 8 条通道中的 2 条上网搜索，另外 6 条完全没碰。系统中没有任何地方记录某条引用事实到底来自语料库还是实时网络；所有质量门检查的都是引用<em>格式</em>，从不检查来源出处。这正是我们之前注意到的来源标签混乱的根因。</p>
+  </div>
+
+  <p><strong>引用模型：</strong>备忘录正文（第 I–V 章）只允许使用来源<em>类别</em>语言（「公司披露」「公开第三方」）；方括号来源 ID 只允许出现在第 VI 章。质量检查以 P0 级别强制执行这条规则。<code>sources[]</code> 数组的每个条目要求 id / title / class / treatment / as-of 齐全——但 <code>class</code> 是自由文本，与文档存储所用的 7 个规范来源类别互不相通。</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">实测</div>
+  <h2>每一次留存的运行记录</h2>
+  <div class="tablewrap"><table>
+    <tr><th>运行</th><th>分析</th><th>英文</th><th>中文</th><th>总计</th><th>成本</th><th>备注</th></tr>
+    <tr><td>tenstorrent 08-21（晚）</td><td class="num">331s</td><td class="num hotcell">1140s · 61%</td><td class="num">406s</td><td class="num">31.3 分</td><td class="num">$13.58</td><td>一次通过——修复后的基准</td></tr>
+    <tr><td>figure-ai 08-24</td><td class="num">509s</td><td class="num hotcell">1182s · 58%</td><td class="num">358s</td><td class="num">34.2 分</td><td class="num">$16.78</td><td>一次通过</td></tr>
+    <tr><td>zainar 08-21</td><td class="num">341s</td><td class="num hotcell">1478s · 68%</td><td class="num">370s</td><td class="num">36.5 分</td><td class="num">$16.58</td><td>一次通过</td></tr>
+    <tr><td>nvda 08-25</td><td class="num">648s</td><td class="num hotcell">1503s · 57%</td><td class="num">470s</td><td class="num">43.7 分</td><td class="num">$23.07</td><td>语料/联网重度运行</td></tr>
+    <tr><td>tenstorrent 08-21（早）</td><td class="num">486s</td><td class="num hotcell">1703s · 65%</td><td class="num">436s</td><td class="num">43.8 分</td><td class="num">$18.62</td><td>合成尝试 2 次</td></tr>
+    <tr><td>tenstorrent 08-18</td><td class="num">483s</td><td class="num hotcell">2438s · 73%</td><td class="num">431s</td><td class="num">55.9 分</td><td class="num">$20.47</td><td>尝试 3 次——修复前最差情况</td></tr>
+    <tr><td>nvda 08-21（实验）</td><td class="num">420s</td><td class="num hotcell">3095s · 78%</td><td class="num">441s</td><td class="num">66.0 分</td><td class="num">$60.87</td><td>并行英文开启，3 次尝试——它被关闭的原因</td></tr>
+  </table></div>
+  <p class="clockbar-caption">数据来源：各运行 <code>logs/stream.jsonl</code> 中的 <code>phase_timing</code> 事件。逐通道 token 明细在 <code>analysis/fast/*.json</code>；整次运行汇总在 <code>data/reports/&lt;id&gt;.yaml</code>。目前没有任何面板做汇总——上表数字是解析 JSONL 重建的。</p>
+</section>
+
+<section>
+  <div class="phase-eyebrow">优化杠杆</div>
+  <h2>优化空间到底在哪里</h2>
+  <div class="levers">
+    <div class="lever">
+      <h3>模型分级——尚未动用的成本杠杆</h3>
+      <p>一切都跑在 <code>claude-opus-5[1m]</code> 上：8 条 Schema 约束的窄域通道，以及最说不过去的——8 个纯翻译中文单元。代码里根本不存在 <code>--model</code> 参数。把翻译（可能还有部分分析通道）改路由到更便宜的模型，是现成的最大成本削减项，很可能顺带缩短耗时，而且改动很小。需要管理的风险：通道质量影响合成质量，合成质量又影响重试次数。</p>
+    </div>
+    <div class="lever">
+      <h3>让合成一次通过——重试就是全部的差距</h3>
+      <p>31 分钟的运行和 56 分钟的运行之间，差的全是合成尝试次数。迄今的制胜模式是让第一次尝试就通过：外科手术式修复、累积式校验反馈、写手与校验器的对齐（披露缺口门从「三连中三」降到零命中）。沿着这条路继续——排查还有什么在触发整包重做、让 Prompt 契约与每道门对齐——比任何架构级改动都便宜。</p>
+    </div>
+    <div class="lever">
+      <h3>分析并发 4 → 8</h3>
+      <p>8 条通道配 4 个工作线程意味着分两批跑；每批都被最慢的那条通道拖住。设 <code>BSH_MEMO_FAST_MAX_WORKERS=8</code> 可把阶段 2 压成一批——一个配置改动大概能省 3–5 分钟。（注意：<code>.env.example</code> 声称默认值已是 8，代码里实际默认是 4。文档里那项对比测试的校准任务从未执行过。）</p>
+    </div>
+    <div class="lever">
+      <h3>Memo Studio 分析包模式——整体跳过阶段 2</h3>
+      <p>已批准的 Studio 分析包本来就能绕过全部 8 个分析子进程。这是现存最快的路径，而且正是我们路线图上「备忘录运行 → Studio」联动那一项：运行前交互式完成的分析越多，运行本身要做的就越少。</p>
+    </div>
+    <div class="lever">
+      <h3>定下联网策略——这是质量杠杆，不是速度杠杆</h3>
+      <p>要么显式授予联网工具，并在 Prompt 里写清什么时候搜索、联网来源的事实如何标注；要么明令禁止、只用语料库。现在这种无声的随机性（每次运行 0–121 次联网调用）让来源出处根本无法审计。同时值得给每条事实记录来源出处，让质量门能够核验。</p>
+    </div>
+    <div class="lever">
+      <h3>重构英文巨型调用——务必用证据说话</h3>
+      <p>最直觉的方案（按章节并行写作）已经被实现、实测并否决：总耗时没有优势，成本 5 倍。开关保留待未来调优（更轻的骨架、针对信封的定向修复）。在再次尝试之前，更便宜的实验是缩小模型必须产出的包体、以及精简合成 Prompt 的要求清单。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="phase-eyebrow">遗留问题</div>
+  <h2>调查中发现的松动之处</h2>
+  <ul>
+    <li><strong><code>docs/memo-pipeline.md</code> 已过时</strong>——它完全没提 <code>data/research/</code>，并把「用于报告」开关列为<em>已规划未实现</em>，但两者都早已上线。<code>docs/architecture.md</code> 才是准确的那份。</li>
+    <li><strong>分析师背景从未真正抵达备忘录的执笔者。</strong>阶段 3 的合成 Prompt（以及并行章节写手）拥有 <code>serena_background.md</code> 的读取权限，却从未被告知这个文件的存在；行文语气来自 Python 里一份复述其内容的硬编码契约。只有 8 条分析通道被明确指向了该文件。</li>
+    <li><strong>Prompt 承诺注册表条目里有一个 <code>translation</code> 区块，但它并不存在</strong>于 <code>companies.yaml</code>——所有中文都来自翻译通道。</li>
+    <li><strong><code>.env.example</code> 的默认值与代码不一致</strong>（并发 8 vs 4，重试 1 vs 2，退避 20 秒 vs 0 秒）。实际生效的是代码默认值。</li>
+    <li><strong>续跑会悄悄丢弃二进制来源：</strong>续跑的允许读取清单排除了语料库中的 PDF/DOCX/图片，因此续跑可能比原始运行引用更少的来源。</li>
+    <li><strong>取消并不能取消：</strong>终止进行中通道的钩子写了却没人消费——用户取消后，正在运行的子进程会继续跑完（并继续计费）。</li>
+  </ul>
+</section>
+
+<p class="footnote">编纂于 2026-08-26，依据 <code>server/memo_analysis.py</code>、<code>server/claude_runner.py</code>、<code>server/memo_docx_renderer.py</code>、<code>server/memo_prep.py</code>、<code>server/memo_quality_lint.py</code>、<code>server/memo_chinese_parity.py</code> 以及 <code>data/memos/*/*/logs/</code> 下留存的运行日志。Buffett 备忘录类型是一条独立且简单得多的流水线：单个子进程、独立技能与渲染器、无分析扇出、不读取 Serena 背景。英文版：<code>docs/memo-pipeline-anatomy.html</code>。</p>
+</div>
