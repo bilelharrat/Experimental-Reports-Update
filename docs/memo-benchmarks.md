@@ -383,3 +383,31 @@ Run D_v2 source: `data/memos/nvda/2026-08-28__220351__nvda__memo-run`.
   the 4.3 m serial spine sits directly on the critical path, and nvda's
   6.3 m Phase-2 tail is wide enough to hide almost all of it. Predicted
   E_v2: ~14-15 m. Pin echo 22/0 — fourth consecutive clean run.
+| E_v2 | full Round-3 stack, speculation ON | 3.5 m slowest pass (window halved vs D_v2 — run variance) | speculative 4.5 m → **delta verdict: STALE** → respin 5.7 m | ~19 m | 21.5 m | $18.72 | `complete`, lint P0=0, parity P0=0, pin echo 22/0 |
+
+Run E_v2 source: `data/memos/nvda/2026-08-28__222410__nvda__memo-run`.
+
+- **2026-08-28 — E_v2: the stale branch fired live, correctly, and made
+  the memo better.** The late passes surfaced a top-tier risk the
+  speculative spine had pinned without: the 10-Q's up-to-$108.5B
+  guarantee exposure (credit support for an Ohio compute campus leased
+  to OpenAI) with 5-customer receivables concentration rising 56%→70%.
+  The delta check refused the pins, the 4 early section drafts were
+  discarded as designed, the respin pinned WITH the risk, and the final
+  memo carries it (verified in the package). D_v2 never had this second
+  look at the late passes.
+- **Experiment verdict (D_v2 18.1 m vs E_v2 21.5 m): timing is a wash,
+  confounded twice** — E_v2's Phase-2 window was half of D_v2's (3.5 vs
+  6.3 m slowest pass, run variance) AND it drew the stale branch (the
+  designed ~4 m bounded loss). Fresh-branch speculation on a slow-pass
+  run remains unobserved on nvda. The durable findings: both branches
+  now proven live (fresh ×2 on zainar, stale ×1 here); the delta check
+  doubles as a fact-safety net for exactly the fact-lottery misses; the
+  stale cost is bounded and bought a materially better memo this run.
+- **Follow-up queued: chase eviction on respin.** The chaser's
+  idempotency (correct for repairs) meant the respun sections were
+  never re-chased — adoption 112/632, 520 strings gap-filled (compact
+  gap-fill absorbed it in ~1.5 m, so the run barely noticed). On a
+  stale respin the chaser should evict and re-chase. Small, rare-path.
+- **Pin echo 22/0 — fifth consecutive clean live run.** Arming
+  BSH_MEMO_PIN_CHECK_REPAIR is now a reasonable operator choice.
