@@ -5541,6 +5541,162 @@ def _map_validation_errors_to_sections(
     return mapping
 
 
+_ENVELOPE_ERROR_PREFIX_RE = re.compile(r"^\s*(sources\[|company\b|run\b)")
+_ENVELOPE_CONTEXT_MARKERS = (
+    "sources, source classes",
+    "fact reference index",
+    "source index",
+)
+
+
+def _is_envelope_repair_finding(package: dict, error: str) -> bool:
+    """Whether a finding lives in the package envelope (company/run/sources).
+
+    Section VI (the sources / fact reference index) renders from the
+    envelope's sources list, so its findings can never map to a memo
+    section — observed live on Run D2, where one such finding forced the
+    whole batch into the 9-minute whole-package repair. Signals, in order:
+    a structural error path rooted at the envelope; the quality gate's
+    Section-VI location context; or the quoted snippet appearing in the
+    envelope subtree."""
+    lowered = error.lower()
+    if _ENVELOPE_ERROR_PREFIX_RE.match(lowered):
+        return True
+    if any(marker in lowered for marker in _ENVELOPE_CONTEXT_MARKERS):
+        return True
+    snippet_match = re.search(r'"([^"]{12,})"', error)
+    if snippet_match:
+        fragments = [
+            fragment.strip()
+            for fragment in snippet_match.group(1).split("...")
+            if len(fragment.strip()) >= 12
+        ]
+        needle = max(fragments, key=len, default="").lower()
+        if needle:
+            envelope = {
+                key: value
+                for key, value in package.items()
+                if key != "sections"
+            }
+            for text in _iter_package_strings(envelope):
+                if needle in text.lower():
+                    return True
+    return False
+
+
+def _partition_repair_findings(
+    package: dict,
+    findings: list[str],
+) -> tuple[dict[str, list[str]], list[str], list[str]]:
+    """Split findings into (per-section mapping, envelope findings,
+    unattributable findings). Unlike the all-or-nothing section mapper,
+    this keeps every attributable finding on its fast path."""
+    mapping: dict[str, list[str]] = {}
+    envelope: list[str] = []
+    unmapped: list[str] = []
+    for finding in findings:
+        section_id = _section_for_validation_error(package, finding)
+        if section_id is not None:
+            mapping.setdefault(section_id, []).append(finding)
+        elif _is_envelope_repair_finding(package, finding):
+            envelope.append(finding)
+        else:
+            unmapped.append(finding)
+    return mapping, envelope, unmapped
+
+
+_MEMO_ENVELOPE_REPAIR_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "envelope": {
+            "type": "object",
+            "additionalProperties": True,
+        },
+    },
+    "required": ["envelope"],
+}
+
+
+def run_memo_envelope_repair(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    envelope: dict,
+    findings: list[str],
+    progress=None,
+    timeout_sec: int = 900,
+) -> tuple[dict | None, str | None]:
+    """Surgically fix listed findings in the package ENVELOPE only.
+
+    The envelope (company, run, sources — everything except the sections)
+    is a few KB, so re-emitting it takes about a minute where the
+    whole-package repair takes ~9 re-emitting 50-80KB."""
+    units_dir = _memo_english_units_dir(run_dir)
+    units_dir.mkdir(parents=True, exist_ok=True)
+    envelope_path = units_dir / "envelope.repair-input.json"
+    envelope_path.write_text(
+        json.dumps(envelope, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    error_lines = "\n".join(f"- {finding}" for finding in findings[:20])
+    prompt = f"""\
+You are repairing the ENVELOPE of a BSH LP-facing investment memo package
+for {company_name} (run id: {run_id}) — the company, run, and sources
+fields only. The memo sections are handled elsewhere and are NOT in the
+input file.
+
+Input envelope, which failed the quality gate:
+`{envelope_path}`
+
+Findings to fix (they concern the sources list, its titles or treatment
+sentences, or other envelope fields):
+{error_lines}
+
+{HUMAN_EXEC_MEMO_VOICE_CONTRACT}
+
+{MEMO_PACKAGE_SOURCES_CONTRACT}
+
+Task:
+- Read the envelope file.
+- Return `envelope`: the SAME envelope with ONLY the listed findings
+  repaired — make the smallest edit that clears each finding.
+- Preserve every other field, source id, English string, and Chinese
+  string exactly as-is; keep bilingual objects bilingual.
+- Do not add, drop, or renumber sources. Do not add a `sections` key.
+- Do not write files. Return only the JSON object matching the attached
+  schema.
+"""
+    result, error = _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=_MEMO_ENVELOPE_REPAIR_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Repairing the package envelope",
+        timeout_label="memo envelope repair",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=[run_dir],
+        model=_memo_role_model("REPAIR"),
+        effort=_memo_role_effort("REPAIR"),
+    )
+    if error:
+        return None, error
+    repaired = (result or {}).get("envelope")
+    if not isinstance(repaired, dict):
+        return None, "envelope repair did not return an envelope object"
+    repaired.pop("sections", None)
+    return (
+        {
+            "envelope": repaired,
+            "claude_cost_usd": result.get("claude_cost_usd"),
+            "claude_duration_ms": result.get("claude_duration_ms"),
+        },
+        None,
+    )
+
+
 def run_memo_fast_english_package_parallel(
     *,
     run_dir: Path,
@@ -6498,19 +6654,29 @@ def run_memo_package_sectional_repair(
     attempt: int | None = None,
     timeout_sec: int = 900,
 ) -> tuple[dict | None, str | None]:
-    """Repair quality findings section-by-section, in parallel.
+    """Repair quality findings per-section and per-envelope, in parallel.
 
-    Groups the findings by owning section (all-or-nothing: one unmappable
-    finding refuses the whole job), repairs each defective section
-    concurrently, and splices the repaired sections back into a copy of the
-    package. Returns ``(None, reason)`` on any refusal or per-section
-    failure — the caller falls back to the whole-package repair pass, so
-    this can only save time, never lose correctness. The caller re-runs
+    Hybrid partition: findings that map to a memo section are repaired by
+    concurrent section-repair workers; findings that live in the envelope
+    (Section VI's source index, the sources list, company/run fields) go
+    to a small envelope-only repair running alongside them. Only a finding
+    that is attributable to *neither* refuses the job (Run D2 showed one
+    envelope finding must not drag mappable findings into the ~9-minute
+    whole-package pass). Returns ``(None, reason)`` on any refusal or
+    per-worker failure — the caller falls back to the whole-package repair,
+    so this can only save time, never lose correctness. The caller re-runs
     every acceptance gate on the returned package either way.
     """
-    mapping = _map_validation_errors_to_sections(package, findings)
-    if not mapping:
-        return None, "findings not attributable to single sections"
+    mapping, envelope_findings, unmapped = _partition_repair_findings(
+        package, findings
+    )
+    if unmapped:
+        return None, (
+            "findings not attributable to a section or the envelope: "
+            + "; ".join(unmapped[:2])
+        )
+    if not mapping and not envelope_findings:
+        return None, "no findings to repair"
     sections_by_id = {
         section.get("id"): section
         for section in package.get("sections") or []
@@ -6596,18 +6762,103 @@ def run_memo_package_sectional_repair(
                 )
         return result, error
 
+    def _repair_envelope() -> tuple[dict | None, str | None]:
+        row = f"Repair - envelope{attempt_suffix}"
+        phase_name = "english_repair:envelope"
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        if stream is not None:
+            stream.emit(
+                "thread_planned",
+                thread=row,
+                title=row,
+                phase_index=3.50,
+                parent_thread=_MEMO_PHASE3_THREAD,
+                group="memo_repair",
+                estimate_ms=120_000,
+                description="Surgically repair the package envelope",
+            )
+            stream.emit("thread_started", thread=row, title=row)
+            stream.emit(
+                "phase_timing",
+                phase=phase_name,
+                status="started",
+                started_at=started_at,
+                thread=row,
+            )
+        envelope = {
+            key: value for key, value in package.items() if key != "sections"
+        }
+        result, error = run_memo_envelope_repair(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            envelope=envelope,
+            findings=envelope_findings,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        if stream is not None:
+            if error is None and isinstance(result, dict):
+                stream.emit(
+                    "thread_finished", thread=row, duration_ms=duration_ms
+                )
+                stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="finished",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    cost_usd=(result or {}).get("claude_cost_usd"),
+                    claude_duration_ms=(result or {}).get(
+                        "claude_duration_ms"
+                    ),
+                )
+            else:
+                stream.emit(
+                    "thread_failed",
+                    thread=row,
+                    duration_ms=duration_ms,
+                    error=str(error or "no envelope returned")[:500],
+                )
+                stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    error=str(error or "no envelope returned")[:500],
+                )
+        return result, error
+
     from concurrent.futures import ThreadPoolExecutor
 
     results: dict[str, dict] = {}
     errors: list[str] = []
+    envelope_result: dict | None = None
     with ThreadPoolExecutor(
-        max_workers=max(1, min(len(mapping), len(MEMO_PACKAGE_SECTION_IDS))),
+        max_workers=max(
+            1,
+            min(
+                len(mapping) + (1 if envelope_findings else 0),
+                len(MEMO_PACKAGE_SECTION_IDS) + 1,
+            ),
+        ),
         thread_name_prefix="memo-repair",
     ) as pool:
         futures = {
             pool.submit(_repair_one, section_id): section_id
             for section_id in sorted(mapping)
         }
+        envelope_future = (
+            pool.submit(_repair_envelope) if envelope_findings else None
+        )
         for future, section_id in futures.items():
             try:
                 result, error = future.result()
@@ -6617,6 +6868,19 @@ def run_memo_package_sectional_repair(
                 errors.append(f"{section_id}: {error or 'no result'}")
             else:
                 results[section_id] = result
+        if envelope_future is not None:
+            try:
+                envelope_result, envelope_error = envelope_future.result()
+            except Exception as exc:  # noqa: BLE001
+                envelope_result, envelope_error = (
+                    None,
+                    f"envelope repair crashed: {exc}",
+                )
+            if envelope_error or not isinstance(envelope_result, dict):
+                envelope_result = None
+                errors.append(
+                    f"envelope: {envelope_error or 'no result'}"
+                )
     if errors:
         return None, "; ".join(errors[:3])
     repaired_sections = []
@@ -6627,6 +6891,12 @@ def run_memo_package_sectional_repair(
         else:
             repaired_sections.append(section)
     repaired_package = dict(package)
+    if envelope_result is not None:
+        # Overlay, never replace wholesale: a field the repair omitted
+        # keeps its original value.
+        for key, value in envelope_result["envelope"].items():
+            if key != "sections":
+                repaired_package[key] = value
     repaired_package["sections"] = repaired_sections
     return repaired_package, None
 
