@@ -342,3 +342,26 @@ Run F source: `data/memos/zainar-inc/2026-08-28__214223__zainar-inc__memo-run`.
 - **Fact lottery, third draw missed:** F also carries $450M+/90+ only
   (no $500M+/95+ April figures) — now 3 of the 4 latest runs. The
   durable fact-ledger follow-up rises in priority.
+
+### Round-3 follow-up decisions (2026-08-28)
+
+- **Multiples style: the grammar-driven mix stands** (operator decision).
+  "收入的 42 倍" where Chinese grammar wants 倍, x-form elsewhere. No
+  note change.
+- **Fact ledger: queued.** Dated headline commercial facts get a durable
+  home the spine always reads; rose to top quality priority after the
+  April figures missed 3 of 4 draws. Not yet built.
+
+## nvda experiment — D_v2 vs E_v2 (queued)
+
+Purpose: measure the speculation levers where they should actually pay —
+nvda's Phase 2 has run 4.2-10.8 m (vs zainar's ~2.5 m), so the spine
+overlap and early section starts have a real pass tail to hide in.
+
+Protocol: two nvda runs, single variable. Both carry the full Round-3
+stack (parallel English, chasing, artifacts async, sectional repair, zh
+compact, translation sonnet+medium). D_v2 = speculation flags OFF;
+E_v2 = ON. Restart the server between runs. Compare phase-level: when
+the spine ran vs Phase 2's tail, wave start time, early-section rows,
+delta verdict — plus totals and the usual gates. Expected: E_v2 beats
+D_v2 by ~2-4 m; a stale delta verdict is data, not failure.
