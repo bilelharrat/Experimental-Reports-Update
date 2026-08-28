@@ -4655,6 +4655,36 @@ def _memo_spine_speculative_enabled() -> bool:
     )
 
 
+def _memo_section_early_start_enabled() -> bool:
+    """Early section starts require the speculative spine (they launch on
+    its unvalidated pins) — three flags, deliberately."""
+    return (
+        _memo_spine_speculative_enabled()
+        and os.environ.get("BSH_MEMO_SECTION_EARLY_START", "0") == "1"
+    )
+
+
+# Which Phase-2 passes a section leans on hardest — measured against
+# _MEMO_SECTION_SPECS: the section's required components map nearly 1:1 to
+# pass artifacts. A section may start early once its affine passes have
+# completed (plus the speculative spine). executive_summary is absent by
+# design: it distills every pass, so it only starts on the full-input path.
+MEMO_SECTION_PASS_AFFINITY: dict[str, frozenset[str]] = {
+    "company_overview": frozenset(
+        {"deployment_behavior", "gtm_operating_burden"}
+    ),
+    "investment_highlights": frozenset(
+        {"replacement_coexistence", "competitive_rights"}
+    ),
+    "investment_risk": frozenset(
+        {"alternative_explanations", "competitive_rights"}
+    ),
+    "financial_forecast_valuation": frozenset(
+        {"arithmetic_denominators", "time_base", "growth_bridge"}
+    ),
+}
+
+
 def _memo_spine_speculate_after() -> int:
     """How many of the 8 analysis passes must finish before the spine
     launches speculatively. Default 6: the typical straggler gap is the
@@ -4774,6 +4804,8 @@ class SpeculativeEnglish:
         all_pass_ids: list[str] | None = None,
         threshold: int | None = None,
         on_spine=None,
+        on_section=None,
+        early_sections: bool = False,
     ):
         from concurrent.futures import ThreadPoolExecutor
 
@@ -4797,14 +4829,26 @@ class SpeculativeEnglish:
             max(1, len(self._all_pass_ids) - 1) if self._all_pass_ids else 1,
         )
         self._on_spine = on_spine
+        self._on_section = on_section
+        self._early_enabled = bool(early_sections)
+        # One thread for the spine, up to four for early sections.
         self._pool = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="memo-spine-spec"
+            max_workers=1 + (len(MEMO_SECTION_PASS_AFFINITY) if early_sections else 0),
+            thread_name_prefix="memo-spine-spec",
         )
         self._lock = threading.Lock()
         self._pass_ok: dict[str, bool] = {}
         self._late_ids: list[str] = []
         self._spine_future = None
         self._progresses: list[Any] = []
+        # Early-section state (BSH_MEMO_SECTION_EARLY_START): populated by
+        # the spine worker once a shape-valid spine is on disk.
+        self._common_context: str | None = None
+        self._add_dirs: list[Path] | None = None
+        self._facts_block: str | None = None
+        self._section_notes: dict = {}
+        self._early_futures: dict[str, Any] = {}
+        self._early_abandoned = False
 
     @property
     def launched(self) -> bool:
@@ -4828,9 +4872,11 @@ class SpeculativeEnglish:
         return progress
 
     def note_pass_result(self, pass_id: str, ok: bool) -> None:
-        """Phase-2 completion signal; launches the spine at the threshold."""
+        """Phase-2 completion signal; launches the spine at the threshold
+        and any early section whose affinity this completion satisfies."""
         with self._lock:
             self._pass_ok[str(pass_id)] = bool(ok)
+            self._maybe_start_sections_locked()
             if self._spine_future is not None:
                 return
             if len(self._pass_ok) < self._threshold:
@@ -4899,19 +4945,8 @@ class SpeculativeEnglish:
             timeout_sec=self._timeout_sec,
             speculative_missing=late_ids or None,
         )
-        if error is None and isinstance(result, dict) and self._on_spine:
-            # Start the envelope chase now, during the Phase-2 tail. If the
-            # pins later prove stale the chase is bounded waste; the
-            # chaser's hooks are idempotent, so the wrapper re-firing this
-            # for the consumed spine is a no-op.
-            skeleton = result.get("package_skeleton")
-            if isinstance(skeleton, dict) and skeleton:
-                try:
-                    self._on_spine({"package_skeleton": skeleton})
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "speculative spine hook failed", exc_info=True
-                    )
+        if error is None and isinstance(result, dict):
+            self._note_spine_success(result, common_context, add_dirs)
         duration_ms = int((time.monotonic() - started_monotonic) * 1000)
         finished_at = datetime.now(timezone.utc).isoformat()
         if self._stream is not None:
@@ -4951,6 +4986,209 @@ class SpeculativeEnglish:
                 )
         return result, error
 
+    def _note_spine_success(
+        self, result: dict, common_context: str, add_dirs: list[Path]
+    ) -> None:
+        """Persist a shape-valid speculative spine and open the early-start
+        window: fire the envelope chase hook and launch any section whose
+        affine passes are already done. Fires from the spine worker thread.
+
+        The wrapper later re-validates, re-writes, and re-fires the hook
+        for the consumed spine — all idempotent."""
+        skeleton = result.get("package_skeleton")
+        shared_facts = result.get("shared_facts")
+        section_notes = result.get("section_notes")
+        if not isinstance(section_notes, dict):
+            section_notes = {}
+        if (
+            not isinstance(skeleton, dict)
+            or not isinstance(skeleton.get("company"), dict)
+            or not isinstance(skeleton.get("sources"), list)
+            or not skeleton.get("sources")
+            or not isinstance(shared_facts, dict)
+        ):
+            return
+        spine_payload = {
+            "package_skeleton": skeleton,
+            "shared_facts": shared_facts,
+            "section_notes": section_notes,
+        }
+        try:
+            units_dir = _memo_english_units_dir(self._run_dir)
+            units_dir.mkdir(parents=True, exist_ok=True)
+            (units_dir / "spine.json").write_text(
+                json.dumps(spine_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "failed to persist speculative spine", exc_info=True
+            )
+            return
+        if self._on_spine:
+            # Start the envelope chase now, during the Phase-2 tail. If the
+            # pins later prove stale the chase is bounded waste; the
+            # chaser's hooks are idempotent, so the wrapper re-firing this
+            # for the consumed spine is a no-op.
+            try:
+                self._on_spine(spine_payload)
+            except Exception:  # noqa: BLE001
+                logger.warning("speculative spine hook failed", exc_info=True)
+        with self._lock:
+            self._common_context = common_context
+            self._add_dirs = list(add_dirs)
+            self._facts_block = _render_shared_facts_block(shared_facts)
+            self._section_notes = section_notes
+            self._maybe_start_sections_locked()
+
+    def _maybe_start_sections_locked(self) -> None:
+        """Launch every affinity-satisfied section not yet started. Caller
+        holds the lock."""
+        if (
+            not self._early_enabled
+            or self._facts_block is None
+            or self._early_abandoned
+        ):
+            return
+        for section_id, affinity in MEMO_SECTION_PASS_AFFINITY.items():
+            if section_id in self._early_futures:
+                continue
+            if all(self._pass_ok.get(pid) for pid in affinity):
+                self._early_futures[section_id] = self._pool.submit(
+                    self._run_early_section, section_id
+                )
+
+    def _run_early_section(self, section_id: str):
+        """Worker-thread body for one early-started section."""
+        row = f"Section - {section_id}"
+        phase_name = f"english_section:{section_id}"
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        try:
+            index = MEMO_PACKAGE_SECTION_IDS.index(section_id)
+        except ValueError:
+            index = len(MEMO_PACKAGE_SECTION_IDS)
+        if self._stream is not None:
+            self._stream.emit(
+                "thread_planned",
+                thread=row,
+                title=row,
+                phase_index=round(3.03 + index / 100, 4),
+                parent_thread=_MEMO_PHASE3_THREAD,
+                group="memo_english_unit",
+                estimate_ms=300_000,
+                description=(
+                    f"Draft the {section_id} section "
+                    "(early start on its affine passes)"
+                ),
+            )
+            self._stream.emit("thread_started", thread=row, title=row)
+            self._stream.emit(
+                "phase_timing",
+                phase=phase_name,
+                status="started",
+                started_at=started_at,
+                thread=row,
+                early_start=True,
+            )
+        progress = self._track_progress(row)
+        with self._lock:
+            common_context = self._common_context or ""
+            add_dirs = list(self._add_dirs or [])
+            facts_block = self._facts_block or ""
+            section_note = str(self._section_notes.get(section_id) or "")
+        result, error = _run_english_section(
+            run_dir=self._run_dir,
+            section_id=section_id,
+            common_context=common_context,
+            shared_facts_block=facts_block,
+            spine_path=_memo_english_units_dir(self._run_dir) / "spine.json",
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=self._timeout_sec,
+            section_note=section_note,
+        )
+        if error is None and isinstance(result, dict) and self._on_section:
+            try:
+                self._on_section(section_id, result["section"])
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "early section hook failed for %s",
+                    section_id,
+                    exc_info=True,
+                )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        if self._stream is not None:
+            if error is None and isinstance(result, dict):
+                self._stream.emit(
+                    "thread_finished", thread=row, duration_ms=duration_ms
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="finished",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    cost_usd=(result or {}).get("claude_cost_usd"),
+                    claude_duration_ms=(result or {}).get(
+                        "claude_duration_ms"
+                    ),
+                    early_start=True,
+                )
+            else:
+                self._stream.emit(
+                    "thread_failed",
+                    thread=row,
+                    duration_ms=duration_ms,
+                    error=str(error or "no section returned")[:500],
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    error=str(error or "no section returned")[:500],
+                    early_start=True,
+                )
+        return result, error
+
+    @property
+    def had_early_sections(self) -> bool:
+        with self._lock:
+            return bool(self._early_futures)
+
+    def early_futures(self) -> dict[str, Any]:
+        """Snapshot of the in-flight/finished early section futures for the
+        wrapper to harvest (empty when abandoned or the lever is off)."""
+        with self._lock:
+            if self._early_abandoned:
+                return {}
+            return dict(self._early_futures)
+
+    def _abandon_early_sections(self, reason: str) -> None:
+        with self._lock:
+            already = self._early_abandoned
+            self._early_abandoned = True
+            sections = sorted(self._early_futures)
+        if already or not sections:
+            return
+        if self._stream is not None:
+            self._stream.emit(
+                "stage",
+                stage="memo_early_sections_discarded",
+                message=(
+                    f"Discarding {len(sections)} early-started section "
+                    f"draft(s): {reason[:300]}"
+                ),
+                sections=sections,
+            )
+
     def _emit_delta_stage(self, *, verdict: str, detail: str, late) -> None:
         if self._stream is not None:
             self._stream.emit(
@@ -4980,14 +5218,18 @@ class SpeculativeEnglish:
                 timeout=self._timeout_sec + 60
             )
         except Exception as exc:  # noqa: BLE001
-            return None, f"speculative spine did not complete: {exc}"
+            reason = f"speculative spine did not complete: {exc}"
+            self._abandon_early_sections(reason)
+            return None, reason
         if spine_error or not isinstance(spine_result, dict):
-            return None, (
-                f"speculative spine failed: {spine_error or 'no data'}"
-            )
+            reason = f"speculative spine failed: {spine_error or 'no data'}"
+            self._abandon_early_sections(reason)
+            return None, reason
         shared_facts = spine_result.get("shared_facts")
         if not isinstance(shared_facts, dict):
-            return None, "speculative spine returned no shared facts"
+            reason = "speculative spine returned no shared facts"
+            self._abandon_early_sections(reason)
+            return None, reason
         late_ok = [pid for pid in late_ids if self._pass_ok.get(pid)]
         if not late_ok:
             self._emit_delta_stage(
@@ -5073,10 +5315,12 @@ class SpeculativeEnglish:
                 detail=f"treated as stale: {check_error or 'no data'}",
                 late=late_ok,
             )
-            return None, (
+            reason = (
                 f"delta check failed ({check_error or 'no data'}); "
                 "pins treated as stale"
             )
+            self._abandon_early_sections(reason)
+            return None, reason
         if stale:
             reasons = [
                 str(reason) for reason in (check.get("reasons") or [])[:4]
@@ -5086,7 +5330,9 @@ class SpeculativeEnglish:
                 detail="; ".join(reasons) or "unspecified",
                 late=late_ok,
             )
-            return None, "pins stale: " + ("; ".join(reasons) or "unspecified")
+            reason = "pins stale: " + ("; ".join(reasons) or "unspecified")
+            self._abandon_early_sections(reason)
+            return None, reason
         self._emit_delta_stage(
             verdict="fresh",
             detail=f"pins hold against {len(late_files)} late pass(es)",
@@ -5547,18 +5793,21 @@ def run_memo_fast_english_package_parallel(
         *,
         section_hook=None,
         run_artifacts: bool = False,
+        row_suffix: str = "",
     ) -> tuple[dict[str, dict], list[str], dict | None, str | None]:
         """Run section workers (plus, optionally, the artifacts side agent)
         concurrently. Each job dict carries the _run_english_section kwargs
         beyond the shared ones. The artifacts agent's failure is returned
-        separately — it must never count as a section failure."""
+        separately — it must never count as a section failure.
+        ``row_suffix`` distinguishes a respin wave's thread rows from
+        already-finished early-start rows."""
         results: dict[str, dict] = {}
         errors: list[str] = []
         artifacts_result: dict | None = None
         artifacts_error: str | None = None
 
         def _run_one(section_id: str, job: dict):
-            row = f"Section - {section_id}"
+            row = f"Section - {section_id}{row_suffix}"
             phase_name = f"english_section:{section_id}"
             started = _start_row(row, phase_name)
             result, error = _run_english_section(
@@ -5875,6 +6124,23 @@ def run_memo_fast_english_package_parallel(
             on_spine(spine_payload)
         except Exception:  # noqa: BLE001
             logger.warning("spine hook failed", exc_info=True)
+    # Early-started sections (BSH_MEMO_SECTION_EARLY_START): the speculator
+    # launched these on its own pool once their affine passes finished;
+    # harvest their futures instead of re-running them. Empty when the
+    # lever is off, when speculation missed (abandoned drafts), or when
+    # there is no speculator.
+    early_futures: dict[str, Any] = {}
+    if speculative_english is not None and not speculation_missed:
+        early_futures = speculative_english.early_futures()
+    # A respin wave after a missed speculation needs distinct row labels —
+    # the abandoned early-start rows already used the plain ones.
+    row_suffix = (
+        " (respin)"
+        if speculation_missed
+        and speculative_english is not None
+        and speculative_english.had_early_sections
+        else ""
+    )
     if async_artifacts is None:
         _plan_row(
             "English artifacts",
@@ -5882,8 +6148,10 @@ def run_memo_fast_english_package_parallel(
             "Write the seven private analysis artifacts",
         )
     for index, section_id in enumerate(MEMO_PACKAGE_SECTION_IDS):
+        if section_id in early_futures:
+            continue  # the speculator already planned this row
         _plan_row(
-            f"Section - {section_id}",
+            f"Section - {section_id}{row_suffix}",
             round(3.03 + index / 100, 4),
             f"Draft the {section_id} section",
         )
@@ -5892,10 +6160,22 @@ def run_memo_fast_english_package_parallel(
             "stage",
             stage="memo_fast_english_parallel_dispatch",
             message=(
-                f"Drafting {len(MEMO_PACKAGE_SECTION_IDS)} memo sections and "
-                f"the analysis artifacts with up to {workers} parallel workers"
+                f"Drafting {len(MEMO_PACKAGE_SECTION_IDS) - len(early_futures)}"
+                " memo sections and the analysis artifacts with up to "
+                f"{workers} parallel workers"
+                + (
+                    f" ({len(early_futures)} section(s) already running "
+                    "from their early start)"
+                    if early_futures
+                    else ""
+                )
             ),
-            sections=list(MEMO_PACKAGE_SECTION_IDS),
+            sections=[
+                section_id
+                for section_id in MEMO_PACKAGE_SECTION_IDS
+                if section_id not in early_futures
+            ],
+            early_sections=sorted(early_futures),
             worker_count=workers,
         )
     feedback_errors: list[str] | None = None
@@ -5914,12 +6194,28 @@ def run_memo_fast_english_package_parallel(
             "previous_section_path": None,
         }
         for section_id in MEMO_PACKAGE_SECTION_IDS
+        if section_id not in early_futures
     }
     results, errors, artifacts_result, artifacts_error = _run_sections(
         section_jobs,
         section_hook=on_section,
         run_artifacts=async_artifacts is None,
+        row_suffix=row_suffix,
     )
+    for section_id, early_future in early_futures.items():
+        try:
+            early_result, early_error = early_future.result(
+                timeout=timeout_sec + 60
+            )
+        except Exception as exc:  # noqa: BLE001
+            early_result, early_error = (
+                None,
+                f"early section crashed: {exc}",
+            )
+        if early_error or not isinstance(early_result, dict):
+            errors.append(f"{section_id}: {early_error or 'no result'}")
+        else:
+            results[section_id] = early_result
     if errors:
         return _fallback("; ".join(errors[:3]))
     if async_artifacts is not None:

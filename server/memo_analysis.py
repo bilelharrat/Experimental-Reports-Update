@@ -2730,6 +2730,10 @@ def _run_fast_memo_pipeline(
                 stream=stream,
                 all_pass_ids=[spec.pass_id for spec in _FAST_MEMO_PASSES],
                 on_spine=zh_chaser.on_spine if zh_chaser is not None else None,
+                on_section=(
+                    zh_chaser.on_section if zh_chaser is not None else None
+                ),
+                early_sections=claude_runner._memo_section_early_start_enabled(),
             )
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
             # as_completed (not pool.map): each completion is a signal the
