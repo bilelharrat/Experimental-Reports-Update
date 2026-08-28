@@ -68,6 +68,16 @@ def _grep_quality(run_dir: Path) -> list[str]:
         blocking = len(re.findall(r"^- \[P0\]", text, re.MULTILINE))
         advisory = len(re.findall(r"^- \[P1\]", text, re.MULTILINE))
         lines.append(f"- chinese parity findings: P0={blocking} P1={advisory}")
+    pin_path = run_dir / "logs" / "pin_check.md"
+    if pin_path.exists():
+        text = pin_path.read_text(encoding="utf-8", errors="replace")
+        checked = re.search(r"^Pins checked:\s*(\d+)$", text, re.MULTILINE)
+        findings = re.search(r"^Findings:\s*(\d+)$", text, re.MULTILINE)
+        lines.append(
+            "- pin echo: checked="
+            f"{checked.group(1) if checked else '?'} "
+            f"findings={findings.group(1) if findings else '?'}"
+        )
     return lines
 
 
@@ -113,6 +123,51 @@ def main() -> int:
         print(
             f"- chase efficiency: units_chased={chased} units_missed={missed} "
             f"strings_adopted={adopted} cost={_fmt_cost(chase.get('cost_usd'))}"
+        )
+    spine = next(
+        (
+            row
+            for row in rows
+            if row.get("phase") == "english_spine" and row.get("speculative")
+        ),
+        None,
+    )
+    if spine is not None:
+        delta = next(
+            (
+                row
+                for row in rows
+                if row.get("phase") == "english_spine_delta_check"
+            ),
+            None,
+        )
+        verdict = (
+            ("stale" if delta.get("stale") else "fresh")
+            if delta is not None
+            else "unchecked"
+        )
+        print(
+            f"- speculative spine: {_fmt_minutes(spine.get('duration_ms'))} "
+            f"min, delta verdict={verdict}"
+        )
+    early = [row for row in rows if row.get("early_start")]
+    if early:
+        finished = sum(1 for row in early if row.get("status") == "finished")
+        print(
+            f"- early sections: {len(early)} started, {finished} finished"
+        )
+    repairs = [
+        row
+        for row in rows
+        if str(row.get("phase", "")).startswith("english_repair:")
+    ]
+    if repairs:
+        slowest = max(
+            (row.get("duration_ms") or 0 for row in repairs), default=0
+        )
+        print(
+            f"- sectional repairs: {len(repairs)} section(s), slowest "
+            f"{_fmt_minutes(slowest)} min"
         )
     if total is not None:
         print(

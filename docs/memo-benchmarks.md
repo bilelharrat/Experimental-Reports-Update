@@ -116,3 +116,53 @@ cleaner than the baseline.
   gate raised exactly ONE finding and it was genuine voice phrasing
   (no meta false positives — the alignment fix held live); chase
   adoption 556/557. The steady-state pipeline is ~23 m.
+
+## Round 2 — Phase-2/3 overlap and repair shrinkage (branch report-speedup-r2)
+
+Five levers, all implemented flag-gated default OFF. The theme is the
+chasing pattern generalized: speculate on partial input, verify cheaply,
+redo only what the verifier invalidates. The deterministic **pin-echo
+check** (`BSH_MEMO_PIN_CHECK`, report-only, on by default when a spine
+exists) is the safety net the speculative levers stand on — watch
+`logs/pin_check.md` and the `memo_pin_check` stage event.
+
+| Lever | Flag(s) | Mechanism | Expected |
+|---|---|---|---|
+| Artifacts detach | `BSH_MEMO_ARTIFACTS_ASYNC=1` | artifacts agent runs detached from the section wave, joined after acceptance | wave ends at slowest *section* (Run B: artifacts gated it at 6.0 m) |
+| Pin-echo check | `BSH_MEMO_PIN_CHECK=1` (default) / `_REPAIR=1` | deterministic pins-echoed verification | 0 findings on healthy runs; drift data for the speculation levers |
+| Sectional repair | `BSH_MEMO_SECTIONAL_REPAIR=1` | quality findings grouped by section, repaired in parallel, spliced | repair round ~8 m → ~2-4 m when it fires |
+| Speculative spine | `BSH_MEMO_SPINE_SPECULATIVE=1` (+`_AFTER`, default 6) | spine launches at 6/8 passes; SPINE_CHECK delta-verifies pins when stragglers land | spine wall hides in the pass tail (~2-3 m); stale pins cost one respin |
+| Early sections | `BSH_MEMO_SECTION_EARLY_START=1` | affinity-satisfied sections start on the unvalidated spine | wave overlaps the pass tail (~1-2 m more); stale pins discard ≤4 drafts |
+
+### Protocol
+
+Layer the levers in two runs on top of the Round-1 flags
+(`BSH_MEMO_ENGLISH_PARALLEL=1`, `BSH_MEMO_ZH_CHASING=1`,
+`BSH_MEMO_MODEL_TRANSLATION=claude-sonnet-5`):
+
+- **Run D (safe set):** `BSH_MEMO_ARTIFACTS_ASYNC=1` +
+  `BSH_MEMO_SECTIONAL_REPAIR=1`. Optionally
+  `BSH_MEMO_MODEL_SPINE_CHECK=claude-sonnet-5` now so it is already
+  configured for Run E.
+- **Run E (speculation):** Run D + `BSH_MEMO_SPINE_SPECULATIVE=1` +
+  `BSH_MEMO_SECTION_EARLY_START=1`.
+
+Restart the server between runs; extract with
+`scripts/memo_phase_report.py` as in Round 1.
+
+### Decision gates
+
+- **D:** the `english_artifacts` row overlaps the wave (its
+  `finished_at` may exceed the wave's without moving the attempt
+  duration); if a repair fires, the `english_repair:*` rows replace one
+  monolithic ~8 m round with a ≤4 m parallel one; total/cost/quality
+  not worse than the Round-1 steady state.
+- **E:** `memo_spine_delta_check` verdict `fresh`; the section wave
+  starts within ~1.5 m of Phase-2 end (vs +3-5 m today); early-start
+  rows (`early_start: true`) show sections drafted exactly once; pin
+  check 0 findings; total ≥2 m under Run D. A `stale` verdict is not a
+  failure — it is the design working; note the reasons and how much the
+  respin cost.
+- **Pin-echo across both runs:** any finding means a section drifted
+  from the pins — investigate before trusting the speculation levers
+  further, and consider `BSH_MEMO_PIN_CHECK_REPAIR=1`.
