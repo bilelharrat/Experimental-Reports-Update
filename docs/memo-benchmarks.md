@@ -29,11 +29,20 @@ tiering — the chasing decision is strictly C vs B; A anchors the overall
 
 | Run | Flags | Phase 2 | Phase 3 (attempts) | Phase 4 | Total | Cost | Quality |
 |---|---|---|---|---|---|---|---|
-| A. Monolith baseline | defaults | 10.8 m | 25.1 m (1) | 7.8 m | 43.7 m | $23.07 | lint passed, P0=0 |
-| B. Spine-lite | `BSH_MEMO_ENGLISH_PARALLEL=1` | _pending_ | | | | | |
+| A. Monolith baseline | defaults | 10.8 m | 25.1 m (1) / $6.69 | 7.8 m / $5.02 | 43.7 m | $23.07 | lint passed, P0=0 |
+| B. Spine-lite | `BSH_MEMO_ENGLISH_PARALLEL=1` | 4.2 m | 18.9 m (1) / $11.96 | 7.1 m / $2.83 | **30.2 m** | **$21.35** | `complete`, lint P0=0, parity P0=0 P1=0 |
 | C. Spine-lite + chasing | B + `BSH_MEMO_ZH_CHASING=1` | _pending_ | | | | | |
 
 Baseline A source: `data/memos/nvda/2026-08-25__003251__nvda__memo-run`.
+Run B source: `data/memos/nvda/2026-08-28__003828__nvda__memo-run` (2026-08-28).
+
+Run B detail: spine 4.6 m / $1.61 (one schema self-correction, no fallback);
+section wave 6.0 m concurrent (slowest = artifacts agent 6.0 m); surgical
+quality repair cleared 3 findings in ~8 m, attempt count stayed 1;
+cache_read_input_tokens 71K–954K on every post-spine call (gate ≥6K —
+passed by orders of magnitude); 6 Sonnet translation units (longest 7.1 m,
+Phase-4 cost 44% of baseline); status `complete` with zero warnings —
+cleaner than the baseline.
 
 ### Decision gates
 
@@ -50,4 +59,17 @@ Baseline A source: `data/memos/nvda/2026-08-25__003251__nvda__memo-run`.
 
 ### Decision log
 
-- _pending benchmark runs B and C._
+- **2026-08-28 — Run B (spine-lite): PASS on every gate.** 30.2 m vs
+  43.7 m baseline (−31%), $21.35 vs $23.07, one attempt, zero quality
+  warnings. Spine-lite 4.6 m (vs ~9 m pre-redesign); the
+  `--append-system-prompt` cache sharing eliminated the old 5× cost
+  blowout (Phase 3 attempt = $9.26 vs the old experiment's ~$16). The
+  2026-08-21 "no wall-clock win at 5× cost" verdict is superseded.
+- **Gate-alignment follow-up found in Run B:** the quality lint's
+  `meta_process_language` rule flagged the *mandatory* disclosures
+  sentence ("This document is a confidential summary…") and two
+  descriptive rows inside Section VI's source index — validator fighting
+  the pipeline's own required content. Surgical repair absorbed it
+  (~8 m, ~$2.7); aligning the lint's allow-list would hand that time
+  back on every run.
+- _Run C pending._
