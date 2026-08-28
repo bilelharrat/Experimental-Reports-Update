@@ -589,6 +589,7 @@ def _surgical_quality_repair(
     findings: list[str],
     attempt: int,
     progress,
+    stream=None,
 ) -> dict | None:
     """Fix quality-gate findings on a structurally valid candidate with the
     ~2-minute surgical repair pass instead of a 10-18 minute full
@@ -596,8 +597,13 @@ def _surgical_quality_repair(
 
     Quality findings are localized string defects (an em dash, a banned
     phrase, an untreated disclosure cell) — exactly what the repair pass is
-    built for. Returns the repaired package only when it passes BOTH
-    structural validation and a re-run of the quality gates; any other
+    built for. With BSH_MEMO_SECTIONAL_REPAIR=1 the findings are first
+    grouped by owning section and repaired per-section in parallel (each
+    repair re-emits one section instead of the whole ~50-80KB package —
+    the re-emission is most of the observed ~8-minute rounds); any
+    unmappable finding or per-section failure falls back to the
+    whole-package repair. Returns the repaired package only when it passes
+    BOTH structural validation and a re-run of the quality gates; any other
     outcome returns None and the caller falls back to the normal
     full-regeneration retry, so this can only save time, never lose
     correctness.
@@ -616,28 +622,69 @@ def _surgical_quality_repair(
         findings=findings[:10],
         attempt=attempt,
     )
-    repair_result, repair_error = claude_runner.run_memo_package_structure_repair(
-        run_dir=run_dir,
-        company_name=company_name,
-        run_id=run_id,
-        package_path=input_path,
-        validation_errors=findings,
-        progress=progress,
-    )
-    repaired = (
-        repair_result.get("memo_package")
-        if not repair_error and isinstance(repair_result, dict)
-        else None
-    )
-    if not isinstance(repaired, dict):
-        progress.emit(
-            "stage",
-            stage="memo_quality_surgical_repair_failed",
-            message="Surgical quality repair pass failed; regenerating instead",
-            error=str(repair_error or "no package returned")[:2000],
-            attempt=attempt,
+    repaired: dict | None = None
+    if claude_runner._memo_sectional_repair_enabled():
+        sectional, sectional_reason = (
+            claude_runner.run_memo_package_sectional_repair(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                package=candidate,
+                findings=findings,
+                progress=progress,
+                stream=stream,
+                attempt=attempt,
+            )
         )
-        return None
+        if isinstance(sectional, dict):
+            repaired = sectional
+            progress.emit(
+                "stage",
+                stage="memo_quality_sectional_repair_succeeded",
+                message=(
+                    "Sectional repair returned repaired sections; "
+                    "re-running the acceptance gates"
+                ),
+                attempt=attempt,
+            )
+        else:
+            progress.emit(
+                "stage",
+                stage="memo_quality_sectional_repair_fallback",
+                message=(
+                    "Sectional repair unavailable "
+                    f"({str(sectional_reason)[:300]}); running the "
+                    "whole-package repair pass"
+                ),
+                attempt=attempt,
+            )
+    if repaired is None:
+        repair_result, repair_error = (
+            claude_runner.run_memo_package_structure_repair(
+                run_dir=run_dir,
+                company_name=company_name,
+                run_id=run_id,
+                package_path=input_path,
+                validation_errors=findings,
+                progress=progress,
+            )
+        )
+        repaired = (
+            repair_result.get("memo_package")
+            if not repair_error and isinstance(repair_result, dict)
+            else None
+        )
+        if not isinstance(repaired, dict):
+            progress.emit(
+                "stage",
+                stage="memo_quality_surgical_repair_failed",
+                message=(
+                    "Surgical quality repair pass failed; regenerating instead"
+                ),
+                error=str(repair_error or "no package returned")[:2000],
+                attempt=attempt,
+            )
+            return None
     repaired, _ = memo_docx_renderer.repair_package_structure(repaired)
     structural_errors = memo_docx_renderer.english_package_validation_errors(
         repaired
@@ -2918,6 +2965,7 @@ def _run_fast_memo_pipeline(
                     findings=quality_findings,
                     attempt=attempt,
                     progress=phase3_progress,
+                    stream=stream,
                 )
                 if repaired is not None:
                     candidate = repaired

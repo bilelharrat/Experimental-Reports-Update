@@ -3672,6 +3672,110 @@ def test_phase3_surgical_quality_repair_avoids_regeneration(
     assert "scaffold_label" not in attempt_file.read_text(encoding="utf-8")
 
 
+def test_phase3_sectional_repair_replaces_whole_package_repair(
+    memo_env, monkeypatch
+):
+    """With BSH_MEMO_SECTIONAL_REPAIR=1, mappable quality findings are
+    repaired per-section (each repair re-emits one section, not the whole
+    package) and the whole-package repair agent is never invoked."""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_SECTIONAL_REPAIR", "1")
+    monkeypatch.setenv("BSH_MEMO_FAST_ENGLISH_PACKAGE_RETRIES", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    english_calls = []
+
+    def fake_english_package(**kwargs):
+        english_calls.append(kwargs.get("validation_feedback"))
+        return {
+            "analysis_artifacts": {},
+            "memo_package": _memo_package(body_en=_SCAFFOLD_BODY_EN, body_zh=""),
+        }, None
+
+    section_repairs = []
+
+    def fake_section_repair(**kwargs):
+        section_repairs.append(kwargs["section_id"])
+        clean = _memo_package(body_zh="")
+        section = next(
+            s for s in clean["sections"] if s["id"] == kwargs["section_id"]
+        )
+        return {
+            "section": section,
+            "claude_cost_usd": 0.2,
+            "claude_duration_ms": 800,
+        }, None
+
+    def forbidden_package_repair(**kwargs):
+        raise AssertionError(
+            "whole-package repair must not run when sectional repair succeeds"
+        )
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_package", fake_english_package
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_section_repair", fake_section_repair
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_package_structure_repair",
+        forbidden_package_repair,
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        lambda **_kwargs: ({"memo_package": _memo_package()}, None),
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    # One generation attempt; the scaffold finding repaired via exactly the
+    # section that owns it.
+    assert len(english_calls) == 1
+    assert section_repairs == ["executive_summary"]
+    events = _events(memo_prep.stream_path(run_dir))
+    assert any(
+        e.get("stage") == "memo_quality_sectional_repair_succeeded"
+        for e in events
+    )
+    assert any(
+        e.get("stage") == "memo_quality_surgical_repair_succeeded"
+        for e in events
+    )
+    attempt_file = run_dir / "logs" / "memo_package.en.attempt-1.json"
+    assert "scaffold_label" not in attempt_file.read_text(encoding="utf-8")
+
+
 def test_phase3_threads_previous_attempt_into_parallel_retry(
     memo_env, monkeypatch
 ):

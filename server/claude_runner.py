@@ -5593,6 +5593,241 @@ Task:
     )
 
 
+def _memo_sectional_repair_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_SECTIONAL_REPAIR", "0") == "1"
+
+
+def run_memo_section_repair(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    section: dict,
+    section_id: str,
+    findings: list[str],
+    progress=None,
+    timeout_sec: int = 900,
+) -> tuple[dict | None, str | None]:
+    """Surgically fix listed findings in ONE package section.
+
+    The whole-package repair pass re-emits the entire ~50-80KB package to
+    fix a handful of localized string defects — that re-emission is most of
+    the observed ~8-minute repair rounds. This variant re-emits only the
+    defective section.
+    """
+    units_dir = _memo_english_units_dir(run_dir)
+    units_dir.mkdir(parents=True, exist_ok=True)
+    section_path = units_dir / f"{section_id}.repair-input.json"
+    section_path.write_text(
+        json.dumps(section, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    error_lines = "\n".join(f"- {finding}" for finding in findings[:20])
+    risk_contract = (
+        f"\n{MEMO_RISK_REGISTER_CONTRACT}\n"
+        if section_id == "investment_risk"
+        else ""
+    )
+    prompt = f"""\
+You are repairing ONE SECTION of a BSH LP-facing investment memo package
+for {company_name} (run id: {run_id}).
+
+Input section (id `{section_id}`), which failed the quality gate:
+`{section_path}`
+
+Findings to fix:
+{error_lines}
+
+{HUMAN_EXEC_MEMO_VOICE_CONTRACT}
+
+{MEMO_PACKAGE_BLOCK_CONTRACT}
+{risk_contract}
+Task:
+- Read the section file.
+- Return `section`: the SAME section with ONLY the listed findings
+  repaired — make the smallest edit that clears each finding.
+- Preserve every other block, claim, number, table row, source reference,
+  English string, and Chinese string exactly as-is.
+- Do not add, remove, or reorder blocks unless a listed finding requires it.
+- Do not write files. Return only the JSON object matching the attached
+  schema.
+"""
+    result, error = _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=_MEMO_ENGLISH_SECTION_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message=f"Repairing section {section_id}",
+        timeout_label=f"memo section repair ({section_id})",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=[run_dir],
+        model=_memo_role_model("REPAIR"),
+        effort=_memo_role_effort("REPAIR"),
+    )
+    if error:
+        return None, error
+    repaired = (result or {}).get("section")
+    if not isinstance(repaired, dict):
+        return None, (
+            f"section {section_id} repair did not return a section object"
+        )
+    repaired["id"] = section_id
+    return (
+        {
+            "section": repaired,
+            "claude_cost_usd": result.get("claude_cost_usd"),
+            "claude_duration_ms": result.get("claude_duration_ms"),
+        },
+        None,
+    )
+
+
+def run_memo_package_sectional_repair(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    package: dict,
+    findings: list[str],
+    progress=None,
+    stream=None,
+    attempt: int | None = None,
+    timeout_sec: int = 900,
+) -> tuple[dict | None, str | None]:
+    """Repair quality findings section-by-section, in parallel.
+
+    Groups the findings by owning section (all-or-nothing: one unmappable
+    finding refuses the whole job), repairs each defective section
+    concurrently, and splices the repaired sections back into a copy of the
+    package. Returns ``(None, reason)`` on any refusal or per-section
+    failure — the caller falls back to the whole-package repair pass, so
+    this can only save time, never lose correctness. The caller re-runs
+    every acceptance gate on the returned package either way.
+    """
+    mapping = _map_validation_errors_to_sections(package, findings)
+    if not mapping:
+        return None, "findings not attributable to single sections"
+    sections_by_id = {
+        section.get("id"): section
+        for section in package.get("sections") or []
+        if isinstance(section, dict)
+    }
+    for section_id in mapping:
+        if section_id not in sections_by_id:
+            return None, f"section {section_id} missing from the package"
+    attempt_suffix = f" (attempt {attempt})" if attempt and attempt > 1 else ""
+
+    def _repair_one(section_id: str) -> tuple[dict | None, str | None]:
+        row = f"Repair - {section_id}{attempt_suffix}"
+        phase_name = f"english_repair:{section_id}"
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        if stream is not None:
+            stream.emit(
+                "thread_planned",
+                thread=row,
+                title=row,
+                phase_index=round(
+                    3.51 + list(sorted(mapping)).index(section_id) / 100, 4
+                ),
+                parent_thread=_MEMO_PHASE3_THREAD,
+                group="memo_repair",
+                estimate_ms=180_000,
+                description=f"Surgically repair the {section_id} section",
+            )
+            stream.emit("thread_started", thread=row, title=row)
+            stream.emit(
+                "phase_timing",
+                phase=phase_name,
+                status="started",
+                started_at=started_at,
+                thread=row,
+            )
+        result, error = run_memo_section_repair(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            section=sections_by_id[section_id],
+            section_id=section_id,
+            findings=mapping[section_id],
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        if stream is not None:
+            if error is None and isinstance(result, dict):
+                stream.emit(
+                    "thread_finished", thread=row, duration_ms=duration_ms
+                )
+                stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="finished",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    cost_usd=(result or {}).get("claude_cost_usd"),
+                    claude_duration_ms=(result or {}).get(
+                        "claude_duration_ms"
+                    ),
+                )
+            else:
+                stream.emit(
+                    "thread_failed",
+                    thread=row,
+                    duration_ms=duration_ms,
+                    error=str(error or "no section returned")[:500],
+                )
+                stream.emit(
+                    "phase_timing",
+                    phase=phase_name,
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    error=str(error or "no section returned")[:500],
+                )
+        return result, error
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    results: dict[str, dict] = {}
+    errors: list[str] = []
+    with ThreadPoolExecutor(
+        max_workers=max(1, min(len(mapping), len(MEMO_PACKAGE_SECTION_IDS))),
+        thread_name_prefix="memo-repair",
+    ) as pool:
+        futures = {
+            pool.submit(_repair_one, section_id): section_id
+            for section_id in sorted(mapping)
+        }
+        for future, section_id in futures.items():
+            try:
+                result, error = future.result()
+            except Exception as exc:  # noqa: BLE001
+                result, error = None, f"repair crashed: {exc}"
+            if error or not isinstance(result, dict):
+                errors.append(f"{section_id}: {error or 'no result'}")
+            else:
+                results[section_id] = result
+    if errors:
+        return None, "; ".join(errors[:3])
+    repaired_sections = []
+    for section in package.get("sections") or []:
+        section_id = section.get("id") if isinstance(section, dict) else None
+        if section_id in results:
+            repaired_sections.append(results[section_id]["section"])
+        else:
+            repaired_sections.append(section)
+    repaired_package = dict(package)
+    repaired_package["sections"] = repaired_sections
+    return repaired_package, None
+
+
 _MEMO_BILINGUAL_UNIT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
