@@ -103,3 +103,10 @@ cleaner than the baseline.
   ~30 m / ~$21–24 / zero warnings, vs 43.7 m / $23.07 baseline. All
   three flags are safe to leave on for daily use; the next ~8 m of
   savings is the lint alignment, not more parallelism.
+- **2026-08-28 — first routine run on the full stack (zainar-inc,
+  post-lint-fix): 22.9 m / $16.44 / `complete`, zero warnings** — vs
+  that company's 36.5 m / $16.58 monolithic baseline (−37% at equal
+  cost). Spine 2.9 m on the thin-corpus company (generalizes); quality
+  gate raised exactly ONE finding and it was genuine voice phrasing
+  (no meta false positives — the alignment fix held live); chase
+  adoption 556/557. The steady-state pipeline is ~23 m.
