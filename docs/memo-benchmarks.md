@@ -83,6 +83,13 @@ cleaner than the baseline.
   analysis pass gates Phase 2). Verdict: chasing is additive, cheaper,
   and quality-neutral; its −3+ m shows at the phase level on every run
   and at the total level once upstream variance averages out.
+- **2026-08-28 — tuned-code validation (zainar-inc, second run): 22.5 m
+  / $19.47 / `complete`, zero warnings.** The join wait went from
+  2.2 m to **1 ms** (4 chase workers — every unit finished long before
+  the join) and the chase rows now show true runtimes (e.g. envelope
+  95.9 s wall vs 94.1 s model time; previously a 920 s-style wall).
+  Repair fired once for genuine findings (detached voice + an untreated
+  disclosure gap in front matter). Adoption 653/656.
 - **Tuning follow-ups from Run C — all three SHIPPED 2026-08-28:**
   (1) chase workers default is now 4 (with 2, the six units queued and
   the join waited 86 s–2.2 m for the tail); (2) chase rows now emit
