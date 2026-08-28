@@ -311,3 +311,34 @@ Gates:
 - the Chinese reads as well as D/E — full section read against the
   three fresh baselines, per the quality-comparison method;
 - run total: expect ~14-15 m if the tail collapses as modeled.
+
+### Round-3 results
+
+| Run | Config | English accepted | Chase units | Total | Cost | Quality |
+|---|---|---|---|---|---|---|
+| F. Compact zh (zainar-inc) | E + `ZH_COMPACT` + `EFFORT_TRANSLATION=medium` + style note + split | ~9.5 m (incl. 1.4 m hybrid repair) | envelope 24 s; sections 67-75 s; financial 143 s (split 2×) | **12.9 m** | $15.82 | `complete`, lint P0=0, parity P0=0, pin echo 22/0 |
+
+Run F source: `data/memos/zainar-inc/2026-08-28__214223__zainar-inc__memo-run`.
+
+- **2026-08-28 — Run F: PASS on every gate. 12.9 m — the fastest memo on
+  record, −43% vs Round 1, −65% vs the monolith, WITH a repair round.**
+  Compact translation cut unit times 3-5x (sections 67-75 s vs
+  222-398 s; financial 143 s with the 2-way split vs 253-393 s) and
+  chase cost to $1.36 (vs $2.04-2.12). Zero compact fallbacks; zero
+  blank zh; adoption 634/638 with the 4 repair-invalidated strings
+  gap-filled. Hybrid repair fired again (3 workers, 1.4 m). Pin echo
+  22/0, third consecutive clean run.
+- **Style note verdict:** currency and dates are now 100% consistent
+  across every section ($-form ×175, 万/亿 ×0, all dates 年月日) — the
+  seam is gone. Multiples are mostly x-form (86 x vs 35 倍) but the
+  executive-summary unit favored 倍 where grammar suggests it
+  ("收入的 42 倍"). Open operator decision: accept the grammar-driven
+  mix, or add an explicit example to the note to force x everywhere.
+- **Chinese quality at medium effort: no loss.** Full read of the exec
+  and risk sections against the D/E baselines: fluent, precise
+  register, correct fixed labels, natural phrasing — arguably the most
+  natural opening paragraph of any run. Trying effort=low stays
+  possible but is not urgent.
+- **Fact lottery, third draw missed:** F also carries $450M+/90+ only
+  (no $500M+/95+ April figures) — now 3 of the 4 latest runs. The
+  durable fact-ledger follow-up rises in priority.
