@@ -365,3 +365,21 @@ E_v2 = ON. Restart the server between runs. Compare phase-level: when
 the spine ran vs Phase 2's tail, wave start time, early-section rows,
 delta verdict — plus totals and the usual gates. Expected: E_v2 beats
 D_v2 by ~2-4 m; a stale delta verdict is data, not failure.
+
+### nvda results
+
+| Run | Config | Phase 2 | Spine | English accepted | Total | Cost | Quality |
+|---|---|---|---|---|---|---|---|
+| D_v2 | full Round-3 stack, speculation OFF | 6.3 m (passes 1.6-6.3) | 4.3 m, serial after Phase 2 | ~17.9 m (incl. sectional repair: overview ∥ financial) | **18.1 m** | $18.41 | `complete`, lint P0=0, parity P0=0, pin echo 22/0 |
+
+Run D_v2 source: `data/memos/nvda/2026-08-28__220351__nvda__memo-run`.
+
+- **2026-08-28 — D_v2: nvda record, 18.1 m vs 29.9-30.2 (Round 1) and
+  43.7 (monolith) — with a repair round.** Compact translation held at
+  nvda scale: units 23-110 s, no splits needed, zero fallbacks, chase
+  $1.16, adoption 629/631. The back-half tail is GONE — the run ended
+  seconds after English acceptance, so the pipeline is now
+  English-bound end to end. That makes E_v2 the cleanest possible A/B:
+  the 4.3 m serial spine sits directly on the critical path, and nvda's
+  6.3 m Phase-2 tail is wide enough to hide almost all of it. Predicted
+  E_v2: ~14-15 m. Pin echo 22/0 — fourth consecutive clean run.
