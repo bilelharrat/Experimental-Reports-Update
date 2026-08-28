@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import atexit
 from contextlib import contextmanager
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import json
 import logging
@@ -2640,6 +2640,18 @@ def _run_fast_memo_pipeline(
     )
     stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
 
+    # The chaser exists before Phase 2 so the speculative spine can hand it
+    # the envelope the moment the spine lands (idle until hooks fire).
+    zh_chaser = None
+    if _memo_zh_chasing_enabled():
+        zh_chaser = claude_runner.BilingualChaser(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            stream=stream,
+        )
+    speculator = None
+
     if analysis_session_path:
         stream.emit(
             "thread_started",
@@ -2701,24 +2713,70 @@ def _run_fast_memo_pipeline(
             started_at=phase2_started_at,
             started_monotonic=phase2_started,
         )
-        with ThreadPoolExecutor(max_workers=worker_count) as pool:
-            pass_results = list(
-                pool.map(
-                    lambda spec: _run_fast_memo_pass(
-                        spec=spec,
-                        run_dir=run_dir,
-                        company_name=company_name,
-                        company_slug=company_slug,
-                        run_id=run_id,
-                        stream=stream,
-                        research_dir=research_dir,
-                        lessons_path=lessons_path,
-                        scope_check=scope_check,
-                        warnings=warnings,
-                    ),
-                    _FAST_MEMO_PASSES,
-                )
+        if claude_runner._memo_spine_speculative_enabled():
+            speculator = claude_runner.SpeculativeEnglish(
+                run_dir=run_dir,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                settings_path=memo_prep.SETTINGS_FILE,
+                companies_yaml_path=memo_prep.COMPANIES_FILE,
+                memo_paths=memo_paths,
+                research_dir=research_dir,
+                analysis_session_path=analysis_session_path,
+                lessons_path=lessons_path,
+                scope_check=scope_check,
+                warnings=warnings,
+                stream=stream,
+                all_pass_ids=[spec.pass_id for spec in _FAST_MEMO_PASSES],
+                on_spine=zh_chaser.on_spine if zh_chaser is not None else None,
             )
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            # as_completed (not pool.map): each completion is a signal the
+            # speculative spine may be waiting on.
+            futures = {
+                pool.submit(
+                    _run_fast_memo_pass,
+                    spec=spec,
+                    run_dir=run_dir,
+                    company_name=company_name,
+                    company_slug=company_slug,
+                    run_id=run_id,
+                    stream=stream,
+                    research_dir=research_dir,
+                    lessons_path=lessons_path,
+                    scope_check=scope_check,
+                    warnings=warnings,
+                ): spec
+                for spec in _FAST_MEMO_PASSES
+            }
+            results_by_id: dict[str, _FastMemoPassResult] = {}
+            for future in as_completed(futures):
+                spec = futures[future]
+                try:
+                    pass_result = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    pass_result = _FastMemoPassResult(
+                        spec=spec,
+                        data=None,
+                        error=f"pass crashed: {exc}",
+                        duration_ms=0,
+                        cost_usd=0.0,
+                    )
+                results_by_id[spec.pass_id] = pass_result
+                if speculator is not None:
+                    try:
+                        speculator.note_pass_result(
+                            spec.pass_id, pass_result.ok
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "speculative spine pass notification failed",
+                            exc_info=True,
+                        )
+            pass_results = [
+                results_by_id[spec.pass_id] for spec in _FAST_MEMO_PASSES
+            ]
         cost_usd += sum(result.cost_usd for result in pass_results)
         worker_duration_ms += sum(result.duration_ms for result in pass_results)
         stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE2_THREAD)
@@ -2745,6 +2803,11 @@ def _run_fast_memo_pipeline(
                 error=message,
             )
             stream.emit("error", error=message, phase="fast_parallel_analysis")
+            if speculator is not None:
+                cost_usd += speculator.cost_usd
+                speculator.shutdown()
+            if zh_chaser is not None:
+                zh_chaser.shutdown()
             return {"ok": False, "error": message, "cost_usd": cost_usd}
 
     phase3_started_at = _now_iso()
@@ -2769,14 +2832,6 @@ def _run_fast_memo_pipeline(
     last_attempt_result: dict | None = None
     last_attempt_path: Path | None = None
     max_attempts = 1 + _memo_fast_english_package_retries()
-    zh_chaser = None
-    if _memo_zh_chasing_enabled():
-        zh_chaser = claude_runner.BilingualChaser(
-            run_dir=run_dir,
-            company_name=company_name,
-            run_id=run_id,
-            stream=stream,
-        )
     async_artifacts = None
     if claude_runner._memo_artifacts_async_enabled():
         async_artifacts = claude_runner.AsyncArtifacts(
@@ -2851,6 +2906,7 @@ def _run_fast_memo_pipeline(
                     else None
                 ),
                 async_artifacts=async_artifacts,
+                speculative_english=speculator,
             )
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
@@ -3158,6 +3214,14 @@ def _run_fast_memo_pipeline(
     phase3_duration_delta = max(
         0, phase3_progress.duration_ms - phase3_duration_before
     )
+    if speculator is not None:
+        # The speculative spine and its delta check ran outside the Phase-3
+        # side-channel; count their real spend (used or wasted) here so
+        # every downstream total sees it.
+        speculator_cost = speculator.cost_usd
+        if speculator_cost:
+            phase3_cost_delta += speculator_cost
+        speculator.shutdown()
     if english_error or not isinstance(english_result, dict):
         message = english_error or "English package pass returned no data."
         if zh_chaser is not None:

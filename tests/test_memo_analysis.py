@@ -3776,6 +3776,88 @@ def test_phase3_sectional_repair_replaces_whole_package_repair(
     assert "scaffold_label" not in attempt_file.read_text(encoding="utf-8")
 
 
+def test_phase2_launches_speculative_spine_and_threads_it_into_phase3(
+    memo_env, monkeypatch
+):
+    """With BSH_MEMO_SPINE_SPECULATIVE=1, the spine launches during Phase 2
+    once the threshold pass count completes (with the not-yet-finished
+    passes named), and the Phase-3 wrapper receives the coordinator."""
+    monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATIVE", "1")
+    monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
+    monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
+    report, run_dir = _make_memo_report(memo_env)
+    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir))
+    stream.emit("job_init", kind="memo", report_id=report["id"])
+
+    def fake_analysis_pass(**kwargs):
+        return {
+            "summary": "s",
+            "key_findings": [],
+            "supporting_evidence": [],
+            "disconfirming_evidence": [],
+            "open_questions": [],
+            "memo_uses": [],
+        }, None
+
+    spine_calls = []
+
+    def fake_spine(**kwargs):
+        spine_calls.append(kwargs.get("speculative_missing"))
+        return {
+            "package_skeleton": {"company": {"name": "G"}, "sources": [{}]},
+            "shared_facts": {"recommendation_sentence": "We recommend."},
+            "claude_cost_usd": 1.0,
+        }, None
+
+    wrapper_kwargs = {}
+
+    def fake_parallel(**kwargs):
+        wrapper_kwargs.update(kwargs)
+        return {
+            "analysis_artifacts": {},
+            "memo_package": _memo_package(body_zh=""),
+        }, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_analysis_pass", fake_analysis_pass
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_spine", fake_spine
+    )
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_package_parallel", fake_parallel
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_bilingual_package_parallel",
+        lambda **_kwargs: ({"memo_package": _memo_package()}, None),
+    )
+
+    result = memo_analysis._run_fast_memo_pipeline(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        company_name="Generalist, Inc.",
+        company_slug="generalist-inc",
+        run_id=str(report["run_id"]),
+        memo_paths_abs=memo_analysis._memo_paths_abs(report),
+        analysis_session_path=None,
+        lessons_path=None,
+    )
+
+    assert result.get("ok") is True
+    # The speculative spine ran once, launched at 6/8 completions with the
+    # two not-yet-noted passes named.
+    assert len(spine_calls) == 1
+    assert isinstance(spine_calls[0], list) and len(spine_calls[0]) == 2
+    speculator = wrapper_kwargs.get("speculative_english")
+    assert isinstance(speculator, claude_runner.SpeculativeEnglish)
+    assert speculator.launched is True
+
+
 def test_phase3_threads_previous_attempt_into_parallel_retry(
     memo_env, monkeypatch
 ):

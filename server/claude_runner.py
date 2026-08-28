@@ -4332,10 +4332,17 @@ def run_memo_fast_english_spine(
     progress=None,
     timeout_sec: int = 1200,
     validation_feedback: str | None = None,
+    speculative_missing: list[str] | None = None,
 ) -> tuple[dict | None, str | None]:
     """Synthesize the lite spine: package envelope plus the shared-facts pin
     sheet. No analysis artifacts, no memo prose — those belong to the side
-    agent and the section workers."""
+    agent and the section workers.
+
+    ``speculative_missing`` names analysis passes still running when the
+    spine was launched early (the speculative-spine lever): the prompt
+    tells the agent to pin from what exists and not to wait for or invent
+    the stragglers.
+    """
     feedback_block = (
         (
             "\n## Previous attempts failed renderer validation\n"
@@ -4347,6 +4354,17 @@ def run_memo_fast_english_spine(
         if validation_feedback
         else ""
     )
+    speculative_block = ""
+    if speculative_missing:
+        missing_list = ", ".join(f"`{pid}`" for pid in speculative_missing)
+        speculative_block = f"""
+## Speculative start
+The following analysis passes are still running and their artifacts are
+NOT in `analysis/fast/` yet: {missing_list}. Pin the shared facts from
+the artifacts that already exist; do not wait for the missing ones and
+do not invent what they might say. A delta check re-validates your pins
+against the stragglers when they land.
+"""
     section_list = "\n".join(f"- `{sid}`" for sid in MEMO_PACKAGE_SECTION_IDS)
     prompt = f"""\
 You are drafting the SHARED SPINE of the English source package. Five section
@@ -4380,7 +4398,7 @@ Produce ONE JSON object with:
 
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
-{feedback_block}
+{speculative_block}{feedback_block}
 Return only the JSON matching the attached schema.
 """
     return _run_memo_local_json_artifact(
@@ -4630,6 +4648,456 @@ class AsyncArtifacts:
         self._pool.shutdown(wait=False)
 
 
+def _memo_spine_speculative_enabled() -> bool:
+    return (
+        os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
+        and os.environ.get("BSH_MEMO_SPINE_SPECULATIVE", "0") == "1"
+    )
+
+
+def _memo_spine_speculate_after() -> int:
+    """How many of the 8 analysis passes must finish before the spine
+    launches speculatively. Default 6: the typical straggler gap is the
+    last one or two passes."""
+    raw = os.environ.get("BSH_MEMO_SPINE_SPECULATE_AFTER")
+    try:
+        value = int(raw) if raw is not None else 6
+    except (TypeError, ValueError):
+        value = 6
+    return max(4, min(value, 7))
+
+
+MEMO_SPINE_DELTA_CHECK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "pins_stale": {"type": "boolean"},
+        "reasons": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"type": "string", "maxLength": 300},
+        },
+    },
+    "required": ["pins_stale"],
+}
+
+
+def run_memo_spine_delta_check(
+    *,
+    run_dir: Path,
+    shared_facts: dict,
+    late_pass_files: list[Path],
+    progress=None,
+    timeout_sec: int = 420,
+) -> tuple[dict | None, str | None]:
+    """Cheap verifier for a speculatively-pinned spine.
+
+    Reads ONLY the analysis passes that finished after the spine launched
+    and answers one question: does anything in them force a pinned fact to
+    change? The caller treats any failure of this check as "stale"
+    (conservative: correctness over the saved minutes).
+    """
+    files_list = "\n".join(f"- `{path}`" for path in late_pass_files)
+    facts_json = json.dumps(shared_facts, ensure_ascii=False, indent=2)
+    prompt = f"""\
+You are delta-checking the pinned shared facts of an investment-memo spine
+that launched before every analysis pass had finished.
+
+The pinned shared facts (recommendation sentence, key metrics, scenarios,
+rated risk list):
+```json
+{facts_json}
+```
+
+The late analysis passes that were NOT available when these facts were
+pinned:
+{files_list}
+
+Read ONLY those late pass files. Answer whether their results materially
+contradict any pinned fact or force one to change: a wrong number, a
+recommendation the late evidence undermines, a missing top risk that
+belongs in a 4-6 item risk list, a scenario range the late arithmetic
+invalidates. Late results that merely add color, detail, or supporting
+evidence do NOT make the pins stale — answer `pins_stale: true` only when
+a section repeating these pins verbatim would state something wrong.
+
+Return only the JSON matching the attached schema (`pins_stale`, plus
+short `reasons` when stale).
+"""
+    return _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_SPINE_DELTA_CHECK_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Delta-checking the speculative spine pins",
+        timeout_label="memo spine delta check",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=[run_dir],
+        model=_memo_role_model("SPINE_CHECK"),
+        effort=_memo_role_effort("SPINE_CHECK"),
+    )
+
+
+class SpeculativeEnglish:
+    """Launch the English spine before the last analysis passes land.
+
+    Phase 2 is gated by its slowest pass, while the spine needs the full
+    picture only for a handful of pinned facts. This coordinator starts
+    the spine once ``threshold`` passes have completed — the chasing
+    pattern applied upstream — so the spine's wall time hides inside the
+    pass tail. When the stragglers land, ``consume()`` runs a cheap delta
+    check: fresh pins hand the finished spine to the wrapper and the
+    section wave starts immediately; stale pins (or any failure anywhere)
+    discard it and the wrapper runs a normal spine. The gamble can waste
+    one spine call plus one delta check, never correctness — and the
+    pin-echo gate still verifies the final package either way.
+    """
+
+    def __init__(
+        self,
+        *,
+        run_dir: Path,
+        company_name: str,
+        company_slug: str,
+        run_id: str,
+        settings_path: Path,
+        companies_yaml_path: Path,
+        memo_paths: dict[str, str],
+        research_dir: Path | None = None,
+        analysis_session_path: Path | None = None,
+        lessons_path: Path | None = None,
+        scope_check: dict | None = None,
+        warnings: list[str] | None = None,
+        stream=None,
+        timeout_sec: int = 1200,
+        all_pass_ids: list[str] | None = None,
+        threshold: int | None = None,
+        on_spine=None,
+    ):
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._run_dir = run_dir
+        self._company_name = company_name
+        self._company_slug = company_slug
+        self._run_id = run_id
+        self._settings_path = settings_path
+        self._companies_yaml_path = companies_yaml_path
+        self._memo_paths = memo_paths
+        self._research_dir = research_dir
+        self._analysis_session_path = analysis_session_path
+        self._lessons_path = lessons_path
+        self._scope_check = scope_check
+        self._warnings = warnings
+        self._stream = stream
+        self._timeout_sec = timeout_sec
+        self._all_pass_ids = [str(pid) for pid in (all_pass_ids or [])]
+        self._threshold = min(
+            threshold or _memo_spine_speculate_after(),
+            max(1, len(self._all_pass_ids) - 1) if self._all_pass_ids else 1,
+        )
+        self._on_spine = on_spine
+        self._pool = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="memo-spine-spec"
+        )
+        self._lock = threading.Lock()
+        self._pass_ok: dict[str, bool] = {}
+        self._late_ids: list[str] = []
+        self._spine_future = None
+        self._progresses: list[Any] = []
+
+    @property
+    def launched(self) -> bool:
+        with self._lock:
+            return self._spine_future is not None
+
+    @property
+    def cost_usd(self) -> float:
+        """Spend accumulated outside the Phase-3 side-channel (the
+        speculative spine and the delta check) — the pipeline adds this to
+        its totals explicitly, used or wasted."""
+        with self._lock:
+            return sum(progress.cost_usd for progress in self._progresses)
+
+    def _track_progress(self, row: str):
+        if self._stream is None:
+            return None
+        progress = job_progress.ThreadProgress(self._stream, row)
+        with self._lock:
+            self._progresses.append(progress)
+        return progress
+
+    def note_pass_result(self, pass_id: str, ok: bool) -> None:
+        """Phase-2 completion signal; launches the spine at the threshold."""
+        with self._lock:
+            self._pass_ok[str(pass_id)] = bool(ok)
+            if self._spine_future is not None:
+                return
+            if len(self._pass_ok) < self._threshold:
+                return
+            self._late_ids = [
+                pid for pid in self._all_pass_ids if pid not in self._pass_ok
+            ]
+            self._spine_future = self._pool.submit(
+                self._run_spine, list(self._late_ids)
+            )
+
+    def _run_spine(self, late_ids: list[str]):
+        row = "English spine"
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        if self._stream is not None:
+            self._stream.emit(
+                "thread_planned",
+                thread=row,
+                title=row,
+                phase_index=3.01,
+                parent_thread=_MEMO_PHASE3_THREAD,
+                group="memo_english_unit",
+                estimate_ms=240_000,
+                description=(
+                    "Pin the package envelope and shared facts "
+                    "(speculative start during Phase 2)"
+                ),
+            )
+            self._stream.emit("thread_started", thread=row, title=row)
+            self._stream.emit(
+                "phase_timing",
+                phase="english_spine",
+                status="started",
+                started_at=started_at,
+                thread=row,
+                speculative=True,
+            )
+        progress = self._track_progress(row)
+        common_context = _memo_english_common_context(
+            company_name=self._company_name,
+            company_slug=self._company_slug,
+            run_id=self._run_id,
+            run_dir=self._run_dir,
+            companies_yaml_path=self._companies_yaml_path,
+            memo_paths=self._memo_paths,
+            research_dir=self._research_dir,
+            analysis_session_path=self._analysis_session_path,
+            scope_check=self._scope_check,
+            warnings=self._warnings,
+        )
+        add_dirs = _memo_english_add_dirs(
+            settings_path=self._settings_path,
+            companies_yaml_path=self._companies_yaml_path,
+            run_dir=self._run_dir,
+            research_dir=self._research_dir,
+            analysis_session_path=self._analysis_session_path,
+            lessons_path=self._lessons_path,
+        )
+        result, error = run_memo_fast_english_spine(
+            run_dir=self._run_dir,
+            company_name=self._company_name,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=self._timeout_sec,
+            speculative_missing=late_ids or None,
+        )
+        if error is None and isinstance(result, dict) and self._on_spine:
+            # Start the envelope chase now, during the Phase-2 tail. If the
+            # pins later prove stale the chase is bounded waste; the
+            # chaser's hooks are idempotent, so the wrapper re-firing this
+            # for the consumed spine is a no-op.
+            skeleton = result.get("package_skeleton")
+            if isinstance(skeleton, dict) and skeleton:
+                try:
+                    self._on_spine({"package_skeleton": skeleton})
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "speculative spine hook failed", exc_info=True
+                    )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        if self._stream is not None:
+            if error is None and isinstance(result, dict):
+                self._stream.emit(
+                    "thread_finished", thread=row, duration_ms=duration_ms
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase="english_spine",
+                    status="finished",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    cost_usd=(result or {}).get("claude_cost_usd"),
+                    claude_duration_ms=(result or {}).get("claude_duration_ms"),
+                    speculative=True,
+                )
+            else:
+                self._stream.emit(
+                    "thread_failed",
+                    thread=row,
+                    duration_ms=duration_ms,
+                    error=str(error or "no spine returned")[:500],
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase="english_spine",
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row,
+                    error=str(error or "no spine returned")[:500],
+                    speculative=True,
+                )
+        return result, error
+
+    def _emit_delta_stage(self, *, verdict: str, detail: str, late) -> None:
+        if self._stream is not None:
+            self._stream.emit(
+                "stage",
+                stage="memo_spine_delta_check",
+                message=(
+                    f"Speculative spine delta check: {verdict} "
+                    f"({detail[:300]})"
+                ),
+                verdict=verdict,
+                late_passes=late,
+            )
+
+    def consume(self, *, progress=None):
+        """Join the speculative spine and delta-check its pins.
+
+        Returns ``(spine_result, None)`` when the pins survive; otherwise
+        ``(None, reason)`` and the caller runs a fresh spine.
+        """
+        with self._lock:
+            future = self._spine_future
+            late_ids = list(self._late_ids)
+        if future is None:
+            return None, "speculative spine never launched"
+        try:
+            spine_result, spine_error = future.result(
+                timeout=self._timeout_sec + 60
+            )
+        except Exception as exc:  # noqa: BLE001
+            return None, f"speculative spine did not complete: {exc}"
+        if spine_error or not isinstance(spine_result, dict):
+            return None, (
+                f"speculative spine failed: {spine_error or 'no data'}"
+            )
+        shared_facts = spine_result.get("shared_facts")
+        if not isinstance(shared_facts, dict):
+            return None, "speculative spine returned no shared facts"
+        late_ok = [pid for pid in late_ids if self._pass_ok.get(pid)]
+        if not late_ok:
+            self._emit_delta_stage(
+                verdict="skipped",
+                detail="no successful late passes to check",
+                late=late_ids,
+            )
+            return spine_result, None
+        late_files = [
+            self._run_dir / "analysis" / "fast" / f"{pid}.json"
+            for pid in late_ok
+        ]
+        late_files = [path for path in late_files if path.exists()]
+        if not late_files:
+            self._emit_delta_stage(
+                verdict="skipped",
+                detail="late pass artifacts not on disk",
+                late=late_ok,
+            )
+            return spine_result, None
+        row = "Spine delta check"
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        if self._stream is not None:
+            self._stream.emit(
+                "thread_planned",
+                thread=row,
+                title=row,
+                phase_index=3.015,
+                parent_thread=_MEMO_PHASE3_THREAD,
+                group="memo_english_unit",
+                estimate_ms=90_000,
+                description=(
+                    "Verify the speculative pins against the late analysis "
+                    "passes"
+                ),
+            )
+            self._stream.emit("thread_started", thread=row, title=row)
+            self._stream.emit(
+                "phase_timing",
+                phase="english_spine_delta_check",
+                status="started",
+                started_at=started_at,
+                thread=row,
+            )
+        check_progress = self._track_progress(row) or progress
+        check, check_error = run_memo_spine_delta_check(
+            run_dir=self._run_dir,
+            shared_facts=shared_facts,
+            late_pass_files=late_files,
+            progress=check_progress,
+        )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        stale = (
+            bool(check.get("pins_stale"))
+            if isinstance(check, dict) and not check_error
+            else True
+        )
+        if self._stream is not None:
+            self._stream.emit(
+                "thread_finished" if not stale else "thread_failed",
+                thread=row,
+                duration_ms=duration_ms,
+                **({} if not stale else {"error": "pins stale or check failed"}),
+            )
+            self._stream.emit(
+                "phase_timing",
+                phase="english_spine_delta_check",
+                status="finished" if not stale else "failed",
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_ms=duration_ms,
+                thread=row,
+                cost_usd=(check or {}).get("claude_cost_usd")
+                if isinstance(check, dict)
+                else None,
+                stale=stale,
+            )
+        if check_error or not isinstance(check, dict):
+            self._emit_delta_stage(
+                verdict="error",
+                detail=f"treated as stale: {check_error or 'no data'}",
+                late=late_ok,
+            )
+            return None, (
+                f"delta check failed ({check_error or 'no data'}); "
+                "pins treated as stale"
+            )
+        if stale:
+            reasons = [
+                str(reason) for reason in (check.get("reasons") or [])[:4]
+            ]
+            self._emit_delta_stage(
+                verdict="stale",
+                detail="; ".join(reasons) or "unspecified",
+                late=late_ok,
+            )
+            return None, "pins stale: " + ("; ".join(reasons) or "unspecified")
+        self._emit_delta_stage(
+            verdict="fresh",
+            detail=f"pins hold against {len(late_files)} late pass(es)",
+            late=late_ok,
+        )
+        return spine_result, None
+
+    def shutdown(self) -> None:
+        self._pool.shutdown(wait=False)
+
+
 def _run_english_section(
     *,
     run_dir: Path,
@@ -4852,6 +5320,7 @@ def run_memo_fast_english_package_parallel(
     on_spine=None,
     on_section=None,
     async_artifacts: AsyncArtifacts | None = None,
+    speculative_english: "SpeculativeEnglish | None" = None,
 ) -> tuple[dict | None, str | None]:
     """Spine-lite + parallel per-section synthesis of the English package.
 
@@ -5317,28 +5786,66 @@ def run_memo_fast_english_package_parallel(
             )
 
     # ---- Full parallel pass: spine, then sections + artifacts -------------
-    _plan_row(
-        "English spine",
-        3.01,
-        "Pin the package envelope and shared facts",
-    )
-    spine_row_started = _start_row("English spine", "english_spine")
-    spine_result, spine_error = run_memo_fast_english_spine(
-        run_dir=run_dir,
-        company_name=company_name,
-        common_context=common_context,
-        add_dirs=add_dirs,
-        progress=progress,
-        timeout_sec=timeout_sec,
-        validation_feedback=validation_feedback,
-    )
-    _finish_row(
-        "English spine",
-        "english_spine",
-        spine_row_started,
-        error=spine_error,
-        result=spine_result if isinstance(spine_result, dict) else None,
-    )
+    spine_result = None
+    spine_error: str | None = None
+    speculation_missed = False
+    if (
+        speculative_english is not None
+        and (attempt is None or attempt == 1)
+        and not validation_feedback
+    ):
+        spine_result, speculation_reason = speculative_english.consume(
+            progress=progress
+        )
+        if spine_result is None:
+            speculation_missed = True
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_spine_speculation_missed",
+                    message=(
+                        "Speculative spine not used "
+                        f"({str(speculation_reason)[:300]}); running a "
+                        "fresh spine"
+                    ),
+                )
+        elif progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_spine_speculation_used",
+                message=(
+                    "Speculative spine validated; section wave starts "
+                    "immediately"
+                ),
+            )
+    if spine_result is None:
+        # A respin after a missed speculation needs a fresh row label —
+        # the speculative attempt already finished its "English spine" row.
+        spine_label = (
+            "English spine (respin)" if speculation_missed else "English spine"
+        )
+        _plan_row(
+            spine_label,
+            3.01,
+            "Pin the package envelope and shared facts",
+        )
+        spine_row_started = _start_row(spine_label, "english_spine")
+        spine_result, spine_error = run_memo_fast_english_spine(
+            run_dir=run_dir,
+            company_name=company_name,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+            validation_feedback=validation_feedback,
+        )
+        _finish_row(
+            spine_label,
+            "english_spine",
+            spine_row_started,
+            error=spine_error,
+            result=spine_result if isinstance(spine_result, dict) else None,
+        )
     if spine_error or not isinstance(spine_result, dict):
         return _fallback(spine_error or "spine pass returned no data")
     skeleton = spine_result.get("package_skeleton")
