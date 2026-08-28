@@ -90,6 +90,15 @@ cleaner than the baseline.
   (3) the lint allow-list fix from Run B remains the biggest single
   lever (~8 m of surgical repair in BOTH runs, same
   `meta_process_language`-vs-disclosures misalignment).
+- **2026-08-28 — lint alignment SHIPPED.** `meta_process_language` now
+  (a) skips blocks carrying the mandatory legal-disclosure markers and
+  (b) permits neutral-article references ("the memo carries…", "the
+  registry fields…") inside the Sources/validation trace sections;
+  demonstrative/possessive forms ("this memo", "our analysis") stay
+  banned everywhere. Replayed against Run C's pre-repair package: the
+  meta findings drop to 0; two genuine sell-side voice violations
+  remain (correctly). Run B's repair round (3/3 meta) would have been
+  skipped entirely.
 - **Round-1 conclusion:** spine-lite + Sonnet translation + chasing =
   ~30 m / ~$21–24 / zero warnings, vs 43.7 m / $23.07 baseline. All
   three flags are safe to leave on for daily use; the next ~8 m of

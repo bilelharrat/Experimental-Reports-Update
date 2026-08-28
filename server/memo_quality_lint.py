@@ -298,6 +298,19 @@ _META_LANGUAGE_PATTERNS = (
     ),
 )
 
+# The mandatory legal-disclosure sentence necessarily says "this document"
+# — the renderer's `disclosures` component REQUIRES this language, so the
+# meta-language gate must not fight it (it forced a surgical-repair round
+# on both 2026-08-28 benchmark runs). Markers mirror the renderer's
+# disclosures-component coverage patterns in memo_docx_renderer.
+_DISCLOSURE_LANGUAGE_PATTERNS = (
+    re.compile(r"\bnot an offer to (?:sell|purchase)\b", re.IGNORECASE),
+    re.compile(r"\boffer to sell securities\b", re.IGNORECASE),
+    re.compile(r"\bdefinitive subscription documents\b", re.IGNORECASE),
+    re.compile(r"\baccredited investors\b", re.IGNORECASE),
+    re.compile(r"\bpartial or total loss\b", re.IGNORECASE),
+)
+
 
 def lint_memo_docx(path: str | Path) -> MemoLintResult:
     """Lint one generated memo DOCX and return structured findings."""
@@ -515,9 +528,26 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                 )
                 break
 
-        for pattern in _META_LANGUAGE_PATTERNS:
-            match = pattern.search(block.text)
-            if match:
+        block_is_disclosure_language = any(
+            pattern.search(block.text)
+            for pattern in _DISCLOSURE_LANGUAGE_PATTERNS
+        )
+        if not block_is_disclosure_language:
+            for pattern in _META_LANGUAGE_PATTERNS:
+                match = pattern.search(block.text)
+                if not match:
+                    continue
+                # The Sources / Fact Reference Index and validation
+                # appendix describe the memo's own sourcing by definition —
+                # neutral-article references ("the memo carries…", "the
+                # registry fields are not used") are treatment language
+                # there, not process leakage. Demonstrative/possessive
+                # forms ("this memo", "our analysis") stay banned
+                # everywhere.
+                if block.allowed_trace_section and match.group(0).lower().startswith(
+                    "the "
+                ):
+                    continue
                 findings.append(
                     _finding(
                         block,

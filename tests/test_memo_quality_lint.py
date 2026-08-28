@@ -345,6 +345,72 @@ def test_linter_blocks_meta_process_language_in_source_index(tmp_path):
     assert "this memo" in snippets
 
 
+def test_linter_allows_neutral_meta_references_in_source_index(tmp_path):
+    """Section VI describes the memo's own sourcing by definition — the
+    2026-08-28 benchmark runs both burned a surgical-repair round on these
+    exact neutral-article phrasings. Demonstrative forms stay banned."""
+    path = tmp_path / "source-index-neutral-meta.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "We recommend participating where valuation support is visible.",
+            "VI. Sources, Source Classes, and Fact Reference Index",
+            (
+                "[S1] Q2 FY2027 report: anchor for reported revenue; every "
+                "headline figure in the memo carries this quarter end."
+            ),
+            (
+                "[S2] Company registry entry: the analyzed entity is resolved "
+                "to NVIDIA Corporation and the registry legal, headquarters "
+                "and founding fields are not used."
+            ),
+            "[S3] Company materials, used for this memo.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    meta = [f for f in result.findings if f.code == "meta_process_language"]
+    snippets = " ".join(f.snippet for f in meta)
+
+    # Neutral-article references in the index are treatment language.
+    assert "the memo" not in snippets
+    assert "the registry" not in snippets
+    # The demonstrative form is still process leakage, even in Section VI.
+    assert "this memo" in snippets
+
+
+def test_linter_allows_mandatory_disclosure_language(tmp_path):
+    """The renderer REQUIRES the legal disclosures sentence; the meta gate
+    must not flag its 'This document …' phrasing (Run B/C false positive)."""
+    path = tmp_path / "disclosure-language.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "V. Financial Forecast & Valuation",
+            (
+                "This document is a confidential summary prepared for "
+                "existing and prospective limited partners and is not an "
+                "offer to sell securities; any investment is made only "
+                "through definitive subscription documents available to "
+                "accredited investors and may result in partial or total "
+                "loss of capital."
+            ),
+            # Control: 'This document' WITHOUT disclosure markers stays
+            # banned in body sections.
+            "This document outlines the key risks.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    meta = [f for f in result.findings if f.code == "meta_process_language"]
+
+    # Exactly one finding: the control paragraph. Two would mean the
+    # disclosure sentence was flagged as well.
+    assert len(meta) == 1
+    assert "outlines the key risks" in meta[0].snippet
+
+
 def test_linter_blocks_internal_questionnaire_language(tmp_path):
     path = tmp_path / "gating-questions.docx"
     _save_docx(
