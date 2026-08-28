@@ -47,6 +47,7 @@ from . import (
     job_progress,
     memo_chinese_parity,
     memo_docx_renderer,
+    memo_pin_check,
     memo_quality_lint,
     memo_prep,
     research_store,
@@ -89,6 +90,23 @@ def _memo_zh_chasing_enabled() -> bool:
         os.environ.get("BSH_MEMO_ZH_CHASING", "0") == "1"
         and os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
     )
+
+
+def _memo_pin_check_enabled() -> bool:
+    """Deterministic pin-echo verification (report-only by default).
+
+    Costs milliseconds, reads only the assembled candidate and the spine's
+    shared facts, so it defaults ON wherever the parallel path produced a
+    spine. It exists both as observability (how often would speculation
+    have drifted?) and as the safety net for the speculative levers.
+    """
+    return _env_flag("BSH_MEMO_PIN_CHECK", default=True)
+
+
+def _memo_pin_check_repair_enabled() -> bool:
+    """Feed pin-echo findings into the repair loop (default OFF: report
+    only). Turn on once live runs show the findings are trustworthy."""
+    return _env_flag("BSH_MEMO_PIN_CHECK_REPAIR", default=False)
 
 
 def _memo_fast_max_workers() -> int:
@@ -502,6 +520,66 @@ def _memo_package_prerender_quality_error(
     return "; ".join(problems) if problems else None
 
 
+def _memo_shared_facts_from_disk(run_dir: Path) -> dict | None:
+    """The spine's pinned shared facts, when the parallel path wrote them."""
+    spine_path = run_dir / "logs" / "english_units" / "spine.json"
+    if not spine_path.exists():
+        return None
+    try:
+        shared_facts = json.loads(
+            spine_path.read_text(encoding="utf-8")
+        ).get("shared_facts")
+    except Exception:  # noqa: BLE001
+        return None
+    return shared_facts if isinstance(shared_facts, dict) else None
+
+
+def _run_memo_pin_check(
+    *,
+    run_dir: Path,
+    candidate: dict,
+    progress,
+    attempt: int | None = None,
+) -> list[str]:
+    """Deterministically verify the candidate echoes the spine's pins.
+
+    Writes ``logs/pin_check.md`` and emits one stage event either way;
+    returns the finding feedback lines (the caller feeds them to repair
+    only when BSH_MEMO_PIN_CHECK_REPAIR is on). Never raises — the checker
+    must not be able to sink a run.
+    """
+    if not _memo_pin_check_enabled():
+        return []
+    shared_facts = _memo_shared_facts_from_disk(run_dir)
+    if not shared_facts or not isinstance(candidate, dict):
+        return []
+    try:
+        result = memo_pin_check.check_package_pins(candidate, shared_facts)
+        report_path = run_dir / "logs" / "pin_check.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            memo_pin_check.render_markdown_report(result, attempt=attempt),
+            encoding="utf-8",
+        )
+        progress.emit(
+            "stage",
+            stage="memo_pin_check",
+            message=(
+                f"Pin-echo check: {result.pins_checked} pins checked, "
+                f"{len(result.findings)} finding(s)"
+            ),
+            pins_checked=result.pins_checked,
+            pins_skipped=result.pins_skipped,
+            findings=[finding.to_dict() for finding in result.findings][:8],
+            repair_feed=_memo_pin_check_repair_enabled(),
+            attempt=attempt,
+        )
+        return result.summary_lines()
+    except Exception:  # noqa: BLE001
+        logger.warning("memo pin check failed", exc_info=True)
+        return []
+
+
 def _surgical_quality_repair(
     *,
     run_dir: Path,
@@ -571,6 +649,17 @@ def _surgical_quality_repair(
             check_parity=False,
         )
     )
+    if not remaining and _memo_pin_check_repair_enabled():
+        # When pin findings feed the repair, the repaired package must also
+        # clear the pin check before it is accepted.
+        shared_facts = _memo_shared_facts_from_disk(run_dir)
+        if shared_facts:
+            try:
+                remaining = memo_pin_check.check_package_pins(
+                    repaired, shared_facts
+                ).summary_lines()
+            except Exception:  # noqa: BLE001
+                logger.warning("post-repair pin check failed", exc_info=True)
     if remaining:
         progress.emit(
             "stage",
@@ -2807,6 +2896,15 @@ def _run_fast_memo_pipeline(
                 memo_docx_renderer.fill_blank_zh_placeholders(candidate),
                 check_parity=False,
             )
+            if isinstance(candidate, dict):
+                pin_lines = _run_memo_pin_check(
+                    run_dir=run_dir,
+                    candidate=candidate,
+                    progress=phase3_progress,
+                    attempt=attempt,
+                )
+                if pin_lines and _memo_pin_check_repair_enabled():
+                    quality_findings = list(quality_findings) + pin_lines
             if quality_findings and isinstance(candidate, dict):
                 # Try the cheap surgical repair first: quality findings are
                 # localized string defects, and a full regeneration costs
