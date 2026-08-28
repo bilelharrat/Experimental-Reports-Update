@@ -83,13 +83,12 @@ cleaner than the baseline.
   analysis pass gates Phase 2). Verdict: chasing is additive, cheaper,
   and quality-neutral; its −3+ m shows at the phase level on every run
   and at the total level once upstream variance averages out.
-- **Tuning follow-ups from Run C:** (1) `BSH_MEMO_ZH_CHASE_WORKERS=4`
-  — with the default 2 the six chase units queued and the join waited
-  86 s for the last one; (2) chase thread rows report wall-to-join, not
-  unit runtime (cosmetic — `claude_duration_ms` on the row is correct);
-  (3) the lint allow-list fix from Run B remains the biggest single
-  lever (~8 m of surgical repair in BOTH runs, same
-  `meta_process_language`-vs-disclosures misalignment).
+- **Tuning follow-ups from Run C — all three SHIPPED 2026-08-28:**
+  (1) chase workers default is now 4 (with 2, the six units queued and
+  the join waited 86 s–2.2 m for the tail); (2) chase rows now emit
+  their terminal events from the worker thread at true completion time
+  (previously emitted at join time, showing 920 s walls for 75 s
+  translations); (3) the lint allow-list alignment (entry above).
 - **2026-08-28 — lint alignment SHIPPED.** `meta_process_language` now
   (a) skips blocks carrying the mandatory legal-disclosure markers and
   (b) permits neutral-article references ("the memo carries…", "the

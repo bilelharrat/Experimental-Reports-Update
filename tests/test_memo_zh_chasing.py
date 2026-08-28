@@ -203,11 +203,11 @@ def test_chaser_duplicate_submissions_are_ignored(tmp_path, monkeypatch):
 
 def test_chase_env_knobs_parse_and_clamp(monkeypatch):
     monkeypatch.delenv("BSH_MEMO_ZH_CHASE_WORKERS", raising=False)
-    assert claude_runner._memo_zh_chase_workers() == 2
+    assert claude_runner._memo_zh_chase_workers() == 4
     monkeypatch.setenv("BSH_MEMO_ZH_CHASE_WORKERS", "99")
     assert claude_runner._memo_zh_chase_workers() == 6
     monkeypatch.setenv("BSH_MEMO_ZH_CHASE_WORKERS", "garbage")
-    assert claude_runner._memo_zh_chase_workers() == 2
+    assert claude_runner._memo_zh_chase_workers() == 4
     monkeypatch.delenv("BSH_MEMO_ZH_CHASE_JOIN_TIMEOUT_SEC", raising=False)
     assert claude_runner._memo_zh_chase_join_timeout_sec() == 900.0
     monkeypatch.setenv("BSH_MEMO_ZH_CHASE_JOIN_TIMEOUT_SEC", "60")
@@ -223,3 +223,99 @@ def test_chase_env_knobs_parse_and_clamp(monkeypatch):
     # Chasing without the parallel English path has nothing to chase.
     monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
     assert memo_analysis._memo_zh_chasing_enabled() is False
+
+
+class _RecordingStream:
+    def __init__(self):
+        self.events: list[dict] = []
+        self._lock = threading.Lock()
+
+    def emit(self, type_, **fields):
+        with self._lock:
+            self.events.append({"type": type_, **fields})
+
+    def snapshot(self, type_, phase=None):
+        with self._lock:
+            return [
+                e
+                for e in self.events
+                if e["type"] == type_ and (phase is None or e.get("phase") == phase)
+            ]
+
+
+def test_chase_terminal_events_emit_at_unit_completion(tmp_path, monkeypatch):
+    """The finished row must appear when the translation completes — not
+    minutes later at the Phase-4 join (the 920s-wall-for-75s-work bug)."""
+
+    def fake_unit(*, unit_path, **kwargs):
+        unit = _fill_unit(json.loads(unit_path.read_text(encoding="utf-8")))
+        unit["claude_cost_usd"] = 0.1
+        unit["claude_duration_ms"] = 10
+        return unit, None
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", fake_unit)
+    stream = _RecordingStream()
+    chaser = _chaser(tmp_path, stream=stream)
+    chaser.on_section("executive_summary", _section("executive_summary"))
+
+    # The terminal events must arrive WITHOUT calling collect().
+    deadline = 5.0
+    import time as _time
+
+    waited = 0.0
+    while not stream.snapshot("thread_finished") and waited < deadline:
+        _time.sleep(0.02)
+        waited += 0.02
+    finished_rows = stream.snapshot(
+        "phase_timing", phase="zh_chase:executive_summary"
+    )
+    assert any(e["status"] == "finished" for e in finished_rows), (
+        "unit completion must emit its terminal events before the join"
+    )
+    done_row = [e for e in finished_rows if e["status"] == "finished"][0]
+    assert done_row["duration_ms"] < 5000, "row must show real runtime"
+
+    outcome = chaser.collect(join_timeout_sec=5)
+    chaser.shutdown()
+    assert "executive_summary" in outcome["units"]
+    # collect() must not re-emit the terminal events.
+    finished_after = [
+        e
+        for e in stream.snapshot(
+            "phase_timing", phase="zh_chase:executive_summary"
+        )
+        if e["status"] == "finished"
+    ]
+    assert len(finished_after) == 1
+
+
+def test_chase_abandoned_unit_never_double_emits(tmp_path, monkeypatch):
+    release = threading.Event()
+
+    def slow_unit(*, unit_path, **kwargs):
+        release.wait(timeout=5)
+        unit = _fill_unit(json.loads(unit_path.read_text(encoding="utf-8")))
+        return unit, None
+
+    monkeypatch.setattr(claude_runner, "_run_bilingual_unit", slow_unit)
+    stream = _RecordingStream()
+    chaser = _chaser(tmp_path, stream=stream)
+    chaser.on_section("executive_summary", _section("executive_summary"))
+    outcome = chaser.collect(join_timeout_sec=0.05)
+    assert outcome["missed"] == ["executive_summary"]
+    failed_rows = [
+        e
+        for e in stream.snapshot(
+            "phase_timing", phase="zh_chase:executive_summary"
+        )
+        if e["status"] == "failed"
+    ]
+    assert len(failed_rows) == 1
+
+    # Let the worker finish late; it must stay silent.
+    release.set()
+    chaser._futures["executive_summary"].result(timeout=5)
+    chaser.shutdown()
+    rows = stream.snapshot("phase_timing", phase="zh_chase:executive_summary")
+    terminal = [e for e in rows if e["status"] in ("finished", "failed")]
+    assert len(terminal) == 1 and terminal[0]["status"] == "failed"

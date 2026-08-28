@@ -5486,11 +5486,16 @@ Task:
 
 
 def _memo_zh_chase_workers() -> int:
+    # Default 4: there are six chase units (envelope + five sections) and
+    # with 2 workers they queued behind each other — the Phase-4 join then
+    # waited ~1-2 minutes for the tail (measured on the 2026-08-28 runs).
+    # Units arrive staggered as sections finish, so 4 clears the queue
+    # without meaningfully raising peak subprocess pressure.
     raw = os.environ.get("BSH_MEMO_ZH_CHASE_WORKERS")
     try:
-        value = int(raw) if raw is not None else 2
+        value = int(raw) if raw is not None else 4
     except (TypeError, ValueError):
-        value = 2
+        value = 4
     return max(1, min(value, 6))
 
 
@@ -5546,7 +5551,14 @@ class BilingualChaser:
         )
         self._lock = threading.Lock()
         self._futures: dict[str, Any] = {}
-        self._starts: dict[str, tuple[str, float]] = {}
+        self._submitted: dict[str, tuple[str, float]] = {}
+        # Terminal-event bookkeeping: a unit's finished/failed events are
+        # emitted by its worker thread the moment it completes (so the job
+        # UI shows real runtimes, not wait-for-join time); collect() emits
+        # a failure only for units it abandons at the join deadline, and
+        # the two sides use these sets to never double-emit.
+        self._terminal_emitted: set[str] = set()
+        self._abandoned: set[str] = set()
 
     @property
     def has_units(self) -> bool:
@@ -5602,9 +5614,10 @@ class BilingualChaser:
                 encoding="utf-8",
             )
             row_label = f"Chinese chase - {unit_id}"
-            started_at = datetime.now(timezone.utc).isoformat()
-            self._starts[unit_id] = (started_at, time.monotonic())
-            unit_progress = None
+            self._submitted[unit_id] = (
+                datetime.now(timezone.utc).isoformat(),
+                time.monotonic(),
+            )
             if self._stream is not None:
                 self._stream.emit(
                     "thread_planned",
@@ -5617,32 +5630,89 @@ class BilingualChaser:
                     estimate_ms=300_000,
                     description=f"Speculatively translate the {label}",
                 )
+            self._futures[unit_id] = self._pool.submit(
+                self._run_unit, unit_id, label, row_label, unit_path
+            )
+
+    def _run_unit(
+        self, unit_id: str, label: str, row_label: str, unit_path: Path
+    ) -> tuple[dict | None, str | None]:
+        """Worker-thread body: run the translation and emit the unit's
+        started/terminal events at their true times (a row emitted only at
+        join time showed 15-minute walls for 75-second translations)."""
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        unit_progress = None
+        if self._stream is not None:
+            self._stream.emit(
+                "thread_started",
+                thread=row_label,
+                title=row_label,
+                unit_id=unit_id,
+            )
+            self._stream.emit(
+                "phase_timing",
+                phase=f"zh_chase:{unit_id}",
+                status="started",
+                started_at=started_at,
+                thread=row_label,
+            )
+            unit_progress = job_progress.ThreadProgress(self._stream, row_label)
+        unit, error = _run_bilingual_unit(
+            run_dir=self._run_dir,
+            company_name=self._company_name,
+            run_id=self._run_id,
+            unit_label=label,
+            unit_path=unit_path,
+            progress=unit_progress,
+            timeout_sec=self._timeout_sec,
+        )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            if unit_id in self._abandoned:
+                # collect() already closed this row at the join deadline;
+                # the late result is unused and must not double-emit.
+                return unit, error
+            self._terminal_emitted.add(unit_id)
+        if self._stream is not None:
+            if error is None and isinstance(unit, dict):
                 self._stream.emit(
-                    "thread_started",
+                    "thread_finished",
                     thread=row_label,
-                    title=row_label,
                     unit_id=unit_id,
+                    duration_ms=duration_ms,
                 )
                 self._stream.emit(
                     "phase_timing",
                     phase=f"zh_chase:{unit_id}",
-                    status="started",
+                    status="finished",
                     started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
                     thread=row_label,
+                    cost_usd=unit.get("claude_cost_usd"),
+                    claude_duration_ms=unit.get("claude_duration_ms"),
                 )
-                unit_progress = job_progress.ThreadProgress(
-                    self._stream, row_label
+            else:
+                self._stream.emit(
+                    "thread_failed",
+                    thread=row_label,
+                    unit_id=unit_id,
+                    duration_ms=duration_ms,
+                    error=str(error)[:500],
                 )
-            self._futures[unit_id] = self._pool.submit(
-                _run_bilingual_unit,
-                run_dir=self._run_dir,
-                company_name=self._company_name,
-                run_id=self._run_id,
-                unit_label=label,
-                unit_path=unit_path,
-                progress=unit_progress,
-                timeout_sec=self._timeout_sec,
-            )
+                self._stream.emit(
+                    "phase_timing",
+                    phase=f"zh_chase:{unit_id}",
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row_label,
+                    error=str(error)[:500],
+                )
+        return unit, error
 
     def collect(self, join_timeout_sec: float | None = None) -> dict:
         """Join in-flight units under one shared deadline.
@@ -5661,10 +5731,6 @@ class BilingualChaser:
         cost = 0.0
         duration = 0
         for unit_id, future in list(self._futures.items()):
-            row_label = f"Chinese chase - {unit_id}"
-            started_at, started_monotonic = self._starts.get(
-                unit_id, (datetime.now(timezone.utc).isoformat(), time.monotonic())
-            )
             remaining = max(0.0, deadline - time.monotonic())
             error: str | None = None
             unit: dict | None = None
@@ -5679,49 +5745,54 @@ class BilingualChaser:
                 )
             except Exception as exc:  # noqa: BLE001
                 error = f"chase unit {unit_id} crashed: {exc}"
-            duration_ms = int((time.monotonic() - started_monotonic) * 1000)
             if error is None and isinstance(unit, dict):
+                # The worker thread already emitted this unit's terminal
+                # events at its true completion time.
                 units[unit_id] = unit
                 cost += _to_float(unit.get("claude_cost_usd"))
                 duration += _to_int(unit.get("claude_duration_ms"))
-                if self._stream is not None:
-                    self._stream.emit(
-                        "thread_finished",
-                        thread=row_label,
-                        unit_id=unit_id,
-                        duration_ms=duration_ms,
-                    )
-                    self._stream.emit(
-                        "phase_timing",
-                        phase=f"zh_chase:{unit_id}",
-                        status="finished",
-                        started_at=started_at,
-                        finished_at=datetime.now(timezone.utc).isoformat(),
-                        duration_ms=duration_ms,
-                        thread=row_label,
-                        cost_usd=unit.get("claude_cost_usd"),
-                        claude_duration_ms=unit.get("claude_duration_ms"),
-                    )
-            else:
-                (missed if timed_out else failed).append(unit_id)
-                if self._stream is not None:
-                    self._stream.emit(
-                        "thread_failed",
-                        thread=row_label,
-                        unit_id=unit_id,
-                        duration_ms=duration_ms,
-                        error=str(error)[:500],
-                    )
-                    self._stream.emit(
-                        "phase_timing",
-                        phase=f"zh_chase:{unit_id}",
-                        status="failed",
-                        started_at=started_at,
-                        finished_at=datetime.now(timezone.utc).isoformat(),
-                        duration_ms=duration_ms,
-                        thread=row_label,
-                        error=str(error)[:500],
-                    )
+                continue
+            (missed if timed_out else failed).append(unit_id)
+            if not timed_out:
+                # Ran and failed (or crashed): the worker emitted the
+                # failure row; a crashed future never reached the worker's
+                # emit, but also never marked terminal — fall through only
+                # for abandonment below when it never completed.
+                continue
+            # Abandoned at the join deadline: the worker hasn't emitted a
+            # terminal event yet — close the row here, and mark it so the
+            # late-finishing worker stays silent.
+            with self._lock:
+                if unit_id in self._terminal_emitted:
+                    continue
+                self._abandoned.add(unit_id)
+            if self._stream is not None:
+                row_label = f"Chinese chase - {unit_id}"
+                submitted_at, submitted_monotonic = self._submitted.get(
+                    unit_id,
+                    (datetime.now(timezone.utc).isoformat(), time.monotonic()),
+                )
+                self._stream.emit(
+                    "thread_failed",
+                    thread=row_label,
+                    unit_id=unit_id,
+                    duration_ms=int(
+                        (time.monotonic() - submitted_monotonic) * 1000
+                    ),
+                    error=str(error)[:500],
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase=f"zh_chase:{unit_id}",
+                    status="failed",
+                    started_at=submitted_at,
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    duration_ms=int(
+                        (time.monotonic() - submitted_monotonic) * 1000
+                    ),
+                    thread=row_label,
+                    error=str(error)[:500],
+                )
         return {
             "units": units,
             "missed": missed,
