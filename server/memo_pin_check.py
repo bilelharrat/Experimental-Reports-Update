@@ -204,7 +204,13 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
             )
 
     # 2. Every checkable pinned metric value must appear somewhere in the
-    #    package.
+    #    package. Short values match verbatim; spines also legally pack
+    #    treatment prose into `value` ("~$24M; treated as a revenue
+    #    proxy…"), which sections echo by number rather than verbatim
+    #    (observed live 2026-08-28: nine such false positives, every number
+    #    present) — so the fallback matches the value's numeric tokens and
+    #    flags only when most are missing. A prose value with no numbers is
+    #    uncheckable and skipped.
     for metric in shared_facts.get("key_metrics") or []:
         if not isinstance(metric, dict):
             continue
@@ -213,17 +219,30 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
         if len(value) < 2 or _norm(value) in _SKIPPABLE_VALUES:
             pins_skipped += 1
             continue
+        if _contains(package_norm, package_squashed, value):
+            pins_checked += 1
+            continue
+        numbers = _NUMBER_TOKEN_RE.findall(value)
+        if not numbers:
+            pins_skipped += 1
+            continue
         pins_checked += 1
-        if not _contains(package_norm, package_squashed, value):
+        missing = [
+            number
+            for number in numbers
+            if _squash(number) not in package_squashed
+            and _norm(number) not in package_norm
+        ]
+        if len(missing) * 2 > len(numbers):
             findings.append(
                 PinFinding(
                     code="metric_value_missing",
                     location="package",
                     pin=f"{name}: {value}",
                     detail=(
-                        f'pinned metric "{name}" with value "{value}" does '
-                        "not appear anywhere in the package — repeat the "
-                        "pinned value exactly"
+                        f'pinned metric "{name}" numbers '
+                        f"({', '.join(missing)}) do not appear anywhere in "
+                        "the package — repeat the pinned values exactly"
                     ),
                 )
             )

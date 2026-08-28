@@ -136,6 +136,59 @@ def test_missing_metric_value_is_flagged():
     assert "70,000" in result.findings[0].pin
 
 
+def test_prose_metric_value_matches_by_numbers():
+    """Spines legally pack treatment prose into `value`; sections echo the
+    numbers, not the sentence (live Run D observation). The checker must
+    match on numeric tokens, not the verbatim string."""
+    facts = _shared_facts()
+    facts["key_metrics"].append(
+        {
+            "name": "Contracts and MOUs",
+            "value": (
+                "$450M+ at launch, revised to $500M+; conversion modeled "
+                "at 10% to 20%"
+            ),
+            "as_of": "2026-06-01",
+        }
+    )
+    package = _echoing_package()
+    package["sections"][1]["blocks"] = [
+        {
+            "type": "paragraph",
+            "text": _loc(
+                "Disclosed contracts and MOUs of $450M+ were later revised "
+                "to $500M+; we model conversion at 10% to 20%."
+            ),
+        }
+    ]
+    result = memo_pin_check.check_package_pins(package, facts)
+    assert result.ok, [f.to_dict() for f in result.findings]
+    # When the numbers are wholesale absent, it still flags.
+    package["sections"][1]["blocks"] = []
+    result = memo_pin_check.check_package_pins(package, facts)
+    codes = [f.code for f in result.findings]
+    assert codes == ["metric_value_missing"]
+    assert "$450M" in result.findings[0].detail
+
+
+def test_numberless_prose_metric_value_is_skipped():
+    facts = _shared_facts()
+    facts["key_metrics"].append(
+        {
+            "name": "Named references",
+            "value": (
+                "None disclosed; the award is a subsidy selection, modeled "
+                "as pilot-stage evidence"
+            ),
+            "as_of": "2026-06-01",
+        }
+    )
+    result = memo_pin_check.check_package_pins(_echoing_package(), facts)
+    assert result.ok
+    # "Not disclosed" plus the numberless prose value are both uncheckable.
+    assert result.pins_skipped == 2
+
+
 def test_metric_value_anywhere_in_package_counts():
     package = _echoing_package()
     package["sections"][0]["blocks"][1]["rows"] = [[_loc("ARR"), _loc("$10M")]]
