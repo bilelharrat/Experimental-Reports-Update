@@ -4445,6 +4445,191 @@ Return only the JSON matching the attached schema.
     )
 
 
+def _memo_artifacts_async_enabled() -> bool:
+    return (
+        os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") == "1"
+        and os.environ.get("BSH_MEMO_ARTIFACTS_ASYNC", "0") == "1"
+    )
+
+
+class AsyncArtifacts:
+    """Run the private analysis-artifacts agent detached from the section wave.
+
+    The seven artifacts derive only from ``analysis/fast/*.json`` — never
+    from the spine or the sections — yet nothing in the run reads them until
+    ``_write_fast_synthesis_artifacts`` fires after package acceptance,
+    minutes after the section wave joins. Keeping the agent inside the wave
+    made it the pass gate whenever it was the slowest worker (Run B: the
+    whole wave waited on its 6.0 m). Detached, it starts as soon as the
+    common context exists (overlapping even the spine) and is joined right
+    before the artifacts are written to disk.
+
+    The agent is submitted once per run — the artifacts are
+    attempt-independent, so retries reuse the same in-flight future.
+    Failure semantics are unchanged: a failed or unjoined agent degrades to
+    stub artifact files, never sinks the pass.
+    """
+
+    def __init__(self, *, run_dir: Path, company_name: str, stream=None):
+        from concurrent.futures import ThreadPoolExecutor
+
+        self._run_dir = run_dir
+        self._company_name = company_name
+        self._stream = stream
+        self._pool = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="memo-artifacts"
+        )
+        self._lock = threading.Lock()
+        self._future = None
+
+    @property
+    def started(self) -> bool:
+        with self._lock:
+            return self._future is not None
+
+    def start(
+        self,
+        *,
+        common_context: str,
+        add_dirs: list[Path],
+        timeout_sec: int = 1200,
+    ) -> None:
+        """Submit the artifacts agent (idempotent across attempts)."""
+        with self._lock:
+            if self._future is not None:
+                return
+            row_label = "English artifacts"
+            if self._stream is not None:
+                self._stream.emit(
+                    "thread_planned",
+                    thread=row_label,
+                    title=row_label,
+                    phase_index=3.02,
+                    parent_thread=_MEMO_PHASE3_THREAD,
+                    group="memo_english_unit",
+                    estimate_ms=300_000,
+                    description=(
+                        "Write the seven private analysis artifacts "
+                        "(detached from the section wave)"
+                    ),
+                )
+            self._future = self._pool.submit(
+                self._run, row_label, common_context, add_dirs, timeout_sec
+            )
+
+    def _run(
+        self,
+        row_label: str,
+        common_context: str,
+        add_dirs: list[Path],
+        timeout_sec: int,
+    ) -> tuple[dict | None, str | None]:
+        """Worker-thread body: run the agent and emit lifecycle events at
+        their true times."""
+        started_at = datetime.now(timezone.utc).isoformat()
+        started_monotonic = time.monotonic()
+        progress = None
+        if self._stream is not None:
+            self._stream.emit(
+                "thread_started", thread=row_label, title=row_label
+            )
+            self._stream.emit(
+                "phase_timing",
+                phase="english_artifacts",
+                status="started",
+                started_at=started_at,
+                thread=row_label,
+            )
+            progress = job_progress.ThreadProgress(self._stream, row_label)
+        result, error = run_memo_fast_english_artifacts(
+            run_dir=self._run_dir,
+            company_name=self._company_name,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+        artifacts = (
+            result.get("analysis_artifacts")
+            if not error and isinstance(result, dict)
+            else None
+        )
+        if isinstance(artifacts, dict):
+            # Persist for the selective-retry splice, which reads the cache
+            # from disk.
+            try:
+                artifacts_path = (
+                    _memo_english_units_dir(self._run_dir)
+                    / "analysis_artifacts.json"
+                )
+                artifacts_path.parent.mkdir(parents=True, exist_ok=True)
+                artifacts_path.write_text(
+                    json.dumps(artifacts, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "failed to persist detached analysis artifacts",
+                    exc_info=True,
+                )
+        duration_ms = int((time.monotonic() - started_monotonic) * 1000)
+        finished_at = datetime.now(timezone.utc).isoformat()
+        if self._stream is not None:
+            if error is None and isinstance(artifacts, dict):
+                self._stream.emit(
+                    "thread_finished", thread=row_label, duration_ms=duration_ms
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase="english_artifacts",
+                    status="finished",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row_label,
+                    cost_usd=(result or {}).get("claude_cost_usd"),
+                    claude_duration_ms=(result or {}).get("claude_duration_ms"),
+                    detached=True,
+                )
+            else:
+                self._stream.emit(
+                    "thread_failed",
+                    thread=row_label,
+                    duration_ms=duration_ms,
+                    error=str(error or "no artifacts returned")[:500],
+                )
+                self._stream.emit(
+                    "phase_timing",
+                    phase="english_artifacts",
+                    status="failed",
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    duration_ms=duration_ms,
+                    thread=row_label,
+                    error=str(error or "no artifacts returned")[:500],
+                    detached=True,
+                )
+        return result, error
+
+    def join(
+        self, timeout_sec: float = 900.0
+    ) -> tuple[dict | None, str | None]:
+        """Wait for the agent; returns the raw run result tuple. Never
+        raises — a timeout or crash comes back as an error string, which the
+        caller degrades to stub artifacts exactly like an in-wave failure."""
+        with self._lock:
+            future = self._future
+        if future is None:
+            return None, "artifacts agent was never started"
+        try:
+            return future.result(timeout=timeout_sec)
+        except Exception as exc:  # noqa: BLE001
+            return None, f"artifacts agent did not complete: {exc}"
+
+    def shutdown(self) -> None:
+        self._pool.shutdown(wait=False)
+
+
 def _run_english_section(
     *,
     run_dir: Path,
@@ -4666,6 +4851,7 @@ def run_memo_fast_english_package_parallel(
     attempt: int | None = None,
     on_spine=None,
     on_section=None,
+    async_artifacts: AsyncArtifacts | None = None,
 ) -> tuple[dict | None, str | None]:
     """Spine-lite + parallel per-section synthesis of the English package.
 
@@ -4688,6 +4874,11 @@ def run_memo_fast_english_package_parallel(
     worker thread on each successful section — full pass only, never the
     selective retry. Both hooks are exception-guarded (the Chinese chasing
     seam).
+
+    ``async_artifacts`` (an :class:`AsyncArtifacts` handle) detaches the
+    artifacts agent from the section wave: it starts at wrapper entry and
+    the caller joins it after acceptance; ``analysis_artifacts`` comes back
+    ``None`` in that mode.
 
     Default OFF behind BSH_MEMO_ENGLISH_PARALLEL — experimental; benchmark
     per docs/memo-benchmarks.md before enabling.
@@ -4767,6 +4958,15 @@ def run_memo_fast_english_package_parallel(
     units_dir.mkdir(parents=True, exist_ok=True)
     spine_path = units_dir / "spine.json"
     artifacts_path = units_dir / "analysis_artifacts.json"
+    if async_artifacts is not None:
+        # Detached mode: the artifacts agent starts now — overlapping the
+        # spine and the section wave — and the caller joins it after
+        # acceptance. Idempotent, so retry attempts reuse the same run.
+        async_artifacts.start(
+            common_context=common_context,
+            add_dirs=add_dirs,
+            timeout_sec=timeout_sec,
+        )
     try:
         env_workers = int(
             os.environ.get("BSH_MEMO_ENGLISH_SECTION_WORKERS", "6") or 6
@@ -4982,14 +5182,20 @@ def run_memo_fast_english_package_parallel(
         and previous_package_path is not None
         and previous_package_path.exists()
         and spine_path.exists()
-        and artifacts_path.exists()
+        and (artifacts_path.exists() or async_artifacts is not None)
     ):
         try:
             previous_package = json.loads(
                 previous_package_path.read_text(encoding="utf-8")
             )
             spine = json.loads(spine_path.read_text(encoding="utf-8"))
-            artifacts = json.loads(artifacts_path.read_text(encoding="utf-8"))
+            # In detached mode the artifacts cache may not exist yet (the
+            # agent is still running); the caller's join delivers it later.
+            artifacts = (
+                json.loads(artifacts_path.read_text(encoding="utf-8"))
+                if artifacts_path.exists()
+                else None
+            )
         except Exception:  # noqa: BLE001
             previous_package = None
             spine = None
@@ -5049,10 +5255,10 @@ def run_memo_fast_english_package_parallel(
             cached_artifacts = artifacts if isinstance(artifacts, dict) else {}
             results, errors, artifacts_result, artifacts_error = _run_sections(
                 section_jobs,
-                run_artifacts=not cached_artifacts,
+                run_artifacts=not cached_artifacts and async_artifacts is None,
             )
             if not errors:
-                if not cached_artifacts:
+                if not cached_artifacts and async_artifacts is None:
                     if isinstance(artifacts_result, dict) and isinstance(
                         artifacts_result.get("analysis_artifacts"), dict
                     ):
@@ -5087,7 +5293,14 @@ def run_memo_fast_english_package_parallel(
                 )
                 return (
                     {
-                        "analysis_artifacts": cached_artifacts,
+                        # Empty-with-a-detached-agent means "not delivered
+                        # yet" (the caller joins); a real degraded {} still
+                        # comes back as a dict so stubs get written.
+                        "analysis_artifacts": (
+                            cached_artifacts
+                            if cached_artifacts or async_artifacts is None
+                            else None
+                        ),
                         "memo_package": package,
                         "claude_cost_usd": round(cost, 6) if cost else None,
                         "claude_duration_ms": duration or None,
@@ -5155,11 +5368,12 @@ def run_memo_fast_english_package_parallel(
             on_spine(spine_payload)
         except Exception:  # noqa: BLE001
             logger.warning("spine hook failed", exc_info=True)
-    _plan_row(
-        "English artifacts",
-        3.02,
-        "Write the seven private analysis artifacts",
-    )
+    if async_artifacts is None:
+        _plan_row(
+            "English artifacts",
+            3.02,
+            "Write the seven private analysis artifacts",
+        )
     for index, section_id in enumerate(MEMO_PACKAGE_SECTION_IDS):
         _plan_row(
             f"Section - {section_id}",
@@ -5197,20 +5411,25 @@ def run_memo_fast_english_package_parallel(
     results, errors, artifacts_result, artifacts_error = _run_sections(
         section_jobs,
         section_hook=on_section,
-        run_artifacts=True,
+        run_artifacts=async_artifacts is None,
     )
     if errors:
         return _fallback("; ".join(errors[:3]))
-    if isinstance(artifacts_result, dict) and isinstance(
+    if async_artifacts is not None:
+        # Detached mode: the caller joins the artifacts agent after
+        # acceptance; the agent persists its own cache file.
+        artifacts = None
+    elif isinstance(artifacts_result, dict) and isinstance(
         artifacts_result.get("analysis_artifacts"), dict
     ):
         artifacts = artifacts_result["analysis_artifacts"]
     else:
         artifacts = _degraded_artifacts(artifacts_error)
-    artifacts_path.write_text(
-        json.dumps(artifacts, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    if artifacts is not None:
+        artifacts_path.write_text(
+            json.dumps(artifacts, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     sections = [
         results[section_id]["section"]

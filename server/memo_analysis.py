@@ -2641,6 +2641,13 @@ def _run_fast_memo_pipeline(
             run_id=run_id,
             stream=stream,
         )
+    async_artifacts = None
+    if claude_runner._memo_artifacts_async_enabled():
+        async_artifacts = claude_runner.AsyncArtifacts(
+            run_dir=run_dir,
+            company_name=company_name,
+            stream=stream,
+        )
     phase3_cost_before = phase3_progress.cost_usd
     phase3_duration_before = phase3_progress.duration_ms
     for attempt in range(1, max_attempts + 1):
@@ -2707,6 +2714,7 @@ def _run_fast_memo_pipeline(
                     and not validation_feedback
                     else None
                 ),
+                async_artifacts=async_artifacts,
             )
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
@@ -3008,6 +3016,8 @@ def _run_fast_memo_pipeline(
         message = english_error or "English package pass returned no data."
         if zh_chaser is not None:
             zh_chaser.shutdown()
+        if async_artifacts is not None:
+            async_artifacts.shutdown()
         phase3_progress.emit("thread_failed", error=message)
         _emit_phase_timing(
             stream,
@@ -3044,6 +3054,37 @@ def _run_fast_memo_pipeline(
     cost_usd += phase3_added_cost
     worker_duration_ms += phase3_added_duration
     artifacts = english_result.get("analysis_artifacts")
+    if async_artifacts is not None:
+        # Harvest the detached artifacts agent. It started at wrapper entry
+        # and the attempt loop ran spine + wave + gates since, so this join
+        # is near-instant in practice; a slow agent still blocks strictly
+        # later than the in-wave gate it replaced. Its cost never crossed
+        # the attempt side-channel, so it is added here explicitly.
+        join_result, join_error = async_artifacts.join(timeout_sec=900.0)
+        cost_usd += _as_float((join_result or {}).get("claude_cost_usd"))
+        worker_duration_ms += _as_int(
+            (join_result or {}).get("claude_duration_ms")
+        )
+        if not isinstance(artifacts, dict):
+            delivered = (
+                join_result.get("analysis_artifacts")
+                if isinstance(join_result, dict)
+                else None
+            )
+            if not join_error and isinstance(delivered, dict):
+                artifacts = delivered
+            else:
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_fast_english_artifacts_degraded",
+                    message=(
+                        "Detached analysis-artifacts agent failed; writing "
+                        "stub artifacts "
+                        f"({str(join_error or 'no artifacts returned')[:300]})"
+                    ),
+                )
+                artifacts = {}
+        async_artifacts.shutdown()
     if isinstance(artifacts, dict):
         _write_fast_synthesis_artifacts(run_dir, artifacts)
     english_package = english_result.get("memo_package")
