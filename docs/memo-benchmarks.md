@@ -172,10 +172,27 @@ Restart the server between runs; extract with
 | Run | Flags | Phase 2 | Phase 3 (attempts) | Chase tail + render | Total | Cost | Quality |
 |---|---|---|---|---|---|---|---|
 | D. Detach + sectional repair (zainar-inc) | Round-1 + `ARTIFACTS_ASYNC` + `SECTIONAL_REPAIR` | 2.6 m | 7.0 m (1) / $7.37 | ~7.0 m | **16.6 m** | **$15.03** | `complete`, lint P0=0, parity P0=0 |
+| D2. Same config, re-test (zainar-inc) | as D (intended as Run E; speculation flags were not live) | 2.7 m | 15.9 m (1, incl. 9.3 m whole-package repair) | ~3 m | 21.6 m | $17.18 | `complete`, pin echo 22/0 |
 
 Run D source: `data/memos/zainar-inc/2026-08-28__192423__zainar-inc__memo-run`.
+Run D2 source: `data/memos/zainar-inc/2026-08-28__195340__zainar-inc__memo-run`.
 
 ### Round-2 decision log
+
+- **2026-08-28 — Run D2 (config re-test): 21.6 m / $17.18, and the most
+  instructive run of the round.** The quality gate raised 3 genuine
+  findings; **sectional repair refused the batch** because one finding
+  lives in Section VI's source index — which the *envelope* owns, not
+  any section — and the all-or-nothing mapping rule then dragged the
+  two cleanly-attributable findings into the 9.3 m whole-package repair
+  with it. The +5 m over Run D is exactly that round. Meanwhile the
+  detached artifacts agent took 7.6 m (vs 4.3 in D) and gated nothing —
+  lever 1's win showed on this run, not D. Pin echo: 22 checked / 0
+  findings, first clean live run on the fixed matcher. Follow-up
+  SHIPPED: hybrid repair — partition findings into per-section +
+  envelope-located, run the parallel section repairs alongside a small
+  envelope-only repair, splice both; wholesale fallback only for
+  findings that are neither.
 
 - **2026-08-28 — Run D: PASS on every gate.** 16.6 m / $15.03 / zero
   warnings vs the same company's Round-1 runs (22.5 m / $19.47 and
