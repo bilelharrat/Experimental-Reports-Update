@@ -31,7 +31,7 @@ tiering — the chasing decision is strictly C vs B; A anchors the overall
 |---|---|---|---|---|---|---|---|
 | A. Monolith baseline | defaults | 10.8 m | 25.1 m (1) / $6.69 | 7.8 m / $5.02 | 43.7 m | $23.07 | lint passed, P0=0 |
 | B. Spine-lite | `BSH_MEMO_ENGLISH_PARALLEL=1` | 4.2 m | 18.9 m (1) / $11.96 | 7.1 m / $2.83 | **30.2 m** | **$21.35** | `complete`, lint P0=0, parity P0=0 P1=0 |
-| C. Spine-lite + chasing | B + `BSH_MEMO_ZH_CHASING=1` | _pending_ | | | | | |
+| C. Spine-lite + chasing | B + `BSH_MEMO_ZH_CHASING=1` | 6.0 m | 20.1 m (1) / $14.05 | **3.8 m** / $2.41 | 29.9 m | $24.16 | `complete`, lint P0=0, parity P0=0 P1=0 |
 
 Baseline A source: `data/memos/nvda/2026-08-25__003251__nvda__memo-run`.
 Run B source: `data/memos/nvda/2026-08-28__003828__nvda__memo-run` (2026-08-28).
@@ -72,4 +72,25 @@ cleaner than the baseline.
   the pipeline's own required content. Surgical repair absorbed it
   (~8 m, ~$2.7); aligning the lint's allow-list would hand that time
   back on every run.
-- _Run C pending._
+- **2026-08-28 — Run C (chasing): mechanism PASSES; run-level total was
+  masked by upstream variance. Keep chasing ON-able.** The chase itself
+  was near-perfect: 6/6 units joined, **649 of 650 strings adopted
+  (99.8%, gate ≥70%)**, one string gap-filled, translation cost $2.41 vs
+  B's $2.83. Phase 4 collapsed 7.1 m → **3.8 m** (−3.3 m, the designed
+  win) and quality stayed pristine. The run total (29.9 m vs B's 30.2 m)
+  barely moved because Phases 2–3 ran +3.1 m heavier this time (pass
+  durations vary run-to-run by more than the chasing win — the heaviest
+  analysis pass gates Phase 2). Verdict: chasing is additive, cheaper,
+  and quality-neutral; its −3+ m shows at the phase level on every run
+  and at the total level once upstream variance averages out.
+- **Tuning follow-ups from Run C:** (1) `BSH_MEMO_ZH_CHASE_WORKERS=4`
+  — with the default 2 the six chase units queued and the join waited
+  86 s for the last one; (2) chase thread rows report wall-to-join, not
+  unit runtime (cosmetic — `claude_duration_ms` on the row is correct);
+  (3) the lint allow-list fix from Run B remains the biggest single
+  lever (~8 m of surgical repair in BOTH runs, same
+  `meta_process_language`-vs-disclosures misalignment).
+- **Round-1 conclusion:** spine-lite + Sonnet translation + chasing =
+  ~30 m / ~$21–24 / zero warnings, vs 43.7 m / $23.07 baseline. All
+  three flags are safe to leave on for daily use; the next ~8 m of
+  savings is the lint alignment, not more parallelism.
