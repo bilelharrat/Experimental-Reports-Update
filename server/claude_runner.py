@@ -6932,6 +6932,223 @@ Chinese style:
   rating value format `N/10` unchanged.
 """
 
+# Fixed number/date conventions for the Chinese memo (operator decision
+# 2026-08-28). Before this, each translation unit picked its own style, so
+# one memo mixed "$24M" and "2400 万美元" across sections.
+MEMO_ZH_NUMBER_STYLE_NOTE = """\
+Number and date conventions (fixed — every section must match):
+- Money keeps its English form: $24M, $1.0B+, $450M+. Never 万美元 or 亿美元.
+- Multiples and percents keep their English form: 42x, ~12x, +180%.
+- Dates inside Chinese sentences use the form 2026 年 2 月 19 日.
+- In short: translate the words; keep every number exactly as written.
+"""
+
+
+def _memo_zh_compact_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_ZH_COMPACT", "0") == "1"
+
+
+def _memo_zh_split_chars() -> int:
+    """Units whose translatable English exceeds this many characters are
+    split into two parallel compact calls (default ~20KB — today only the
+    financial section and sometimes company overview cross it)."""
+    raw = os.environ.get("BSH_MEMO_ZH_SPLIT_CHARS")
+    try:
+        value = int(raw) if raw is not None else 20_000
+    except (TypeError, ValueError):
+        value = 20_000
+    return max(4_000, min(value, 200_000))
+
+
+def _collect_blank_zh_slots(value: Any, out: list) -> None:
+    """Collect every bilingual object with a non-empty ``en`` and a blank
+    ``zh``, in document order. The same walk both builds the numbered list
+    sent to the translator and pastes the answers back, so the ordering
+    cannot drift between the two."""
+    if isinstance(value, dict):
+        if "en" in value and "zh" in value:
+            en = value.get("en")
+            if (
+                isinstance(en, str)
+                and en.strip()
+                and not str(value.get("zh") or "").strip()
+            ):
+                out.append(value)
+            return
+        for item in value.values():
+            _collect_blank_zh_slots(item, out)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _collect_blank_zh_slots(item, out)
+
+
+def _memo_zh_compact_schema(count: int) -> dict:
+    """Exactly ``count`` Chinese strings — the schema itself enforces the
+    one thing the paste-back depends on."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "zh": {
+                "type": "array",
+                "minItems": count,
+                "maxItems": count,
+                "items": {"type": "string"},
+            },
+        },
+        "required": ["zh"],
+    }
+
+
+def _run_zh_compact_call(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    unit_label: str,
+    slots: list[dict],
+    progress,
+    timeout_sec: int,
+) -> tuple[list | None, str | None, float, int]:
+    """One compact translation call: numbered English in, a JSON array of
+    Chinese out. Returns (translations, error, cost, duration_ms)."""
+    numbered = "\n".join(
+        f"{index}. {slot['en']}" for index, slot in enumerate(slots, start=1)
+    )
+    count = len(slots)
+    prompt = f"""\
+You are translating ONE part ({unit_label}) of a BSH LP-facing investment
+memo for {company_name} (run id: {run_id}) into Simplified Chinese.
+
+Below are the {count} English strings that need translation, numbered and
+in document order. Return ONLY the translations: a JSON array `zh` of
+exactly {count} strings, where item i is the Simplified Chinese for
+string i. Do not return the English. Do not add, drop, merge, split, or
+reorder items.
+
+- Native professional Simplified Chinese for institutional investment
+  readers.
+- Do not soften risks or change any recommendation.
+- A string that is purely a number, code, date, or proper name stays
+  as-is.
+
+{_MEMO_BILINGUAL_STYLE}
+{MEMO_ZH_NUMBER_STYLE_NOTE}
+English strings:
+{numbered}
+"""
+    result, error = _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=_memo_zh_compact_schema(count),
+        run_dir=run_dir,
+        progress=progress,
+        progress_message=f"Translating {unit_label}",
+        timeout_label=f"memo Chinese compact ({unit_label})",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=[run_dir],
+        model=_memo_role_model("TRANSLATION"),
+        effort=_memo_role_effort("TRANSLATION"),
+    )
+    if error:
+        return None, error, 0.0, 0
+    translations = (result or {}).get("zh")
+    if not isinstance(translations, list) or len(translations) != count:
+        return (
+            None,
+            f"compact translation returned {len(translations) if isinstance(translations, list) else 'no'} items for {count} strings",
+            _to_float(result.get("claude_cost_usd")),
+            _to_int(result.get("claude_duration_ms")),
+        )
+    return (
+        translations,
+        None,
+        _to_float(result.get("claude_cost_usd")),
+        _to_int(result.get("claude_duration_ms")),
+    )
+
+
+def _run_bilingual_unit_compact(
+    *,
+    run_dir: Path,
+    company_name: str,
+    run_id: str,
+    unit_label: str,
+    unit_path: Path,
+    progress,
+    timeout_sec: int,
+) -> tuple[dict | None, str | None]:
+    """Chinese-only translation of one unit.
+
+    The legacy method makes the translator re-emit the entire unit —
+    English copied back plus Chinese added (Run E measured 38K output
+    tokens, ~6 minutes, for one section). Here the translator returns
+    only the Chinese strings and Python pastes them into the English
+    structure. Any failure returns an error and the caller falls back to
+    the legacy method, so this can only save time.
+    """
+    try:
+        unit = json.loads(unit_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return None, f"could not read unit file: {exc}"
+    if not isinstance(unit, dict):
+        return None, "unit file did not contain an object"
+    slots: list[dict] = []
+    _collect_blank_zh_slots(unit, slots)
+    if not slots:
+        unit["claude_cost_usd"] = 0.0
+        unit["claude_duration_ms"] = 0
+        return unit, None
+    total_chars = sum(len(slot["en"]) for slot in slots)
+    if total_chars > _memo_zh_split_chars() and len(slots) >= 2:
+        middle = len(slots) // 2
+        halves = [slots[:middle], slots[middle:]]
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="memo-zh-split"
+        ) as pool:
+            futures = [
+                pool.submit(
+                    _run_zh_compact_call,
+                    run_dir=run_dir,
+                    company_name=company_name,
+                    run_id=run_id,
+                    unit_label=f"{unit_label} (part {index + 1}/2)",
+                    slots=half,
+                    progress=progress,
+                    timeout_sec=timeout_sec,
+                )
+                for index, half in enumerate(halves)
+            ]
+            outcomes = [future.result() for future in futures]
+        cost = sum(outcome[2] for outcome in outcomes)
+        duration = max(outcome[3] for outcome in outcomes)
+        for (translations, error, _c, _d), half in zip(outcomes, halves):
+            if error or translations is None:
+                return None, error or "compact translation failed"
+            for slot, zh in zip(half, translations):
+                if isinstance(zh, str) and zh.strip():
+                    slot["zh"] = zh
+    else:
+        translations, error, cost, duration = _run_zh_compact_call(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            unit_label=unit_label,
+            slots=slots,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+        if error or translations is None:
+            return None, error or "compact translation failed"
+        for slot, zh in zip(slots, translations):
+            if isinstance(zh, str) and zh.strip():
+                slot["zh"] = zh
+    unit["claude_cost_usd"] = round(cost, 6)
+    unit["claude_duration_ms"] = duration
+    return unit, None
+
 
 def _adopt_zh_translations(source: Any, translated: Any) -> None:
     """Copy ONLY ``zh`` strings from ``translated`` into ``source`` in place.
@@ -6970,6 +7187,33 @@ def _run_bilingual_unit(
     progress,
     timeout_sec: int,
 ) -> tuple[dict | None, str | None]:
+    if _memo_zh_compact_enabled():
+        unit, compact_error = _run_bilingual_unit_compact(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            unit_label=unit_label,
+            unit_path=unit_path,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+        if unit is not None:
+            return unit, None
+        logger.warning(
+            "compact zh translation fell back to full-unit for %s: %s",
+            unit_label,
+            compact_error,
+        )
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_zh_compact_fallback",
+                message=(
+                    f"Compact translation unavailable for {unit_label} "
+                    f"({str(compact_error)[:200]}); using the full-unit "
+                    "method"
+                ),
+            )
     prompt = f"""\
 You are completing the Simplified Chinese strings of ONE part of a BSH
 LP-facing investment memo package for {company_name} (run id: {run_id}).
@@ -6988,7 +7232,8 @@ Task:
 - Do not write files. Return only the JSON object matching the attached
   schema.
 
-{_MEMO_BILINGUAL_STYLE}"""
+{_MEMO_BILINGUAL_STYLE}
+{MEMO_ZH_NUMBER_STYLE_NOTE}"""
     result, error = _run_memo_local_json_artifact(
         prompt=prompt,
         schema=_MEMO_BILINGUAL_UNIT_SCHEMA,

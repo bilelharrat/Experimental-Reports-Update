@@ -117,6 +117,16 @@ cleaner than the baseline.
   (no meta false positives — the alignment fix held live); chase
   adoption 556/557. The steady-state pipeline is ~23 m.
 
+## Comparison discipline (applies to every round)
+
+Freeze the inputs inside any A-vs-B comparison: same company, same
+research corpus state, same registry entry, and — once it exists — the
+same fact-ledger state, all recorded next to the flag matrix. Data
+improvements (a richer corpus, a populated ledger) are real wins but they
+are DATA changes: log them separately and never mix them into a pipeline
+timing comparison, or a faster run may just be reusing yesterday's
+retrieval.
+
 ## Round 2 — Phase-2/3 overlap and repair shrinkage (branch report-speedup-r2)
 
 Five levers, all implemented flag-gated default OFF. The theme is the
@@ -266,3 +276,38 @@ Run E source: `data/memos/zainar-inc/2026-08-28__202617__zainar-inc__memo-run`.
   `BSH_MEMO_PIN_CHECK_REPAIR` until a few more runs confirm zero false
   positives. (Run D's on-disk `logs/pin_check.md` predates the fix and
   still shows 9.)
+
+## Round 3 — the Chinese translation phase (2026-08-28)
+
+Diagnosis (Run E evidence): the translator is output-bound, not
+thinking-bound. One section unit produced **38,471 output tokens in
+6.0 minutes** (~107 tok/s, writing the whole time) because the legacy
+method re-emits the entire unit — every English string copied back, plus
+the Chinese, plus JSON. Effort was never lowered for the translation
+role, so default-effort thinking tokens ride on top. The chase can only
+start a unit when its section finishes, so the slowest unit sets the
+run's tail (~7.4 m of Run E's back half).
+
+Levers (operator decisions 2026-08-28: all approved, no Haiku for now):
+
+| Lever | Flag / setting | Mechanism |
+|---|---|---|
+| Compact zh output | `BSH_MEMO_ZH_COMPACT=1` | translator returns ONLY the Chinese strings (schema-enforced count); Python pastes them in; per-unit fallback to the legacy method on any failure |
+| Medium effort | `BSH_MEMO_EFFORT_TRANSLATION=medium` | cuts default-effort thinking; low deferred until a run's Chinese is read at medium |
+| Number/date style note | always on (both methods) | fixed conventions: `$24M`, `42x`, `+180%`, `2026 年 2 月 19 日` — ends the per-unit style coin flip |
+| Split big units | `BSH_MEMO_ZH_SPLIT_CHARS=20000` | a unit above ~20KB of translatable English runs as two parallel halves |
+
+### Validation protocol (Run F)
+
+One zainar-inc run (inputs frozen, same corpus state as D/D2/E).
+Gates:
+
+- chase unit times: sections ≤ ~2.5 m (vs 3.7-5.2 m today); the join
+  should be near-zero because translations finish before English
+  acceptance;
+- adoption ≥ the current ~99% and zero blanks after gap-fill;
+- currency/date style consistent across every section (spot-grep both
+  conventions);
+- the Chinese reads as well as D/E — full section read against the
+  three fresh baselines, per the quality-comparison method;
+- run total: expect ~14-15 m if the tail collapses as modeled.
