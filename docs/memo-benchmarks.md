@@ -166,3 +166,44 @@ Restart the server between runs; extract with
 - **Pin-echo across both runs:** any finding means a section drifted
   from the pins — investigate before trusting the speculation levers
   further, and consider `BSH_MEMO_PIN_CHECK_REPAIR=1`.
+
+### Results
+
+| Run | Flags | Phase 2 | Phase 3 (attempts) | Chase tail + render | Total | Cost | Quality |
+|---|---|---|---|---|---|---|---|
+| D. Detach + sectional repair (zainar-inc) | Round-1 + `ARTIFACTS_ASYNC` + `SECTIONAL_REPAIR` | 2.6 m | 7.0 m (1) / $7.37 | ~7.0 m | **16.6 m** | **$15.03** | `complete`, lint P0=0, parity P0=0 |
+
+Run D source: `data/memos/zainar-inc/2026-08-28__192423__zainar-inc__memo-run`.
+
+### Round-2 decision log
+
+- **2026-08-28 — Run D: PASS on every gate.** 16.6 m / $15.03 / zero
+  warnings vs the same company's Round-1 runs (22.5 m / $19.47 and
+  22.9 m / $16.44) and 36.5 m monolithic baseline. Fastest and cheapest
+  ZaiNar memo on record. Honest attribution: part of the −6 m is a
+  light Phase 2 (2.6 m — the passes were quick this run) and a
+  zero-repair, zero-gap-fill path; the detach mechanism worked exactly
+  as designed (artifacts started with the spine, ran 4.3 m fully
+  overlapped) but saved little wall *this* run because artifacts
+  happened not to be the straggler. Sectional repair went unexercised —
+  the quality gate was clean (third consecutive zero-warning run since
+  the lint alignment).
+- **Chase adoption hit 100% for the first time** (636/636 strings, 0
+  blank): English acceptance touched nothing after drafting, so the
+  Phase-4 gap-fill was skipped entirely
+  (`memo_zh_units_skipped`). New structural observation: with sections
+  drafting in 2.3-4.2 m, the run's tail is now the *Chinese chase*
+  (~4-5 m per unit on Sonnet, starting only at section completion) —
+  the chase tail, not English synthesis, gates the back half of the
+  run.
+- **2026-08-28 — pin-echo first live outing: 9 findings, all false
+  positives, matcher fixed same day (commit 20e3f4e).** The spine
+  legally packs treatment prose into metric `value` fields; sections
+  echo the numbers, not the sentence. Token-level replay proved every
+  numeric token of all 12 pinned metrics present — the pins held.
+  Metric matching is now numeric-token-based (verbatim fast path
+  kept); replay against Run D = 21 checked / 0 findings. Report-only
+  mode caught this before it could burn a repair round — do NOT enable
+  `BSH_MEMO_PIN_CHECK_REPAIR` until a few more runs confirm zero false
+  positives. (Run D's on-disk `logs/pin_check.md` predates the fix and
+  still shows 9.)
