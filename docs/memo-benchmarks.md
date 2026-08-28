@@ -173,12 +173,54 @@ Restart the server between runs; extract with
 |---|---|---|---|---|---|---|---|
 | D. Detach + sectional repair (zainar-inc) | Round-1 + `ARTIFACTS_ASYNC` + `SECTIONAL_REPAIR` | 2.6 m | 7.0 m (1) / $7.37 | ~7.0 m | **16.6 m** | **$15.03** | `complete`, lint P0=0, parity P0=0 |
 | D2. Same config, re-test (zainar-inc) | as D (intended as Run E; speculation flags were not live) | 2.7 m | 15.9 m (1, incl. 9.3 m whole-package repair) | ~3 m | 21.6 m | $17.18 | `complete`, pin echo 22/0 |
+| E. Speculation set (zainar-inc) | D + `SPINE_SPECULATIVE` + `SECTION_EARLY_START` (+ hybrid repair, shipped between D2 and E) | 2.3 m (spine launched 2.1 m in) | 11.6 m (1, incl. **1.7 m hybrid repair**) | ~7.4 m | **18.9 m** | **$15.72** | `complete`, lint P0=0, parity P0=0, pin echo 22/0 |
 
 Run D source: `data/memos/zainar-inc/2026-08-28__192423__zainar-inc__memo-run`.
 Run D2 source: `data/memos/zainar-inc/2026-08-28__195340__zainar-inc__memo-run`.
+Run E source: `data/memos/zainar-inc/2026-08-28__202617__zainar-inc__memo-run`.
 
 ### Round-2 decision log
 
+- **2026-08-28 — Run E: every Round-2 lever fired and PASSED in one
+  run. 18.9 m / $15.72 / zero warnings — WITH a repair round.**
+  Speculative spine launched 2.1 m in at 6/8 passes and validated fresh
+  (delta check 38 s / $0.24 against 2 late passes); all four affinity
+  sections early-started at spine completion, so the wave dispatched
+  only the executive summary; the quality gate flagged findings for the
+  third ZaiNar run in a row — one envelope-located — and the
+  day-old hybrid repair fixed them in **1.7 m** (envelope 50 s ∥ exec
+  72 s ∥ risk 102 s) where D2's whole-package pass took 9.3 m, changing
+  only 3 strings (607/610 chase adoption survived). Pin echo 22/0 for
+  the second consecutive live run. Two honest caveats: (a) Phase 2 ran
+  just 2.3 m, so the speculation window was tiny — the spine overlap
+  bought well under a minute here; its real payoff waits for a
+  slow-pass company (nvda-class, 6-10 m Phase 2); (b) with English
+  accepted at ~11.6 m, the **Chinese chase tail (~7.4 m) is now
+  plainly the back-half floor** — the next optimization target is the
+  translation phase, not English.
+- **2026-08-28 — quality comparison, Run E vs D vs history (all
+  zainar-inc): E's memo is on par with D — and the comparison surfaced
+  a fact-coverage finding that is NOT a Round-2 defect.** Structure:
+  12,202 vs 12,212 EN words, 6 risk cards, 14 sources, 17 components,
+  0 blank zh, gates clean in both. Content: E's exec/risk/financial
+  sections match D's rigor (fresh angles included). The finding: **D2
+  and E both omit the April 20 disclosure update** — the contract book
+  appears as "$450M+" with no mention of the $500M+ revision, and the
+  patent count as "90+" not "95+". Root cause proven by elimination:
+  D2 made the omission with a normal full-input spine, so speculation
+  is exonerated; the April figures exist in NO on-disk corpus (no
+  research dir, not in the registry) and enter a run only when a
+  Phase-2 pass happens to retrieve them from the web — D drew that
+  card (one pass), D2 and E did not. E's delta check correctly ruled
+  "fresh" (the late passes genuinely contained nothing). Both E memos
+  are internally consistent and err conservative (smaller book, lower
+  count). Follow-ups queued, not yet built: (1) give dated headline
+  commercial facts a durable home the spine always sees (registry
+  entry or a per-company fact ledger) — also reduces the
+  web-retrieval lottery; (2) the zh currency-style seam (sections
+  mixing "$24M" and "2400 万美元" conventions) is confirmed in every
+  parallel-translation run including E — fold a shared zh style pin
+  into the coming translation-phase work.
 - **2026-08-28 — Run D2 (config re-test): 21.6 m / $17.18, and the most
   instructive run of the round.** The quality gate raised 3 genuine
   findings; **sectional repair refused the batch** because one finding
