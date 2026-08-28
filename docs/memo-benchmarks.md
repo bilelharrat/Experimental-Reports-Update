@@ -411,3 +411,24 @@ Run E_v2 source: `data/memos/nvda/2026-08-28__222410__nvda__memo-run`.
   stale respin the chaser should evict and re-chase. Small, rare-path.
 - **Pin echo 22/0 — fifth consecutive clean live run.** Arming
   BSH_MEMO_PIN_CHECK_REPAIR is now a reasonable operator choice.
+| E_v3 | same as E_v2 (another draw) | 4.7 m slowest pass | speculative 3.2 m → **STALE again** → respin 5.5 m | ~21 m | 22.6 m | $23.72 | `complete`, all gates clean, pin echo 22/0 |
+
+Run E_v3 source: `data/memos/nvda/2026-08-28__232025__nvda__memo-run`.
+
+- **2026-08-28 — E_v3: stale for the second straight nvda draw** — this
+  time the late passes carried fresher Q1 FY2027 customer-concentration
+  figures than the pinned risk/metric cited. The pattern across four
+  speculation draws: **fresh 2/2 on zainar (thin private corpus, stable
+  fact pool), stale 2/2 on nvda (rich public disclosure surface, and
+  the slow passes are exactly the fact-heavy ones — arithmetic /
+  growth-bridge / concentration math).** Stale cost is consistent:
+  ~4 m + ~$4-5 vs the D config, and both times it bought a materially
+  more correct pin sheet.
+- **Design implication (queued, not built): launch the spine on
+  pin-affine pass completion, not a count.** Both stale verdicts came
+  from pin-feeding passes (arithmetic_denominators, growth_bridge,
+  time_base) finishing late. Waiting for THOSE specifically — instead
+  of any 6 of 8 — should convert nvda-class staleness into freshness
+  while keeping most of the overlap. Alternative operator choices:
+  keep speculation ON everywhere and treat the stale branch as a paid
+  automatic pin-review; or disable it for public companies.
