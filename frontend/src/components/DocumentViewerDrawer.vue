@@ -1,6 +1,6 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { Download, Loader2, X } from "lucide-vue-next";
+import { ChevronsLeftRight, Download, Loader2, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import { renderAsync } from "docx-preview";
 import { useT } from "../i18n.js";
@@ -180,15 +180,18 @@ onBeforeUnmount(() => {
       class="doc-viewer-panel absolute inset-y-0 right-0 flex w-full max-w-3xl flex-col border-l border-subtle bg-surface shadow-card-raised"
       :style="panelWidth ? { width: `${panelWidth}px`, maxWidth: 'none' } : null"
     >
-      <div
-        class="doc-viewer-resize absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
+      <button
+        type="button"
+        class="absolute left-0 top-1/2 z-10 grid h-9 w-9 -translate-x-1/2 -translate-y-1/2 cursor-col-resize place-items-center rounded-full border border-subtle bg-surface text-ink-secondary shadow-card hover:bg-surface-muted hover:text-ink-primary focus-ring"
         role="separator"
         aria-orientation="vertical"
         :aria-label="t('documents.viewer_resize')"
         :title="t('documents.viewer_resize')"
         @mousedown.prevent="startResize"
         @dblclick="resetWidth"
-      ></div>
+      >
+        <ChevronsLeftRight class="h-4 w-4" />
+      </button>
       <header class="flex items-center gap-3 border-b border-subtle px-4 py-3">
         <div class="min-w-0 flex-1">
           <div class="truncate text-sm font-semibold text-ink-primary">
@@ -267,15 +270,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .doc-viewer-panel {
   animation: doc-viewer-slide-in 0.22s ease;
-}
-
-.doc-viewer-resize {
-  background: transparent;
-  transition: background-color 0.15s ease;
-}
-.doc-viewer-resize:hover,
-.doc-viewer-resize:active {
-  background: rgb(var(--color-accent) / 0.4);
 }
 
 @keyframes doc-viewer-slide-in {
