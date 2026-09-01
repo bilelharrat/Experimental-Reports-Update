@@ -4,7 +4,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from server import claude_runner
+
+
+@pytest.fixture(autouse=True)
+def _pin_speculate_require(monkeypatch):
+    """server.main loads the machine-local .env into os.environ mid-suite;
+    a widened BSH_MEMO_SPINE_SPECULATE_REQUIRE there changes when the
+    speculator launches and breaks the launch-order assertions below.
+    Tests that exercise the knob set it explicitly."""
+    monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", raising=False)
 
 
 def _loc(en: str) -> dict:
