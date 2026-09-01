@@ -72,6 +72,7 @@ export function formatIsoDate(value, fallback = "—") {
 const STATUS_LABELS = {
   complete: "Ready",
   completed: "Ready",
+  awaiting_studio: "Cards ready",
   complete_with_warnings: "Needs attention",
   failed: "Failed",
   failed_during_analysis: "Failed",
@@ -90,6 +91,7 @@ const STATUS_LABELS = {
 const STATUS_LABELS_ZH = {
   complete: "已就绪",
   completed: "已就绪",
+  awaiting_studio: "卡片已就绪",
   complete_with_warnings: "待处理",
   failed: "失败",
   failed_during_analysis: "失败",
@@ -112,7 +114,12 @@ const STATUS_LABELS_ZH = {
 export function isTerminalReportStatus(status) {
   const s = String(status || "");
   return (
-    s === "complete" || s === "complete_with_warnings" || s.startsWith("failed")
+    s === "complete" ||
+    s === "complete_with_warnings" ||
+    // Memo Studio: the investigation parked for card review — nothing is
+    // running; the user's Generate starts the next phase.
+    s === "awaiting_studio" ||
+    s.startsWith("failed")
   );
 }
 

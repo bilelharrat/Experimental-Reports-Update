@@ -267,12 +267,14 @@ const reportHeadline = computed(() => {
   const r = activeReport.value;
   if (!r) return "";
   if (reportIsFailed.value) return reportFailureTitle.value;
+  if (r.status === "awaiting_studio") return tr("research.status_cards_ready");
   if (reportInProgress.value || generating.value) return tr("research.status_running");
   if (reportHasWarnings.value) return tr("research.status_needs_attention");
   if (r.status === "complete") return tr("research.status_ready");
   return r.stage || humanizeStatus(r.status) || "";
 });
 const reportUserStatus = computed(() => {
+  if (activeReport.value?.status === "awaiting_studio") return "cards_ready";
   if (generating.value || reportInProgress.value) return "running";
   if (reportIsFailed.value) return "failed";
   if (reportHasWarnings.value) return "needs_attention";
@@ -282,6 +284,7 @@ const reportUserStatus = computed(() => {
 const reportUserStatusLabel = computed(() => {
   const status = reportUserStatus.value;
   if (status === "running") return tr("research.status_running");
+  if (status === "cards_ready") return tr("research.status_cards_ready");
   if (status === "failed") return tr("research.status_failed");
   if (status === "needs_attention") return tr("research.status_needs_attention");
   if (status === "ready") return tr("research.status_ready");
@@ -1558,6 +1561,11 @@ onUnmounted(stopPolling);
           >{{ reportUserStatusLabel }}</span
         >
         <span
+          v-else-if="reportUserStatus === 'cards_ready'"
+          class="text-xs px-2 py-1 rounded bg-accent-soft text-accent-ink"
+          >{{ reportUserStatusLabel }}</span
+        >
+        <span
           v-else-if="reportUserStatus === 'needs_attention'"
           class="text-xs px-2 py-1 rounded bg-notice-soft text-notice-ink"
           >{{ reportUserStatusLabel }}</span
@@ -1931,6 +1939,7 @@ onUnmounted(stopPolling);
       :company-id="companyId"
       :generate-available="awaitingStudio || studioRegenerateAvailable || studioGenerateRecoverable"
       :generating="generating"
+      :refresh-key="activeReport?.studio_investigation?.seeded_revision_id || ''"
       @discuss="openMemoEditorDiscuss"
       @generate="generateFromStudio"
     />

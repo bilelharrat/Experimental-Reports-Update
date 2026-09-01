@@ -23,6 +23,9 @@ const props = defineProps({
   companyId: { type: String, required: true },
   generateAvailable: { type: Boolean, default: false },
   generating: { type: Boolean, default: false },
+  // Bumped by the parent when an investigation seeds fresh cards, so an
+  // already-mounted editor reloads instead of showing stale state.
+  refreshKey: { type: String, default: "" },
 });
 
 const emit = defineEmits(["discuss", "generate"]);
@@ -176,6 +179,12 @@ async function loadHistory() {
 
 onMounted(load);
 watch(() => props.companyId, load);
+watch(
+  () => props.refreshKey,
+  () => {
+    load();
+  },
+);
 
 function applyState(state) {
   editor.value = state;

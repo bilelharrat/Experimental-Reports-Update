@@ -823,6 +823,56 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
+  it("shows a parked studio investigation as cards-ready and generates from it", async () => {
+    api.getReport.mockResolvedValue({
+      id: "studio-3",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Report (Auto)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      memo_mode: "studio",
+      status: "awaiting_studio",
+      progress: 55,
+      stage: "Investigation complete — review the studio cards",
+      studio_investigation: {
+        completed_at: "2026-09-01T20:02:51Z",
+        pass_ok: [],
+        pass_failed: [],
+        seeded_revision_id: "rev-0010",
+      },
+      run_dir: "data/memos/generalist/run",
+      resume_available: false,
+      analysis_artifacts: [],
+    });
+    api.studioGenerate.mockResolvedValue({
+      id: "studio-3",
+      kind: "investment_memo_latestage",
+      memo_mode: "studio",
+      status: "analyzing",
+      report_type: "Investment Report (Auto)",
+      audience: "Internal",
+      language: "en",
+      stage: "Generating memo from studio cards",
+    });
+    const wrapper = await mountRoute("/research/generalist?report=studio-3");
+
+    // Parked, not running: the card review is the next step.
+    expect(wrapper.text()).toContain("Cards ready");
+    expect(wrapper.text()).not.toContain("Live progress is in the Jobs rail.");
+    const generateButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Generate Report");
+    expect(generateButton).toBeTruthy();
+    await generateButton.trigger("click");
+    await flushPromises();
+
+    expect(api.studioGenerate).toHaveBeenCalledWith("studio-3");
+    expect(api.generateReport).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it("shows generate request failures while the company page remains loaded", async () => {
     const err = Object.assign(
       new Error('400 Bad Request: {"detail":"Settings file missing"}'),
