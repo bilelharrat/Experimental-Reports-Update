@@ -917,3 +917,218 @@ def test_selective_retry_never_fires_hooks(tmp_path, monkeypatch):
 
     assert error is None
     assert hook_calls == []
+
+
+# ---- Memo Studio: pinned spine ------------------------------------------
+
+
+def _write_pinned_spine(kwargs: dict, payload: dict | None = None) -> Path:
+    units_dir = kwargs["run_dir"] / "logs" / "english_units"
+    units_dir.mkdir(parents=True, exist_ok=True)
+    if payload is None:
+        spine = _spine_result()
+        payload = {
+            "package_skeleton": spine["package_skeleton"],
+            "shared_facts": spine["shared_facts"],
+            "section_notes": spine["section_notes"],
+            # A studio spine carries extras; the orchestrator must tolerate
+            # (and preserve) the extra key.
+            "studio_extras": {"thesis_points": []},
+        }
+    path = units_dir / "spine.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+class _StubSpeculator:
+    """consume() must never run in pinned mode."""
+
+    had_early_sections = False
+
+    def consume(self, progress=None):
+        raise AssertionError("speculative consume must be skipped when pinned")
+
+    def early_futures(self):
+        return {}
+
+
+def test_pinned_spine_skips_spine_agent_and_uses_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    kwargs = _parallel_kwargs(tmp_path)
+    pinned = _write_pinned_spine(kwargs)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_ for _ in ()).throw(
+            AssertionError("spine agent must not run in pinned mode")
+        ),
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_artifacts",
+        lambda **_kw: (_artifacts_result(), None),
+    )
+
+    def fake_section(**kw):
+        # The user-composed pins must reach the workers verbatim.
+        assert "We recommend participating." in kw["shared_facts_block"]
+        return {
+            "section": {
+                "id": kw["section_id"],
+                "blocks": [{"type": "paragraph", "text": _loc("x")}],
+            },
+            "claude_cost_usd": 0.5,
+            "claude_duration_ms": 1000,
+        }, None
+
+    monkeypatch.setattr(claude_runner, "_run_english_section", fake_section)
+    hook_payloads: list[dict] = []
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(
+        **kwargs,
+        pinned_spine_path=pinned,
+        speculative_english=_StubSpeculator(),
+        on_spine=lambda payload: hook_payloads.append(payload),
+    )
+
+    assert error is None
+    package = result["memo_package"]
+    assert [s["id"] for s in package["sections"]] == list(
+        claude_runner.MEMO_PACKAGE_SECTION_IDS
+    )
+    # The chaser hook still fires, fed from the pinned file.
+    assert hook_payloads and hook_payloads[0]["package_skeleton"]["company"][
+        "name"
+    ] == "Generalist, Inc."
+    # The pinned file is the source of truth — never rewritten (the studio
+    # extras key would be dropped by a rewrite).
+    assert "studio_extras" in json.loads(pinned.read_text(encoding="utf-8"))
+
+
+def test_pinned_spine_invalid_shape_is_hard_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    kwargs = _parallel_kwargs(tmp_path)
+    pinned = _write_pinned_spine(
+        kwargs,
+        payload={"package_skeleton": {}, "shared_facts": "not a dict"},
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package",
+        lambda **_kw: (_ for _ in ()).throw(
+            AssertionError("monolithic fallback must not run in pinned mode")
+        ),
+    )
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(
+        **kwargs, pinned_spine_path=pinned
+    )
+
+    assert result is None
+    assert "refusing the monolithic fallback" in error
+
+
+def test_pinned_spine_missing_file_is_hard_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    kwargs = _parallel_kwargs(tmp_path)
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(
+        **kwargs,
+        pinned_spine_path=kwargs["run_dir"] / "logs" / "english_units" / "spine.json",
+    )
+
+    assert result is None
+    assert "pinned studio spine unreadable" in error
+
+
+def test_pinned_spine_section_failure_refuses_fallback(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    kwargs = _parallel_kwargs(tmp_path)
+    pinned = _write_pinned_spine(kwargs)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_artifacts",
+        lambda **_kw: (_artifacts_result(), None),
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "_run_english_section",
+        lambda **kw: (None, "section worker exploded"),
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package",
+        lambda **_kw: (_ for _ in ()).throw(
+            AssertionError("monolithic fallback must not run in pinned mode")
+        ),
+    )
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(
+        **kwargs, pinned_spine_path=pinned
+    )
+
+    assert result is None
+    assert "refusing the monolithic fallback" in error
+
+
+def test_pinned_spine_requires_parallel_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "0")
+    kwargs = _parallel_kwargs(tmp_path)
+    pinned = _write_pinned_spine(kwargs)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package",
+        lambda **_kw: (_ for _ in ()).throw(
+            AssertionError("monolithic path must not run with a pinned spine")
+        ),
+    )
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(
+        **kwargs, pinned_spine_path=pinned
+    )
+
+    assert result is None
+    assert "BSH_MEMO_ENGLISH_PARALLEL=1" in error
+
+
+def test_pinned_spine_survives_validation_retry(tmp_path, monkeypatch):
+    """A retry attempt must keep the user's pins: feedback goes to the
+    section workers, never to a spine regeneration."""
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    kwargs = _parallel_kwargs(tmp_path)
+    pinned = _write_pinned_spine(kwargs)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_ for _ in ()).throw(
+            AssertionError("spine agent must not run in pinned mode")
+        ),
+    )
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_artifacts",
+        lambda **_kw: (_artifacts_result(), None),
+    )
+    seen_feedback: list[list[str] | None] = []
+
+    def fake_section(**kw):
+        seen_feedback.append(kw["validation_errors"])
+        return {
+            "section": {"id": kw["section_id"], "blocks": []},
+            "claude_cost_usd": 0.25,
+            "claude_duration_ms": 500,
+        }, None
+
+    monkeypatch.setattr(claude_runner, "_run_english_section", fake_section)
+
+    result, error = claude_runner.run_memo_fast_english_package_parallel(
+        **kwargs,
+        pinned_spine_path=pinned,
+        validation_feedback="- fix the exec summary voice",
+        attempt=2,
+    )
+
+    assert error is None
+    assert all(
+        errors == ["fix the exec summary voice"] for errors in seen_feedback
+    )

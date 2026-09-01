@@ -2613,6 +2613,151 @@ def _run_fast_memo_pass(
     return result
 
 
+_ALL_FAST_PASSES_FAILED_MESSAGE = "All fast memo analysis passes failed."
+
+
+def _run_fast_phase2(
+    *,
+    report_id: str,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    research_dir: Path,
+    lessons_path: Path | None,
+    scope_check: dict | None,
+    warnings: list[str],
+    speculator=None,
+) -> tuple[list[_FastMemoPassResult] | None, float, int]:
+    """Phase 2: the eight parallel analysis passes.
+
+    Extracted from the straight-line pipeline so Memo Studio's standalone
+    investigation can run it without Phase 3+. Writes only
+    ``analysis/fast/*.json`` and ``analysis/*.md``. Returns
+    ``(pass_results, cost_usd, worker_duration_ms)``; when every pass fails
+    it records the failure on the report, emits the stream error, and
+    returns ``None`` pass results — shutting down the caller's speculator
+    and chaser stays with the caller.
+    """
+    phase2_started_at = _now_iso()
+    phase2_started = time.monotonic()
+    stream.emit(
+        "thread_started",
+        thread=claude_runner._MEMO_PHASE2_THREAD,
+        title=claude_runner._MEMO_PHASE2_THREAD,
+    )
+    worker_count = min(_memo_fast_max_workers(), len(_FAST_MEMO_PASSES))
+    for index, spec in enumerate(_FAST_MEMO_PASSES, start=1):
+        stream.emit(
+            "thread_planned",
+            thread=spec.label,
+            title=spec.label,
+            phase_index=2 + (index / 100),
+            parent_thread=claude_runner._MEMO_PHASE2_THREAD,
+            group="memo_fast_pass",
+            pass_id=spec.pass_id,
+            artifact=spec.artifact_filename,
+            estimate_ms=180_000,
+            description=(
+                f"Fast memo analysis pass {index}/{len(_FAST_MEMO_PASSES)}. "
+                f"Runs with up to {worker_count} parallel Claude workers."
+            ),
+        )
+    stream.emit(
+        "stage",
+        stage="memo_fast_parallel_dispatch",
+        message=(
+            f"Running {len(_FAST_MEMO_PASSES)} memo analysis passes "
+            f"with up to {worker_count} parallel workers"
+        ),
+        thread=claude_runner._MEMO_PHASE2_THREAD,
+        passes=[spec.label for spec in _FAST_MEMO_PASSES],
+        max_workers=worker_count,
+    )
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_parallel_analysis",
+        status="started",
+        started_at=phase2_started_at,
+        started_monotonic=phase2_started,
+    )
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        # as_completed (not pool.map): each completion is a signal the
+        # speculative spine may be waiting on.
+        futures = {
+            pool.submit(
+                _run_fast_memo_pass,
+                spec=spec,
+                run_dir=run_dir,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                stream=stream,
+                research_dir=research_dir,
+                lessons_path=lessons_path,
+                scope_check=scope_check,
+                warnings=warnings,
+            ): spec
+            for spec in _FAST_MEMO_PASSES
+        }
+        results_by_id: dict[str, _FastMemoPassResult] = {}
+        for future in as_completed(futures):
+            spec = futures[future]
+            try:
+                pass_result = future.result()
+            except Exception as exc:  # noqa: BLE001
+                pass_result = _FastMemoPassResult(
+                    spec=spec,
+                    data=None,
+                    error=f"pass crashed: {exc}",
+                    duration_ms=0,
+                    cost_usd=0.0,
+                )
+            results_by_id[spec.pass_id] = pass_result
+            if speculator is not None:
+                try:
+                    speculator.note_pass_result(
+                        spec.pass_id, pass_result.ok
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "speculative spine pass notification failed",
+                        exc_info=True,
+                    )
+        pass_results = [
+            results_by_id[spec.pass_id] for spec in _FAST_MEMO_PASSES
+        ]
+    cost_usd = sum(result.cost_usd for result in pass_results)
+    worker_duration_ms = sum(result.duration_ms for result in pass_results)
+    stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE2_THREAD)
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_parallel_analysis",
+        status="finished",
+        started_at=phase2_started_at,
+        started_monotonic=phase2_started,
+        ok_count=sum(1 for result in pass_results if result.ok),
+        error_count=sum(1 for result in pass_results if not result.ok),
+        pass_count=len(pass_results),
+        worker_count=worker_count,
+        worker_duration_ms=worker_duration_ms,
+    )
+    if not any(result.ok for result in pass_results):
+        message = _ALL_FAST_PASSES_FAILED_MESSAGE
+        storage.update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Fast memo analysis failed",
+            failure_phase="fast_parallel_analysis",
+            failure_detail=message,
+            error=message,
+        )
+        stream.emit("error", error=message, phase="fast_parallel_analysis")
+        return None, cost_usd, worker_duration_ms
+    return pass_results, cost_usd, worker_duration_ms
+
+
 def _run_fast_memo_pipeline(
     *,
     report_id: str,
@@ -2711,48 +2856,6 @@ def _run_fast_memo_pipeline(
         stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE2_THREAD)
         pass_results: list[_FastMemoPassResult] = []
     else:
-        phase2_started_at = _now_iso()
-        phase2_started = time.monotonic()
-        stream.emit(
-            "thread_started",
-            thread=claude_runner._MEMO_PHASE2_THREAD,
-            title=claude_runner._MEMO_PHASE2_THREAD,
-        )
-        worker_count = min(_memo_fast_max_workers(), len(_FAST_MEMO_PASSES))
-        for index, spec in enumerate(_FAST_MEMO_PASSES, start=1):
-            stream.emit(
-                "thread_planned",
-                thread=spec.label,
-                title=spec.label,
-                phase_index=2 + (index / 100),
-                parent_thread=claude_runner._MEMO_PHASE2_THREAD,
-                group="memo_fast_pass",
-                pass_id=spec.pass_id,
-                artifact=spec.artifact_filename,
-                estimate_ms=180_000,
-                description=(
-                    f"Fast memo analysis pass {index}/{len(_FAST_MEMO_PASSES)}. "
-                    f"Runs with up to {worker_count} parallel Claude workers."
-                ),
-            )
-        stream.emit(
-            "stage",
-            stage="memo_fast_parallel_dispatch",
-            message=(
-                f"Running {len(_FAST_MEMO_PASSES)} memo analysis passes "
-                f"with up to {worker_count} parallel workers"
-            ),
-            thread=claude_runner._MEMO_PHASE2_THREAD,
-            passes=[spec.label for spec in _FAST_MEMO_PASSES],
-            max_workers=worker_count,
-        )
-        _emit_phase_timing(
-            stream,
-            phase="memo_fast_parallel_analysis",
-            status="started",
-            started_at=phase2_started_at,
-            started_monotonic=phase2_started,
-        )
         if claude_runner._memo_spine_speculative_enabled():
             speculator = claude_runner.SpeculativeEnglish(
                 run_dir=run_dir,
@@ -2775,85 +2878,87 @@ def _run_fast_memo_pipeline(
                 ),
                 early_sections=claude_runner._memo_section_early_start_enabled(),
             )
-        with ThreadPoolExecutor(max_workers=worker_count) as pool:
-            # as_completed (not pool.map): each completion is a signal the
-            # speculative spine may be waiting on.
-            futures = {
-                pool.submit(
-                    _run_fast_memo_pass,
-                    spec=spec,
-                    run_dir=run_dir,
-                    company_name=company_name,
-                    company_slug=company_slug,
-                    run_id=run_id,
-                    stream=stream,
-                    research_dir=research_dir,
-                    lessons_path=lessons_path,
-                    scope_check=scope_check,
-                    warnings=warnings,
-                ): spec
-                for spec in _FAST_MEMO_PASSES
-            }
-            results_by_id: dict[str, _FastMemoPassResult] = {}
-            for future in as_completed(futures):
-                spec = futures[future]
-                try:
-                    pass_result = future.result()
-                except Exception as exc:  # noqa: BLE001
-                    pass_result = _FastMemoPassResult(
-                        spec=spec,
-                        data=None,
-                        error=f"pass crashed: {exc}",
-                        duration_ms=0,
-                        cost_usd=0.0,
-                    )
-                results_by_id[spec.pass_id] = pass_result
-                if speculator is not None:
-                    try:
-                        speculator.note_pass_result(
-                            spec.pass_id, pass_result.ok
-                        )
-                    except Exception:  # noqa: BLE001
-                        logger.warning(
-                            "speculative spine pass notification failed",
-                            exc_info=True,
-                        )
-            pass_results = [
-                results_by_id[spec.pass_id] for spec in _FAST_MEMO_PASSES
-            ]
-        cost_usd += sum(result.cost_usd for result in pass_results)
-        worker_duration_ms += sum(result.duration_ms for result in pass_results)
-        stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE2_THREAD)
-        _emit_phase_timing(
-            stream,
-            phase="memo_fast_parallel_analysis",
-            status="finished",
-            started_at=phase2_started_at,
-            started_monotonic=phase2_started,
-            ok_count=sum(1 for result in pass_results if result.ok),
-            error_count=sum(1 for result in pass_results if not result.ok),
-            pass_count=len(pass_results),
-            worker_count=worker_count,
-            worker_duration_ms=worker_duration_ms,
+        pass_results, phase2_cost_usd, phase2_duration_ms = _run_fast_phase2(
+            report_id=report_id,
+            run_dir=run_dir,
+            stream=stream,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            research_dir=research_dir,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            speculator=speculator,
         )
-        if not any(result.ok for result in pass_results):
-            message = "All fast memo analysis passes failed."
-            storage.update_report(
-                report_id,
-                status="failed_during_analysis",
-                stage="Fast memo analysis failed",
-                failure_phase="fast_parallel_analysis",
-                failure_detail=message,
-                error=message,
-            )
-            stream.emit("error", error=message, phase="fast_parallel_analysis")
+        cost_usd += phase2_cost_usd
+        worker_duration_ms += phase2_duration_ms
+        if pass_results is None:
             if speculator is not None:
                 cost_usd += speculator.cost_usd
                 speculator.shutdown()
             if zh_chaser is not None:
                 zh_chaser.shutdown()
-            return {"ok": False, "error": message, "cost_usd": cost_usd}
+            return {
+                "ok": False,
+                "error": _ALL_FAST_PASSES_FAILED_MESSAGE,
+                "cost_usd": cost_usd,
+            }
 
+    return _run_fast_synthesis(
+        run_dir=run_dir,
+        stream=stream,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+        zh_chaser=zh_chaser,
+        speculator=speculator,
+        cost_usd=cost_usd,
+        worker_duration_ms=worker_duration_ms,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+    )
+
+
+def _run_fast_synthesis(
+    *,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    memo_paths: dict[str, str],
+    research_dir: Path,
+    analysis_session_path: Path | None,
+    lessons_path: Path | None,
+    scope_check: dict | None,
+    warnings: list[str],
+    zh_chaser=None,
+    speculator=None,
+    cost_usd: float = 0.0,
+    worker_duration_ms: int = 0,
+    started_at: str = "",
+    started_monotonic: float = 0.0,
+    pinned_spine_path: Path | None = None,
+) -> dict:
+    """Phases 3-4: English synthesis, Chinese fill, and the gates.
+
+    Extracted from the straight-line pipeline so Memo Studio can re-enter
+    here on "Generate Report". Everything Phase 3 reads from Phase 2 is on
+    disk (``analysis/fast/*.json`` + ``analysis/*.md``) — the packet-mode
+    precedent proves no in-process Phase-2 state is needed.
+    ``pinned_spine_path`` makes the parallel English pass reuse that spine
+    verbatim instead of calling the spine agent: the user's card edits ARE
+    the pins. ``cost_usd``/``worker_duration_ms`` carry totals accumulated
+    before this half; ``started_at``/``started_monotonic`` close the
+    whole-pipeline phase timing.
+    """
     phase3_started_at = _now_iso()
     phase3_started = time.monotonic()
     phase3_progress = _ThreadProgress(stream, claude_runner._MEMO_PHASE3_THREAD)
@@ -2951,6 +3056,7 @@ def _run_fast_memo_pipeline(
                 ),
                 async_artifacts=async_artifacts,
                 speculative_english=speculator,
+                pinned_spine_path=pinned_spine_path,
             )
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)

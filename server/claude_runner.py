@@ -2712,6 +2712,63 @@ MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
     "required": ["package_skeleton", "shared_facts"],
 }
 
+# Memo Studio variant of the spine schema: the standalone investigation
+# spine also proposes thesis-card seeds and candidate conclusion stances
+# for the studio's review cards. `studio_extras` is a SIBLING of
+# `shared_facts`, never inside it — shared_facts stays the enforced pin
+# sheet and every existing reader (`_render_shared_facts_block`, pin
+# check, stale-spine guard) is untouched. The pipeline's own spine keeps
+# MEMO_FAST_ENGLISH_SPINE_SCHEMA so One-Click prompts stay byte-identical.
+MEMO_FAST_ENGLISH_SPINE_SCHEMA_STUDIO: dict[str, Any] = {
+    **MEMO_FAST_ENGLISH_SPINE_SCHEMA,
+    "properties": {
+        **MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"],
+        "studio_extras": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "thesis_points": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "title": {"type": "string", "maxLength": 140},
+                            "support": {"type": "string", "maxLength": 400},
+                            "category": {"type": "string", "maxLength": 40},
+                            "source_ids": {
+                                "type": "array",
+                                "maxItems": 4,
+                                "items": {"type": "string", "maxLength": 8},
+                            },
+                        },
+                        "required": ["title", "support"],
+                    },
+                },
+                "conclusion_options": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 3,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "label": {"type": "string", "maxLength": 40},
+                            "recommendation_sentence": {
+                                "type": "string",
+                                "maxLength": 300,
+                            },
+                            "rationale": {"type": "string", "maxLength": 240},
+                        },
+                        "required": ["label", "recommendation_sentence"],
+                    },
+                },
+            },
+        },
+    },
+}
+
 # The seven private analysis artifacts, authored by a side agent that runs
 # concurrently with the section workers (they never read these).
 MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA: dict[str, Any] = {
@@ -4408,6 +4465,8 @@ def run_memo_fast_english_spine(
     validation_feedback: str | None = None,
     speculative_missing: list[str] | None = None,
     fact_ledger: str | None = None,
+    schema: dict | None = None,
+    extra_instructions: str = "",
 ) -> tuple[dict | None, str | None]:
     """Synthesize the lite spine: package envelope plus the shared-facts pin
     sheet. No analysis artifacts, no memo prose — those belong to the side
@@ -4419,6 +4478,9 @@ def run_memo_fast_english_spine(
     the stragglers. ``fact_ledger`` is the curated per-company fact text
     (:func:`load_memo_fact_ledger`) — injected so the pin sheet always
     sees the headline facts regardless of what the passes retrieved.
+    ``schema``/``extra_instructions`` let the Memo Studio standalone spine
+    request `studio_extras` (thesis seeds, conclusion stances); with the
+    defaults the prompt and schema are byte-identical to the pipeline's.
     """
     feedback_block = (
         (
@@ -4472,7 +4534,7 @@ Produce ONE JSON object with:
    section id, only for section-specific pointers the standing section
    requirements do not already cover:
 {section_list}
-
+{extra_instructions}
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
 {_memo_fact_ledger_block(fact_ledger)}{speculative_block}{feedback_block}
@@ -4480,7 +4542,7 @@ Return only the JSON matching the attached schema.
 """
     return _run_memo_local_json_artifact(
         prompt=prompt,
-        schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA,
+        schema=schema if schema is not None else MEMO_FAST_ENGLISH_SPINE_SCHEMA,
         run_dir=run_dir,
         progress=progress,
         progress_message="Pinning memo spine: envelope and shared facts",
@@ -4492,6 +4554,116 @@ Return only the JSON matching the attached schema.
         effort=_memo_role_effort("SPINE"),
         append_system_prompt=common_context,
     )
+
+
+_MEMO_STUDIO_SPINE_EXTRAS_INSTRUCTIONS = """\
+4. `studio_extras`: seeds for the human review cards in Memo Studio:
+   - `thesis_points`: the 3-6 strongest investment-thesis points, ordered
+     strongest first — a short title plus one supporting sentence grounded
+     in the analysis artifacts, with supporting source ids.
+   - `conclusion_options`: 2-3 candidate conclusion stances (for example
+     invest, conditional, decline). Each needs a short label, a complete
+     first-person recommendation sentence in the memo's voice, and a
+     one-line rationale. Put the stance your analysis supports first, and
+     make its recommendation sentence identical to
+     `shared_facts.recommendation_sentence`."""
+
+
+def run_memo_english_spine_standalone(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    memo_paths: dict[str, str],
+    research_dir: Path | None = None,
+    analysis_session_path: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 1200,
+    missing_pass_ids: list[str] | None = None,
+    studio_extras: bool = True,
+) -> tuple[dict | None, str | None]:
+    """Run the spine agent alone over a completed Phase-2 run dir.
+
+    The Memo Studio investigation seam: after the eight analysis passes
+    land on disk this rebuilds the shared context, runs one deterministic
+    spine call (no speculation, no delta check), validates the shape with
+    the same guard the parallel orchestrator uses, and writes
+    ``logs/english_units/spine.json``. ``missing_pass_ids`` names failed
+    passes whose artifacts are absent so the prompt pins from what exists.
+    With ``studio_extras`` the spine also returns thesis-card seeds and
+    candidate conclusion stances, persisted alongside the payload.
+    Returns ``(spine_payload, error)``.
+    """
+    common_context = _memo_english_common_context(
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        run_dir=run_dir,
+        companies_yaml_path=companies_yaml_path,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
+    add_dirs = _memo_english_add_dirs(
+        settings_path=settings_path,
+        companies_yaml_path=companies_yaml_path,
+        run_dir=run_dir,
+        research_dir=research_dir,
+        analysis_session_path=analysis_session_path,
+        lessons_path=lessons_path,
+    )
+    units_dir = _memo_english_units_dir(run_dir)
+    units_dir.mkdir(parents=True, exist_ok=True)
+    result, error = run_memo_fast_english_spine(
+        run_dir=run_dir,
+        company_name=company_name,
+        common_context=common_context,
+        add_dirs=add_dirs,
+        progress=progress,
+        timeout_sec=timeout_sec,
+        speculative_missing=missing_pass_ids or None,
+        fact_ledger=load_memo_fact_ledger(research_dir),
+        schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA_STUDIO if studio_extras else None,
+        extra_instructions=(
+            _MEMO_STUDIO_SPINE_EXTRAS_INSTRUCTIONS if studio_extras else ""
+        ),
+    )
+    if error or not isinstance(result, dict):
+        return None, error or "spine pass returned no data"
+    skeleton = result.get("package_skeleton")
+    shared_facts = result.get("shared_facts")
+    section_notes = result.get("section_notes")
+    if not isinstance(section_notes, dict):
+        section_notes = {}
+    if (
+        not isinstance(skeleton, dict)
+        or not isinstance(skeleton.get("company"), dict)
+        or not isinstance(skeleton.get("sources"), list)
+        or not skeleton.get("sources")
+        or not isinstance(shared_facts, dict)
+    ):
+        return None, "spine returned an unusable skeleton or shared facts"
+    spine_payload = {
+        "package_skeleton": skeleton,
+        "shared_facts": shared_facts,
+        "section_notes": section_notes,
+    }
+    extras = result.get("studio_extras")
+    if isinstance(extras, dict) and extras:
+        spine_payload["studio_extras"] = extras
+    (units_dir / "spine.json").write_text(
+        json.dumps(spine_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return spine_payload, None
 
 
 def run_memo_fast_english_artifacts(
@@ -5866,8 +6038,16 @@ def run_memo_fast_english_package_parallel(
     on_section=None,
     async_artifacts: AsyncArtifacts | None = None,
     speculative_english: "SpeculativeEnglish | None" = None,
+    pinned_spine_path: Path | None = None,
 ) -> tuple[dict | None, str | None]:
     """Spine-lite + parallel per-section synthesis of the English package.
+
+    ``pinned_spine_path`` (Memo Studio generate) points at a spine composed
+    from the user's edited cards: the spine agent and the speculative
+    consume are skipped on EVERY attempt, the file is used verbatim, and
+    any failure that would normally fall back to the monolithic pass is a
+    hard error instead — the monolithic path has no spine input, so a
+    fallback would silently discard the user's decisions.
 
     A fast spine call pins the package envelope (company/run/sources) and a
     compact shared-facts sheet; five section workers then draft the memo
@@ -5898,6 +6078,11 @@ def run_memo_fast_english_package_parallel(
     per docs/memo-benchmarks.md before enabling.
     """
     if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+        if pinned_spine_path is not None:
+            return None, (
+                "a pinned studio spine requires BSH_MEMO_ENGLISH_PARALLEL=1; "
+                "the monolithic path cannot honor studio card edits"
+            )
         return run_memo_fast_english_package(
             run_dir=run_dir,
             company_name=company_name,
@@ -5917,6 +6102,15 @@ def run_memo_fast_english_package_parallel(
         )
 
     def _fallback(reason: str) -> tuple[dict | None, str | None]:
+        if pinned_spine_path is not None:
+            # Never degrade to the monolithic pass in studio mode: it has
+            # no spine input and would regenerate the package ignoring the
+            # user's card edits. Surface the failure instead.
+            return None, (
+                "parallel English synthesis failed with a pinned studio "
+                f"spine ({reason[:300]}); refusing the monolithic fallback "
+                "that would discard the studio card edits"
+            )
         logger.warning(
             "parallel English package falling back to monolithic: %s", reason
         )
@@ -5971,6 +6165,10 @@ def run_memo_fast_english_package_parallel(
     units_dir = _memo_english_units_dir(run_dir)
     units_dir.mkdir(parents=True, exist_ok=True)
     spine_path = units_dir / "spine.json"
+    if pinned_spine_path is not None:
+        # Sections and the selective retry read the spine by this path;
+        # point them all at the pinned file.
+        spine_path = pinned_spine_path
     artifacts_path = units_dir / "analysis_artifacts.json"
     if async_artifacts is not None:
         # Detached mode: the artifacts agent starts now — overlapping the
@@ -6337,7 +6535,29 @@ def run_memo_fast_english_package_parallel(
     spine_result = None
     spine_error: str | None = None
     speculation_missed = False
-    if (
+    if pinned_spine_path is not None:
+        # Studio generate: the spine on disk was composed from the user's
+        # edited cards. Use it verbatim on every attempt — regenerating it
+        # (or consuming a speculative one) would overwrite their decisions.
+        try:
+            spine_result = json.loads(
+                pinned_spine_path.read_text(encoding="utf-8")
+            )
+        except Exception as exc:  # noqa: BLE001
+            return None, f"pinned studio spine unreadable: {exc}"
+        if not isinstance(spine_result, dict):
+            return None, "pinned studio spine is not a JSON object"
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_studio_spine_pinned",
+                message=(
+                    "Using the studio-composed spine verbatim; the spine "
+                    "agent is skipped"
+                ),
+                spine_path=str(pinned_spine_path),
+            )
+    elif (
         speculative_english is not None
         and (attempt is None or attempt == 1)
         and not validation_feedback
@@ -6415,10 +6635,11 @@ def run_memo_fast_english_package_parallel(
         "shared_facts": shared_facts,
         "section_notes": section_notes,
     }
-    spine_path.write_text(
-        json.dumps(spine_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    if pinned_spine_path is None:
+        spine_path.write_text(
+            json.dumps(spine_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     if on_spine is not None:
         try:
             on_spine(spine_payload)
