@@ -154,6 +154,43 @@ on any structural failure).
   Section VI generated from the envelope's sources list). Post-render:
   quality lint + Chinese parity gates (warning-only at this point).
 
+### The Memo Studio seam (2026-09-01, branch memo-studio)
+
+The pipeline is split at the Phase 2 → Phase 3 boundary
+(`memo_analysis._run_fast_phase2` + `_run_fast_synthesis`; the One-Click
+composition in `_run_fast_memo_pipeline` is emit-for-emit identical to
+the old straight line). Two modes on the report record (`memo_mode`,
+absent = `auto`):
+
+- **Studio Review** (`POST /api/memos/studio/investigate`, requires
+  `BSH_MEMO_ENGLISH_PARALLEL=1`): Phase 1-2 + ONE deterministic
+  standalone spine (`claude_runner.run_memo_english_spine_standalone`,
+  no speculation/delta check, studio-extended schema with optional
+  `studio_extras`: thesis seeds + conclusion stances), cards seeded into
+  `memo_editor_store` via `apply_agent_spine`, then the run parks at
+  status **`awaiting_studio`** with a terminal `done` on the stream
+  (that event is what keeps SSE, the jobs rail, and the orphan sweep
+  correct for a parked run). `POST /api/memos/studio/{id}/generate`
+  composes the user's edited cards back into `spine.json` +
+  `studio_pin_sheet.md` (`server/memo_studio_bridge.compose_spine`,
+  freeze semantics) and re-enters `_run_fast_synthesis` with
+  `pinned_spine_path`: the spine agent and speculative consume are
+  skipped on every attempt, and every monolithic fallback is a hard
+  error (it would discard the card edits). The pin-echo gate then
+  enforces the user's decisions mechanically — cards ARE pins.
+  Regeneration = the same endpoint again (streams/packages archived,
+  `generation_count` bumps). Studio runs never use the monolithic
+  resume path; recovery is Investigate again / Generate again.
+- **One-Click** (`POST /api/reports`, unchanged): the full pipeline,
+  byte-identical, plus a post-finalize `_publish_studio_cards` so the
+  studio cards show the agent's ranking after every successful run.
+
+Report type **"Investment Report (Auto)"** (default in the UI) replaces
+the old stub type: same late-stage kind and pipeline, but
+`_assess_stage(calibrate_only=True)` turns early-stage/indeterminate
+from a scope warning into neutral stage-calibration guidance (nonprofit
+still hard-fails).
+
 ### Observability
 
 Thread rows: phase_index 2.x passes, 3.01 spine (3.015 delta check),
@@ -330,6 +367,8 @@ Still queued:
 |---|---|
 | `server/claude_runner.py` | all agent calls and prompts; section ids/specs/contracts; parallel orchestrator; `AsyncArtifacts`; `SpeculativeEnglish` (+delta check, pin-affine gate `MEMO_SPINE_PIN_FEEDING_PASSES`); `BilingualChaser`; compact translation; hybrid repair; fact ledger (`load_memo_fact_ledger`); role/model/effort knobs |
 | `server/memo_analysis.py` | pipeline driver: phases, attempt loop, gates, repairs wiring, pass specs, Phase-4 seam |
+| `server/memo_studio_bridge.py` | Memo Studio cards → spine composition (`compose_spine`, pin sheet, rating normalization) |
+| `server/memo_editor_store.py` | studio card state; `apply_agent_spine` (spine → cards seed), card CRUD, version snapshots |
 | `server/memo_pin_check.py` | deterministic pin-echo checker |
 | `server/memo_quality_lint.py` | DOCX quality lint (voice/meta/disclosure rules) |
 | `server/memo_chinese_parity.py` | EN/ZH parity gate |

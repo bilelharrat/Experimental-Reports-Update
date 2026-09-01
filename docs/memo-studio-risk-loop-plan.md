@@ -1,5 +1,15 @@
 # Memo Studio Risk Loop Plan
 
+> **SUPERSEDED (2026-09-01)** by the Memo Studio process flow on branch
+> `memo-studio`: instead of seeding cards from a finished report, the
+> pipeline detaches at the Phase 2 → Phase 3 seam — "Start Deep
+> Investigate" runs the analysis passes + a standalone spine that seeds
+> the cards, the user edits, and "Generate Report" composes the cards
+> back into the spine as enforced pins. See
+> `docs/memo-pipeline-structure.md` §1 "The Memo Studio seam". This
+> document stays for the design history (the studio↔document
+> disconnection analysis remains accurate for the pre-studio state).
+
 Last updated: 2026-08-20
 
 Plan for connecting the Memo Studio "Risks and Mitigations" section to
