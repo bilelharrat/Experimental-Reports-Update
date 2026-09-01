@@ -437,9 +437,20 @@ describe("MemoStudioEditor", () => {
     // Arm the drag from the first thesis card's handle, then drop it on
     // the second thesis card.
     await grips.at(0).trigger("mousedown");
-    const articles = wrapper.findAll("article");
+    let articles = wrapper.findAll("article");
     await articles.at(0).trigger("dragstart");
-    await articles.at(1).trigger("drop");
+    // Dragging over the second card reorders the list LIVE, before any
+    // drop: the preview puts the dragged card after it.
+    await articles.at(1).trigger("dragover");
+    articles = wrapper.findAll("article");
+    expect(articles.at(0).text()).toContain(
+      "Metrics create a late-stage frame.",
+    );
+    expect(articles.at(1).text()).toContain(
+      "Existing networks become a positioning layer.",
+    );
+    // Releasing commits the previewed order.
+    await articles.at(0).trigger("drop");
     await flushPromises();
 
     expect(m.reorderCards).toHaveBeenCalledWith(

@@ -88,7 +88,7 @@ const progressPct = computed(() =>
 function orderedCards(sectionId) {
   const cards = sections.value[sectionId]?.cards || [];
   const seen = new Set();
-  return [...cards]
+  const ordered = [...cards]
     .sort((a, b) => Number(a.rank || 0) - Number(b.rank || 0))
     .filter((card) => {
       const bulletText = (card.bullets || []).map((bullet) => bullet.text || "").join("|");
@@ -97,6 +97,19 @@ function orderedCards(sectionId) {
       seen.add(signature);
       return true;
     });
+  // During a drag (and while its save is in flight), render the live
+  // preview order instead of the stored ranks.
+  if (dragSectionId.value === sectionId && previewOrder.value.length) {
+    const position = new Map(
+      previewOrder.value.map((id, index) => [id, index]),
+    );
+    ordered.sort(
+      (a, b) =>
+        (position.get(String(a.id)) ?? 999) -
+        (position.get(String(b.id)) ?? 999),
+    );
+  }
+  return ordered;
 }
 
 const agentRun = computed(() => editor.value?.agent_run || null);
@@ -202,15 +215,17 @@ async function patchCard(sectionId, card, patch) {
   }
 }
 
-// ---- Drag-to-reorder ------------------------------------------------------
+// ---- Drag-to-reorder (live preview) ---------------------------------------
 // The card body stays selectable: dragging arms only from the grip handle
 // (mousedown sets dragArmedId, which is what makes the article draggable).
+// While dragging, `previewOrder` holds the would-be order and the list
+// renders it live (TransitionGroup animates the moves); releasing over the
+// list commits it, releasing elsewhere (or Esc) snaps back.
 
 const dragArmedId = ref("");
 const dragCardId = ref("");
 const dragSectionId = ref("");
-const dragOverCardId = ref("");
-const dragOverAfter = ref(true);
+const previewOrder = ref([]);
 
 // The full section order by rank — NOT the deduped display list: the
 // backend requires a complete permutation of the section's card ids.
@@ -236,6 +251,7 @@ function onDragStart(event, sectionId, card) {
   }
   dragCardId.value = card.id;
   dragSectionId.value = sectionId;
+  previewOrder.value = rawOrderedIds(sectionId);
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
     try {
@@ -254,57 +270,54 @@ function onDragOver(event, sectionId, card) {
   ) {
     return;
   }
-  dragOverCardId.value = card.id;
+  // Cursor position → order (idempotent for a stationary cursor, so the
+  // live preview cannot oscillate): top half inserts the dragged card
+  // before this one, bottom half after.
   const rect = event.currentTarget?.getBoundingClientRect?.();
-  dragOverAfter.value =
+  const after =
     !rect || !rect.height
       ? true
       : event.clientY - rect.top >= rect.height / 2;
-}
-
-function dropIndicatorClass(sectionId, card) {
-  if (
-    !dragCardId.value ||
-    dragSectionId.value !== sectionId ||
-    dragOverCardId.value !== card.id ||
-    dragCardId.value === card.id
-  ) {
-    return "";
+  const order = previewOrder.value.filter((id) => id !== dragCardId.value);
+  const targetIndex = order.indexOf(String(card.id));
+  const insertAt =
+    targetIndex < 0 ? order.length : targetIndex + (after ? 1 : 0);
+  order.splice(insertAt, 0, dragCardId.value);
+  if (order.join("|") !== previewOrder.value.join("|")) {
+    previewOrder.value = order;
   }
-  return dragOverAfter.value
-    ? "border-b-2 border-b-accent"
-    : "border-t-2 border-t-accent";
 }
 
 function onDragEnd() {
   dragArmedId.value = "";
   dragCardId.value = "";
   dragSectionId.value = "";
-  dragOverCardId.value = "";
-  dragOverAfter.value = true;
+  previewOrder.value = [];
 }
 
-async function onDrop(sectionId, card) {
-  const draggedId = dragCardId.value;
-  const fromSection = dragSectionId.value;
-  const after =
-    dragOverCardId.value === card.id ? dragOverAfter.value : true;
-  onDragEnd();
-  if (!draggedId || draggedId === card.id || fromSection !== sectionId) return;
-  const ordered = rawOrderedIds(sectionId).filter((id) => id !== draggedId);
-  const targetIndex = ordered.indexOf(String(card.id));
-  const insertAt =
-    targetIndex < 0 ? ordered.length : targetIndex + (after ? 1 : 0);
-  ordered.splice(insertAt, 0, draggedId);
+async function commitDrag(sectionId) {
+  if (!dragCardId.value || dragSectionId.value !== sectionId) return;
+  const order = [...previewOrder.value];
+  if (order.join("|") === rawOrderedIds(sectionId).join("|")) {
+    onDragEnd();
+    return;
+  }
+  // Keep the preview applied while the save is in flight so the list
+  // doesn't snap back and forth; the server state lands with the same
+  // order, then the preview clears invisibly.
+  dragCardId.value = "";
+  dragArmedId.value = "";
   savingId.value = `${sectionId}:reorder`;
   try {
     applyState(
-      await api.memoEditor.reorderCards(props.companyId, sectionId, ordered),
+      await api.memoEditor.reorderCards(props.companyId, sectionId, order),
     );
   } catch {
     error.value = "action";
   } finally {
     savingId.value = "";
+    dragSectionId.value = "";
+    previewOrder.value = [];
   }
 }
 
@@ -653,7 +666,13 @@ async function setTaskStatus(task, status) {
             </button>
           </div>
         </div>
-        <div class="space-y-3">
+        <TransitionGroup
+          tag="div"
+          name="card-drag"
+          class="space-y-3"
+          @dragover.prevent
+          @drop.prevent="commitDrag('investment_thesis')"
+        >
           <article
             v-for="card in thesisCards"
             :key="card.id"
@@ -661,12 +680,10 @@ async function setTaskStatus(task, status) {
             :class="[
               cardTone('investment_thesis', card),
               dragCardId === card.id ? 'opacity-60' : '',
-              dropIndicatorClass('investment_thesis', card),
             ]"
             :draggable="dragArmedId === card.id"
             @dragstart="onDragStart($event, 'investment_thesis', card)"
             @dragover.prevent="onDragOver($event, 'investment_thesis', card)"
-            @drop.prevent="onDrop('investment_thesis', card)"
             @dragend="onDragEnd"
           >
             <div class="flex items-start gap-2">
@@ -726,7 +743,7 @@ async function setTaskStatus(task, status) {
               </button>
             </div>
           </article>
-        </div>
+        </TransitionGroup>
       </section>
 
       <section class="mt-6">
@@ -766,7 +783,13 @@ async function setTaskStatus(task, status) {
             </button>
           </div>
         </div>
-        <div class="space-y-3">
+        <TransitionGroup
+          tag="div"
+          name="card-drag"
+          class="space-y-3"
+          @dragover.prevent
+          @drop.prevent="commitDrag('risks_mitigations')"
+        >
           <article
             v-for="card in riskCards"
             :key="card.id"
@@ -774,12 +797,10 @@ async function setTaskStatus(task, status) {
             :class="[
               cardTone('risks_mitigations', card),
               dragCardId === card.id ? 'opacity-60' : '',
-              dropIndicatorClass('risks_mitigations', card),
             ]"
             :draggable="dragArmedId === card.id"
             @dragstart="onDragStart($event, 'risks_mitigations', card)"
             @dragover.prevent="onDragOver($event, 'risks_mitigations', card)"
-            @drop.prevent="onDrop('risks_mitigations', card)"
             @dragend="onDragEnd"
           >
             <div class="flex items-start gap-2">
@@ -867,7 +888,7 @@ async function setTaskStatus(task, status) {
               </button>
             </div>
           </article>
-        </div>
+        </TransitionGroup>
       </section>
 
       <section class="mt-6">
@@ -1054,3 +1075,11 @@ async function setTaskStatus(task, status) {
     </template>
   </section>
 </template>
+
+<style scoped>
+/* TransitionGroup move class: cards slide to their live-preview slots
+   while dragging (and settle after a commit). */
+.card-drag-move {
+  transition: transform 0.18s ease;
+}
+</style>
