@@ -17,6 +17,7 @@ import AiMark from "./AiMark.vue";
 import { formatIsoDate, humanizeStatus, isTerminalReportStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage, openSummary } from "../state.js";
+import DocumentViewerDrawer from "./DocumentViewerDrawer.vue";
 import FilePreviewModal from "./FilePreviewModal.vue";
 
 const props = defineProps({
@@ -63,6 +64,49 @@ function openAddFile() {
 
 const previewing = ref(null);
 const traceRow = ref(null);
+const viewer = ref(null);
+
+// In-browser viewer coverage (the slide-in drawer). PDFs/images/text keep
+// the existing FilePreviewModal path.
+const VIEWER_TYPES = new Set(["DOCX", "DOC", "MD"]);
+
+function canViewInline(row) {
+  if (row.backend === "generated_report") {
+    return Object.keys(row.download_urls || {}).length > 0;
+  }
+  return VIEWER_TYPES.has(fileType(row));
+}
+
+function openViewer(row) {
+  if (row.backend === "generated_report") {
+    const order = { en: 0, zh: 1, internal: 2 };
+    const sources = Object.keys(row.download_urls || {})
+      .sort((a, b) => (order[a] ?? 9) - (order[b] ?? 9))
+      .map((key) => ({
+        key: String(key).toUpperCase(),
+        url: downloadUrl(row, key),
+        kind: "docx",
+      }));
+    if (!sources.length) return;
+    viewer.value = { title: row.title || row.filename || "", sources };
+    return;
+  }
+  const type = fileType(row);
+  viewer.value = {
+    title: row.title || row.filename || "",
+    sources: [
+      {
+        key: type,
+        url: downloadUrl(row),
+        kind: type === "MD" ? "md" : "docx",
+      },
+    ],
+  };
+}
+
+function closeViewer() {
+  viewer.value = null;
+}
 
 const BACKGROUND_ACCEPT =
   ".pdf,.pptx,.docx,.doc,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,text/*";
@@ -196,6 +240,12 @@ function groupLabel(group) {
 }
 
 function openPreview(row) {
+  // DOCX and Markdown render in the slide-in viewer; everything else keeps
+  // the existing preview modal.
+  if (VIEWER_TYPES.has(fileType(row))) {
+    openViewer(row);
+    return;
+  }
   if (row.backend === "document_library") {
     previewing.value = {
       file: row.record,
@@ -572,12 +622,20 @@ function openReport(row) {
 
               <div class="flex shrink-0 flex-wrap items-center gap-1.5">
                 <button
-                  v-if="row.backend === 'generated_report'"
+                  v-if="row.backend === 'generated_report' && canViewInline(row)"
                   type="button"
-                  @click="openReport(row)"
+                  @click="openViewer(row)"
                   class="btn-filled rounded-full px-3 py-1.5 text-xs font-semibold hover:bg-accent-hover focus-ring"
                 >
                   <Eye class="h-3.5 w-3.5" />
+                  {{ t("documents.view") }}
+                </button>
+                <button
+                  v-if="row.backend === 'generated_report'"
+                  type="button"
+                  @click="openReport(row)"
+                  class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
+                >
                   {{ t("documents.open") }}
                 </button>
                 <button
@@ -721,6 +779,13 @@ function openReport(row) {
       :download-url="previewing?.downloadUrl || null"
       :previewable-kinds="previewing?.previewableKinds"
       @close="closePreview"
+    />
+
+    <DocumentViewerDrawer
+      v-if="viewer"
+      :title="viewer.title"
+      :sources="viewer.sources"
+      @close="closeViewer"
     />
   </section>
 </template>

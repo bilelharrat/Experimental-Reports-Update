@@ -251,4 +251,34 @@ describe("UnifiedDocumentsView", () => {
       true,
     );
   });
+
+  it("opens the slide-in viewer for generated memos", async () => {
+    m.listCompanyDocuments.mockResolvedValue(documentsPayload());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => "",
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })),
+    );
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "generalist" },
+    });
+    await flushPromises();
+
+    const viewButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "View");
+    expect(viewButton).toBeTruthy();
+    await viewButton.trigger("click");
+    await flushPromises();
+
+    // The drawer is open on the memo's EN docx.
+    expect(wrapper.find("[role='dialog']").exists()).toBe(true);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/reports/report-1/download?language=en",
+    );
+  });
 });
