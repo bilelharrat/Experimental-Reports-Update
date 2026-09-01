@@ -62,6 +62,7 @@ from . import (
     hypothesis_store,
     job_progress,
     link_preview as link_preview_mod,
+    live_quotes,
     memo_analysis,
     memo_editor_store,
     memo_prep,
@@ -75,6 +76,7 @@ from . import (
     stock_research,
     text_analysis,
     trader_stats,
+    tracking_dashboard,
     weekly_stocks,
 )
 
@@ -1150,6 +1152,31 @@ def diagnose_claude() -> dict:
     authenticated before kicking off real summary jobs.
     """
     return claude_runner.health_check()
+
+
+@router.get("/quotes")
+def get_live_quotes(
+    ticker: list[str] = Query(default=[]),
+) -> dict:
+    """Last print + 1-day move for public tickers.
+
+    Tracking polls this so every listed name can show a live quote
+    without waiting on a trader-snapshot Claude pass.
+    """
+    return live_quotes.fetch_quotes(ticker)
+
+
+@router.get("/tracking/rollup")
+def get_tracking_rollup(
+    company_id: list[str] = Query(default=[]),
+) -> dict:
+    """Research-state rollup for the companies the caller follows.
+
+    The follow list is browser-local, so ids arrive as query params
+    (repeated or comma-joined) rather than being read from a stored
+    watchlist.
+    """
+    return tracking_dashboard.build_rollup(company_id)
 
 
 @router.get("/companies")

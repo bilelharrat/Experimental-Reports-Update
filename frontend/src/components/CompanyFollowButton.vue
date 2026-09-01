@@ -24,7 +24,7 @@ const label = computed(() =>
     type="button"
     class="icon-btn"
     :class="[
-      size === 'md' ? 'h-7 w-7' : 'h-6 w-6',
+      size === 'md' ? '!h-7 !w-7' : '!h-6 !w-6',
       hideUntilHover && !followed
         ? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
         : '',

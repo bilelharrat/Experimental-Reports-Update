@@ -56,9 +56,8 @@ class _TextBlock:
     allowed_trace_section: bool
     operating_table: bool
     # Full text of the table row this cell belongs to (empty for paragraphs).
-    # Lets the disclosure-gap check see treatment supplied in a sibling cell —
-    # e.g. a "Value: Not disclosed" cell whose "Note" cell carries the
-    # diligence treatment in the same row.
+    # Lets the disclosure-gap check see implication supplied in a sibling cell —
+    # e.g. a "Value: Not disclosed" cell whose "Note" cell carries the risk.
     row_text: str = ""
 
 
@@ -76,54 +75,29 @@ _SOURCE_BRACKET_KEYWORDS = (
     "claim",
     "packet",
 )
-_MODEL_TREATMENT_TERMS = (
-    "model",
-    "treat",
-    "treatment",
-    "conversion",
-    "range",
-    "proxy",
-    "estimate",
-    "fermi",
-    "sensitivity",
-    "valuation",
-    "risk",
-    "scenario",
-    "credit",
-    "binding",
-    "mou",
-    "loi",
-    "pipeline",
-    "contracted",
-    "contract",
-    "recognized",
-    "assumption",
-    "sanity bridge",
-    # Analytical characterizations that themselves treat an undisclosed figure
-    # (e.g. a valuation step-table whose multiple column reads "undefined (no
-    # denominator)" or "forward, not yet closed").
-    "undefined",
-    "denominator",
-    "forward",
-    "aspirational",
-    "outside-in",
-    "not yet closed",
-    "unconfirmed",
-    # An explicit "not computable" determination (with its cause) is itself
-    # analytical handling, not a bare blank — treat it as resolved even though
-    # the same phrase is one of the gap triggers.
-    "not computable",
-    # Morphological stems for treatment verbs writers actually use. Three
-    # consecutive Tenstorrent runs (2026-08-18/20/21) burned 10-18 minute
-    # full-package retries on cells that DID treat the gap but phrased it as
-    # "our downside case assumes ..." or "we value the team ... and take a
-    # discount" — forms the exact-word list above never matched.
-    "assum",
-    "downside",
-    "haircut",
-    "discount",
-    "we value",
-)
+_GAP_PHRASE_RE = re.compile(r"\bnot disclosed\b|\bnot computable\b", re.IGNORECASE)
+_GAP_NOISE_WORDS = {
+    "a",
+    "an",
+    "the",
+    "is",
+    "are",
+    "to",
+    "of",
+    "or",
+    "and",
+    "for",
+    "any",
+    "period",
+    "value",
+    "metric",
+    "n",
+    "a",
+    "na",
+    "none",
+    "unknown",
+    "tbd",
+}
 _ALLOWED_SECTION_PATTERNS = (
     re.compile(r"\bsources?\b.*\b(source classes?|fact reference index|references?)\b", re.IGNORECASE),
     re.compile(r"\bfact reference index\b", re.IGNORECASE),
@@ -196,6 +170,24 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bwe back\b(?!-)", re.IGNORECASE),
     re.compile(r"\bwe want exposure\b", re.IGNORECASE),
     re.compile(r"\bwhy we want exposure\b", re.IGNORECASE),
+    re.compile(r"\bwe are being offered\b", re.IGNORECASE),
+    re.compile(r"\bwe are participating through\b", re.IGNORECASE),
+    re.compile(r"\bwe recommend participating\b", re.IGNORECASE),
+    re.compile(r"\bwe give credit to\b", re.IGNORECASE),
+    re.compile(r"\bour base case credits\b", re.IGNORECASE),
+    re.compile(r"\bour base case gives credit\b", re.IGNORECASE),
+    re.compile(r"\bthe investment case rests on\b", re.IGNORECASE),
+    re.compile(r"\bthe investment case uses\b", re.IGNORECASE),
+    re.compile(r"\bthe investment case treats\b", re.IGNORECASE),
+    re.compile(r"\bthe investment case assumes\b", re.IGNORECASE),
+    re.compile(r"\bthe investment case identifies\b", re.IGNORECASE),
+    re.compile(r"\bthe investment case gives credit\b", re.IGNORECASE),
+    re.compile(r"\bvaluation-support factor\b", re.IGNORECASE),
+    re.compile(r"\bvaluation support is strongest\b", re.IGNORECASE),
+    re.compile(r"\brather than treating\b", re.IGNORECASE),
+    re.compile(r"\bkey risk centers on\b", re.IGNORECASE),
+    re.compile(r"\bis compelling because\b", re.IGNORECASE),
+    re.compile(r"\bavailable evidence does not document\b", re.IGNORECASE),
     re.compile(r"\bcontrol layer underneath\b", re.IGNORECASE),
     re.compile(r"\bonly scaled platform\b", re.IGNORECASE),
     re.compile(r"\bas framed\b", re.IGNORECASE),
@@ -258,8 +250,6 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bnamed lead\b", re.IGNORECASE),
     re.compile(r"\bdown-?round protection\b", re.IGNORECASE),
     re.compile(r"\bMFN\b"),
-    re.compile(r"\binformation rights\b", re.IGNORECASE),
-    re.compile(r"\bvoting rights\b", re.IGNORECASE),
     re.compile(r"\brequire data room\b", re.IGNORECASE),
     re.compile(r"\b(?:should|would|could|ought to) be able to\b", re.IGNORECASE),
     re.compile(r"\bshould be closeable\b", re.IGNORECASE),
@@ -296,6 +286,38 @@ _META_LANGUAGE_PATTERNS = (
         r"\bwe (?:will )?(?:outline|discuss|summari[sz]e|cover|frame|review|walk through)\b",
         re.IGNORECASE,
     ),
+)
+_RISK_GENERIC_WATCH_RE = re.compile(
+    r"^\s*(?:monitor|track|watch|confirm|request|obtain|"
+    r"cross[- ]check|verify|require|ensure|validate|ask for)\b",
+    re.IGNORECASE,
+)
+_RISK_GENERIC_HEADINGS = {
+    "commercial risk",
+    "competition risk",
+    "execution risk",
+    "financing risk",
+    "liquidity risk",
+    "market risk",
+    "regulatory risk",
+    "technology risk",
+    "valuation risk",
+}
+_RISK_GENERIC_FILLER_PATTERNS = (
+    re.compile(r"\bcompetition is a risk\b", re.IGNORECASE),
+    re.compile(r"\bexecution could be difficult\b", re.IGNORECASE),
+    re.compile(r"\bmarket conditions may change\b", re.IGNORECASE),
+    re.compile(r"\bthere are risks?\b", re.IGNORECASE),
+    re.compile(r"\bthe company faces risks?\b", re.IGNORECASE),
+)
+_RISK_UNSUPPORTED_CLAIM_RE = re.compile(
+    r"\b(?:guaranteed|certain to|will definitely|cannot fail|"
+    r"no competitor can)\b",
+    re.IGNORECASE,
+)
+_BODY_TREATMENT_SPEAK_PATTERNS = (
+    re.compile(r"\bsource class\b", re.IGNORECASE),
+    re.compile(r"\bmodel treatment\b", re.IGNORECASE),
 )
 
 
@@ -433,7 +455,8 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                             match.group(0),
                             (
                                 "Move detailed source IDs to the fact reference "
-                                "index and use source-class language here."
+                                "index and name the person, contract, or "
+                                "publication in the body."
                             ),
                         )
                     )
@@ -507,9 +530,9 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                         "sell_side_voice_violation",
                         match.group(0),
                         (
-                            "Rewrite buyer-side, detached, or IC jargon as "
-                            "first-person exec-ready sell-side investment "
-                            "memo language."
+                            "Rewrite buyer-side, detached, treatment-speak, or "
+                            "stock participation slogans as LP co-invest "
+                            "English: firm as subject, named terms, plain risks."
                         ),
                     )
                 )
@@ -532,19 +555,23 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                 )
                 break
 
-        if not block.allowed_trace_section and "—" in block.text:
-            findings.append(
-                _finding(
-                    block,
-                    "P0",
-                    "em_dash_bridge",
-                    "—",
-                    (
-                        "Split the sentence, use a colon, or use concise "
-                        "punctuation instead of em dash bridging."
-                    ),
-                )
-            )
+        if not block.allowed_trace_section:
+            for pattern in _BODY_TREATMENT_SPEAK_PATTERNS:
+                match = pattern.search(block.text)
+                if match:
+                    findings.append(
+                        _finding(
+                            block,
+                            "P0",
+                            "sell_side_voice_violation",
+                            match.group(0),
+                            (
+                                "Name the person, contract, or publication. "
+                                "Put source class in the fact index."
+                            ),
+                        )
+                    )
+                    break
 
         if (
             not block.allowed_trace_section
@@ -557,12 +584,86 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                     "disclosure_gap_without_treatment",
                     "not disclosed",
                     (
-                        "Pair missing disclosure with source class, model "
-                        "treatment, conversion range, proxy, risk factor, or "
-                        "valuation sensitivity."
+                        "A bare 'Not disclosed' cell is unfinished. Add the "
+                        "implication in the same cell or the note cell: "
+                        "'Revenue is not disclosed. $3.0B is high relative "
+                        "to disclosed commercial proof.'"
                     ),
                 )
             )
+
+    risk_headings: dict[str, _TextBlock] = {}
+    for index, block in enumerate(blocks):
+        if block.section != "iv. investment risk":
+            continue
+        for pattern in _RISK_GENERIC_FILLER_PATTERNS:
+            match = pattern.search(block.text)
+            if match:
+                findings.append(
+                    _finding(
+                        block,
+                        "P0",
+                        "generic_risk_filler",
+                        match.group(0),
+                        "Replace generic risk language with a named fact, failure mode, and consequence.",
+                    )
+                )
+        match = _RISK_UNSUPPORTED_CLAIM_RE.search(block.text)
+        if match:
+            findings.append(
+                _finding(
+                    block,
+                    "P0",
+                    "unsupported_risk_claim",
+                    match.group(0),
+                    "State the evidence behind the risk or qualify it as an inference.",
+                )
+            )
+        if block.kind == "paragraph" and re.match(
+            r"^\s*risk\s+\d+\s*[:：]\s*\S", block.text, re.IGNORECASE
+        ):
+            summary = block.text.split(":", 1)[-1].strip()
+            normalized = re.sub(r"[^a-z0-9]+", " ", summary.lower()).strip()
+            if summary.lower().strip(" .") in _RISK_GENERIC_HEADINGS:
+                findings.append(
+                    _finding(
+                        block,
+                        "P0",
+                        "generic_risk_heading",
+                        summary,
+                        "Name the concrete failure mode, not only the risk category.",
+                    )
+                )
+            if normalized in risk_headings:
+                findings.append(
+                    _finding(
+                        block,
+                        "P0",
+                        "duplicate_risk_card",
+                        summary,
+                        "Combine duplicate risks or distinguish their failure modes.",
+                    )
+                )
+            else:
+                risk_headings[normalized] = block
+        if (
+            block.kind == "table_cell"
+            and block.text.lower().strip() == "what we watch"
+            and index + 1 < len(blocks)
+        ):
+            watch = blocks[index + 1]
+            if watch.section == block.section and _RISK_GENERIC_WATCH_RE.match(
+                watch.text
+            ):
+                findings.append(
+                    _finding(
+                        watch,
+                        "P0",
+                        "risk_watch_checklist",
+                        watch.text,
+                        "Name an observable operating or transaction signal, not a confirmation command.",
+                    )
+                )
 
     return _dedupe_findings(findings)
 
@@ -604,16 +705,23 @@ def _source_like_bracket(value: str) -> bool:
     return any(keyword in lowered for keyword in _SOURCE_BRACKET_KEYWORDS)
 
 
+def _substance_remainder(text: str) -> str:
+    remainder = _GAP_PHRASE_RE.sub(" ", text.lower())
+    remainder = re.sub(r"[^a-z0-9$]+", " ", remainder)
+    words = [word for word in remainder.split() if word not in _GAP_NOISE_WORDS]
+    return " ".join(words)
+
+
 def _unresolved_disclosure_gap(text: str, row_text: str = "") -> bool:
-    lowered = text.lower()
-    if "not disclosed" not in lowered and "not computable" not in lowered:
+    cell = text.lower().strip()
+    if not _GAP_PHRASE_RE.search(cell):
         return False
-    # A disclosure gap is treated when the same block — or, for a table cell,
-    # any sibling cell in the same row — supplies a source class, model
-    # treatment, proxy, risk factor, valuation sensitivity, or an explicit analytical
-    # characterization of why the figure is absent.
-    scope = f"{lowered} {row_text.lower()}".strip()
-    return not any(term in scope for term in _MODEL_TREATMENT_TERMS)
+    if _substance_remainder(cell):
+        return False
+    if not row_text:
+        return True
+    row_without_cell = row_text.lower().replace(cell, " ", 1)
+    return len(_substance_remainder(row_without_cell)) < 20
 
 
 def _finding(

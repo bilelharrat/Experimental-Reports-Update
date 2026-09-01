@@ -84,4 +84,27 @@ describe("ActiveJobsRail", () => {
     await toggle.trigger("click");
     expect(wrapper.text()).not.toContain("Phase 1 - Intake and setup");
   });
+
+  it("shifts left of the copilot panel when copilot is open", async () => {
+    apiMock.listActiveJobs.mockResolvedValue([
+      {
+        kind: "memo",
+        report_id: "memo-1",
+        title: "Investment memo — ZaiNar, Inc.",
+        latest_stage: "Running investment-memo skill",
+      },
+    ]);
+
+    wrapper = mount(ActiveJobsRail, {
+      props: { copilotOpen: true },
+      global: {
+        stubs: { Teleport: true },
+      },
+    });
+    await flushPromises();
+
+    const rail = wrapper.find("aside");
+    expect(rail.classes()).toContain("xl:right-[21rem]");
+    expect(rail.classes()).toContain("max-xl:hidden");
+  });
 });

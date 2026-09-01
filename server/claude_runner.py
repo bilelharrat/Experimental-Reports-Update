@@ -2731,56 +2731,54 @@ Final memo prose must:
 - make statements directly. Do not write about the memo as an object, do not
   narrate what the memo/document/section/analysis does, and do not use
   writer-process language;
-- use first-person sponsor voice when stating our view, access, conviction,
-  and action: "we believe", "we are being offered", "we recommend", and
-  "we are participating through";
-- never use detached third-person constructions for the investment call;
-  recommendation, access, base case, and action sentences need a first-person
-  sponsor subject or a direct investment-case subject;
+- write in the LP co-invest register: a partner briefing LPs. Use the firm as
+  a proper noun for mandate and action ("BSH invests in...", "BSH is
+  committing $X"). State the instrument as deal English ("The SPV is a $10M
+  SAFE with a 15% discount at a $3.0B pre"). Name people, contracts, and
+  proof. State risks as facts ("A SAFE is not equity"; "$3.0B is high");
+- first person ("we", "our") is allowed sparingly for diligence and the
+  firm's own check ("Additional BSH diligence...", "Our role beyond capital").
+  Do not stamp every paragraph with "we believe" / "we recommend";
+- never use the stock phrases "we are being offered", "we are participating
+  through", or "we recommend participating". Those read as generated copy;
+- never use detached IC jargon for the investment call;
 - state uncertainty directly instead of explaining why certainty is
   unavailable;
 - avoid template-visible language, symmetrical model phrasing, and repetitive
   paragraph openings;
 - keep analytical artifacts private unless a fact or conclusion belongs in
   the memo;
-- use source-class language in Sections I-V, with detailed source IDs only in
-  a separate Sources, Source Classes, and Fact Reference Index;
-- convert disclosure gaps into risk factors, valuation sensitivities, Fermi
-  estimates, or deal-mechanics treatment. This applies to EVERY mention,
-  including table cells: never leave a bare "Not disclosed" or "not
-  computable" — the same cell (or its row) must state the treatment, e.g.
-  "Not disclosed; modeled via customer-count proxy" or "Not disclosed;
-  treated as a valuation sensitivity". The quality gate recognizes treatment
-  through this vocabulary (any form): model, treat, assume, proxy, estimate,
-  conversion, range, scenario, sensitivity, valuation, risk, credit,
-  discount, haircut, downside, "we value". Use at least one of these words
-  in the same cell or row as every "not disclosed" / "not computable" —
-  a terse untreated cell fails the quality gate and costs a retry;
-- never bridge clauses with an em dash ANYWHERE in the package — body prose,
-  table cells, headings, the company descriptor, and source titles and
-  treatments all included. Use a colon, semicolon, or two sentences instead
-  ("Information Technology: semiconductors", never "Information Technology —
-  semiconductors"). The quality gate blocks em-dash bridging and each miss
-  costs a retry;
+- name the proof in Sections I-V: people, contracts, publications, dates.
+  Do not write "company-reported", "source class", or "model treatment" in
+  the body. Detailed source IDs and source classes belong only in the
+  Sources, Source Classes, and Fact Reference Index;
+- write facts, then the implication. One claim per sentence. End the
+  sentence. Do not glue clauses with "so valuation support is strongest
+  where", "rather than treating", or "the investment case uses";
+- if a metric is not disclosed, say so in ordinary English and, if it
+  matters, add the risk in a second sentence: "Revenue is not disclosed.
+  $3.0B is high relative to disclosed commercial proof." A table cell that
+  says only "Not disclosed" is unfinished; put the implication in that cell
+  or the note cell. Do not force model / proxy / sensitivity vocabulary;
+- em dashes are allowed. Prefer short sentences. Do not pad with
+  colon-semicolon machinery just to avoid a dash;
 - express data vintage with absolute dates only: "figures are as of March
   2026", "no disclosure since the January launch window". NEVER anchor
-  staleness to the memo itself — phrases like "at the memo date", "as of
+  staleness to the memo itself: phrases like "at the memo date", "as of
   this writing", "four months old at the memo date", or any other
   "the memo ..." construction are banned memo-self-reference and will fail
-  the quality gate. If staleness matters, state the as-of date and treat the
-  gap as a risk factor or valuation sensitivity.
+  the quality gate. If staleness matters, state the as-of date and the
+  implication.
 
 Sell-side investment memo posture:
 - Open from the sponsor thesis, not from a tombstone. Start with why we care
   about the category, why the timing matters, why this company is shaping the
   layer or market that matters, and why the opportunity fits BSH's mandate.
   Then explain the technical proof, commercial proof, and SPV/round mechanics.
-- For Wisdom-sponsored opportunities, write in a Wisdom/BSH sponsor register:
-  use "BSH invests in..." for mandate-level category statements, and use
-  "we are being offered", "we are participating through the SPV", and
-  "we recommend participating..." for the transaction and recommendation. Do
-  not describe the sponsor or investors from a detached third-person vantage
-  point unless identifying a legal counterparty.
+- Write in a Wisdom/BSH co-invest register: mandate first, then the company,
+  then the instrument and the firm's own check. Use "BSH invests in..." for
+  category statements and "BSH is committing $X, leaving $Y for co-investors"
+  for the transaction. Do not describe the recommendation as a slogan.
 - Do not write as if BSH is negotiating control terms in a private-equity
   process or exposing its internal intended position to LPs.
 - Do not default to "small/minimum" allocation because revenue, ARR, gross
@@ -2805,49 +2803,48 @@ Sell-side investment memo posture:
   sensitivities, and deal-mechanics disclosure.
 - Do not use funding-gate or checklist phrasing that tells the reader to
   confirm, require, or wait for process items before funding or signing.
-  Convert each item into risk or valuation language: "The $500M+ figure blends
-  signed contracts and MOUs, so valuation support is strongest where binding
-  contract value converts to recognized revenue."
+  Convert each item into a fact and a risk: "The $500M+ figure blends signed
+  contracts and MOUs. A material share remains MOUs."
 - Do not use confirmation-section headings, expected-bar headings, investment
   condition headings, revisit-condition headings, or next-step checklist
   headings in the finished memo. Those are internal workflow labels. Fold the
   same substance into the investment thesis, risk factors, valuation
   sensitivity, or deal-mechanics disclosure.
 - Do not start final memo sentences, bullets, or table cells with imperative
-  evidence-request verbs. That is internal-note/checklist voice. The final memo
-  should state the disclosed fact, model treatment, and valuation sensitivity
-  directly.
+  evidence-request verbs. That is internal-note/checklist voice. State the
+  fact, then the risk, in ordinary English.
 - Do not speculate about sponsor, company, investor, or counterparty
   capability to share, provide, produce, or confirm information. State the
-  disclosed fact, the risk to the investment case, and the valuation
-  sensitivity directly.
+  disclosed fact and the risk.
 - Do not narrate the sponsor memo or source process in final prose. Avoid
   "memo language was", "the sponsor implies", "the sponsor frames", and
-  "the sponsor itself flags". State the fact or risk directly, then say how it
-  affects the investment case.
+  "the sponsor itself flags". State the fact or risk directly.
 - Do not use source-process narration as a substitute for investment judgment.
   Do not narrate what a sponsor note, registry, source packet, or memo artifact
   says. Write the fact in plain form: "The $500M+ figure blends signed
-  contracts and MOUs" or "available evidence does not document revenue
-  attribution."
+  contracts and MOUs."
 - Do not write passive availability language about future process access or
   ease of confirmation. Those are guesses about process, not investment
   judgments.
-- Do not use legal-rights shorthand in operating tables. Translate it into
-  economic meaning: "The SPV offers limited direct governance and reporting;
-  the manager controls investor-level decisions as a single block."
+- Use ordinary legal English. "A SAFE is not equity and has no LP voting."
+  "Annual K-1 issued by the SPV administrator." "Accredited investors only."
+  Do not dump a rights checklist, and do not paraphrase those facts into
+  "limited direct governance and reporting" machinery.
 - Do not use buyer-side underwriting vocabulary in final prose or tables.
-  Use investment-case language instead: "we give credit to", "our base case
-  credits", "the investment case rests on", or "the valuation is supported by."
+  Do not replace it with the next template: "we give credit to", "our base
+  case credits", "the investment case rests on", "the investment case uses",
+  or "X is a valuation-support factor." State the fact or the risk.
 - Do not use writer-process framing such as "we frame it as", "we frame the
-  market", or "the framework". State the investment conclusion directly.
+  market", or "the framework". State the conclusion directly.
 - Do not write imperative diligence commands such as "Require X before
-  underwriting". Use investment-case language: "The base case gives credit to
-  X", "X supports the valuation", or "X remains the principal risk factor."
+  underwriting". Write the implication: "X is not in the disclosed terms."
+  or "X remains the principal risk."
 - Do not use casual sponsor verbs or exposure-seeking idioms for mandate-level
-  statements. Write "BSH invests in..." for the mandate and "we recommend..."
-  for the action. Do not use buried or underside metaphors for infrastructure;
-  write "control layer for" or "infrastructure layer for".
+  statements. Write "BSH invests in..." for the mandate and "BSH is
+  committing..." for the action. Prefer physical language over framework
+  metaphors when the source supports it ("no cameras, no biometrics, no
+  battery on workers"), not "is compelling because" or a prescribed
+  "control layer for" slogan.
 - Do not overload the opening paragraph with sponsor mission, technical claim,
   investor roster, and founder resume in one block. Open with sponsor thesis
   and company relevance, then move technical proof, backers, and team pedigree
@@ -2864,30 +2861,40 @@ Sell-side investment memo posture:
 
 Concrete positive writing patterns:
 - Opening: "BSH invests in physical-world infrastructure that makes people
-  safer, healthier, and more capable. ZaiNar is compelling because precise
-  network-side positioning is becoming a control layer for defense PNT,
-  industrial automation, logistics, healthcare, and Physical AI."
-- Transaction: "We are being offered SPV exposure to a SAFE expected to convert
-  into the A2 at an effective entry near $2.55B after the discount."
-- Recommendation: "We recommend participating in the SPV because the entry
-  prices scarce technical infrastructure, patent depth, early commercial pull,
-  and defense validation before the full revenue curve is visible."
-- Risk sensitivity: "The principal sensitivity is the binding-contract share
-  inside the $500M+ commercial figure and whether final SAFE mechanics preserve
-  the disclosed effective entry."
-- Evidence gap: "Revenue is not disclosed; our base case uses binding
-  contract value, implementation timing, and conservative conversion ranges
-  rather than treating pipeline or MOUs as revenue."
-- Risk: "Key risk centers on whether signed commercial interest converts into
-  repeatable deployments quickly enough to support a $3.0B valuation."
+  safer, healthier, and more capable. ZaiNar locates people and assets from
+  the network itself: no cameras, no biometric capture, no battery-powered
+  devices on workers."
+- Transaction: "The vehicle is a $10,000,000 SAFE with a 15% discount at a
+  $3.0B estimated pre-money. BSH is committing $3,000,000, leaving $7,000,000
+  for co-investors. Effective entry after the discount is about $2.55B."
+- Proof: "Commercial pull is $500M+ in signed contracts and MOUs in six
+  months, $36M of DoD work, and named partners including Microsoft, Nvidia,
+  and SoftBank. Steve Jurvetson sits on the board."
+- Scan bullets: bold noun lead-ins, then one fact. "Founded: 2016, San
+  Francisco. SAFE risk. A SAFE is not equity and has no LP voting.
+  Concentration. A material share of the $500M+ figure remains MOUs."
+- Risk: "A SAFE is not equity and has no LP voting. $3.0B is high relative
+  to disclosed revenue. A material share of the $500M+ figure remains MOUs.
+  Carrier cycles run 18 to 36 months."
+- Evidence gap: "Revenue is not disclosed. $3.0B is high relative to
+  disclosed commercial proof."
+- Diligence: "Additional BSH diligence independently corroborated the
+  technology and the founding team."
 
 Rejected language categories:
-- detached third-person recommendation or opportunity framing;
+- stock participation slogans ("we are being offered", "we are participating
+  through", "we recommend participating");
+- detached IC jargon for recommendation and opportunity;
 - memo/document/process narration;
 - analysis-process narration;
 - passive sponsor/counterparty capability speculation;
-- legal-rights checklist shorthand in operating tables;
-- uncertainty apologies instead of direct evidence treatment.
+- legal-rights checklist dumps in operating tables;
+- uncertainty apologies instead of a direct fact and risk;
+- treatment-speak ("the investment case uses", "our base case credits",
+  "we give credit to", "source class", "model treatment", "valuation-support
+  factor");
+- source-class scaffolding in the body ("company-reported" as a label,
+  "available evidence does not document").
 
 Final memo body and operating tables must not contain:
 - bracketed source tokens or file references such as `[S1]`, `[WV]`,
@@ -2904,10 +2911,10 @@ Final memo body and operating tables must not contain:
   internal mandate exceptions as investment rationale or risk factors;
 - cute or fuzzy finance metaphors, no-rights legal shorthand, overclaimed
   scarcity phrases, or shorthand that obscures the economic point;
-- deal-legal checklist terms such as `MFN`, `down-round protection`,
-  `information rights`, `voting rights`, `named lead`, `named institutional
-  lead`, or `governance at the LP level`; explain the investor economics in
-  plain English instead;
+- deal-legal checklist dumps such as `MFN`, `down-round protection`,
+  `named lead`, `named institutional lead` without saying what they mean;
+  ordinary legal English is fine: "no LP voting", "annual K-1",
+  "accredited investors only";
 - passive counterparty-capability or availability speculation;
 - detached recommendation-label headings; state the investment decision directly
   in a sentence;
@@ -2916,93 +2923,88 @@ Final memo body and operating tables must not contain:
 - internal IC, buyer-side diligence, bank/debt, control-investor, or
   deal-legal checklist shorthand. This is an LP-facing, exec-ready sell-side
   investment memo, not a BSH internal allocation note. Write every deal
-  mechanic, governance point, and recommendation as plain narrative prose
-  describing what it means economically for investors. Say that a valuation
-  rests on or is supported by specific evidence; that a structure offers
-  limited governance, reporting, or oversight; and frame the decision as a
-  clear recommendation. Use investment-case, participation, valuation-support,
-  and risk-sensitivity vocabulary instead of process labels, confirmation
-  labels, small-check reflexes, legal-rights labels, or control-rights
-  checklist phrasing;
+  mechanic, governance point, and recommendation as plain narrative prose.
+  Say what the instrument is, what BSH is committing, and what the risks
+  are. Do not use process labels, confirmation labels, small-check reflexes,
+  or treatment-speak;
 - BSH internal participation-sizing language or internal recommendation
   instructions;
-- em dash bridging in English body prose or operating tables;
 - meta-language about the memo/document/analysis/framework/section, including
   writer-process phrasing.
 
 Memo spine requirement:
 - core_bet: what has to be true for investors to make money;
 - entry_tension: what the valuation or instrument already assumes;
-- current_proof: what is proven today by source class;
-- unproven_but_modelable: what is missing but can be modeled conservatively;
-- risk_sensitivity: what weakens valuation support or return potential;
-- action: recommendation verdict and investment rationale.
+- current_proof: what is proven today, named (people, contracts, dates);
+- unproven_but_modelable: what is missing, stated as a fact and a risk;
+- risk_sensitivity: what can break the case;
+- action: BSH's commitment or pass, in sentence form.
 
 The opening, Investment View, risk section, scenario section, and final
 Investment Decision / Closing View must use the same spine. The first two
 body paragraphs must state company, transaction, valuation / entry terms,
-central price/proof tension, and recommendation verdict. The substantive
-ending must state the investment recommendation, risk sensitivities, and
-valuation support before any sources or
+central price/proof tension, and the firm's check. The substantive
+ending must state the commitment or pass, the named risks, and what
+moves the number, before any sources or
 disclosures. Do not include BSH internal participation sizing in the
 LP-facing memo.
 
 Positive examples for early-commercial infrastructure deals:
-- "ZaiNar is a scarce technical asset in network-side positioning; the A2
-  prices real IP, technical depth, and early commercial pull before the full
-  revenue curve is visible."
-- "Company-reported contract and MOU figures support commercial momentum; the
-  base case credits the binding portion and leaves upside for MOU and
-  carrier conversion."
-- "Pipeline is not contracted revenue. Use a 5-15% conversion range for
-  scenario construction until named site-level commitments are available."
-- "An SPV interest depends on the SAFE converting as described; explain the
-  economics and valuation sensitivity without turning them into a
-  control-rights or confirmation checklist."
+- "ZaiNar locates people and assets from the network itself. The A2
+  prices real IP, technical depth, and early commercial pull before the
+  revenue curve is fully visible."
+- "Signed contracts and MOUs totaling $500M+ in six months, plus $36M of
+  DoD work. Microsoft, Nvidia, and SoftBank are named partners. Steve
+  Jurvetson sits on the board."
+- "Pipeline is not contracted revenue. A material share of the $500M+
+  figure remains MOUs."
+- "The SPV is a $10M SAFE with a 15% discount. A SAFE is not equity and
+  has no LP voting."
 - "If the round is meaningfully oversubscribed and BSH has differentiated
-  access, we would reflect scarcity and upside in our recommendation,
-  not mechanically default to a minimum check."
+  access, reflect scarcity in the terms and the timing, not by defaulting
+  to a minimum check."
 
 Banned phrase / rewrite guidance:
 
 | Avoid | Prefer |
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
-| Detached recommendation framing | We recommend participating... / We do not recommend participating... |
-| Detached opportunity framing | We are being offered... |
-| Detached base-case framing | Our base case gives credit for... |
+| Detached recommendation framing | BSH is committing $X... / BSH is not participating... |
+| Detached opportunity framing | The SPV is a $10M SAFE... / Investors can subscribe up to $Y |
+| Detached base-case framing | Named proof. Then the risk. |
+| we give credit to / our base case credits / the investment case rests on | State the fact. Drop the formula. |
+| the investment case uses / valuation-support factor | State the fact and the risk. |
+| Key risk centers on... | Bold noun label, then one sentence: "SAFE risk. A SAFE is not equity." |
 | Memo/document/process narration | Remove the frame; make the investment statement. |
 | Analysis-process narration | State the conclusion directly. |
-| Uncertainty apology | State the disclosed and undisclosed facts directly. |
-| Detached decision label | Investment Decision / We recommend... |
-| Question-form closing checklist | State the deal economics, risk factor, or valuation sensitivity. |
-| Sponsor capability speculation | State the disclosed fact and investment implication directly. |
-| Passive availability language | Remove the process guess; state the risk or valuation sensitivity. |
-| Funding-gate checklist phrase | State the risk or valuation sensitivity. |
-| Imperative evidence-request phrase | State the deal fact, support point, or risk sensitivity directly. |
-| Closing checklist headings | Remove the section; fold the substance into recommendation, risk, valuation, or deal mechanics. |
-| Signing-process checklist phrase | State the deal fact or valuation sensitivity directly. |
+| Uncertainty apology | "Revenue is not disclosed. $3.0B is high relative to disclosed revenue." |
+| Detached decision label | Investment Decision / BSH is committing... |
+| Question-form closing checklist | State the deal economics or the risk. |
+| Sponsor capability speculation | State the disclosed fact and the risk. |
+| Passive availability language | Remove the process guess; state the risk. |
+| Funding-gate checklist phrase | State the fact or the risk. |
+| Imperative evidence-request phrase | State the deal fact or the risk. |
+| Closing checklist headings | Remove the section; fold the substance into recommendation, risk, or deal mechanics. |
+| Signing-process checklist phrase | State the deal fact directly. |
 | Open-item process phrase | State what is disclosed, not disclosed, and why it matters. |
 | Sponsor-process narration | State the investment fact or risk directly. |
-| Source-process narration | available evidence / disclosed materials / omit the process frame |
-| Diligence threshold or next-step checklist labels | Fold into recommendation, risk, valuation, or deal-mechanics prose. |
-| No voting or information rights | The SPV offers limited direct governance and reporting; the manager controls investor-level decisions. |
-| underwrite / underwriting | give credit to / investment case / valuation support |
-| Pre-underwriting process language | our base case credits... where source support is strongest |
-| the right way to view the underwriting | the investment case rests on... |
+| Source-process narration / source class / model treatment | Name the person, contract, or publication. Put classes in the index. |
+| Diligence threshold or next-step checklist labels | Fold into recommendation, risk, or deal-mechanics prose. |
+| No voting or information rights (checklist dump) | A SAFE is not equity and has no LP voting. |
+| underwrite / underwriting | rely on / the case / drop the verb |
 | We frame it as... | State the conclusion directly without writer-process narration. |
-| Require X before underwriting | X is a valuation-support factor / X remains a risk factor. |
-| Internal question-list labels | Remove; use investment thesis, risk, valuation, or deal mechanics. |
-| Proving the case | investment case, base case, conviction, support |
-| Describing participation | participation, commitment, exposure |
-| Unresolved inquiry framing | Risk factors / valuation sensitivities / deal-mechanics disclosure |
-| Missing proof | Risk factor / valuation sensitivity / disclosed evidence gap |
-| Recommendation labels | We recommend participating / We do not recommend participating |
-| Decision discipline | risk sensitivities |
+| Require X before underwriting | X is not in the disclosed terms. / X remains the principal risk. |
+| Internal question-list labels | Remove; use thesis, risk, or deal mechanics. |
+| we are being offered / we recommend participating / we are participating through | Firm-as-subject deal English; never reuse these slogans |
+| is compelling because | What the company does, in physical terms. |
+| Unresolved inquiry framing | Risk factors / deal-mechanics disclosure |
+| Missing proof | Named gap, then the risk. |
+| Recommendation labels | BSH is committing... / BSH is not participating... |
+| Decision discipline | named risks |
 | False precision | State the evidence range without over-modeling it. |
 | not treated as ARR | not revenue-recognized |
 | commercial momentum is material, but... | The pipeline is large but not contractually binding. |
-| The principal risk is that... | Key risk centers on... |
+| The principal risk is that... | SAFE risk. Concentration. Illiquidity. |
 | Soft-instrument metaphor | SPV interest whose economics depend on SAFE conversion. |
 | Hard-IP metaphor | patent estate and technical approach that still need claim-scope review. |
 | Moat-compression shorthand | upside shifts from product margin to patent leverage and deployment relationships. |
@@ -3019,8 +3021,8 @@ MEMO_CONTENT_PARITY_CONTRACT = """\
 The package must preserve the full institutional memo content standard across
 every company, not just the current run. Do not collapse analytical artifacts
 into a short executive summary. If a metric is unavailable, include the
-component and state the source class, model treatment, and valuation
-sensitivity rather than omitting the component.
+component and state the fact, what is missing, and why it matters rather
+than omitting the component.
 
 Source-to-final fidelity is part of this contract. When the source set,
 research folder, prior memo versions, Memo Studio packet, or analysis artifacts
@@ -3052,8 +3054,8 @@ these and writes content coverage into `logs/validation.txt`.
 - `growth_bridge`: growth bridge table.
 - `scenario_analysis`: bear/base/bull or equivalent scenario table.
 - `investment_decision`: final Investment Decision / Closing View.
-- `evidence_thresholds`: evidence thresholds that would materially support
-  the next valuation step-up, written as valuation sensitivities rather than
+- `evidence_thresholds`: evidence that would materially support
+  the next valuation step-up, written as facts and risks rather than
   buyer-side gating commands.
 - `source_index`: source/fact index through the `sources` list or a sources section.
 - `disclosures`: concise legal/offering disclosure language.
@@ -3073,46 +3075,57 @@ risk table. Structure, in order:
 2. 4-6 risk cards. Each card is exactly two consecutive blocks:
    - a `heading` block (level 3) whose text is
      `{"en": "Risk N: <one-line summary>", "zh": "风险 N：<一句话概括>"}`.
-     The one-line summary is a plain, specific sentence a reader understands
-     without opening the table — name the actual failure ("The next round may
-     price below the December 2024 mark"), never a category label
-     ("Financing risk").
+     The one-line summary is a scan label plus the failure: prefer a noun
+     lead-in a partner would use ("SAFE risk", "Concentration",
+     "Illiquidity") followed by the fact, never a worksheet category
+     ("Financing risk") as the only text.
    - a `table` block with `component: "risk_register"`,
      `"layout": "key_value"`, `"headers": []`, and EXACTLY these five
      two-cell rows (label cell first, content cell second):
        1. `Risk Type` / `风险类型` — a 1-4 word category such as Commercial,
           Market, Competition, Technology, Financing, Regulatory, or
           Execution. Not a sentence.
-       2. `Why it matters` / `为什么重要` — 2-4 plain sentences: what the
-          risk is, the evidence behind it, and its effect on valuation
-          stated explicitly, with numbers wherever they exist.
-       3. `What we watch` / `跟踪信号` — 1-3 concrete, observable signals
-          that would confirm or defuse the risk, dated where possible.
+       2. `Why it matters` / `为什么重要` — 1-2 short sentences following
+          fact → failure mode → economic consequence. Name the fact, say
+          what breaks, and state the effect on revenue, margins, cash,
+          dilution, or exit value. Do not leave the consequence implied.
+       3. `What we watch` / `跟踪信号` — 1-2 observable operating or
+          transaction signals, named and dated where possible. Write a
+          signal, not an instruction to confirm, request, or obtain something.
        4. `Likelihood` / `可能性` — `"High|Medium|Low: <short reason>"`
           (Chinese `"高|中|低：<简短理由>"`): how likely the risk is to
-          materialize inside the 3-5 year underwriting window. Anchors:
+          materialize inside the holding period. Anchors:
           High — more likely than not; Medium — a realistic chance,
           roughly one-in-three; Low — unlikely, but consequential enough
           to track. Ground the reason in evidence, not vibes.
        5. `Risk Rating` / `风险评分` — `"N/10: <short reason>"` with N from
-          1-10. This scores impact-weighted importance to the investment
-          case, not probability (Likelihood carries that). Anchors: 9-10
-          could break the investment case on its own; 7-8 could push the
-          outcome below base case; 5-6 meaningful but monitorable; 3-4
-          real but limited effect; 1-2 minor.
-3. Order the cards by Risk Rating, highest first, so the most important risk
-   is the first thing the reader sees.
+          1-10. This scores impact-weighted importance to the case,
+          not probability (Likelihood carries that). Anchors: 9-10
+          could break the case on its own; 7-8 could push the
+          outcome well below the current path; 5-6 meaningful but
+          monitorable; 3-4 real but limited effect; 1-2 minor.
+3. Order the cards by Risk Rating, highest first, so the risk most capable of
+   breaking the return case is the first thing the reader sees. Use 4-6 cards
+   selected from the evidence; omit irrelevant categories instead of filling
+   a quota.
+4. Select only the failure paths supported by this deal's evidence. Common
+   paths include commercial conversion, customer or supplier concentration,
+   unit economics, competition or commoditization, technical defensibility,
+   financing or dilution, regulatory or IP limits, execution capacity, and
+   liquidity or exit. These are prompts for selection, not a required quota.
 
 Card prose style: write like a person, not a report generator. Short
 declarative sentences. Never use "furthermore", "moreover", "notably", "it
 is important to note", "significant headwinds", or symmetrical templated
-phrasing, and never bridge clauses with an em dash — the quality lint
-blocks it. Concrete nouns and numbers over abstractions. A reader should
-grasp each risk from its heading alone and get the full picture from the
-card in under thirty seconds.
+phrasing. Concrete nouns and numbers over abstractions. A reader should
+grasp each risk from its heading and one pass through the card. Do not reuse
+generic watch language such as "monitor execution", "track customer
+traction", or "watch the market"; name the actual signal.
 
 Keep the disconfirming-evidence treatment and the downside scenario as
-separate blocks after the risk cards, as before.
+separate blocks after the risk cards. Both must connect to the highest-impact
+risk and explain how the downside reaches revenue, margin, dilution, or exit
+value.
 """
 
 
@@ -3912,9 +3925,12 @@ Package requirements:
 - Use paragraph, heading, bullets, callout, and table blocks.
 - Include at least two substantive Executive Summary blocks.
 - Include a non-empty sources list.
-- Use first-person sponsor voice: "we recommend participating", "we are being
-  offered", and "we are participating through". Never use detached
-  recommendation, opportunity, access, or base-case framing.
+- Write in the LP co-invest register: firm as subject, deal English, named
+  proof, plain risks. Do not use "we are being offered", "we are participating
+  through", or "we recommend participating". Never use detached IC jargon
+  for recommendation, opportunity, access, or base-case framing.
+  Do not use "the investment case rests on", "we give credit to",
+  "source class", or "model treatment" in body prose.
 
 {MEMO_PACKAGE_SOURCES_CONTRACT}
 
@@ -4014,18 +4030,19 @@ table/callout. Must include tables with `component: "competitive_analysis"`,
 `component: "replacement_coexistence"` (replacement vs. coexistence), and
 `component: "moat"` (moat / defensibility).""",
     "investment_risk": """\
-Present risks as per-risk cards (contract below), every card table carrying
-`component: "risk_register"`, plus a disconfirming-evidence treatment block
-with `component: "disconfirming_evidence"`. Use exactly the risk list and
-ratings the spine brief fixes.""",
+Present 4-6 material risks as per-risk cards (contract below), every card
+table carrying `component: "risk_register"`, plus a disconfirming-evidence
+treatment block with `component: "disconfirming_evidence"`. Use the risk list
+and ratings the spine brief fixes. Each card must connect a named fact to a
+failure mode, an economic consequence, and an observable signal.""",
     "financial_forecast_valuation": """\
-Must reference model treatment, scenario ranges, valuation, revenue, margins,
-or valuation sensitivities, and include blocks carrying these component
+Must reference scenario ranges, valuation, revenue, margins,
+or what moves the number, and include blocks carrying these component
 slugs: `time_base_integrity` (valuation/date/multiple timing table),
 `growth_bridge`, `scenario_analysis` (bear/base/bull), `deal_terms`
 (headline terms / deal mechanics), `evidence_thresholds` (written as
 valuation sensitivities), `investment_decision` (final Investment Decision /
-Closing View, first-person sponsor voice), and `disclosures` (concise
+Closing View, firm-as-subject co-invest register), and `disclosures` (concise
 legal/offering disclosure language).""",
 }
 
@@ -4786,6 +4803,9 @@ Chinese style:
   "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
   High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
   rating value format `N/10` unchanged.
+- Preserve the risk chain in Chinese: named fact, failure mode, economic
+  consequence, and observable signal. Do not translate generic filler such
+  as “monitor execution” or “track customer traction” into the cards.
 """
     return _run_memo_local_json_artifact(
         prompt=prompt,
@@ -4890,6 +4910,9 @@ Chinese style:
   "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
   High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
   rating value format `N/10` unchanged.
+- Preserve the risk chain in Chinese: named fact, failure mode, economic
+  consequence, and observable signal. Do not translate generic filler such
+  as “monitor execution” or “track customer traction” into the cards.
 """
 
 
@@ -5811,9 +5834,8 @@ You may read only these exact supporting files:
 
 If a claim is not supported by these analysis artifacts, the company registry,
 settings, the memo analysis session, prior lessons, or the populated research
-folder, do not present it as fact. Convert uncertainty into source class,
-model treatment, scenario range, risk factor, valuation sensitivity, or
-deal-mechanics disclosure.
+folder, do not present it as fact. Convert uncertainty into a named
+fact, a named gap, and the risk.
 
 ## Fixed renderer contract
 
@@ -5886,8 +5908,8 @@ only headings, title-only callouts, title-only tables, or generic filler.
 `executive_summary` needs at least two substantive content blocks.
 `investment_highlights` and `investment_risk` each need at least two
 substantive bullets or equivalent explanatory prose/table/callout.
-`financial_forecast_valuation` must explicitly address model treatment,
-scenario ranges, valuation, revenue, margins, or valuation sensitivities.
+`financial_forecast_valuation` must explicitly address scenario ranges,
+valuation, revenue, margins, or what moves the number.
 
 {MEMO_CONTENT_PARITY_CONTRACT}
 
@@ -7251,7 +7273,7 @@ SERENA_RESEARCH_TASK_SCHEMA: dict[str, Any] = {
             "description": (
                 "Direct memo-grade answer to the research task. Explain what "
                 "was found, what remains uncertain, and how it changes "
-                "valuation support or model treatment."
+                "the case or the risk."
             ),
         },
         "supporting_evidence": {
@@ -7386,8 +7408,8 @@ SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
     "properties": {
         "risks": {
             "type": "array",
-            "minItems": 5,
-            "maxItems": 8,
+            "minItems": 4,
+            "maxItems": 6,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -7395,10 +7417,19 @@ SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
                     "title": {"type": "string"},
                     "description": {
                         "type": "string",
-                        "description": "One or two sentences on what the risk actually is.",
+                        "description": (
+                            "One or two sentences following fact, failure mode, "
+                            "and economic consequence."
+                        ),
                     },
                     "decision_question": {"type": "string"},
-                    "why_it_matters": {"type": "string"},
+                    "why_it_matters": {
+                        "type": "string",
+                        "description": (
+                            "Name the fact, what breaks, and the effect on "
+                            "revenue, margin, cash, dilution, or exit value."
+                        ),
+                    },
                     "materiality": {
                         "type": "string",
                         "description": (
@@ -7446,7 +7477,13 @@ SERENA_STRATEGIC_RISK_SCHEMA: dict[str, Any] = {
                         "type": "string",
                         "enum": ["high", "medium", "low"],
                     },
-                    "mitigation_or_monitoring": {"type": "string"},
+                    "mitigation_or_monitoring": {
+                        "type": "string",
+                        "description": (
+                            "An observable operating or transaction signal, "
+                            "not a diligence command."
+                        ),
+                    },
                     "suggested_posture": {
                         "type": "string",
                         "enum": [
@@ -8747,11 +8784,10 @@ Instructions:
 - Candidate text must be IC-ready guidance or near-final memo language:
   specific, compressed, evidence-grounded, and free of meta phrases such as
   document-process framing, analysis-process framing, or section narration.
-- Endings and recommendation candidates must use first-person sponsor voice:
-  "we recommend participating", "we do not recommend participating", or
-  "we do not recommend participating unless..." only where the evidence
-  requires a conditional posture. Do not write detached third-person
-  recommendation, opportunity, or base-case framing.
+- Endings state the firm's own commitment and the co-invest terms as facts,
+  then the key risk. Do not use "we recommend participating", "we are being
+  offered", or "we are participating through". Do not write detached IC
+  jargon for recommendation, opportunity, or base-case framing.
 - Each candidate must include supported claims, evidence references, source
   traces where available, confidence, overclaiming risk, and suggested
   infographic pairings where useful.
@@ -8805,7 +8841,7 @@ def run_serena_strategic_risk_mapper(
     """Run Serena's strategic risk mapper through Claude Code.
 
     The caller owns lifecycle and persistence. This helper returns a parsed
-    artifact-shaped payload with 5-8 risks or an error string.
+    artifact-shaped payload with 4-6 risks or an error string.
     """
     if not is_available():
         return None, (
@@ -8858,8 +8894,8 @@ labels, prompt labels, and process/checklist wording before using them.
 
     prompt = f"""\
 You are writing the investment-risk section of a late-stage memo for {company_name}.
-Identify the 5-8 risks that actually control the recommendation — not a
-generic risk catalog.
+Identify the 4-6 risks that actually control the recommendation — not a
+generic risk catalog. Omit irrelevant categories instead of filling a quota.
 
 Company record (use these facts; do not invent others):
 ```json
@@ -8878,6 +8914,8 @@ What a useful risk looks like:
 - Material to valuation, terms, or whether we participate.
 - Sharp enough to become one memo sentence.
 - Supported by a sourced fact, filing, contract, metric, or explicit gap.
+- Follows the chain: named fact, failure mode, economic consequence, and
+  observable signal.
 - Paired with a real bull reading and a real bear reading.
 
 What to reject:
@@ -8885,6 +8923,8 @@ What to reject:
 - Technically possible issues that would not change the investment call.
 - Duplicate risks that restate the same failure mode.
 - Risks included only because a document happened to mention them.
+- Generic warnings such as "competition is a risk", "monitor execution", or
+  "track customer traction" without a named failure or signal.
 
 Instructions:
 - Read local research files with Read/Bash when they exist. Do NOT read
@@ -8895,9 +8935,10 @@ Instructions:
 - Separate verified evidence from inference. Tag source_class honestly.
 - For each risk, fill bull and bear as competing interpretations of the
   same facts, not as cheerleading and scare language.
-- Name the evidence that would change the call.
-- Prefer fewer, sharper risks over padding to eight. Five excellent risks
-  beat eight generic ones.
+- Name the evidence or operating event that would change the call. Write it
+  as a signal, not a request to confirm or obtain information.
+- Prefer fewer, sharper risks over padding to six. Four excellent risks
+  beat six generic ones.
 - Write like an investment analyst: short, concrete, no filler, no
   "it is important to note", no restating the title in the description.
 

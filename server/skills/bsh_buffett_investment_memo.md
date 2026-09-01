@@ -136,7 +136,29 @@ If private-company pricing is a round, SAFE, or last post-money, treat that as a
 
 ### IX. What Can Go Permanently Wrong
 
-Three to six real ways capital can be lost forever. Not a risk register. Prose.
+Write 3–6 distinct ways capital can be lost forever. This is not a risk
+register and must not use risk ratings, likelihood labels, LP terminology,
+BSH mandate language, or late-stage card scaffolding.
+
+Each risk is a compact paragraph or bullet with a short lead label and this
+sequence:
+1. the business fact that creates the exposure;
+2. the way the thesis could fail;
+3. the permanent economic consequence; and
+4. the price, balance-sheet, management, or ten-year-test implication.
+
+Prefer specific failure modes over categories:
+- a competitor makes the product cheaper or obsolete;
+- leverage or a cash shortfall forces a dilutive or distressed outcome;
+- management allocates capital badly or dilutes owners;
+- reported earnings do not convert to owner's earnings;
+- a customer, supplier, or regulator has too much power; or
+- the price assumes a growth or multiple outcome the business cannot deliver.
+
+Do not write generic warnings such as “competition is a risk” or “execution
+could be difficult.” Name the fact and explain how it can permanently impair
+capital. Do not turn missing data into a standalone risk; say what it does to
+the price I would pay or why the business is Too Hard.
 
 ### X. Conclusion
 
@@ -265,6 +287,8 @@ Before writing `logs/memo_package.json`, confirm:
 - Circle of competence is an actual judgment, not a throat-clearing paragraph.
 - Valuation is a range plus a price I would pay, not a DCF theater.
 - Missing numbers were converted into price discipline or Too Hard, not placeholders.
+- Section IX contains 3–6 distinct fact → failure → permanent-loss paths,
+  not generic categories or a late-stage risk register.
 - No BSH / Serena / LP / SPV / underwriting process language in the body.
 - No `.docx` and no renderer scripts were written.
 - English and Chinese carry the same facts and the same call.

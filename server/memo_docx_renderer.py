@@ -286,6 +286,22 @@ _RISK_RATING_VALUE_RE = re.compile(r"^\s*(10|[1-9])\s*/\s*10\b")
 _RISK_LIKELIHOOD_VALUE_RE = re.compile(
     r"^\s*(high|medium|low|高|中|低)\s*[:：]\s*\S", re.IGNORECASE
 )
+_RISK_GENERIC_HEADINGS = {
+    "commercial risk",
+    "competition risk",
+    "execution risk",
+    "financing risk",
+    "liquidity risk",
+    "market risk",
+    "regulatory risk",
+    "technology risk",
+    "valuation risk",
+}
+_RISK_GENERIC_WATCH_RE = re.compile(
+    r"^\s*(?:monitor|track|watch|confirm|request|obtain|"
+    r"cross[- ]check|verify|require|ensure|validate|ask for)\b",
+    re.IGNORECASE,
+)
 _RISK_CARD_ROW_LABELS = (
     ("risk type", "Risk Type"),
     ("why it matters", "Why it matters"),
@@ -303,7 +319,6 @@ _RISK_CARD_FORMAT_HINT = (
     "'N/10: short reason'), ordered highest rating first"
 )
 VALUATION_CONTENT_TERMS = (
-    "model treatment",
     "model",
     "scenario",
     "range",
@@ -613,12 +628,30 @@ def _risk_card_format_errors(package: dict) -> list[str]:
             )
             continue
         cards.append((heading_text, nxt, f"investment_risk blocks[{index + 1}]"))
-    if len(cards) < 3:
+    if not 4 <= len(cards) <= 6:
         errors.append(_RISK_CARD_FORMAT_HINT)
+        errors.append(
+            "investment_risk: risk register must contain 4-6 material "
+            f"risk cards, found {len(cards)}"
+        )
         return errors
 
     ratings: list[tuple[str, int]] = []
+    seen_headings: set[str] = set()
     for heading_text, table, location in cards:
+        summary = heading_text.split(":", 1)[-1].strip().lower()
+        if summary in _RISK_GENERIC_HEADINGS:
+            errors.append(
+                f"{location}: risk heading {heading_text!r} is only a "
+                "generic category; name the concrete failure mode"
+            )
+        normalized_summary = re.sub(r"[^a-z0-9]+", " ", summary).strip()
+        if normalized_summary in seen_headings:
+            errors.append(
+                f"{location}: risk heading {heading_text!r} duplicates "
+                "another risk card"
+            )
+        seen_headings.add(normalized_summary)
         if str(table.get("layout") or "").strip().lower() != "key_value":
             errors.append(
                 f"{location}: risk card table must declare \"layout\": \"key_value\""
@@ -647,6 +680,37 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                 )
             elif not value_text.strip():
                 errors.append(f"{location}: row {label!r} must not be empty")
+        why_row = row_texts[1]
+        if why_row and why_row[0].lower().startswith("why it matters"):
+            why_text = why_row[1].strip()
+            if not _has_meaningful_text(why_text, min_chars=35, min_words=6):
+                errors.append(
+                    f"{location}: Why it matters must name the fact, failure "
+                    "mode, and economic consequence"
+                )
+            if not re.search(
+                r"\b(?:revenue|margin|cash|valuation|price|return|dilut|"
+                r"capital|exit|control|loss|multiple|growth|financ|cost|"
+                r"conversion)\w*\b",
+                why_text,
+                re.IGNORECASE,
+            ):
+                errors.append(
+                    f"{location}: Why it matters must state an economic "
+                    "consequence"
+                )
+        watch_row = row_texts[2]
+        if watch_row and watch_row[0].lower().startswith("what we watch"):
+            watch_text = watch_row[1].strip()
+            if not _has_meaningful_text(watch_text, min_chars=18, min_words=3):
+                errors.append(
+                    f"{location}: What we watch must name an observable signal"
+                )
+            if _RISK_GENERIC_WATCH_RE.match(watch_text):
+                errors.append(
+                    f"{location}: What we watch must be a signal, not a "
+                    "confirmation or diligence command"
+                )
         likelihood_row = row_texts[3]
         if (
             likelihood_row
@@ -847,8 +911,8 @@ def _validate_section_content_floor(
         and score["valuation_refs"] < 1
     ):
         errors.append(
-            "section financial_forecast_valuation must reference model treatment, "
-            "scenario ranges, valuation, revenue, margins, or valuation sensitivities"
+            "section financial_forecast_valuation must reference scenario "
+            "ranges, valuation, revenue, margins, or what moves the number"
         )
 
 

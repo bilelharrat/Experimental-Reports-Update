@@ -54,7 +54,7 @@ async function mountApp(initialPath) {
     },
   });
   await flushPromises();
-  return wrapper;
+  return { wrapper, router };
 }
 
 describe("App global shell", () => {
@@ -76,7 +76,7 @@ describe("App global shell", () => {
   it("renders login without app chrome when unauthenticated", async () => {
     session.value = null;
 
-    const wrapper = await mountApp("/login");
+    const { wrapper } = await mountApp("/login");
 
     expect(wrapper.text()).toContain("Login route");
     expect(wrapper.find("[data-testid='left-rail']").exists()).toBe(false);
@@ -91,7 +91,7 @@ describe("App global shell", () => {
       expires_at: "2999-01-01T00:00:00Z",
     };
 
-    const wrapper = await mountApp("/");
+    const { wrapper } = await mountApp("/");
     await flushPromises();
 
     expect(wrapper.text()).toContain("Home route");
@@ -117,7 +117,7 @@ describe("App global shell", () => {
       expires_at: "2999-01-01T00:00:00Z",
     };
 
-    const wrapper = await mountApp("/zainar-inc?tab=memo");
+    const { wrapper } = await mountApp("/zainar-inc?tab=memo");
     await flushPromises();
 
     expect(wrapper.find("[data-testid='left-rail']").text()).toContain("Rail 1");

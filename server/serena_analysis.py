@@ -2106,14 +2106,14 @@ def _fallback_memo_grader(report: dict, *, error: str | None = None) -> dict:
 
 _LESSON_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bClosing Confirmations?\b", re.IGNORECASE), "Risk and valuation sensitivities"),
-    (re.compile(r"\bWe back\b", re.IGNORECASE), "Use first-person sponsor recommendation language for"),
+    (re.compile(r"\bWe back\b", re.IGNORECASE), "Use firm-as-subject deal English for"),
     (re.compile(r"\bWe invest behind\b", re.IGNORECASE), "BSH invests in"),
     (re.compile(r"\bmatters? at IC\b", re.IGNORECASE), "changes valuation support"),
     (re.compile(r"\bmissing diligence\b", re.IGNORECASE), "evidence limits"),
     (re.compile(r"\breviewer prompts?\b", re.IGNORECASE), "operator review notes"),
     (re.compile(r"\bsource traces?\b", re.IGNORECASE), "source-class evidence"),
     (re.compile(r"\bmemo packet\b", re.IGNORECASE), "source brief"),
-    (re.compile(r"\bBSH should\b", re.IGNORECASE), "we recommend"),
+    (re.compile(r"\bBSH should\b", re.IGNORECASE), "BSH is committing"),
     (re.compile(r"\(for BSH\)", re.IGNORECASE), ""),
 )
 
@@ -2668,7 +2668,7 @@ def _run_tool_impl(company: dict, artifacts: dict, tool_name: str) -> str:
                 "Chart clarity",
                 "Intro strength",
                 "Ending / recommendation strength",
-                "Evidence gaps and model treatment",
+                "Evidence gaps and named risks",
             ],
             "next_step": "Run this after a completed memo exists.",
         }
@@ -3973,7 +3973,7 @@ def _thesis_spine(company: dict, risks: list[dict], priorities: Any = None) -> d
             "claim": "Final view depends on deployment depth, revenue quality, and valuation support",
             "detail": (
                 "These are the proof points most likely to determine whether "
-                "we recommend participating or treat the opportunity as "
+                "BSH commits capital or treats the opportunity as "
                 "valuation-sensitive."
             ),
             "state": "upside_state",
@@ -4031,9 +4031,9 @@ def _thesis_spine(company: dict, risks: list[dict], priorities: Any = None) -> d
             "Competitive compression is manageable."
         ],
         "downside_sensitivities": [
-            "Valuation support weakens where deployment depth lacks independent support.",
-            "Valuation support weakens where comparable-company evidence is stale or economically mismatched.",
-            "Revenue quality weakens where growth is mainly pricing, services, or acquisition-driven without durable expansion."
+            "Deployment depth is not independently supported. Revenue and the entry multiple are at risk.",
+            "Comparable-company evidence is stale or economically mismatched. The disclosed valuation may not hold.",
+            "Growth is mainly pricing, services, or acquisition-driven without durable expansion. Revenue quality and the exit multiple are at risk.",
         ],
     }
 
@@ -4180,7 +4180,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "intro-operating-proof",
             "text": (
-                f"We recommend participating in {name} where {sensitivity_lc.rstrip('.')}."
+                f"BSH is committing capital to {name} where {sensitivity_lc.rstrip('.')}."
             ),
             "purpose": "intro stance",
             "tone": "proof_first",
@@ -4196,9 +4196,9 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "intro-company-reality",
             "text": (
-                f"{intro_fact} The investment case turns on whether that "
+                f"{intro_fact} The question is whether that "
                 "operating reality is already visible in deployments, revenue "
-                "quality, and valuation support."
+                "quality, and the disclosed terms."
             ),
             "purpose": "intro stance",
             "tone": "operator_grounded",
@@ -4232,7 +4232,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
     transitions = [
         {
             "id": "risk-lead-risk",
-            "text": f"Key risk centers on {lead_risk[:1].lower() + lead_risk[1:]}.",
+            "text": f"Lead risk: {lead_risk.rstrip('.')}.",
             "purpose": "risk framing",
             "tone": "lead_risk",
             "supported_claims": [lead_risk],
@@ -4247,8 +4247,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "risk-proof-burden",
             "text": (
-                "The risk that matters most is the evidence gap that can move "
-                "the recommendation."
+                f"{lead_risk.rstrip('.')}. That failure would move the "
+                "recommendation."
             ),
             "purpose": "risk framing",
             "tone": "recommendation_moving",
@@ -4264,8 +4264,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "risk-downside-sensitivity",
             "text": (
-                "Valuation support weakens where "
-                f"{downside_sensitivity[:1].lower() + downside_sensitivity[1:] if downside_sensitivity else 'the lead evidence remains missing'}."
+                "Downside begins with "
+                f"{downside_sensitivity[:1].lower() + downside_sensitivity[1:] if downside_sensitivity else 'the lead evidence remaining missing'}."
             ),
             "purpose": "risk framing",
             "tone": "downside_sensitivity",
@@ -4283,8 +4283,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-recommend-participating",
             "text": (
-                "We recommend participating when independent evidence supports "
-                "the lead sensitivities and the valuation case."
+                "BSH is committing when independent evidence supports "
+                "the lead sensitivities and the disclosed terms."
             ),
             "purpose": "conclusion posture",
             "tone": "recommend_participating",
@@ -4300,7 +4300,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-risk-sensitive",
             "text": (
-                f"The recommendation weakens if {sensitivity_lc.rstrip('.')} does not support the valuation case."
+                f"The recommendation weakens if {sensitivity_lc.rstrip('.')} fails."
             ),
             "purpose": "conclusion posture",
             "tone": "risk_sensitive",
@@ -4316,8 +4316,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-evidence-discipline",
             "text": (
-                "We keep recommendation strength tied to source-backed evidence "
-                "rather than stretching the investment case around weak proof."
+                "We keep recommendation strength tied to named proof "
+                "rather than stretching the case around weak evidence."
             ),
             "purpose": "conclusion posture",
             "tone": "evidence_discipline",
@@ -4348,8 +4348,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
                 ),
                 "required": False,
                 "options": [
-                    "We recommend participating",
-                    "We recommend passing",
+                    "BSH is committing",
+                    "BSH is not participating",
                     "Risk-sensitive recommendation",
                 ],
                 "resolved_choice": None,
@@ -5720,10 +5720,10 @@ def _refresh_memo_packet(session: dict) -> None:
         ),
         "",
         (
-            "Use first-person sponsor voice for our view, access, conviction, "
-            "and action. Do not write third-person situational recommendation "
-            "language, detached opportunity framing, detached base-case "
-            "framing, or passive sponsor-capability speculation."
+            "Write in the LP co-invest register: firm as subject, deal "
+            "English, named proof, plain risks. Do not write stock "
+            "participation slogans, detached IC jargon, or passive "
+            "sponsor-capability speculation."
         ),
         "",
         (
@@ -6002,7 +6002,7 @@ def _refresh_memo_packet(session: dict) -> None:
                 "Use these operator-selected choices as final memo guidance "
                 "for intro stance, risk-section posture, and conclusion posture. "
                 "They are source-backed direction, not text that must be copied verbatim. "
-                "Rewrite any detached phrasing into first-person sponsor voice."
+                "Rewrite any detached phrasing into firm-as-subject deal English."
             ),
         ]
         if selected_opening:

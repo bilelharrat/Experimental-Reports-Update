@@ -69,8 +69,21 @@ price for a fair business than a fair price for a wonderful business.
 
 ## IX. What Can Go Permanently Wrong
 
-Paying too much. A competitor giving the product away. Key-person risk if the
-founders leave. Dilution to fund growth that does not earn its keep.
+**Price.** The last round values the business ahead of proven owner's earnings.
+If growth slows, the multiple can contract and permanent loss starts with the
+price I pay, not with the product.
+
+**Competition.** A well-capitalized rival can buy the next plant at a lower
+price. Switching costs may not protect the installed base, so revenue and the
+ten-year return can fall together.
+
+**Key person.** The founders still carry important operating knowledge. If
+they leave before that knowledge is institutionalized, execution can weaken
+and the business may need more capital than its economics justify.
+
+**Dilution.** Growth spending may not earn its cost of capital. New equity
+would then transfer more of the future owner's earnings to investors without
+creating equal business value.
 
 ## X. Conclusion
 
@@ -121,7 +134,13 @@ Example Co 向工厂出售工业软件，客户按年付费。产品有用，但
 
 ## 九、可能造成永久损失的因素
 
-买贵了。对手免费送产品。创始人离开。为增长而稀释却赚不回资本成本。
+**价格。** 上一轮定价高于已证明的股东盈余。如果增长放缓，估值倍数可能收缩，永久损失首先来自买入价格，而不是产品本身。
+
+**竞争。** 资金充足的对手可以用更低价格拿下下一家工厂。转换成本未必能保护现有客户，收入和十年回报可能同时下降。
+
+**关键人物。** 创始人仍掌握重要运营知识。如果知识尚未制度化就离开，执行可能变弱，企业需要的资本可能超过其经济性所能支持的水平。
+
+**稀释。** 增长投入可能赚不到资本成本。此时新股权会把更多未来股东盈余转给新投资者，却没有创造等量的企业价值。
 
 ## 十、结论
 
@@ -178,6 +197,9 @@ def test_buffett_prompt_is_first_person_not_bsh_lp(tmp_path):
     assert "owner's earnings" in prompt.lower()
     assert "bsh-buffett-investment-memo-v1" in prompt
     assert "Too Hard" in prompt
+    assert "3–6 distinct ways capital can be lost forever" in prompt
+    assert "permanent economic consequence" in prompt
+    assert "must not use risk ratings" in prompt
 
 
 def test_buffett_package_renders_docx(tmp_path):

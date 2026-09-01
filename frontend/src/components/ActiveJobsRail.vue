@@ -26,6 +26,10 @@ import {
 } from "../activeJobs.js";
 import JobLogModal from "./JobLogModal.vue";
 
+const props = defineProps({
+  copilotOpen: { type: Boolean, default: false },
+});
+
 const t = useT();
 const collapsed = ref(false);
 const expandedJobThreads = ref(new Set());
@@ -298,7 +302,10 @@ const visible = computed(() => jobs.value.length > 0);
   <Teleport to="body">
     <aside
       v-if="visible"
-      class="fixed top-14 right-4 z-20 w-80 max-w-[88vw] flex flex-col gap-2"
+      :class="[
+        'fixed top-14 z-20 w-80 max-w-[88vw] flex flex-col gap-2 transition-[right] duration-200 ease-out',
+        props.copilotOpen ? 'max-xl:hidden xl:right-[21rem]' : 'right-4',
+      ]"
     >
       <header
         class="flex items-center gap-2 px-3 py-2 rounded-card border border-info/25 bg-info-soft/70 shadow-card"

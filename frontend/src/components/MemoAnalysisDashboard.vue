@@ -21,6 +21,7 @@ import MemoToolboxPanel from "./memo/MemoToolboxPanel.vue";
 
 const props = defineProps({
   companyId: { type: String, required: true },
+  autoStartInvestigation: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["generate-memo"]);
@@ -45,6 +46,7 @@ const thesisDraft = ref(null);
 const chartSpecsDraft = ref([]);
 const benchmarkDraft = ref(null);
 const narrativeDraft = ref(null);
+const riskDraft = ref([]);
 const riskPriorityDraft = ref([]);
 const refiningRiskId = ref(null);
 const readinessReviewDraft = ref({});
@@ -81,6 +83,18 @@ const additionalAreas = computed(() => session.value?.additional_areas || []);
 const approved = computed(() => Boolean(session.value?.approved_for_memo));
 const thesisApproved = computed(() => Boolean(thesis.value?.approved));
 const canGenerateMemo = computed(() => Boolean(session.value?.id));
+const hasRiskCards = computed(() => risks.value.length > 0);
+const riskDraftDirty = computed(
+  () => JSON.stringify(riskDraft.value || []) !== JSON.stringify(risks.value || []),
+);
+const strategicRiskMapper = computed(() =>
+  (session.value?.tools || []).find((tool) => tool?.name === "strategic_risk_mapper"),
+);
+const investigationRunning = computed(
+  () =>
+    runningTool.value === "strategic_risk_mapper"
+    || strategicRiskMapper.value?.status === "running",
+);
 const readinessPct = computed(() => Math.round((readiness.value.pct || 0) * 100));
 const memoWorkProducts = computed(() => {
   const rows = [];
@@ -842,6 +856,9 @@ async function load() {
     session.value = await api.memoAnalysis.get(props.companyId);
     await loadEvidenceMatrix();
     await loadRunLedger();
+    if (props.autoStartInvestigation && !hasRiskCards.value && !investigationRunning.value) {
+      await startInvestigation();
+    }
   } catch (e) {
     error.value = e.message || String(e);
   } finally {
@@ -975,8 +992,10 @@ async function patchArtifact(artifactName, patch) {
       artifactName,
       patch,
     );
+    return true;
   } catch (e) {
     error.value = e.message || String(e);
+    return false;
   } finally {
     savingArtifact.value = null;
   }
@@ -1044,12 +1063,32 @@ async function saveNarrativeDraft() {
   });
 }
 
+function updateRiskField(riskId, field, value) {
+  const next = (riskDraft.value || []).map((risk) =>
+    risk?.id === riskId ? { ...risk, [field]: value, edited_by_human: true } : risk,
+  );
+  riskDraft.value = next;
+}
+
+async function saveRiskCardsDraft() {
+  if (!riskDraft.value.length || !riskDraftDirty.value) return true;
+  return patchArtifact("strategic_risks", {
+    risks: riskDraft.value,
+    updated_at: new Date().toISOString(),
+  });
+}
+
 async function saveRiskPrioritiesDraft() {
-  if (!riskPriorityDraft.value.length) return;
-  await patchArtifact("risk_priorities", {
+  if (!riskPriorityDraft.value.length) return true;
+  return patchArtifact("risk_priorities", {
     priorities: riskPriorityDraft.value,
     updated_at: new Date().toISOString(),
   });
+}
+
+async function saveRiskWorkbenchDraft() {
+  if (!await saveRiskCardsDraft()) return false;
+  return Boolean(await saveRiskPrioritiesDraft());
 }
 
 async function refineRisk(riskId, framing, analystNote) {
@@ -1088,6 +1127,11 @@ async function approve() {
   }
 }
 
+async function startInvestigation() {
+  if (investigationRunning.value || hasRiskCards.value) return;
+  await runTool("strategic_risk_mapper");
+}
+
 async function saveReadinessReview(area, status) {
   const rationale = (readinessReviewDraft.value[area.id] || "").trim();
   if (status !== "open" && !rationale) {
@@ -1112,8 +1156,9 @@ function updateReadinessReviewDraft(areaId, value) {
   };
 }
 
-function generateFromAnalysis() {
+async function generateFromAnalysis() {
   if (!session.value?.id || !canGenerateMemo.value) return;
+  if (!await saveRiskWorkbenchDraft()) return;
   emit("generate-memo", session.value.id);
 }
 
@@ -1175,6 +1220,9 @@ watch(benchmark, (value) => {
 watch(narrativeHooks, (value) => {
   narrativeDraft.value = clone(value);
 }, { immediate: true });
+watch(risks, (value) => {
+  riskDraft.value = clone(value) || [];
+}, { immediate: true });
 watch([risks, riskPriorities], () => {
   riskPriorityDraft.value = buildRiskPriorityDraft();
 }, { immediate: true });
@@ -1197,8 +1245,11 @@ watch(additionalAreas, (areas) => {
       :loading="loading"
       :ready-for-approval="readyForApproval"
       :can-generate-memo="canGenerateMemo"
+      :has-risk-cards="hasRiskCards"
+      :investigation-running="investigationRunning"
       :approval-title="approvalTitle()"
       @approve="approve"
+      @start-investigation="startInvestigation"
       @generate-memo="generateFromAnalysis"
     />
 
@@ -1226,6 +1277,7 @@ watch(additionalAreas, (areas) => {
         :memo-grader="memoGrader"
         :completed-memo-runs="completedMemoRuns"
         :tool-prompts="toolPrompts"
+        :hidden-tool-names="['strategic_risk_mapper']"
         @run-tool="runTool"
         @select-memo-for-grading="selectMemoForGrading"
       />
@@ -1244,11 +1296,15 @@ watch(additionalAreas, (areas) => {
       <MemoRiskPriorityPanel
         :risks="risks"
         :prioritized-risks="prioritizedRisks"
+        :risk-draft="riskDraft"
+        :risk-draft-dirty="riskDraftDirty"
         :risk-priority-map="riskPriorityMap"
         :risk-priority-draft="riskPriorityDraft"
         :saving-artifact="savingArtifact"
         :refining-risk-id="refiningRiskId"
         :can-move-risk="canMoveRisk"
+        @update-risk-field="updateRiskField"
+        @save-risk-cards="saveRiskCardsDraft"
         @save-risk-priorities="saveRiskPrioritiesDraft"
         @move-risk-priority="moveRiskPriority"
         @set-risk-selected="setRiskSelected"

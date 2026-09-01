@@ -20,6 +20,7 @@ const props = defineProps({
   memoGrader: { type: Object, default: null },
   completedMemoRuns: { type: Array, default: () => [] },
   toolPrompts: { type: Object, default: () => ({}) },
+  hiddenToolNames: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["run-tool", "select-memo-for-grading"]);
@@ -41,7 +42,12 @@ function toolIcon(name) {
 }
 
 const visibleTools = computed(() =>
-  props.tools.filter((tool) => tool?.visibility !== "hidden" && tool?.stage !== "hidden"),
+  props.tools.filter(
+    (tool) =>
+      tool?.visibility !== "hidden"
+      && tool?.stage !== "hidden"
+      && !props.hiddenToolNames.includes(tool?.name),
+  ),
 );
 const coreTools = computed(() =>
   visibleTools.value.filter((tool) => tool?.critical || tool?.stage === "core" || !tool?.stage),

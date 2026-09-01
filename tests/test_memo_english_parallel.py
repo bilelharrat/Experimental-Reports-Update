@@ -29,7 +29,7 @@ def _sample_package() -> dict:
             {
                 "id": "executive_summary",
                 "blocks": [
-                    {"type": "paragraph", "text": _loc("We recommend participating.")},
+                    {"type": "paragraph", "text": _loc("BSH is committing capital.")},
                     {
                         "type": "table",
                         "component": "key_metrics_snapshot",
@@ -454,7 +454,7 @@ def test_selective_retry_reruns_only_named_sections(tmp_path, monkeypatch):
     # untouched sections spliced verbatim from the previous attempt
     assert (
         package["sections"][0]["blocks"][0]["text"]["en"]
-        == "We recommend participating."
+        == "BSH is committing capital."
     )
     assert result["analysis_artifacts"]["claim_register_md"] == "# Claim Register"
     assert result["claude_cost_usd"] == 0.25

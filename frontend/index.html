@@ -8,15 +8,15 @@
     <title>BSH Research Center</title>
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f2f7" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000" />
-    <!-- Appearance is resolved before first paint so a dark-mode reload never
-         flashes the light canvas. Mirrors the logic in src/appearance.js. -->
+    <!-- Appearance is resolved before first paint so the light default is
+         applied immediately. Mirrors the logic in src/appearance.js. -->
     <script>
       (function () {
         try {
           var saved = localStorage.getItem("bsh.research.appearance");
           var dark =
             saved === "dark" ||
-            ((!saved || saved === "auto") &&
+            (saved === "auto" &&
               window.matchMedia("(prefers-color-scheme: dark)").matches);
           if (dark) document.documentElement.classList.add("dark");
         } catch (e) {

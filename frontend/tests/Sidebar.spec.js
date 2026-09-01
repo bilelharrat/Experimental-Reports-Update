@@ -77,7 +77,7 @@ describe("Sidebar", () => {
     expect(wrapper.text()).toContain("Markets");
     expect(wrapper.text()).toContain("Radar");
     expect(wrapper.text()).toContain("Pulse");
-    expect(wrapper.text()).not.toContain("Following");
+    expect(wrapper.text()).toContain("Tracking");
     expect(wrapper.text()).not.toContain("Portfolio");
     expect(wrapper.text()).not.toContain("Top Players");
     expect(wrapper.text()).not.toContain("More markets");

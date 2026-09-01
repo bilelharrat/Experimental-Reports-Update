@@ -476,6 +476,59 @@ def _package() -> dict:
                         ],
                     },
                     {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 4: Customer concentration can delay repeat revenue",
+                            "zh": "风险 4：客户集中可能推迟经常性收入",
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "component": "risk_register",
+                        "layout": "key_value",
+                        "headers": [],
+                        "rows": [
+                            [
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Concentration", "zh": "集中度"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
+                                {
+                                    "en": (
+                                        "One customer represents most disclosed deployments. "
+                                        "A delayed renewal would reduce revenue and exit value."
+                                    ),
+                                    "zh": (
+                                        "一家客户占已披露部署的大部分。续约延迟将减少收入和退出价值。"
+                                    ),
+                                },
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": "Renewal and expansion revenue by customer in Q4 2026.",
+                                    "zh": "2026 年第四季度按客户划分的续约和扩张收入。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Low: current deployments remain active.",
+                                    "zh": "低：当前部署仍在运行。",
+                                },
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "3/10: material but limited concentration effect.",
+                                    "zh": "3/10：集中度影响明确但有限。",
+                                },
+                            ],
+                        ],
+                    },
+                    {
                         "type": "callout",
                         "component": "disconfirming_evidence",
                         "tone": "warning",
@@ -537,7 +590,7 @@ def _package() -> dict:
                         },
                         "headers": [
                             {"en": "Bridge item", "zh": "桥接项"},
-                            {"en": "Model treatment", "zh": "模型处理"},
+                            {"en": "Assumption", "zh": "假设"},
                         ],
                         "rows": [
                             [
@@ -583,7 +636,7 @@ def _package() -> dict:
                         "type": "paragraph",
                         "text": {
                             "en": (
-                                "We recommend participating only where valuation support "
+                                "BSH is committing capital only where valuation support "
                                 "tracks repeatable customer deployment and margin evidence."
                             ),
                             "zh": (
@@ -1034,7 +1087,7 @@ def test_chinese_parity_ignores_duplicate_sources_headings(tmp_path):
     en_doc = Document()
     zh_doc = Document()
     for title, body in (
-        ("EXECUTIVE SUMMARY", "We recommend participating."),
+        ("EXECUTIVE SUMMARY", "BSH is committing capital."),
         ("COMPANY OVERVIEW", "The company sells engineering capacity."),
         ("INVESTMENT HIGHLIGHTS", "Accreditation supports the case."),
         ("INVESTMENT RISK", "Ownership disclosure is incomplete."),
@@ -1080,7 +1133,7 @@ def test_chinese_parity_accepts_bare_section_titles(tmp_path):
         (
             "EXECUTIVE SUMMARY",
             "执行摘要",
-            "We recommend participating where deployment depth is visible.",
+            "BSH is committing capital where deployment depth is visible.",
             "在部署深度可见时，我们建议参与。",
         ),
         (
@@ -1342,6 +1395,47 @@ def test_risk_cards_must_be_ordered_by_rating():
     assert any("ordered by Risk Rating" in error for error in errors)
 
 
+def test_risk_cards_require_four_to_six_material_cards():
+    package = copy.deepcopy(_package())
+    section = _risk_section(package)
+    section["blocks"] = section["blocks"][:7] + section["blocks"][-1:]
+
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+
+    assert any("must contain 4-6 material risk cards" in error for error in errors)
+
+
+def test_risk_cards_reject_generic_headings_and_checklist_watches():
+    package = copy.deepcopy(_package())
+    section = _risk_section(package)
+    section["blocks"][1]["text"] = {
+        "en": "Risk 1: Financing risk",
+        "zh": "风险 1：融资风险",
+    }
+    section["blocks"][2]["rows"][2][1] = {
+        "en": "Confirm the next financing round.",
+        "zh": "确认下一轮融资。",
+    }
+
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+
+    assert any("generic category" in error for error in errors)
+    assert any("must be a signal" in error for error in errors)
+
+
+def test_risk_cards_require_causal_economic_why_text():
+    package = copy.deepcopy(_package())
+    section = _risk_section(package)
+    section["blocks"][2]["rows"][1][1] = {
+        "en": "The risk is important.",
+        "zh": "该风险很重要。",
+    }
+
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+
+    assert any("economic consequence" in error for error in errors)
+
+
 def test_key_value_risk_cards_render_label_column(tmp_path):
     package_path = tmp_path / "logs" / "memo_package.json"
     package_path.parent.mkdir(parents=True)
@@ -1375,13 +1469,13 @@ def test_key_value_risk_cards_render_label_column(tmp_path):
         return found
 
     en_cards = _card_tables(out_en)
-    assert len(en_cards) == 3
+    assert len(en_cards) == 4
     assert all(len(card.columns) == 2 for card in en_cards)
     en_text = _all_text(out_en)
     assert "Risk 1: Deployments may stay services-heavy and cap margins" in en_text
     assert "7/10: margin path drives the exit multiple." in en_text
     zh_cards = _card_tables(out_zh)
-    assert len(zh_cards) == 3
+    assert len(zh_cards) == 4
     zh_text = _all_text(out_zh)
     assert "风险 1：部署可能持续偏服务交付，压制利润率" in zh_text
     assert "7/10：利润率路径决定退出倍数。" in zh_text

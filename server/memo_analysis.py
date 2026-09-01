@@ -642,9 +642,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "The investment case rests on whether ZaiNar's technical moat, "
-            "channel access, and contracted traction support the disclosed "
-            "entry valuation on their own."
+            "ZaiNar has to clear on technical moat, channel access, and "
+            "contracted traction at this entry."
         ),
     ),
     (
@@ -691,11 +690,9 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "Commercial quality depends on the binding-contract share inside "
-            "the $500M+ figure and the recurring economics behind Kajima. "
-            "Valuation support weakens if binding contracts are only a small "
-            "share or if Kajima's per-site recurring value is materially below "
-            "the disclosed $10M ARR claim."
+            "A material share of the $500M+ figure remains MOUs. "
+            "Kajima's per-site recurring value is the other named risk "
+            "behind the disclosed $10M ARR claim."
         ),
     ),
     (
@@ -722,11 +719,11 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"\bImmediate Confirmation Work\b", re.IGNORECASE),
-        "Risk And Valuation Sensitivity",
+        "Risk And Deal Mechanics",
     ),
     (
         re.compile(r"\bClosing bar:\s*", re.IGNORECASE),
-        "Valuation sensitivity: ",
+        "Risk: ",
     ),
     (
         re.compile(
@@ -734,8 +731,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "We recommend participating in the SPV; "
-            r"\1 drive the investment's valuation sensitivity."
+            "BSH is committing to the SPV. "
+            r"\1 drive entry economics."
         ),
     ),
     (
@@ -745,8 +742,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "We recommend participating in the SPV; "
-            r"\1 are central to valuation support."
+            "BSH is committing to the SPV. "
+            r"\1 are central to the disclosed terms."
         ),
     ),
     (
@@ -755,7 +752,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"subject to the closing confirmations below\.?",
             re.IGNORECASE,
         ),
-        r"We recommend participating in \1.",
+        r"BSH is committing capital to \1.",
     ),
     (
         re.compile(
@@ -763,28 +760,28 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"subject to (?:the )?Valuation Sensitivity below\.?",
             re.IGNORECASE,
         ),
-        r"We recommend participating in \1.",
+        r"BSH is committing capital to \1.",
     ),
     (
         re.compile(
             r"\bWe recommend ([^.]+?) subject to ([^.]+?)\.?",
             re.IGNORECASE,
         ),
-        r"We recommend \1. \2 is a valuation sensitivity.",
+        r"BSH is committing to \1. \2 is a named risk.",
     ),
     (
         re.compile(
             r"\bthe unresolved questions sit around ([^.]+?)\.",
             re.IGNORECASE,
         ),
-        r"valuation sensitivity centers on \1.",
+        r"the named risk is \1.",
     ),
     (
         re.compile(
             r"\bWe would revisit if ([^.]+?)\.",
             re.IGNORECASE,
         ),
-        r"Downside sensitivity centers on \1.",
+        r"The downside case begins if \1.",
     ),
     (
         re.compile(r"\bDiligence Thresholds\b", re.IGNORECASE),
@@ -801,14 +798,14 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "Use as a forward round marker; final A2 lead, pre-money, and "
+            "The round is a forward marker. Final A2 lead, pre-money, and "
             "closing evidence determine whether the disclosed entry economics "
             "hold."
         ),
     ),
     (
         re.compile(r"\bConfirm before funding:\s*([^.]+)\.?", re.IGNORECASE),
-        r"Valuation sensitivity: \1.",
+        r"The named risk is \1.",
     ),
     (
         re.compile(
@@ -847,8 +844,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "SAFE lower-of-cap-or-discount mechanics drive the effective entry, "
-            "with the 15% discount controlling at a $3.0B A2 pre-money."
+        "The SAFE's lower-of-cap-or-discount mechanics set the effective entry. "
+            "The 15% discount controls at a $3.0B A2 pre-money."
         ),
     ),
     (
@@ -860,7 +857,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         (
             "The signed-contract mix, MOU mix, and 12-month recognition outlook "
-            "inside the $500M+ figure drive valuation support."
+            "inside the $500M+ figure are the named commercial risks."
         ),
     ),
     (
@@ -881,7 +878,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"actually closes\.?",
             re.IGNORECASE,
         ),
-        "The current entry assumes disclosed A2 lead, final pre-money, and priced-round closing economics.",
+        "A2 lead, final pre-money, and priced-round closing economics determine the effective entry.",
     ),
     (
         re.compile(
@@ -896,7 +893,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"the 15% discount controlling at a \$3\.0B A2\.?",
             re.IGNORECASE,
         ),
-        "SAFE lower-of-cap-or-discount mechanics drive whether the 15% discount controls at a $3.0B A2.",
+        "The SAFE's lower-of-cap-or-discount mechanics determine whether the 15% discount controls at a $3.0B A2.",
     ),
     (
         re.compile(
@@ -913,8 +910,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "Signed-vs-MOU mix, Kajima cohort detail, and healthcare deployments "
-            "with revenue attribution drive commercial-conversion sensitivity."
+            "Signed-vs-MOU mix, Kajima cohort detail, and healthcare revenue "
+            "attribution are the commercial facts that matter."
         ),
     ),
     (
@@ -924,8 +921,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "Commercial-conversion support depends on signed-vs-MOU mix, "
-            "Kajima cohort detail, and healthcare deployments with revenue attribution."
+            "Signed-vs-MOU mix, Kajima cohort detail, and healthcare revenue "
+            "attribution remain unproven."
         ),
     ),
     (
@@ -935,8 +932,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "The signed-vs-MOU mix drives scenario value; risk-weight MOUs using "
-            "a 15-35% conversion range for scenario work."
+            "A material share of the headline may remain MOUs. The commercial "
+            "value is lower if the binding share is small."
         ),
     ),
     (
@@ -944,7 +941,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\brequire a signed-vs-MOU split as a Valuation Sensitivity\b",
             re.IGNORECASE,
         ),
-        "the signed-vs-MOU mix is a valuation sensitivity",
+        "the signed-vs-MOU mix is a commercial risk",
     ),
     (
         re.compile(
@@ -953,8 +950,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "Claim-scope and freedom-to-operate determine patent durability "
-            r"versus \1."
+            "Claim-scope and freedom-to-operate determine whether the patent "
+            r"estate has durable leverage versus \1."
         ),
     ),
     (
@@ -964,8 +961,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "Claim-scope and freedom-to-operate determine patent durability "
-            r"versus \1."
+            "Claim-scope and freedom-to-operate determine whether the patent "
+            r"estate has durable leverage versus \1."
         ),
     ),
     (
@@ -973,7 +970,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\bbefore we underwrite the licensing fallback\b",
             re.IGNORECASE,
         ),
-        "where the licensing fallback supports valuation",
+        "until the licensing fallback is documented",
     ),
     (
         re.compile(
@@ -985,9 +982,9 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "We treat this as a credible defensive perimeter. Claim-scope and "
-            r"freedom-to-operate drive licensing leverage against \1 under "
-            "3GPP standardization."
+            "This is a credible defensive perimeter. Claim-scope and "
+            r"freedom-to-operate determine whether licensing leverage against \1 "
+            "survives 3GPP standardization."
         ),
     ),
     (
@@ -996,11 +993,11 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"covered by the IP portfolio\.?",
             re.IGNORECASE,
         ),
-        "Claim-scope analysis drives patent-coverage risk.",
+        "Patent coverage remains a risk until claim scope is documented.",
     ),
     (
         re.compile(r"\bwe still need\b", re.IGNORECASE),
-        "Risk factor:",
+        "The named risk is:",
     ),
     (
         re.compile(
@@ -1022,8 +1019,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "Carrier sales cycles run 18 to 36 months, so this layer is a "
-            "credible distribution thesis rather than a near-term revenue thesis."
+            "Carrier sales cycles run 18 to 36 months. This is a distribution "
+            "thesis, not near-term revenue."
         ),
     ),
     (
@@ -1034,8 +1031,8 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            ". Carrier sales cycles run 18 to 36 months, so this layer is a "
-            "credible distribution thesis rather than a near-term revenue thesis."
+            ". Carrier sales cycles run 18 to 36 months. This is a distribution "
+            "thesis, not near-term revenue."
         ),
     ),
     (
@@ -1083,15 +1080,15 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"\bthe sponsor implies\b", re.IGNORECASE),
-        "the investment case assumes",
+        "the disclosed terms assume",
     ),
     (
         re.compile(r"\bthe sponsor frames\b", re.IGNORECASE),
-        "the investment case treats",
+        "the disclosed terms treat",
     ),
     (
         re.compile(r"\bthe sponsor itself flags\b", re.IGNORECASE),
-        "the investment case identifies",
+        "the disclosed materials identify",
     ),
     (
         re.compile(r"\bmemo language was\b", re.IGNORECASE),
@@ -1117,7 +1114,23 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"\bwe want exposure to\b", re.IGNORECASE),
-        "we recommend participating in",
+        "BSH is committing capital to",
+    ),
+    (
+        re.compile(r"\bwe are being offered\b", re.IGNORECASE),
+        "Investors can subscribe to",
+    ),
+    (
+        re.compile(r"\bwe are participating through\b", re.IGNORECASE),
+        "BSH is committing through",
+    ),
+    (
+        re.compile(r"\bwe recommend participating in\b", re.IGNORECASE),
+        "BSH is committing capital to",
+    ),
+    (
+        re.compile(r"\bwe recommend participating\b", re.IGNORECASE),
+        "BSH is committing capital",
     ),
     (
         re.compile(r"\binvest behind\b", re.IGNORECASE),
@@ -1164,11 +1177,11 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\bproduced for (?:the|this|our) memo\b",
             re.IGNORECASE,
         ),
-        "used for the investment case",
+        "used as source evidence",
     ),
     (
         re.compile(r"\bfor (?:the|this|our) memo\b", re.IGNORECASE),
-        "for the investment case",
+        "for the disclosed terms",
     ),
     (
         re.compile(r"\bWisdom Ventures SPV memo\b", re.IGNORECASE),
@@ -1221,28 +1234,28 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\bWe will look for a refreshed signed-vs-MOU split before closing\.?",
             re.IGNORECASE,
         ),
-        "The refreshed signed-vs-MOU split supports the base scenario.",
+        "The refreshed signed-vs-MOU split is a commercial risk. A small binding share weakens the base scenario.",
     ),
     (
         re.compile(
             r"\bWe underwrite the displacement TAM as bounded;",
             re.IGNORECASE,
         ),
-        "Our case treats the displacement TAM as bounded;",
+        "The displacement TAM is bounded;",
     ),
     (
         re.compile(
             r"\bwhich is the right way to view the underwriting:\s*",
             re.IGNORECASE,
         ),
-        "which supports the investment case: ",
+        "which supports the case: ",
     ),
     (
         re.compile(
             r"\bbefore underwriting derivative-tech monetization\b",
             re.IGNORECASE,
         ),
-        "before giving credit to derivative-tech monetization",
+        "until derivative-tech monetization is documented",
     ),
     (
         re.compile(
@@ -1250,8 +1263,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "the investment case assumes the executed document confirms the "
-            "conversion mechanics."
+            "The executed document determines the conversion mechanics."
         ),
     ),
     (
@@ -1332,26 +1344,26 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"\bwe frame it as\b", re.IGNORECASE),
-        "the investment case treats it as",
+        "this is",
     ),
     (
         re.compile(
             r"\bno preference, no voting, and no information rights at the LP level\b",
             re.IGNORECASE,
         ),
-        "limited direct governance, reporting, and downside preference at the LP level",
+        "a SAFE is not equity and has no LP voting",
     ),
     (
         re.compile(r"\bno voting(?: rights)?\b", re.IGNORECASE),
-        "limited direct governance",
+        "no LP voting",
     ),
     (
         re.compile(r"\binformation rights\b", re.IGNORECASE),
-        "reporting access",
+        "LP-level reporting",
     ),
     (
         re.compile(r"\bvoting rights\b", re.IGNORECASE),
-        "direct governance",
+        "LP voting",
     ),
     (
         re.compile(r"\bunderwriting\b", re.IGNORECASE),
@@ -1367,7 +1379,19 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"\bunderwrite\b", re.IGNORECASE),
-        "give credit to",
+        "rely on",
+    ),
+    (
+        re.compile(r"\bwe give credit to\b", re.IGNORECASE),
+        "the disclosed terms count",
+    ),
+    (
+        re.compile(r"\bour base case credits\b", re.IGNORECASE),
+        "the disclosed terms count",
+    ),
+    (
+        re.compile(r"\bthe investment case rests on\b", re.IGNORECASE),
+        "the case depends on",
     ),
 )
 
