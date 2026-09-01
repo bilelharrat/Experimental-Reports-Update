@@ -21,8 +21,10 @@ from pathlib import Path
 TERMINAL = {"finished", "failed", "skipped"}
 
 
-def _load_phase_rows(stream_path: Path) -> list[dict]:
+def _load_phase_rows(stream_path: Path) -> tuple[list[dict], list[dict]]:
+    """Return (terminal phase_timing rows, stage events)."""
     rows: list[dict] = []
+    stages: list[dict] = []
     with stream_path.open("r", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
@@ -32,11 +34,14 @@ def _load_phase_rows(stream_path: Path) -> list[dict]:
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if entry.get("type") == "stage":
+                stages.append(entry)
+                continue
             if entry.get("type") != "phase_timing":
                 continue
             if entry.get("status") in TERMINAL:
                 rows.append(entry)
-    return rows
+    return rows, stages
 
 
 def _fmt_minutes(duration_ms) -> str:
@@ -91,7 +96,7 @@ def main() -> int:
         print(f"no stream log at {stream_path}")
         return 1
 
-    rows = _load_phase_rows(stream_path)
+    rows, stages = _load_phase_rows(stream_path)
     print(f"# Phase report — {run_dir.name}\n")
     print("| phase | status | attempt | minutes | cost |")
     print("|---|---|---|---|---|")
@@ -115,6 +120,25 @@ def main() -> int:
     print("\n## Derived")
     if attempts:
         print(f"- english synthesis attempts: {len(attempts)}")
+    ledger = next(
+        (s for s in stages if s.get("stage") == "memo_fact_ledger"), None
+    )
+    if ledger is not None:
+        print(f"- fact ledger: loaded, {ledger.get('chars', '?')} chars")
+    holding = next(
+        (
+            s
+            for s in stages
+            if s.get("stage") == "memo_spine_speculation_holding"
+        ),
+        None,
+    )
+    if holding is not None:
+        missing = holding.get("missing_required") or []
+        print(
+            "- speculation held at count threshold for: "
+            + (", ".join(missing) if missing else "?")
+        )
     chase = next((row for row in rows if row.get("phase") == "memo_zh_chase"), None)
     if chase is not None:
         adopted = chase.get("strings_adopted")

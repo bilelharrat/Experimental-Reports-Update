@@ -3823,6 +3823,63 @@ def _run_memo_local_json_artifact(
     return parsed, None
 
 
+MEMO_FACT_LEDGER_FILENAME = "fact_ledger.md"
+MEMO_FACT_LEDGER_MAX_CHARS = 6000
+
+
+def _memo_fact_ledger_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_FACT_LEDGER", "1") == "1"
+
+
+def load_memo_fact_ledger(research_dir: Path | str | None) -> str | None:
+    """Read the hand-curated per-company fact ledger, when one exists.
+
+    The ledger (``fact_ledger.md`` in the company's research folder) is
+    the durable home for dated headline facts that live in no other
+    on-disk corpus — the class of fact that otherwise reaches a run only
+    when an analysis pass happens to retrieve it from the web (the "fact
+    lottery"). Its text is injected verbatim into every analysis pass and
+    the spine prompt, so the pin sheet always sees it. Returns ``None``
+    when the file is absent or empty, or when disabled via
+    ``BSH_MEMO_FACT_LEDGER=0``. Benchmark discipline: the ledger is an
+    input — freeze it within any A-vs-B comparison.
+    """
+    if research_dir is None or not _memo_fact_ledger_enabled():
+        return None
+    path = Path(research_dir) / MEMO_FACT_LEDGER_FILENAME
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    if len(text) > MEMO_FACT_LEDGER_MAX_CHARS:
+        logger.warning(
+            "fact ledger %s exceeds %d chars; truncating",
+            path,
+            MEMO_FACT_LEDGER_MAX_CHARS,
+        )
+        text = (
+            text[:MEMO_FACT_LEDGER_MAX_CHARS].rstrip()
+            + "\n(fact ledger truncated)"
+        )
+    return text
+
+
+def _memo_fact_ledger_block(ledger: str | None) -> str:
+    if not ledger:
+        return ""
+    return f"""
+## Curated fact ledger
+Hand-maintained, dated headline facts for this company. Treat each as a
+trusted, dated input: use it, classify its evidence like any other
+source, verify against anything fresher you retrieve, and prefer the
+newer figure when they conflict.
+
+{ledger}
+"""
+
+
 def run_memo_fast_analysis_pass(
     *,
     run_dir: Path,
@@ -3880,7 +3937,7 @@ Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
 {_research_file_listing(research_dir)}
-
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}
 BSH background:
 `{settings_path}`
 {lessons_block}
@@ -4007,7 +4064,7 @@ Files:
 Fast analysis artifacts:
 - JSON directory: `{fast_dir}`
 - Markdown directory: `{analysis_dir}`
-
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}
 Read the relevant packet/artifact files. Do not rerun the eight analysis
 passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
 they already contain the structured results from each pass. Read markdown
@@ -4333,6 +4390,7 @@ def run_memo_fast_english_spine(
     timeout_sec: int = 1200,
     validation_feedback: str | None = None,
     speculative_missing: list[str] | None = None,
+    fact_ledger: str | None = None,
 ) -> tuple[dict | None, str | None]:
     """Synthesize the lite spine: package envelope plus the shared-facts pin
     sheet. No analysis artifacts, no memo prose — those belong to the side
@@ -4341,7 +4399,9 @@ def run_memo_fast_english_spine(
     ``speculative_missing`` names analysis passes still running when the
     spine was launched early (the speculative-spine lever): the prompt
     tells the agent to pin from what exists and not to wait for or invent
-    the stragglers.
+    the stragglers. ``fact_ledger`` is the curated per-company fact text
+    (:func:`load_memo_fact_ledger`) — injected so the pin sheet always
+    sees the headline facts regardless of what the passes retrieved.
     """
     feedback_block = (
         (
@@ -4398,7 +4458,7 @@ Produce ONE JSON object with:
 
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
-{speculative_block}{feedback_block}
+{_memo_fact_ledger_block(fact_ledger)}{speculative_block}{feedback_block}
 Return only the JSON matching the attached schema.
 """
     return _run_memo_local_json_artifact(
@@ -5009,6 +5069,7 @@ class SpeculativeEnglish:
             progress=progress,
             timeout_sec=self._timeout_sec,
             speculative_missing=late_ids or None,
+            fact_ledger=load_memo_fact_ledger(self._research_dir),
         )
         if error is None and isinstance(result, dict):
             self._note_spine_success(result, common_context, add_dirs)
@@ -6308,6 +6369,7 @@ def run_memo_fast_english_package_parallel(
             progress=progress,
             timeout_sec=timeout_sec,
             validation_feedback=validation_feedback,
+            fact_ledger=load_memo_fact_ledger(research_dir),
         )
         _finish_row(
             spine_label,

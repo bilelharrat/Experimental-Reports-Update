@@ -4352,6 +4352,48 @@ def test_fast_pipeline_chasing_flag_off_passes_no_hooks(memo_env, monkeypatch):
     assert not (run_dir / "logs" / "memo_package.en.chased.json").exists()
 
 
+def test_fast_pipeline_emits_fact_ledger_stage(memo_env, monkeypatch):
+    report, run_dir = _chasing_env(memo_env, monkeypatch)
+    monkeypatch.delenv("BSH_MEMO_ZH_CHASING", raising=False)
+    monkeypatch.delenv("BSH_MEMO_FACT_LEDGER", raising=False)
+    research_root = memo_env / "research"
+    monkeypatch.setattr(
+        memo_analysis.research_store, "RESEARCH_ROOT", research_root
+    )
+    ledger_dir = research_root / "generalist-inc"
+    ledger_dir.mkdir(parents=True)
+    (ledger_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME).write_text(
+        "- 2026-04-20: $500M+ contracted book; 95+ patents.",
+        encoding="utf-8",
+    )
+    package = _memo_package(body_zh="")
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_package_parallel",
+        lambda **_kwargs: (
+            {
+                "analysis_artifacts": _chasing_artifacts(),
+                "memo_package": package,
+                "claude_cost_usd": 0.10,
+                "claude_duration_ms": 500,
+            },
+            None,
+        ),
+    )
+
+    memo_analysis._run(report["id"])
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    events = _events(memo_prep.stream_path(run_dir))
+    ledger_stages = [
+        e for e in events if e.get("stage") == "memo_fact_ledger"
+    ]
+    assert len(ledger_stages) == 1
+    assert ledger_stages[0]["chars"] > 0
+    assert ledger_stages[0]["path"].endswith("fact_ledger.md")
+
+
 def test_fast_pipeline_chasing_not_used_on_retry_attempts(memo_env, monkeypatch):
     report, run_dir = _chasing_env(memo_env, monkeypatch)
     valid_package = _memo_package(body_zh="")

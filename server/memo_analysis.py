@@ -2638,6 +2638,22 @@ def _run_fast_memo_pipeline(
         message="Using prepared run folder, registry entry, and source folders",
         thread=claude_runner._MEMO_PHASE1_THREAD,
     )
+    # The ledger is loaded again inside each prompt builder; this read is
+    # observability only, so benchmark records show whether curated facts
+    # were an input to this run.
+    fact_ledger = claude_runner.load_memo_fact_ledger(research_dir)
+    if fact_ledger:
+        stream.emit(
+            "stage",
+            stage="memo_fact_ledger",
+            message=(
+                f"Curated fact ledger loaded ({len(fact_ledger)} chars); "
+                "injecting into analysis passes and the spine"
+            ),
+            thread=claude_runner._MEMO_PHASE1_THREAD,
+            chars=len(fact_ledger),
+            path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
+        )
     stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
 
     # The chaser exists before Phase 2 so the speculative spine can hand it
