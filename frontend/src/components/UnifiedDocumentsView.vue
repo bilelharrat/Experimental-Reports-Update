@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
 import {
   AlertCircle,
   ChevronDown,
@@ -17,8 +17,12 @@ import AiMark from "./AiMark.vue";
 import { formatIsoDate, humanizeStatus, isTerminalReportStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage, openSummary } from "../state.js";
-import DocumentViewerDrawer from "./DocumentViewerDrawer.vue";
 import FilePreviewModal from "./FilePreviewModal.vue";
+
+// Lazy: the viewer pulls in docx-preview (~large); load it on first View.
+const DocumentViewerDrawer = defineAsyncComponent(
+  () => import("./DocumentViewerDrawer.vue"),
+);
 
 const props = defineProps({
   companyId: { type: String, required: true },
