@@ -505,3 +505,27 @@ Run G source: `data/memos/zainar-inc/2026-09-01__054233__zainar-inc__memo-run`.
   remaining threat to that target is the quality-repair round (a 3.7 m
   financial repair pushed Run G's English tail; clean draws sit
   ~12.9–13 m, repair draws ~14.5–16.5 m).
+
+### Run H — widened gate validated (zainar, 2026-09-01)
+
+| Run | Config | Phase 2 | Spine | Total | Cost | Quality |
+|---|---|---|---|---|---|---|
+| H | Run G config + widened gate (`REQUIRE` +`competitive_rights`) | 3.2 m | speculative 3.9 m → **delta verdict: FRESH**, used | **12.7 m** | $13.67 | `done`, lint P0=0, parity P0=0, pin echo 22/0 |
+
+Run H source: `data/memos/zainar-inc/2026-09-01__062626__zainar-inc__memo-run`.
+
+- **New zainar record (12.7 m vs 12.9), WITH a repair round** (1.3 m
+  investment_risk) — the first run under the user's sub-15-minute
+  target with margin. English accepted at 9.5 m; chase adoption 597
+  strings (healthy — fresh path, no respin stranding).
+- **Widened gate validated on the fresh side**: all four required
+  passes finished early (≤2.4 m), so the gate never needed to hold;
+  the spine launched at the 6th completion with two non-pin passes
+  late, and the 0.7 m delta check confirmed the pins held. Early
+  spine + 4 early section drafts all kept.
+- Ledger facts present again; pin echo 22/0 — eighth consecutive
+  clean check (armed repair still quiet).
+- Still unobserved: the widened gate actually *holding* for
+  `competitive_rights` and converting a would-be stale draw into a
+  wait (Run G's shape). Watch for a `memo_spine_speculation_holding`
+  stage naming it on future draws.
