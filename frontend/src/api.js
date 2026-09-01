@@ -256,6 +256,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  studioInvestigate: (payload) =>
+    request("/api/memos/studio/investigate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  studioGenerate: (reportId) =>
+    request(`/api/memos/studio/${encodeURIComponent(reportId)}/generate`, {
+      method: "POST",
+    }),
   resumeReport: (reportId) =>
     request(`/api/reports/${encodeURIComponent(reportId)}/resume`, {
       method: "POST",
@@ -439,6 +448,16 @@ export const api = {
       request(
         `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}`,
         { method: "PATCH", body: JSON.stringify(patch) },
+      ),
+    addCard: (companyId, sectionId, payload) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards`,
+        { method: "POST", body: JSON.stringify(payload) },
+      ),
+    deleteCard: (companyId, sectionId, cardId) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}`,
+        { method: "DELETE" },
       ),
     moveCard: (companyId, sectionId, cardId, direction) =>
       request(

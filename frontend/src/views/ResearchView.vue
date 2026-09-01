@@ -7,7 +7,6 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  MoreHorizontal,
   RefreshCw,
   Send,
 } from "lucide-vue-next";
@@ -37,6 +36,7 @@ const tr = useT();
 // "Internal"). Map them to localized display labels here; unknown values fall
 // through to the raw string so new server-side options keep working.
 const REPORT_TYPE_ZH = {
+  "Investment Report (Auto)": "投资报告（自动判断阶段）",
   "Investment Memo (Late-Stage)": "投资备忘录（Late-Stage / Pre-IPO）",
   "Buffett Investment Memo": "巴菲特投资备忘录",
   "Investment Report": "投资报告",
@@ -62,10 +62,12 @@ const FUNDING_ROUND_ZH = {
   Growth: "成长期",
   Public: "已上市",
 };
-const MEMO_REPORT_TYPE = "Investment Memo (Late-Stage)";
+const AUTO_REPORT_TYPE = "Investment Report (Auto)";
+const BUFFETT_REPORT_TYPE = "Buffett Investment Memo";
 const PRIMARY_REPORT_TYPES = new Set([
+  AUTO_REPORT_TYPE,
   "Investment Memo (Late-Stage)",
-  "Buffett Investment Memo",
+  BUFFETT_REPORT_TYPE,
 ]);
 function reportTypeLabel(val) {
   if (appLanguage.value === "zh") return REPORT_TYPE_ZH[val] || val;
@@ -109,11 +111,34 @@ const canShowMemoStudio = computed(() =>
   Boolean(company.value && !isPublicCompany.value),
 );
 
-// Default to the late-stage investment memo — the only fully-wired
-// pipeline. Other types still route through the legacy stub generator.
-const reportType = ref(MEMO_REPORT_TYPE);
+// Default to the stage-calibrated auto memo: the agents decide whether
+// the company reads early, late, or post-IPO and calibrate the framing.
+const reportType = ref(AUTO_REPORT_TYPE);
 const audience = ref("Internal");
-const memoStage = ref("generate");
+const memoStage = ref("studio");
+// Studio sub-sections (Basic = cards, Advanced = analysis workbench,
+// Notes = saved Q&A).
+const studioSection = ref("basic");
+// One-Click generates everything in one shot; Studio Review pauses at
+// the cards. Sticky per browser.
+const GENERATION_MODE_KEY = "bsh.memoGenerationMode";
+function loadGenerationMode() {
+  try {
+    const stored = localStorage.getItem(GENERATION_MODE_KEY);
+    if (stored === "one_click" || stored === "studio_review") return stored;
+  } catch {
+    // Storage unavailable (private mode) — fall through to the default.
+  }
+  return "studio_review";
+}
+const generationMode = ref(loadGenerationMode());
+watch(generationMode, (mode) => {
+  try {
+    localStorage.setItem(GENERATION_MODE_KEY, mode);
+  } catch {
+    // Best-effort persistence only.
+  }
+});
 
 const activeReport = ref(null);
 const companyReports = ref([]);
@@ -133,6 +158,9 @@ const generating = computed(() => {
   const terminal =
     status === "complete" ||
     status === "complete_with_warnings" ||
+    // A parked studio investigation is a deliberate resting state — the
+    // user edits cards, then generates.
+    status === "awaiting_studio" ||
     status.startsWith("failed");
   return !terminal;
 });
@@ -428,8 +456,8 @@ const hasReportContext = computed(() => {
 
 const memoStages = computed(() => [
   {
-    id: "generate",
-    label: tr("research.memo_stage_generate"),
+    id: "studio",
+    label: tr("research.memo_stage_studio"),
     enabled: true,
   },
   {
@@ -439,39 +467,21 @@ const memoStages = computed(() => [
   },
 ]);
 
-const memoMoreStages = computed(() => [
-  {
-    id: "edit",
-    label: tr("research.memo_stage_edit"),
-    enabled: hasReportContext.value,
-  },
-  {
-    id: "analysis",
-    label: tr("research.memo_stage_analysis"),
-    enabled: canShowMemoStudio.value,
-  },
-  {
-    id: "notes",
-    label: tr("research.memo_stage_notes"),
-    enabled: true,
-  },
+const studioSections = computed(() => [
+  { id: "basic", label: tr("research.studio_section_basic") },
+  { id: "advanced", label: tr("research.studio_section_advanced") },
+  { id: "notes", label: tr("research.memo_stage_notes") },
 ]);
 
-const generateOptionsOpen = ref(false);
-const memoMoreOpen = ref(false);
-const moreStageActive = computed(
-  () => ["edit", "analysis", "notes"].includes(memoStage.value),
-);
-
 function memoStageEnabled(id) {
-  const stage = [...memoStages.value, ...memoMoreStages.value].find((item) => item.id === id);
+  const stage = memoStages.value.find((item) => item.id === id);
   return Boolean(stage?.enabled);
 }
 
 function defaultMemoStage() {
-  if (reportIsFailed.value || reportHasWarnings.value) return "generate";
+  if (reportIsFailed.value || reportHasWarnings.value) return "studio";
   if (memoArtifactsVisible.value && !generating.value) return "preview";
-  return "generate";
+  return "studio";
 }
 
 function askCopilotPrompt() {
@@ -492,16 +502,24 @@ function openAskInCopilot() {
 
 function setMemoStage(id) {
   if (!memoStageEnabled(id)) return;
-  memoMoreOpen.value = false;
   memoStage.value = id;
+}
+
+function setStudioSection(id) {
+  if (studioSections.value.some((section) => section.id === id)) {
+    studioSection.value = id;
+  }
 }
 
 watch(
   [activeTab, () => route.query.tab, () => activeReport.value?.id, hasReportContext],
   () => {
     if (activeTab.value !== "memo") return;
+    // Legacy deep link: ?tab=analysis used to open the Analysis stage —
+    // that panel now lives under Studio → Advanced.
     if (route.query.tab === "analysis") {
-      memoStage.value = memoStageEnabled("analysis") ? "analysis" : "generate";
+      memoStage.value = "studio";
+      studioSection.value = "advanced";
       return;
     }
     if (route.query.tab === "console") {
@@ -510,7 +528,7 @@ watch(
       return;
     }
     const next = defaultMemoStage();
-    memoStage.value = memoStageEnabled(next) ? next : "generate";
+    memoStage.value = memoStageEnabled(next) ? next : "studio";
   },
   { immediate: true },
 );
@@ -522,7 +540,7 @@ watch(generating, (isGenerating, wasGenerating) => {
   }
 });
 watch(memoStage, (stage) => {
-  if (!memoStageEnabled(stage)) memoStage.value = "generate";
+  if (!memoStageEnabled(stage)) memoStage.value = "studio";
 });
 
 const companyNews = computed(() => {
@@ -794,6 +812,7 @@ async function pollReport() {
     if (
       status === "complete" ||
       status === "complete_with_warnings" ||
+      status === "awaiting_studio" ||
       status.startsWith("failed")
     ) {
       stopPolling();
@@ -944,14 +963,114 @@ async function generate(analysisSessionId = null) {
   }
 }
 
-function startMemoInvestigation() {
-  if (!isMemoReportType(reportType.value)) {
-    generate();
-    return;
+// ---- Memo Studio flow -----------------------------------------------------
+
+const isStudioReport = computed(
+  () => activeReport.value?.memo_mode === "studio",
+);
+const awaitingStudio = computed(
+  () => isStudioReport.value && activeReport.value?.status === "awaiting_studio",
+);
+// A failed studio GENERATION recovers by pressing Generate again (the
+// composed spine is on disk); a failed investigation starts over.
+const studioGenerateRecoverable = computed(() => {
+  const r = activeReport.value;
+  return (
+    isStudioReport.value &&
+    r?.status === "failed_during_analysis" &&
+    r?.failure_phase === "studio_generate"
+  );
+});
+const studioRegenerateAvailable = computed(() => {
+  const r = activeReport.value;
+  return (
+    isStudioReport.value &&
+    (r?.status === "complete" || r?.status === "complete_with_warnings")
+  );
+});
+// Studio Review needs the spine-lite pipeline; Buffett stays One-Click.
+const studioReviewAvailable = computed(
+  () =>
+    isMemoReportType(reportType.value) &&
+    reportType.value !== BUFFETT_REPORT_TYPE,
+);
+const studioInvestigationDate = computed(() => {
+  const completed = activeReport.value?.studio_investigation?.completed_at;
+  return completed ? formatIsoDate(completed) : "";
+});
+
+const studioCta = computed(() => {
+  if (generating.value) {
+    return { kind: "busy", label: tr("research.generating") };
   }
+  if (awaitingStudio.value || studioGenerateRecoverable.value) {
+    return {
+      kind: "generate_studio",
+      label: tr("research.generate_report_button"),
+    };
+  }
+  if (generationMode.value === "studio_review" && studioReviewAvailable.value) {
+    return {
+      kind: "investigate",
+      label: tr("research.deep_investigate_button"),
+    };
+  }
+  return { kind: "one_click", label: tr("research.generate_button") };
+});
+
+function runStudioCta() {
+  const kind = studioCta.value.kind;
+  if (kind === "busy") return;
+  if (kind === "generate_studio") return generateFromStudio();
+  if (kind === "investigate") return startDeepInvestigate();
+  return generate();
+}
+
+async function startDeepInvestigate() {
   generationError.value = null;
-  memoMoreOpen.value = false;
-  memoStage.value = "analysis";
+  startingFresh.value = true;
+  try {
+    const r = await api.studioInvestigate({
+      company_id: props.companyId,
+      report_type: reportType.value,
+    });
+    activeReport.value = r;
+    await loadCompanyReports();
+    router.replace({
+      name: "research",
+      params: { companyId: props.companyId },
+      query: { report: r.id },
+    });
+    emit("reports-changed");
+    startPolling();
+  } catch (e) {
+    generationError.value = requestErrorPayload(e);
+    try {
+      await loadCompanyReports();
+    } catch {
+      // Keep the original failure visible.
+    }
+  } finally {
+    startingFresh.value = false;
+  }
+}
+
+async function generateFromStudio() {
+  const reportId = activeReport.value?.id;
+  if (!reportId || !isStudioReport.value) return;
+  generationError.value = null;
+  startingFresh.value = true;
+  try {
+    const r = await api.studioGenerate(reportId);
+    activeReport.value = r;
+    await loadCompanyReports();
+    emit("reports-changed");
+    startPolling();
+  } catch (e) {
+    generationError.value = requestErrorPayload(e);
+  } finally {
+    startingFresh.value = false;
+  }
 }
 
 function openMemoEditorDiscuss() {
@@ -1263,33 +1382,6 @@ onUnmounted(stopPolling);
         >
           {{ stage.label }}
         </button>
-        <div class="relative">
-          <button
-            type="button"
-            class="segmented-item focus-ring"
-            :data-selected="moreStageActive"
-            :aria-expanded="memoMoreOpen"
-            :aria-haspopup="true"
-            @click="memoMoreOpen = !memoMoreOpen"
-          >
-            <MoreHorizontal class="h-3.5 w-3.5" />
-            {{ tr("research.memo_more") }}
-          </button>
-          <div v-if="memoMoreOpen" class="toolbar-menu left-0 right-auto min-w-[10rem]" role="menu">
-            <button
-              v-for="stage in memoMoreStages"
-              :key="stage.id"
-              type="button"
-              role="menuitem"
-              class="toolbar-menu-item"
-              :disabled="!stage.enabled"
-              :title="stage.enabled ? undefined : tr('research.memo_stage_locked')"
-              @click="setMemoStage(stage.id)"
-            >
-              {{ stage.label }}
-            </button>
-          </div>
-        </div>
       </div>
       <button
         type="button"
@@ -1300,90 +1392,153 @@ onUnmounted(stopPolling);
       </button>
       </div>
 
-      <div
-        v-if="memoStage === 'generate'"
-        class="flex flex-wrap items-end gap-3"
-      >
-      <div class="flex flex-wrap items-center gap-2 pb-0.5">
-        <button
-          @click="isMemoReportType(reportType) ? startMemoInvestigation() : generate()"
-          :disabled="generating || resuming"
-          class="btn-filled disabled:cursor-not-allowed focus-ring"
-        >
-          <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
-          <AiMark v-else class="h-4 w-4" />
-          <span>
+      <div v-if="memoStage === 'studio'" class="space-y-4">
+        <div class="rounded-card bg-surface shadow-card p-4 space-y-3">
+          <div class="flex flex-wrap items-end gap-3">
+            <label class="min-w-[12rem] flex-1">
+              <div class="vogue-label mb-1.5">
+                {{ tr("research.label_report_type") }}
+              </div>
+              <select v-model="reportType" class="field focus-ring">
+                <option v-for="t in primaryReportTypes" :key="t" :value="t">
+                  {{ reportTypeLabel(t) }}
+                </option>
+                <optgroup
+                  v-if="moreReportTypes.length"
+                  :label="tr('research.report_type_more')"
+                >
+                  <option v-for="t in moreReportTypes" :key="t" :value="t">
+                    {{ reportTypeLabel(t) }}
+                  </option>
+                </optgroup>
+              </select>
+            </label>
+            <label class="min-w-[10rem] flex-1">
+              <div class="vogue-label mb-1.5">
+                {{ tr("research.label_audience") }}
+              </div>
+              <select v-model="audience" class="field focus-ring">
+                <option v-for="a in options.audiences" :key="a" :value="a">
+                  {{ audienceLabel(a) }}
+                </option>
+              </select>
+            </label>
+            <div class="min-w-[12rem]">
+              <div class="vogue-label mb-1.5">
+                {{ tr("research.generation_mode") }}
+              </div>
+              <div
+                class="segmented w-fit"
+                role="radiogroup"
+                :aria-label="tr('research.generation_mode')"
+              >
+                <button
+                  type="button"
+                  class="segmented-item focus-ring"
+                  role="radio"
+                  :data-selected="generationMode === 'one_click'"
+                  :aria-checked="generationMode === 'one_click'"
+                  @click="generationMode = 'one_click'"
+                >
+                  {{ tr("research.mode_one_click") }}
+                </button>
+                <button
+                  type="button"
+                  class="segmented-item focus-ring"
+                  role="radio"
+                  :data-selected="generationMode === 'studio_review'"
+                  :aria-checked="generationMode === 'studio_review'"
+                  @click="generationMode = 'studio_review'"
+                >
+                  {{ tr("research.mode_studio_review") }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <p class="text-xs text-ink-muted">
             {{
-              generating
-                ? tr("research.generating")
-                : isMemoReportType(reportType)
-                  ? tr("research.investigate_button")
-                  : tr("research.generate_button")
+              generationMode === "one_click"
+                ? tr("research.mode_one_click_hint")
+                : studioReviewAvailable
+                  ? tr("research.mode_studio_review_hint")
+                  : tr("research.mode_buffett_one_click")
             }}
-          </span>
-        </button>
-        <button
-          type="button"
-          class="btn-bordered focus-ring"
-          :aria-expanded="generateOptionsOpen"
-          @click="generateOptionsOpen = !generateOptionsOpen"
-        >
-          {{ tr("research.memo_options") }}
-        </button>
-        <span v-if="generating" class="text-xs text-ink-muted">
-          {{ tr("research.progress_in_jobs") }}
-        </span>
-        <span v-else-if="!generateOptionsOpen" class="text-xs text-ink-muted">
-          {{ reportTypeLabel(reportType) }} · {{ audienceLabel(audience) }}
-        </span>
-      </div>
-      <label v-if="generateOptionsOpen" class="min-w-[12rem] flex-1">
-        <div class="vogue-label mb-1.5">
-          {{ tr("research.label_report_type") }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              @click="runStudioCta"
+              :disabled="generating || resuming || dismissing"
+              class="btn-filled disabled:cursor-not-allowed focus-ring"
+            >
+              <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
+              <AiMark v-else class="h-4 w-4" />
+              <span>{{ studioCta.label }}</span>
+            </button>
+            <button
+              v-if="awaitingStudio && !generating"
+              type="button"
+              class="btn-bordered btn-sm focus-ring"
+              @click="startDeepInvestigate"
+            >
+              {{ tr("research.reinvestigate_button") }}
+            </button>
+            <button
+              v-if="studioRegenerateAvailable && !generating"
+              type="button"
+              class="btn-bordered btn-sm focus-ring"
+              @click="generateFromStudio"
+            >
+              {{ tr("research.regenerate_from_studio") }}
+            </button>
+            <span v-if="generating" class="text-xs text-ink-muted">
+              {{ tr("research.progress_in_jobs") }}
+            </span>
+            <span v-else-if="awaitingStudio" class="text-xs text-ink-muted">
+              {{
+                tr("research.studio_cards_ready", {
+                  date: studioInvestigationDate,
+                })
+              }}
+            </span>
+            <span v-else class="text-xs text-ink-muted">
+              {{ reportTypeLabel(reportType) }} · {{ audienceLabel(audience) }}
+            </span>
+          </div>
+          <div
+            v-if="generationError"
+            class="w-full rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-ink-primary"
+          >
+            <div class="font-semibold text-danger">
+              {{ tr("research.generation_request_failed") }}
+            </div>
+            <p class="mt-1 text-ink-secondary">
+              {{ tr("research.generation_error_body") }}
+            </p>
+          </div>
         </div>
-        <select
-          v-model="reportType"
-          class="field focus-ring"
+        <div
+          class="segmented w-fit"
+          role="tablist"
+          :aria-label="tr('research.memo_stage_studio')"
         >
-          <option v-for="t in primaryReportTypes" :key="t" :value="t">
-            {{ reportTypeLabel(t) }}
-          </option>
-          <optgroup v-if="moreReportTypes.length" :label="tr('research.report_type_more')">
-            <option v-for="t in moreReportTypes" :key="t" :value="t">
-              {{ reportTypeLabel(t) }}
-            </option>
-          </optgroup>
-        </select>
-      </label>
-      <label v-if="generateOptionsOpen" class="min-w-[10rem] flex-1">
-        <div class="vogue-label mb-1.5">
-          {{ tr("research.label_audience") }}
+          <button
+            v-for="section in studioSections"
+            :key="section.id"
+            type="button"
+            class="segmented-item focus-ring"
+            :data-selected="studioSection === section.id"
+            :aria-selected="studioSection === section.id"
+            role="tab"
+            @click="setStudioSection(section.id)"
+          >
+            {{ section.label }}
+          </button>
         </div>
-        <select
-          v-model="audience"
-          class="field focus-ring"
-        >
-          <option v-for="a in options.audiences" :key="a" :value="a">
-            {{ audienceLabel(a) }}
-          </option>
-        </select>
-      </label>
-      <div
-        v-if="generationError"
-        class="mt-4 w-full rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-ink-primary"
-      >
-        <div class="font-semibold text-danger">
-          {{ tr("research.generation_request_failed") }}
-        </div>
-        <p class="mt-1 text-ink-secondary">
-          {{ tr("research.generation_error_body") }}
-        </p>
-      </div>
       </div>
     </section>
 
     <section
-      v-if="activeReport && activeTab === 'memo' && (memoStage === 'generate' || memoStage === 'preview')"
+      v-if="activeReport && activeTab === 'memo' && (memoStage === 'studio' || memoStage === 'preview')"
       class="rounded-card bg-surface shadow-card p-6"
     >
       <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -1596,7 +1751,7 @@ onUnmounted(stopPolling);
            the quality findings listed and Resume available to regenerate
            toward a clean memo. -->
       <div
-        v-if="isMemo && reportHasWarnings && memoStage === 'generate'"
+        v-if="isMemo && reportHasWarnings && memoStage === 'studio'"
         class="mt-6 rounded-lg border border-notice/40 bg-notice-soft/40 p-4 text-sm text-ink-primary"
       >
         <div class="font-semibold text-warning-ink mb-1">
@@ -1638,7 +1793,7 @@ onUnmounted(stopPolling);
       <div
         v-if="
           isMemo &&
-          memoStage === 'generate' &&
+          memoStage === 'studio' &&
           String(activeReport.status || '').startsWith('failed') &&
           activeReport.status !== 'failed_scope_check' &&
           !activeReport.dismissed_at
@@ -1721,7 +1876,7 @@ onUnmounted(stopPolling);
           </button>
           <button
             type="button"
-            @click="startMemoInvestigation"
+            @click="runStudioCta"
             :disabled="generating || resuming || dismissing"
             class="btn-bordered text-ink-muted disabled:cursor-not-allowed focus-ring"
           >
@@ -1772,13 +1927,16 @@ onUnmounted(stopPolling);
     />
 
     <MemoStudioEditor
-      v-if="canShowMemoStudio && activeTab === 'memo' && memoStage === 'edit'"
+      v-if="canShowMemoStudio && activeTab === 'memo' && memoStage === 'studio' && studioSection === 'basic'"
       :company-id="companyId"
+      :generate-available="awaitingStudio || studioRegenerateAvailable || studioGenerateRecoverable"
+      :generating="generating"
       @discuss="openMemoEditorDiscuss"
+      @generate="generateFromStudio"
     />
 
     <section
-      v-if="canShowMemoStudio && activeTab === 'memo' && memoStage === 'analysis'"
+      v-if="canShowMemoStudio && activeTab === 'memo' && memoStage === 'studio' && studioSection === 'advanced'"
       class="mt-6 rounded-card bg-surface shadow-card p-6"
     >
       <h2 class="font-display text-title3 text-ink-primary mb-1">
@@ -1794,7 +1952,7 @@ onUnmounted(stopPolling);
     </section>
 
     <section
-      v-if="company && activeTab === 'memo' && memoStage === 'notes'"
+      v-if="company && activeTab === 'memo' && memoStage === 'studio' && studioSection === 'notes'"
       class="rounded-card bg-surface shadow-card p-6"
     >
       <h2 class="font-display text-title3 text-ink-primary mb-1">

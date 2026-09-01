@@ -62,6 +62,8 @@ vi.mock("../src/api.js", () => ({
     listCompanyReports: vi.fn(),
     getReport: vi.fn(),
     generateReport: vi.fn(),
+    studioInvestigate: vi.fn(),
+    studioGenerate: vi.fn(),
     resumeReport: vi.fn(),
     addThread: vi.fn(),
     memoAnalysis: {
@@ -308,7 +310,10 @@ describe("route smoke tests", () => {
       },
     });
     api.options.mockResolvedValue({
-      report_types: ["Investment Memo (Late-Stage)"],
+      report_types: [
+        "Investment Report (Auto)",
+        "Investment Memo (Late-Stage)",
+      ],
       audiences: ["Internal"],
       languages: ["en"],
     });
@@ -419,7 +424,17 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).toContain("Core Memo Workflow");
   });
 
-  it("starts memo investigation from the report CTA", async () => {
+  it("starts a deep investigation from the studio CTA", async () => {
+    api.studioInvestigate.mockResolvedValue({
+      id: "studio-1",
+      kind: "investment_memo_latestage",
+      memo_mode: "studio",
+      status: "analyzing",
+      report_type: "Investment Report (Auto)",
+      audience: "Internal",
+      language: "en",
+      stage: "Deep investigation — running analysis passes",
+    });
     const wrapper = await mountRoute("/research/generalist");
     const memoTab = wrapper
       .findAll("button")
@@ -429,16 +444,16 @@ describe("route smoke tests", () => {
 
     const investigateButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === "Start investigation");
+      .find((button) => button.text() === "Start Deep Investigate");
     expect(investigateButton).toBeTruthy();
     await investigateButton.trigger("click");
     await flushPromises();
 
-    expect(api.memoAnalysis.runTool).toHaveBeenCalledWith(
-      "generalist",
-      "strategic_risk_mapper",
-    );
-    expect(wrapper.text()).toContain("Core Memo Workflow");
+    expect(api.studioInvestigate).toHaveBeenCalledWith({
+      company_id: "generalist",
+      report_type: "Investment Report (Auto)",
+    });
+    expect(api.generateReport).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
@@ -782,6 +797,15 @@ describe("route smoke tests", () => {
       resume_available: true,
       analysis_artifacts: [],
     });
+    api.studioInvestigate.mockResolvedValue({
+      id: "studio-2",
+      kind: "investment_memo_latestage",
+      memo_mode: "studio",
+      status: "analyzing",
+      report_type: "Investment Report (Auto)",
+      audience: "Internal",
+      language: "en",
+    });
     const wrapper = await mountRoute("/research/generalist?report=report-1");
     const redoButton = wrapper
       .findAll("button")
@@ -793,7 +817,9 @@ describe("route smoke tests", () => {
 
     expect(api.resumeReport).not.toHaveBeenCalled();
     expect(api.generateReport).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain("Core Memo Workflow");
+    // Redo in the default Studio Review mode starts a fresh deep
+    // investigation.
+    expect(api.studioInvestigate).toHaveBeenCalled();
     wrapper.unmount();
   });
 
@@ -817,9 +843,6 @@ describe("route smoke tests", () => {
     await memoTab.trigger("click");
     await flushPromises();
 
-    await wrapper.findAll("button")
-      .find((button) => button.text() === "Options")
-      .trigger("click");
     await wrapper.find("select").setValue("Investment Report");
     const generateButton = wrapper
       .findAll("button")

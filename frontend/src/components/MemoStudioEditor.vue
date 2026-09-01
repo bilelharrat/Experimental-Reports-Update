@@ -10,6 +10,8 @@ import {
   Download,
   Loader2,
   RefreshCw,
+  Sparkles,
+  X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { formatIsoDate, humanizeStatus } from "../formatters.js";
@@ -19,9 +21,11 @@ import MemoStudioBulletTree from "./memo/MemoStudioBulletTree.vue";
 
 const props = defineProps({
   companyId: { type: String, required: true },
+  generateAvailable: { type: Boolean, default: false },
+  generating: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["discuss"]);
+const emit = defineEmits(["discuss", "generate"]);
 const t = useT();
 
 const editor = ref(null);
@@ -91,6 +95,32 @@ function orderedCards(sectionId) {
       seen.add(signature);
       return true;
     });
+}
+
+const agentRun = computed(() => editor.value?.agent_run || null);
+const includedRiskCount = computed(
+  () => riskCards.value.filter((card) => card.included).length,
+);
+const riskCountWarning = computed(
+  () => includedRiskCount.value < 4 || includedRiskCount.value > 6,
+);
+
+const RATING_OPTIONS = Array.from({ length: 10 }, (_, i) => `${10 - i}/10`);
+const LIKELIHOOD_OPTIONS = ["High", "Medium", "Low"];
+
+function severityFromRating(rating) {
+  const value = Number.parseInt(String(rating || ""), 10);
+  if (!Number.isFinite(value)) return "medium";
+  if (value >= 8) return "high";
+  if (value >= 5) return "medium";
+  return "low";
+}
+
+function likelihoodLabel(value) {
+  if (value === "High") return t("memo.likelihood_high");
+  if (value === "Medium") return t("memo.likelihood_medium");
+  if (value === "Low") return t("memo.likelihood_low");
+  return value;
 }
 
 function cardTone(sectionId, card) {
@@ -173,6 +203,63 @@ async function moveCard(sectionId, card, direction) {
   } finally {
     savingId.value = "";
   }
+}
+
+const addingSection = ref("");
+const newCardTitle = ref("");
+
+function toggleAddCard(sectionId) {
+  if (addingSection.value === sectionId) {
+    addCard(sectionId);
+    return;
+  }
+  addingSection.value = sectionId;
+  newCardTitle.value = "";
+}
+
+async function addCard(sectionId) {
+  const title = newCardTitle.value.trim();
+  if (!title) {
+    addingSection.value = "";
+    return;
+  }
+  savingId.value = `add:${sectionId}`;
+  try {
+    applyState(
+      await api.memoEditor.addCard(props.companyId, sectionId, { title }),
+    );
+    newCardTitle.value = "";
+    addingSection.value = "";
+  } catch {
+    error.value = "action";
+  } finally {
+    savingId.value = "";
+  }
+}
+
+async function removeCard(sectionId, card) {
+  savingId.value = `remove:${sectionId}:${card.id}`;
+  try {
+    applyState(
+      await api.memoEditor.deleteCard(props.companyId, sectionId, card.id),
+    );
+  } catch {
+    error.value = "action";
+  } finally {
+    savingId.value = "";
+  }
+}
+
+async function setRiskRating(card, rating) {
+  await patchCard("risks_mitigations", card, {
+    agent_rating: rating,
+    // Keep the severity tone in sync with the pinned rating.
+    severity: severityFromRating(rating),
+  });
+}
+
+async function setRiskLikelihood(card, likelihood) {
+  await patchCard("risks_mitigations", card, { likelihood });
 }
 
 async function selectConclusion(option) {
@@ -293,7 +380,36 @@ async function setTaskStatus(task, status) {
           <Download v-else class="h-4 w-4" />
           {{ t("memo.export") }}
         </button>
+        <button
+          v-if="generateAvailable"
+          type="button"
+          @click="emit('generate')"
+          :disabled="generating || loading"
+          class="btn-filled rounded-full px-4 py-2 text-xs font-semibold disabled:opacity-60 focus-ring"
+        >
+          <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
+          <Sparkles v-else class="h-4 w-4" />
+          {{ t("memo.generate_report") }}
+        </button>
       </div>
+    </div>
+
+    <div
+      v-if="agentRun"
+      class="mt-3 rounded-lg border border-subtle bg-surface-muted px-3 py-2 text-xs text-ink-secondary"
+    >
+      {{
+        t("memo.seeded_from_run", {
+          mode: agentRun.mode,
+          date: formatIsoDate(agentRun.seeded_at),
+        })
+      }}
+    </div>
+    <div
+      v-else-if="!loading && editor"
+      class="mt-3 rounded-lg border border-notice/40 bg-notice-soft/40 px-3 py-2 text-xs text-ink-secondary"
+    >
+      {{ t("memo.no_agent_seed") }}
     </div>
 
     <div v-if="loading" class="mt-5 flex items-center gap-2 text-sm text-ink-muted">
@@ -411,6 +527,20 @@ async function setTaskStatus(task, status) {
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-ink-muted">{{ t("memo.card_count", { count: thesisCards.length }) }}</span>
+            <input
+              v-if="addingSection === 'investment_thesis'"
+              v-model="newCardTitle"
+              :placeholder="t('memo.new_card_title')"
+              class="field focus-ring w-48 px-2 py-1 text-xs"
+              @keyup.enter="addCard('investment_thesis')"
+            />
+            <button
+              type="button"
+              @click="toggleAddCard('investment_thesis')"
+              class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
+            >
+              {{ addingSection === 'investment_thesis' ? t("memo.save_card") : t("memo.add_card") }}
+            </button>
             <button
               type="button"
               @click="rerunSection('investment_thesis')"
@@ -452,6 +582,14 @@ async function setTaskStatus(task, status) {
                   :aria-label="t('memo.move_card_down')"
                 >
                   <ArrowDown class="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  @click="removeCard('investment_thesis', card)"
+                  class="rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
+                  :aria-label="t('memo.remove_card')"
+                >
+                  <X class="h-3.5 w-3.5" />
                 </button>
               </div>
               <div class="min-w-0 flex-1">
@@ -495,7 +633,27 @@ async function setTaskStatus(task, status) {
             <h3 class="font-display text-[22px] font-bold text-ink-primary">{{ t("memo.risks") }}</h3>
           </div>
           <div class="flex items-center gap-2">
+            <span
+              v-if="riskCountWarning"
+              class="text-xs font-semibold text-warning-ink"
+            >
+              {{ t("memo.risk_count_hint", { count: includedRiskCount }) }}
+            </span>
             <span class="text-xs text-ink-muted">{{ t("memo.card_count", { count: riskCards.length }) }}</span>
+            <input
+              v-if="addingSection === 'risks_mitigations'"
+              v-model="newCardTitle"
+              :placeholder="t('memo.new_card_title')"
+              class="field focus-ring w-48 px-2 py-1 text-xs"
+              @keyup.enter="addCard('risks_mitigations')"
+            />
+            <button
+              type="button"
+              @click="toggleAddCard('risks_mitigations')"
+              class="rounded-full border border-subtle bg-surface px-2 py-1 text-[11px] font-semibold text-ink-secondary hover:bg-surface-muted focus-ring"
+            >
+              {{ addingSection === 'risks_mitigations' ? t("memo.save_card") : t("memo.add_card") }}
+            </button>
             <button
               type="button"
               @click="rerunSection('risks_mitigations')"
@@ -538,6 +696,14 @@ async function setTaskStatus(task, status) {
                 >
                   <ArrowDown class="h-3.5 w-3.5" />
                 </button>
+                <button
+                  type="button"
+                  @click="removeCard('risks_mitigations', card)"
+                  class="rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
+                  :aria-label="t('memo.remove_card')"
+                >
+                  <X class="h-3.5 w-3.5" />
+                </button>
               </div>
               <div class="min-w-0 flex-1">
                 <button
@@ -556,6 +722,34 @@ async function setTaskStatus(task, status) {
                   <ChevronDown v-if="card.expanded" class="h-4 w-4 text-ink-muted" />
                   <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
                 </button>
+                <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                  <label class="flex items-center gap-1 text-ink-muted">
+                    {{ t("memo.rating") }}
+                    <select
+                      :value="card.agent_rating || ''"
+                      @change="setRiskRating(card, $event.target.value)"
+                      class="field focus-ring w-20 px-1.5 py-0.5 text-[11px]"
+                    >
+                      <option value="">—</option>
+                      <option v-for="option in RATING_OPTIONS" :key="option" :value="option">
+                        {{ option }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="flex items-center gap-1 text-ink-muted">
+                    {{ t("memo.likelihood") }}
+                    <select
+                      :value="card.likelihood || ''"
+                      @change="setRiskLikelihood(card, $event.target.value)"
+                      class="field focus-ring w-24 px-1.5 py-0.5 text-[11px]"
+                    >
+                      <option value="">—</option>
+                      <option v-for="option in LIKELIHOOD_OPTIONS" :key="option" :value="option">
+                        {{ likelihoodLabel(option) }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
                 <MemoStudioBulletTree
                   v-if="card.expanded"
                   class="mt-3"

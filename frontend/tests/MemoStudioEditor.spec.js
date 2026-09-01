@@ -11,6 +11,8 @@ const m = vi.hoisted(() => ({
   rerunSection: vi.fn(),
   patchAppendixBlock: vi.fn(),
   exportProjection: vi.fn(),
+  addCard: vi.fn(),
+  deleteCard: vi.fn(),
   history: vi.fn(),
   createTask: vi.fn(),
   updateTask: vi.fn(),
@@ -345,5 +347,78 @@ describe("MemoStudioEditor", () => {
     expect(wrapper.text()).toContain("Export blocked");
     expect(wrapper.text()).toContain("50% source coverage");
     expect(wrapper.text()).toContain("$50M");
+  });
+
+  it("wires the studio flow: provenance, generate, rating pins, card CRUD", async () => {
+    const seeded = baseState();
+    seeded.agent_run = {
+      report_id: "abc123",
+      run_id: "r1",
+      mode: "studio",
+      seeded_at: "2026-09-01T08:00:00Z",
+    };
+    m.get.mockResolvedValue(seeded);
+    m.patchCard.mockResolvedValue(seeded);
+    m.addCard.mockResolvedValue(seeded);
+    m.deleteCard.mockResolvedValue(seeded);
+    const wrapper = mount(MemoStudioEditor, {
+      props: { companyId: "zainar-inc", generateAvailable: true },
+    });
+    await flushPromises();
+
+    // Provenance banner names the seeding run.
+    expect(wrapper.text()).toContain("studio");
+    expect(wrapper.text()).toContain("Cards seeded by the");
+
+    // The header Generate button emits up to the Report view.
+    const generateButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Generate report");
+    expect(generateButton).toBeTruthy();
+    await generateButton.trigger("click");
+    expect(wrapper.emitted("generate")).toBeTruthy();
+
+    // Editing a risk rating pins it (and keeps severity in sync).
+    const ratingSelect = wrapper
+      .findAll("select")
+      .find((select) =>
+        select
+          .findAll("option")
+          .some((option) => option.text() === "10/10"),
+      );
+    expect(ratingSelect).toBeTruthy();
+    await ratingSelect.setValue("9/10");
+    await flushPromises();
+    expect(m.patchCard).toHaveBeenCalledWith(
+      "zainar-inc",
+      "risks_mitigations",
+      expect.any(String),
+      { agent_rating: "9/10", severity: "high" },
+    );
+
+    // Add card: reveal the title input, type, save.
+    const addButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Add card");
+    await addButton.trigger("click");
+    const titleInput = wrapper.find("input[placeholder='New card title']");
+    expect(titleInput.exists()).toBe(true);
+    await titleInput.setValue("Key-person dependency");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Save card")
+      .trigger("click");
+    await flushPromises();
+    expect(m.addCard).toHaveBeenCalledWith(
+      "zainar-inc",
+      "investment_thesis",
+      { title: "Key-person dependency" },
+    );
+
+    // Remove card.
+    await wrapper.find("button[aria-label='Remove card']").trigger("click");
+    await flushPromises();
+    expect(m.deleteCard).toHaveBeenCalled();
+    wrapper.unmount();
   });
 });
