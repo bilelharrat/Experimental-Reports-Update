@@ -16,14 +16,18 @@ branch `report-speedup-r2`. Three docs cover this system:
 
 All agents are `claude -p` subprocesses (`--permission-mode
 bypassPermissions`, stream-json, `--json-schema`). They have the full
-tool set, including web search — nothing fences retrieval (see §6,
+tool set, including web search — nothing fences retrieval (see §5,
 "fact lottery"). Cost/duration flow through progress side-channels;
 every worker gets a thread row and `phase_timing` events.
 
 ### Phase 1 — bootstrap (seconds)
 
 Run folder, registry entry (`companies.yaml`), scope check. No AI at
-run time.
+run time. If `data/research/<slug>/fact_ledger.md` exists (the curated
+per-company fact ledger, Round 4), a `memo_fact_ledger` stage records
+that it will be injected downstream
+(`claude_runner.load_memo_fact_ledger`; kill switch
+`BSH_MEMO_FACT_LEDGER=0`; 6,000-char cap).
 
 ### Phase 2 — 8 analysis passes (~2.3–6.3 m, gated by slowest pass)
 
@@ -39,11 +43,20 @@ when the speculative spine is on.
 
 ### Phase 2.5 — speculation (`claude_runner.SpeculativeEnglish`)
 
-Flags: `BSH_MEMO_SPINE_SPECULATIVE=1` (+`_AFTER`, default 6 of 8) and
+Flags: `BSH_MEMO_SPINE_SPECULATIVE=1` (+`_AFTER`, default 6 of 8;
++`_REQUIRE`, default the pin-feeding passes) and
 `BSH_MEMO_SECTION_EARLY_START=1` (requires the former).
 
-- At the threshold, the spine launches with the not-yet-finished passes
-  named in its prompt (`speculative_missing`).
+- Launch condition (pin-affine since Round 4): the count threshold AND
+  every pass in `MEMO_SPINE_PIN_FEEDING_PASSES`
+  (`arithmetic_denominators`, `time_base`, `growth_bridge`) completed —
+  either outcome; a failed pass has nothing left to wait for. If the
+  count is met but a required pass is still running, a one-time
+  `memo_spine_speculation_holding` stage fires and the spine waits;
+  when the pin passes are dead last it launches with nothing late and
+  the run degrades cleanly to normal spine timing. The spine launches
+  with the not-yet-finished passes named in its prompt
+  (`speculative_missing`).
 - On spine success the coordinator validates the skeleton shape, writes
   `logs/english_units/spine.json`, fires the zh chaser's envelope hook,
   and launches any section whose affine passes are done
@@ -57,11 +70,13 @@ Flags: `BSH_MEMO_SPINE_SPECULATIVE=1` (+`_AFTER`, default 6 of 8) and
   - **stale / any failure** → early drafts discarded
     (`memo_early_sections_discarded`), fresh spine respin
     ("English spine (respin)"), full wave.
-- Observed live (4 draws): fresh 2/2 on zainar (thin private corpus),
-  stale 2/2 on nvda (rich public corpus — and the slow passes are
-  exactly the pin-feeding ones). Stale costs ~4 m + ~$4–5 and both
-  times produced a materially better pin sheet. See §6 for the queued
-  pin-affine launch fix.
+- Observed live (4 draws, pre-pin-affine): fresh 2/2 on zainar (thin
+  private corpus), stale 2/2 on nvda (rich public corpus — and the slow
+  passes were exactly the pin-feeding ones). Stale costs ~4 m + ~$4–5
+  and both times produced a materially better pin sheet. The Round-4
+  pin-affine gate above exists to convert that class of stale draw into
+  a wait; the delta check stays armed for pin-relevant facts arriving
+  from non-required passes.
 
 ### Phase 3 — parallel English (`claude_runner.run_memo_fast_english_package_parallel`)
 
@@ -161,16 +176,20 @@ pin echo, gates).
 | `BSH_MEMO_ENGLISH_SECTION_WORKERS` (6) | wave pool |
 | `BSH_MEMO_ARTIFACTS_ASYNC` (0) | detach artifacts agent |
 | `BSH_MEMO_SPINE_SPECULATIVE` (0), `BSH_MEMO_SPINE_SPECULATE_AFTER` (6) | early spine + delta check |
+| `BSH_MEMO_SPINE_SPECULATE_REQUIRE` (pin-feeding passes) | pin-affine launch gate; `none` = count-only |
 | `BSH_MEMO_SECTION_EARLY_START` (0) | affinity early sections |
 | `BSH_MEMO_PIN_CHECK` (1), `BSH_MEMO_PIN_CHECK_REPAIR` (0) | pin echo; feed repair |
+| `BSH_MEMO_FACT_LEDGER` (1) | inject `data/research/<slug>/fact_ledger.md` into passes + spine (file presence is the real switch) |
 | `BSH_MEMO_SECTIONAL_REPAIR` (0) | hybrid per-section + envelope repair |
 | `BSH_MEMO_ZH_CHASING` (0), `BSH_MEMO_ZH_CHASE_WORKERS` (4), `BSH_MEMO_ZH_CHASE_JOIN_TIMEOUT_SEC` (900) | chasing |
 | `BSH_MEMO_ZH_COMPACT` (0), `BSH_MEMO_ZH_SPLIT_CHARS` (20000) | compact translation + split |
 | `BSH_MEMO_MODEL`/`BSH_MEMO_EFFORT` + `_{ROLE}` | per-role model/effort; roles: ANALYSIS_PASS, ENGLISH, SPINE, SECTION, ARTIFACTS, SPINE_CHECK, TRANSLATION, REPAIR |
 
-Live `.env` today: parallel + chasing + artifacts async + sectional
-repair + speculation + zh compact, `MODEL_TRANSLATION=claude-sonnet-5`,
-`EFFORT_TRANSLATION=medium`.
+Live `.env` today (2026-08-31): parallel + chasing + artifacts async +
+sectional repair + speculation + zh compact + **pin repair armed**
+(`BSH_MEMO_PIN_CHECK_REPAIR=1`), `MODEL_TRANSLATION=claude-sonnet-5`,
+`EFFORT_TRANSLATION=medium`. Fact ledgers seeded for `zainar-inc` and
+`nvda`.
 
 ## 3. THE SECTION-CHANGE MAP
 
@@ -258,6 +277,7 @@ structure-pinning tests fail loudly), then one live validation run.
 | 1 | Spine-lite (+cache sharing), Sonnet translation, zh chasing, workers 8, lint alignment | nvda ~30 m, zainar 22.5–22.9 m |
 | 2 | Artifacts detach, pin-echo check, sectional→hybrid repair, speculative spine, early sections | zainar 16.6–18.9 m; repair rounds 9.3 m → 1.4–2.0 m |
 | 3 | Compact zh translation, effort medium, style note, big-unit split | zainar **12.9 m**, nvda **18.1 m** (D-config) |
+| 4 | Pin-affine spine launch, fact ledger, pin-repair armed | shipped 2026-08-31, live validation pending (ledger resets baselines) |
 
 Full run records and decision logs: `docs/memo-benchmarks.md`. The
 recurring design pattern: **speculate on partial input, verify cheaply,
@@ -271,39 +291,44 @@ merge, schema-enforced counts) making the speculation safe.
   before English acceptance; render is ~1 s.
 - Phase-2 pass durations vary run-to-run more than most optimizations
   (1.3–10.8 m slowest-pass observed) — judge variants at phase level.
-- **Fact lottery**: headline commercial facts (e.g. zainar's April
-  $500M+/95+ update) exist in no on-disk corpus and enter runs only
-  via per-pass web retrieval. 3 of 4 zainar runs missed them. The
-  delta check partially nets this on the speculative path only.
+- **Fact lottery** (addressed in Round 4): headline commercial facts
+  (e.g. zainar's $500M+/95+ revision) existed in no on-disk corpus and
+  entered runs only via per-pass web retrieval — 3 of 4 zainar runs
+  missed them. The fact ledger (§1 Phase 1, §2) is the durable fix;
+  the delta check remains a partial net on the speculative path for
+  facts newer than the ledger. Keep ledgers dated and current — a
+  stale ledger is a new way to pin an old number.
 - Repair rounds fire on roughly half of runs, always for genuine
   voice/disclosure findings since the lint alignment; the hybrid path
   has handled every one since it shipped.
 - Pin echo: 22 checked / 0 findings on six consecutive live runs.
 
-## 6. Queued work (agreed 2026-08-28, not built)
+## 6. Queued work
 
-1. **Pin-affine spine launch** — launch the speculative spine when the
-   pin-feeding passes (arithmetic_denominators, growth_bridge,
-   time_base) are done, instead of any 6 of 8. Motivated by nvda's 2/2
-   stale draws, both caused by exactly those passes finishing late.
-2. **Fact ledger** — a durable dated home for headline commercial
-   facts that the spine always reads; kills the fact lottery. Freeze
-   ledger state inside benchmark comparisons (rule recorded in
-   memo-benchmarks.md).
-3. **Pin-repair arming** — `BSH_MEMO_PIN_CHECK_REPAIR=1` after the
-   clean streak; watch the first fed run closely.
-4. Chase eviction on respin (rare-path; today stale respins strand
-   chase output and gap-fill absorbs it).
-5. More D-vs-E testing (fresh-branch speculation on a slow-pass run is
-   still unobserved on nvda).
-6. Effort=low trial for translation; web-retrieval fencing via
+Shipped 2026-08-31 (Round 4, commits 9404039/ca0b061 + `.env`):
+**pin-affine spine launch** (launch gate now waits for the pin-feeding
+passes; `BSH_MEMO_SPINE_SPECULATE_REQUIRE`), **fact ledger**
+(`data/research/<slug>/fact_ledger.md`, seeded for zainar-inc and
+nvda), **pin-repair arming** (`BSH_MEMO_PIN_CHECK_REPAIR=1` in the live
+`.env`; watch the first run where a finding actually fires). Not yet
+validated live — see memo-benchmarks.md Round 4 for the validation
+plan, and note the ledger breaks comparability with pre-ledger runs.
+
+Still queued:
+
+1. Chase eviction on respin (rare-path; today stale respins strand
+   chase output and gap-fill absorbs it — rarer now that pin-affine
+   should prevent most stale respins).
+2. More D-vs-E testing (fresh-branch speculation on a slow-pass run is
+   still unobserved on nvda; post-ledger baselines needed anyway).
+3. Effort=low trial for translation; web-retrieval fencing via
    `--disallowedTools` if provenance tightening is wanted.
 
 ## 7. Code landmark index
 
 | File | What lives there |
 |---|---|
-| `server/claude_runner.py` | all agent calls and prompts; section ids/specs/contracts; parallel orchestrator; `AsyncArtifacts`; `SpeculativeEnglish` (+delta check); `BilingualChaser`; compact translation; hybrid repair; role/model/effort knobs |
+| `server/claude_runner.py` | all agent calls and prompts; section ids/specs/contracts; parallel orchestrator; `AsyncArtifacts`; `SpeculativeEnglish` (+delta check, pin-affine gate `MEMO_SPINE_PIN_FEEDING_PASSES`); `BilingualChaser`; compact translation; hybrid repair; fact ledger (`load_memo_fact_ledger`); role/model/effort knobs |
 | `server/memo_analysis.py` | pipeline driver: phases, attempt loop, gates, repairs wiring, pass specs, Phase-4 seam |
 | `server/memo_pin_check.py` | deterministic pin-echo checker |
 | `server/memo_quality_lint.py` | DOCX quality lint (voice/meta/disclosure rules) |

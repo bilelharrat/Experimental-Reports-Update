@@ -3785,6 +3785,11 @@ def test_phase2_launches_speculative_spine_and_threads_it_into_phase3(
     monkeypatch.setenv("BSH_MEMO_FAST_PIPELINE", "1")
     monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATIVE", "1")
+    # Count-only launch: the fake passes complete in arbitrary thread
+    # order, so the pin-affine gate would make the launch point (and the
+    # late-pass count asserted below) nondeterministic. The gate has its
+    # own tests in test_memo_speculative_spine.py.
+    monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", "none")
     monkeypatch.delenv("BSH_MEMO_GENERATE_INTERNAL", raising=False)
     monkeypatch.delenv("BSH_MEMO_RENDER_PDF_PREVIEWS", raising=False)
     report, run_dir = _make_memo_report(memo_env)

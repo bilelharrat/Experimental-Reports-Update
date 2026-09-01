@@ -250,6 +250,10 @@ def test_summary_lines_map_to_owning_sections():
 
 def test_run_memo_pin_check_writes_report_and_emits(tmp_path, monkeypatch):
     monkeypatch.delenv("BSH_MEMO_PIN_CHECK", raising=False)
+    # server.main loads the machine-local .env into os.environ when any
+    # test imports it; pin the repair flag so an armed .env (it is armed
+    # since Round 4) cannot flip repair_feed under this test.
+    monkeypatch.delenv("BSH_MEMO_PIN_CHECK_REPAIR", raising=False)
     run_dir = tmp_path / "memo-run"
     units = run_dir / "logs" / "english_units"
     units.mkdir(parents=True)

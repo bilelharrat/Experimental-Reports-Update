@@ -432,3 +432,31 @@ Run E_v3 source: `data/memos/nvda/2026-08-28__232025__nvda__memo-run`.
   while keeping most of the overlap. Alternative operator choices:
   keep speculation ON everywhere and treat the stale branch as a paid
   automatic pin-review; or disable it for public companies.
+
+## Round 4 — pin-affine launch, fact ledger, pin-repair arming (2026-08-31)
+
+Three changes shipped together (commits 9404039, ca0b061, plus a
+machine-local `.env` flip). No new benchmark rows yet — validation run
+queued below.
+
+| Change | What it does | Why |
+|---|---|---|
+| Pin-affine spine launch (code, default-on with speculation) | The speculative spine now waits for the pin-feeding passes (`arithmetic_denominators`, `time_base`, `growth_bridge`) on top of the 6-of-8 count. `BSH_MEMO_SPINE_SPECULATE_REQUIRE` overrides; `none` restores count-only. One-time `memo_spine_speculation_holding` stage when the gate holds past the count. A failed required pass counts as satisfied. | Stale 2/2 on nvda, both traced to exactly these passes finishing last. When they are last the spine now waits → E-config degrades to D timing instead of paying ~4 m + $4-5 for a stale respin. Zainar keeps its fresh head start (its pin passes finish early). Delta check stays armed as the net for pin-relevant facts from other passes. |
+| Fact ledger (code + seeded data) | `data/research/<slug>/fact_ledger.md` — hand-maintained dated headline facts — is injected verbatim into all 8 analysis passes, the spine (both paths), and the monolithic fallback. NOT in the shared section context: pins stay the only fact channel into sections. Kill switch `BSH_MEMO_FACT_LEDGER=0`; 6,000-char cap; `memo_fact_ledger` stage + phase-report line record it per run. Seeded: zainar-inc (2026-02-19 launch $450M+/90+ patents; 2026-04-20 Tokyo GX selection; 2026-06-13 revision $500M+/95+ patents) and nvda (2026-07-26 10-Q: $108.5B guarantee exposure, 70% receivables concentration up from 56%, ~$279B supply commitments; 2026-08-26 Q2 results pointer). | The fact lottery: 3 of 4 zainar runs missed the $500M+ revision because it existed in no on-disk corpus and only entered via lucky per-pass web retrieval. Quality should not depend on the draw. |
+| Pin-repair armed (`.env` only) | `BSH_MEMO_PIN_CHECK_REPAIR=1`: pin-echo findings now feed the repair loop (routed per-section by the hybrid repair; post-repair re-check already wired). | 22 pins / 0 findings across six consecutive live runs since the matcher fix; a false alarm now costs a ~1-2 m sectional repair, not a 9 m whole-package round. Watch the first run where a finding actually fires. |
+
+**Comparison discipline update (important):** the fact ledger is an
+input. Every run from here on that has a ledger on disk is NOT
+comparable to the pre-ledger rows above. New baselines start at the
+next validation runs; freeze ledger content within any A-vs-B pair and
+log ledger edits like data changes.
+
+### Validation plan (next runs)
+
+One zainar E-config run checks all three at once: spine launch timing
+vs the holding stage (zainar's pin passes usually finish early, so
+expect a normal speculative launch), the $500M+/95+ facts present
+without lucky retrieval, pin repair presumably quiet. Then nvda
+E-config: expect the holding stage to fire and the spine to launch
+late-but-fresh (or degrade to D timing when the pin passes are dead
+last) — the stale respin should disappear.
