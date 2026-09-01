@@ -496,8 +496,12 @@ Run G source: `data/memos/zainar-inc/2026-09-01__054233__zainar-inc__memo-run`.
   repair (3.7 m longest) + chase strandings from the respin (62
   strings adopted; compact gap-fill absorbed the rest). This is also
   the first post-ledger run — new baseline territory either way.
-- **Proposed next knob (zero code):**
-  `BSH_MEMO_SPINE_SPECULATE_REQUIRE=arithmetic_denominators,time_base,growth_bridge,competitive_rights`.
-  On this draw it would have added 18 s of waiting and avoided the
-  ~5 m respin. Promote to the code default if it holds over a few
-  draws.
+- **Decision (user, 2026-09-01): gate widened.**
+  `BSH_MEMO_SPINE_SPECULATE_REQUIRE=arithmetic_denominators,time_base,growth_bridge,competitive_rights`
+  is now set in the live `.env` (on this draw it would have added 18 s
+  of waiting and avoided the ~5 m respin). Promote to the code default
+  if it holds over a few draws. Operating target set by the user:
+  **zainar under 15 minutes.** With the stale path closed, the main
+  remaining threat to that target is the quality-repair round (a 3.7 m
+  financial repair pushed Run G's English tail; clean draws sit
+  ~12.9–13 m, repair draws ~14.5–16.5 m).
