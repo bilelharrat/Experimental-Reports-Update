@@ -222,22 +222,40 @@ const canResumeMemo = computed(() =>
       activeReport.value?.resume_available,
   ),
 );
-const latestResumableMemoReport = computed(() => {
+// The report to surface when none is deep-linked. A parked studio
+// investigation is durable state on disk (Phase-2 artifacts + spine in
+// the run folder): after a reload or server restart the next step is
+// still just "Generate Report", never a re-investigation. Failed studio
+// runs surface for the same reason (Generate again / re-investigate),
+// and resumable failures keep their existing behavior.
+const latestActionableMemoReport = computed(() => {
   const reports = Array.isArray(companyReports.value) ? companyReports.value : [];
-  return [...reports]
-    .filter(
-      (report) =>
-        report?.kind &&
-        isMemoKind(report.kind) &&
-        report?.resume_available &&
-        (String(report?.status || "").startsWith("failed") ||
-          String(report?.status || "") === "complete_with_warnings"),
-    )
-    .sort((a, b) =>
-      String(b.updated_at || b.created_at || "").localeCompare(
-        String(a.updated_at || a.created_at || ""),
-      ),
-    )[0] || null;
+  return (
+    [...reports]
+      .filter((report) => {
+        if (!report?.kind || !isMemoKind(report.kind)) return false;
+        if (report.dismissed_at || report.superseded_by) return false;
+        const status = String(report.status || "");
+        if (status === "awaiting_studio") return true;
+        if (
+          report.memo_mode === "studio" &&
+          status.startsWith("failed") &&
+          status !== "failed_scope_check"
+        ) {
+          return true;
+        }
+        return Boolean(
+          report.resume_available &&
+            (status.startsWith("failed") ||
+              status === "complete_with_warnings"),
+        );
+      })
+      .sort((a, b) =>
+        String(b.updated_at || b.created_at || "").localeCompare(
+          String(a.updated_at || a.created_at || ""),
+        ),
+      )[0] || null
+  );
 });
 const reportFailureTitle = computed(() => {
   const r = activeReport.value;
@@ -1201,7 +1219,7 @@ async function loadFromQuery() {
   } else {
     stopPolling();
     await loadCompanyReports();
-    const resumable = latestResumableMemoReport.value;
+    const resumable = latestActionableMemoReport.value;
     if (!resumable?.id) {
       activeReport.value = null;
       return;

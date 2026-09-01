@@ -823,6 +823,54 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
+  it("surfaces a parked studio investigation after a reload", async () => {
+    const parked = {
+      id: "studio-4",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Report (Auto)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      memo_mode: "studio",
+      status: "awaiting_studio",
+      progress: 55,
+      stage: "Investigation complete — review the studio cards",
+      studio_investigation: {
+        completed_at: "2026-09-01T20:02:51Z",
+        seeded_revision_id: "rev-0010",
+      },
+      updated_at: "2026-09-01T20:02:51Z",
+      run_dir: "data/memos/generalist/run",
+      resume_available: false,
+      analysis_artifacts: [],
+    };
+    api.listCompanyReports.mockResolvedValue([parked]);
+    api.getReport.mockResolvedValue(parked);
+
+    // Plain navigation, no ?report= — a fresh page after a restart.
+    const wrapper = await mountRoute("/research/generalist");
+    const memoTab = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Report");
+    await memoTab.trigger("click");
+    await flushPromises();
+
+    // The parked investigation is still the active context: the next
+    // step is Generate, not a fresh Deep Investigate.
+    expect(wrapper.text()).toContain("Cards ready");
+    const generateButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Generate Report");
+    expect(generateButton).toBeTruthy();
+    expect(
+      wrapper
+        .findAll("button")
+        .find((button) => button.text() === "Start Deep Investigate"),
+    ).toBeFalsy();
+    wrapper.unmount();
+  });
+
   it("defaults the Report tab to Studio after a document deep link", async () => {
     api.getReport.mockResolvedValue({
       id: "memo-1",
