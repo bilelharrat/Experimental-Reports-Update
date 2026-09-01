@@ -276,10 +276,12 @@ describe("UnifiedDocumentsView", () => {
     await vi.dynamicImportSettled();
     await flushPromises();
 
-    // The drawer is open on the memo's EN docx.
-    expect(wrapper.find("[role='dialog']").exists()).toBe(true);
+    // The drawer is open on the memo's EN docx (teleported to body).
+    expect(document.querySelector("[role='dialog']")).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith(
       "/api/reports/report-1/download?language=en",
     );
+    wrapper.unmount();
+    expect(document.querySelector("[role='dialog']")).toBeFalsy();
   });
 });

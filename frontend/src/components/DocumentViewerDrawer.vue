@@ -94,6 +94,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
+  <!-- Teleport: an ancestor with a transform/backdrop-filter turns
+       position:fixed into "fixed inside that ancestor"; rendering from
+       body keeps the drawer glued to the viewport everywhere. -->
+  <Teleport to="body">
   <div class="fixed inset-0 z-50" role="dialog" aria-modal="true">
     <div
       class="absolute inset-0 bg-black/30"
@@ -174,6 +178,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       </div>
     </aside>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

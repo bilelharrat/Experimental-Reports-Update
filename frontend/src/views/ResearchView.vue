@@ -1736,15 +1736,6 @@ onUnmounted(stopPolling);
         <!-- Download + preview row: both .docx files (always available
              once complete) plus a PDF preview when one was rendered. -->
         <div class="flex flex-wrap items-center gap-3">
-          <a
-            v-if="activeReport.download_urls?.en"
-            :href="withApiToken(activeReport.download_urls.en)"
-            class="btn-bordered focus-ring"
-          >
-            <FileText class="h-4 w-4" />
-            <span>{{ tr("research.download_en") }}</span>
-            <Download class="h-3.5 w-3.5 text-ink-muted" />
-          </a>
           <button
             v-if="activeReport.preview_urls?.en"
             type="button"
@@ -1754,15 +1745,6 @@ onUnmounted(stopPolling);
             <Eye class="h-4 w-4" />
             <span>{{ tr("research.preview_pdf_en") }}</span>
           </button>
-          <a
-            v-if="activeReport.download_urls?.zh"
-            :href="withApiToken(activeReport.download_urls.zh)"
-            class="btn-bordered focus-ring"
-          >
-            <FileText class="h-4 w-4" />
-            <span>{{ tr("research.download_zh") }}</span>
-            <Download class="h-3.5 w-3.5 text-ink-muted" />
-          </a>
           <button
             v-if="activeReport.preview_urls?.zh"
             type="button"
@@ -1772,15 +1754,6 @@ onUnmounted(stopPolling);
             <Eye class="h-4 w-4" />
             <span>{{ tr("research.preview_pdf_zh") }}</span>
           </button>
-          <a
-            v-if="activeReport.download_urls?.internal"
-            :href="withApiToken(activeReport.download_urls.internal)"
-            class="btn-bordered focus-ring"
-          >
-            <FileText class="h-4 w-4" />
-            <span>{{ tr("research.download_internal") }}</span>
-            <Download class="h-3.5 w-3.5 text-ink-muted" />
-          </a>
           <button
             v-if="activeReport.preview_urls?.internal"
             type="button"

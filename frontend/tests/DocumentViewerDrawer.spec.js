@@ -26,6 +26,7 @@ describe("DocumentViewerDrawer", () => {
       fetchResponse({ text: "# ZaiNar Notes\n\n- first point\n" }),
     );
     const wrapper = mount(DocumentViewerDrawer, {
+      global: { stubs: { teleport: true } },
       props: {
         title: "notes.md",
         sources: [{ key: "MD", url: "/files/notes.md", kind: "md" }],
@@ -44,6 +45,7 @@ describe("DocumentViewerDrawer", () => {
       fetchResponse({ text: "hello <script>window.pwned = 1</script>" }),
     );
     const wrapper = mount(DocumentViewerDrawer, {
+      global: { stubs: { teleport: true } },
       props: {
         sources: [{ key: "MD", url: "/files/sus.md", kind: "md" }],
       },
@@ -57,6 +59,7 @@ describe("DocumentViewerDrawer", () => {
   it("renders docx sources through docx-preview and switches tabs", async () => {
     fetch.mockResolvedValue(fetchResponse());
     const wrapper = mount(DocumentViewerDrawer, {
+      global: { stubs: { teleport: true } },
       props: {
         title: "Investment memo",
         sources: [
@@ -84,6 +87,7 @@ describe("DocumentViewerDrawer", () => {
   it("shows the error state when the fetch fails", async () => {
     fetch.mockResolvedValue(fetchResponse({ ok: false }));
     const wrapper = mount(DocumentViewerDrawer, {
+      global: { stubs: { teleport: true } },
       props: {
         sources: [{ key: "DOCX", url: "/dl/broken", kind: "docx" }],
       },
@@ -98,6 +102,7 @@ describe("DocumentViewerDrawer", () => {
   it("closes from the overlay and from Escape", async () => {
     fetch.mockResolvedValue(fetchResponse({ text: "x" }));
     const wrapper = mount(DocumentViewerDrawer, {
+      global: { stubs: { teleport: true } },
       props: {
         sources: [{ key: "MD", url: "/files/x.md", kind: "md" }],
       },

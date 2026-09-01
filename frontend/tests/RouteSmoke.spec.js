@@ -640,11 +640,11 @@ describe("route smoke tests", () => {
     await vi.dynamicImportSettled();
     await flushPromises();
 
-    expect(wrapper.find("[role='dialog']").exists()).toBe(true);
+    expect(document.querySelector("[role='dialog']")).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith(
       "/api/reports/report-1/download?artifact=analysis&file=claim_register.md",
     );
-    expect(wrapper.html()).toContain("<h1>Claim register</h1>");
+    expect(document.body.innerHTML).toContain("<h1>Claim register</h1>");
     wrapper.unmount();
   });
 
@@ -692,7 +692,9 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).not.toContain("sell_side_voice_violation");
     expect(wrapper.text()).not.toContain("The recommendation is Proceed if confirmed");
     expect(wrapper.text()).not.toContain("data/memos/generalist/run");
-    expect(hrefs).toContain("/api/reports/report-1/download?language=en");
+    // DOCX downloads moved to the Files tab; the Document view no longer
+    // renders its own download anchors.
+    expect(hrefs).not.toContain("/api/reports/report-1/download?language=en");
     wrapper.unmount();
   });
 
