@@ -86,11 +86,84 @@ function onKeydown(event) {
   if (event.key === "Escape") emit("close");
 }
 
+// ---- Horizontal resize ----------------------------------------------------
+// Drag the left edge to resize; double-click it to reset. null = the
+// default width (w-full max-w-3xl). The chosen width sticks per browser.
+
+const WIDTH_STORAGE_KEY = "bsh.docViewerWidth";
+const MIN_WIDTH = 380;
+
+function loadStoredWidth() {
+  try {
+    const stored = Number.parseInt(
+      localStorage.getItem(WIDTH_STORAGE_KEY) || "",
+      10,
+    );
+    return Number.isFinite(stored) && stored >= MIN_WIDTH ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+const panelWidth = ref(loadStoredWidth());
+let resizeStartX = 0;
+let resizeStartWidth = 0;
+
+function clampWidth(width) {
+  const max = Math.max(MIN_WIDTH, window.innerWidth - 60);
+  return Math.min(Math.max(width, MIN_WIDTH), max);
+}
+
+function onResizeMove(event) {
+  // Dragging left (smaller clientX) widens the right-anchored panel.
+  panelWidth.value = clampWidth(
+    resizeStartWidth + (resizeStartX - event.clientX),
+  );
+}
+
+function stopResize() {
+  window.removeEventListener("mousemove", onResizeMove);
+  window.removeEventListener("mouseup", stopResize);
+  document.body.style.removeProperty("cursor");
+  document.body.style.removeProperty("user-select");
+  if (panelWidth.value) {
+    try {
+      localStorage.setItem(WIDTH_STORAGE_KEY, String(panelWidth.value));
+    } catch {
+      // Best-effort persistence only.
+    }
+  }
+}
+
+function startResize(event) {
+  resizeStartX = event.clientX;
+  resizeStartWidth =
+    panelWidth.value ||
+    event.currentTarget?.parentElement?.getBoundingClientRect?.().width ||
+    768;
+  window.addEventListener("mousemove", onResizeMove);
+  window.addEventListener("mouseup", stopResize);
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+}
+
+function resetWidth() {
+  panelWidth.value = null;
+  try {
+    localStorage.removeItem(WIDTH_STORAGE_KEY);
+  } catch {
+    // Best-effort persistence only.
+  }
+}
+
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
   loadSource();
 });
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  stopResize();
+});
 </script>
 
 <template>
@@ -105,7 +178,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
     ></div>
     <aside
       class="doc-viewer-panel absolute inset-y-0 right-0 flex w-full max-w-3xl flex-col border-l border-subtle bg-surface shadow-card-raised"
+      :style="panelWidth ? { width: `${panelWidth}px`, maxWidth: 'none' } : null"
     >
+      <div
+        class="doc-viewer-resize absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize"
+        role="separator"
+        aria-orientation="vertical"
+        :aria-label="t('documents.viewer_resize')"
+        :title="t('documents.viewer_resize')"
+        @mousedown.prevent="startResize"
+        @dblclick="resetWidth"
+      ></div>
       <header class="flex items-center gap-3 border-b border-subtle px-4 py-3">
         <div class="min-w-0 flex-1">
           <div class="truncate text-sm font-semibold text-ink-primary">
@@ -184,6 +267,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 <style scoped>
 .doc-viewer-panel {
   animation: doc-viewer-slide-in 0.22s ease;
+}
+
+.doc-viewer-resize {
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+.doc-viewer-resize:hover,
+.doc-viewer-resize:active {
+  background: rgb(var(--color-accent) / 0.4);
 }
 
 @keyframes doc-viewer-slide-in {

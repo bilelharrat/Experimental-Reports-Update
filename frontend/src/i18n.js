@@ -271,6 +271,7 @@ const messages = {
     "documents.viewer_error":
       "This file could not be previewed here. Download it instead.",
     "documents.viewer_close": "Close viewer",
+    "documents.viewer_resize": "Drag to resize (double-click to reset)",
     "documents.export": "Export",
     "documents.close": "Close",
     "documents.source_class": "Source class",
@@ -1632,6 +1633,7 @@ const messages = {
     "documents.viewer_loading": "正在加载预览…",
     "documents.viewer_error": "此文件无法在线预览，请下载查看。",
     "documents.viewer_close": "关闭查看器",
+    "documents.viewer_resize": "拖动调整宽度（双击恢复默认）",
     "documents.export": "导出",
     "documents.close": "关闭",
     "documents.source_class": "来源类型",

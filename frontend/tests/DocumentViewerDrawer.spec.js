@@ -115,4 +115,35 @@ describe("DocumentViewerDrawer", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(wrapper.emitted("close")).toHaveLength(2);
   });
+
+  it("resizes from the left-edge handle and resets on double-click", async () => {
+    localStorage.removeItem("bsh.docViewerWidth");
+    fetch.mockResolvedValue(fetchResponse({ text: "x" }));
+    const wrapper = mount(DocumentViewerDrawer, {
+      global: { stubs: { teleport: true } },
+      props: {
+        sources: [{ key: "MD", url: "/files/x.md", kind: "md" }],
+      },
+    });
+    await flushPromises();
+
+    const handle = wrapper.find("[role='separator']");
+    expect(handle.exists()).toBe(true);
+    await handle.trigger("mousedown", { clientX: 800 });
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 650 }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await flushPromises();
+
+    // Dragging 150px left widens the default 768px panel to 918px
+    // (the clamp caps at window width minus a margin).
+    expect(wrapper.find("aside").attributes("style")).toContain("918px");
+    expect(localStorage.getItem("bsh.docViewerWidth")).toBe("918");
+
+    await handle.trigger("dblclick");
+    expect(wrapper.find("aside").attributes("style") || "").not.toContain(
+      "918px",
+    );
+    expect(localStorage.getItem("bsh.docViewerWidth")).toBeNull();
+    wrapper.unmount();
+  });
 });
