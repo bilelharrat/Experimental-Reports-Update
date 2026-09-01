@@ -1264,3 +1264,46 @@ def test_ensure_settings_file_copies_tracked_seed(tmp_path, monkeypatch):
     assert "Berkeley Summit House" in dest.read_text(encoding="utf-8")
     again = memo_prep.ensure_settings_file()
     assert again == dest
+
+
+# ---- "Investment Report (Auto)" — stage-calibrated report type ------------
+
+
+def test_auto_stage_type_is_a_memo_type():
+    assert memo_prep.is_memo_report_type(memo_prep.AUTO_STAGE_REPORT_TYPE)
+    assert memo_prep.is_auto_stage_report_type(memo_prep.AUTO_STAGE_REPORT_TYPE)
+    assert not memo_prep.is_buffett_report_type(memo_prep.AUTO_STAGE_REPORT_TYPE)
+
+
+def test_calibrate_only_softens_early_stage_reason():
+    assessment = memo_prep._assess_stage(
+        {"latest_funding": {"round": "Series A"}}, calibrate_only=True
+    )
+    assert assessment["outcome"] == "warn"
+    assert assessment["classification"] == "early-stage"
+    assert assessment["calibrate_only"] is True
+    assert "no stage gate" in assessment["reason"]
+    assert "calibrate" in assessment["reason"]
+
+
+def test_calibrate_only_softens_indeterminate_reason():
+    assessment = memo_prep._assess_stage({}, calibrate_only=True)
+    assert assessment["outcome"] == "warn"
+    assert assessment["classification"] == "indeterminate"
+    assert "no stage gate" in assessment["reason"]
+
+
+def test_calibrate_only_keeps_nonprofit_hard_failure():
+    assessment = memo_prep._assess_stage(
+        {"status": "nonprofit"}, calibrate_only=True
+    )
+    assert assessment["outcome"] == "fail"
+
+
+def test_calibrate_only_keeps_late_stage_pass_untouched():
+    plain = memo_prep._assess_stage({"latest_funding": {"round": "Series D"}})
+    calibrated = memo_prep._assess_stage(
+        {"latest_funding": {"round": "Series D"}}, calibrate_only=True
+    )
+    assert calibrated["outcome"] == "pass"
+    assert calibrated["reason"] == plain["reason"]

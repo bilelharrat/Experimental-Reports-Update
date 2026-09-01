@@ -617,3 +617,81 @@ def test_bootstrap_dispatches_studio_worker(studio_env, monkeypatch):
         )
     with pytest.raises(ValueError):
         memo_prep.bootstrap_memo_run("generalist-inc", memo_mode="banana")
+
+
+# ---- "Investment Report (Auto)" plumbing ----------------------------------
+
+
+def test_auto_stage_bootstrap_keeps_latestage_kind(studio_env, monkeypatch):
+    started: list[str] = []
+    monkeypatch.setattr(memo_analysis, "start_analysis", started.append)
+    result = memo_prep.bootstrap_memo_run(
+        "generalist-inc", report_type=memo_prep.AUTO_STAGE_REPORT_TYPE
+    )
+    assert not result["failed"]
+    record = storage.get_report(result["report_id"])
+    assert record["report_type"] == memo_prep.AUTO_STAGE_REPORT_TYPE
+    assert record["kind"] == memo_prep.LATESTAGE_KIND
+    assert record["report_flavor"] == "auto_stage"
+    # generalist-inc has no stage signal → calibration guidance, not a gate.
+    assert record["scope_check"]["calibrate_only"] is True
+    assert "no stage gate" in record["scope_check"]["reason"]
+    assert started == [result["report_id"]]
+
+
+def test_post_report_maps_legacy_investment_report(studio_env, monkeypatch):
+    captured: dict = {}
+
+    def fake_bootstrap(company_id, **kw):
+        captured.update(kw, company_id=company_id)
+        report = storage.create_report_record(
+            company_id=company_id,
+            report_type=kw["report_type"],
+            audience="Internal",
+            language="en",
+            kind=memo_prep.LATESTAGE_KIND,
+            status="ready_for_analysis",
+        )
+        return {"failed": False, "report_id": report["id"]}
+
+    monkeypatch.setattr(memo_prep, "bootstrap_memo_run", fake_bootstrap)
+    client = TestClient(app)
+    response = client.post(
+        "/api/reports",
+        json={
+            "company_id": "generalist-inc",
+            "report_type": "Investment Report",
+            "audience": "Internal",
+            "language": "en",
+        },
+    )
+    assert response.status_code == 201, response.text
+    # The legacy stub type now routes into the real memo pipeline as Auto.
+    assert captured["report_type"] == memo_prep.AUTO_STAGE_REPORT_TYPE
+
+
+def test_studio_investigate_carries_report_type(studio_env, monkeypatch):
+    started: list[str] = []
+    monkeypatch.setattr(memo_analysis, "start_investigation", started.append)
+    client = TestClient(app)
+    response = client.post(
+        "/api/memos/studio/investigate",
+        json={
+            "company_id": "generalist-inc",
+            "report_type": memo_prep.AUTO_STAGE_REPORT_TYPE,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["report_type"] == memo_prep.AUTO_STAGE_REPORT_TYPE
+    assert body["memo_mode"] == "studio"
+    assert started == [body["id"]]
+    # Buffett is One-Click only.
+    response = client.post(
+        "/api/memos/studio/investigate",
+        json={
+            "company_id": "generalist-inc",
+            "report_type": memo_prep.BUFFETT_REPORT_TYPE,
+        },
+    )
+    assert response.status_code == 400

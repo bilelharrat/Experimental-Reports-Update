@@ -671,9 +671,9 @@ def change_password(
     return LoginResponse(**session, must_reset=False)
 
 REPORT_TYPES = (
+    "Investment Report (Auto)",
     "Investment Memo (Late-Stage)",
     "Buffett Investment Memo",
-    "Investment Report",
     "Background",
     "Financial Analysis",
     "Market Analysis",
@@ -816,6 +816,7 @@ class MemoStudioInvestigateRequest(BaseModel):
     Studio deep investigation (Phases 1-2 plus the studio spine); the run
     parks at ``awaiting_studio`` for card review."""
     company_id: str
+    report_type: str | None = None
     analysis_session_id: str | None = None
 
 
@@ -2307,6 +2308,10 @@ def _supersede_stale_memo_failures(company_id: str, new_report_id: str | None) -
 @router.post("/reports", status_code=201)
 def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
     _require_permission(request, "tasks:action")
+    # The stub "Investment Report" type became the real, stage-calibrated
+    # memo pipeline; map the legacy string so stale UI builds keep working.
+    if payload.report_type == "Investment Report":
+        payload.report_type = memo_prep.AUTO_STAGE_REPORT_TYPE
     base_event = {
         "company_id": payload.company_id,
         "report_type": payload.report_type,
@@ -2949,6 +2954,16 @@ def post_memo_studio_investigate(
     _require_permission(request, "tasks:action")
     if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
         raise HTTPException(status_code=409, detail=_STUDIO_NEEDS_PARALLEL_DETAIL)
+    report_type = payload.report_type or memo_prep.AUTO_STAGE_REPORT_TYPE
+    if report_type == "Investment Report":
+        report_type = memo_prep.AUTO_STAGE_REPORT_TYPE
+    if not memo_prep.is_memo_report_type(
+        report_type
+    ) or memo_prep.is_buffett_report_type(report_type):
+        raise HTTPException(
+            status_code=400,
+            detail="report_type is not available for Memo Studio",
+        )
     company = storage.get_company(payload.company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
@@ -2962,6 +2977,7 @@ def post_memo_studio_investigate(
         result = memo_prep.bootstrap_memo_run(
             payload.company_id,
             analysis_session_id=payload.analysis_session_id,
+            report_type=report_type,
             memo_mode="studio",
         )
     except memo_prep.AnalysisSessionNotReadyError as exc:

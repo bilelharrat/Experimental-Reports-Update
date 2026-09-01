@@ -57,6 +57,11 @@ BUFFETT_SKILL_NAME = "bsh-buffett-investment-memo-v1"
 BUFFETT_SKILL_VERSION = 1
 MEMO_KINDS = frozenset({LATESTAGE_KIND, BUFFETT_KIND})
 
+# "Investment Report (Auto)": the same late-stage pipeline and kind, but
+# the stage classification is guidance, not a gate — agents determine the
+# company's actual stage (early, late, post-IPO) and calibrate.
+AUTO_STAGE_REPORT_TYPE = "Investment Report (Auto)"
+
 
 def is_memo_kind(kind: str | None) -> bool:
     return kind in MEMO_KINDS
@@ -70,8 +75,16 @@ def is_buffett_report_type(report_type: str | None) -> bool:
     return report_type == BUFFETT_REPORT_TYPE
 
 
+def is_auto_stage_report_type(report_type: str | None) -> bool:
+    return report_type == AUTO_STAGE_REPORT_TYPE
+
+
 def is_memo_report_type(report_type: str | None) -> bool:
-    return report_type in {REPORT_TYPE, BUFFETT_REPORT_TYPE}
+    return report_type in {
+        REPORT_TYPE,
+        BUFFETT_REPORT_TYPE,
+        AUTO_STAGE_REPORT_TYPE,
+    }
 
 
 def _env_flag(name: str, *, default: bool = False) -> bool:
@@ -133,13 +146,35 @@ def _parse_funding_usd(raw: Any) -> float | None:
     return val
 
 
-def _assess_stage(company: dict) -> dict:
+def _assess_stage(company: dict, *, calibrate_only: bool = False) -> dict:
     """Best-effort late-stage / pre-IPO classifier.
 
     Returns ``{outcome, classification, reason, signals}`` where ``outcome``
     is ``pass`` (proceed), ``fail`` (hard refuse), or ``warn`` (proceed
     with a recorded scope warning).
+
+    ``calibrate_only`` (the "Investment Report (Auto)" type): the
+    classification is guidance rather than a stage gate — early-stage and
+    indeterminate reasons become neutral calibration instructions for the
+    agents. The nonprofit hard failure stays either way.
     """
+    assessment = _classify_stage(company)
+    if calibrate_only:
+        assessment = {**assessment, "calibrate_only": True}
+        if assessment["outcome"] == "warn":
+            classification = assessment.get("classification") or "indeterminate"
+            signals = ", ".join(assessment.get("signals") or []) or "none"
+            assessment["reason"] = (
+                f"Stage classification: {classification} (signals: "
+                f"{signals}). This report type carries no stage gate — "
+                "determine the company's actual stage (early, late, or "
+                "post-IPO) from the evidence and calibrate source depth, "
+                "unit economics, and valuation framing to it."
+            )
+    return assessment
+
+
+def _classify_stage(company: dict) -> dict:
     status = (company.get("status") or "").strip().lower()
     if status == "nonprofit":
         return {
@@ -445,7 +480,15 @@ def bootstrap_memo_run(
         raise ValueError(
             "Memo Studio investigation is not available for Buffett memos"
         )
-    selected_report_type = BUFFETT_REPORT_TYPE if buffett else REPORT_TYPE
+    auto_stage = is_auto_stage_report_type(report_type)
+    if buffett:
+        selected_report_type = BUFFETT_REPORT_TYPE
+    elif auto_stage:
+        selected_report_type = AUTO_STAGE_REPORT_TYPE
+    else:
+        selected_report_type = REPORT_TYPE
+    # Auto-stage keeps the late-stage KIND on purpose: the pipeline is
+    # identical and every kind gate (recovery, resume, rail) stays valid.
     selected_kind = BUFFETT_KIND if buffett else LATESTAGE_KIND
     selected_skill = BUFFETT_SKILL_NAME if buffett else SKILL_NAME
     selected_skill_version = BUFFETT_SKILL_VERSION if buffett else SKILL_VERSION
@@ -457,11 +500,12 @@ def bootstrap_memo_run(
         if buffett
         else f"Investment memo — {company_name}"
     )
-    job_subtitle = (
-        "Owner's investment analysis"
-        if buffett
-        else "Late-stage / pre-IPO"
-    )
+    if buffett:
+        job_subtitle = "Owner's investment analysis"
+    elif auto_stage:
+        job_subtitle = "Stage-calibrated (auto)"
+    else:
+        job_subtitle = "Late-stage / pre-IPO"
     analysis_session = None
     if analysis_session_id:
         analysis_session = serena_analysis.get_session(slug, analysis_session_id)
@@ -547,6 +591,7 @@ def bootstrap_memo_run(
         run_id=run_id,
         warnings=[],
         memo_mode=memo_mode,
+        report_flavor="auto_stage" if auto_stage else None,
         analysis_session_id=analysis_session_id,
         analysis_session_approved=(
             bool(analysis_session.get("approved_for_memo"))
@@ -596,7 +641,7 @@ def bootstrap_memo_run(
         memo_paths=memo_paths,
     )
 
-    stage_assessment = _assess_stage(company)
+    stage_assessment = _assess_stage(company, calibrate_only=auto_stage)
     stream.emit(
         "stage",
         stage="scope_check",
