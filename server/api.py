@@ -65,6 +65,7 @@ from . import (
     live_quotes,
     memo_analysis,
     memo_editor_store,
+    memo_studio_bridge,
     memo_prep,
     news_archive,
     product_store,
@@ -768,6 +769,10 @@ class ReportSummary(BaseModel):
     analysis_session_approved: bool = False
     download_urls: dict | None = None
     preview_urls: dict | None = None
+    # Memo Studio extensions.
+    memo_mode: str | None = None
+    studio_investigation: dict | None = None
+    studio_generate: dict | None = None
     resume_available: bool = False
     # Set when a newer memo run for the same company replaced this failed
     # run; superseded failures are no longer resumable or auto-surfaced.
@@ -802,6 +807,14 @@ class MemoPrepRequest(BaseModel):
     """Request body for POST /api/memos/prep — kicks off the synchronous
     memo-run bootstrap (company resolve, scope check, run-folder mint,
     input staging) before the long-running analysis composite job."""
+    company_id: str
+    analysis_session_id: str | None = None
+
+
+class MemoStudioInvestigateRequest(BaseModel):
+    """Request body for POST /api/memos/studio/investigate — starts a Memo
+    Studio deep investigation (Phases 1-2 plus the studio spine); the run
+    parks at ``awaiting_studio`` for card review."""
     company_id: str
     analysis_session_id: str | None = None
 
@@ -2280,7 +2293,12 @@ def _supersede_stale_memo_failures(company_id: str, new_report_id: str | None) -
             or old.get("company_id") != company_id
             or not memo_prep.is_memo_kind(old.get("kind"))
             or old.get("superseded_by")
-            or not str(old.get("status") or "").startswith("failed")
+            or not (
+                str(old.get("status") or "").startswith("failed")
+                # A parked studio investigation for the same company is
+                # retired too — only one run can claim the card store.
+                or str(old.get("status") or "") == "awaiting_studio"
+            )
         ):
             continue
         storage.update_report(old["id"], superseded_by=new_report_id)
@@ -2491,6 +2509,10 @@ def _report_resume_available(report: dict) -> bool:
     # resumed.
     if report.get("superseded_by") or report.get("dismissed_at"):
         return False
+    if str(report.get("memo_mode") or "auto") == "studio":
+        # Studio recovery is "press Generate again": the monolithic resume
+        # path would regenerate the package ignoring the user's pins.
+        return False
     status = str(report.get("status") or "")
     resumable = (
         status.startswith("failed") and status not in {"failed_scope_check"}
@@ -2666,10 +2688,13 @@ def dismiss_memo_report(request: Request, report_id: str) -> ReportDetail:
             detail="Only investment memo reports can be dismissed",
         )
     status = str(report.get("status") or "")
-    if not status.startswith("failed"):
+    if not (status.startswith("failed") or status == "awaiting_studio"):
         raise HTTPException(
             status_code=409,
-            detail="Only failed memo reports can be dismissed",
+            detail=(
+                "Only failed or awaiting-studio memo reports can be "
+                "dismissed"
+            ),
         )
     state = _scan_progress_state(_memo_stream_path_for_report(report_id))
     if state.get("exists") and not state.get("terminated"):
@@ -2807,6 +2832,10 @@ def resume_interrupted_memo_runs(max_resumes: int = 2) -> int:
             break
         if not memo_prep.is_memo_kind(report.get("kind")):
             continue
+        if str(report.get("memo_mode") or "auto") == "studio":
+            # Studio runs recover through Investigate / Generate, never
+            # through the monolithic resume path.
+            continue
         if str(report.get("status") or "") != "failed_during_analysis":
             continue
         if report.get("failure_phase") != "shutdown":
@@ -2883,6 +2912,188 @@ def post_memo_prep(request: Request, payload: MemoPrepRequest) -> ReportDetail:
         report.get("company_id") or payload.company_id, report.get("id")
     )
     return ReportDetail(**_report_detail(report))
+
+
+_STUDIO_NEEDS_PARALLEL_DETAIL = (
+    "Memo Studio requires BSH_MEMO_ENGLISH_PARALLEL=1; the monolithic "
+    "English path has no spine input and cannot honor studio cards"
+)
+
+
+def _company_has_active_memo_run(company_slug: str) -> bool:
+    for report in storage.list_reports():
+        if report.get("company_id") != company_slug:
+            continue
+        if not memo_prep.is_memo_kind(report.get("kind")):
+            continue
+        report_id = str(report.get("id") or "")
+        if not report_id:
+            continue
+        state = _scan_progress_state(_memo_stream_path_for_report(report_id))
+        if state.get("exists") and not state.get("terminated"):
+            return True
+    return False
+
+
+@router.post("/memos/studio/investigate", status_code=201)
+def post_memo_studio_investigate(
+    request: Request, payload: MemoStudioInvestigateRequest
+) -> ReportDetail:
+    """Start a Memo Studio deep investigation.
+
+    Runs Phase 1-2 plus the standalone studio spine in a background
+    worker, seeds the company's studio cards from the spine, and parks
+    the report at ``awaiting_studio`` for the user to review and edit
+    before ``POST /api/memos/studio/{report_id}/generate``.
+    """
+    _require_permission(request, "tasks:action")
+    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+        raise HTTPException(status_code=409, detail=_STUDIO_NEEDS_PARALLEL_DETAIL)
+    company = storage.get_company(payload.company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    company_slug = memo_prep._company_slug(company)
+    if _company_has_active_memo_run(company_slug):
+        raise HTTPException(
+            status_code=409,
+            detail="A memo run is already in flight for this company",
+        )
+    try:
+        result = memo_prep.bootstrap_memo_run(
+            payload.company_id,
+            analysis_session_id=payload.analysis_session_id,
+            memo_mode="studio",
+        )
+    except memo_prep.AnalysisSessionNotReadyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    report = storage.get_report(result["report_id"])
+    if report is None:
+        raise HTTPException(
+            status_code=500, detail="Report record vanished after prep"
+        )
+    _supersede_stale_memo_failures(
+        report.get("company_id") or payload.company_id, report.get("id")
+    )
+    return ReportDetail(**_report_detail(report))
+
+
+@router.post("/memos/studio/{report_id}/generate", status_code=202)
+def post_memo_studio_generate(request: Request, report_id: str) -> ReportDetail:
+    """Generate (or regenerate) the memo from the studio cards.
+
+    Synchronously composes the user's edited cards into the run's
+    ``spine.json`` (freeze semantics: the worker reads only that file, so
+    edits made after this call affect the next generate), then spawns the
+    Phase 3+ worker with the spine pinned.
+    """
+    _require_permission(request, "tasks:action")
+    if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+        raise HTTPException(status_code=409, detail=_STUDIO_NEEDS_PARALLEL_DETAIL)
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if (
+        not memo_prep.is_memo_kind(report.get("kind"))
+        or str(report.get("memo_mode") or "auto") != "studio"
+    ):
+        raise HTTPException(
+            status_code=400, detail="Not a Memo Studio report"
+        )
+    if report.get("dismissed_at") or report.get("superseded_by"):
+        raise HTTPException(
+            status_code=409,
+            detail="This studio report was dismissed or superseded",
+        )
+    status = str(report.get("status") or "")
+    if status not in {
+        "awaiting_studio",
+        "complete",
+        "complete_with_warnings",
+        # Recovery path: a failed or restart-interrupted generation is
+        # retried by pressing Generate again (the spine file is on disk).
+        "failed_during_analysis",
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot generate from status {status!r}",
+        )
+    state = _scan_progress_state(_memo_stream_path_for_report(report_id))
+    if state.get("exists") and not state.get("terminated"):
+        raise HTTPException(
+            status_code=409,
+            detail="Memo report still has an active worker",
+        )
+    run_dir = _memo_run_dir(report)
+    if not run_dir or not run_dir.exists():
+        raise HTTPException(status_code=400, detail="Run folder missing")
+    spine_path = run_dir / "logs" / "english_units" / "spine.json"
+    if not spine_path.exists() or not (run_dir / "analysis" / "fast").is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Investigation artifacts are missing — run Deep "
+                "Investigate again"
+            ),
+        )
+    company_id = str(report.get("company_id") or "")
+    try:
+        editor_state = memo_editor_store.get_state(company_id, create=True)
+        base_spine = json.loads(spine_path.read_text(encoding="utf-8"))
+        spine, pin_sheet, compose_warnings = memo_studio_bridge.compose_spine(
+            editor_state,
+            base_spine,
+            provenance={
+                "report_id": report_id,
+                "run_id": str(report.get("run_id") or ""),
+            },
+        )
+    except memo_studio_bridge.StudioComposeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Archive the current spine, then freeze the composed one.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    spine_path.replace(
+        spine_path.with_name(f"spine.before_generate.{stamp}.json")
+    )
+    spine_text = json.dumps(spine, ensure_ascii=False, indent=2)
+    spine_path.write_text(spine_text, encoding="utf-8")
+    (spine_path.parent / memo_studio_bridge.STUDIO_PIN_SHEET_FILENAME).write_text(
+        pin_sheet, encoding="utf-8"
+    )
+    generation_count = (
+        int((report.get("studio_generate") or {}).get("generation_count") or 0)
+        + 1
+    )
+    updated = storage.update_report(
+        report_id,
+        status="analyzing",
+        stage="Studio generation queued",
+        progress=60,
+        error=None,
+        failure_phase=None,
+        failure_detail=None,
+        analysis_error=None,
+        renderer_contract=None,
+        memo_quality_lint=None,
+        memo_chinese_parity=None,
+        quality_warnings=None,
+        studio_generate={
+            "revision_id": editor_state.get("revision_id"),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "spine_sha256": hashlib.sha256(
+                spine_text.encode("utf-8")
+            ).hexdigest(),
+            "generation_count": generation_count,
+            "warnings": compose_warnings,
+        },
+    ) or report
+    memo_analysis.start_generate_from_studio(report_id)
+    return ReportDetail(**_report_detail(updated))
 
 
 @router.get("/memos/{report_id}/stream")
@@ -7303,6 +7514,9 @@ def _report_summary(r: dict) -> dict:
         ),
         "superseded_by": r.get("superseded_by"),
         "dismissed_at": r.get("dismissed_at"),
+        "memo_mode": r.get("memo_mode"),
+        "studio_investigation": r.get("studio_investigation"),
+        "studio_generate": r.get("studio_generate"),
     }
     download_urls, preview_urls = _memo_report_artifact_urls(r)
     if download_urls:

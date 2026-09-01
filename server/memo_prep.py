@@ -419,6 +419,7 @@ def bootstrap_memo_run(
     *,
     analysis_session_id: str | None = None,
     report_type: str | None = None,
+    memo_mode: str = "auto",
 ) -> dict:
     """Run the synchronous prep stage for an investment-memo job.
 
@@ -427,13 +428,23 @@ def bootstrap_memo_run(
     signals are warnings: prep continues and the analysis worker receives
     the warning context. Raises ``ValueError`` for caller-facing errors
     (unknown company, missing settings).
+
+    ``memo_mode="studio"`` dispatches the Memo Studio investigation worker
+    (Phase 1-2 + standalone spine, then park at ``awaiting_studio``)
+    instead of the full One-Click pipeline.
     """
+    if memo_mode not in ("auto", "studio"):
+        raise ValueError(f"Unknown memo_mode: {memo_mode}")
     company = storage.get_company(company_id)
     if company is None:
         raise ValueError(f"Unknown company_id: {company_id}")
     ensure_settings_file()
 
     buffett = is_buffett_report_type(report_type)
+    if buffett and memo_mode == "studio":
+        raise ValueError(
+            "Memo Studio investigation is not available for Buffett memos"
+        )
     selected_report_type = BUFFETT_REPORT_TYPE if buffett else REPORT_TYPE
     selected_kind = BUFFETT_KIND if buffett else LATESTAGE_KIND
     selected_skill = BUFFETT_SKILL_NAME if buffett else SKILL_NAME
@@ -535,6 +546,7 @@ def bootstrap_memo_run(
         skill_version=selected_skill_version,
         run_id=run_id,
         warnings=[],
+        memo_mode=memo_mode,
         analysis_session_id=analysis_session_id,
         analysis_session_approved=(
             bool(analysis_session.get("approved_for_memo"))
@@ -546,13 +558,20 @@ def bootstrap_memo_run(
     stream.emit(
         "job_init",
         kind=JOB_KIND,
-        title=job_title,
-        subtitle=job_subtitle,
+        title=(
+            f"Deep investigation — {company_name}"
+            if memo_mode == "studio"
+            else job_title
+        ),
+        subtitle=(
+            "Memo Studio investigation" if memo_mode == "studio" else job_subtitle
+        ),
         report_id=report["id"],
         company_id=slug,
         run_id=run_id,
         run_dir=str(run_dir),
         skill=selected_skill,
+        memo_mode=memo_mode,
     )
     stream.emit(
         "stage",
@@ -656,6 +675,9 @@ def bootstrap_memo_run(
     if buffett:
         from . import buffett_memo_analysis
         buffett_memo_analysis.start_analysis(report["id"])
+    elif memo_mode == "studio":
+        from . import memo_analysis
+        memo_analysis.start_investigation(report["id"])
     else:
         from . import memo_analysis
         memo_analysis.start_analysis(report["id"])

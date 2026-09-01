@@ -3843,7 +3843,12 @@ ORPHAN_IDLE_THRESHOLD_SEC = 30 * 60
 
 
 def _memo_worker_alive(report_id: str) -> bool:
-    names = {f"memo-analysis-{report_id}", f"memo-resume-{report_id}"}
+    names = {
+        f"memo-analysis-{report_id}",
+        f"memo-resume-{report_id}",
+        f"memo-investigate-{report_id}",
+        f"memo-generate-{report_id}",
+    }
     return any(
         t.name in names and t.is_alive() for t in threading.enumerate()
     )
@@ -3907,6 +3912,10 @@ def recover_stale_reports() -> int:
         if report.get("kind") != "investment_memo_latestage":
             continue
         if report.get("status") in ("complete", "failed_scope_check"):
+            continue
+        if report.get("status") == "awaiting_studio":
+            # A parked Memo Studio investigation is a deliberate terminal
+            # state (its stream already carries `done`); nothing to recover.
             continue
         run_dir = _resolve_run_dir(report)
         if run_dir is None or not run_dir.exists():
@@ -4109,6 +4118,89 @@ def start_resume(report_id: str) -> threading.Thread:
     return t
 
 
+def start_investigation(report_id: str) -> threading.Thread:
+    """Memo Studio deep investigation (Phases 1-2 + spine) in a daemon
+    thread; parks the report at ``awaiting_studio``."""
+    t = threading.Thread(
+        target=_investigate_safe,
+        args=(report_id,),
+        name=f"memo-investigate-{report_id}",
+        daemon=True,
+    )
+    t.start()
+    return t
+
+
+def start_generate_from_studio(report_id: str) -> threading.Thread:
+    """Memo Studio generation (Phases 3-4 from the composed spine) in a
+    daemon thread."""
+    t = threading.Thread(
+        target=_generate_safe,
+        args=(report_id,),
+        name=f"memo-generate-{report_id}",
+        daemon=True,
+    )
+    t.start()
+    return t
+
+
+def _investigate_safe(report_id: str) -> None:
+    _register_active_run(report_id)
+    try:
+        _investigate(report_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("memo studio investigation crashed")
+        report = storage.get_report(report_id)
+        if report:
+            storage.update_report(
+                report_id,
+                status="failed_during_analysis",
+                stage="Investigation crashed",
+                failure_phase="investigation",
+                failure_detail="Investigation worker crashed; see server log.",
+            )
+        run_dir = _resolve_run_dir(report or {})
+        if run_dir and run_dir.exists():
+            stream = job_progress.ProgressLog(
+                memo_prep.stream_path(run_dir), truncate=False
+            )
+            stream.emit(
+                "error", error="Investigation worker crashed; see server log."
+            )
+    finally:
+        _unregister_active_run(report_id)
+
+
+def _generate_safe(report_id: str) -> None:
+    _register_active_run(report_id)
+    try:
+        _generate_from_studio(report_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("memo studio generation crashed")
+        report = storage.get_report(report_id)
+        if report:
+            storage.update_report(
+                report_id,
+                status="failed_during_analysis",
+                stage="Studio generation crashed",
+                failure_phase="studio_generate",
+                failure_detail=(
+                    "Studio generation worker crashed; see server log."
+                ),
+            )
+        run_dir = _resolve_run_dir(report or {})
+        if run_dir and run_dir.exists():
+            stream = job_progress.ProgressLog(
+                memo_prep.stream_path(run_dir), truncate=False
+            )
+            stream.emit(
+                "error",
+                error="Studio generation worker crashed; see server log.",
+            )
+    finally:
+        _unregister_active_run(report_id)
+
+
 def _run_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
@@ -4226,16 +4318,24 @@ def _analysis_artifact_paths(run_dir: Path) -> list[Path]:
     )
 
 
-def _archive_stream_for_resume(run_dir: Path) -> None:
+def _archive_stream(run_dir: Path, *, label: str) -> None:
     stream_path = memo_prep.stream_path(run_dir)
     if not stream_path.exists():
         return
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive_path = stream_path.with_name(f"stream.before_resume.{stamp}.jsonl")
+    archive_path = stream_path.with_name(
+        f"stream.before_{label}.{stamp}.jsonl"
+    )
     try:
         stream_path.replace(archive_path)
     except OSError:
-        logger.exception("failed to archive memo stream before resume: %s", stream_path)
+        logger.exception(
+            "failed to archive memo stream before %s: %s", label, stream_path
+        )
+
+
+def _archive_stream_for_resume(run_dir: Path) -> None:
+    _archive_stream(run_dir, label="resume")
 
 
 def _finalize_memo_from_package(
@@ -5094,7 +5194,7 @@ def _run(report_id: str) -> None:
         )
         return
 
-    _finalize_memo_from_package(
+    finalized = _finalize_memo_from_package(
         report_id=report_id,
         report=report,
         run_dir=run_dir,
@@ -5110,4 +5210,463 @@ def _run(report_id: str) -> None:
             "approved_packet_mode": bool(approved_analysis_session_path),
         },
     )
+    if finalized:
+        # One-Click card publish: after acceptance + gates, outside the
+        # pipeline, so a failed run never publishes and the pipeline
+        # itself stays byte-identical.
+        _publish_studio_cards(
+            report_id=report_id,
+            report=report,
+            run_dir=run_dir,
+            stream=stream,
+        )
     return
+
+def _publish_studio_cards(
+    *,
+    report_id: str,
+    report: dict,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+) -> None:
+    """One-Click publish: refresh the studio cards from this run's spine.
+
+    Best-effort observability for the user — a publish failure must never
+    alter the run's terminal status. Studio-mode runs skip this: their
+    cards already carry the user's edits (re-seeding would overwrite user
+    bullets with agent stubs). Monolithic runs have no spine.json and skip
+    silently.
+    """
+    if str(report.get("memo_mode") or "auto") == "studio":
+        return
+    spine_path = run_dir / "logs" / "english_units" / "spine.json"
+    try:
+        spine = json.loads(spine_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        logger.debug("no spine.json to publish studio cards from")
+        return
+    except Exception:  # noqa: BLE001
+        logger.warning("studio card publish: unreadable spine", exc_info=True)
+        return
+    try:
+        from . import memo_editor_store
+
+        state = memo_editor_store.apply_agent_spine(
+            str(report.get("company_id")),
+            spine,
+            {
+                "report_id": report_id,
+                "run_id": str(report.get("run_id") or ""),
+                "mode": "auto",
+            },
+        )
+        stream.emit(
+            "stage",
+            stage="memo_studio_cards_published",
+            message="Studio cards updated from this run's spine",
+            revision_id=state.get("revision_id"),
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("studio card publish failed", exc_info=True)
+        stream.emit(
+            "stage",
+            stage="memo_studio_cards_publish_failed",
+            message="Studio card update failed; the memo is unaffected",
+        )
+
+
+def _investigate(report_id: str) -> None:
+    """Memo Studio "Start Deep Investigate".
+
+    Phase 1 observability + the Phase-2 fan-out + one deterministic
+    standalone spine, card seeding, then park at ``awaiting_studio`` with
+    a terminal ``done`` on the stream. That terminal event is what makes
+    the parked state safe everywhere: SSE closes, the jobs rail clears,
+    and the orphan sweep (which only fires on terminal-less streams)
+    leaves the run alone.
+    """
+    report = storage.get_report(report_id)
+    if report is None:
+        raise RuntimeError(f"Unknown report: {report_id}")
+    run_dir = _resolve_run_dir(report)
+    if run_dir is None or not run_dir.exists():
+        raise RuntimeError(f"Run folder missing for report {report_id}")
+    stream = job_progress.ProgressLog(
+        memo_prep.stream_path(run_dir), truncate=False
+    )
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    company_slug = str(report.get("company_id"))
+    run_id = str(report.get("run_id") or "")
+    memo_paths = {
+        f["language"]: str(memo_prep.DATA_DIR.parent / f["path"])
+        for f in report.get("memo_files") or []
+        if f.get("language") and f.get("path")
+    }
+    lessons_path = serena_analysis.memo_lessons_path(company_slug)
+    if not lessons_path.exists():
+        lessons_path = None
+    warnings = list(report.get("warnings") or [])
+    scope_check = report.get("scope_check")
+    research_dir = research_store.RESEARCH_ROOT / company_slug
+
+    started_at = _now_iso()
+    started_monotonic = time.monotonic()
+    _emit_phase_timing(
+        stream,
+        phase="memo_studio_investigation",
+        status="started",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        report_id=report_id,
+        company_id=company_slug,
+        run_id=run_id,
+    )
+    storage.update_report(
+        report_id,
+        status="analyzing",
+        stage="Deep investigation — running analysis passes",
+        progress=15,
+    )
+    stream.emit(
+        "stage",
+        stage="memo_studio_investigation_starting",
+        message=(
+            "Running deep investigation: analysis passes, then the "
+            "studio spine"
+        ),
+        max_workers=_memo_fast_max_workers(),
+    )
+    stream.emit(
+        "thread_started",
+        thread=claude_runner._MEMO_PHASE1_THREAD,
+        title=claude_runner._MEMO_PHASE1_THREAD,
+    )
+    fact_ledger = claude_runner.load_memo_fact_ledger(research_dir)
+    if fact_ledger:
+        stream.emit(
+            "stage",
+            stage="memo_fact_ledger",
+            message=(
+                f"Curated fact ledger loaded ({len(fact_ledger)} chars); "
+                "injecting into analysis passes and the spine"
+            ),
+            thread=claude_runner._MEMO_PHASE1_THREAD,
+            chars=len(fact_ledger),
+            path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
+        )
+    stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
+
+    pass_results, cost_usd, worker_duration_ms = _run_fast_phase2(
+        report_id=report_id,
+        run_dir=run_dir,
+        stream=stream,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        research_dir=research_dir,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+        speculator=None,
+    )
+    if pass_results is None:
+        # _run_fast_phase2 already recorded the failure and emitted the
+        # stream error.
+        _emit_phase_timing(
+            stream,
+            phase="memo_studio_investigation",
+            status="failed",
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            error=_ALL_FAST_PASSES_FAILED_MESSAGE,
+            cost_usd=round(cost_usd, 6),
+        )
+        return
+    failed_ids = [r.spec.pass_id for r in pass_results if not r.ok]
+
+    storage.update_report(
+        report_id,
+        stage="Deep investigation — pinning the studio spine",
+        progress=45,
+    )
+    spine_label = "Studio spine"
+    spine_progress = _ThreadProgress(stream, spine_label)
+    spine_started_at = _now_iso()
+    spine_started = time.monotonic()
+    spine_progress.emit("thread_started", title=spine_label)
+    _emit_phase_timing(
+        stream,
+        phase="memo_studio_spine",
+        status="started",
+        started_at=spine_started_at,
+        started_monotonic=spine_started,
+        thread=spine_label,
+    )
+    spine_payload = None
+    spine_error: str | None = None
+    for attempt in (1, 2):
+        spine_payload, spine_error = claude_runner.run_memo_english_spine_standalone(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            settings_path=memo_prep.SETTINGS_FILE,
+            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            memo_paths=memo_paths,
+            research_dir=research_dir,
+            analysis_session_path=None,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            progress=spine_progress,
+            missing_pass_ids=failed_ids,
+        )
+        if spine_payload is not None:
+            break
+        if attempt == 1:
+            spine_progress.emit(
+                "stage",
+                stage="memo_studio_spine_retry",
+                message=(
+                    "Studio spine failed; retrying once "
+                    f"({str(spine_error)[:300]})"
+                ),
+            )
+    cost_usd += spine_progress.cost_usd
+    worker_duration_ms += spine_progress.duration_ms
+    if spine_payload is None:
+        message = f"Studio spine failed: {spine_error}"
+        storage.update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Studio spine failed",
+            error=message,
+            failure_phase="studio_spine",
+            failure_detail=message,
+            claude_cost_usd=round(cost_usd, 6),
+        )
+        spine_progress.emit("thread_failed", error=str(spine_error)[:500])
+        _emit_phase_timing(
+            stream,
+            phase="memo_studio_spine",
+            status="failed",
+            started_at=spine_started_at,
+            started_monotonic=spine_started,
+            thread=spine_label,
+            error=str(spine_error)[:500],
+        )
+        stream.emit("error", error=message, phase="studio_spine")
+        return
+    spine_progress.emit("thread_finished")
+    _emit_phase_timing(
+        stream,
+        phase="memo_studio_spine",
+        status="finished",
+        started_at=spine_started_at,
+        started_monotonic=spine_started,
+        thread=spine_label,
+        cost_usd=round(spine_progress.cost_usd, 6),
+        claude_duration_ms=spine_progress.duration_ms,
+    )
+
+    seeded_revision_id = None
+    try:
+        from . import memo_editor_store
+
+        state = memo_editor_store.apply_agent_spine(
+            company_slug,
+            spine_payload,
+            {"report_id": report_id, "run_id": run_id, "mode": "studio"},
+        )
+        seeded_revision_id = state.get("revision_id")
+        stream.emit(
+            "stage",
+            stage="memo_studio_cards_seeded",
+            message="Studio cards seeded from the investigation spine",
+            revision_id=seeded_revision_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("studio card seeding failed")
+        message = f"Studio card seeding failed: {exc}"
+        storage.update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Studio card seeding failed",
+            error=message,
+            failure_phase="studio_seed",
+            failure_detail=message,
+            claude_cost_usd=round(cost_usd, 6),
+        )
+        stream.emit("error", error=message, phase="studio_seed")
+        return
+
+    total_cost = round(cost_usd, 6)
+    storage.update_report(
+        report_id,
+        status="awaiting_studio",
+        stage="Investigation complete — review the studio cards",
+        progress=55,
+        claude_cost_usd=total_cost,
+        studio_investigation={
+            "completed_at": _now_iso(),
+            "pass_ok": [r.spec.pass_id for r in pass_results if r.ok],
+            "pass_failed": failed_ids,
+            "cost_usd": total_cost,
+            "seeded_revision_id": seeded_revision_id,
+        },
+    )
+    _emit_phase_timing(
+        stream,
+        phase="memo_studio_investigation",
+        status="finished",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        report_id=report_id,
+        company_id=company_slug,
+        run_id=run_id,
+        cost_usd=total_cost,
+        worker_duration_ms=worker_duration_ms,
+    )
+    stream.emit(
+        "done",
+        phase="investigation",
+        awaiting_studio=True,
+        report_id=report_id,
+        company_id=company_slug,
+        run_id=run_id,
+        cost_usd=total_cost,
+        pass_failed=failed_ids,
+    )
+
+
+def _generate_from_studio(report_id: str) -> None:
+    """Memo Studio "Generate Report": Phases 3-4 from the composed spine.
+
+    The endpoint already composed and wrote ``spine.json`` from the user's
+    cards (freeze semantics: this worker reads only that file). The stream
+    is archived and restarted so the jobs rail and SSE reattach to a fresh
+    generation run.
+    """
+    report = storage.get_report(report_id)
+    if report is None:
+        raise RuntimeError(f"Unknown report: {report_id}")
+    run_dir = _resolve_run_dir(report)
+    if run_dir is None or not run_dir.exists():
+        raise RuntimeError(f"Run folder missing for report {report_id}")
+    company_name = str(report.get("company_name") or report.get("company_id"))
+    company_slug = str(report.get("company_id"))
+    run_id = str(report.get("run_id") or "")
+    memo_paths = {
+        f["language"]: str(memo_prep.DATA_DIR.parent / f["path"])
+        for f in report.get("memo_files") or []
+        if f.get("language") and f.get("path")
+    }
+    lessons_path = serena_analysis.memo_lessons_path(company_slug)
+    if not lessons_path.exists():
+        lessons_path = None
+    warnings = list(report.get("warnings") or [])
+    scope_check = report.get("scope_check")
+    research_dir = research_store.RESEARCH_ROOT / company_slug
+
+    _archive_stream(run_dir, label="generate")
+    final_package_path = _memo_package_path(run_dir)
+    if final_package_path.exists():
+        _archive_memo_package(final_package_path, label="studio_regenerate")
+    english_package_path = run_dir / "logs" / "memo_package.en.json"
+    if english_package_path.exists():
+        _archive_memo_package(
+            english_package_path, label="en.studio_regenerate"
+        )
+
+    stream = job_progress.ProgressLog(
+        memo_prep.stream_path(run_dir), truncate=True
+    )
+    generation = report.get("studio_generate") or {}
+    stream.emit(
+        "job_init",
+        kind=memo_prep.JOB_KIND,
+        title=f"Investment memo — {company_name}",
+        subtitle="Memo Studio generate",
+        report_id=report_id,
+        company_id=company_slug,
+        run_id=run_id,
+        run_dir=str(run_dir),
+        memo_mode="studio",
+        studio_generate=True,
+    )
+    started_at = _now_iso()
+    started_monotonic = time.monotonic()
+    stream.emit(
+        "stage",
+        stage="memo_studio_generate_starting",
+        message="Generating the memo from the studio-composed spine",
+        revision_id=generation.get("revision_id"),
+        generation_count=generation.get("generation_count"),
+    )
+    _emit_phase_timing(
+        stream,
+        phase="memo_fast_pipeline",
+        status="started",
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+    )
+
+    zh_chaser = None
+    if _memo_zh_chasing_enabled():
+        zh_chaser = claude_runner.BilingualChaser(
+            run_dir=run_dir,
+            company_name=company_name,
+            run_id=run_id,
+            stream=stream,
+        )
+
+    result = _run_fast_synthesis(
+        run_dir=run_dir,
+        stream=stream,
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        memo_paths=memo_paths,
+        research_dir=research_dir,
+        analysis_session_path=None,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+        zh_chaser=zh_chaser,
+        speculator=None,
+        cost_usd=0.0,
+        worker_duration_ms=0,
+        started_at=started_at,
+        started_monotonic=started_monotonic,
+        pinned_spine_path=run_dir / "logs" / "english_units" / "spine.json",
+    )
+    if not result.get("ok"):
+        message = result.get("error") or "Studio memo generation failed"
+        storage.update_report(
+            report_id,
+            status="failed_during_analysis",
+            stage="Studio memo generation failed",
+            error=message,
+            failure_phase="studio_generate",
+            failure_detail=message,
+            claude_cost_usd=result.get("cost_usd"),
+        )
+        stream.emit("error", error=message, phase="studio_generate")
+        return
+
+    _finalize_memo_from_package(
+        report_id=report_id,
+        report=report,
+        run_dir=run_dir,
+        stream=stream,
+        result=result,
+        background_started_at=started_at,
+        background_started_monotonic=started_monotonic,
+        background_fields={
+            "report_id": report_id,
+            "company_id": company_slug,
+            "run_id": run_id,
+            "fast_pipeline": True,
+            "studio_generate": True,
+        },
+    )
