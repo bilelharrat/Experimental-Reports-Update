@@ -144,6 +144,9 @@ function isMemoKind(kind) {
     kind === "investment_memo_latestage" || kind === "buffett_investment_memo"
   );
 }
+function isMemoReportType(reportTypeValue) {
+  return PRIMARY_REPORT_TYPES.has(reportTypeValue);
+}
 const isMemo = computed(() => isMemoKind(activeReport.value?.kind));
 const memoPreview = computed(() => {
   const r = activeReport.value;
@@ -445,7 +448,7 @@ const memoMoreStages = computed(() => [
   {
     id: "analysis",
     label: tr("research.memo_stage_analysis"),
-    enabled: hasReportContext.value,
+    enabled: canShowMemoStudio.value,
   },
   {
     id: "notes",
@@ -941,6 +944,16 @@ async function generate(analysisSessionId = null) {
   }
 }
 
+function startMemoInvestigation() {
+  if (!isMemoReportType(reportType.value)) {
+    generate();
+    return;
+  }
+  generationError.value = null;
+  memoMoreOpen.value = false;
+  memoStage.value = "analysis";
+}
+
 function openMemoEditorDiscuss() {
   emit("open-copilot");
 }
@@ -1293,14 +1306,20 @@ onUnmounted(stopPolling);
       >
       <div class="flex flex-wrap items-center gap-2 pb-0.5">
         <button
-          @click="generate()"
+          @click="isMemoReportType(reportType) ? startMemoInvestigation() : generate()"
           :disabled="generating || resuming"
           class="btn-filled disabled:cursor-not-allowed focus-ring"
         >
           <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
           <AiMark v-else class="h-4 w-4" />
           <span>
-            {{ generating ? tr("research.generating") : tr("research.generate_button") }}
+            {{
+              generating
+                ? tr("research.generating")
+                : isMemoReportType(reportType)
+                  ? tr("research.investigate_button")
+                  : tr("research.generate_button")
+            }}
           </span>
         </button>
         <button
@@ -1702,7 +1721,7 @@ onUnmounted(stopPolling);
           </button>
           <button
             type="button"
-            @click="generate()"
+            @click="startMemoInvestigation"
             :disabled="generating || resuming || dismissing"
             class="btn-bordered text-ink-muted disabled:cursor-not-allowed focus-ring"
           >
@@ -1768,6 +1787,7 @@ onUnmounted(stopPolling);
       <div class="mt-4">
         <MemoAnalysisDashboard
           :company-id="companyId"
+          :auto-start-investigation="true"
           @generate-memo="generate"
         />
       </div>

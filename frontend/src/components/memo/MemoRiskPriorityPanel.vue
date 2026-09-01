@@ -6,6 +6,8 @@ import { useT } from "../../i18n.js";
 const props = defineProps({
   risks: { type: Array, default: () => [] },
   prioritizedRisks: { type: Array, default: () => [] },
+  riskDraft: { type: Array, default: () => [] },
+  riskDraftDirty: { type: Boolean, default: false },
   riskPriorityMap: { type: [Object, Map], default: () => new Map() },
   riskPriorityDraft: { type: Array, default: () => [] },
   savingArtifact: { type: String, default: null },
@@ -14,6 +16,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
+  "update-risk-field",
+  "save-risk-cards",
   "save-risk-priorities",
   "move-risk-priority",
   "set-risk-selected",
@@ -47,6 +51,14 @@ const activeId = computed(() => expandedId.value || props.prioritizedRisks[0]?.i
 
 function priorityRow(riskId) {
   return props.riskPriorityMap.get(riskId) || {};
+}
+
+function cardRisk(risk) {
+  return props.riskDraft.find((item) => item?.id === risk?.id) || risk;
+}
+
+function updateRiskField(riskId, field, value) {
+  emit("update-risk-field", riskId, field, value);
 }
 
 function isExpanded(riskId) {
@@ -106,20 +118,36 @@ function sourceClassLabel(value) {
       <h3 class="font-display text-title3 text-ink-primary">
         {{ t("risk.board_title") }}
       </h3>
-      <button
-        v-if="riskPriorityDraft.length"
-        type="button"
-        @click="emit('save-risk-priorities')"
-        :disabled="Boolean(savingArtifact)"
-        class="btn-bordered btn-sm focus-ring"
-      >
-        <Loader2
-          v-if="savingArtifact === 'risk_priorities'"
-          class="h-3.5 w-3.5 animate-spin"
-        />
-        <Save v-else class="h-3.5 w-3.5" />
-        <span>{{ t("risk.save_priorities") }}</span>
-      </button>
+      <div class="flex flex-wrap items-center justify-end gap-2">
+        <button
+          v-if="riskDraftDirty"
+          type="button"
+          @click="emit('save-risk-cards')"
+          :disabled="Boolean(savingArtifact)"
+          class="btn-bordered btn-sm focus-ring"
+        >
+          <Loader2
+            v-if="savingArtifact === 'strategic_risks'"
+            class="h-3.5 w-3.5 animate-spin"
+          />
+          <Save v-else class="h-3.5 w-3.5" />
+          <span>{{ t("risk.save_cards") }}</span>
+        </button>
+        <button
+          v-if="riskPriorityDraft.length"
+          type="button"
+          @click="emit('save-risk-priorities')"
+          :disabled="Boolean(savingArtifact)"
+          class="btn-bordered btn-sm focus-ring"
+        >
+          <Loader2
+            v-if="savingArtifact === 'risk_priorities'"
+            class="h-3.5 w-3.5 animate-spin"
+          />
+          <Save v-else class="h-3.5 w-3.5" />
+          <span>{{ t("risk.save_priorities") }}</span>
+        </button>
+      </div>
     </div>
     <div v-if="risks.length === 0" class="mt-3 text-sm text-ink-muted">
       {{ t("risk.empty") }}
@@ -161,7 +189,7 @@ function sourceClassLabel(value) {
                 class="text-left font-medium text-ink-primary hover:text-accent focus-ring"
                 @click="toggleExpanded(risk.id)"
               >
-                {{ risk.title }}
+                {{ cardRisk(risk).title }}
               </button>
               <div class="flex flex-wrap items-center justify-end gap-1.5">
                 <span
@@ -188,10 +216,10 @@ function sourceClassLabel(value) {
               </div>
             </div>
             <div class="mt-1 text-sm text-ink-secondary">
-              {{ risk.decision_question }}
+              {{ cardRisk(risk).decision_question }}
             </div>
             <div class="mt-2 text-xs text-ink-muted">
-              {{ risk.why_it_matters }}
+              {{ cardRisk(risk).why_it_matters }}
             </div>
             <div class="mt-2 flex flex-wrap gap-2 text-[11px] text-ink-muted">
               <span>{{ t("risk.severity") }}: {{ risk.severity || "medium" }}</span>
@@ -216,7 +244,7 @@ function sourceClassLabel(value) {
                   </div>
                 </div>
               </div>
-              <div v-if="risk.description && risk.description !== risk.why_it_matters" class="text-sm text-ink-secondary">
+              <div v-if="cardRisk(risk).description && cardRisk(risk).description !== cardRisk(risk).why_it_matters" class="text-sm text-ink-secondary">
                 {{ risk.description }}
               </div>
               <div v-if="risk.materiality" class="text-xs text-ink-muted">
@@ -359,6 +387,52 @@ function sourceClassLabel(value) {
                     {{ t(`risk.disposition.${item}`) }}
                   </option>
                 </select>
+              </div>
+              <div class="rounded-md border border-subtle bg-surface p-3">
+                <div class="text-[11px] font-semibold text-ink-muted">
+                  {{ t("risk.edit_card") }}
+                </div>
+                <div class="mt-2 space-y-2">
+                  <label class="block text-[11px] font-semibold text-ink-muted" :for="`risk-title-${risk.id}`">
+                    {{ t("risk.title") }}
+                  </label>
+                  <input
+                    :id="`risk-title-${risk.id}`"
+                    :value="cardRisk(risk).title"
+                    class="field focus-ring"
+                    @input="updateRiskField(risk.id, 'title', $event.target.value)"
+                  />
+                  <label class="block text-[11px] font-semibold text-ink-muted" :for="`risk-question-${risk.id}`">
+                    {{ t("risk.decision_question") }}
+                  </label>
+                  <textarea
+                    :id="`risk-question-${risk.id}`"
+                    :value="cardRisk(risk).decision_question"
+                    rows="2"
+                    class="field resize-y focus-ring"
+                    @input="updateRiskField(risk.id, 'decision_question', $event.target.value)"
+                  ></textarea>
+                  <label class="block text-[11px] font-semibold text-ink-muted" :for="`risk-why-${risk.id}`">
+                    {{ t("risk.why") }}
+                  </label>
+                  <textarea
+                    :id="`risk-why-${risk.id}`"
+                    :value="cardRisk(risk).why_it_matters"
+                    rows="3"
+                    class="field resize-y focus-ring"
+                    @input="updateRiskField(risk.id, 'why_it_matters', $event.target.value)"
+                  ></textarea>
+                  <label class="block text-[11px] font-semibold text-ink-muted" :for="`risk-watch-${risk.id}`">
+                    {{ t("risk.what_watch") }}
+                  </label>
+                  <textarea
+                    :id="`risk-watch-${risk.id}`"
+                    :value="cardRisk(risk).mitigation_or_monitoring"
+                    rows="2"
+                    class="field resize-y focus-ring"
+                    @input="updateRiskField(risk.id, 'mitigation_or_monitoring', $event.target.value)"
+                  ></textarea>
+                </div>
               </div>
               <div class="rounded-md border border-subtle bg-surface p-3">
                 <div class="text-[11px] font-semibold text-ink-muted">

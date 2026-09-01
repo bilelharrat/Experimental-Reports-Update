@@ -325,6 +325,7 @@ describe("route smoke tests", () => {
     api.listResearchFiles.mockResolvedValue([]);
     api.listCompanyReports.mockResolvedValue([]);
     api.memoAnalysis.get.mockResolvedValue(memoSession());
+    api.memoAnalysis.runTool.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
     api.memoAnalysis.runLedger.mockResolvedValue([]);
     api.memoEditor.get.mockResolvedValue({
@@ -416,6 +417,29 @@ describe("route smoke tests", () => {
 
     expect(wrapper.text()).toContain("Generalist");
     expect(wrapper.text()).toContain("Core Memo Workflow");
+  });
+
+  it("starts memo investigation from the report CTA", async () => {
+    const wrapper = await mountRoute("/research/generalist");
+    const memoTab = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Report");
+    await memoTab.trigger("click");
+    await flushPromises();
+
+    const investigateButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Start investigation");
+    expect(investigateButton).toBeTruthy();
+    await investigateButton.trigger("click");
+    await flushPromises();
+
+    expect(api.memoAnalysis.runTool).toHaveBeenCalledWith(
+      "generalist",
+      "strategic_risk_mapper",
+    );
+    expect(wrapper.text()).toContain("Core Memo Workflow");
+    wrapper.unmount();
   });
 
   it("renders new PRD foundation top-level routes", async () => {
@@ -740,7 +764,7 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
-  it("lets resumable failed reports be redone from scratch", async () => {
+  it("returns failed memo runs to the investigation workflow", async () => {
     api.getReport.mockResolvedValue({
       id: "report-1",
       company_id: "generalist",
@@ -758,19 +782,6 @@ describe("route smoke tests", () => {
       resume_available: true,
       analysis_artifacts: [],
     });
-    api.generateReport.mockResolvedValue({
-      id: "report-2",
-      company_id: "generalist",
-      company_name: "Generalist",
-      report_type: "Investment Memo (Late-Stage)",
-      audience: "Internal",
-      language: "en",
-      kind: "investment_memo_latestage",
-      status: "analyzing",
-      progress: 15,
-      stage: "Running BSH investment memo skill",
-    });
-
     const wrapper = await mountRoute("/research/generalist?report=report-1");
     const redoButton = wrapper
       .findAll("button")
@@ -781,13 +792,8 @@ describe("route smoke tests", () => {
     await flushPromises();
 
     expect(api.resumeReport).not.toHaveBeenCalled();
-    expect(api.generateReport).toHaveBeenCalledWith({
-      company_id: "generalist",
-      report_type: "Investment Memo (Late-Stage)",
-      audience: "Internal",
-      language: "en",
-      analysis_session_id: null,
-    });
+    expect(api.generateReport).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Core Memo Workflow");
     wrapper.unmount();
   });
 
@@ -797,6 +803,11 @@ describe("route smoke tests", () => {
       { status: 400 },
     );
     api.generateReport.mockRejectedValue(err);
+    api.options.mockResolvedValue({
+      report_types: ["Investment Memo (Late-Stage)", "Investment Report"],
+      audiences: ["Internal"],
+      languages: ["en"],
+    });
 
     const wrapper = await mountRoute("/research/generalist");
     const memoTab = wrapper
@@ -806,6 +817,10 @@ describe("route smoke tests", () => {
     await memoTab.trigger("click");
     await flushPromises();
 
+    await wrapper.findAll("button")
+      .find((button) => button.text() === "Options")
+      .trigger("click");
+    await wrapper.find("select").setValue("Investment Report");
     const generateButton = wrapper
       .findAll("button")
       .find((button) => button.text().includes("Generate report"));

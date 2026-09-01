@@ -19,9 +19,12 @@ import {
 import { api } from "../api.js";
 import AiMark from "../components/AiMark.vue";
 import { useT } from "../i18n.js";
+import { buildTickerTape, displayTicker, publicTickers } from "../liveTicker.js";
 import { companyViews } from "../state.js";
+import { useLiveQuotes } from "../useLiveQuotes.js";
 import CompanyBoardCard from "../components/CompanyBoardCard.vue";
 import CompanyCard from "../components/CompanyCard.vue";
+import LiveTickerTape from "../components/LiveTickerTape.vue";
 import SubmitLinkTool from "../components/SubmitLinkTool.vue";
 import UploadResearchTool from "../components/UploadResearchTool.vue";
 import AddHormuzResearchTool from "../components/AddHormuzResearchTool.vue";
@@ -89,6 +92,21 @@ const recentCompanies = computed(() => {
 const showRecentCompanies = computed(
   () => !searching.value && !searchResults.value && recentCompanies.value.length > 0,
 );
+const showHomeTape = computed(
+  () => !searching.value && !searchResults.value && companyList.value.length > 0,
+);
+const homeTickers = computed(() =>
+  showHomeTape.value ? publicTickers(companyList.value) : [],
+);
+const { quotes: liveQuotes } = useLiveQuotes(homeTickers);
+const tickerTape = computed(() =>
+  showHomeTape.value ? buildTickerTape(companyList.value, liveQuotes.value) : [],
+);
+
+function quoteFor(company) {
+  const ticker = displayTicker(company, companyList.value);
+  return ticker ? liveQuotes.value[ticker] || null : null;
+}
 
 function openCompany(company) {
   router.push({ name: "research", params: { companyId: company.id } });
@@ -500,6 +518,14 @@ function onBlur() {
       </div>
     </div>
 
+    <LiveTickerTape
+      v-if="showHomeTape"
+      class="mx-auto mt-3 w-full max-w-3xl"
+      :items="tickerTape"
+      link-to-tracking
+      @select="openCompany"
+    />
+
     <div
       v-if="linkOpen || uploadOpen || noteOpen"
       ref="quickAddEl"
@@ -531,6 +557,7 @@ function onBlur() {
           v-for="company in recentCompanies"
           :key="company.id"
           :company="company"
+          :quote="quoteFor(company)"
           @select="openCompany"
         />
       </div>

@@ -170,6 +170,26 @@ export const api = {
 
   options: () => request("/api/options"),
   listCompanies: () => request("/api/companies"),
+  // Tracking dashboard: the follow list is browser-local, so the ids ride
+  // along as query params rather than the server keeping a watchlist.
+  trackingRollup: (companyIds = []) => {
+    const ids = (companyIds || []).map((id) => String(id)).filter(Boolean);
+    if (ids.length === 0) return Promise.resolve(null);
+    const qs = ids
+      .map((id) => `company_id=${encodeURIComponent(id)}`)
+      .join("&");
+    return request(`/api/tracking/rollup?${qs}`, { timeoutMs: 20000 });
+  },
+  liveQuotes: (tickers = []) => {
+    const symbols = (tickers || [])
+      .map((ticker) => String(ticker || "").trim())
+      .filter(Boolean);
+    if (symbols.length === 0) return Promise.resolve({ quotes: {} });
+    const qs = symbols
+      .map((ticker) => `ticker=${encodeURIComponent(ticker)}`)
+      .join("&");
+    return request(`/api/quotes?${qs}`, { timeoutMs: 12000 });
+  },
   listReports: () => request("/api/reports"),
   getReport: (id) => request(`/api/reports/${id}`),
   autocompleteCompanies: (q) =>

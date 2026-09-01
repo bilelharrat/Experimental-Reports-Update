@@ -685,17 +685,19 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "Human Executive Memo Voice Contract" in prompt
     assert "exec-ready LP-facing sell-side investment memo" in prompt
     assert "investment case under uncertainty" in prompt
-    assert "first-person sponsor voice" in prompt
+    assert "LP co-invest register" in prompt
     assert "Open from the sponsor thesis" in prompt
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
-    assert "We are being offered SPV exposure" in prompt
-    assert "We recommend participating in the SPV because" in prompt
+    assert "The vehicle is a $10,000,000 SAFE" in prompt
+    assert "BSH is committing $3,000,000" in prompt
     assert "BSH invests in physical-world infrastructure" in prompt
-    assert "Revenue is not disclosed; our base case uses" in prompt
+    assert "A SAFE is not equity" in prompt
+    assert "we are being offered" in prompt  # banned, listed in contract
+    assert "we recommend participating" in prompt
     assert "Make statements directly" in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
-    assert "detached third-person recommendation or opportunity framing" in prompt
+    assert "stock participation slogans" in prompt
     assert "risk and valuation sensitivities" in prompt
     assert "closing checklists" in prompt
     assert "bsh_allocation" not in prompt
@@ -754,10 +756,10 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
     assert "BSH invests in physical-world infrastructure" in prompt
-    assert "We are being offered SPV exposure" in prompt
-    assert "We recommend participating in the SPV because" in prompt
+    assert "The vehicle is a $10,000,000 SAFE" in prompt
+    assert "BSH is committing $3,000,000" in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
-    assert "Never use detached" in prompt
+    assert "Never use detached IC jargon" in prompt
     assert "recommendation, opportunity, access, or base-case framing" in prompt
     assert "Use `analysis/fast/*.json` as the primary synthesis inputs" in prompt
     assert "Read markdown\nartifacts only when a JSON artifact is missing" in prompt
@@ -847,7 +849,7 @@ def test_investment_memo_prompt_bans_source_tokens_and_scaffold_labels(tmp_path)
     assert "scaffold headings or labels from analytical worksheets" in prompt
     assert "fuzzy finance metaphors" in prompt
     assert "evidence-state labels" in prompt
-    assert "em dash bridging" in prompt
+    assert "em dashes are allowed" in prompt
     assert "Critical Reality Check" not in prompt
     assert "present-state" not in prompt
     assert "upside-state" not in prompt

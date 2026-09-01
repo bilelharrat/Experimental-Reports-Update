@@ -5,6 +5,7 @@ import {
   ArrowUpDown,
   Check,
   Flame,
+  Gauge,
   Home,
   PanelLeft,
   PanelLeftClose,
@@ -76,6 +77,13 @@ const listedCompanies = computed(() =>
   }),
 );
 
+const trackedCount = computed(
+  () =>
+    (props.companies || []).filter((company) =>
+      trackedCompanyIds.value.has(String(company.id)),
+    ).length,
+);
+
 const collapseLabel = computed(() =>
   sidebarCollapsed.value ? t("sidebar.expand") : t("sidebar.collapse"),
 );
@@ -121,10 +129,10 @@ const collapseLabel = computed(() =>
     </div>
 
     <div
-      class="flex min-h-0 flex-1 flex-col"
+      class="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden"
       :class="sidebarCollapsed ? 'hidden px-1 lg:flex' : 'px-2.5'"
     >
-      <div class="shrink-0 space-y-0.5 pb-1">
+      <div class="shrink-0 space-y-0.5 border-b border-subtle/60 pb-2">
         <RouterLink
           :to="{ name: 'home' }"
           class="source-row focus-ring"
@@ -134,10 +142,28 @@ const collapseLabel = computed(() =>
           <Home class="h-[18px] w-[18px] shrink-0" />
           <span v-if="!sidebarCollapsed">{{ t("nav.home") }}</span>
         </RouterLink>
+
+        <RouterLink
+          :to="{ name: 'tracking' }"
+          class="source-row focus-ring"
+          active-class=""
+          :title="t('sidebar.tracking')"
+        >
+          <Gauge class="h-[18px] w-[18px] shrink-0" />
+          <span v-if="!sidebarCollapsed" class="min-w-0 flex-1 truncate">{{
+            t("sidebar.tracking")
+          }}</span>
+          <span
+            v-if="!sidebarCollapsed && trackedCount > 0"
+            class="mono-data text-caption1 text-ink-subtle"
+          >
+            {{ trackedCount }}
+          </span>
+        </RouterLink>
       </div>
 
-      <div class="flex min-h-0 flex-1 flex-col overflow-hidden pb-2">
-        <section class="mt-3 flex min-h-0 flex-1 flex-col">
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden pb-2 pt-2">
+        <section class="flex min-h-0 flex-1 flex-col">
           <div v-if="!sidebarCollapsed" class="mb-1 flex shrink-0 items-center justify-between px-2.5">
             <div class="vogue-label">{{ t("sidebar.companies") }}</div>
             <div class="flex items-center gap-1">
@@ -202,8 +228,7 @@ const collapseLabel = computed(() =>
             >
               <RouterLink
                 :to="{ name: 'research', params: { companyId: company.id } }"
-                class="source-row focus-ring"
-                :class="sidebarCollapsed ? '' : 'pr-9'"
+                class="source-row company-source-row gap-2 focus-ring"
                 :title="company.name"
               >
                 <span
@@ -220,13 +245,13 @@ const collapseLabel = computed(() =>
                     {{ companyCategory(company) }}
                   </span>
                 </span>
+                <span
+                  v-if="!sidebarCollapsed"
+                  class="flex w-6 shrink-0 justify-end"
+                >
+                  <CompanyFollowButton :company-id="company.id" hide-until-hover />
+                </span>
               </RouterLink>
-              <div
-                v-if="!sidebarCollapsed"
-                class="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center"
-              >
-                <CompanyFollowButton :company-id="company.id" hide-until-hover />
-              </div>
             </div>
           </div>
         </section>

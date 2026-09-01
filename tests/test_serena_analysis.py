@@ -418,7 +418,7 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
                     for i in range(1, 4)
                 ],
                 "recommendation_logic": (
-                    "We recommend participating when deployment depth and "
+                    "BSH commits capital when deployment depth and "
                     "valuation support survive independent checks."
                 ),
                 "risk_valuation_sensitivities": [
@@ -481,9 +481,8 @@ def test_memo_analysis_thesis_spine_job_persists_claude_result_and_context(
     assert "Use this packet as evidence, not copy" in packet
     assert "Memo Spine For Final Draft" in packet
     assert "partner-level conclusions" in packet
-    assert "Use first-person sponsor voice" in packet
-    assert "third-person situational recommendation language" in packet
-    assert "detached opportunity framing" in packet
+    assert "LP co-invest register" in packet
+    assert "stock participation slogans" in packet
     assert "the recommendation is" not in packet
 
     context = captured["artifacts"]
@@ -1243,7 +1242,10 @@ def test_memo_analysis_narrative_fallback_creates_operator_choices(
     assert hooks["endings"][0]["purpose"] == "conclusion posture"
     assert "The memo should" not in hooks["openings"][0]["text"]
     assert "The right posture is" not in hooks["endings"][0]["text"]
-    assert hooks["endings"][0]["text"].startswith("We recommend")
+    assert hooks["endings"][0]["text"].startswith("BSH is committing")
+    transition_text = " ".join(item["text"] for item in hooks["transitions"])
+    assert "evidence gap that can move" not in transition_text
+    assert "Named risks concentrate" not in transition_text
     assert hooks["reviewer_prompts"][0]["id"] == "operator-final-posture"
 
     packet = (
@@ -1253,7 +1255,7 @@ def test_memo_analysis_narrative_fallback_creates_operator_choices(
     assert "Intro stance:" in packet
     assert "Risk-section posture:" in packet
     assert "Conclusion posture:" in packet
-    assert "Rewrite any detached phrasing into first-person sponsor voice" in packet
+    assert "Rewrite any detached phrasing into firm-as-subject deal English" in packet
 
 
 def test_memo_analysis_completed_memo_runs_are_exposed_for_grader(
@@ -1432,7 +1434,7 @@ def test_analysis_session_tracks_readiness_and_approval(tmp_path, monkeypatch):
     packet_text = memo_packet.read_text(encoding="utf-8")
     assert "Use this packet as evidence, not copy" in packet_text
     assert "Never copy internal source labels" in packet_text
-    assert "Use first-person sponsor voice" in packet_text
+    assert "LP co-invest register" in packet_text
     assert "source-class and model-treatment" in packet_text
     assert "Memo Spine For Final Draft" in packet_text
     assert "**risk_sensitivity:**" in packet_text
@@ -3699,6 +3701,25 @@ def test_analyst_risk_ranking_shapes_packet_and_thesis(tmp_path, monkeypatch):
     thesis = thesis_session["artifacts"]["thesis_spine"]
     assert thesis["investment_risks"][0]["claim"] == lead_title
     assert lead_question in thesis["investment_highlights"][1]["detail"]
+
+    edited = client.patch(
+        "/api/companies/generalist/memo-analysis/artifacts/strategic_risks",
+        json={
+            "risk_id": moved["risk_id"],
+            "title": "Customer production proof",
+            "decision_question": "Will paid pilots convert to production renewals?",
+            "why_it_matters": (
+                "If pilots do not convert, recurring revenue stays below the "
+                "underwriting case."
+            ),
+            "mitigation_or_monitoring": "Track production renewals by cohort.",
+        },
+    )
+    assert edited.status_code == 200
+    edited_packet = edited.json()["artifacts"]["memo_packet"]
+    assert "Customer production proof" in edited_packet
+    assert "If pilots do not convert" in edited_packet
+    assert "Track production renewals by cohort." in edited_packet
 
 
 def test_dismissed_risks_are_excluded_from_packet_and_can_be_refined(

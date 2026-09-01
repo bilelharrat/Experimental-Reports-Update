@@ -72,6 +72,27 @@ function baseSession(overrides = {}) {
   };
 }
 
+function riskSession(overrides = {}) {
+  return baseSession({
+    artifacts: {
+      ...baseSession().artifacts,
+      strategic_risks: {
+        risks: [
+          {
+            id: "risk-1",
+            title: "Customer proof",
+            decision_question: "Is production adoption verified?",
+            why_it_matters: "Unproven adoption can delay revenue.",
+            mitigation_or_monitoring: "Track production renewals.",
+            status: "unresearched",
+          },
+        ],
+      },
+    },
+    ...overrides,
+  });
+}
+
 const emptyMatrix = {
   claim_count: 0,
   claims: [],
@@ -135,14 +156,15 @@ describe("MemoAnalysisDashboard", () => {
     wrapper?.unmount();
   });
 
-  it("allows generation while approval blockers remain, then saves a waiver", async () => {
+  it("allows report generation while approval blockers remain, then saves a waiver", async () => {
+    m.get.mockResolvedValue(riskSession());
     wrapper = mountDashboard();
     await flushPromises();
 
     const approveButton = wrapper.findAll("button")
       .find((button) => button.text().includes("Approve analysis"));
     const generateButton = wrapper.findAll("button")
-      .find((button) => button.text().includes("Generate memo"));
+      .find((button) => button.text().includes("Generate report"));
 
     expect(approveButton.attributes("disabled")).toBeDefined();
     expect(generateButton.attributes("disabled")).toBeUndefined();
@@ -151,6 +173,7 @@ describe("MemoAnalysisDashboard", () => {
     expect(wrapper.text()).toContain("research task");
 
     await generateButton.trigger("click");
+    await flushPromises();
     expect(wrapper.emitted("generate-memo")[0]).toEqual(["session-1"]);
 
     await wrapper.find("textarea").setValue("Waived for draft.");
@@ -172,6 +195,63 @@ describe("MemoAnalysisDashboard", () => {
         ],
       },
     );
+  });
+
+  it("starts the strategic investigation before report generation", async () => {
+    const generated = riskSession();
+    m.runTool.mockResolvedValue(generated);
+    wrapper = mountDashboard();
+    await flushPromises();
+
+    const startButton = wrapper.findAll("button")
+      .find((button) => button.text().includes("Start investigation"));
+    await startButton.trigger("click");
+    await flushPromises();
+
+    expect(m.runTool).toHaveBeenCalledWith("generalist", "strategic_risk_mapper");
+    expect(wrapper.text()).toContain("Customer proof");
+    expect(wrapper.text()).toContain("Generate report");
+  });
+
+  it("saves edited risk cards and priorities before generating", async () => {
+    const generated = riskSession();
+    m.get.mockResolvedValue(generated);
+    m.patchArtifact.mockImplementation((companyId, artifactName, patch) =>
+      Promise.resolve(
+        artifactName === "strategic_risks"
+          ? riskSession({
+              artifacts: {
+                ...riskSession().artifacts,
+                strategic_risks: patch,
+              },
+            })
+          : generated,
+      ),
+    );
+    wrapper = mountDashboard();
+    await flushPromises();
+
+    await wrapper.find("#risk-title-risk-1").setValue("Customer production proof");
+    const generateButton = wrapper.findAll("button")
+      .find((button) => button.text().includes("Generate report"));
+    await generateButton.trigger("click");
+    await flushPromises();
+
+    expect(m.patchArtifact).toHaveBeenNthCalledWith(
+      1,
+      "generalist",
+      "strategic_risks",
+      expect.objectContaining({
+        risks: [expect.objectContaining({ title: "Customer production proof" })],
+      }),
+    );
+    expect(m.patchArtifact).toHaveBeenNthCalledWith(
+      2,
+      "generalist",
+      "risk_priorities",
+      expect.objectContaining({ priorities: expect.any(Array) }),
+    );
+    expect(wrapper.emitted("generate-memo")[0]).toEqual(["session-1"]);
   });
 
   it("patches selected source ids for a task", async () => {

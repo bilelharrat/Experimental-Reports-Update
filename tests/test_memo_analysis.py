@@ -95,15 +95,15 @@ def _write_clean_memo_docx(path):
     document = Document()
     document.add_paragraph("I. Executive Summary")
     document.add_paragraph(
-        "Generalist builds automation infrastructure. We recommend participating "
+        "Generalist builds automation infrastructure. BSH is committing capital "
         "where deployment depth and valuation support are visible."
     )
     table = document.add_table(rows=2, cols=2)
     table.cell(0, 0).text = "Metric"
-    table.cell(0, 1).text = "Treatment"
+    table.cell(0, 1).text = "Note"
     table.cell(1, 0).text = "Revenue"
     table.cell(1, 1).text = (
-        "Not disclosed; model uses customer-count proxy and valuation sensitivity."
+        "Not disclosed. Entry is high relative to disclosed commercial proof."
     )
     document.add_paragraph("VI. Sources, Source Classes, and Fact Reference Index")
     document.add_paragraph("[S1] Company materials, company-reported.")
@@ -183,7 +183,7 @@ def _memo_package(body_en=None, body_zh=None):
                             "en": body_en
                             or (
                                 "Generalist builds automation infrastructure. "
-                                "We recommend participating where deployment depth "
+                                "BSH is committing capital where deployment depth "
                                 "and valuation support are visible."
                             ),
                             # body_zh="" must stay blank (an untranslated
@@ -561,6 +561,59 @@ def _memo_package(body_en=None, body_zh=None):
                         ],
                     },
                     {
+                        "type": "heading",
+                        "level": 3,
+                        "text": {
+                            "en": "Risk 4: Customer concentration can delay repeat revenue",
+                            "zh": "风险 4：客户集中可能推迟经常性收入",
+                        },
+                    },
+                    {
+                        "type": "table",
+                        "component": "risk_register",
+                        "layout": "key_value",
+                        "headers": [],
+                        "rows": [
+                            [
+                                {"en": "Risk Type", "zh": "风险类型"},
+                                {"en": "Concentration", "zh": "集中度"},
+                            ],
+                            [
+                                {"en": "Why it matters", "zh": "为什么重要"},
+                                {
+                                    "en": (
+                                        "One customer represents most disclosed deployments. "
+                                        "A delayed renewal would reduce revenue and exit value."
+                                    ),
+                                    "zh": (
+                                        "一家客户占已披露部署的大部分。续约延迟将减少收入和退出价值。"
+                                    ),
+                                },
+                            ],
+                            [
+                                {"en": "What we watch", "zh": "跟踪信号"},
+                                {
+                                    "en": "Renewal and expansion revenue by customer in Q4 2026.",
+                                    "zh": "2026 年第四季度按客户划分的续约和扩张收入。",
+                                },
+                            ],
+                            [
+                                {"en": "Likelihood", "zh": "可能性"},
+                                {
+                                    "en": "Low: current deployments remain active.",
+                                    "zh": "低：当前部署仍在运行。",
+                                },
+                            ],
+                            [
+                                {"en": "Risk Rating", "zh": "风险评分"},
+                                {
+                                    "en": "3/10: material but limited concentration effect.",
+                                    "zh": "3/10：集中度影响明确但有限。",
+                                },
+                            ],
+                        ],
+                    },
+                    {
                         "type": "callout",
                         "component": "disconfirming_evidence",
                         "tone": "warning",
@@ -614,7 +667,7 @@ def _memo_package(body_en=None, body_zh=None):
                         "title": {"en": "Growth Bridge Table", "zh": "增长桥接表"},
                         "headers": [
                             {"en": "Bridge item", "zh": "桥接项"},
-                            {"en": "Model treatment", "zh": "模型处理"},
+                            {"en": "Assumption", "zh": "假设"},
                         ],
                         "rows": [
                             [
@@ -657,7 +710,7 @@ def _memo_package(body_en=None, body_zh=None):
                         "type": "paragraph",
                         "text": {
                             "en": (
-                                "We recommend participating where customer proof "
+                                "BSH is committing capital where customer proof "
                                 "and margin evidence support valuation."
                             ),
                             "zh": "若客户验证和利润率证据支撑估值，我们建议参与。",
@@ -1226,7 +1279,8 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert "We back" not in package_text
     assert "we want exposure" not in package_text
     assert "BSH should" not in package_text
-    assert "we recommend participating in network positioning" in package_text
+    assert "we recommend participating in network positioning" not in package_text
+    assert "BSH is committing capital to network positioning" in package_text
     assert "BSH invests in infrastructure" in package_text
     assert "why the opportunity fits BSH's mandate" in package_text
     assert "information rights" not in package_text
@@ -1260,7 +1314,7 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert "flat-to-modest carry" not in package_text
     assert "technical moat, channel access, and contracted traction" in package_text
     assert "Series A2 closing timing and pricing remain material" in package_text
-    assert "Commercial quality depends on the binding-contract share" in package_text
+    assert "A material share of the $500M+ figure remains MOUs" in package_text
     assert "flat-to-modest return profile" in package_text
     memo_paths_abs = memo_analysis._memo_paths_abs(report)
     memo_analysis.memo_docx_renderer.render_memos(
@@ -1473,7 +1527,7 @@ def test_memo_run_completes_with_warnings_when_chinese_parity_gate_finds_p0(
     def fake_run_investment_memo(**kwargs):
         package = _memo_package(
             body_zh=(
-                "Generalist builds automation infrastructure. We recommend participating "
+                "Generalist builds automation infrastructure. BSH is committing capital "
                 "where deployment depth and valuation support are visible."
             )
         )

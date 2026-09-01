@@ -311,7 +311,7 @@ const breadcrumbs = computed(() => {
   const name = String(route.name || "");
   const root = t("nav.research_center");
   if (name === "home") return [root, t("companies.section_title")];
-  if (name === "tracking") return [root, t("sidebar.following")];
+  if (name === "tracking") return [root, t("sidebar.tracking")];
   if (name === "market-radar") return [root, t("nav.markets"), t("sidebar.markets_radar")];
   if (name === "stock-research") return [root, t("nav.markets"), t("sidebar.markets_workbench")];
   if (name === "settings") return [root, t("app.settings")];
@@ -719,7 +719,7 @@ watch(
       </aside>
     </Transition>
 
-    <ActiveJobsRail />
+    <ActiveJobsRail :copilot-open="copilotOpen" />
     <DeckSummaryModal
       v-if="summaryCompanyId"
       :company-id="summaryCompanyId"

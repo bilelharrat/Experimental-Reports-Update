@@ -22,6 +22,7 @@ describe("Memo panel components", () => {
         loading: false,
         readyForApproval: true,
         canGenerateMemo: true,
+        hasRiskCards: true,
         approvalTitle: "Approve analysis",
       },
     });
@@ -29,10 +30,26 @@ describe("Memo panel components", () => {
     expect(wrapper.text()).toContain("Memo Studio");
     expect(wrapper.text()).toContain("session-1");
     await wrapper.findAll("button").find((button) => button.text() === "Approve analysis").trigger("click");
-    await wrapper.findAll("button").find((button) => button.text() === "Generate memo").trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "Generate report").trigger("click");
 
     expect(wrapper.emitted("approve")).toHaveLength(1);
     expect(wrapper.emitted("generate-memo")).toHaveLength(1);
+  });
+
+  it("starts investigation when no risk cards exist", async () => {
+    const wrapper = mount(MemoGeneratedMemoControlsPanel, {
+      props: {
+        session: { id: "session-1", status: "draft" },
+        canGenerateMemo: true,
+        hasRiskCards: false,
+      },
+    });
+
+    await wrapper.findAll("button")
+      .find((button) => button.text() === "Start investigation")
+      .trigger("click");
+
+    expect(wrapper.emitted("start-investigation")).toHaveLength(1);
   });
 
   it("renders normalized run ledger rows", () => {
@@ -143,6 +160,8 @@ describe("Memo panel components", () => {
       props: {
         risks: [risk],
         prioritizedRisks: [risk],
+        riskDraft: [{ ...risk }],
+        riskDraftDirty: true,
         riskPriorityMap: new Map([["risk-1", { rank: 1, selected: false }]]),
         riskPriorityDraft: [{ risk_id: "risk-1", rank: 1, selected: false }],
         savingArtifact: null,
@@ -157,6 +176,14 @@ describe("Memo panel components", () => {
 
     expect(wrapper.emitted("move-risk-priority")[0]).toEqual(["risk-1", 1]);
     expect(wrapper.emitted("set-risk-selected")[0]).toEqual(["risk-1", true]);
+    await wrapper.find("#risk-title-risk-1").setValue("Customer production proof");
+    expect(wrapper.emitted("update-risk-field")).toContainEqual([
+      "risk-1",
+      "title",
+      "Customer production proof",
+    ]);
+    await wrapper.findAll("button").find((button) => button.text() === "Save card edits").trigger("click");
+    expect(wrapper.emitted("save-risk-cards")).toHaveLength(1);
     expect(wrapper.emitted("save-risk-priorities")).toHaveLength(1);
   });
 
@@ -197,7 +224,7 @@ describe("Memo panel components", () => {
     expect(wrapper.text()).toContain("Customer A reached production in 2025.");
     expect(wrapper.text()).toContain("The only named logo is still in pilot.");
     await wrapper.findAll("button").find((button) => button.text() === "Competitive / moat problem").trigger("click");
-    await wrapper.find("textarea").setValue("Treat this as a moat question.");
+    await wrapper.find("#risk-note-risk-1").setValue("Treat this as a moat question.");
     await wrapper.findAll("button").find((button) => button.text() === "Refine this risk").trigger("click");
 
     expect(wrapper.emitted("refine-risk")[0]).toEqual([

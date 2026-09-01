@@ -17,7 +17,7 @@ def _save_docx(path, paragraphs=(), tables=()):
     document.save(path)
 
 
-def test_linter_catches_source_scaffold_fuzzy_em_dash_and_disclosure_gaps(tmp_path):
+def test_linter_catches_source_scaffold_fuzzy_and_sell_side(tmp_path):
     path = tmp_path / "bad-memo.docx"
     _save_docx(
         path,
@@ -27,7 +27,6 @@ def test_linter_catches_source_scaffold_fuzzy_em_dash_and_disclosure_gaps(tmp_pa
             "CRITICAL REALITY CHECK (for BSH)",
             "A real technical asset behind a hard IP wall (present-state).",
             "A soft instrument into an unclosed round.",
-            "Revenue not disclosed. ARR not disclosed.",
             "Series A2, ~$3.0B pre-money — closing imminent.",
             "What Is Not Yet Underwritten",
             "Conditional Yes at the minimum ticket.",
@@ -50,8 +49,6 @@ def test_linter_catches_source_scaffold_fuzzy_em_dash_and_disclosure_gaps(tmp_pa
         "internal_artifact_leak",
         "scaffold_label",
         "banned_fuzzy_phrase",
-        "em_dash_bridge",
-        "disclosure_gap_without_treatment",
         "sell_side_voice_violation",
     }.issubset(codes)
 
@@ -61,18 +58,18 @@ def test_linter_allows_source_ids_in_fact_index_and_source_class_in_tables(tmp_p
     document = Document()
     document.add_paragraph("I. Executive Summary")
     document.add_paragraph(
-        "ZaiNar is company-reported to have named commercial momentum. "
-        "Revenue is not disclosed; model treatment uses a customer-count "
-        "proxy and valuation sensitivity."
+        "Commercial pull is $500M+ in signed contracts and MOUs. "
+        "Steve Jurvetson sits on the board. "
+        "Revenue is not disclosed. $3.0B is high relative to disclosed revenue."
     )
     table = document.add_table(rows=3, cols=2)
     table.cell(0, 0).text = "Metric"
     table.cell(0, 1).text = "Treatment"
     table.cell(1, 0).text = "Commercial signals"
-    table.cell(1, 1).text = "company-reported; no source token here"
+    table.cell(1, 1).text = "named partners; no source token here"
     table.cell(2, 0).text = "Recognized revenue"
     table.cell(2, 1).text = (
-        "Not disclosed; model does not infer ARR from MOU headlines."
+        "Not disclosed. $3.0B is high relative to disclosed commercial proof."
     )
     document.add_paragraph("VI. Sources, Source Classes, and Fact Reference Index")
     document.add_paragraph(
@@ -107,8 +104,8 @@ def test_linter_does_not_flag_wv_deal_party_as_artifact(tmp_path):
 
 
 def test_linter_treats_disclosure_gap_via_sibling_note_cell(tmp_path):
-    # A "Not disclosed" value paired with treatment / characterization in the
-    # row's Note column is adequately treated and must not be flagged.
+    # A "Not disclosed" value paired with the implication in the
+    # row's Note column is finished and must not be flagged.
     path = tmp_path / "row-treated.docx"
     _save_docx(
         path,
@@ -116,8 +113,16 @@ def test_linter_treats_disclosure_gap_via_sibling_note_cell(tmp_path):
         tables=[
             [
                 ["Metric", "Value", "Note"],
-                ["Gross margin / burn / NRR", "Not disclosed", "Valuation sensitivity"],
-                ["Revenue at date", "Not disclosed", "Undefined (no denominator)"],
+                [
+                    "Gross margin / burn / NRR",
+                    "Not disclosed",
+                    "$3.0B is high relative to disclosed commercial proof.",
+                ],
+                [
+                    "Revenue at date",
+                    "Not disclosed",
+                    "No denominator until recognized revenue is in.",
+                ],
             ],
         ],
     )
@@ -186,7 +191,20 @@ def test_linter_accepts_hyphenated_back_verbs(tmp_path):
     )
 
 
-def test_linter_still_flags_plain_we_back(tmp_path):
+def test_linter_flags_stock_participation_slogans(tmp_path):
+    path = tmp_path / "slogans.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "We are being offered SPV exposure, we are participating through "
+            "the vehicle, and we recommend participating.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
     path = tmp_path / "we-back.docx"
     _save_docx(
         path,
@@ -331,7 +349,7 @@ def test_linter_blocks_meta_process_language_in_source_index(tmp_path):
         path,
         paragraphs=[
             "I. Executive Summary",
-            "We recommend participating where valuation support is visible.",
+            "BSH is committing capital where valuation support is visible.",
             "VI. Sources, Source Classes, and Fact Reference Index",
             "[S1] Company materials, used for this memo.",
         ],
@@ -508,3 +526,117 @@ def test_linter_blocks_imperative_confirm_items_and_heading(tmp_path):
     assert result.has_blocking_findings is True
     assert "Confirm the A2 lead" in snippets
     assert "Closing Confirmations" in snippets
+
+
+def test_linter_allows_em_dashes_in_body_prose(tmp_path):
+    path = tmp_path / "em-dash-ok.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "Series A2, ~$3.0B pre-money — closing imminent.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(f.code == "em_dash_bridge" for f in result.findings)
+
+
+def test_linter_allows_plain_disclosure_facts(tmp_path):
+    path = tmp_path / "plain-gap.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "Revenue is not disclosed. $3.0B is high relative to disclosed revenue.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert not any(
+        f.code == "disclosure_gap_without_treatment" for f in result.findings
+    )
+
+
+def test_linter_blocks_treatment_speak_in_body(tmp_path):
+    path = tmp_path / "treatment-speak.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "The investment case rests on binding contracts. "
+            "We give credit to the MOU stack. "
+            "Key risk centers on whether carrier cycles slip. "
+            "ZaiNar is compelling because it is a control layer. "
+            "Revenue uses model treatment and a stated source class.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    snippets = " ".join(f.snippet for f in result.findings)
+
+    assert result.has_blocking_findings is True
+    assert any(f.code == "sell_side_voice_violation" for f in result.findings)
+    assert any(
+        needle in snippets.lower()
+        for needle in (
+            "investment case rests on",
+            "we give credit to",
+            "key risk centers on",
+            "compelling because",
+            "model treatment",
+            "source class",
+        )
+    )
+
+
+def test_linter_allows_ordinary_legal_english(tmp_path):
+    path = tmp_path / "legal-english.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "A SAFE is not equity and has no LP voting. "
+            "Annual K-1 issued by the SPV administrator. "
+            "Accredited investors only.",
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+
+    assert result.p0_findings == []
+
+
+def test_linter_blocks_generic_duplicate_risks_and_watch_commands(tmp_path):
+    path = tmp_path / "weak-risks.docx"
+    _save_docx(
+        path,
+        paragraphs=[
+            "I. Executive Summary",
+            "IV. Investment Risk",
+            "Risk 1: Commercial risk",
+            "Risk 2: Commercial risk",
+            "Competition is a risk. Execution could be difficult.",
+            "No competitor can replace this product.",
+        ],
+        tables=[
+            [
+                ["Risk Type", "Commercial"],
+                ["Why it matters", "The risk matters for revenue."],
+                ["What we watch", "Confirm the next customer renewal."],
+            ],
+        ],
+    )
+
+    result = memo_quality_lint.lint_memo_docx(path)
+    codes = {finding.code for finding in result.findings}
+
+    assert {
+        "generic_risk_heading",
+        "duplicate_risk_card",
+        "risk_watch_checklist",
+        "generic_risk_filler",
+        "unsupported_risk_claim",
+    } <= codes
