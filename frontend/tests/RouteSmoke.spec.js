@@ -597,6 +597,57 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
+  it("opens analysis markdown artifacts in the viewer drawer", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => "# Claim register\n\n- claim one",
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })),
+    );
+    api.getReport.mockResolvedValue({
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "failed_during_analysis",
+      progress: 15,
+      stage: "Claude skill run failed",
+      failure_phase: "analysis",
+      run_dir: "data/memos/generalist/run",
+      resume_available: false,
+      analysis_artifacts: [
+        {
+          label: "Claim register",
+          filename: "claim_register.md",
+          download_url:
+            "/api/reports/report-1/download?artifact=analysis&file=claim_register.md",
+        },
+      ],
+    });
+    const wrapper = await mountRoute("/research/generalist?report=report-1");
+
+    const chip = wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Claim register"));
+    expect(chip).toBeTruthy();
+    await chip.trigger("click");
+    await vi.dynamicImportSettled();
+    await flushPromises();
+
+    expect(wrapper.find("[role='dialog']").exists()).toBe(true);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/reports/report-1/download?artifact=analysis&file=claim_register.md",
+    );
+    expect(wrapper.html()).toContain("<h1>Claim register</h1>");
+    wrapper.unmount();
+  });
+
   it("shows gate diagnostics and preserved artifacts for failed quality gates", async () => {
     api.getReport.mockResolvedValue({
       id: "report-1",

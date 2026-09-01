@@ -273,6 +273,7 @@ describe("UnifiedDocumentsView", () => {
       .find((button) => button.text() === "View");
     expect(viewButton).toBeTruthy();
     await viewButton.trigger("click");
+    await vi.dynamicImportSettled();
     await flushPromises();
 
     // The drawer is open on the memo's EN docx.

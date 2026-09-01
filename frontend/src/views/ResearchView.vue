@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Download,
@@ -29,6 +29,11 @@ import FilePreviewModal from "../components/FilePreviewModal.vue";
 import MemoAnalysisDashboard from "../components/MemoAnalysisDashboard.vue";
 import MemoStudioEditor from "../components/MemoStudioEditor.vue";
 import UnifiedDocumentsView from "../components/UnifiedDocumentsView.vue";
+
+// Lazy: the viewer pulls in docx-preview (~large); load it on first View.
+const DocumentViewerDrawer = defineAsyncComponent(
+  () => import("../components/DocumentViewerDrawer.vue"),
+);
 
 const tr = useT();
 
@@ -312,6 +317,24 @@ const analysisArtifacts = computed(() => {
   const artifacts = activeReport.value?.analysis_artifacts;
   return Array.isArray(artifacts) ? artifacts : [];
 });
+// Slide-in document viewer for the analysis markdown artifacts.
+const docViewer = ref(null);
+function openArtifactViewer(artifact) {
+  if (!artifact?.download_url) return;
+  docViewer.value = {
+    title: artifact.label || artifact.filename || "",
+    sources: [
+      {
+        key: "MD",
+        url: withApiToken(artifact.download_url),
+        kind: "md",
+      },
+    ],
+  };
+}
+function closeDocViewer() {
+  docViewer.value = null;
+}
 const gateDiagnostics = computed(() => {
   const r = activeReport.value;
   if (!r) return [];
@@ -1687,16 +1710,27 @@ onUnmounted(stopPolling);
             {{ tr("research.partial_analysis_artifacts_body") }}
           </p>
           <div class="mt-3 flex flex-wrap items-center gap-2">
-            <a
+            <span
               v-for="artifact in analysisArtifacts"
               :key="artifact.filename || artifact.label"
-              :href="withApiToken(artifact.download_url || '#')"
-              class="btn-bordered focus-ring"
+              class="inline-flex items-stretch"
             >
-              <FileText class="h-4 w-4" />
-              <span>{{ artifact.label || artifact.filename }}</span>
-              <Download class="h-3.5 w-3.5 text-ink-muted" />
-            </a>
+              <button
+                type="button"
+                @click="openArtifactViewer(artifact)"
+                class="btn-bordered rounded-r-none focus-ring"
+              >
+                <FileText class="h-4 w-4" />
+                <span>{{ artifact.label || artifact.filename }}</span>
+              </button>
+              <a
+                :href="withApiToken(artifact.download_url || '#')"
+                class="btn-bordered rounded-l-none border-l-0 !px-2.5 focus-ring"
+                :aria-label="tr('research.download_artifact')"
+              >
+                <Download class="h-3.5 w-3.5 text-ink-muted" />
+              </a>
+            </span>
           </div>
         </div>
         <!-- Download + preview row: both .docx files (always available
@@ -2307,6 +2341,13 @@ onUnmounted(stopPolling);
       :download-url="previewDocxUrl"
       :previewable-kinds="['pdf']"
       @close="closeMemoPreview"
+    />
+
+    <DocumentViewerDrawer
+      v-if="docViewer"
+      :title="docViewer.title"
+      :sources="docViewer.sources"
+      @close="closeDocViewer"
     />
   </div>
 </template>
