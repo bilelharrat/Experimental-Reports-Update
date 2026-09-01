@@ -820,6 +820,19 @@ class MemoEditorCardPatch(BaseModel):
     confidence: str | None = None
     source_class: str | None = None
     source_refs: list[dict[str, Any]] | None = None
+    agent_rating: str | None = None
+    likelihood: str | None = None
+
+
+class MemoEditorCardCreate(BaseModel):
+    title: str
+    category: str | None = None
+    severity: str | None = None
+    rating: str | None = None
+    likelihood: str | None = None
+    source_class: str | None = None
+    bullets: list[str] | None = None
+    source_refs: list[dict[str, Any]] | None = None
 
 
 class MemoEditorMoveRequest(BaseModel):
@@ -3288,6 +3301,44 @@ def patch_memo_editor_card(
             card_id,
             patch.model_dump(exclude_unset=True),
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-editor/sections/{section_id}/cards")
+def add_memo_editor_card(
+    request: Request,
+    company_id: str,
+    section_id: str,
+    payload: MemoEditorCardCreate,
+) -> dict:
+    _require_permission(request, "memo:edit")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.add_card(
+            company_id,
+            section_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/companies/{company_id}/memo-editor/sections/{section_id}/cards/{card_id}"
+)
+def delete_memo_editor_card(
+    request: Request,
+    company_id: str,
+    section_id: str,
+    card_id: str,
+) -> dict:
+    _require_permission(request, "memo:edit")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.delete_card(company_id, section_id, card_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

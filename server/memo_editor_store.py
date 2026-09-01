@@ -1102,6 +1102,12 @@ def patch_card(company_id: str, section_id: str, card_id: str, patch: dict) -> d
             if key in patch and patch[key] is not None:
                 card[key] = _clean_text(patch[key], limit=240)
                 changed[key] = card[key]
+        # Studio pin fields: the rating/likelihood a risk card carries into
+        # the composed spine (normalized at compose time).
+        for key in ("agent_rating", "likelihood"):
+            if key in patch and patch[key] is not None:
+                card[key] = _clean_text(patch[key], limit=40)
+                changed[key] = card[key]
         if patch.get("source_class") is not None:
             card["source_class"] = normalize_source_class(patch.get("source_class"))
             changed["source_class"] = card["source_class"]
@@ -1136,6 +1142,330 @@ def move_card(company_id: str, section_id: str, card_id: str, direction: str) ->
             card["rank"] = rank
         section["cards"] = cards
         _audit(state, "card_rank_changed", section_id=section_id, card_id=card_id, direction=direction)
+        return _save_state(company_id, state)
+
+
+def add_card(company_id: str, section_id: str, payload: dict) -> dict:
+    """Append a user-authored card to a card section (Memo Studio)."""
+    if section_id not in CARD_SECTIONS:
+        raise ValueError(f"Section does not contain cards: {section_id}")
+    payload = payload if isinstance(payload, dict) else {}
+    title = _clean_text(payload.get("title"), limit=240)
+    if not title:
+        raise ValueError("Card title is required")
+    with _LOCK:
+        state = get_state(company_id, create=True)
+        if state is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        section = _get_section(state, section_id)
+        cards = [card for card in _list(section.get("cards")) if isinstance(card, dict)]
+        source_class = payload.get("source_class") or "internal note"
+        bullet_texts = [
+            _clean_text(text, limit=700)
+            for text in _list(payload.get("bullets"))
+            if _clean_text(text)
+        ] or [title]
+        index = len(cards) + 1
+        card = _card(
+            prefix="user",
+            index=index,
+            title=title,
+            category=_clean_text(payload.get("category"), limit=80)
+            or ("Risk" if section_id == SECTION_RISKS else "Thesis"),
+            bullets=[
+                _bullet(text, index=i, source_class=source_class)
+                for i, text in enumerate(bullet_texts[:5], start=1)
+            ],
+            source_refs=normalize_source_refs(
+                payload.get("source_refs"),
+                default_source_class=source_class,
+                fallback_title=f"{title} source",
+            ),
+            source_class=source_class,
+            severity=payload.get("severity"),
+        )
+        card["rank"] = index
+        if section_id == SECTION_RISKS:
+            card["agent_rating"] = _clean_text(payload.get("rating"), limit=40)
+            card["likelihood"] = _clean_text(payload.get("likelihood"), limit=40)
+        cards.append(card)
+        section["cards"] = cards
+        _audit(state, "card_added", section_id=section_id, card_id=card["id"], title=title)
+        return _save_state(company_id, state)
+
+
+def delete_card(company_id: str, section_id: str, card_id: str) -> dict:
+    """Remove a card from a card section (Memo Studio)."""
+    with _LOCK:
+        state = get_state(company_id, create=True)
+        if state is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        removed = _find_card(state, section_id, card_id)
+        section = _get_section(state, section_id)
+        cards = [
+            card
+            for card in _list(section.get("cards"))
+            if isinstance(card, dict) and card.get("id") != card_id
+        ]
+        cards.sort(key=lambda c: int(c.get("rank") or 999))
+        for rank, card in enumerate(cards, start=1):
+            card["rank"] = rank
+        section["cards"] = cards
+        _audit(
+            state,
+            "card_removed",
+            section_id=section_id,
+            card_id=card_id,
+            title=removed.get("title"),
+        )
+        return _save_state(company_id, state)
+
+
+def _severity_from_rating(rating: Any) -> str:
+    match = re.match(r"^\s*(10|[1-9])\s*(?:/\s*10)?\s*$", str(rating or ""))
+    if not match:
+        return "medium"
+    value = int(match.group(1))
+    if value >= 8:
+        return "high"
+    if value >= 5:
+        return "medium"
+    return "low"
+
+
+def apply_agent_spine(
+    company_id: str, spine: dict, provenance: dict | None = None
+) -> dict:
+    """Seed or refresh the studio cards from a pipeline spine.
+
+    Called after a Memo Studio investigation (spine carries
+    ``studio_extras``) and after a One-Click run completes (no extras).
+    Snapshot-then-replace: ``_save_state`` writes a version snapshot, so
+    the pre-apply state is one revision back in history. Risk cards, the
+    exec-summary recommendation, and the pinned facts are replaced with
+    the agent's output; thesis cards and conclusion options are replaced
+    only when the spine proposes them; everything else is untouched.
+    """
+    if not isinstance(spine, dict) or not isinstance(spine.get("shared_facts"), dict):
+        raise ValueError("spine has no shared_facts")
+    shared_facts = spine["shared_facts"]
+    extras = (
+        spine.get("studio_extras")
+        if isinstance(spine.get("studio_extras"), dict)
+        else {}
+    )
+    provenance = dict(provenance or {})
+    with _LOCK:
+        state = get_state(company_id, create=True)
+        if state is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        sections = state.setdefault("sections", {})
+        recommendation = _clean_text(
+            shared_facts.get("recommendation_sentence"), limit=300
+        )
+
+        exec_section = sections.get("executive_summary")
+        if isinstance(exec_section, dict):
+            if recommendation:
+                exec_section["recommendation"] = recommendation
+            metric_lines = []
+            for metric in _list(shared_facts.get("key_metrics")):
+                if not isinstance(metric, dict):
+                    continue
+                name = _clean_text(metric.get("name"), limit=80)
+                value = _clean_text(metric.get("value"), limit=120)
+                if not name or not value:
+                    continue
+                as_of = _clean_text(metric.get("as_of"), limit=40)
+                metric_lines.append(
+                    f"{name}: {value}{f' (as of {as_of})' if as_of else ''}."
+                )
+            if metric_lines:
+                exec_section["body"] = " ".join(metric_lines[:4])
+            exec_section["source_class"] = "generated memo"
+
+        risk_cards: list[dict] = []
+        for index, risk in enumerate(_list(shared_facts.get("risks")), start=1):
+            if not isinstance(risk, dict):
+                continue
+            title = _clean_text(risk.get("summary"), limit=220)
+            if not title:
+                continue
+            rating = _clean_text(risk.get("rating"), limit=40)
+            likelihood = _clean_text(risk.get("likelihood"), limit=40)
+            bullet_text = f"Agent rating {rating or 'n/a'}" + (
+                f"; likelihood {likelihood}." if likelihood else "."
+            )
+            card = _card(
+                prefix="risk",
+                index=index,
+                title=title,
+                category="Risk",
+                bullets=[
+                    _bullet(bullet_text, index=1, source_class="generated memo")
+                ],
+                source_refs=normalize_source_refs(
+                    [{"title": "Generated memo spine", "source_class": "generated memo"}],
+                    fallback_title="Generated memo spine",
+                ),
+                source_class="generated memo",
+                severity=_severity_from_rating(rating),
+            )
+            card["agent_rating"] = rating
+            card["likelihood"] = likelihood
+            card["agent_rank"] = index
+            risk_cards.append(card)
+        if risk_cards and isinstance(sections.get(SECTION_RISKS), dict):
+            sections[SECTION_RISKS]["cards"] = risk_cards
+
+        thesis_cards: list[dict] = []
+        for index, point in enumerate(_list(extras.get("thesis_points")), start=1):
+            if not isinstance(point, dict):
+                continue
+            title = _clean_text(point.get("title"), limit=220)
+            if not title:
+                continue
+            support = _clean_text(point.get("support"), limit=700)
+            source_topics = (
+                shared_facts.get("source_topics")
+                if isinstance(shared_facts.get("source_topics"), dict)
+                else {}
+            )
+            refs = [
+                {
+                    "title": f"{sid}: {_clean_text(source_topics.get(sid), limit=100) or 'spine source'}",
+                    "source_class": "generated memo",
+                }
+                for sid in _list(point.get("source_ids"))
+                if _clean_text(sid)
+            ] or [{"title": "Generated memo spine", "source_class": "generated memo"}]
+            card = _card(
+                prefix="thesis",
+                index=index,
+                title=title,
+                category=_clean_text(point.get("category"), limit=80) or "Thesis",
+                bullets=[
+                    _bullet(support or title, index=1, source_class="generated memo")
+                ],
+                source_refs=normalize_source_refs(
+                    refs,
+                    default_source_class="generated memo",
+                    fallback_title=f"{title} source",
+                ),
+                source_class="generated memo",
+            )
+            card["agent_rank"] = index
+            thesis_cards.append(card)
+        if thesis_cards and isinstance(
+            sections.get(SECTION_INVESTMENT_THESIS), dict
+        ):
+            sections[SECTION_INVESTMENT_THESIS]["cards"] = thesis_cards
+
+        conclusion = sections.get(SECTION_CONCLUSION)
+        if isinstance(conclusion, dict):
+            options_payload = _list(extras.get("conclusion_options"))
+            if options_payload:
+                options: list[dict] = []
+                selected_id: str | None = None
+                for index, option in enumerate(options_payload, start=1):
+                    if not isinstance(option, dict):
+                        continue
+                    label = (
+                        _clean_text(option.get("label"), limit=80)
+                        or f"Option {index}"
+                    )
+                    text = _clean_text(
+                        option.get("recommendation_sentence"), limit=300
+                    )
+                    if not text:
+                        continue
+                    row = {
+                        "id": _stable_id("conclusion", label, index),
+                        "label": label,
+                        "text": text,
+                        "rationale": _clean_text(option.get("rationale"), limit=300),
+                        "source_refs": normalize_source_refs(
+                            [
+                                {
+                                    "title": "Generated memo spine",
+                                    "source_class": "generated memo",
+                                }
+                            ],
+                            fallback_title="Generated memo spine",
+                        ),
+                        "source_class": "generated memo",
+                    }
+                    options.append(row)
+                    if selected_id is None and recommendation and text == recommendation:
+                        selected_id = row["id"]
+                if options:
+                    conclusion["options"] = options
+                    conclusion["selected_option_id"] = (
+                        selected_id or options[0]["id"]
+                    )
+            elif recommendation:
+                # One-Click publish: surface the agent's stance as its own
+                # option without rewriting the stock options.
+                options = [
+                    row
+                    for row in _list(conclusion.get("options"))
+                    if isinstance(row, dict)
+                ]
+                agent_row = next(
+                    (
+                        row
+                        for row in options
+                        if row.get("id") == "agent_recommendation"
+                    ),
+                    None,
+                )
+                if agent_row is None:
+                    agent_row = {
+                        "id": "agent_recommendation",
+                        "label": "Agent recommendation",
+                        "source_refs": normalize_source_refs(
+                            [
+                                {
+                                    "title": "Generated memo spine",
+                                    "source_class": "generated memo",
+                                }
+                            ],
+                            fallback_title="Generated memo spine",
+                        ),
+                        "source_class": "generated memo",
+                    }
+                    options.append(agent_row)
+                agent_row["text"] = recommendation
+                conclusion["options"] = options
+                conclusion["selected_option_id"] = "agent_recommendation"
+
+        state["pinned_facts"] = {
+            "key_metrics": copy.deepcopy(_list(shared_facts.get("key_metrics"))),
+            "scenarios": copy.deepcopy(
+                shared_facts.get("scenarios")
+                if isinstance(shared_facts.get("scenarios"), dict)
+                else {}
+            ),
+            "source_topics": copy.deepcopy(
+                shared_facts.get("source_topics")
+                if isinstance(shared_facts.get("source_topics"), dict)
+                else {}
+            ),
+        }
+        state["agent_run"] = {
+            "report_id": _clean_text(provenance.get("report_id"), limit=80),
+            "run_id": _clean_text(provenance.get("run_id"), limit=120),
+            "mode": _clean_text(provenance.get("mode"), limit=40) or "studio",
+            "seeded_at": _now(),
+        }
+        _audit(
+            state,
+            "agent_spine_applied",
+            mode=state["agent_run"]["mode"],
+            report_id=state["agent_run"]["report_id"],
+            risk_cards=len(risk_cards),
+            thesis_cards=len(thesis_cards),
+        )
         return _save_state(company_id, state)
 
 
