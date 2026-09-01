@@ -460,3 +460,44 @@ without lucky retrieval, pin repair presumably quiet. Then nvda
 E-config: expect the holding stage to fire and the spine to launch
 late-but-fresh (or degrade to D timing when the pin passes are dead
 last) — the stale respin should disappear.
+
+### Round-4 validation — zainar Run G (2026-09-01)
+
+| Run | Config | Phase 2 | Spine | Total | Cost | Quality |
+|---|---|---|---|---|---|---|
+| G | full stack + Round 4 (ledger seeded, pin-affine gate, pin repair armed) | 3.5 m | speculative 4.2 m (held 68 s for `arithmetic_denominators`) → **STALE via `competitive_rights`** → respin 3.7 m | 22.1 m | $23.72 | `done`, lint P0=0, parity P0=0, pin echo 22/0 |
+
+Run G source: `data/memos/zainar-inc/2026-09-01__054233__zainar-inc__memo-run`.
+
+- **Fact ledger VALIDATED.** All seeded facts are in the final memo —
+  $500M+ book, 95+ patents, the $450M→$500M revision history, the
+  Tokyo GX selection — with no reliance on lucky retrieval. The
+  `memo_fact_ledger` stage (1,092 chars) and the new phase-report
+  lines both recorded it. The fact lottery is closed for ledgered
+  facts.
+- **Pin-affine gate: mechanism validated, required set incomplete.**
+  The gate held the spine 68 s for `arithmetic_denominators` exactly
+  as designed (holding stage visible). But the draw went stale anyway
+  — zainar's first — via `competitive_rights` (dead last at 3.5 m,
+  launched 18 s after the spine): its late evidence contradicted
+  pinned risk #3's 3GPP Rel-18/19 framing. The gate covers number
+  pins; risk pins are fed by `competitive_rights` /
+  `alternative_explanations`. All three observed stale draws now
+  trace to pin-feeding passes in the broad sense (financial ×2 nvda,
+  risk ×1 zainar). Delta check caught it; 4 early drafts discarded;
+  correctness held.
+- **Armed pin repair stayed quiet** — 22/0 both before and after the
+  repair round (seventh consecutive clean check). The two sectional
+  repairs this run (executive_summary 1.3 m ∥
+  financial_forecast_valuation 3.7 m) were ordinary quality-lint
+  findings, routed per-section as designed.
+- **Timing (22.1 m) is a bad-luck stack, not a regression**: stale
+  respin (~5 m incl. the 1 m delta check) + a 2-section quality
+  repair (3.7 m longest) + chase strandings from the respin (62
+  strings adopted; compact gap-fill absorbed the rest). This is also
+  the first post-ledger run — new baseline territory either way.
+- **Proposed next knob (zero code):**
+  `BSH_MEMO_SPINE_SPECULATE_REQUIRE=arithmetic_denominators,time_base,growth_bridge,competitive_rights`.
+  On this draw it would have added 18 s of waiting and avoided the
+  ~5 m respin. Promote to the code default if it holds over a few
+  draws.
