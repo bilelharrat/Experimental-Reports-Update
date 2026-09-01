@@ -94,6 +94,126 @@ def test_flag_helpers(monkeypatch):
     assert claude_runner._memo_spine_speculate_after() == 6
 
 
+def test_speculate_require_helper(monkeypatch):
+    monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", raising=False)
+    assert (
+        claude_runner._memo_spine_speculate_require()
+        == claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
+    )
+    assert claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES == frozenset(
+        {"arithmetic_denominators", "time_base", "growth_bridge"}
+    )
+    for off in ("", "none", "NONE", "0", "  none  "):
+        monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", off)
+        assert claude_runner._memo_spine_speculate_require() == frozenset()
+    monkeypatch.setenv(
+        "BSH_MEMO_SPINE_SPECULATE_REQUIRE", " time_base, growth_bridge ,"
+    )
+    assert claude_runner._memo_spine_speculate_require() == frozenset(
+        {"time_base", "growth_bridge"}
+    )
+
+
+class _StubStream:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def emit(self, event: str, **kw) -> None:
+        self.events.append((event, kw))
+
+
+def test_speculator_holds_for_pin_feeding_passes(tmp_path, monkeypatch):
+    monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", raising=False)
+    spine_calls: list[dict] = []
+
+    def fake_spine(**kw):
+        spine_calls.append(kw)
+        return _spine_result(), None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_spine", fake_spine
+    )
+    stream = _StubStream()
+    spec = _speculator(tmp_path, stream=stream)
+    # Five non-pin passes: below the count threshold, no holding stage yet.
+    for pass_id in _PASS_IDS[3:]:
+        spec.note_pass_result(pass_id, True)
+    assert spec.launched is False
+    holds = [e for e in stream.events if e[1].get("stage") == "memo_spine_speculation_holding"]
+    assert holds == []
+    # Sixth pass meets the count, but two pin-feeding passes are missing.
+    spec.note_pass_result("arithmetic_denominators", True)
+    assert spec.launched is False
+    spec.note_pass_result("time_base", True)
+    assert spec.launched is False
+    holds = [e for e in stream.events if e[1].get("stage") == "memo_spine_speculation_holding"]
+    assert len(holds) == 1  # emitted once, not per pass
+    assert "growth_bridge" in holds[0][1]["message"]
+    # The last pin-feeding pass releases the gate — with nothing late.
+    spec.note_pass_result("growth_bridge", True)
+    assert spec.launched is True
+    result, reason = spec.consume()
+    spec.shutdown()
+    assert reason is None and isinstance(result, dict)
+    assert len(spine_calls) == 1
+    assert not spine_calls[0].get("speculative_missing")
+
+
+def test_failed_required_pass_counts_as_satisfied(tmp_path, monkeypatch):
+    monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", raising=False)
+    spine_calls: list[dict] = []
+
+    def fake_spine(**kw):
+        spine_calls.append(kw)
+        return _spine_result(), None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_fast_english_spine", fake_spine
+    )
+    spec = _speculator(tmp_path)
+    for pass_id in ["time_base", "growth_bridge", *_PASS_IDS[3:7]]:
+        spec.note_pass_result(pass_id, True)
+    assert spec.launched is False  # arithmetic_denominators still missing
+    # A FAILED required pass will never land an artifact — nothing to
+    # wait for, so it satisfies the gate.
+    spec.note_pass_result("arithmetic_denominators", False)
+    assert spec.launched is True
+    spec.consume()
+    spec.shutdown()
+    assert spine_calls[0]["speculative_missing"] == [_PASS_IDS[7]]
+
+
+def test_require_none_restores_count_only_launch(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", "none")
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    spec = _speculator(tmp_path, threshold=4)
+    for pass_id in _PASS_IDS[3:7]:  # no pin-feeding pass among them
+        spec.note_pass_result(pass_id, True)
+    assert spec.launched is True
+    spec.consume()
+    spec.shutdown()
+
+
+def test_require_unknown_ids_are_filtered(tmp_path, monkeypatch):
+    # An env typo must not silently disable speculation for the whole run.
+    monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", "bogus_pass")
+    monkeypatch.setattr(
+        claude_runner,
+        "run_memo_fast_english_spine",
+        lambda **_kw: (_spine_result(), None),
+    )
+    spec = _speculator(tmp_path, threshold=4)
+    for pass_id in _PASS_IDS[3:7]:
+        spec.note_pass_result(pass_id, True)
+    assert spec.launched is True
+    spec.consume()
+    spec.shutdown()
+
+
 def test_spine_prompt_carries_speculative_block(tmp_path, monkeypatch):
     captured: dict = {}
 

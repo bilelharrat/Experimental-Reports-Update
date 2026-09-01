@@ -4697,6 +4697,33 @@ def _memo_spine_speculate_after() -> int:
     return max(4, min(value, 7))
 
 
+# The pin-feeding passes: their numbers land in the shared-facts pin sheet
+# (key metrics, scenarios, the rated risks' figures). Both observed stale
+# speculation draws (nvda E_v2/E_v3) traced to exactly these passes
+# finishing last — the spine guessed its pins without its own inputs, and
+# the delta check charged ~4 minutes to discard and respin.
+MEMO_SPINE_PIN_FEEDING_PASSES: frozenset[str] = MEMO_SECTION_PASS_AFFINITY[
+    "financial_forecast_valuation"
+]
+
+
+def _memo_spine_speculate_require() -> frozenset[str]:
+    """Passes that must have COMPLETED (either outcome) before the spine
+    launches speculatively, on top of the count threshold — the pin-affine
+    launch gate. When these finish last, the spine simply waits and the
+    run degrades to normal spine timing instead of a likely stale respin.
+    A failed pass counts as satisfied: it will never land an artifact, so
+    there is nothing to wait for. Override with a comma-separated pass-id
+    list in BSH_MEMO_SPINE_SPECULATE_REQUIRE; "none" (or empty) restores
+    the count-only launch."""
+    raw = os.environ.get("BSH_MEMO_SPINE_SPECULATE_REQUIRE")
+    if raw is None:
+        return MEMO_SPINE_PIN_FEEDING_PASSES
+    if raw.strip().lower() in {"", "none", "0"}:
+        return frozenset()
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
 MEMO_SPINE_DELTA_CHECK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -4774,9 +4801,13 @@ class SpeculativeEnglish:
 
     Phase 2 is gated by its slowest pass, while the spine needs the full
     picture only for a handful of pinned facts. This coordinator starts
-    the spine once ``threshold`` passes have completed — the chasing
-    pattern applied upstream — so the spine's wall time hides inside the
-    pass tail. When the stragglers land, ``consume()`` runs a cheap delta
+    the spine once ``threshold`` passes have completed AND every
+    pin-feeding pass (:func:`_memo_spine_speculate_require`) is among
+    them — the chasing pattern applied upstream — so the spine's wall
+    time hides inside the pass tail without gambling on the passes that
+    feed its own pin sheet. When the required passes finish last, the
+    spine launches on the final pass with nothing left to delta-check
+    and the run degrades cleanly to normal spine timing. When the stragglers land, ``consume()`` runs a cheap delta
     check: fresh pins hand the finished spine to the wrapper and the
     section wave starts immediately; stale pins (or any failure anywhere)
     discard it and the wrapper runs a normal spine. The gamble can waste
@@ -4828,6 +4859,16 @@ class SpeculativeEnglish:
             threshold or _memo_spine_speculate_after(),
             max(1, len(self._all_pass_ids) - 1) if self._all_pass_ids else 1,
         )
+        # Pin-affine launch gate: unknown ids (env typos, or a pass list
+        # this run does not use) are dropped so a stale override can never
+        # silently disable speculation outright.
+        require = _memo_spine_speculate_require()
+        if self._all_pass_ids:
+            require = frozenset(
+                pid for pid in require if pid in self._all_pass_ids
+            )
+        self._require_ids = require
+        self._hold_stage_emitted = False
         self._on_spine = on_spine
         self._on_section = on_section
         self._early_enabled = bool(early_sections)
@@ -4871,15 +4912,39 @@ class SpeculativeEnglish:
             self._progresses.append(progress)
         return progress
 
+    def _emit_hold_stage_locked(self, missing: list[str]) -> None:
+        """One-time observability for the pin-affine gate: the count
+        threshold is met but the spine is holding for pin-feeding passes.
+        Called with the lock held."""
+        if self._hold_stage_emitted or self._stream is None:
+            return
+        self._hold_stage_emitted = True
+        self._stream.emit(
+            "stage",
+            stage="memo_spine_speculation_holding",
+            message=(
+                "Speculative spine at the count threshold but holding for "
+                "pin-feeding pass(es): " + ", ".join(missing)
+            ),
+            missing_required=missing,
+        )
+
     def note_pass_result(self, pass_id: str, ok: bool) -> None:
-        """Phase-2 completion signal; launches the spine at the threshold
-        and any early section whose affinity this completion satisfies."""
+        """Phase-2 completion signal; launches the spine once the count
+        threshold AND the pin-affine required passes are satisfied, plus
+        any early section whose affinity this completion satisfies."""
         with self._lock:
             self._pass_ok[str(pass_id)] = bool(ok)
             self._maybe_start_sections_locked()
             if self._spine_future is not None:
                 return
             if len(self._pass_ok) < self._threshold:
+                return
+            missing_required = sorted(
+                pid for pid in self._require_ids if pid not in self._pass_ok
+            )
+            if missing_required:
+                self._emit_hold_stage_locked(missing_required)
                 return
             self._late_ids = [
                 pid for pid in self._all_pass_ids if pid not in self._pass_ok
