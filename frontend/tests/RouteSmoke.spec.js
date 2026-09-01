@@ -823,6 +823,47 @@ describe("route smoke tests", () => {
     wrapper.unmount();
   });
 
+  it("defaults the Report tab to Studio after a document deep link", async () => {
+    api.getReport.mockResolvedValue({
+      id: "memo-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "complete",
+      progress: 100,
+      stage: "Memo ready",
+      content_en: "Memo body.",
+      run_dir: "data/memos/generalist/run",
+      resume_available: false,
+      analysis_artifacts: [],
+    });
+    const wrapper = await mountRoute("/research/generalist?report=memo-1");
+    const stageButton = (label) =>
+      wrapper.findAll('[role="tab"]').find((tab) => tab.text() === label);
+
+    // The deep link (Files library) opens the document once...
+    expect(stageButton("Document").attributes("data-selected")).toBe("true");
+
+    // ...but a later click on the Report tab lands on Studio.
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Overview")
+      .trigger("click");
+    await flushPromises();
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Report")
+      .trigger("click");
+    await flushPromises();
+
+    expect(stageButton("Studio").attributes("data-selected")).toBe("true");
+    expect(stageButton("Document").attributes("data-selected")).toBe("false");
+    wrapper.unmount();
+  });
+
   it("shows a parked studio investigation as cards-ready and generates from it", async () => {
     api.getReport.mockResolvedValue({
       id: "studio-3",

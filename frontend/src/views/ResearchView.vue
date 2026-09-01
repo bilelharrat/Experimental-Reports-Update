@@ -481,9 +481,30 @@ function memoStageEnabled(id) {
   return Boolean(stage?.enabled);
 }
 
+// A fresh ?report= deep link (Files library "Generated memos" rows)
+// means "show me this document". The flag is consumed on first use so
+// clicking the Report tab afterwards lands on Studio, not Document.
+const pendingReportDeepLink = ref(
+  route.query.report ? String(route.query.report) : "",
+);
+watch(
+  () => route.query.report,
+  (value) => {
+    pendingReportDeepLink.value = value ? String(value) : "";
+  },
+);
+
 function defaultMemoStage() {
   if (reportIsFailed.value || reportHasWarnings.value) return "studio";
-  if (memoArtifactsVisible.value && !generating.value) return "preview";
+  if (
+    pendingReportDeepLink.value &&
+    activeReport.value?.id === pendingReportDeepLink.value &&
+    memoArtifactsVisible.value &&
+    !generating.value
+  ) {
+    pendingReportDeepLink.value = "";
+    return "preview";
+  }
   return "studio";
 }
 
