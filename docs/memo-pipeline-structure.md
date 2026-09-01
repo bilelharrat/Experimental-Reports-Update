@@ -353,6 +353,17 @@ plan, and note the ledger breaks comparability with pre-ledger runs.
 
 Still queued:
 
+0. **Per-component format contracts** (user, 2026-09-01): section
+   format varies draw to draw — e.g. the closing decision came out as a
+   labeled "core bet" bullet list on 8-28, a rich callout on other
+   draws, and plain paragraphs after the 8-31 voice polish (which also
+   thinned it: "action ... in sentence form"). Fix = the risk-register
+   pattern, per component: a fixed format contract in the section spec
+   (e.g. `investment_decision` = labeled callout with the six spine
+   rows; `evidence_thresholds` = fixed-column table) + a deterministic
+   shape check like `_risk_card_format_errors` feeding the existing
+   hybrid repair. §3 lists every file this touches. Fixes One-Click
+   and Studio at once.
 1. Chase eviction on respin (rare-path; today stale respins strand
    chase output and gap-fill absorbs it — rarer now that pin-affine
    should prevent most stale respins).
