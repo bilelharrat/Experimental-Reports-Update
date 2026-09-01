@@ -2,12 +2,11 @@
 import { computed, onMounted, ref, watch } from "vue";
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Download,
+  GripVertical,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -203,10 +202,105 @@ async function patchCard(sectionId, card, patch) {
   }
 }
 
-async function moveCard(sectionId, card, direction) {
-  savingId.value = `${sectionId}:${card.id}:move`;
+// ---- Drag-to-reorder ------------------------------------------------------
+// The card body stays selectable: dragging arms only from the grip handle
+// (mousedown sets dragArmedId, which is what makes the article draggable).
+
+const dragArmedId = ref("");
+const dragCardId = ref("");
+const dragSectionId = ref("");
+const dragOverCardId = ref("");
+const dragOverAfter = ref(true);
+
+// The full section order by rank — NOT the deduped display list: the
+// backend requires a complete permutation of the section's card ids.
+function rawOrderedIds(sectionId) {
+  const cards = sections.value[sectionId]?.cards || [];
+  return [...cards]
+    .sort((a, b) => Number(a.rank || 0) - Number(b.rank || 0))
+    .map((card) => String(card.id));
+}
+
+function armDrag(cardId) {
+  dragArmedId.value = cardId;
+}
+
+function disarmDrag() {
+  if (!dragCardId.value) dragArmedId.value = "";
+}
+
+function onDragStart(event, sectionId, card) {
+  if (dragArmedId.value !== card.id) {
+    event.preventDefault();
+    return;
+  }
+  dragCardId.value = card.id;
+  dragSectionId.value = sectionId;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", card.id);
+    } catch {
+      // Some environments (tests) have no DataTransfer — harmless.
+    }
+  }
+}
+
+function onDragOver(event, sectionId, card) {
+  if (
+    !dragCardId.value ||
+    dragSectionId.value !== sectionId ||
+    card.id === dragCardId.value
+  ) {
+    return;
+  }
+  dragOverCardId.value = card.id;
+  const rect = event.currentTarget?.getBoundingClientRect?.();
+  dragOverAfter.value =
+    !rect || !rect.height
+      ? true
+      : event.clientY - rect.top >= rect.height / 2;
+}
+
+function dropIndicatorClass(sectionId, card) {
+  if (
+    !dragCardId.value ||
+    dragSectionId.value !== sectionId ||
+    dragOverCardId.value !== card.id ||
+    dragCardId.value === card.id
+  ) {
+    return "";
+  }
+  return dragOverAfter.value
+    ? "border-b-2 border-b-accent"
+    : "border-t-2 border-t-accent";
+}
+
+function onDragEnd() {
+  dragArmedId.value = "";
+  dragCardId.value = "";
+  dragSectionId.value = "";
+  dragOverCardId.value = "";
+  dragOverAfter.value = true;
+}
+
+async function onDrop(sectionId, card) {
+  const draggedId = dragCardId.value;
+  const fromSection = dragSectionId.value;
+  const after =
+    dragOverCardId.value === card.id ? dragOverAfter.value : true;
+  onDragEnd();
+  if (!draggedId || draggedId === card.id || fromSection !== sectionId) return;
+  const ordered = rawOrderedIds(sectionId).filter((id) => id !== draggedId);
+  const targetIndex = ordered.indexOf(String(card.id));
+  const insertAt =
+    targetIndex < 0 ? ordered.length : targetIndex + (after ? 1 : 0);
+  ordered.splice(insertAt, 0, draggedId);
+  savingId.value = `${sectionId}:reorder`;
   try {
-    applyState(await api.memoEditor.moveCard(props.companyId, sectionId, card.id, direction));
+    applyState(
+      await api.memoEditor.reorderCards(props.companyId, sectionId, ordered),
+    );
   } catch {
     error.value = "action";
   } finally {
@@ -563,44 +657,36 @@ async function setTaskStatus(task, status) {
           <article
             v-for="card in thesisCards"
             :key="card.id"
-            class="rounded-card border border-subtle border-l-4 bg-surface p-4"
-            :class="cardTone('investment_thesis', card)"
+            class="rounded-card border border-subtle border-l-4 bg-surface p-3"
+            :class="[
+              cardTone('investment_thesis', card),
+              dragCardId === card.id ? 'opacity-60' : '',
+              dropIndicatorClass('investment_thesis', card),
+            ]"
+            :draggable="dragArmedId === card.id"
+            @dragstart="onDragStart($event, 'investment_thesis', card)"
+            @dragover.prevent="onDragOver($event, 'investment_thesis', card)"
+            @drop.prevent="onDrop('investment_thesis', card)"
+            @dragend="onDragEnd"
           >
-            <div class="flex gap-3">
-              <div class="flex w-12 shrink-0 flex-col items-center gap-1">
-                <input
-                  type="checkbox"
-                  :checked="card.included"
-                  @change="patchCard('investment_thesis', card, { included: $event.target.checked })"
-                  class="memo-checkbox focus-ring"
-                  :aria-label="t('memo.include_card', { title: card.title })"
-                />
-                <span class="font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
-                <button
-                  type="button"
-                  @click="moveCard('investment_thesis', card, 'up')"
-                  class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  :aria-label="t('memo.move_card_up')"
-                >
-                  <ArrowUp class="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  @click="moveCard('investment_thesis', card, 'down')"
-                  class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  :aria-label="t('memo.move_card_down')"
-                >
-                  <ArrowDown class="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  @click="removeCard('investment_thesis', card)"
-                  class="rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
-                  :aria-label="t('memo.remove_card')"
-                >
-                  <X class="h-3.5 w-3.5" />
-                </button>
-              </div>
+            <div class="flex items-start gap-2">
+              <button
+                type="button"
+                class="mt-0.5 shrink-0 cursor-grab rounded p-1 text-ink-muted hover:bg-surface-muted focus-ring"
+                :aria-label="t('memo.drag_card')"
+                @mousedown="armDrag(card.id)"
+                @mouseup="disarmDrag"
+              >
+                <GripVertical class="h-4 w-4" />
+              </button>
+              <input
+                type="checkbox"
+                :checked="card.included"
+                @change="patchCard('investment_thesis', card, { included: $event.target.checked })"
+                class="memo-checkbox focus-ring mt-1 shrink-0"
+                :aria-label="t('memo.include_card', { title: card.title })"
+              />
+              <span class="mt-0.5 w-5 shrink-0 text-center font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
               <div class="min-w-0 flex-1">
                 <button
                   type="button"
@@ -630,6 +716,14 @@ async function setTaskStatus(task, status) {
                   @discuss="discuss"
                 />
               </div>
+              <button
+                type="button"
+                @click="removeCard('investment_thesis', card)"
+                class="mt-0.5 shrink-0 rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
+                :aria-label="t('memo.remove_card')"
+              >
+                <X class="h-3.5 w-3.5" />
+              </button>
             </div>
           </article>
         </div>
@@ -676,44 +770,36 @@ async function setTaskStatus(task, status) {
           <article
             v-for="card in riskCards"
             :key="card.id"
-            class="rounded-card border border-subtle border-l-4 bg-surface p-4"
-            :class="cardTone('risks_mitigations', card)"
+            class="rounded-card border border-subtle border-l-4 bg-surface p-3"
+            :class="[
+              cardTone('risks_mitigations', card),
+              dragCardId === card.id ? 'opacity-60' : '',
+              dropIndicatorClass('risks_mitigations', card),
+            ]"
+            :draggable="dragArmedId === card.id"
+            @dragstart="onDragStart($event, 'risks_mitigations', card)"
+            @dragover.prevent="onDragOver($event, 'risks_mitigations', card)"
+            @drop.prevent="onDrop('risks_mitigations', card)"
+            @dragend="onDragEnd"
           >
-            <div class="flex gap-3">
-              <div class="flex w-12 shrink-0 flex-col items-center gap-1">
-                <input
-                  type="checkbox"
-                  :checked="card.included"
-                  @change="patchCard('risks_mitigations', card, { included: $event.target.checked })"
-                  class="memo-checkbox focus-ring"
-                  :aria-label="t('memo.include_card', { title: card.title })"
-                />
-                <span class="font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
-                <button
-                  type="button"
-                  @click="moveCard('risks_mitigations', card, 'up')"
-                  class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  :aria-label="t('memo.move_card_up')"
-                >
-                  <ArrowUp class="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  @click="moveCard('risks_mitigations', card, 'down')"
-                  class="rounded-full p-1 text-ink-muted hover:bg-surface focus-ring"
-                  :aria-label="t('memo.move_card_down')"
-                >
-                  <ArrowDown class="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  @click="removeCard('risks_mitigations', card)"
-                  class="rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
-                  :aria-label="t('memo.remove_card')"
-                >
-                  <X class="h-3.5 w-3.5" />
-                </button>
-              </div>
+            <div class="flex items-start gap-2">
+              <button
+                type="button"
+                class="mt-0.5 shrink-0 cursor-grab rounded p-1 text-ink-muted hover:bg-surface-muted focus-ring"
+                :aria-label="t('memo.drag_card')"
+                @mousedown="armDrag(card.id)"
+                @mouseup="disarmDrag"
+              >
+                <GripVertical class="h-4 w-4" />
+              </button>
+              <input
+                type="checkbox"
+                :checked="card.included"
+                @change="patchCard('risks_mitigations', card, { included: $event.target.checked })"
+                class="memo-checkbox focus-ring mt-1 shrink-0"
+                :aria-label="t('memo.include_card', { title: card.title })"
+              />
+              <span class="mt-0.5 w-5 shrink-0 text-center font-mono text-sm font-semibold text-ink-primary">{{ card.rank }}</span>
               <div class="min-w-0 flex-1">
                 <button
                   type="button"
@@ -771,6 +857,14 @@ async function setTaskStatus(task, status) {
                   @discuss="discuss"
                 />
               </div>
+              <button
+                type="button"
+                @click="removeCard('risks_mitigations', card)"
+                class="mt-0.5 shrink-0 rounded-full p-1 text-ink-muted hover:text-danger focus-ring"
+                :aria-label="t('memo.remove_card')"
+              >
+                <X class="h-3.5 w-3.5" />
+              </button>
             </div>
           </article>
         </div>

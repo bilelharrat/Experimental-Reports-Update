@@ -1145,6 +1145,46 @@ def move_card(company_id: str, section_id: str, card_id: str, direction: str) ->
         return _save_state(company_id, state)
 
 
+def reorder_cards(
+    company_id: str, section_id: str, ordered_ids: list
+) -> dict:
+    """Set a card section's order in one shot (drag-and-drop reorder).
+
+    ``ordered_ids`` must be a permutation of the section's card ids —
+    a partial or stale list is refused rather than silently dropping
+    cards.
+    """
+    if section_id not in CARD_SECTIONS:
+        raise ValueError(f"Section does not contain cards: {section_id}")
+    ids = [str(value) for value in _list(ordered_ids)]
+    with _LOCK:
+        state = get_state(company_id, create=True)
+        if state is None:
+            raise ValueError(f"Unknown company: {company_id}")
+        section = _get_section(state, section_id)
+        cards = [
+            card
+            for card in _list(section.get("cards"))
+            if isinstance(card, dict)
+        ]
+        by_id = {str(card.get("id")): card for card in cards}
+        if len(ids) != len(cards) or set(ids) != set(by_id):
+            raise ValueError(
+                "ordered_ids must be a permutation of the section's card ids"
+            )
+        reordered = [by_id[card_id] for card_id in ids]
+        for rank, card in enumerate(reordered, start=1):
+            card["rank"] = rank
+        section["cards"] = reordered
+        _audit(
+            state,
+            "cards_reordered",
+            section_id=section_id,
+            order=ids[:20],
+        )
+        return _save_state(company_id, state)
+
+
 def add_card(company_id: str, section_id: str, payload: dict) -> dict:
     """Append a user-authored card to a card section (Memo Studio)."""
     if section_id not in CARD_SECTIONS:

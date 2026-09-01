@@ -5,6 +5,7 @@ const m = vi.hoisted(() => ({
   get: vi.fn(),
   patchCard: vi.fn(),
   moveCard: vi.fn(),
+  reorderCards: vi.fn(),
   patchBullet: vi.fn(),
   diveDeeper: vi.fn(),
   selectConclusion: vi.fn(),
@@ -420,5 +421,31 @@ describe("MemoStudioEditor", () => {
     await flushPromises();
     expect(m.deleteCard).toHaveBeenCalled();
     wrapper.unmount();
+  });
+
+  it("reorders cards by dragging from the grip handle", async () => {
+    const state = baseState();
+    m.get.mockResolvedValue(state);
+    m.reorderCards.mockResolvedValue(state);
+    const wrapper = mount(MemoStudioEditor, {
+      props: { companyId: "zainar-inc" },
+    });
+    await flushPromises();
+
+    const grips = wrapper.findAll("button[aria-label='Drag to reorder']");
+    expect(grips.length).toBeGreaterThan(1);
+    // Arm the drag from the first thesis card's handle, then drop it on
+    // the second thesis card.
+    await grips.at(0).trigger("mousedown");
+    const articles = wrapper.findAll("article");
+    await articles.at(0).trigger("dragstart");
+    await articles.at(1).trigger("drop");
+    await flushPromises();
+
+    expect(m.reorderCards).toHaveBeenCalledWith(
+      "zainar-inc",
+      "investment_thesis",
+      ["thesis-2", "thesis-1"],
+    );
   });
 });

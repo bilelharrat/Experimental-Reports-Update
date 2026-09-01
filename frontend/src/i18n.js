@@ -351,6 +351,7 @@ const messages = {
       "Cards seeded by the {mode} agent run · {date}. Your edits become pinned facts the report must honor.",
     "memo.no_agent_seed":
       "No investigation has seeded these cards yet — run Deep Investigate for source-backed cards.",
+    "memo.drag_card": "Drag to reorder",
     "memo.add_card": "Add card",
     "memo.save_card": "Save card",
     "memo.new_card_title": "New card title",
@@ -1706,6 +1707,7 @@ const messages = {
       "卡片由 {mode} 智能体运行生成 · {date}。你的编辑会成为报告必须遵守的固定事实。",
     "memo.no_agent_seed":
       "这些卡片尚未由调查生成——请运行深度调查获取有来源支撑的卡片。",
+    "memo.drag_card": "拖动以排序",
     "memo.add_card": "添加卡片",
     "memo.save_card": "保存卡片",
     "memo.new_card_title": "新卡片标题",

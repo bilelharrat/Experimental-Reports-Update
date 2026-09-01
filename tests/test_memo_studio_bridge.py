@@ -381,3 +381,43 @@ def test_add_card_requires_title_and_card_section(studio_env):
         memo_editor_store.add_card(
             "zainar-test", "conclusion", {"title": "Nope"}
         )
+
+
+def test_reorder_cards_sets_absolute_order(studio_env):
+    memo_editor_store.apply_agent_spine(
+        "zainar-test", _investigation_spine(), _provenance()
+    )
+    state = memo_editor_store.get_state("zainar-test")
+    ids = [card["id"] for card in state["sections"]["risks_mitigations"]["cards"]]
+    new_order = [ids[2], ids[0], ids[3], ids[1]]
+
+    state = memo_editor_store.reorder_cards(
+        "zainar-test", "risks_mitigations", new_order
+    )
+
+    cards = state["sections"]["risks_mitigations"]["cards"]
+    assert [card["id"] for card in cards] == new_order
+    assert [card["rank"] for card in cards] == [1, 2, 3, 4]
+    assert state["audit_records"][-1]["event"] == "cards_reordered"
+    # The new order is what compose_spine pins.
+    spine, _sheet, _warnings = memo_studio_bridge.compose_spine(
+        memo_editor_store.get_state("zainar-test"), _investigation_spine()
+    )
+    assert [risk["summary"] for risk in spine["shared_facts"]["risks"]] == [
+        "Competitive compression",
+        "Customer concentration",
+        "Regulatory drag",
+        "Execution slip",
+    ]
+
+    # Partial or stale id lists are refused (nothing silently dropped).
+    with pytest.raises(ValueError):
+        memo_editor_store.reorder_cards(
+            "zainar-test", "risks_mitigations", new_order[:2]
+        )
+    with pytest.raises(ValueError):
+        memo_editor_store.reorder_cards(
+            "zainar-test", "risks_mitigations", new_order[:3] + ["missing-id"]
+        )
+    with pytest.raises(ValueError):
+        memo_editor_store.reorder_cards("zainar-test", "conclusion", new_order)

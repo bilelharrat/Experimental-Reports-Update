@@ -464,6 +464,11 @@ export const api = {
         `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}/move`,
         { method: "POST", body: JSON.stringify({ direction }) },
       ),
+    reorderCards: (companyId, sectionId, orderedIds) =>
+      request(
+        `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/reorder`,
+        { method: "POST", body: JSON.stringify({ ordered_ids: orderedIds }) },
+      ),
     patchBullet: (companyId, sectionId, cardId, bulletId, patch) =>
       request(
         `/api/companies/${companyId}/memo-editor/sections/${encodeURIComponent(sectionId)}/cards/${encodeURIComponent(cardId)}/bullets/${encodeURIComponent(bulletId)}`,

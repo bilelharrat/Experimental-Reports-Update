@@ -853,6 +853,10 @@ class MemoEditorMoveRequest(BaseModel):
     direction: str
 
 
+class MemoEditorReorderRequest(BaseModel):
+    ordered_ids: list[str]
+
+
 class MemoEditorBulletPatch(BaseModel):
     text: str | None = None
     source_class: str | None = None
@@ -3566,6 +3570,24 @@ def delete_memo_editor_card(
         raise HTTPException(status_code=404, detail="Company not found")
     try:
         return memo_editor_store.delete_card(company_id, section_id, card_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/memo-editor/sections/{section_id}/cards/reorder")
+def reorder_memo_editor_cards(
+    request: Request,
+    company_id: str,
+    section_id: str,
+    payload: MemoEditorReorderRequest,
+) -> dict:
+    _require_permission(request, "memo:edit")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return memo_editor_store.reorder_cards(
+            company_id, section_id, payload.ordered_ids
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
