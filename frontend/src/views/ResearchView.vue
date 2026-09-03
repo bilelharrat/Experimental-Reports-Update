@@ -426,12 +426,12 @@ const submitThreadError = ref("");
 
 const libraryRefresh = ref(0);
 
-const TAB_IDS = ["overview", "documents", "memo"];
+const TAB_IDS = ["overview", "documents", "memo", "news"];
 function normalizeTabName(raw) {
   // Legacy Evidence umbrella → Files. Analysis/console deep-links open Report.
   if (raw === "evidence") return "documents";
   if (raw === "analysis") return "memo";
-  if (raw === "news" || raw === "industry") return "overview";
+  if (raw === "industry") return "overview";
   if (raw === "console") {
     emit("open-copilot");
     return "memo";
@@ -483,6 +483,7 @@ const workspaceTabs = computed(() => [
   { id: "overview", label: tr("research.tab_overview"), show: true },
   { id: "documents", label: tr("research.tab_documents"), show: true },
   { id: "memo", label: tr("research.tab_memo"), show: canShowMemoStudio.value },
+  { id: "news", label: tr("research.tab_news_updates"), show: true },
 ]);
 
 const primaryReportTypes = computed(() => {
@@ -2111,7 +2112,7 @@ onUnmounted(stopPolling);
     </section>
 
     <section
-      v-if="company && activeTab === 'overview'"
+      v-if="company && activeTab === 'news'"
       class="rounded-card bg-surface shadow-card p-6"
     >
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">

@@ -406,11 +406,18 @@ describe("route smoke tests", () => {
       .at(0)
       ?.findAll('[role="tab"]')
       .map((tab) => tab.text());
-    // Company tabs today: the per-company "News/Updates" tab was expected
-    // here but never shipped (news lives in the News desk view instead).
-    expect(topTabs).toEqual(["Overview", "Files", "Report"]);
+    expect(topTabs).toEqual(["Overview", "Files", "Report", "News/Updates"]);
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
+  });
+
+  it("opens the News/Updates tab with the company news feed", async () => {
+    const wrapper = await mountRoute("/research/generalist?tab=news");
+
+    // The feed section (formerly on Overview) now lives here.
+    expect(wrapper.text()).toContain("Latest company developments");
+    // Overview-only content must not render on this tab.
+    expect(wrapper.text()).not.toContain("ARR & growth trends");
   });
 
   it("renders company pages at the production base-relative URL", async () => {
