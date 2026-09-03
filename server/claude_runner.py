@@ -3950,6 +3950,59 @@ newer figure when they conflict.
 """
 
 
+MEMO_RECENT_NEWS_FILENAME = "recent_news.md"
+MEMO_RECENT_NEWS_MAX_CHARS = 6000
+
+
+def _memo_tracked_news_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_TRACKED_NEWS", "1") == "1"
+
+
+def load_memo_recent_news(research_dir: Path | str | None) -> str | None:
+    """Read the auto-captured tracked-news digest, when one exists.
+
+    ``recent_news.md`` is written into the company's research folder by
+    the memo workers (from the tracking-updates store) just before Phase
+    2, so tracked news reaches every analysis pass and the spine even
+    when no pass happens to retrieve it from the web. Returns ``None``
+    when the file is absent or empty, or when disabled via
+    ``BSH_MEMO_TRACKED_NEWS=0``.
+    """
+    if research_dir is None or not _memo_tracked_news_enabled():
+        return None
+    path = Path(research_dir) / MEMO_RECENT_NEWS_FILENAME
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    if len(text) > MEMO_RECENT_NEWS_MAX_CHARS:
+        logger.warning(
+            "recent news digest %s exceeds %d chars; truncating",
+            path,
+            MEMO_RECENT_NEWS_MAX_CHARS,
+        )
+        text = (
+            text[:MEMO_RECENT_NEWS_MAX_CHARS].rstrip()
+            + "\n(recent news truncated)"
+        )
+    return text
+
+
+def _memo_recent_news_block(text: str | None) -> str:
+    if not text:
+        return ""
+    return f"""
+## Recent tracked news
+Auto-captured tracked news for this company. Treat items as dated leads:
+classify their evidence like any other source, verify against anything
+fresher you retrieve, and prefer the newer figure when they conflict.
+
+{text}
+"""
+
+
 def run_memo_fast_analysis_pass(
     *,
     run_dir: Path,
@@ -4007,7 +4060,7 @@ Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
 {_research_file_listing(research_dir)}
-{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}
 BSH background:
 `{settings_path}`
 {lessons_block}
@@ -4134,7 +4187,7 @@ Files:
 Fast analysis artifacts:
 - JSON directory: `{fast_dir}`
 - Markdown directory: `{analysis_dir}`
-{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}
 Read the relevant packet/artifact files. Do not rerun the eight analysis
 passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
 they already contain the structured results from each pass. Read markdown
@@ -4465,6 +4518,7 @@ def run_memo_fast_english_spine(
     validation_feedback: str | None = None,
     speculative_missing: list[str] | None = None,
     fact_ledger: str | None = None,
+    recent_news: str | None = None,
     schema: dict | None = None,
     extra_instructions: str = "",
 ) -> tuple[dict | None, str | None]:
@@ -4477,7 +4531,9 @@ def run_memo_fast_english_spine(
     tells the agent to pin from what exists and not to wait for or invent
     the stragglers. ``fact_ledger`` is the curated per-company fact text
     (:func:`load_memo_fact_ledger`) — injected so the pin sheet always
-    sees the headline facts regardless of what the passes retrieved.
+    sees the headline facts regardless of what the passes retrieved;
+    ``recent_news`` is the auto-captured tracked-news digest
+    (:func:`load_memo_recent_news`), injected the same way.
     ``schema``/``extra_instructions`` let the Memo Studio standalone spine
     request `studio_extras` (thesis seeds, conclusion stances); with the
     defaults the prompt and schema are byte-identical to the pipeline's.
@@ -4537,7 +4593,7 @@ Produce ONE JSON object with:
 {extra_instructions}
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
-{_memo_fact_ledger_block(fact_ledger)}{speculative_block}{feedback_block}
+{_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{speculative_block}{feedback_block}
 Return only the JSON matching the attached schema.
 """
     return _run_memo_local_json_artifact(
@@ -4631,6 +4687,7 @@ def run_memo_english_spine_standalone(
         timeout_sec=timeout_sec,
         speculative_missing=missing_pass_ids or None,
         fact_ledger=load_memo_fact_ledger(research_dir),
+        recent_news=load_memo_recent_news(research_dir),
         schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA_STUDIO if studio_extras else None,
         extra_instructions=(
             _MEMO_STUDIO_SPINE_EXTRAS_INSTRUCTIONS if studio_extras else ""
@@ -5259,6 +5316,7 @@ class SpeculativeEnglish:
             timeout_sec=self._timeout_sec,
             speculative_missing=late_ids or None,
             fact_ledger=load_memo_fact_ledger(self._research_dir),
+            recent_news=load_memo_recent_news(self._research_dir),
         )
         if error is None and isinstance(result, dict):
             self._note_spine_success(result, common_context, add_dirs)
@@ -6607,6 +6665,7 @@ def run_memo_fast_english_package_parallel(
             timeout_sec=timeout_sec,
             validation_feedback=validation_feedback,
             fact_ledger=load_memo_fact_ledger(research_dir),
+            recent_news=load_memo_recent_news(research_dir),
         )
         _finish_row(
             spine_label,

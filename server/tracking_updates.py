@@ -181,6 +181,44 @@ def list_updates(company_id: str, *, limit: int = 50) -> dict:
     }
 
 
+def render_research_news_md(
+    company_id: str,
+    *,
+    limit: int = 20,
+    max_chars: int = 6000,
+) -> str | None:
+    """Markdown digest of tracked news for the memo pipeline's research
+    folder. English on purpose — it feeds English prompts. ``None`` when
+    the store has no items."""
+    listed = list_updates(company_id, limit=limit)
+    items = listed.get("items") or []
+    if not items:
+        return None
+    lines = [
+        "# Recent tracked news",
+        "",
+        "Auto-captured tracked-news digest; impact classified low/medium/high.",
+        "",
+    ]
+    for item in items:
+        date = str(item.get("published_at") or item.get("captured_at") or "")[:10]
+        title = str(item.get("title") or "").strip()
+        summary = str(item.get("summary") or "").strip()
+        source = str(item.get("source") or "").strip()
+        url = str(item.get("url") or "").strip()
+        tail = "; ".join(part for part in (source, url) if part)
+        line = f"- [{date}] ({item.get('impact') or IMPACT_LOW}) {title}"
+        if summary:
+            line += f" — {summary}"
+        if tail:
+            line += f" ({tail})"
+        lines.append(line)
+    text = "\n".join(lines).strip()
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + "\n(recent news truncated)"
+    return text
+
+
 def record_auto_run(
     company_id: str,
     *,

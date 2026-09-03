@@ -89,6 +89,28 @@ def _sync_tracking_auto_run(
         )
 
 
+def _write_recent_news_file(company_id: str, research_dir: Path) -> None:
+    """Refresh the tracked-news digest (``recent_news.md``) the analysis
+    passes read from the research folder.
+
+    Best-effort by design: a broken tracking store must never fail a
+    memo run. When the store has no items the existing file (if any) is
+    left alone — the loader's kill switch covers full disable.
+    """
+    try:
+        from . import tracking_updates
+
+        text = tracking_updates.render_research_news_md(company_id)
+        if not text:
+            return
+        research_dir.mkdir(parents=True, exist_ok=True)
+        (research_dir / claude_runner.MEMO_RECENT_NEWS_FILENAME).write_text(
+            text + "\n", encoding="utf-8"
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("tracked-news digest write failed for %s", company_id)
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -5107,6 +5129,11 @@ def _run(report_id: str) -> None:
         progress=15,
     )
 
+    _write_recent_news_file(
+        str(report.get("company_id") or company_slug),
+        research_store.RESEARCH_ROOT / company_slug,
+    )
+
     if fast_pipeline_enabled:
         result = _run_fast_memo_pipeline(
             report_id=report_id,
@@ -5352,6 +5379,9 @@ def _investigate(report_id: str) -> None:
     warnings = list(report.get("warnings") or [])
     scope_check = report.get("scope_check")
     research_dir = research_store.RESEARCH_ROOT / company_slug
+    _write_recent_news_file(
+        str(report.get("company_id") or company_slug), research_dir
+    )
 
     started_at = _now_iso()
     started_monotonic = time.monotonic()
