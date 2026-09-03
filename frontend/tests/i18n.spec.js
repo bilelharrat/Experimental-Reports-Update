@@ -86,7 +86,10 @@ const STRICT_FILES = new Set([
   "components/AddHormuzResearchTool.vue",
   "components/ActiveJobsRail.vue",
   "views/HomeView.vue",
+  "views/NewsDeskView.vue",
   "views/ResearchView.vue",
+  "components/HomeNewsDesk.vue",
+  "components/HomeMarketPanel.vue",
 ]);
 
 // Ratchet baseline for the pre-existing backlog (counted 2026-07-14).

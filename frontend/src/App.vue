@@ -334,6 +334,7 @@ const breadcrumbs = computed(() => {
   const name = String(route.name || "");
   const root = t("nav.research_center");
   if (name === "home") return [root, t("companies.section_title")];
+  if (name === "news-desk") return [root, t("nav.news")];
   if (name === "tracking") return [root, t("sidebar.tracking")];
   if (name === "market-radar") return [root, t("nav.markets"), t("sidebar.markets_radar")];
   if (name === "stock-research") return [root, t("nav.markets"), t("sidebar.markets_workbench")];
@@ -374,6 +375,7 @@ const copilotContext = computed(() => {
   if (currentCompany.value?.name) {
     return `${currentCompany.value.name} · ${tabLabel(route.query?.tab)}`;
   }
+  if (route.name === "news-desk") return t("nav.news");
   if (route.name === "tracking") return t("sidebar.tracking");
   return breadcrumbs.value.slice(1).join(" · ") || t("nav.breadcrumb_root");
 });

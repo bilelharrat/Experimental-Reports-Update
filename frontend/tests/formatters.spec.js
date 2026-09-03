@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   accountInitials,
+  companyInitials,
   displayNameFromEmail,
   formatCompactNumber,
   formatIsoDate,
@@ -36,5 +37,15 @@ describe("user-facing formatters", () => {
     expect(accountInitials("elina.sun@bshfoundation.org")).toBe("ES");
     expect(accountInitials("robert@bshventures.com")).toBe("RO");
     expect(accountInitials("")).toBe("?");
+  });
+
+  it("builds compact company rail initials without color cues", () => {
+    expect(companyInitials({ name: "ZaiNar, Inc." })).toBe("ZI");
+    expect(companyInitials({ name: "Acme Inc." })).toBe("AI");
+    expect(companyInitials({ name: "OpenAI" })).toBe("OA");
+    expect(companyInitials({ name: "NVIDIA" })).toBe("NV");
+    expect(companyInitials({ name: "Taiwan Semiconductor", ticker: "TSM" })).toBe("TS");
+    expect(companyInitials({ name: "G" })).toBe("G");
+    expect(companyInitials({})).toBe("?");
   });
 });

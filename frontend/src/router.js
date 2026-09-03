@@ -20,6 +20,7 @@ const InnovationLabView = () => import("./views/InnovationLabView.vue");
 const SettingsView = () => import("./views/SettingsView.vue");
 const SourceLibraryView = () => import("./views/SourceLibraryView.vue");
 const TrackingView = () => import("./views/TrackingView.vue");
+const NewsDeskView = () => import("./views/NewsDeskView.vue");
 const MarketRadarView = () => import("./views/MarketRadarView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 
@@ -55,6 +56,7 @@ export const router = createRouter({
       meta: { public: true },
     },
     { path: "/", name: "home", component: HomeView },
+    { path: "/news-desk", name: "news-desk", component: NewsDeskView },
     { path: "/tracking", name: "tracking", component: TrackingView },
     { path: "/market-radar", name: "market-radar", component: MarketRadarView },
     {

@@ -77,6 +77,7 @@ describe("Sidebar", () => {
     expect(wrapper.text()).toContain("Markets");
     expect(wrapper.text()).toContain("Radar");
     expect(wrapper.text()).toContain("Pulse");
+    expect(wrapper.text()).toContain("News");
     expect(wrapper.text()).toContain("Tracking");
     expect(wrapper.text()).not.toContain("Portfolio");
     expect(wrapper.text()).not.toContain("Top Players");
@@ -133,6 +134,11 @@ describe("Sidebar", () => {
 
     expect(wrapper.find("aside").attributes("data-collapsed")).toBe("true");
     expect(wrapper.text()).not.toContain("Acme Inc.");
+    expect(wrapper.text()).toContain("AI");
+    expect(wrapper.text()).toContain("NV");
+    expect(wrapper.text()).toContain("ZL");
+    expect(wrapper.findAll(".company-rail-mark")).toHaveLength(3);
+    expect(wrapper.findAll('button[aria-label="Follow"]')).toHaveLength(0);
     expect(wrapper.get('button[aria-label="Expand sidebar"]').exists()).toBe(true);
 
     await wrapper.get('button[aria-label="Expand sidebar"]').trigger("click");

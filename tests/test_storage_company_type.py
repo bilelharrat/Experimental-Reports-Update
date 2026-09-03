@@ -143,6 +143,36 @@ def test_backfill_idempotent(tmp_storage):
     assert storage.COMPANIES_FILE.read_bytes() == before_bytes
 
 
+def test_bootstrap_empty_registry_does_not_invent_companies(tmp_storage):
+    storage.bootstrap_seed_data()
+    assert storage.list_companies() == []
+    assert storage.COMPANIES_FILE.exists()
+
+
+def test_bootstrap_strips_placeholder_companies(tmp_storage):
+    storage._write_yaml(
+        storage.COMPANIES_FILE,
+        [
+            {
+                "id": "umbrella",
+                "name": "Umbrella Industries",
+                "ticker": "UMBR",
+            },
+            {
+                "id": "stark",
+                "name": "Stark Industries",
+                "ticker": "STRK",
+            },
+            {"id": "zainar-inc", "name": "ZaiNar, Inc.", "status": "private"},
+        ],
+    )
+    storage.bootstrap_seed_data()
+    ids = [row["id"] for row in storage.list_companies()]
+    assert ids == ["zainar-inc"]
+    assert storage.get_company("umbrella") is None
+    assert storage.get_company("stark") is None
+
+
 def test_backfill_preserves_existing_value(tmp_storage):
     """If a record is already typed, the backfill must not overwrite it
     (even if our rule would have produced a different answer)."""

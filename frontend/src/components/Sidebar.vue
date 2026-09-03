@@ -7,12 +7,14 @@ import {
   Flame,
   Gauge,
   Home,
+  Newspaper,
   PanelLeft,
   PanelLeftClose,
   Radar,
 } from "lucide-vue-next";
 import brandLogoUrl from "../assets/berkeley-summit-house.svg";
 import { companyStatusLine, sortCompanies } from "../companyLists.js";
+import { companyInitials } from "../formatters.js";
 import { useT } from "../i18n.js";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
 import {
@@ -134,6 +136,16 @@ const collapseLabel = computed(() =>
         </RouterLink>
 
         <RouterLink
+          :to="{ name: 'news-desk' }"
+          class="source-row focus-ring"
+          active-class=""
+          :title="t('nav.news')"
+        >
+          <Newspaper class="h-[18px] w-[18px] shrink-0" />
+          <span v-if="!sidebarCollapsed">{{ t("nav.news") }}</span>
+        </RouterLink>
+
+        <RouterLink
           :to="{ name: 'tracking' }"
           class="source-row focus-ring"
           active-class=""
@@ -218,19 +230,29 @@ const collapseLabel = computed(() =>
             >
               <RouterLink
                 :to="{ name: 'research', params: { companyId: company.id } }"
-                class="source-row company-source-row gap-2 focus-ring"
+                class="source-row company-source-row focus-ring"
+                :class="sidebarCollapsed ? 'company-rail-link' : 'gap-2'"
                 :title="company.name"
               >
-                <CompanyFollowButton :company-id="company.id" />
-                <span v-if="!sidebarCollapsed" class="min-w-0 flex-1">
-                  <span class="block truncate font-medium">{{ company.name }}</span>
-                  <span
-                    v-if="companyCategory(company)"
-                    class="block truncate text-caption1 text-ink-muted"
-                  >
-                    {{ companyCategory(company) }}
-                  </span>
+                <span
+                  v-if="sidebarCollapsed"
+                  class="company-rail-mark"
+                  aria-hidden="true"
+                >
+                  {{ companyInitials(company) }}
                 </span>
+                <template v-else>
+                  <CompanyFollowButton :company-id="company.id" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate font-medium">{{ company.name }}</span>
+                    <span
+                      v-if="companyCategory(company)"
+                      class="block truncate text-caption1 text-ink-muted"
+                    >
+                      {{ companyCategory(company) }}
+                    </span>
+                  </span>
+                </template>
               </RouterLink>
             </div>
           </div>

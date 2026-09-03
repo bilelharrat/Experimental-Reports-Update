@@ -892,68 +892,58 @@ def add_thread(company_id: str, question: str, answer: str = "") -> dict:
 
 # ---------- Bootstrap ----------
 
-_SEED_COMPANIES = [
+# Cartoon names from the original empty-install starter list. They are not
+# real coverage and must never appear in the workspace company list.
+_PLACEHOLDER_COMPANY_IDS = frozenset(
+    {"acme", "globex", "initech", "soylent", "umbrella", "stark"}
+)
+_PLACEHOLDER_COMPANY_NAMES = frozenset(
     {
-        "id": "acme",
-        "name": "Acme Corporation",
-        "ticker": "ACME",
-        "aliases": ["Acme Inc", "Acme Co"],
-        "description": "Diversified industrial conglomerate. Roadrunner countermeasures, novelty explosives, anvils.",
-        "sector": "Industrials",
-    },
-    {
-        "id": "globex",
-        "name": "Globex Corporation",
-        "ticker": "GLBX",
-        "aliases": ["Globex"],
-        "description": "Multinational holding company with interests in tech, media, and biotech.",
-        "sector": "Diversified",
-    },
-    {
-        "id": "initech",
-        "name": "Initech",
-        "ticker": "INIT",
-        "aliases": [],
-        "description": "Enterprise software vendor specializing in legacy banking middleware.",
-        "sector": "Technology",
-    },
-    {
-        "id": "soylent",
-        "name": "Soylent Corp",
-        "ticker": "SLNT",
-        "aliases": ["Soylent"],
-        "description": "Food-tech company producing nutritional staples at industrial scale.",
-        "sector": "Consumer Staples",
-    },
-    {
-        "id": "umbrella",
-        "name": "Umbrella Industries",
-        "ticker": "UMBR",
-        "aliases": ["Umbrella Corp"],
-        "description": "Pharmaceutical and biotech firm with a defense-research subsidiary.",
-        "sector": "Healthcare",
-    },
-    {
-        "id": "stark",
-        "name": "Stark Industries",
-        "ticker": "STRK",
-        "aliases": ["Stark"],
-        "description": "Advanced materials, energy, and aerospace; recently expanded into clean power.",
-        "sector": "Aerospace & Defense",
-    },
-]
+        "acme corporation",
+        "globex corporation",
+        "initech",
+        "soylent corp",
+        "umbrella industries",
+        "stark industries",
+    }
+)
+
+
+def is_placeholder_company(record: dict | None) -> bool:
+    if not isinstance(record, dict):
+        return False
+    company_id = str(record.get("id") or "").strip().lower()
+    if company_id in _PLACEHOLDER_COMPANY_IDS:
+        return True
+    name = str(record.get("name") or "").strip().lower()
+    return name in _PLACEHOLDER_COMPANY_NAMES
+
+
+def _purge_placeholder_companies_locked() -> int:
+    """Drop starter-kit fakes from ``companies.yaml``. Caller holds ``_LOCK``."""
+    companies = _read_yaml(COMPANIES_FILE, [])
+    if not isinstance(companies, list):
+        return 0
+    kept = [
+        row
+        for row in companies
+        if isinstance(row, dict) and not is_placeholder_company(row)
+    ]
+    removed = len(companies) - len(kept)
+    if removed:
+        _write_yaml(COMPANIES_FILE, kept)
+    return removed
 
 
 def bootstrap_seed_data() -> None:
-    """Write a starter company list if the data directory is empty, then
-    backfill the ``company_type`` discriminator on every existing record
-    so the public/private dispatch in the rest of the app has something
-    to switch on. Idempotent.
+    """Create an empty company registry if needed, strip leftover demo
+    names, then backfill ``company_type``. Idempotent.
     """
     with _LOCK:
         _ensure_dirs()
         if not COMPANIES_FILE.exists():
-            _write_yaml(COMPANIES_FILE, _SEED_COMPANIES)
+            _write_yaml(COMPANIES_FILE, [])
+        _purge_placeholder_companies_locked()
         _backfill_company_types()
 
 

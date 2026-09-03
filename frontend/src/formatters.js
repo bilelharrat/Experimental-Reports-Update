@@ -144,6 +144,26 @@ export function displayNameFromEmail(email) {
     .join(" ");
 }
 
+/** Compact 1–2 letter mark for a company rail badge (e.g. "ZaiNar, Inc." → "ZI"). */
+export function companyInitials(company, fallback = "?") {
+  const ticker = String(company?.ticker || "").trim();
+  if (/^[A-Za-z]{1,5}$/.test(ticker)) {
+    return ticker.slice(0, 2).toUpperCase();
+  }
+  const name = String(company?.name || "").trim();
+  if (!name) return fallback;
+  const tokens = name.split(/[\s,./&+_–—-]+/).filter(Boolean);
+  if (tokens.length >= 2) {
+    return `${tokens[0].charAt(0)}${tokens[1].charAt(0)}`.toUpperCase();
+  }
+  const word = (tokens[0] || name).replace(/[^A-Za-z0-9]/g, "");
+  const caps = word.match(/[A-Z]/g) || [];
+  if (caps.length >= 2) return caps.slice(0, 2).join("");
+  if (word.length >= 2) return word.slice(0, 2).toUpperCase();
+  if (word.length === 1) return word.toUpperCase();
+  return fallback;
+}
+
 /** Two-letter initials from a display name or email (e.g. "Bilel Harrat" / bilel.harrat@… → "BH"). */
 export function accountInitials(nameOrEmail, fallback = "?") {
   const raw = String(nameOrEmail || "").trim();
