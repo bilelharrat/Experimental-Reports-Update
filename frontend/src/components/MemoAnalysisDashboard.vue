@@ -1485,6 +1485,7 @@ watch(additionalAreas, (areas) => {
           </div>
 
           <MemoEvidenceMatrixPanel
+            :company-id="companyId"
             :evidence-matrix="evidenceMatrix"
             :evidence-matrix-error="evidenceMatrixError"
             :evidence-rows="evidenceRows"

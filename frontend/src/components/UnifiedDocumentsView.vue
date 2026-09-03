@@ -17,6 +17,8 @@ import AiMark from "./AiMark.vue";
 import { formatIsoDate, humanizeStatus, isTerminalReportStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage, openSummary } from "../state.js";
+import { TARGET_KINDS } from "../copilotTargets.js";
+import CopilotDropZone from "./CopilotDropZone.vue";
 import FilePreviewModal from "./FilePreviewModal.vue";
 
 // Lazy: the viewer pulls in docx-preview (~large); load it on first View.
@@ -590,8 +592,28 @@ function openReport(row) {
                   {{ t("documents.use_in_report") }}
                   <Loader2 v-if="togglingId === row.id" class="h-3 w-3 animate-spin text-ink-muted" />
                 </label>
+                <CopilotDropZone
+                  v-if="row.backend === 'background_documents' && (row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary)"
+                  :company-id="companyId"
+                  surface="documents"
+                  tab="documents"
+                  :target-kind="TARGET_KINDS.DOCUMENT_SUMMARY"
+                  :target-id="row.record_id || row.id"
+                  block
+                  :selection="{
+                    file_id: row.record_id || row.id,
+                    filename: row.title || row.filename,
+                    excerpt: row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary,
+                  }"
+                >
                 <p
-                  v-if="row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary"
+                  class="mt-2 line-clamp-2 text-xs leading-relaxed text-ink-secondary"
+                >
+                  {{ row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary }}
+                </p>
+                </CopilotDropZone>
+                <p
+                  v-else-if="row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary"
                   class="mt-2 line-clamp-2 text-xs leading-relaxed text-ink-secondary"
                 >
                   {{ row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary }}

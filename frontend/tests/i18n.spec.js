@@ -106,7 +106,7 @@ const BASELINE = {
   "components/memo/MemoChartPlansPanel.vue": 10,
   "components/memo/MemoEvidenceMatrixPanel.vue": 8,
   "components/memo/MemoGeneratedMemoControlsPanel.vue": 2,
-  "components/memo/MemoGraderPanel.vue": 2,
+  "components/memo/MemoGraderPanel.vue": 0,
   "components/memo/MemoNarrativeHooksPanel.vue": 8,
   "components/memo/MemoReadinessPanel.vue": 7,
   "components/memo/MemoResearchTasksPanel.vue": 12,

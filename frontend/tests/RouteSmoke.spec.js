@@ -66,6 +66,9 @@ vi.mock("../src/api.js", () => ({
     studioGenerate: vi.fn(),
     resumeReport: vi.fn(),
     addThread: vi.fn(),
+    listActiveJobs: vi.fn(),
+    listTrackingUpdates: vi.fn(),
+    syncTrackingUpdates: vi.fn(),
     memoAnalysis: {
       get: vi.fn(),
       getEvidenceMatrix: vi.fn(),
@@ -329,6 +332,9 @@ describe("route smoke tests", () => {
     });
     api.listResearchFiles.mockResolvedValue([]);
     api.listCompanyReports.mockResolvedValue([]);
+    api.listActiveJobs.mockResolvedValue([]);
+    api.listTrackingUpdates.mockResolvedValue({ items: [], latest_auto_run: null });
+    api.syncTrackingUpdates.mockResolvedValue({ items: [], latest_auto_run: null });
     api.memoAnalysis.get.mockResolvedValue(memoSession());
     api.memoAnalysis.runTool.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
@@ -400,7 +406,7 @@ describe("route smoke tests", () => {
       .at(0)
       ?.findAll('[role="tab"]')
       .map((tab) => tab.text());
-    expect(topTabs).toEqual(["Overview", "Files", "Report"]);
+    expect(topTabs).toEqual(["Overview", "Files", "Report", "News/Updates"]);
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
   });

@@ -183,6 +183,12 @@ def _startup() -> None:
         start_stale_job_recovery()
     except Exception:  # noqa: BLE001
         logger.exception("Stale-job recovery startup failed")
+    try:
+        from . import tracking_updates
+
+        tracking_updates.start_tracking_sync_loop()
+    except Exception:  # noqa: BLE001
+        logger.exception("Tracking sync startup failed")
     # Warm the autocomplete indexes (SEC EDGAR fetch + deep-search cache scan)
     # off the request path so the first keystrokes aren't slow.
     try:

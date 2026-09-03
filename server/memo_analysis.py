@@ -58,6 +58,37 @@ from . import (
 logger = logging.getLogger(__name__)
 
 
+def _sync_tracking_auto_run(
+    report: dict | None,
+    *,
+    success: bool,
+    error: str | None = None,
+) -> None:
+    """Finalize a tracking auto-run when a memo job ends (success or failure)."""
+    if not isinstance(report, dict):
+        return
+    report_id = str(report.get("id") or "").strip()
+    company_id = str(report.get("company_id") or "").strip()
+    if not report_id or not company_id:
+        return
+    try:
+        from . import tracking_updates
+
+        tracking_updates.complete_auto_run_for_job(
+            company_id,
+            job_kind="memo_report",
+            report_id=report_id,
+            success=success,
+            error=error,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "tracking auto-run finalize failed for memo %s (success=%s)",
+            report_id,
+            success,
+        )
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -3888,6 +3919,7 @@ def _demote_orphaned_report(report: dict, run_dir: Path) -> bool:
     )
     stream = job_progress.ProgressLog(stream_path, truncate=False)
     stream.emit("error", error=message, phase="orphaned", recovered=True)
+    _sync_tracking_auto_run(report, success=False, error=message)
     logger.warning(
         "memo run %s demoted to failed_during_analysis after %ds idle",
         report_id,
@@ -4214,6 +4246,11 @@ def _run_safe(report_id: str) -> None:
                 status="failed_during_analysis",
                 stage="Analysis crashed",
             )
+            _sync_tracking_auto_run(
+                report,
+                success=False,
+                error="Analysis worker crashed; see server log.",
+            )
         run_dir = _resolve_run_dir(report or {})
         if run_dir and run_dir.exists():
             stream = job_progress.ProgressLog(
@@ -4238,6 +4275,11 @@ def _resume_safe(report_id: str) -> None:
                 stage="Resume crashed",
                 failure_phase="resume",
                 failure_detail="Resume worker crashed; see server log.",
+            )
+            _sync_tracking_auto_run(
+                report,
+                success=False,
+                error="Resume worker crashed; see server log.",
             )
         run_dir = _resolve_run_dir(report or {})
         if run_dir and run_dir.exists():
@@ -4428,6 +4470,7 @@ def _finalize_memo_from_package(
         if recovered:
             payload["recovered"] = True
         stream.emit("error", **payload)
+        _sync_tracking_auto_run(report, success=False, error=msg)
         return False
 
     _maybe_render_memo_pdf_previews(
@@ -4604,6 +4647,7 @@ def _finalize_memo_from_package(
             internal_generated=internal_generated,
         )
     stream.emit("done", **done_payload)
+    _sync_tracking_auto_run(report, success=True)
     return True
 
 

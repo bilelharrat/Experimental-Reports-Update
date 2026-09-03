@@ -13,7 +13,9 @@ import {
   Table2,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import CopilotDropZone from "../components/CopilotDropZone.vue";
 import ResearchPagesNav from "../components/research-pages/ResearchPagesNav.vue";
+import { TARGET_KINDS } from "../copilotTargets.js";
 import { runFullStockResearchRefresh } from "../researchPageJobs.js";
 
 const route = useRoute();
@@ -320,7 +322,23 @@ function sourceKey(claim, sourceRef, prefix) {
                   class="border-b border-subtle align-top last:border-0"
                 >
                   <td class="max-w-2xl px-3 py-3">
+                    <CopilotDropZone
+                      v-if="companyId"
+                      :company-id="companyId"
+                      surface="evidence_matrix"
+                      tab="evidence"
+                      :target-kind="TARGET_KINDS.EVIDENCE_CLAIM"
+                      :target-id="claim.claim_id || claim.claim"
+                      block
+                      :selection="{
+                        claim: claim.claim,
+                        claim_id: claim.claim_id,
+                        status: claim.status,
+                      }"
+                    >
                     <div class="font-medium text-ink-primary">{{ claim.claim }}</div>
+                    </CopilotDropZone>
+                    <div v-else class="font-medium text-ink-primary">{{ claim.claim }}</div>
                     <div class="mt-1 text-xs text-ink-muted">{{ claim.company_name || claim.company_id }} · {{ claim.claim_id }}</div>
                     <div v-if="claim.source_refs?.length" class="mt-2 space-y-1">
                       <div

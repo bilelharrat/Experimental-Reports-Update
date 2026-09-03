@@ -210,6 +210,45 @@ def test_archived_session_rejects_ask(tmp_consoles, monkeypatch):
         )
 
 
+def test_skip_hydrate_first_ask_bootstraps_claude_session(tmp_consoles, monkeypatch):
+    """Co-Pilot quick sessions skip hydrate; first ask must use --session-id."""
+    captured: list[bool] = []
+
+    def fake_ask(*, bootstrap_session=False, **kwargs):
+        captured.append(bool(bootstrap_session))
+        return {
+            "ok": True, "subtype": "success",
+            "text": "bootstrapped",
+            "usage": {"input_tokens": 10, "output_tokens": 5,
+                      "cache_read_input_tokens": 0,
+                      "cache_creation_input_tokens": 0},
+            "cost_usd": 0.001,
+            "duration_ms": 100,
+        }
+
+    monkeypatch.setattr(claude_runner, "run_console_ask", fake_ask)
+    meta = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+        skip_hydrate=True,
+    )
+    sid = meta["id"]
+    assert console_store.load_meta(COMPANY, sid)["hydration_status"] == "skipped"
+
+    info1 = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="q1", attachments=[],
+    )
+    _wait_for_assistant(COMPANY, sid, info1["turn_id"])
+    assert captured == [True]
+    assert console_store.load_meta(COMPANY, sid).get("claude_session_ready") is True
+
+    info2 = console_session.submit_ask(
+        company_id=COMPANY, session_id=sid, prompt="q2", attachments=[],
+    )
+    _wait_for_assistant(COMPANY, sid, info2["turn_id"])
+    assert captured == [True, False]
+
+
 def test_ask_error_path_writes_error_turn(tmp_consoles, monkeypatch):
     monkeypatch.setattr(claude_runner, "run_console_hydrate", _stub_hydrate_ok)
     monkeypatch.setattr(claude_runner, "run_console_ask", _stub_ask_error)
@@ -226,6 +265,8 @@ def test_ask_error_path_writes_error_turn(tmp_consoles, monkeypatch):
     assert assistant["subtype"] == "error"
     assert "claude exited" in assistant["error"]
     assert assistant["interrupt_reason"] == "subprocess_died"
+    # Empty Claude text still gets a visible fallback for the UI.
+    assert assistant["text"] == assistant["error"]
 
 
 # ---- Recovery sweep -----------------------------------------------------

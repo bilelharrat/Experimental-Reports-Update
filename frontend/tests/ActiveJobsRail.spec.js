@@ -104,7 +104,7 @@ describe("ActiveJobsRail", () => {
     await flushPromises();
 
     const rail = wrapper.find("aside");
-    expect(rail.classes()).toContain("xl:right-[21rem]");
+    expect(rail.classes()).toContain("xl:right-[26rem]");
     expect(rail.classes()).toContain("max-xl:hidden");
   });
 });

@@ -2295,6 +2295,18 @@ def _finish_analysis_tool_job(
         }
         _refresh_memo_packet(session)
         _write_session(session)
+    if tool_name == "strategic_risk_mapper":
+        try:
+            from . import tracking_updates
+
+            tracking_updates.complete_auto_run_for_job(
+                company_id,
+                job_kind="serena_tool",
+                tool_name=tool_name,
+                success=str(status).lower() == "done",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("tracking auto-run finalize failed for %s", company_id)
 
 
 def _run_research_task_job(

@@ -134,6 +134,9 @@ describe("Memo panel components", () => {
           status: "graded",
           completed_report_id: "report-1",
           confidence: "medium",
+          scores: [{ area: "Evidence quality", score: 8 }],
+          strongest_sections: ["Thesis"],
+          weakest_sections: ["Risks"],
           lessons_for_future_memo_runs: ["Require source evidence."],
         },
       },
@@ -141,6 +144,10 @@ describe("Memo panel components", () => {
 
     expect(wrapper.text()).toContain("Memo Grader");
     expect(wrapper.text()).toContain("Require source evidence.");
+    expect(wrapper.text()).toContain("Evidence quality");
+    expect(wrapper.text()).toContain("8");
+    expect(wrapper.text()).toContain("Thesis");
+    expect(wrapper.text()).toContain("Risks");
     await wrapper.find("select").setValue("report-1");
     await wrapper.find("button[title='Run Memo Grader']").trigger("click");
 

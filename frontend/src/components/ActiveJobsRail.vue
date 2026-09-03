@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   AlertCircle,
   Brain,
@@ -30,6 +30,7 @@ const props = defineProps({
   copilotOpen: { type: Boolean, default: false },
 });
 
+const openCopilot = inject("openCopilot", null);
 const t = useT();
 const collapsed = ref(false);
 const expandedJobThreads = ref(new Set());
@@ -295,6 +296,28 @@ function close() {
   openJob.value = null;
 }
 
+function diagnoseJob(job) {
+  if (!openCopilot || !job?.company_id) return;
+  openCopilot({
+    companyId: job.company_id,
+    prompt: `Diagnose this failed job: ${job.title}. What broke and what should I do next?`,
+    context: {
+      surface: "jobs",
+      job: {
+        kind: job.kind,
+        title: job.title,
+        detail: job.error || job.subtitle || "",
+        company_id: job.company_id,
+      },
+    },
+  });
+}
+
+function jobFailed(job) {
+  return String(job?.status || "").toLowerCase().includes("fail")
+    || job?.thread_failed_count > 0;
+}
+
 const visible = computed(() => jobs.value.length > 0);
 </script>
 
@@ -304,7 +327,7 @@ const visible = computed(() => jobs.value.length > 0);
       v-if="visible"
       :class="[
         'fixed top-14 z-20 w-80 max-w-[88vw] flex flex-col gap-2 transition-[right] duration-200 ease-out',
-        props.copilotOpen ? 'max-xl:hidden xl:right-[21rem]' : 'right-4',
+        props.copilotOpen ? 'max-xl:hidden xl:right-[26rem]' : 'right-4',
       ]"
     >
       <header
@@ -326,7 +349,10 @@ const visible = computed(() => jobs.value.length > 0);
         </button>
       </header>
 
-      <ul v-if="!collapsed" class="space-y-2">
+      <ul
+        v-if="!collapsed"
+        class="max-h-[min(28rem,calc(100vh-7.5rem))] space-y-2 overflow-y-auto overscroll-contain pr-0.5"
+      >
         <li
           v-for="j in jobs"
           :key="jobKey(j)"
@@ -408,6 +434,14 @@ const visible = computed(() => jobs.value.length > 0);
                 </div>
               </div>
             </div>
+          </button>
+          <button
+            v-if="jobFailed(j) && j.company_id && openCopilot"
+            type="button"
+            class="w-full border-t border-subtle px-3 py-2 text-left text-caption1 font-medium text-accent hover:bg-surface-muted focus-ring"
+            @click.stop="diagnoseJob(j)"
+          >
+            {{ t("copilot.action_diagnose_job") }}
           </button>
           <div v-if="hasThreads(j)" class="border-t border-subtle bg-canvas/60">
             <button

@@ -13037,6 +13037,30 @@ def _preview_console_tool_input(name: str, inp: dict) -> str:
         return str(inp)
 
 
+def _console_result_error(result_event: dict) -> str:
+    """Best-effort human-readable error from a Claude stream-json result."""
+    for key in ("error", "result", "message"):
+        value = result_event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:800]
+    errors = result_event.get("errors")
+    if isinstance(errors, list):
+        parts = []
+        for row in errors:
+            if isinstance(row, str) and row.strip():
+                parts.append(row.strip())
+            elif isinstance(row, dict):
+                msg = row.get("message") or row.get("error") or row.get("text")
+                if msg:
+                    parts.append(str(msg).strip())
+        if parts:
+            return "; ".join(parts)[:800]
+    subtype = str(result_event.get("subtype") or "error").strip()
+    if subtype and subtype != "success":
+        return f"Claude ask failed ({subtype})"
+    return "Ask failed"
+
+
 def _process_console_event(event: dict, progress, state: dict) -> None:
     """Translate stream-json events from a Console hydrate/ask/summary run
     into ``progress.emit("claude_action", ...)`` calls.
@@ -13320,13 +13344,18 @@ def _consume_stream(
 
     result_event = handle.result_event
     if result_event is not None and interrupt_reason is None:
-        return {
-            "ok": result_event.get("subtype") == "success",
-            "subtype": result_event.get("subtype") or "error",
+        subtype = result_event.get("subtype") or "error"
+        ok = subtype == "success"
+        outcome = {
+            "ok": ok,
+            "subtype": subtype,
             "usage": result_event.get("usage") or {},
             "cost_usd": result_event.get("total_cost_usd"),
             "duration_ms": result_event.get("duration_ms"),
         }
+        if not ok:
+            outcome["error"] = _console_result_error(result_event)
+        return outcome
 
     if interrupt_reason is not None:
         return {
@@ -13510,14 +13539,14 @@ def run_console_ask(
     event_silence_timeout_s: float = _CONSOLE_EVENT_SILENCE_DEFAULT_S,
     grace_kill_s: float = _CONSOLE_KILL_GRACE_DEFAULT_S,
     wall_clock_cap_s: float = _CONSOLE_WALL_CLOCK_DEFAULT_S,
+    bootstrap_session: bool = False,
 ) -> dict:
-    """One user turn: spawn ``claude -p --resume`` and stream the response
-    through ``progress``. Returns the same shape as ``run_console_hydrate``
-    plus ``text`` (the assistant's final reply, reassembled from text
-    blocks).
+    """One user turn: spawn ``claude -p`` and stream the response.
 
-    ``attachments`` is a list of relative filenames inside
-    ``work_dir/attachments/`` to append to the prompt as a Read hint.
+    By default resumes an existing Claude session (``--resume``). When
+    ``bootstrap_session`` is true — used for Co-Pilot quick sessions that
+    skipped hydrate — the first ask uses ``--session-id`` so Claude
+    actually creates the session before later asks resume it.
     """
     if not is_available():
         return {"ok": False, "error": "Claude CLI not available", "text": ""}
@@ -13532,12 +13561,17 @@ def run_console_ask(
             "each one.)"
         )
 
+    session_args = (
+        ["--session-id", claude_session_id]
+        if bootstrap_session
+        else ["--resume", claude_session_id]
+    )
     cmd = [
         claude_path() or "claude",
         "-p", final_prompt,
         "--output-format", "stream-json",
         "--verbose",
-        "--resume", claude_session_id,
+        *session_args,
         "--add-dir", str(work_dir),
         "--permission-mode", "bypassPermissions",
         "--dangerously-skip-permissions",

@@ -46,6 +46,36 @@ def test_create_session_round_trip(tmp_consoles):
     assert [s["id"] for s in sessions] == [sid]
 
 
+def test_list_sessions_can_hide_copilot(tmp_consoles):
+    user = console_store.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+        included_files=[],
+    )
+    copilot = console_store.create_session(
+        company_id=COMPANY,
+        include_background_docs=False, include_library_docs=False,
+        included_files=[],
+        title="Co-Pilot Inspector",
+    )
+    console_store.update_meta(
+        COMPANY, copilot["id"], session_kind="copilot_quick",
+    )
+    assert console_store.is_copilot_session(
+        console_store.load_meta(COMPANY, copilot["id"])
+    )
+    all_ids = {s["id"] for s in console_store.list_sessions(COMPANY)}
+    assert {user["id"], copilot["id"]}.issubset(all_ids)
+    visible = {
+        s["id"]
+        for s in console_store.list_sessions(COMPANY, include_copilot=False)
+    }
+    assert user["id"] in visible
+    assert copilot["id"] not in visible
+    # Co-Pilot sessions don't burn the per-company active cap.
+    assert console_store.active_count(COMPANY) == 1
+
+
 def test_create_session_with_zh_output_language(tmp_consoles):
     meta = console_store.create_session(
         company_id=COMPANY,

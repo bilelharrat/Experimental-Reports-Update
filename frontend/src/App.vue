@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch, nextTick } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   Loader2,
@@ -17,7 +17,15 @@ import AiMark from "./components/AiMark.vue";
 import Sidebar from "./components/Sidebar.vue";
 import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
-import CompanyConsole from "./components/CompanyConsole.vue";
+import CopilotPanel from "./components/CopilotPanel.vue";
+import {
+  copilotPendingPrompt,
+  copilotCompanyOverride,
+  copilotDragTell,
+  mergeCopilotContext,
+  syncCopilotFromRoute,
+} from "./copilotContext.js";
+import { hydrateTrackingWatchlist } from "./trackingWatchlist.js";
 import {
   activeSummaryTarget,
   closeSummary,
@@ -37,7 +45,7 @@ const route = useRoute();
 const router = useRouter();
 const copilotOpen = ref(false);
 const copilotReady = ref(false);
-const companyConsoleRef = ref(null);
+const copilotPanelRef = ref(null);
 const headerRef = ref(null);
 const addMenuOpen = ref(false);
 const accountMenuOpen = ref(false);
@@ -274,6 +282,7 @@ async function onSignOut() {
 onMounted(() => {
   document.addEventListener("pointerdown", onDocPointerDown);
   document.addEventListener("keydown", onChromeKeydown);
+  hydrateTrackingWatchlist();
 });
 
 onBeforeUnmount(() => {
@@ -286,8 +295,22 @@ watch(currentCompanyId, (id) => {
   if (id) {
     setLastCompanyId(id);
     recordCompanyView(id);
+    copilotCompanyOverride.value = null;
   }
+  syncCopilotFromRoute(route, currentCompany.value);
 });
+
+watch(
+  () => route.fullPath,
+  () => {
+    syncCopilotFromRoute(route, currentCompany.value);
+    if (route.query?.tab === "console") {
+      setCopilotOpen(true);
+      mergeCopilotContext({ mode: "deep", tab: "console" });
+    }
+  },
+  { immediate: true },
+);
 
 function tabLabel(tab) {
   if (tab === "documents") return t("research.tab_documents");
@@ -351,14 +374,17 @@ const copilotContext = computed(() => {
   if (currentCompany.value?.name) {
     return `${currentCompany.value.name} · ${tabLabel(route.query?.tab)}`;
   }
+  if (route.name === "tracking") return t("sidebar.tracking");
   return breadcrumbs.value.slice(1).join(" · ") || t("nav.breadcrumb_root");
 });
 
-const copilotQuickActions = computed(() => [
-  t("copilot.quick_evidence"),
-  t("copilot.quick_thesis"),
-  t("copilot.quick_update"),
-]);
+const copilotCompanyId = computed(
+  () => copilotCompanyOverride.value || currentCompanyId.value || "",
+);
+
+// Co-Pilot stays in the header everywhere in the app shell. On Home (no
+// company id) the drawer shows a pick-a-company prompt + recents.
+const showCopilotButton = computed(() => true);
 
 const copilotRecentCompanies = computed(() => {
   const views = companyViews.value || {};
@@ -382,29 +408,82 @@ const accountTitle = computed(() => {
   return name || email || t("toolbar.account");
 });
 
-function prefillCopilot(prompt) {
-  companyConsoleRef.value?.prefillPrompt(prompt);
-}
-
 function setCopilotOpen(open) {
   if (open) copilotReady.value = true;
   copilotOpen.value = open;
 }
 
-function onOpenCopilot(prompt) {
+function onOpenCopilot(payload) {
   setCopilotOpen(true);
-  if (prompt) {
-    nextTick(() => prefillCopilot(prompt));
+  if (typeof payload === "string") {
+    queueCopilotPrompt(payload);
+    return;
+  }
+  if (!payload || typeof payload !== "object") return;
+  if (payload.companyId) copilotCompanyOverride.value = payload.companyId;
+  if (payload.context) mergeCopilotContext(payload.context);
+  if (payload.mode) mergeCopilotContext({ mode: payload.mode });
+  if (payload.dragTell) copilotDragTell.value = true;
+  if (payload.dragTell && payload.companyId) {
+    api.copilot.recordEvent(payload.companyId, {
+      event: "copilot_drag_tell_drop",
+      payload: {
+        target_kind: payload.context?.selection?.target_kind,
+        surface: payload.context?.surface,
+      },
+    }).catch(() => {});
+  }
+  if (payload.prompt) queueCopilotPrompt(payload.prompt);
+}
+
+function queueCopilotPrompt(prompt) {
+  const value = String(prompt || "").trim();
+  if (!value) return;
+  copilotPendingPrompt.value = value;
+  const attempt = (tries = 0) => {
+    nextTick(() => {
+      if (copilotPanelRef.value?.sendPrompt && copilotCompanyId.value) {
+        copilotPanelRef.value.sendPrompt(value);
+        copilotPendingPrompt.value = "";
+        return;
+      }
+      if (tries < 6) attempt(tries + 1);
+    });
+  };
+  attempt();
+}
+
+provide("openCopilot", onOpenCopilot);
+
+function onCopilotNavigate(target) {
+  if (!target?.companyId) return;
+  if (target.kind === "file") {
+    router.push({
+      name: "research",
+      params: { id: target.companyId },
+      query: {
+        tab: "documents",
+        previewFile: target.file?.id,
+        previewPage: target.page || undefined,
+      },
+    });
+    return;
+  }
+  if (target.kind === "memo_bullet") {
+    router.push({
+      name: "research",
+      params: { id: target.companyId },
+      query: {
+        tab: "memo",
+        memoStage: "edit",
+        memoSection: target.sectionId,
+        memoBullet: target.bulletId,
+      },
+    });
   }
 }
 
-watch(
-  () => route.fullPath,
-  () => {
-    if (route.query?.tab === "console") setCopilotOpen(true);
-  },
-  { immediate: true },
-);
+provide("copilotNavigate", onCopilotNavigate);
 </script>
 
 <template>
@@ -569,18 +648,19 @@ watch(
             />
           </div>
 
-          <button
-            type="button"
-            class="icon-btn"
-            :class="onCompanyPage ? 'lg:h-8 lg:w-auto lg:gap-1.5 lg:px-2' : ''"
-            :aria-label="t('copilot.ask')"
-            :title="t('copilot.ask')"
-            :aria-pressed="copilotOpen"
-            @click="setCopilotOpen(!copilotOpen)"
-          >
-            <AiMark class="h-[18px] w-[18px]" />
-            <span v-if="onCompanyPage" class="hidden text-caption1 font-medium lg:inline">{{ t("copilot.title") }}</span>
-          </button>
+          <div v-if="showCopilotButton" class="inline-flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              class="copilot-toolbar-btn focus-ring"
+              :aria-label="t('copilot.ask')"
+              :title="t('copilot.ask')"
+              :aria-pressed="copilotOpen"
+              @click="setCopilotOpen(!copilotOpen)"
+            >
+              <AiMark class="h-[18px] w-[18px] shrink-0" />
+              <span class="text-caption1 font-medium">{{ t("copilot.title") }}</span>
+            </button>
+          </div>
 
           <div class="relative">
             <button
@@ -657,7 +737,7 @@ watch(
     <Transition name="copilot-drawer">
       <aside
         v-if="copilotOpen && copilotReady"
-        class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[320px] flex-col bg-surface hairline-l xl:sticky xl:top-0 xl:z-20 xl:h-screen xl:w-[320px] xl:shrink-0"
+        class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[400px] flex-col bg-surface hairline-l xl:sticky xl:top-0 xl:z-20 xl:h-screen xl:w-[400px] xl:shrink-0"
         :aria-label="t('copilot.title')"
       >
         <header class="flex items-center gap-3 px-4 py-3 hairline-b">
@@ -677,42 +757,26 @@ watch(
             <PanelRightClose class="h-4 w-4" />
           </button>
         </header>
-        <div class="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3">
-          <p v-if="currentCompanyId" class="text-caption1 leading-relaxed text-ink-muted">
-            {{ t("copilot.task_prompt") }}
-          </p>
-          <CompanyConsole
-            v-if="currentCompanyId"
-            ref="companyConsoleRef"
-            class="min-h-0 flex-1"
-            :company-id="currentCompanyId"
+        <div class="flex min-h-0 flex-1 flex-col px-4 py-3">
+          <CopilotPanel
+            ref="copilotPanelRef"
+            :company-id="copilotCompanyId"
+            :context-label="copilotContext"
+            @close="setCopilotOpen(false)"
           />
-          <div v-else class="space-y-3 pt-1">
-            <p class="text-callout leading-relaxed text-ink-muted">
-              {{ t("copilot.open_company") }}
-            </p>
-            <div v-if="copilotRecentCompanies.length" class="space-y-0.5">
-              <div class="vogue-label px-0.5">{{ t("copilot.recent") }}</div>
-              <button
-                v-for="company in copilotRecentCompanies"
-                :key="company.id"
-                type="button"
-                class="toolbar-menu-item w-full text-left"
-                @click="goToCompany(company)"
-              >
-                <span class="truncate font-medium">{{ company.name }}</span>
-              </button>
-            </div>
-          </div>
-          <div v-if="currentCompanyId" class="flex flex-wrap gap-1.5 pt-1">
+          <div
+            v-if="!copilotCompanyId && copilotRecentCompanies.length"
+            class="mt-3 space-y-0.5"
+          >
+            <div class="vogue-label px-0.5">{{ t("copilot.recent") }}</div>
             <button
-              v-for="action in copilotQuickActions"
-              :key="action"
+              v-for="company in copilotRecentCompanies"
+              :key="company.id"
               type="button"
-              @click="prefillCopilot(action)"
-              class="focus-ring rounded-pill bg-fill-tertiary px-2.5 py-1 text-caption1 font-medium text-ink-secondary transition hover:bg-fill-secondary hover:text-ink-primary"
+              class="toolbar-menu-item w-full text-left"
+              @click="goToCompany(company)"
             >
-              {{ action }}
+              <span class="truncate font-medium">{{ company.name }}</span>
             </button>
           </div>
         </div>

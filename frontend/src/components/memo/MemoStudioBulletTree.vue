@@ -2,7 +2,9 @@
 import { ref } from "vue";
 import { MessageSquare, Pencil, PlusCircle, Save, X } from "lucide-vue-next";
 import { api } from "../../api.js";
+import { TARGET_KINDS } from "../../copilotTargets.js";
 import { useT } from "../../i18n.js";
+import CopilotDropZone from "../CopilotDropZone.vue";
 
 defineOptions({ name: "MemoStudioBulletTree" });
 
@@ -69,6 +71,15 @@ async function diveDeeper(bullet) {
       bullet.id,
     );
     emit("updated", state);
+    emit("discuss", {
+      section_id: props.sectionId,
+      section_title: props.sectionId,
+      card_id: props.cardId,
+      card_title: props.cardTitle,
+      bullet_id: bullet.id,
+      bullet_text: bullet.text,
+      dive_deeper: true,
+    });
   } catch (e) {
     error.value = e?.message || String(e);
   } finally {
@@ -94,6 +105,24 @@ function discuss(bullet) {
       :key="bullet.id"
       class="group py-3"
     >
+      <CopilotDropZone
+        :company-id="companyId"
+        surface="memo_studio"
+        tab="memo"
+        :target-kind="TARGET_KINDS.MEMO_BULLET"
+        :target-id="bullet.id"
+        block
+        :selection="{
+          section_id: sectionId,
+          section_title: sectionId,
+          card_id: cardId,
+          card_title: cardTitle,
+          bullet_id: bullet.id,
+          bullet_text: bullet.text,
+          source_refs: bullet.source_refs || [],
+          source_class: bullet.source_class,
+        }"
+      >
       <div v-if="editingId === bullet.id" class="space-y-2">
         <textarea
           v-model="draftText"
@@ -161,6 +190,7 @@ function discuss(bullet) {
       <p v-if="error && busyId === bullet.id" class="mt-2 text-xs text-danger">
         {{ error }}
       </p>
+      </CopilotDropZone>
       <MemoStudioBulletTree
         v-if="bullet.children?.length"
         :company-id="companyId"

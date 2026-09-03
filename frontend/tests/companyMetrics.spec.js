@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  companyMetricHistories,
   companySummaryMetrics,
   inferredMetricLabelKey,
   inferredMetricSourceKey,
@@ -74,5 +75,25 @@ describe("companySummaryMetrics", () => {
     expect(inferredMetricSourceKey("Stealth-exit funding disclosure")).toBe(
       "company.metric_source_stealth_funding",
     );
+  });
+
+  it("builds chart series from metric_history when available", () => {
+    const series = companyMetricHistories({
+      metric_history: [
+        {
+          id: "arr",
+          label: "ARR",
+          label_key: "company.metric_arr",
+          points: [
+            { period: "2023", value: "$8M" },
+            { period: "2024", value: "$14M" },
+            { period: "2025", value: "$24M" },
+          ],
+        },
+      ],
+    });
+    expect(series).toHaveLength(1);
+    expect(series[0].points).toHaveLength(3);
+    expect(series[0].points[2].value).toBe(24_000_000);
   });
 });

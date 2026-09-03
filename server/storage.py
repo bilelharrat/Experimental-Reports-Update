@@ -286,6 +286,22 @@ def update_company(company_id: str, **patch: Any) -> dict | None:
         return get_company(company_id)
 
 
+def delete_company(company_id: str) -> bool:
+    """Remove a company from the workspace index.
+
+    Sidecar / dossier files are left in place so a mistaken delete can be
+    recovered from disk; the company simply disappears from list/detail APIs.
+    """
+    with _LOCK:
+        _ensure_dirs()
+        companies, index = _load_companies_locked()
+        if company_id not in index:
+            return False
+        remaining = [row for row in companies if row.get("id") != company_id]
+        _write_yaml(COMPANIES_FILE, remaining)
+        return True
+
+
 def update_company_snapshot(
     company_id: str, snapshot: dict
 ) -> dict | None:

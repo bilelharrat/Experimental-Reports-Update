@@ -188,6 +188,7 @@ export function toggleFavoriteCompany(id) {
 
 export function toggleTrackedCompany(id) {
   _toggleIdIn(trackedCompanyIds, TRACKED_KEY, id);
+  import("./trackingWatchlist.js").then((mod) => mod.schedulePushTrackingWatchlist());
 }
 
 export function toggleFollowCompany(id) {

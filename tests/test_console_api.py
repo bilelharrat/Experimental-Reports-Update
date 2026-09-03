@@ -96,6 +96,27 @@ def test_list_sessions(tmp_consoles, stubbed_claude, client):
     assert {a["id"], b["id"]}.issubset(ids)
 
 
+def test_list_sessions_hides_copilot(tmp_consoles, stubbed_claude, client):
+    user = _create(client)
+    from server import console_session, console_store
+
+    copilot = console_session.create_session(
+        company_id=COMPANY,
+        include_background_docs=False,
+        include_library_docs=False,
+        skip_hydrate=True,
+        title="Co-Pilot Inspector",
+        session_kind="copilot_quick",
+    )
+    resp = client.get(f"/api/companies/{COMPANY}/console/sessions")
+    assert resp.status_code == 200
+    ids = {s["id"] for s in resp.json()}
+    assert user["id"] in ids
+    assert copilot["id"] not in ids
+    # Still on disk for Co-Pilot itself.
+    assert console_store.load_meta(COMPANY, copilot["id"]) is not None
+
+
 def test_get_session(tmp_consoles, stubbed_claude, client):
     meta = _create(client)
     resp = client.get(

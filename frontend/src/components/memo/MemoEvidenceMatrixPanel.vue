@@ -1,5 +1,9 @@
 <script setup>
-defineProps({
+import CopilotDropZone from "../CopilotDropZone.vue";
+import { TARGET_KINDS } from "../../copilotTargets.js";
+
+const props = defineProps({
+  companyId: { type: String, default: "" },
   evidenceMatrix: { type: Object, default: null },
   evidenceMatrixError: { type: String, default: null },
   evidenceRows: { type: Array, default: () => [] },
@@ -81,7 +85,19 @@ function topEvidence(row) {
             class="border-b border-subtle/70 align-top"
           >
             <td class="py-2 pr-3 text-ink-primary max-w-sm">
-              {{ row.claim }}
+              <CopilotDropZone
+                v-if="companyId"
+                :company-id="companyId"
+                surface="memo_analysis"
+                tab="memo"
+                :target-kind="TARGET_KINDS.EVIDENCE_CLAIM"
+                :target-id="row.claim"
+                block
+                :selection="{ claim: row.claim, status: row.status, confidence: row.confidence }"
+              >
+                {{ row.claim }}
+              </CopilotDropZone>
+              <template v-else>{{ row.claim }}</template>
             </td>
             <td class="py-2 pr-3">
               <span

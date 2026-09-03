@@ -25,10 +25,13 @@ import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
 import { appLanguage } from "../state.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import CompanyFollowButton from "../components/CompanyFollowButton.vue";
+import CopilotDropZone from "../components/CopilotDropZone.vue";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import MemoAnalysisDashboard from "../components/MemoAnalysisDashboard.vue";
 import MemoStudioEditor from "../components/MemoStudioEditor.vue";
 import UnifiedDocumentsView from "../components/UnifiedDocumentsView.vue";
+import { buildDiscussPrompt, buildDiveDeeperPrompt } from "../copilotActions.js";
+import { TARGET_KINDS } from "../copilotTargets.js";
 
 // Lazy: the viewer pulls in docx-preview (~large); load it on first View.
 const DocumentViewerDrawer = defineAsyncComponent(
@@ -1138,8 +1141,18 @@ async function generateFromStudio() {
   }
 }
 
-function openMemoEditorDiscuss() {
-  emit("open-copilot");
+function openMemoEditorDiscuss(context) {
+  const prompt = context?.dive_deeper
+    ? buildDiveDeeperPrompt(context)
+    : buildDiscussPrompt(context);
+  emit("open-copilot", {
+    prompt,
+    context: {
+      surface: "memo_studio",
+      tab: "memo",
+      selection: context || {},
+    },
+  });
 }
 
 async function handleDocumentsChanged() {
@@ -1819,14 +1832,47 @@ onUnmounted(stopPolling);
           class="mt-2 space-y-1 text-xs text-ink-secondary"
         >
           <li v-for="warning in activeReport.quality_warnings" :key="warning">
-            {{ warning }}
+            <CopilotDropZone
+              :company-id="companyId"
+              surface="memo_report"
+              tab="memo"
+              :target-kind="TARGET_KINDS.MEMO_WARNING"
+              :target-id="warning"
+              block
+              :selection="{
+                warning,
+                report_id: activeReport.id,
+              }"
+            >
+              {{ warning }}
+            </CopilotDropZone>
           </li>
         </ul>
         <ul v-if="gateFindings.length" class="mt-2 space-y-1 text-xs text-ink-muted">
           <li v-for="finding in gateFindings" :key="`warn-${finding.gateLabel}-${finding.code}-${finding.location}-${finding.snippet}`">
-            <span class="font-mono text-ink-secondary">{{ finding.code }}</span>
-            <span v-if="finding.location"> · {{ finding.location }}</span>
-            <span v-if="finding.snippet"> · {{ finding.snippet }}</span>
+            <CopilotDropZone
+              :company-id="companyId"
+              surface="memo_report"
+              tab="memo"
+              :target-kind="TARGET_KINDS.GATE_FINDING"
+              :target-id="`${finding.code}-${finding.location}`"
+              block
+              :selection="{
+                code: finding.code,
+                location: finding.location,
+                snippet: finding.snippet,
+                suggestion: finding.suggestion,
+                gate_label: finding.gateLabel,
+                report_id: activeReport?.id,
+              }"
+            >
+              <span class="font-mono text-ink-secondary">{{ finding.code }}</span>
+              <span v-if="finding.location"> · {{ finding.location }}</span>
+              <span v-if="finding.snippet"> · {{ finding.snippet }}</span>
+              <span v-if="finding.suggestion" class="mt-0.5 block text-ink-secondary">
+                {{ tr("research.gate_finding_suggestion") }}: {{ finding.suggestion }}
+              </span>
+            </CopilotDropZone>
           </li>
         </ul>
         <button

@@ -12,7 +12,9 @@ import {
   companySummaryMetrics,
   inferredMetricLabelKey,
 } from "../companyMetrics.js";
+import { api } from "../api.js";
 import { currentLanguage, useT } from "../i18n.js";
+import { appLanguage } from "../state.js";
 import {
   companyStatusLine,
   latestNewsFor,
@@ -41,6 +43,8 @@ import LiveTickerTape from "../components/LiveTickerTape.vue";
 import TrackingAttentionStrip from "../components/TrackingAttentionStrip.vue";
 import { trackedCompanyIds } from "../state.js";
 
+const emit = defineEmits(["open-copilot"]);
+
 const t = useT();
 const router = useRouter();
 
@@ -52,6 +56,8 @@ const companyList = computed(() => unref(workspaceCompanies) || []);
 const newsList = computed(() => unref(workspaceNews) || []);
 
 const followedOnly = ref(false);
+const syncingAll = ref(false);
+const syncAllError = ref("");
 
 const trackedIds = computed(() => [...trackedCompanyIds.value].map(String));
 const trackedSet = computed(() => new Set(trackedIds.value));
@@ -71,6 +77,26 @@ const publicTickers = computed(() => tickersFrom(visibleCompanies.value));
 const { quotes: liveQuotes } = useLiveQuotes(publicTickers);
 const { rollup, rollupError, rollupLoading, loadRollup, work } =
   useTrackingRollup(visibleIds);
+
+async function syncAllTracked() {
+  if (syncingAll.value || trackedIds.value.length === 0) return;
+  syncingAll.value = true;
+  syncAllError.value = "";
+  try {
+    await api.syncAllTrackingUpdates({
+      company_ids: trackedIds.value,
+      mark_auto: true,
+      execute: true,
+      refresh_news: true,
+      lang: appLanguage.value,
+    });
+    await loadRollup();
+  } catch (e) {
+    syncAllError.value = e?.message || t("tracking.sync_all_failed");
+  } finally {
+    syncingAll.value = false;
+  }
+}
 const tickerTape = computed(() =>
   buildTickerTape(visibleCompanies.value, liveQuotes.value),
 );
@@ -287,6 +313,28 @@ function openCompany(company) {
   router.push({ name: "research", params: { companyId: company.id } });
 }
 
+function inspectAttention(item) {
+  emit("open-copilot", {
+    companyId: item.company_id,
+    prompt: `Why is this company flagged (${item.label})? What is the fastest next step?`,
+    context: {
+      surface: "tracking",
+      attention: {
+        kind: item.kind,
+        label: item.label,
+        detail: item.detail,
+        count: item.count,
+        company_id: item.company_id,
+        company_name: item.company_name,
+      },
+      selection: {
+        company_id: item.company_id,
+        company_name: item.company_name,
+      },
+    },
+  });
+}
+
 function actionLabel(action) {
   return trackingActionLabel(action, t);
 }
@@ -349,6 +397,15 @@ function signed(value) {
         <button
           type="button"
           class="btn-bordered btn-sm focus-ring"
+          :disabled="syncingAll || trackedIds.length === 0"
+          @click="syncAllTracked"
+        >
+          <Loader2 v-if="syncingAll" class="h-3.5 w-3.5 animate-spin" />
+          {{ syncingAll ? t("tracking.sync_all_running") : t("tracking.sync_all") }}
+        </button>
+        <button
+          type="button"
+          class="btn-bordered btn-sm focus-ring"
           :disabled="rollupLoading"
           @click="loadRollup"
         >
@@ -358,6 +415,8 @@ function signed(value) {
         </button>
       </div>
     </header>
+
+    <p v-if="syncAllError" class="mb-3 text-caption1 text-danger">{{ syncAllError }}</p>
 
     <p
       v-if="workspaceLoading && companyList.length === 0"
@@ -385,7 +444,7 @@ function signed(value) {
 
     <template v-else>
       <LiveTickerTape class="mb-6" :items="tickerTape" @select="openCompany" />
-      <TrackingAttentionStrip class="mb-6" :items="work" />
+      <TrackingAttentionStrip class="mb-6" :items="work" @inspect="inspectAttention" />
 
       <p v-if="rollupError" class="mb-4 text-footnote text-danger">
         {{ t("tracking.load_failed") }}

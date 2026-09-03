@@ -20,7 +20,7 @@ import { api } from "../api.js";
 import AiMark from "../components/AiMark.vue";
 import { useT } from "../i18n.js";
 import { buildTickerTape, displayTicker, publicTickers } from "../liveTicker.js";
-import { companyViews } from "../state.js";
+import { companyViews, trackedCompanyIds } from "../state.js";
 import { useLiveQuotes } from "../useLiveQuotes.js";
 import CompanyBoardCard from "../components/CompanyBoardCard.vue";
 import CompanyCard from "../components/CompanyCard.vue";
@@ -89,9 +89,26 @@ const recentCompanies = computed(() => {
     .sort((a, b) => Number(views[b.id] || 0) - Number(views[a.id] || 0))
     .slice(0, 8);
 });
+const trackedCompanies = computed(() => {
+  const raw = trackedCompanyIds.value;
+  const tracked = new Set(
+    raw instanceof Set
+      ? [...raw].map(String)
+      : Array.isArray(raw)
+        ? raw.map(String)
+        : [],
+  );
+  if (!tracked.size) return [];
+  return [...companyList.value].filter((company) => tracked.has(String(company.id)));
+});
 const showRecentCompanies = computed(
   () => !searching.value && !searchResults.value && recentCompanies.value.length > 0,
 );
+const showTrackedCompanies = computed(
+  () => !searching.value && !searchResults.value && trackedCompanies.value.length > 0,
+);
+const recentExpanded = ref(true);
+const trackedExpanded = ref(true);
 const showHomeTape = computed(
   () => !searching.value && !searchResults.value && companyList.value.length > 0,
 );
@@ -541,21 +558,70 @@ function onBlur() {
     <div v-if="error" class="mt-4 text-sm text-danger">{{ errorMessage }}</div>
 
     <section v-if="showRecentCompanies" class="mt-12 space-y-4">
-      <div>
-        <h2 class="font-display text-title3 text-ink-primary">
-          {{ t("home.recent_companies") }}
-        </h2>
-        <p class="mt-1 max-w-xl text-footnote text-ink-muted">
-          {{ t("home.recent_hint") }}
-        </p>
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="font-display text-title3 text-ink-primary">
+            {{ t("home.recent_companies") }}
+          </h2>
+          <p class="mt-1 max-w-xl text-footnote text-ink-muted">
+            {{ t("home.recent_hint") }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn-bordered btn-sm focus-ring shrink-0"
+          :aria-expanded="recentExpanded"
+          @click="recentExpanded = !recentExpanded"
+        >
+          <ChevronDown v-if="recentExpanded" class="h-3.5 w-3.5" />
+          <ChevronRight v-else class="h-3.5 w-3.5" />
+          {{ recentExpanded ? t("sidebar.show_less") : t("home.show_more") }}
+        </button>
       </div>
-      <p v-if="loadingCompanies && companyList.length === 0" class="text-callout text-ink-muted">
-        {{ t("common.loading") }}
-      </p>
-      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <template v-if="recentExpanded">
+        <p v-if="loadingCompanies && companyList.length === 0" class="text-callout text-ink-muted">
+          {{ t("common.loading") }}
+        </p>
+        <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <CompanyBoardCard
+            v-for="company in recentCompanies"
+            :key="company.id"
+            :company="company"
+            :quote="quoteFor(company)"
+            @select="openCompany"
+          />
+        </div>
+      </template>
+    </section>
+
+    <section v-if="showTrackedCompanies" class="mt-10 space-y-4">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="font-display text-title3 text-ink-primary">
+            {{ t("home.tracked_companies") }}
+          </h2>
+          <p class="mt-1 max-w-xl text-footnote text-ink-muted">
+            {{ t("home.tracked_hint") }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn-bordered btn-sm focus-ring shrink-0"
+          :aria-expanded="trackedExpanded"
+          @click="trackedExpanded = !trackedExpanded"
+        >
+          <ChevronDown v-if="trackedExpanded" class="h-3.5 w-3.5" />
+          <ChevronRight v-else class="h-3.5 w-3.5" />
+          {{ trackedExpanded ? t("sidebar.show_less") : t("home.show_more") }}
+        </button>
+      </div>
+      <div
+        v-if="trackedExpanded"
+        class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+      >
         <CompanyBoardCard
-          v-for="company in recentCompanies"
-          :key="company.id"
+          v-for="company in trackedCompanies"
+          :key="`tracked-${company.id}`"
           :company="company"
           :quote="quoteFor(company)"
           @select="openCompany"

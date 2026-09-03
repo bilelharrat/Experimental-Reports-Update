@@ -34,16 +34,6 @@ const props = defineProps({
 
 const sortMenuOpen = ref(false);
 
-function monogram(name) {
-  return String(name || "?")
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
-
 function companyCategory(company) {
   return companyStatusLine(company, t);
 }
@@ -231,11 +221,7 @@ const collapseLabel = computed(() =>
                 class="source-row company-source-row gap-2 focus-ring"
                 :title="company.name"
               >
-                <span
-                  class="mono-data grid h-6 w-6 shrink-0 place-items-center rounded-chip bg-fill-tertiary text-caption1 font-semibold text-ink-secondary"
-                >
-                  {{ monogram(company.name) }}
-                </span>
+                <CompanyFollowButton :company-id="company.id" />
                 <span v-if="!sidebarCollapsed" class="min-w-0 flex-1">
                   <span class="block truncate font-medium">{{ company.name }}</span>
                   <span
@@ -244,12 +230,6 @@ const collapseLabel = computed(() =>
                   >
                     {{ companyCategory(company) }}
                   </span>
-                </span>
-                <span
-                  v-if="!sidebarCollapsed"
-                  class="flex w-6 shrink-0 justify-end"
-                >
-                  <CompanyFollowButton :company-id="company.id" hide-until-hover />
                 </span>
               </RouterLink>
             </div>

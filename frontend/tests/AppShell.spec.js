@@ -49,6 +49,10 @@ async function mountApp(initialPath) {
           props: ["companyId"],
           template: "<section data-testid='company-console'>Console {{ companyId }}</section>",
         },
+        CopilotPanel: {
+          props: ["companyId", "contextLabel"],
+          template: "<section data-testid='copilot-panel'>Copilot {{ companyId }}</section>",
+        },
         Teleport: true,
       },
     },
@@ -84,7 +88,7 @@ describe("App global shell", () => {
     expect(api.listReports).not.toHaveBeenCalled();
   });
 
-  it("keeps Co-Pilot as a quiet toolbar inspector on Home", async () => {
+  it("shows Co-Pilot in the toolbar on Home", async () => {
     session.value = {
       token: "test-token",
       email: "elina.sun@bshfoundation.org",
@@ -96,6 +100,9 @@ describe("App global shell", () => {
 
     expect(wrapper.text()).toContain("Home route");
     expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("Co-Pilot");
+    expect(wrapper.find(".copilot-drag-handle").exists()).toBe(false);
+    expect(wrapper.find(".copilot-drag-lens").exists()).toBe(false);
     expect(wrapper.find('[aria-label="Add"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Settings"]').exists()).toBe(false);
     expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(false);
@@ -123,7 +130,7 @@ describe("App global shell", () => {
     expect(wrapper.find("[data-testid='left-rail']").text()).toContain("Rail 1");
     expect(wrapper.text()).toContain("ZaiNar, Inc.");
     expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="Add to ZaiNar, Inc."]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("Co-Pilot");
     expect(wrapper.find('[aria-label="Settings"]').exists()).toBe(false);
     expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(false);
     expect(wrapper.find('[aria-label="Account"]').exists()).toBe(true);
@@ -140,9 +147,8 @@ describe("App global shell", () => {
     await openButton.trigger("click");
 
     expect(wrapper.text()).toContain("Co-Pilot");
-    expect(wrapper.text()).toContain("Review the current workspace");
-    expect(wrapper.find("[data-testid='company-console']").text()).toContain(
-      "Console zainar-inc",
+    expect(wrapper.find("[data-testid='copilot-panel']").text()).toContain(
+      "Copilot zainar-inc",
     );
     expect(openButton.attributes("aria-pressed")).toBe("true");
   });

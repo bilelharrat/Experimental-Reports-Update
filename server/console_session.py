@@ -108,11 +108,17 @@ class _SessionDispatcher:
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
 
-    def submit(self, turn_id: str, prompt: str, attachments: list[str]) -> int:
+    def submit(
+        self,
+        turn_id: str,
+        prompt: str,
+        attachments: list[str],
+        runtime_prompt: str | None = None,
+    ) -> int:
         with self.lock:
             self.pending_ids.append(turn_id)
             position = len(self.pending_ids) - 1
-        self.q.put((turn_id, prompt, attachments))
+        self.q.put((turn_id, prompt, attachments, runtime_prompt))
         self._ensure_worker()
         return position
 
@@ -137,13 +143,13 @@ class _SessionDispatcher:
     def _worker(self) -> None:
         while True:
             try:
-                turn_id, prompt, attachments = self.q.get(
+                turn_id, prompt, attachments, runtime_prompt = self.q.get(
                     timeout=self.IDLE_EXIT_S
                 )
             except queue.Empty:
                 return
             try:
-                self._run_one(turn_id, prompt, attachments)
+                self._run_one(turn_id, prompt, attachments, runtime_prompt)
             except Exception:  # noqa: BLE001
                 logger.exception(
                     "console worker crashed for sid=%s turn=%s",
@@ -159,7 +165,11 @@ class _SessionDispatcher:
                         self.pending_ids.pop(0)
 
     def _run_one(
-        self, turn_id: str, prompt: str, attachments: list[str]
+        self,
+        turn_id: str,
+        prompt: str,
+        attachments: list[str],
+        runtime_prompt: str | None = None,
     ) -> None:
         meta = console_store.load_meta(self.company_id, self.session_id)
         if meta is None:
@@ -201,16 +211,26 @@ class _SessionDispatcher:
             skill_path = PRIVATE_SKILL_PATH
 
         started = time.monotonic()
+        ask_prompt = runtime_prompt or prompt
+        # Quick Co-Pilot sessions skip hydrate, so Claude never saw
+        # ``--session-id``. The first ask must create the session; later
+        # asks resume it. Hydrate-error sessions get the same bootstrap.
+        hydration = str(meta.get("hydration_status") or "")
+        bootstrap_session = (
+            not bool(meta.get("claude_session_ready"))
+            and hydration in {"skipped", "error", ""}
+        )
         try:
             outcome = claude_runner.run_console_ask(
                 claude_session_id=meta["claude_session_id"],
                 work_dir=console_store.workdir(self.company_id, self.session_id),
-                user_prompt=prompt,
+                user_prompt=ask_prompt,
                 skill_path=skill_path,
                 progress=progress,
                 attachments=attachments,
                 output_language=meta.get("output_language"),
                 cancel_event=cancel_event,
+                bootstrap_session=bootstrap_session,
             )
         finally:
             _unregister_cancel(self.company_id, self.session_id, turn_id)
@@ -232,6 +252,10 @@ class _SessionDispatcher:
             record["error"] = outcome.get("error") or "Ask failed"
             if outcome.get("interrupt_reason"):
                 record["interrupt_reason"] = outcome["interrupt_reason"]
+            # Persist a visible fallback so UIs that only render ``text``
+            # still show why the turn failed (blank replies look broken).
+            if not record["text"]:
+                record["text"] = record["error"]
 
         console_store.append_turn(self.company_id, self.session_id, record)
         if outcome.get("usage") and outcome.get("cost_usd") is not None:
@@ -244,6 +268,12 @@ class _SessionDispatcher:
         # Auto-rename after the first successful turn lands. Cheap one-shot
         # Claude call; failure falls back to the timestamp title silently.
         if outcome.get("ok"):
+            if bootstrap_session:
+                console_store.update_meta(
+                    self.company_id,
+                    self.session_id,
+                    claude_session_ready=True,
+                )
             self._maybe_auto_rename(prompt, outcome.get("text") or "")
 
     def _maybe_auto_rename(self, user_prompt: str, assistant_text: str) -> None:
@@ -315,6 +345,11 @@ def create_session(
     include_background_docs: bool,
     include_library_docs: bool,
     output_language: str = console_store.DEFAULT_OUTPUT_LANGUAGE,
+    title: str | None = None,
+    session_kind: str | None = None,
+    skill_path: Path | None = None,
+    research_file_ids: list[str] | None = None,
+    skip_hydrate: bool = False,
 ) -> dict:
     """Resolve included files, lay out the on-disk session, and kick off
     hydration in a background thread. Returns the persisted meta plus the
@@ -324,7 +359,10 @@ def create_session(
     sources: list[Path] = []
 
     if include_background_docs:
+        allowed = {str(fid) for fid in (research_file_ids or [])}
         for entry in research_store.list_files(company_id):
+            if research_file_ids and str(entry["id"]) not in allowed:
+                continue
             resolved = research_store.get_file(company_id, entry["id"])
             if resolved is None:
                 continue
@@ -352,20 +390,33 @@ def create_session(
         include_library_docs=include_library_docs,
         included_files=included,
         output_language=output_language,
+        title=title,
     )
     # Lock in the right analyst persona for this session — recorded so
     # the choice is stable across the session's lifetime even if the
     # underlying company gets re-typed later.
-    skill_path = _resolve_skill_path(company_id)
+    resolved_skill = skill_path or _resolve_skill_path(company_id)
+    patch: dict[str, Any] = {
+        "hydration_status": "in_progress",
+        "skill_path": str(resolved_skill),
+    }
+    if session_kind:
+        patch["session_kind"] = session_kind
     meta = console_store.update_meta(
         company_id, meta["id"],
-        hydration_status="in_progress",
-        skill_path=str(skill_path),
+        **patch,
     ) or meta
 
     console_store.stage_docs(
         company_id=company_id, session_id=meta["id"], source_paths=sources,
     )
+
+    if skip_hydrate:
+        return console_store.update_meta(
+            company_id,
+            meta["id"],
+            hydration_status="skipped",
+        ) or meta
 
     progress_path = console_store.hydrate_progress_path(company_id, meta["id"])
     progress = job_progress.ProgressLog(progress_path)
@@ -382,7 +433,7 @@ def create_session(
                 claude_session_id=meta["claude_session_id"],
                 work_dir=console_store.workdir(company_id, meta["id"]),
                 file_list=sources,
-                skill_path=skill_path,
+                skill_path=resolved_skill,
                 progress=progress,
                 output_language=output_language,
             )
@@ -415,12 +466,122 @@ def create_session(
     return meta
 
 
+def hydrate_existing_session(
+    *,
+    company_id: str,
+    session_id: str,
+    research_file_ids: list[str] | None = None,
+    output_language: str = console_store.DEFAULT_OUTPUT_LANGUAGE,
+) -> dict:
+    """Stage scoped research files and run hydration for an existing session."""
+    meta = console_store.load_meta(company_id, session_id)
+    if meta is None:
+        raise ValueError("session_not_found")
+    status = str(meta.get("hydration_status") or "")
+    if status in {"in_progress", "done"}:
+        return meta
+
+    included: list[dict] = []
+    sources: list[Path] = []
+    allowed = {str(fid) for fid in (research_file_ids or [])}
+    for entry in research_store.list_files(company_id):
+        if research_file_ids and str(entry["id"]) not in allowed:
+            continue
+        resolved = research_store.get_file(company_id, entry["id"])
+        if resolved is None:
+            continue
+        _, path = resolved
+        included.append({
+            "id": entry["id"],
+            "kind": "research",
+            "filename": entry["filename"],
+        })
+        sources.append(path)
+
+    if not sources:
+        return console_store.update_meta(
+            company_id,
+            session_id,
+            hydration_status="skipped",
+        ) or meta
+
+    console_store.update_meta(
+        company_id,
+        session_id,
+        include_background_docs=True,
+        included_files=included,
+    )
+    console_store.stage_docs(
+        company_id=company_id,
+        session_id=session_id,
+        source_paths=sources,
+    )
+
+    resolved_skill = Path(str(meta.get("skill_path") or _resolve_skill_path(company_id)))
+    meta = console_store.update_meta(
+        company_id,
+        session_id,
+        hydration_status="in_progress",
+        skill_path=str(resolved_skill),
+    ) or meta
+
+    progress_path = console_store.hydrate_progress_path(company_id, session_id)
+    progress = job_progress.ProgressLog(progress_path)
+    progress.emit(
+        "job_init",
+        kind="console_hydrate",
+        title="Hydrating console",
+        session_id=session_id,
+        file_count=len(included),
+    )
+
+    def _worker() -> None:
+        try:
+            outcome = claude_runner.run_console_hydrate(
+                claude_session_id=meta["claude_session_id"],
+                work_dir=console_store.workdir(company_id, session_id),
+                file_list=sources,
+                skill_path=resolved_skill,
+                progress=progress,
+                output_language=output_language,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("hydrate crashed for sid=%s", session_id)
+            console_store.update_meta(
+                company_id,
+                session_id,
+                hydration_status="error",
+                hydration_error=f"{type(exc).__name__}: {exc}",
+            )
+            return
+        new_status = "done" if outcome.get("ok") else "error"
+        patch = {"hydration_status": new_status}
+        if not outcome.get("ok"):
+            patch["hydration_error"] = outcome.get("error")
+        console_store.update_meta(company_id, session_id, **patch)
+        if outcome.get("usage") and outcome.get("cost_usd") is not None:
+            console_store.update_tokens(
+                company_id,
+                session_id,
+                usage=outcome["usage"],
+                cost_usd=outcome.get("cost_usd") or 0.0,
+            )
+
+    threading.Thread(
+        target=_worker,
+        name=f"console-hydrate-{session_id[:8]}",
+        daemon=True,
+    ).start()
+    return meta
+
+
 def submit_ask(
     *,
     company_id: str,
     session_id: str,
     prompt: str,
     attachments: list[str],
+    runtime_prompt: str | None = None,
 ) -> dict:
     """Append a user turn and enqueue the ask. Returns ``{turn_id,
     queue_position}``. Returns 0 for position if running immediately.
@@ -443,10 +604,12 @@ def submit_ask(
             {"id": _strip_ext(name), "name": name} for name in attachments
         ],
     }
+    if runtime_prompt and runtime_prompt != prompt:
+        record["runtime_prompt"] = runtime_prompt
     console_store.append_turn(company_id, session_id, record)
 
     d = _dispatcher(company_id, session_id)
-    position = d.submit(turn_id, prompt, attachments)
+    position = d.submit(turn_id, prompt, attachments, runtime_prompt)
     return {"turn_id": turn_id, "queue_position": position}
 
 

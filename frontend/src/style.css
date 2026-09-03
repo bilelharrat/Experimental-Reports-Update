@@ -682,6 +682,27 @@ table,
   color: rgb(var(--color-text-primary));
 }
 
+.copilot-toolbar-btn {
+  @apply inline-flex h-8 w-auto shrink-0 items-center gap-1.5 rounded-subbox px-2.5 text-ink-muted;
+  transition: background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.copilot-toolbar-btn:hover {
+  background-color: rgb(var(--color-fill-tertiary));
+  color: rgb(var(--color-text-primary));
+}
+
+.copilot-toolbar-btn:active {
+  transform: scale(0.98);
+}
+
+.copilot-toolbar-btn[aria-pressed="true"] {
+  background-color: rgb(var(--color-fill-tertiary));
+  color: rgb(var(--color-text-primary));
+}
+
 /* iPadOS grouped field: translucent fill, not a heavy outlined box. */
 .field {
   @apply w-full rounded-subbox border-0 px-3 py-[7px] text-callout text-ink-primary placeholder:text-ink-subtle focus-ring;
@@ -1189,3 +1210,104 @@ ul.md-list {
   text-align: center;
   white-space: pre-wrap;
 }
+
+/* Co-Pilot drag-and-tell drop targets */
+.copilot-drop-zone {
+  position: relative;
+  border-radius: 0.5rem;
+  transition:
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.copilot-drop-zone-block {
+  display: block;
+}
+
+.copilot-drop-zone-ready {
+  outline: 1px dashed rgb(var(--color-accent) / 0.18);
+  outline-offset: 2px;
+}
+
+.copilot-drop-zone-hover {
+  background-color: rgb(var(--color-accent) / 0.08);
+  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.35);
+}
+
+.copilot-drop-inspect {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 2;
+  display: inline-flex;
+  height: 1.5rem;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-accent) / 0.35);
+  background: rgb(var(--color-surface) / 0.95);
+  color: rgb(var(--color-accent-ink));
+  opacity: 0.9;
+  pointer-events: auto;
+  transition: opacity 0.15s ease;
+}
+
+.copilot-drop-inspect-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.copilot-drop-zone:hover .copilot-drop-inspect,
+.copilot-drop-zone-hover .copilot-drop-inspect,
+.copilot-drop-zone-ready .copilot-drop-inspect {
+  opacity: 1;
+}
+
+.copilot-drag-lens {
+  position: fixed;
+  bottom: 5.5rem;
+  right: 1.25rem;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-accent) / 0.35);
+  background: rgb(var(--color-surface) / 0.96);
+  color: rgb(var(--color-accent-ink));
+  box-shadow: var(--shadow-sheet);
+  cursor: grab;
+  user-select: none;
+  backdrop-filter: var(--material-blur);
+  -webkit-backdrop-filter: var(--material-blur);
+}
+
+.copilot-drag-lens:active {
+  cursor: grabbing;
+}
+
+.copilot-drag-lens-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 640px) {
+  .copilot-drag-lens-label {
+    display: none;
+  }
+}
+
+body[data-copilot-dragging="true"] .copilot-drop-zone {
+  outline: 1px dashed rgb(var(--color-accent) / 0.22);
+  outline-offset: 2px;
+}
+
+body[data-copilot-dragging="true"] .copilot-drop-inspect {
+  opacity: 1;
+}
+

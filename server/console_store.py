@@ -250,13 +250,32 @@ def create_session(
     return meta
 
 
+def is_copilot_session(meta: dict | None) -> bool:
+    """True for Co-Pilot quick/deep sessions (hidden from company Console UI)."""
+    if not meta:
+        return False
+    kind = str(meta.get("session_kind") or "")
+    return kind.startswith("copilot_")
+
+
 def active_count(company_id: str) -> int:
-    return sum(1 for m in iter_sessions(company_id) if m.get("status") == "active")
+    """Count user Console sessions only — Co-Pilot sessions don't burn the cap."""
+    return sum(
+        1
+        for m in iter_sessions(company_id)
+        if m.get("status") == "active" and not is_copilot_session(m)
+    )
 
 
-def list_sessions(company_id: str) -> list[dict]:
-    """Newest first; both active and archived."""
+def list_sessions(company_id: str, *, include_copilot: bool = True) -> list[dict]:
+    """Newest first; both active and archived.
+
+    Pass ``include_copilot=False`` for the company Console UI so Inspect
+    sessions don't appear as Research AI transcripts.
+    """
     metas = list(iter_sessions(company_id))
+    if not include_copilot:
+        metas = [m for m in metas if not is_copilot_session(m)]
     metas.sort(key=lambda m: str(m.get("created_at", "")), reverse=True)
     return metas
 
@@ -629,6 +648,7 @@ __all__ = [
     "AttachmentTypeNotAllowed",
     "SessionLimitReached",
     "create_session",
+    "is_copilot_session",
     "list_sessions",
     "load_meta",
     "update_meta",

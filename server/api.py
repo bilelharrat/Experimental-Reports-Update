@@ -44,6 +44,7 @@ from . import (
     companies_ai_public,
     companies_autocomplete,
     company_translate,
+    copilot,
     console_session,
     console_store,
     context_store,
@@ -78,6 +79,7 @@ from . import (
     text_analysis,
     trader_stats,
     tracking_dashboard,
+    tracking_updates,
     weekly_stocks,
 )
 
@@ -893,6 +895,41 @@ class MemoEditorTaskPatch(BaseModel):
     status: str | None = None
 
 
+class CopilotContextBody(BaseModel):
+    surface: str | None = None
+    tab: str | None = None
+    selection: dict[str, Any] = Field(default_factory=dict)
+    attention: dict[str, Any] = Field(default_factory=dict)
+    job: dict[str, Any] = Field(default_factory=dict)
+    document_ids: list[str] = Field(default_factory=list)
+
+
+class CopilotAskBody(BaseModel):
+    prompt: str
+    context: CopilotContextBody = Field(default_factory=CopilotContextBody)
+    output_language: str = "en"
+    mode: str = "quick"
+
+
+class CopilotTaskBody(BaseModel):
+    title: str
+    description: str = ""
+    action_type: str = "discuss"
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class CopilotApplyEditBody(BaseModel):
+    section_id: str
+    card_id: str
+    bullet_id: str
+    text: str
+
+
+class CopilotEventBody(BaseModel):
+    event: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class DocumentMetadataPatch(BaseModel):
     category: str | None = None
     source_class: str | None = None
@@ -1208,6 +1245,131 @@ def get_tracking_rollup(
     watchlist.
     """
     return tracking_dashboard.build_rollup(company_id)
+
+
+@router.post("/companies/{company_id}/copilot/context")
+def post_copilot_context(company_id: str, body: CopilotContextBody) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return copilot.assemble_context(company_id, body.model_dump())
+    except ValueError as exc:
+        if str(exc) == "company_not_found":
+            raise HTTPException(status_code=404, detail="Company not found") from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/copilot/ask")
+def post_copilot_ask(
+    request: Request,
+    company_id: str,
+    body: CopilotAskBody,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    if body.mode not in {"quick", "deep"}:
+        raise HTTPException(status_code=400, detail="Invalid copilot mode")
+    try:
+        if body.mode == "deep":
+            return {
+                "mode": "deep",
+                **copilot.submit_deep_ask(
+                    company_id=company_id,
+                    prompt=body.prompt,
+                    client_context=body.context.model_dump(),
+                    output_language=body.output_language,
+                ),
+            }
+        return {
+            "mode": "quick",
+            **copilot.submit_quick_ask(
+                company_id=company_id,
+                prompt=body.prompt,
+                client_context=body.context.model_dump(),
+                output_language=body.output_language,
+            ),
+        }
+    except ValueError as exc:
+        code = str(exc)
+        if code == "prompt_required":
+            raise HTTPException(status_code=400, detail="prompt is required") from exc
+        if code == "company_not_found":
+            raise HTTPException(status_code=404, detail="Company not found") from exc
+        raise HTTPException(status_code=400, detail=code) from exc
+
+
+@router.post("/companies/{company_id}/copilot/apply-edit")
+def post_copilot_apply_edit(
+    company_id: str,
+    body: CopilotApplyEditBody,
+    request: Request,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    try:
+        state = memo_editor_store.patch_bullet(
+            company_id,
+            body.section_id,
+            body.card_id,
+            body.bullet_id,
+            {"text": body.text},
+        )
+        analytics_store.record_event(
+            "copilot_edit_applied",
+            company_id=company_id,
+            section_id=body.section_id,
+            card_id=body.card_id,
+            bullet_id=body.bullet_id,
+        )
+        return {"ok": True, "state": state}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/copilot/events", status_code=201)
+def post_copilot_event(
+    company_id: str,
+    body: CopilotEventBody,
+    request: Request,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    event = str(body.event or "").strip()
+    if not event:
+        raise HTTPException(status_code=400, detail="event is required")
+    return analytics_store.record_event(
+        event,
+        company_id=company_id,
+        **(body.payload or {}),
+    )
+
+
+@router.post("/companies/{company_id}/copilot/tasks", status_code=201)
+def create_copilot_task(
+    company_id: str,
+    body: CopilotTaskBody,
+    request: Request,
+) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    _require_permission(request, "tasks:action")
+    try:
+        return memo_editor_store.create_task(
+            company_id,
+            {
+                "action_type": body.action_type,
+                "title": body.title,
+                "description": body.description,
+                "context": {**body.context, "company_id": company_id},
+                "status": "proposed",
+                "created_by": "co-pilot",
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/companies")
@@ -2203,6 +2365,100 @@ def get_company(company_id: str) -> CompanyOut:
         source="company_get",
     )
     return CompanyOut(**_company_view(company))
+
+
+@router.delete("/companies/{company_id}", status_code=204)
+def delete_company(request: Request, company_id: str) -> Response:
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if not storage.delete_company(company_id):
+        raise HTTPException(status_code=404, detail="Company not found")
+    tracking_updates.remove_from_watchlist(company_id)
+    analytics_store.record_event("company_removed", company_id=company_id)
+    return Response(status_code=204)
+
+
+@router.get("/tracking/watchlist")
+def get_tracking_watchlist() -> dict:
+    path = tracking_updates.WATCHLIST_PATH
+    updated_at = None
+    if path.exists():
+        updated_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    return {"company_ids": tracking_updates.get_watchlist(), "updated_at": updated_at}
+
+
+class TrackingWatchlistBody(BaseModel):
+    company_ids: list[str] = Field(default_factory=list)
+
+
+@router.put("/tracking/watchlist")
+def put_tracking_watchlist(
+    request: Request,
+    body: TrackingWatchlistBody,
+) -> dict:
+    _require_permission(request, "tasks:action")
+    return tracking_updates.sync_watchlist(body.company_ids)
+
+
+class TrackingSyncAllBody(BaseModel):
+    company_ids: list[str] | None = None
+    mark_auto: bool = True
+    execute: bool = False
+    refresh_news: bool | None = None
+    lang: str | None = None
+
+
+@router.post("/tracking/sync-all")
+def sync_all_tracking_updates(
+    request: Request,
+    body: TrackingSyncAllBody | None = None,
+) -> dict:
+    _require_permission(request, "tasks:action")
+    payload = body or TrackingSyncAllBody()
+    return tracking_updates.sync_all_tracked(
+        company_ids=payload.company_ids,
+        lang=payload.lang,
+        mark_auto=payload.mark_auto,
+        execute=payload.execute,
+        refresh_news=payload.refresh_news,
+    )
+
+
+@router.get("/companies/{company_id}/tracking-updates")
+def get_company_tracking_updates(company_id: str, limit: int = 50) -> dict:
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return tracking_updates.list_updates(company_id, limit=limit)
+
+
+class TrackingSyncBody(BaseModel):
+    mark_auto: bool = True
+    execute: bool = False
+    refresh_news: bool = True
+    lang: str | None = None
+
+
+@router.post("/companies/{company_id}/tracking-updates/sync")
+def sync_company_tracking_updates(
+    request: Request,
+    company_id: str,
+    body: TrackingSyncBody | None = None,
+) -> dict:
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    payload = body or TrackingSyncBody()
+    try:
+        return tracking_updates.sync_from_news_feed(
+            company_id,
+            lang=payload.lang,
+            mark_auto=payload.mark_auto,
+            execute=payload.execute,
+            refresh_news=payload.refresh_news,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/companies/{company_id}/refresh")
@@ -7628,7 +7884,7 @@ def _serialize_console_meta(meta: dict) -> dict:
 def list_console_sessions(company_id: str) -> list[dict]:
     return [
         _serialize_console_meta(m)
-        for m in console_store.list_sessions(company_id)
+        for m in console_store.list_sessions(company_id, include_copilot=False)
     ]
 
 

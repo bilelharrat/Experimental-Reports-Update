@@ -126,3 +126,69 @@ export function companySummaryMetrics(company) {
   const isPublic = company.company_type === "public" || company.status === "public" || company.ticker;
   return isPublic ? publicCompanyMetrics(company) : privateCompanyMetrics(company);
 }
+
+function parseNumericMetric(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const text = String(value || "").trim();
+  if (!text || /^unknown$/i.test(text)) return null;
+  const match = text.match(/([+-]?\d+(?:\.\d+)?)(.*)/);
+  if (!match) return null;
+  let number = Number(match[1]);
+  if (!Number.isFinite(number)) return null;
+  const suffix = String(match[2] || "").trim().toUpperCase();
+  if (suffix.startsWith("%")) return number;
+  if (suffix.startsWith("T")) number *= 1e12;
+  else if (suffix.startsWith("B")) number *= 1e9;
+  else if (suffix.startsWith("M")) number *= 1e6;
+  else if (suffix.startsWith("K")) number *= 1e3;
+  return number;
+}
+
+/** Return chartable yearly/period series for ARR / YoY when present. */
+export function companyMetricHistories(company) {
+  const histories = [];
+  const supplied = Array.isArray(company?.metric_history) ? company.metric_history : [];
+  for (const series of supplied) {
+    if (!series || typeof series !== "object") continue;
+    const points = Array.isArray(series.points) ? series.points : [];
+    const values = points
+      .map((point) => ({
+        label: String(point?.period || point?.label || point?.year || ""),
+        value: parseNumericMetric(point?.value),
+      }))
+      .filter((point) => point.label && point.value != null);
+    if (values.length >= 2) {
+      histories.push({
+        id: series.id || series.label || values[0].label,
+        label: series.label || series.id || "Metric",
+        label_key: series.label_key || inferredMetricLabelKey(series.label),
+        points: values,
+      });
+    }
+  }
+
+  // Fall back to per-metric history arrays on company.metrics.
+  for (const metric of companySummaryMetrics(company)) {
+    const points = Array.isArray(metric.history) ? metric.history : [];
+    const values = points
+      .map((point) => ({
+        label: String(point?.period || point?.label || point?.year || ""),
+        value: parseNumericMetric(point?.value ?? point),
+      }))
+      .filter((point) => point.label && point.value != null);
+    if (values.length < 2) continue;
+    const id = metric.label_key || metric.label;
+    if (histories.some((row) => row.id === id)) continue;
+    histories.push({
+      id,
+      label: metric.label,
+      label_key: metric.label_key || inferredMetricLabelKey(metric.label),
+      points: values,
+    });
+  }
+
+  return histories.filter((row) => {
+    const key = String(row.label_key || row.label || "").toLowerCase();
+    return key.includes("arr") || key.includes("yoy") || key.includes("growth") || key.includes("revenue");
+  });
+}

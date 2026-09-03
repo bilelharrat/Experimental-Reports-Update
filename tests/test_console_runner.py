@@ -184,6 +184,30 @@ def test_clean_result_event(tmp_path):
     assert state.get("assistant_text_parts") == ["Ready."]
 
 
+def test_error_result_event_includes_message(tmp_path):
+    handle = _make_handle(
+        [
+            {"type": "system", "subtype": "init",
+             "session_id": "abc", "model": "claude"},
+            {"type": "result", "subtype": "error_during_execution",
+             "error": "No conversation found with session ID: abc"},
+        ],
+        exit_code=1,
+    )
+    progress = _new_progress(tmp_path)
+    state: dict = {}
+    out = claude_runner._consume_stream(
+        handle, progress=progress, state=state,
+        cancel_event=None,
+        event_silence_timeout_s=10.0,
+        wall_clock_cap_s=10.0,
+        grace_kill_s=1.0,
+    )
+    assert out["ok"] is False
+    assert out["subtype"] == "error_during_execution"
+    assert "No conversation found" in (out.get("error") or "")
+
+
 def test_stream_json_consumer_prefers_structured_output(tmp_path):
     proc = FakeStreamProc(
         [

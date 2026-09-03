@@ -170,6 +170,26 @@ export const api = {
 
   options: () => request("/api/options"),
   listCompanies: () => request("/api/companies"),
+  deleteCompany: (id) =>
+    request(`/api/companies/${id}`, { method: "DELETE" }),
+  listTrackingUpdates: (companyId) =>
+    request(`/api/companies/${companyId}/tracking-updates`),
+  syncTrackingUpdates: (companyId, body = {}) =>
+    request(`/api/companies/${companyId}/tracking-updates/sync`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getTrackingWatchlist: () => request("/api/tracking/watchlist"),
+  putTrackingWatchlist: (body) =>
+    request("/api/tracking/watchlist", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  syncAllTrackingUpdates: (body = {}) =>
+    request("/api/tracking/sync-all", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   // Tracking dashboard: the follow list is browser-local, so the ids ride
   // along as query params rather than the server keeping a watchlist.
   trackingRollup: (companyIds = []) => {
@@ -957,6 +977,34 @@ export const api = {
         }),
       );
     },
+  },
+
+  copilot: {
+    context: (companyId, body = {}) =>
+      request(`/api/companies/${companyId}/copilot/context`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    ask: (companyId, body) =>
+      request(`/api/companies/${companyId}/copilot/ask`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    createTask: (companyId, body) =>
+      request(`/api/companies/${companyId}/copilot/tasks`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    applyEdit: (companyId, body) =>
+      request(`/api/companies/${companyId}/copilot/apply-edit`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    recordEvent: (companyId, body) =>
+      request(`/api/companies/${companyId}/copilot/events`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 
   // Hormuz Console — scoped to the last two days of Hormuz reports.
