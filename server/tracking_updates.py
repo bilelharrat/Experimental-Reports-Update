@@ -169,6 +169,7 @@ def list_updates(company_id: str, *, limit: int = 50) -> dict:
         "items": items[: max(1, int(limit or 50))],
         "auto_runs": auto_runs[:20],
         "latest_auto_run": auto_runs[0] if auto_runs else None,
+        "last_synced_at": payload.get("last_synced_at"),
         "counts": {
             "total": len(payload.get("items") or []),
             "low": sum(1 for row in payload.get("items") or [] if row.get("impact") == IMPACT_LOW),
@@ -376,7 +377,11 @@ def execute_auto_run(company_id: str, auto_run_id: str | None = None) -> dict:
         from . import memo_prep
 
         try:
-            result = memo_prep.bootstrap_memo_run(company_id)
+            result = memo_prep.bootstrap_memo_run(
+                company_id,
+                trigger="tracking_auto_run",
+                auto_run_id=run_id,
+            )
         except ValueError as exc:
             _patch_auto_run(
                 company_id,

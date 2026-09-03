@@ -455,6 +455,8 @@ def bootstrap_memo_run(
     analysis_session_id: str | None = None,
     report_type: str | None = None,
     memo_mode: str = "auto",
+    trigger: str | None = None,
+    auto_run_id: str | None = None,
 ) -> dict:
     """Run the synchronous prep stage for an investment-memo job.
 
@@ -598,6 +600,9 @@ def bootstrap_memo_run(
             if analysis_session
             else False
         ),
+        # Provenance for runs launched by tracked-news auto-runs; manual
+        # runs keep their record shape unchanged (no null keys).
+        **({"trigger": trigger, "auto_run_id": auto_run_id} if trigger else {}),
     )
 
     stream.emit(

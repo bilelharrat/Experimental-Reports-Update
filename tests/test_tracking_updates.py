@@ -1,7 +1,10 @@
 """Tests for tracked-company news updates."""
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
 from server import storage, tracking_updates
+from server.main import app
 
 
 def test_fingerprint_dedupes_same_url(tmp_path, monkeypatch):
@@ -236,4 +239,149 @@ def test_sync_skips_refresh_when_disabled(tmp_path, monkeypatch):
     assert called["n"] == 0
     tracking_updates.sync_from_news_feed(company_id, refresh_news=True)
     assert called["n"] == 1
+
+
+def _seed_recommended_run(company_id: str, *, title: str, url: str) -> str:
+    storage.update_company(
+        company_id,
+        company_news=[
+            {
+                "title": title,
+                "summary": "News summary",
+                "url": url,
+                "published_at": "2026-01-05",
+            }
+        ],
+    )
+    sync = tracking_updates.sync_from_news_feed(company_id, mark_auto=True)
+    return sync["recommended_auto_run"]["id"]
+
+
+def test_list_updates_exposes_last_synced_at(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    assert tracking_updates.list_updates(company_id)["last_synced_at"] is None
+    tracking_updates.sync_from_news_feed(company_id)
+    assert tracking_updates.list_updates(company_id)["last_synced_at"]
+
+
+def test_execute_report_action_passes_provenance(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar raises Series C financing",
+        url="https://example.com/zainar-series-c",
+    )
+    captured: dict = {}
+
+    def _fake_bootstrap(cid, **kwargs):
+        captured["company_id"] = cid
+        captured.update(kwargs)
+        return {"report_id": "rep-42"}
+
+    monkeypatch.setattr("server.memo_prep.bootstrap_memo_run", _fake_bootstrap)
+    result = tracking_updates.execute_auto_run(company_id, auto_run_id)
+    assert result["executed"] is True
+    assert result["report_id"] == "rep-42"
+    assert captured["trigger"] == "tracking_auto_run"
+    assert captured["auto_run_id"] == auto_run_id
+
+
+# ---- Execute route --------------------------------------------------------
+
+
+def test_execute_route_unknown_company_404(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    client = TestClient(app)
+    response = client.post(
+        "/api/companies/nope/tracking-updates/auto-runs/r1/execute"
+    )
+    assert response.status_code == 404
+
+
+def test_execute_route_passes_through_domain_outcomes(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    client = TestClient(app)
+
+    # Empty store / unknown auto_run_id → 200 with executed False.
+    response = client.post(
+        f"/api/companies/{company_id}/tracking-updates/auto-runs/r1/execute"
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "executed": False,
+        "reason": "no_recommended_auto_run",
+    }
+
+    # A live memo run makes the company busy.
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar launches new platform",
+        url="https://example.com/zainar-platform",
+    )
+    report = storage.create_report(
+        company_id=company_id,
+        report_type="Investment Memo (Late-Stage)",
+        audience="Internal",
+        language="en",
+    )
+    storage.update_report(report["id"], status="analyzing")
+    response = client.post(
+        f"/api/companies/{company_id}/tracking-updates/auto-runs/{auto_run_id}/execute"
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["executed"] is False
+    assert body["reason"] == "company_busy"
+
+
+def test_execute_route_launches_recommended_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar launches new product line",
+        url="https://example.com/zainar-launch",
+    )
+    monkeypatch.setattr(
+        "server.serena_analysis.start_analysis_tool_job",
+        lambda company, tool_name: {"id": "sess-1"},
+    )
+    client = TestClient(app)
+    response = client.post(
+        f"/api/companies/{company_id}/tracking-updates/auto-runs/{auto_run_id}/execute"
+    )
+    assert response.status_code == 200
+    assert response.json()["executed"] is True
+    latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
+    assert latest["status"] == "running"
+
+
+def test_report_summary_exposes_tracking_provenance():
+    from server import api
+
+    plain = api._report_summary({"id": "r1", "report_type": "X"})
+    assert plain["trigger"] is None
+    assert plain["auto_run_id"] is None
+    tagged = api._report_summary(
+        {
+            "id": "r2",
+            "report_type": "X",
+            "trigger": "tracking_auto_run",
+            "auto_run_id": "ar-9",
+        }
+    )
+    assert tagged["trigger"] == "tracking_auto_run"
+    assert tagged["auto_run_id"] == "ar-9"
 

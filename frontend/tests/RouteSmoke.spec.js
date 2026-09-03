@@ -406,7 +406,9 @@ describe("route smoke tests", () => {
       .at(0)
       ?.findAll('[role="tab"]')
       .map((tab) => tab.text());
-    expect(topTabs).toEqual(["Overview", "Files", "Report", "News/Updates"]);
+    // Company tabs today: the per-company "News/Updates" tab was expected
+    // here but never shipped (news lives in the News desk view instead).
+    expect(topTabs).toEqual(["Overview", "Files", "Report"]);
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
   });

@@ -776,6 +776,10 @@ class ReportSummary(BaseModel):
     studio_investigation: dict | None = None
     studio_generate: dict | None = None
     resume_available: bool = False
+    # Tracked-news provenance: set when a tracking auto-run launched this
+    # report ("tracking_auto_run" + the auto-run record id).
+    trigger: str | None = None
+    auto_run_id: str | None = None
     # Set when a newer memo run for the same company replaced this failed
     # run; superseded failures are no longer resumable or auto-surfaced.
     superseded_by: str | None = None
@@ -2458,6 +2462,31 @@ def sync_company_tracking_updates(
             refresh_news=payload.refresh_news,
         )
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/tracking-updates/auto-runs/{auto_run_id}/execute")
+def execute_company_tracking_auto_run(
+    request: Request,
+    company_id: str,
+    auto_run_id: str,
+) -> dict:
+    """Launch one recommended tracking auto-run.
+
+    Domain outcomes come back as HTTP 200 with ``executed: false`` and a
+    ``reason`` (``company_busy``, ``auto_run_not_recommended``,
+    ``no_recommended_auto_run`` — also what an unknown ``auto_run_id``
+    yields — ``action_none``, ``scope_check_failed``); the frontend
+    renders them as notices, not errors.
+    """
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return tracking_updates.execute_auto_run(company_id, auto_run_id)
+    except ValueError as exc:
+        if str(exc) == "company_not_found":
+            raise HTTPException(status_code=404, detail="Company not found") from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -7811,6 +7840,8 @@ def _report_summary(r: dict) -> dict:
         "memo_mode": r.get("memo_mode"),
         "studio_investigation": r.get("studio_investigation"),
         "studio_generate": r.get("studio_generate"),
+        "trigger": r.get("trigger"),
+        "auto_run_id": r.get("auto_run_id"),
     }
     download_urls, preview_urls = _memo_report_artifact_urls(r)
     if download_urls:
