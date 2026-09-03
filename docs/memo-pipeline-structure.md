@@ -27,7 +27,13 @@ run time. If `data/research/<slug>/fact_ledger.md` exists (the curated
 per-company fact ledger, Round 4), a `memo_fact_ledger` stage records
 that it will be injected downstream
 (`claude_runner.load_memo_fact_ledger`; kill switch
-`BSH_MEMO_FACT_LEDGER=0`; 6,000-char cap).
+`BSH_MEMO_FACT_LEDGER=0`; 6,000-char cap). The tracked-news digest
+rides the same mechanism: the workers refresh
+`data/research/<slug>/recent_news.md` from the tracking-updates store
+before Phase 2 (`memo_analysis._write_recent_news_file`, best-effort),
+and `claude_runner.load_memo_recent_news` injects it into every pass
+and the spine — never the shared section context (kill switch
+`BSH_MEMO_TRACKED_NEWS=0`).
 
 ### Phase 2 — 8 analysis passes (~2.3–6.3 m, gated by slowest pass)
 
@@ -217,6 +223,7 @@ pin echo, gates).
 | `BSH_MEMO_SECTION_EARLY_START` (0) | affinity early sections |
 | `BSH_MEMO_PIN_CHECK` (1), `BSH_MEMO_PIN_CHECK_REPAIR` (0) | pin echo; feed repair |
 | `BSH_MEMO_FACT_LEDGER` (1) | inject `data/research/<slug>/fact_ledger.md` into passes + spine (file presence is the real switch) |
+| `BSH_MEMO_TRACKED_NEWS` (1) | inject `data/research/<slug>/recent_news.md` (auto-refreshed from the tracking-updates store before Phase 2) into passes + spine |
 | `BSH_MEMO_SECTIONAL_REPAIR` (0) | hybrid per-section + envelope repair |
 | `BSH_MEMO_ZH_CHASING` (0), `BSH_MEMO_ZH_CHASE_WORKERS` (4), `BSH_MEMO_ZH_CHASE_JOIN_TIMEOUT_SEC` (900) | chasing |
 | `BSH_MEMO_ZH_COMPACT` (0), `BSH_MEMO_ZH_SPLIT_CHARS` (20000) | compact translation + split |

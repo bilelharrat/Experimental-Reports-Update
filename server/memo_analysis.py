@@ -4213,6 +4213,11 @@ def _investigate_safe(report_id: str) -> None:
                 failure_phase="investigation",
                 failure_detail="Investigation worker crashed; see server log.",
             )
+            _sync_tracking_auto_run(
+                report,
+                success=False,
+                error="Investigation worker crashed; see server log.",
+            )
         run_dir = _resolve_run_dir(report or {})
         if run_dir and run_dir.exists():
             stream = job_progress.ProgressLog(
@@ -5240,6 +5245,7 @@ def _run(report_id: str) -> None:
             claude_cost_usd=result.get("cost_usd"),
             claude_duration_ms=result.get("duration_ms"),
         )
+        _sync_tracking_auto_run(report, success=False, error=message)
         _emit_phase_timing(
             stream,
             phase="memo_background_run",
@@ -5455,6 +5461,9 @@ def _investigate(report_id: str) -> None:
             error=_ALL_FAST_PASSES_FAILED_MESSAGE,
             cost_usd=round(cost_usd, 6),
         )
+        _sync_tracking_auto_run(
+            report, success=False, error=_ALL_FAST_PASSES_FAILED_MESSAGE
+        )
         return
     failed_ids = [r.spec.pass_id for r in pass_results if not r.ok]
 
@@ -5530,6 +5539,7 @@ def _investigate(report_id: str) -> None:
             error=str(spine_error)[:500],
         )
         stream.emit("error", error=message, phase="studio_spine")
+        _sync_tracking_auto_run(report, success=False, error=message)
         return
     spine_progress.emit("thread_finished")
     _emit_phase_timing(
@@ -5572,6 +5582,7 @@ def _investigate(report_id: str) -> None:
             claude_cost_usd=round(cost_usd, 6),
         )
         stream.emit("error", error=message, phase="studio_seed")
+        _sync_tracking_auto_run(report, success=False, error=message)
         return
 
     total_cost = round(cost_usd, 6)
@@ -5611,6 +5622,9 @@ def _investigate(report_id: str) -> None:
         cost_usd=total_cost,
         pass_failed=failed_ids,
     )
+    # The awaiting_studio park is this worker's terminal state — finalize
+    # a tracking auto-run here since no memo finalize hook ever fires.
+    _sync_tracking_auto_run(report, success=True)
 
 
 def _generate_from_studio(report_id: str) -> None:

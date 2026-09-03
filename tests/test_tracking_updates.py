@@ -112,41 +112,6 @@ def test_execute_auto_run_skips_when_busy(tmp_path, monkeypatch):
     assert result["reason"] == "company_busy"
 
 
-def test_execute_auto_run_investigate(tmp_path, monkeypatch):
-    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
-    storage.bootstrap_seed_data()
-    storage.materialize_seed_company_records()
-    company_id = "zainar-inc"
-    storage.update_company(
-        company_id,
-        company_news=[
-            {
-                "title": "ZaiNar launches new product",
-                "summary": "Product news",
-                "url": "https://example.com/zainar-product-2",
-                "published_at": "2026-01-03",
-                "tags": ["product"],
-            }
-        ],
-    )
-    sync = tracking_updates.sync_from_news_feed(company_id, mark_auto=True)
-    auto_run_id = sync["recommended_auto_run"]["id"]
-
-    def _fake_start(company, tool_name):
-        assert tool_name == "strategic_risk_mapper"
-        return {"id": "sess-1", "tools": []}
-
-    monkeypatch.setattr(
-        "server.serena_analysis.start_analysis_tool_job",
-        _fake_start,
-    )
-    executed = tracking_updates.execute_auto_run(company_id, auto_run_id)
-    assert executed["executed"] is True
-    latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
-    assert latest["status"] == "running"
-    assert latest["job_ref"]["tool_name"] == "strategic_risk_mapper"
-
-
 def test_complete_auto_run_for_job(tmp_path, monkeypatch):
     monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
     storage.bootstrap_seed_data()
@@ -292,6 +257,91 @@ def test_execute_report_action_passes_provenance(tmp_path, monkeypatch):
     assert captured["auto_run_id"] == auto_run_id
 
 
+def test_execute_investigate_requires_parallel(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("BSH_MEMO_ENGLISH_PARALLEL", raising=False)
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar launches new product",
+        url="https://example.com/zainar-launch-parallel",
+    )
+    result = tracking_updates.execute_auto_run(company_id, auto_run_id)
+    assert result["executed"] is False
+    assert result["reason"] == "studio_requires_parallel"
+    latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
+    assert latest["status"] == "recommended"
+
+
+def test_execute_investigate_dispatches_studio(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar launches new product",
+        url="https://example.com/zainar-launch-studio",
+    )
+    captured: dict = {}
+
+    def _fake_bootstrap(cid, **kwargs):
+        captured["company_id"] = cid
+        captured.update(kwargs)
+        return {"report_id": "rep-7"}
+
+    monkeypatch.setattr("server.memo_prep.bootstrap_memo_run", _fake_bootstrap)
+    result = tracking_updates.execute_auto_run(company_id, auto_run_id)
+    assert result["executed"] is True
+    assert result["report_id"] == "rep-7"
+    assert captured["memo_mode"] == "studio"
+    assert captured["trigger"] == "tracking_auto_run"
+    assert captured["auto_run_id"] == auto_run_id
+    latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
+    assert latest["status"] == "running"
+    assert latest["job_ref"] == {"kind": "memo_report", "report_id": "rep-7"}
+
+
+def test_execute_skips_while_studio_review_is_parked(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar raises Series D financing",
+        url="https://example.com/zainar-series-d",
+    )
+    parked = storage.create_report(
+        company_id=company_id,
+        report_type="Investment Memo (Late-Stage)",
+        audience="Internal",
+        language="en",
+    )
+    storage.update_report(parked["id"], status="awaiting_studio")
+
+    # Both actions must skip while cards await review — an auto-run may
+    # never snapshot-replace a human's in-progress edits.
+    result = tracking_updates.execute_auto_run(company_id, auto_run_id)
+    assert result["executed"] is False
+    assert result["reason"] == "awaiting_studio_review"
+    latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
+    assert latest["status"] == "recommended"
+
+    # A dismissed parked run no longer blocks.
+    storage.update_report(parked["id"], dismissed_at="2026-09-03T00:00:00Z")
+    monkeypatch.setattr(
+        "server.memo_prep.bootstrap_memo_run",
+        lambda cid, **kwargs: {"report_id": "rep-8"},
+    )
+    result = tracking_updates.execute_auto_run(company_id, auto_run_id)
+    assert result["executed"] is True
+
+
 # ---- Execute route --------------------------------------------------------
 
 
@@ -346,6 +396,7 @@ def test_execute_route_passes_through_domain_outcomes(tmp_path, monkeypatch):
 
 def test_execute_route_launches_recommended_run(tmp_path, monkeypatch):
     monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
     storage.bootstrap_seed_data()
     storage.materialize_seed_company_records()
     company_id = "zainar-inc"
@@ -355,8 +406,8 @@ def test_execute_route_launches_recommended_run(tmp_path, monkeypatch):
         url="https://example.com/zainar-launch",
     )
     monkeypatch.setattr(
-        "server.serena_analysis.start_analysis_tool_job",
-        lambda company, tool_name: {"id": "sess-1"},
+        "server.memo_prep.bootstrap_memo_run",
+        lambda cid, **kwargs: {"report_id": "rep-99"},
     )
     client = TestClient(app)
     response = client.post(

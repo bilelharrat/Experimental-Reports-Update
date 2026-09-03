@@ -187,6 +187,59 @@ def test_investigate_parks_at_awaiting_studio(studio_env, monkeypatch):
     assert terminal[-1]["pass_failed"] == ["competitive_rights"]
 
 
+def test_investigate_park_completes_tracking_auto_run(studio_env, monkeypatch):
+    from server import tracking_updates
+
+    report, run_dir = _make_studio_report(studio_env)
+    tracking_updates.record_auto_run(
+        "generalist-inc",
+        action=tracking_updates.ACTION_INVESTIGATE,
+        news_titles=["Launch headline"],
+        status="running",
+    )
+    auto_run_id = tracking_updates.list_updates("generalist-inc")[
+        "latest_auto_run"
+    ]["id"]
+    tracking_updates._patch_auto_run(
+        "generalist-inc",
+        auto_run_id,
+        {
+            "status": "running",
+            "job_ref": {"kind": "memo_report", "report_id": report["id"]},
+        },
+    )
+    monkeypatch.setattr(
+        memo_analysis,
+        "_run_fast_phase2",
+        lambda **kw: (_fake_pass_results(), 0.8, 900),
+    )
+
+    def fake_standalone(**kw):
+        units_dir = kw["run_dir"] / "logs" / "english_units"
+        units_dir.mkdir(parents=True, exist_ok=True)
+        payload = _spine_payload()
+        (units_dir / "spine.json").write_text(json.dumps(payload), encoding="utf-8")
+        return payload, None
+
+    monkeypatch.setattr(
+        claude_runner, "run_memo_english_spine_standalone", fake_standalone
+    )
+    monkeypatch.setattr(
+        memo_editor_store,
+        "apply_agent_spine",
+        lambda company_id, spine, provenance=None: {"revision_id": "rev-0002"},
+    )
+
+    memo_analysis._investigate(report["id"])
+
+    assert storage.get_report(report["id"])["status"] == "awaiting_studio"
+    # The park is the investigation's terminal state, so the auto-run
+    # must complete here — no memo finalize hook ever fires for it.
+    latest = tracking_updates.list_updates("generalist-inc")["latest_auto_run"]
+    assert latest["status"] == "completed"
+    assert "Deep investigate refreshed" in latest["label"]
+
+
 def test_investigate_spine_retry_then_failure(studio_env, monkeypatch):
     report, run_dir = _make_studio_report(studio_env)
     monkeypatch.setattr(

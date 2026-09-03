@@ -314,6 +314,27 @@ def remove_from_watchlist(company_id: str) -> None:
     sync_watchlist([row for row in current if row != cid])
 
 
+def company_awaiting_studio(company_id: str) -> bool:
+    """True while a live Memo Studio review is parked for the company.
+
+    An auto-run must never snapshot-replace cards a human is reviewing,
+    so both auto actions skip (stay ``recommended``) in this state — the
+    human can still click Run now, which is an explicit choice.
+    Dismissed or superseded parked runs don't count.
+    """
+    cid = str(company_id or "").strip()
+    if not cid:
+        return False
+    for report in storage.list_reports():
+        if str(report.get("company_id") or "") != cid:
+            continue
+        if report.get("dismissed_at") or report.get("superseded_by"):
+            continue
+        if str(report.get("status") or "").strip().lower() == "awaiting_studio":
+            return True
+    return False
+
+
 def company_has_active_work(company_id: str) -> bool:
     cid = str(company_id or "").strip()
     if not cid:
@@ -379,13 +400,34 @@ def execute_auto_run(company_id: str, auto_run_id: str | None = None) -> dict:
         return {"executed": False, "reason": "action_none", "auto_run": target}
     if company_has_active_work(company_id):
         return {"executed": False, "reason": "company_busy", "auto_run": target}
+    if company_awaiting_studio(company_id):
+        return {
+            "executed": False,
+            "reason": "awaiting_studio_review",
+            "auto_run": target,
+        }
 
     run_id = str(target["id"])
     if action == ACTION_INVESTIGATE:
-        from . import serena_analysis
+        from . import memo_prep
 
+        # Medium impact reruns the product's Deep Investigate: the Memo
+        # Studio investigation (Phase 1-2 + card refresh). It requires
+        # the spine-lite architecture; without the flag the run would
+        # dispatch and fail downstream, so skip and stay recommended.
+        if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
+            return {
+                "executed": False,
+                "reason": "studio_requires_parallel",
+                "auto_run": target,
+            }
         try:
-            serena_analysis.start_analysis_tool_job(company_id, "strategic_risk_mapper")
+            result = memo_prep.bootstrap_memo_run(
+                company_id,
+                memo_mode="studio",
+                trigger="tracking_auto_run",
+                auto_run_id=run_id,
+            )
         except ValueError as exc:
             _patch_auto_run(
                 company_id,
@@ -393,23 +435,45 @@ def execute_auto_run(company_id: str, auto_run_id: str | None = None) -> dict:
                 {"status": "failed", "error": str(exc)},
             )
             raise
-        session = serena_analysis.get_current_session(company_id, create=False) or {}
-        job_ref = {
-            "kind": "serena_tool",
-            "tool_name": "strategic_risk_mapper",
-            "session_id": str(session.get("id") or ""),
-        }
+        if result.get("failed"):
+            _patch_auto_run(
+                company_id,
+                run_id,
+                {
+                    "status": "failed",
+                    "error": (result.get("scope_check") or {}).get("reason")
+                    or "scope_check_failed",
+                    "job_ref": {
+                        "kind": "memo_report",
+                        "report_id": result.get("report_id"),
+                    },
+                },
+            )
+            return {
+                "executed": False,
+                "reason": "scope_check_failed",
+                "auto_run": list_updates(company_id).get("latest_auto_run"),
+            }
+        report_id = str(result.get("report_id") or "")
         updated = _patch_auto_run(
             company_id,
             run_id,
             {
+                # surface stays "overview" and action stays
+                # deep_investigate so the Overview auto-updated badge
+                # keeps firing.
                 "status": "running",
                 "surface": "overview",
                 "trigger": "auto",
-                "job_ref": job_ref,
+                "job_ref": {"kind": "memo_report", "report_id": report_id},
             },
         )
-        return {"executed": True, "action": action, "auto_run": updated}
+        return {
+            "executed": True,
+            "action": action,
+            "auto_run": updated,
+            "report_id": report_id,
+        }
 
     if action == ACTION_REPORT:
         from . import memo_prep
