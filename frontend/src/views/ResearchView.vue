@@ -22,7 +22,7 @@ import {
 } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
-import { appLanguage } from "../state.js";
+import { appLanguage, trackedCompanyIds } from "../state.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import CompanyFollowButton from "../components/CompanyFollowButton.vue";
 import CopilotDropZone from "../components/CopilotDropZone.vue";
@@ -107,6 +107,11 @@ const newsSearch = ref("");
 const industryView = ref(null);
 const industryLoading = ref(false);
 const industryError = ref("");
+const trackingUpdates = ref(null);
+const trackingSyncing = ref(false);
+const trackingSyncError = ref(false);
+const executingAutoRunId = ref("");
+const executeNotice = ref("");
 const refreshingCompany = ref(false);
 const refreshCompanyError = ref("");
 
@@ -792,7 +797,11 @@ async function loadCompany() {
     // response can resolve last and clobber the newer company's state.
     if (requestedId !== props.companyId) return;
     company.value = fresh;
-    await Promise.allSettled([loadNewsFeed(), loadIndustryView()]);
+    await Promise.allSettled([
+      loadNewsFeed(),
+      loadIndustryView(),
+      loadTrackingUpdates(),
+    ]);
   } catch (e) {
     if (requestedId !== props.companyId) return;
     // Keep the HTTP status on the error object so the template can
@@ -838,6 +847,147 @@ async function loadIndustryView() {
     industryLoading.value = false;
   }
 }
+
+async function loadTrackingUpdates() {
+  if (!props.companyId) return;
+  const requestedId = props.companyId;
+  try {
+    const fresh = await api.listTrackingUpdates(requestedId);
+    if (requestedId !== props.companyId) return;
+    trackingUpdates.value = fresh;
+  } catch {
+    // Non-fatal: the panel keeps whatever it already shows.
+  }
+}
+
+async function syncTracking() {
+  if (trackingSyncing.value || !props.companyId) return;
+  trackingSyncing.value = true;
+  trackingSyncError.value = false;
+  executeNotice.value = "";
+  try {
+    trackingUpdates.value = await api.syncTrackingUpdates(props.companyId, {
+      mark_auto: true,
+      execute: false,
+      refresh_news: true,
+      lang: appLanguage.value,
+    });
+    // The sync's news refresh may have added feed rows.
+    await loadNewsFeed();
+  } catch {
+    trackingSyncError.value = true;
+  } finally {
+    trackingSyncing.value = false;
+  }
+}
+
+const EXECUTE_NOTICE_KEYS = {
+  company_busy: "research.updates_execute_busy",
+  auto_run_not_recommended: "research.updates_execute_not_recommended",
+  no_recommended_auto_run: "research.updates_execute_none",
+  action_none: "research.updates_execute_none",
+  awaiting_studio_review: "research.updates_execute_awaiting_studio",
+  studio_requires_parallel: "research.updates_execute_needs_parallel",
+};
+
+async function runAutoRun(run) {
+  if (executingAutoRunId.value) return;
+  executingAutoRunId.value = run.id;
+  executeNotice.value = "";
+  try {
+    const result = await api.executeTrackingAutoRun(props.companyId, run.id);
+    if (result?.executed) {
+      await loadTrackingUpdates();
+      if (result.report_id) {
+        // Same navigation as opening a report from the library: the
+        // report query drives the Report tab + polling machinery.
+        router.replace({
+          name: "research",
+          params: { companyId: props.companyId },
+          query: { report: result.report_id },
+        });
+      }
+    } else {
+      executeNotice.value = tr(
+        EXECUTE_NOTICE_KEYS[result?.reason] || "research.updates_execute_failed",
+      );
+      await loadTrackingUpdates();
+    }
+  } catch {
+    executeNotice.value = tr("research.updates_execute_failed");
+  } finally {
+    executingAutoRunId.value = "";
+  }
+}
+
+const isFollowedCompany = computed(() =>
+  trackedCompanyIds.value.has(String(company.value?.id || props.companyId || "")),
+);
+
+function impactChipClass(impact) {
+  const base = "rounded-pill px-2 py-0.5 text-caption1 font-medium";
+  if (impact === "high") return `${base} bg-danger/15 text-danger`;
+  if (impact === "medium") return `${base} bg-warning/15 text-warning`;
+  return `${base} bg-fill-tertiary text-ink-secondary`;
+}
+
+function impactLabel(impact) {
+  if (impact === "high") return tr("research.impact_high");
+  if (impact === "medium") return tr("research.impact_medium");
+  return tr("research.impact_low");
+}
+
+const AUTO_RUN_STATUS_KEYS = {
+  recommended: "research.auto_run_recommended",
+  running: "research.auto_run_running",
+  completed: "research.auto_run_completed",
+  failed: "research.auto_run_failed",
+};
+
+function autoRunStatusLabel(run) {
+  const key = AUTO_RUN_STATUS_KEYS[run?.status];
+  return key ? tr(key) : String(run?.status || "");
+}
+
+function autoRunStatusChipClass(status) {
+  const base = "rounded-pill px-2 py-0.5 text-caption1 font-semibold";
+  if (status === "running") return `${base} bg-accent-soft text-accent-ink`;
+  if (status === "failed") return `${base} bg-danger/15 text-danger`;
+  if (status === "recommended") return `${base} bg-warning/15 text-warning`;
+  return `${base} bg-fill-tertiary text-ink-secondary`;
+}
+
+// Tracked items keyed by url (preferred) and title, so the existing
+// feed rows can carry impact chips instead of rendering a second list.
+const trackedImpactByKey = computed(() => {
+  const map = new Map();
+  for (const item of trackingUpdates.value?.items || []) {
+    const url = String(item.url || "").trim().toLowerCase();
+    const title = String(item.title || "").trim().toLowerCase();
+    if (url) map.set(url, item);
+    if (title) map.set(`t:${title}`, item);
+  }
+  return map;
+});
+
+function feedItemImpact(item) {
+  const map = trackedImpactByKey.value;
+  const url = String(item?.url || item?.archive_url || "").trim().toLowerCase();
+  if (url && map.has(url)) return map.get(url);
+  const title = String(item?.title || item?.headline || "").trim().toLowerCase();
+  if (title && map.has(`t:${title}`)) return map.get(`t:${title}`);
+  return null;
+}
+
+const activeReportAutoRunLabel = computed(() => {
+  if (activeReport.value?.trigger !== "tracking_auto_run") return "";
+  const runId = activeReport.value?.auto_run_id;
+  const match = (trackingUpdates.value?.auto_runs || []).find(
+    (run) => run.id === runId,
+  );
+  const label = String(match?.label || "");
+  return label.length > 60 ? `${label.slice(0, 60)}…` : label;
+});
 
 watch(newsCategory, () => {
   if (company.value) loadNewsFeed();
@@ -886,6 +1036,9 @@ async function pollReport() {
     ) {
       stopPolling();
       await loadCompanyReports();
+      // Flip any auto-run chip (running → completed/failed) and the
+      // Overview auto-updated badge without a dedicated poll loop.
+      loadTrackingUpdates();
       if (status === "complete" || status === "complete_with_warnings") {
         emit("reports-changed");
         libraryRefresh.value += 1;
@@ -1432,6 +1585,7 @@ onUnmounted(stopPolling);
     <CompanyDetail
       v-if="company && activeTab === 'overview'"
       :company="company"
+      :tracking-updates="trackingUpdates"
       @refreshed="(c) => (company = c)"
     />
 
@@ -1581,6 +1735,13 @@ onUnmounted(stopPolling);
             </span>
             <span v-else class="text-xs text-ink-muted">
               {{ reportTypeLabel(reportType) }} · {{ audienceLabel(audience) }}
+            </span>
+            <span
+              v-if="activeReport?.trigger === 'tracking_auto_run'"
+              class="rounded-full border border-accent/30 bg-accent-soft/50 px-2 py-0.5 text-[10px] font-semibold text-accent-ink"
+              :title="activeReportAutoRunLabel"
+            >
+              {{ tr("research.auto_update_banner") }}<template v-if="activeReportAutoRunLabel"> · {{ activeReportAutoRunLabel }}</template>
             </span>
           </div>
           <div
@@ -2117,6 +2278,86 @@ onUnmounted(stopPolling);
     >
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
+          <div class="vogue-label">{{ tr("research.tracked_updates") }}</div>
+          <div class="mt-2 flex flex-wrap items-center gap-1.5">
+            <span :class="impactChipClass('high')">{{ tr("research.impact_high") }} · {{ trackingUpdates?.counts?.high || 0 }}</span>
+            <span :class="impactChipClass('medium')">{{ tr("research.impact_medium") }} · {{ trackingUpdates?.counts?.medium || 0 }}</span>
+            <span :class="impactChipClass('low')">{{ tr("research.impact_low") }} · {{ trackingUpdates?.counts?.low || 0 }}</span>
+          </div>
+          <p v-if="trackingUpdates?.last_synced_at" class="mt-2 text-xs text-ink-muted">
+            {{ tr("research.updates_last_synced") }}: {{ formatIsoDate(trackingUpdates.last_synced_at) }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn-bordered inline-flex items-center gap-2 focus-ring"
+          :disabled="trackingSyncing"
+          @click="syncTracking"
+        >
+          <Loader2 v-if="trackingSyncing" class="h-4 w-4 animate-spin" />
+          {{ tr(trackingSyncing ? "research.updates_syncing" : "research.updates_sync") }}
+        </button>
+      </div>
+      <p v-if="!isFollowedCompany" class="mb-3 text-sm text-ink-muted">
+        {{ tr("research.updates_follow_hint") }}
+      </p>
+      <div v-if="trackingSyncError" class="mb-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+        {{ tr("research.updates_sync_failed") }}
+      </div>
+      <div v-if="executeNotice" class="mb-3 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-ink-secondary">
+        {{ executeNotice }}
+      </div>
+      <div
+        v-if="!trackingUpdates?.auto_runs?.length && !trackingUpdates?.items?.length"
+        class="rounded-subbox bg-fill-tertiary p-4 text-sm text-ink-muted"
+      >
+        {{ tr("research.updates_empty") }}
+      </div>
+      <ul v-else-if="trackingUpdates?.auto_runs?.length" class="space-y-3">
+        <li
+          v-for="run in trackingUpdates.auto_runs"
+          :key="run.id"
+          class="rounded-row bg-fill-tertiary p-4"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span :class="autoRunStatusChipClass(run.status)">
+              {{ autoRunStatusLabel(run) }}
+            </span>
+            <span class="rounded-pill bg-surface px-2 py-0.5 text-caption1 font-semibold text-ink-muted">
+              {{ tr(run.action === "full_report" ? "research.action_full_report" : "research.action_investigate") }}
+            </span>
+            <div class="ml-auto flex items-center gap-2">
+              <button
+                v-if="run.status === 'recommended'"
+                type="button"
+                class="btn-bordered inline-flex items-center gap-2 focus-ring"
+                :disabled="Boolean(executingAutoRunId)"
+                @click="runAutoRun(run)"
+              >
+                <Loader2 v-if="executingAutoRunId === run.id" class="h-4 w-4 animate-spin" />
+                {{ tr("research.updates_run_now") }}
+              </button>
+              <button
+                v-if="run.job_ref?.report_id"
+                type="button"
+                class="text-xs font-semibold text-accent-ink hover:underline focus-ring"
+                @click="openReportFromLibrary({ id: run.job_ref.report_id })"
+              >
+                {{ tr("research.updates_view_report") }}
+              </button>
+            </div>
+          </div>
+          <p class="mt-2 text-sm text-ink-secondary">{{ run.label }}</p>
+        </li>
+      </ul>
+    </section>
+
+    <section
+      v-if="company && activeTab === 'news'"
+      class="rounded-card bg-surface shadow-card p-6"
+    >
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
           <div class="flex items-center gap-2">
             <div class="vogue-label">{{ tr("research.tab_news") }}</div>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[10px] font-bold text-accent-ink">
@@ -2184,7 +2425,16 @@ onUnmounted(stopPolling);
             <span class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-accent"></span>
             <div class="min-w-0 flex-1">
               <div class="mono-data text-[11px] text-footnote font-semibold text-ink-muted">{{ newsMeta(item) }}</div>
-              <div class="mt-1 text-sm font-semibold text-ink-primary">{{ item.title || item.headline }}</div>
+              <div class="mt-1 flex flex-wrap items-center gap-2">
+                <span class="text-sm font-semibold text-ink-primary">{{ item.title || item.headline }}</span>
+                <span
+                  v-if="feedItemImpact(item)"
+                  :class="impactChipClass(feedItemImpact(item).impact)"
+                  :title="feedItemImpact(item).impact === 'low' ? tr('research.action_save_only') : ''"
+                >
+                  {{ impactLabel(feedItemImpact(item).impact) }}
+                </span>
+              </div>
               <p v-if="item.summary" class="mt-1 text-sm leading-relaxed text-ink-secondary">{{ item.summary }}</p>
             </div>
             <a

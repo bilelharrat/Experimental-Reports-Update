@@ -69,6 +69,7 @@ vi.mock("../src/api.js", () => ({
     listActiveJobs: vi.fn(),
     listTrackingUpdates: vi.fn(),
     syncTrackingUpdates: vi.fn(),
+    executeTrackingAutoRun: vi.fn(),
     memoAnalysis: {
       get: vi.fn(),
       getEvidenceMatrix: vi.fn(),
@@ -131,6 +132,17 @@ function stockPayload() {
     review_items: [],
     evaluation: { runs: [], run_ledger: [] },
     doctor: { status: "ok", summary: { error_count: 0, warning_count: 0 }, issues: [] },
+  };
+}
+
+function emptyTrackingUpdates() {
+  return {
+    company_id: "generalist",
+    items: [],
+    auto_runs: [],
+    latest_auto_run: null,
+    counts: { total: 0, low: 0, medium: 0, high: 0 },
+    last_synced_at: null,
   };
 }
 
@@ -333,8 +345,12 @@ describe("route smoke tests", () => {
     api.listResearchFiles.mockResolvedValue([]);
     api.listCompanyReports.mockResolvedValue([]);
     api.listActiveJobs.mockResolvedValue([]);
-    api.listTrackingUpdates.mockResolvedValue({ items: [], latest_auto_run: null });
-    api.syncTrackingUpdates.mockResolvedValue({ items: [], latest_auto_run: null });
+    api.listTrackingUpdates.mockResolvedValue(emptyTrackingUpdates());
+    api.syncTrackingUpdates.mockResolvedValue(emptyTrackingUpdates());
+    api.executeTrackingAutoRun.mockResolvedValue({
+      executed: false,
+      reason: "no_recommended_auto_run",
+    });
     api.memoAnalysis.get.mockResolvedValue(memoSession());
     api.memoAnalysis.runTool.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
@@ -418,6 +434,143 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).toContain("Latest company developments");
     // Overview-only content must not render on this tab.
     expect(wrapper.text()).not.toContain("ARR & growth trends");
+  });
+
+  it("shows tracked impact updates with a runnable recommendation", async () => {
+    api.listTrackingUpdates.mockResolvedValue({
+      ...emptyTrackingUpdates(),
+      items: [
+        {
+          id: "fp-1",
+          title: "Generalist source update",
+          url: "https://example.com/series-c",
+          impact: "high",
+          recommended_action: "full_report",
+          published_at: "2026-07-03",
+        },
+      ],
+      auto_runs: [
+        {
+          id: "run-1",
+          action: "full_report",
+          status: "recommended",
+          news_titles: ["Generalist source update"],
+          updated_at: "2026-07-03T00:00:00Z",
+          label:
+            "Full report regenerated at 2026-07-03 10:00 UTC, affected by: Generalist source update",
+        },
+      ],
+      counts: { total: 1, low: 0, medium: 0, high: 1 },
+      last_synced_at: "2026-07-03T00:00:00Z",
+    });
+    api.executeTrackingAutoRun.mockResolvedValue({
+      executed: false,
+      reason: "company_busy",
+    });
+
+    const wrapper = await mountRoute("/research/generalist?tab=news");
+
+    expect(wrapper.text()).toContain("Tracked impact updates");
+    expect(wrapper.text()).toContain("High impact · 1");
+    expect(wrapper.text()).toContain("Full report regenerated at 2026-07-03");
+    // The matching feed row carries an impact chip (matched by title).
+    expect(wrapper.text()).toContain("Generalist source update");
+
+    const runNow = wrapper
+      .findAll("button")
+      .find((b) => b.text() === "Run now");
+    expect(runNow).toBeTruthy();
+    await runNow.trigger("click");
+    await flushPromises();
+    expect(api.executeTrackingAutoRun).toHaveBeenCalledWith(
+      "generalist",
+      "run-1",
+    );
+    expect(wrapper.text()).toContain("Another job is already running");
+  });
+
+  it("syncs tracked news from the News/Updates tab", async () => {
+    const wrapper = await mountRoute("/research/generalist?tab=news");
+    const sync = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Sync tracked news"));
+    expect(sync).toBeTruthy();
+    await sync.trigger("click");
+    await flushPromises();
+    expect(api.syncTrackingUpdates).toHaveBeenCalledWith("generalist", {
+      mark_auto: true,
+      execute: false,
+      refresh_news: true,
+      lang: "en",
+    });
+
+    api.syncTrackingUpdates.mockRejectedValue(new Error("boom"));
+    await sync.trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Could not sync tracked news.");
+  });
+
+  it("lights the Overview auto-updated badge from tracking updates", async () => {
+    api.listTrackingUpdates.mockResolvedValue({
+      ...emptyTrackingUpdates(),
+      auto_runs: [
+        {
+          id: "run-2",
+          action: "deep_investigate",
+          surface: "overview",
+          status: "completed",
+          updated_at: "2026-07-03T00:00:00Z",
+          label: "Deep investigate refreshed at 2026-07-03 10:00 UTC",
+        },
+      ],
+      latest_auto_run: {
+        id: "run-2",
+        action: "deep_investigate",
+        surface: "overview",
+        status: "completed",
+        updated_at: "2026-07-03T00:00:00Z",
+        label: "Deep investigate refreshed at 2026-07-03 10:00 UTC",
+      },
+    });
+
+    const wrapper = await mountRoute("/research/generalist");
+
+    expect(wrapper.text()).toContain("Auto-updated");
+  });
+
+  it("marks auto-triggered reports on the Report tab", async () => {
+    api.getReport.mockResolvedValue({
+      id: "report-1",
+      company_id: "generalist",
+      company_name: "Generalist",
+      report_type: "Investment Memo (Late-Stage)",
+      audience: "Internal",
+      language: "en",
+      kind: "investment_memo_latestage",
+      status: "complete",
+      run_dir: "data/memos/generalist/run",
+      resume_available: false,
+      trigger: "tracking_auto_run",
+      auto_run_id: "run-9",
+    });
+    api.listTrackingUpdates.mockResolvedValue({
+      ...emptyTrackingUpdates(),
+      auto_runs: [
+        {
+          id: "run-9",
+          action: "full_report",
+          status: "completed",
+          updated_at: "2026-07-03T00:00:00Z",
+          label:
+            "Full report regenerated at 2026-07-03 10:00 UTC, affected by: Series C",
+        },
+      ],
+    });
+
+    const wrapper = await mountRoute("/research/generalist?report=report-1");
+
+    expect(wrapper.text()).toContain("Automatic update");
+    expect(wrapper.text()).toContain("Full report regenerated at 2026-07-03");
   });
 
   it("renders company pages at the production base-relative URL", async () => {

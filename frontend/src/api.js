@@ -179,6 +179,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  executeTrackingAutoRun: (companyId, autoRunId) =>
+    request(
+      `/api/companies/${companyId}/tracking-updates/auto-runs/${autoRunId}/execute`,
+      { method: "POST" },
+    ),
   getTrackingWatchlist: () => request("/api/tracking/watchlist"),
   putTrackingWatchlist: (body) =>
     request("/api/tracking/watchlist", {
