@@ -374,8 +374,30 @@ def _patch_auto_run(company_id: str, auto_run_id: str, patch: dict[str, Any]) ->
         return updated
 
 
-def execute_auto_run(company_id: str, auto_run_id: str | None = None) -> dict:
-    """Launch the recommended auto action (investigate or full report)."""
+def _retire_stale_memo_runs(company_id: str, new_report_id: str | None) -> None:
+    """Retire older failed/parked memo runs once a new run claims the company."""
+    try:
+        from . import api
+
+        api._supersede_stale_memo_failures(company_id, new_report_id)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "supersede after auto-run dispatch failed for %s", company_id
+        )
+
+
+def execute_auto_run(
+    company_id: str,
+    auto_run_id: str | None = None,
+    *,
+    allow_parked_review: bool = False,
+) -> dict:
+    """Launch the recommended auto action (investigate or full report).
+
+    ``allow_parked_review`` bypasses the awaiting-studio guard — it is the
+    human's "I reviewed the cards" acknowledgment from the manual Run now
+    flow. The background sync loop never sets it.
+    """
     if storage.get_company(company_id) is None:
         raise ValueError("company_not_found")
     listed = list_updates(company_id)
@@ -400,7 +422,7 @@ def execute_auto_run(company_id: str, auto_run_id: str | None = None) -> dict:
         return {"executed": False, "reason": "action_none", "auto_run": target}
     if company_has_active_work(company_id):
         return {"executed": False, "reason": "company_busy", "auto_run": target}
-    if company_awaiting_studio(company_id):
+    if not allow_parked_review and company_awaiting_studio(company_id):
         return {
             "executed": False,
             "reason": "awaiting_studio_review",
@@ -455,6 +477,7 @@ def execute_auto_run(company_id: str, auto_run_id: str | None = None) -> dict:
                 "auto_run": list_updates(company_id).get("latest_auto_run"),
             }
         report_id = str(result.get("report_id") or "")
+        _retire_stale_memo_runs(company_id, report_id)
         updated = _patch_auto_run(
             company_id,
             run_id,
@@ -511,6 +534,7 @@ def execute_auto_run(company_id: str, auto_run_id: str | None = None) -> dict:
                 "auto_run": list_updates(company_id).get("latest_auto_run"),
             }
         report_id = str(result.get("report_id") or "")
+        _retire_stale_memo_runs(company_id, report_id)
         updated = _patch_auto_run(
             company_id,
             run_id,

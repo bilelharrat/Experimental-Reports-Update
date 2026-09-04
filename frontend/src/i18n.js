@@ -248,6 +248,7 @@ const messages = {
     "research.updates_execute_failed": "Could not start the automatic update.",
     "research.updates_execute_awaiting_studio":
       "Studio cards are awaiting review; automatic run skipped.",
+    "research.updates_confirm_reviewed": "I've reviewed the cards — run anyway",
     "research.updates_execute_needs_parallel":
       "Memo Studio parallel mode is disabled on this server.",
     "research.news_open_source": "Open source",
@@ -1761,6 +1762,7 @@ const messages = {
     "research.updates_execute_none": "没有可执行的建议更新。",
     "research.updates_execute_failed": "无法启动自动更新。",
     "research.updates_execute_awaiting_studio": "工作室卡片待审阅，已跳过自动执行。",
+    "research.updates_confirm_reviewed": "我已审阅卡片，继续执行",
     "research.updates_execute_needs_parallel": "服务器未启用 Memo Studio 并行模式。",
     "research.news_open_source": "打开来源",
     "research.industry_context": "行业背景",

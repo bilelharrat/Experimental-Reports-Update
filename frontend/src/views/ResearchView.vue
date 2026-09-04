@@ -112,6 +112,9 @@ const trackingSyncing = ref(false);
 const trackingSyncError = ref(false);
 const executingAutoRunId = ref("");
 const executeNotice = ref("");
+// Set when Run now was blocked by a parked card review; renders the
+// "I've reviewed — run anyway" confirmation next to the notice.
+const pendingReviewRunId = ref("");
 const refreshingCompany = ref(false);
 const refreshCompanyError = ref("");
 
@@ -865,6 +868,7 @@ async function syncTracking() {
   trackingSyncing.value = true;
   trackingSyncError.value = false;
   executeNotice.value = "";
+  pendingReviewRunId.value = "";
   try {
     trackingUpdates.value = await api.syncTrackingUpdates(props.companyId, {
       mark_auto: true,
@@ -890,12 +894,15 @@ const EXECUTE_NOTICE_KEYS = {
   studio_requires_parallel: "research.updates_execute_needs_parallel",
 };
 
-async function runAutoRun(run) {
+async function runAutoRun(run, { acknowledgeReview = false } = {}) {
   if (executingAutoRunId.value) return;
   executingAutoRunId.value = run.id;
   executeNotice.value = "";
+  pendingReviewRunId.value = "";
   try {
-    const result = await api.executeTrackingAutoRun(props.companyId, run.id);
+    const result = await api.executeTrackingAutoRun(props.companyId, run.id, {
+      acknowledge_review: acknowledgeReview,
+    });
     if (result?.executed) {
       await loadTrackingUpdates();
       if (result.report_id) {
@@ -911,6 +918,9 @@ async function runAutoRun(run) {
       executeNotice.value = tr(
         EXECUTE_NOTICE_KEYS[result?.reason] || "research.updates_execute_failed",
       );
+      if (result?.reason === "awaiting_studio_review") {
+        pendingReviewRunId.value = run.id;
+      }
       await loadTrackingUpdates();
     }
   } catch {
@@ -918,6 +928,15 @@ async function runAutoRun(run) {
   } finally {
     executingAutoRunId.value = "";
   }
+}
+
+function confirmReviewedAndRun() {
+  const runId = pendingReviewRunId.value;
+  const run = (trackingUpdates.value?.auto_runs || []).find(
+    (row) => row.id === runId,
+  );
+  if (run) runAutoRun(run, { acknowledgeReview: true });
+  else pendingReviewRunId.value = "";
 }
 
 const isFollowedCompany = computed(() =>
@@ -2305,7 +2324,18 @@ onUnmounted(stopPolling);
         {{ tr("research.updates_sync_failed") }}
       </div>
       <div v-if="executeNotice" class="mb-3 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-ink-secondary">
-        {{ executeNotice }}
+        <div class="flex flex-wrap items-center gap-3">
+          <span>{{ executeNotice }}</span>
+          <button
+            v-if="pendingReviewRunId"
+            type="button"
+            class="btn-bordered btn-sm focus-ring"
+            :disabled="Boolean(executingAutoRunId)"
+            @click="confirmReviewedAndRun"
+          >
+            {{ tr("research.updates_confirm_reviewed") }}
+          </button>
+        </div>
       </div>
       <div
         v-if="!trackingUpdates?.auto_runs?.length && !trackingUpdates?.items?.length"

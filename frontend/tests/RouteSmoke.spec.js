@@ -485,8 +485,57 @@ describe("route smoke tests", () => {
     expect(api.executeTrackingAutoRun).toHaveBeenCalledWith(
       "generalist",
       "run-1",
+      { acknowledge_review: false },
     );
     expect(wrapper.text()).toContain("Another job is already running");
+  });
+
+  it("offers a reviewed-cards confirmation when Run now is blocked", async () => {
+    api.listTrackingUpdates.mockResolvedValue({
+      ...emptyTrackingUpdates(),
+      auto_runs: [
+        {
+          id: "run-3",
+          action: "deep_investigate",
+          status: "recommended",
+          updated_at: "2026-07-03T00:00:00Z",
+          label: "Deep investigate refreshed at 2026-07-03 10:00 UTC",
+        },
+      ],
+      counts: { total: 1, low: 0, medium: 1, high: 0 },
+    });
+    api.executeTrackingAutoRun.mockResolvedValue({
+      executed: false,
+      reason: "awaiting_studio_review",
+    });
+
+    const wrapper = await mountRoute("/research/generalist?tab=news");
+    const runNow = wrapper
+      .findAll("button")
+      .find((b) => b.text() === "Run now");
+    await runNow.trigger("click");
+    await flushPromises();
+    expect(api.executeTrackingAutoRun).toHaveBeenCalledWith(
+      "generalist",
+      "run-3",
+      { acknowledge_review: false },
+    );
+    expect(wrapper.text()).toContain("Studio cards are awaiting review");
+
+    // The confirmation retries with the acknowledgment.
+    api.executeTrackingAutoRun.mockResolvedValue({ executed: true });
+    const confirm = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("run anyway"));
+    expect(confirm).toBeTruthy();
+    await confirm.trigger("click");
+    await flushPromises();
+    expect(api.executeTrackingAutoRun).toHaveBeenLastCalledWith(
+      "generalist",
+      "run-3",
+      { acknowledge_review: true },
+    );
+    expect(wrapper.text()).not.toContain("Studio cards are awaiting review");
   });
 
   it("syncs tracked news from the News/Updates tab", async () => {

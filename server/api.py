@@ -2465,25 +2465,38 @@ def sync_company_tracking_updates(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class TrackingAutoRunExecuteBody(BaseModel):
+    # The human's "I reviewed the cards" confirmation: bypasses the
+    # awaiting-studio guard for this one manual launch.
+    acknowledge_review: bool = False
+
+
 @router.post("/companies/{company_id}/tracking-updates/auto-runs/{auto_run_id}/execute")
 def execute_company_tracking_auto_run(
     request: Request,
     company_id: str,
     auto_run_id: str,
+    body: TrackingAutoRunExecuteBody | None = None,
 ) -> dict:
     """Launch one recommended tracking auto-run.
 
     Domain outcomes come back as HTTP 200 with ``executed: false`` and a
-    ``reason`` (``company_busy``, ``auto_run_not_recommended``,
-    ``no_recommended_auto_run`` — also what an unknown ``auto_run_id``
-    yields — ``action_none``, ``scope_check_failed``); the frontend
-    renders them as notices, not errors.
+    ``reason`` (``company_busy``, ``awaiting_studio_review``,
+    ``auto_run_not_recommended``, ``no_recommended_auto_run`` — also what
+    an unknown ``auto_run_id`` yields — ``action_none``,
+    ``scope_check_failed``); the frontend renders them as notices, not
+    errors.
     """
     _require_permission(request, "tasks:action")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
+    payload = body or TrackingAutoRunExecuteBody()
     try:
-        return tracking_updates.execute_auto_run(company_id, auto_run_id)
+        return tracking_updates.execute_auto_run(
+            company_id,
+            auto_run_id,
+            allow_parked_review=payload.acknowledge_review,
+        )
     except ValueError as exc:
         if str(exc) == "company_not_found":
             raise HTTPException(status_code=404, detail="Company not found") from exc

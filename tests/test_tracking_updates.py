@@ -322,7 +322,9 @@ def test_execute_skips_while_studio_review_is_parked(tmp_path, monkeypatch):
         audience="Internal",
         language="en",
     )
-    storage.update_report(parked["id"], status="awaiting_studio")
+    storage.update_report(
+        parked["id"], status="awaiting_studio", kind="investment_memo_latestage"
+    )
 
     # Both actions must skip while cards await review — an auto-run may
     # never snapshot-replace a human's in-progress edits.
@@ -332,8 +334,42 @@ def test_execute_skips_while_studio_review_is_parked(tmp_path, monkeypatch):
     latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
     assert latest["status"] == "recommended"
 
-    # A dismissed parked run no longer blocks.
-    storage.update_report(parked["id"], dismissed_at="2026-09-03T00:00:00Z")
+    # The human's acknowledgment bypasses the guard, and the new run
+    # retires the parked record.
+    monkeypatch.setattr(
+        "server.memo_prep.bootstrap_memo_run",
+        lambda cid, **kwargs: {"report_id": "rep-8"},
+    )
+    result = tracking_updates.execute_auto_run(
+        company_id, auto_run_id, allow_parked_review=True
+    )
+    assert result["executed"] is True
+    assert storage.get_report(parked["id"])["superseded_by"] == "rep-8"
+
+
+def test_dismissed_parked_run_does_not_block(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar raises Series E financing",
+        url="https://example.com/zainar-series-e",
+    )
+    parked = storage.create_report(
+        company_id=company_id,
+        report_type="Investment Memo (Late-Stage)",
+        audience="Internal",
+        language="en",
+    )
+    storage.update_report(
+        parked["id"],
+        status="awaiting_studio",
+        kind="investment_memo_latestage",
+        dismissed_at="2026-09-03T00:00:00Z",
+    )
     monkeypatch.setattr(
         "server.memo_prep.bootstrap_memo_run",
         lambda cid, **kwargs: {"report_id": "rep-8"},
@@ -417,6 +453,45 @@ def test_execute_route_launches_recommended_run(tmp_path, monkeypatch):
     assert response.json()["executed"] is True
     latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
     assert latest["status"] == "running"
+
+
+def test_execute_route_accepts_review_acknowledgment(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar launches new sensor",
+        url="https://example.com/zainar-sensor",
+    )
+    parked = storage.create_report(
+        company_id=company_id,
+        report_type="Investment Memo (Late-Stage)",
+        audience="Internal",
+        language="en",
+    )
+    storage.update_report(
+        parked["id"], status="awaiting_studio", kind="investment_memo_latestage"
+    )
+    monkeypatch.setattr(
+        "server.memo_prep.bootstrap_memo_run",
+        lambda cid, **kwargs: {"report_id": "rep-10"},
+    )
+    client = TestClient(app)
+    url = (
+        f"/api/companies/{company_id}/tracking-updates"
+        f"/auto-runs/{auto_run_id}/execute"
+    )
+
+    blocked = client.post(url)
+    assert blocked.status_code == 200
+    assert blocked.json()["reason"] == "awaiting_studio_review"
+
+    acknowledged = client.post(url, json={"acknowledge_review": True})
+    assert acknowledged.status_code == 200
+    assert acknowledged.json()["executed"] is True
 
 
 def test_report_summary_exposes_tracking_provenance():
