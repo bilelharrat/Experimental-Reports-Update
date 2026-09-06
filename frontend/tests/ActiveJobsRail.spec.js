@@ -3,12 +3,14 @@ import { flushPromises, mount } from "@vue/test-utils";
 
 const apiMock = vi.hoisted(() => ({
   listActiveJobs: vi.fn(),
+  cancelReportRun: vi.fn(),
   apiFetch: vi.fn(),
 }));
 
 vi.mock("../src/api.js", () => ({
   api: {
     listActiveJobs: apiMock.listActiveJobs,
+    cancelReportRun: apiMock.cancelReportRun,
   },
   apiFetch: apiMock.apiFetch,
   withApiToken: (url) => url,
@@ -83,6 +85,37 @@ describe("ActiveJobsRail", () => {
     expect(toggle).toBeTruthy();
     await toggle.trigger("click");
     expect(wrapper.text()).not.toContain("Phase 1 - Intake and setup");
+  });
+
+  it("cancels a memo run after a two-step confirmation", async () => {
+    apiMock.listActiveJobs.mockResolvedValue([
+      {
+        kind: "memo",
+        report_id: "memo-1",
+        title: "Investment memo — ZaiNar, Inc.",
+        latest_stage: "Running investment-memo skill",
+      },
+    ]);
+    apiMock.cancelReportRun.mockResolvedValue({ status: "failed_during_analysis" });
+
+    wrapper = mount(ActiveJobsRail, {
+      global: { stubs: { Teleport: true } },
+    });
+    await flushPromises();
+
+    const cancel = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Cancel run");
+    expect(cancel).toBeTruthy();
+
+    // First click only arms the confirmation — nothing is cancelled yet.
+    await cancel.trigger("click");
+    expect(apiMock.cancelReportRun).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Click again to confirm");
+
+    await cancel.trigger("click");
+    await flushPromises();
+    expect(apiMock.cancelReportRun).toHaveBeenCalledWith("memo-1");
   });
 
   it("shifts left of the copilot panel when copilot is open", async () => {

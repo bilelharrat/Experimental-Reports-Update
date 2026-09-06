@@ -687,6 +687,18 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).toContain("Workbench");
     expect(wrapper.text()).toContain("Stats");
     expect(wrapper.text()).toContain("Labs");
+    // The parallel-run cap: a segmented picker that patches the
+    // machine-global preference.
+    expect(wrapper.text()).toContain("Parallel report runs");
+    const capOption = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "3");
+    expect(capOption).toBeTruthy();
+    await capOption.trigger("click");
+    await flushPromises();
+    expect(api.updateWorkspaceSettings).toHaveBeenCalledWith({
+      memo_parallel_runs: 3,
+    });
     wrapper.unmount();
 
     wrapper = await mountRoute("/user");

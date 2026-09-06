@@ -18,9 +18,11 @@ import {
   Terminal,
 } from "lucide-vue-next";
 import AiMark from "./AiMark.vue";
+import { api } from "../api.js";
 import { useT } from "../i18n.js";
 import {
   activeJobs as jobs,
+  refreshActiveJobs,
   subscribeActiveJobs,
   unsubscribeActiveJobs,
 } from "../activeJobs.js";
@@ -318,6 +320,90 @@ function jobFailed(job) {
     || job?.thread_failed_count > 0;
 }
 
+// ---- Cancel ----------------------------------------------------------------
+// Kinds with a cancel endpoint; each entry returns the API call for a row,
+// or null when the row lacks the identifiers.
+function cancelCall(job) {
+  switch (job?.kind) {
+    case "memo":
+      return job.report_id ? () => api.cancelReportRun(job.report_id) : null;
+    case "serena_research_task":
+      return job.company_id && job.task_id
+        ? () => api.memoAnalysis.cancelTask(job.company_id, job.task_id)
+        : null;
+    case "console_ask":
+      return job.company_id && job.session_id && job.turn_id
+        ? () => api.console.cancelAsk(job.company_id, job.session_id, job.turn_id)
+        : null;
+    case "research_summary":
+      return job.company_id && job.file_id
+        ? () => api.cancelResearchFileSummary(job.company_id, job.file_id)
+        : null;
+    case "external_research":
+      return job.item_id
+        ? () => api.cancelExternalResearchAnalysis(job.item_id)
+        : null;
+    case "pdf_translation":
+      return job.item_id
+        ? () => api.cancelExternalTranslation(job.item_id)
+        : null;
+    case "stock_tracker":
+      return job.tracker_id && job.run_id
+        ? () => api.stockResearch.cancelRun(job.tracker_id, job.run_id)
+        : null;
+    case "stock_aggregate":
+      return job.period_id
+        ? () => api.stockResearch.cancelAggregate(job.period_id)
+        : null;
+    case "stock_strategy":
+      return job.period_id
+        ? () => api.stockResearch.cancelStrategyMap(job.period_id)
+        : null;
+    default:
+      return null;
+  }
+}
+
+const cancelArmedKey = ref("");
+const cancellingKey = ref("");
+let cancelDisarmTimer = null;
+onBeforeUnmount(() => clearTimeout(cancelDisarmTimer));
+
+function cancelLabel(job) {
+  const key = jobKey(job);
+  if (cancellingKey.value === key) return t("jobs.cancelling");
+  if (cancelArmedKey.value === key) return t("jobs.cancel_confirm");
+  return t("jobs.cancel");
+}
+
+async function requestCancel(job) {
+  const key = jobKey(job);
+  if (cancellingKey.value) return;
+  // Two-step confirmation: the first click arms, the second (within 4s)
+  // actually cancels a paid run.
+  if (cancelArmedKey.value !== key) {
+    cancelArmedKey.value = key;
+    clearTimeout(cancelDisarmTimer);
+    cancelDisarmTimer = setTimeout(() => {
+      cancelArmedKey.value = "";
+    }, 4000);
+    return;
+  }
+  clearTimeout(cancelDisarmTimer);
+  cancelArmedKey.value = "";
+  const call = cancelCall(job);
+  if (!call) return;
+  cancellingKey.value = key;
+  try {
+    await call();
+  } catch {
+    // 404/409: the job already finished — the refresh below clears it.
+  } finally {
+    cancellingKey.value = "";
+    await refreshActiveJobs();
+  }
+}
+
 const visible = computed(() => jobs.value.length > 0);
 </script>
 
@@ -442,6 +528,20 @@ const visible = computed(() => jobs.value.length > 0);
             @click.stop="diagnoseJob(j)"
           >
             {{ t("copilot.action_diagnose_job") }}
+          </button>
+          <button
+            v-if="cancelCall(j) && !jobFailed(j)"
+            type="button"
+            class="w-full border-t border-subtle px-3 py-2 text-left text-caption1 font-medium focus-ring"
+            :class="
+              cancelArmedKey === jobKey(j)
+                ? 'text-danger hover:bg-danger/10'
+                : 'text-ink-muted hover:bg-surface-muted'
+            "
+            :disabled="cancellingKey === jobKey(j)"
+            @click.stop="requestCancel(j)"
+          >
+            {{ cancelLabel(j) }}
           </button>
           <div v-if="hasThreads(j)" class="border-t border-subtle bg-canvas/60">
             <button

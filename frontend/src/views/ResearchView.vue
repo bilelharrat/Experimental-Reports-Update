@@ -892,6 +892,7 @@ const EXECUTE_NOTICE_KEYS = {
   action_none: "research.updates_execute_none",
   awaiting_studio_review: "research.updates_execute_awaiting_studio",
   studio_requires_parallel: "research.updates_execute_needs_parallel",
+  run_slots_full: "research.updates_execute_slots_full",
 };
 
 async function runAutoRun(run, { acknowledgeReview = false } = {}) {

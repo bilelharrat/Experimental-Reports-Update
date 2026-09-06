@@ -22,6 +22,9 @@ const operationsMessage = ref("");
 const operationsError = ref("");
 
 const prefs = computed(() => settings.value?.preferences || {});
+// Parallel memo-run cap options (News/Updates auto-runs keep their own
+// 2 reserved slots server-side, outside this cap).
+const MEMO_PARALLEL_OPTIONS = [1, 2, 3, 4];
 const account = computed(() => profile.value?.account || settings.value?.account || {});
 const team = computed(() => profile.value?.team || {});
 const usage = computed(() => profile.value?.usage || {});
@@ -242,6 +245,29 @@ function appearanceIcon(value) {
             @change="patchPreference('compact_density', $event.target.checked)"
           />
         </label>
+        <div class="mt-5">
+          <div class="vogue-label mb-2">{{ t("settings.memo_parallel_runs") }}</div>
+          <div
+            class="segmented"
+            role="group"
+            :aria-label="t('settings.memo_parallel_runs')"
+          >
+            <button
+              v-for="option in MEMO_PARALLEL_OPTIONS"
+              :key="option"
+              type="button"
+              @click="patchPreference('memo_parallel_runs', option)"
+              class="segmented-item focus-ring"
+              :disabled="saving === 'memo_parallel_runs'"
+              :data-selected="(prefs.memo_parallel_runs || 2) === option"
+            >
+              {{ option }}
+            </button>
+          </div>
+          <p class="mt-2 text-caption1 text-ink-muted">
+            {{ t("settings.memo_parallel_runs_hint") }}
+          </p>
+        </div>
       </section>
 
       <section class="rounded-card bg-surface p-5 shadow-card">

@@ -298,6 +298,23 @@ export const api = {
     request(`/api/reports/${encodeURIComponent(reportId)}/dismiss`, {
       method: "POST",
     }),
+  cancelReportRun: (reportId) =>
+    request(`/api/reports/${encodeURIComponent(reportId)}/cancel`, {
+      method: "POST",
+    }),
+  cancelResearchFileSummary: (companyId, fileId) =>
+    request(
+      `/api/companies/${companyId}/research-files/${encodeURIComponent(fileId)}/summary/cancel`,
+      { method: "POST" },
+    ),
+  cancelExternalResearchAnalysis: (itemId) =>
+    request(`/api/external/research/${encodeURIComponent(itemId)}/analysis/cancel`, {
+      method: "POST",
+    }),
+  cancelExternalTranslation: (itemId) =>
+    request(`/api/external/research/${encodeURIComponent(itemId)}/translate/cancel`, {
+      method: "POST",
+    }),
   deleteReport: async (reportId) => {
     await ensureOk(
       await apiFetch(`/api/reports/${encodeURIComponent(reportId)}`, {
