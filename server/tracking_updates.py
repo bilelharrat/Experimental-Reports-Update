@@ -428,6 +428,13 @@ def execute_auto_run(
             "reason": "awaiting_studio_review",
             "auto_run": target,
         }
+    # Auto-runs live in their own small reserved lane (they never compete
+    # with the user's parallel-run cap). When the lane is full, stay
+    # "recommended" — the background loop simply retries next cycle.
+    from . import memo_analysis
+
+    if not memo_analysis.reserved_run_slots_available():
+        return {"executed": False, "reason": "run_slots_full", "auto_run": target}
 
     run_id = str(target["id"])
     if action == ACTION_INVESTIGATE:

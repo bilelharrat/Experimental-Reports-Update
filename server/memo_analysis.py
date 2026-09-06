@@ -27,6 +27,7 @@ What this worker deliberately does **not** do (see `docs/architecture.md`):
 from __future__ import annotations
 
 import atexit
+import itertools
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ from . import (
     memo_pin_check,
     memo_quality_lint,
     memo_prep,
+    product_store,
     research_store,
     serena_analysis,
     storage,
@@ -3901,6 +3903,8 @@ def _memo_worker_alive(report_id: str) -> bool:
         f"memo-resume-{report_id}",
         f"memo-investigate-{report_id}",
         f"memo-generate-{report_id}",
+        f"buffett-memo-analysis-{report_id}",
+        f"buffett-memo-resume-{report_id}",
     }
     return any(
         t.name in names and t.is_alive() for t in threading.enumerate()
@@ -4092,6 +4096,195 @@ def recover_stale_reports() -> int:
     return recovered
 
 
+# ---- Run slots -------------------------------------------------------------
+# Every memo worker (One-Click, investigate, generate, resume, Buffett)
+# takes a slot before doing any real work. User-started runs share
+# `product_store.memo_parallel_runs()` slots (the Settings knob — each run
+# spawns many claude subprocesses, so uncapped launches can OOM the
+# machine) and wait FIFO in a "queued" state when full. Tracking
+# auto-runs (trigger=tracking_auto_run) have their own small reserved
+# lane so News/Updates never competes with the user's cap.
+TRACKING_RESERVED_SLOTS = 2
+# Registry entries older than this with no live worker thread are leaked
+# (a crash that skipped release) and get swept on the next acquire.
+_SLOT_LEAK_GRACE_SEC = 60.0
+
+_SLOT_COND = threading.Condition()
+_SLOT_ACTIVE: dict[str, tuple[bool, float]] = {}  # id -> (reserved, acquired_at)
+_SLOT_WAITERS: list[tuple[int, str, bool]] = []  # (ticket, report_id, reserved)
+_SLOT_TICKETS = itertools.count()
+_SLOT_CANCELLED: set[str] = set()
+
+
+def _sweep_leaked_slots_locked() -> None:
+    now = time.monotonic()
+    for rid, (_reserved, acquired_at) in list(_SLOT_ACTIVE.items()):
+        if now - acquired_at < _SLOT_LEAK_GRACE_SEC:
+            continue
+        if not _memo_worker_alive(rid):
+            logger.warning("run slot for %s leaked (worker gone); reclaiming", rid)
+            _SLOT_ACTIVE.pop(rid, None)
+
+
+def _slot_eligible_locked(ticket: int, reserved: bool) -> bool:
+    cap = (
+        TRACKING_RESERVED_SLOTS
+        if reserved
+        else product_store.memo_parallel_runs()
+    )
+    active = sum(1 for r, _t in _SLOT_ACTIVE.values() if r == reserved)
+    if active >= cap:
+        return False
+    # FIFO within each lane: an earlier waiter of the same lane goes first.
+    return not any(
+        t < ticket for t, _rid, r in _SLOT_WAITERS if r == reserved
+    )
+
+
+def _announce_run_queued(report_id: str) -> None:
+    try:
+        report = storage.get_report(report_id)
+        if not report:
+            return
+        storage.update_report(
+            report_id, status="queued", stage="Waiting for a run slot"
+        )
+        run_dir = _resolve_run_dir(report)
+        if run_dir is not None and run_dir.exists():
+            job_progress.ProgressLog(
+                memo_prep.stream_path(run_dir), truncate=False
+            ).emit(
+                "stage",
+                stage="run_slot_queued",
+                message=(
+                    "Waiting for a free run slot (parallel-run limit in "
+                    "Settings)"
+                ),
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("failed to mark run %s queued", report_id)
+
+
+def acquire_run_slot(report_id: str, *, reserved: bool) -> bool:
+    """Block until this run may proceed. False = cancelled while queued."""
+    queued_announced = False
+    with _SLOT_COND:
+        _SLOT_CANCELLED.discard(report_id)  # a fresh start overrides old cancels
+        ticket = next(_SLOT_TICKETS)
+        entry = (ticket, report_id, reserved)
+        _SLOT_WAITERS.append(entry)
+        try:
+            while True:
+                if report_id in _SLOT_CANCELLED:
+                    _SLOT_CANCELLED.discard(report_id)
+                    return False
+                _sweep_leaked_slots_locked()
+                if _slot_eligible_locked(ticket, reserved):
+                    _SLOT_ACTIVE[report_id] = (reserved, time.monotonic())
+                    break
+                if not queued_announced:
+                    queued_announced = True
+                    _announce_run_queued(report_id)
+                # Timed wait doubles as the re-check when the Settings cap
+                # is raised mid-queue (no cross-module notify needed).
+                _SLOT_COND.wait(2.0)
+        finally:
+            _SLOT_WAITERS.remove(entry)
+    if queued_announced:
+        try:
+            storage.update_report(
+                report_id, status="analyzing", stage="Run slot acquired"
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to un-queue run %s", report_id)
+    return True
+
+
+def release_run_slot(report_id: str) -> None:
+    with _SLOT_COND:
+        _SLOT_ACTIVE.pop(report_id, None)
+        _SLOT_CANCELLED.discard(report_id)
+        _SLOT_COND.notify_all()
+
+
+def cancel_queued_run_slot(report_id: str) -> None:
+    """Abort a run waiting for a slot (no-op for active/unknown runs)."""
+    with _SLOT_COND:
+        if any(rid == report_id for _t, rid, _r in _SLOT_WAITERS):
+            _SLOT_CANCELLED.add(report_id)
+            _SLOT_COND.notify_all()
+
+
+def reserved_run_slots_available() -> bool:
+    """Cheap pre-check for the tracking loop: is a reserved slot free now?"""
+    with _SLOT_COND:
+        _sweep_leaked_slots_locked()
+        active = sum(1 for r, _t in _SLOT_ACTIVE.values() if r)
+        waiting = sum(1 for _t, _rid, r in _SLOT_WAITERS if r)
+        return active + waiting < TRACKING_RESERVED_SLOTS
+
+
+def _with_run_slot(report_id: str, worker) -> None:
+    """Slot + cancel bookkeeping around one memo worker body."""
+    report = storage.get_report(report_id)
+    run_dir = _resolve_run_dir(report or {})
+    if run_dir is not None:
+        claude_runner.clear_run_dir_cancelled(str(run_dir))
+    reserved = bool((report or {}).get("trigger") == "tracking_auto_run")
+    if not acquire_run_slot(report_id, reserved=reserved):
+        # Cancelled while queued; cancel_run already wrote the terminal
+        # status and stream event.
+        return
+    try:
+        worker()
+    finally:
+        release_run_slot(report_id)
+        if run_dir is not None:
+            claude_runner.clear_run_dir_cancelled(str(run_dir))
+
+
+def cancel_run(report_id: str) -> None:
+    """Cancel a queued or in-flight memo run.
+
+    Kills the run's live claude subprocesses (matched by spawn cwd), blocks
+    respawns via the run-dir marker, writes the terminal report status and
+    stream event, and finalizes any tracking auto-run. The worker thread
+    then unwinds on its own as its in-flight calls return cancelled.
+    """
+    report = storage.get_report(report_id)
+    if not report:
+        raise ValueError("report_not_found")
+    message = "Cancelled by user"
+    cancel_queued_run_slot(report_id)
+    run_dir = _resolve_run_dir(report)
+    if run_dir is not None:
+        claude_runner.mark_run_dir_cancelled(str(run_dir))
+        # Reaping waits up to a few seconds per process; do it off the
+        # request path.
+        threading.Thread(
+            target=claude_runner.terminate_claude_procs_under,
+            args=(str(run_dir),),
+            name=f"memo-cancel-{report_id}",
+            daemon=True,
+        ).start()
+    storage.update_report(
+        report_id,
+        status="failed_during_analysis",
+        stage="Cancelled",
+        error=message,
+        # Distinct phase on purpose: the startup auto-resume sweep only
+        # relaunches failure_phase == "shutdown".
+        failure_phase="cancelled",
+        failure_detail=message,
+    )
+    if run_dir is not None and run_dir.exists():
+        stream = job_progress.ProgressLog(
+            memo_prep.stream_path(run_dir), truncate=False
+        )
+        stream.emit("error", error=message, phase="cancelled")
+    _sync_tracking_auto_run(report, success=False, error=message)
+
+
 # Report ids with a live in-process worker. Used by the shutdown hook to
 # write a terminal error event for anything a clean restart would otherwise
 # orphan at "analyzing" forever (the demote sweep covers hard kills).
@@ -4201,7 +4394,7 @@ def start_generate_from_studio(report_id: str) -> threading.Thread:
 def _investigate_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
-        _investigate(report_id)
+        _with_run_slot(report_id, lambda: _investigate(report_id))
     except Exception:  # noqa: BLE001
         logger.exception("memo studio investigation crashed")
         report = storage.get_report(report_id)
@@ -4233,7 +4426,7 @@ def _investigate_safe(report_id: str) -> None:
 def _generate_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
-        _generate_from_studio(report_id)
+        _with_run_slot(report_id, lambda: _generate_from_studio(report_id))
     except Exception:  # noqa: BLE001
         logger.exception("memo studio generation crashed")
         report = storage.get_report(report_id)
@@ -4263,7 +4456,7 @@ def _generate_safe(report_id: str) -> None:
 def _run_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
-        _run(report_id)
+        _with_run_slot(report_id, lambda: _run(report_id))
     except Exception:  # noqa: BLE001
         logger.exception("memo analysis crashed")
         report = storage.get_report(report_id)
@@ -4291,7 +4484,7 @@ def _run_safe(report_id: str) -> None:
 def _resume_safe(report_id: str) -> None:
     _register_active_run(report_id)
     try:
-        _resume(report_id)
+        _with_run_slot(report_id, lambda: _resume(report_id))
     except Exception:  # noqa: BLE001
         logger.exception("memo resume crashed")
         report = storage.get_report(report_id)

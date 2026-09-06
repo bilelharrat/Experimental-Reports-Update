@@ -947,6 +947,7 @@ class UseInReportPatch(BaseModel):
 
 
 class WorkspacePreferencePatch(BaseModel):
+    memo_parallel_runs: int | None = None
     weekly_summary: bool | None = None
     stock_auto_refresh: bool | None = None
     agent_alerts: bool | None = None
@@ -2973,6 +2974,37 @@ def preview_memo(
         media_type="application/pdf",
         content_disposition_type="inline",
     )
+
+
+@router.post("/reports/{report_id}/cancel", status_code=200)
+def cancel_memo_report(request: Request, report_id: str) -> ReportDetail:
+    """Cancel a queued or in-flight memo run from the jobs rail.
+
+    Kills the run's claude subprocesses, blocks respawns, and writes the
+    terminal failed state (failure_phase=cancelled — never auto-resumed).
+    The run stays resumable/regeneratable exactly like any other failure.
+    """
+    _require_permission(request, "tasks:action")
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not memo_prep.is_memo_kind(report.get("kind")):
+        raise HTTPException(
+            status_code=400,
+            detail="Only investment memo runs can be cancelled",
+        )
+    state = _scan_progress_state(_memo_stream_path_for_report(report_id))
+    if state.get("exists") and state.get("terminated"):
+        raise HTTPException(
+            status_code=409, detail="This run has already finished"
+        )
+    memo_analysis.cancel_run(report_id)
+    # Drop the /jobs/active TTL cache so the rail row disappears on the
+    # client's immediate refresh instead of up to 3 seconds later.
+    global _active_jobs_cache
+    _active_jobs_cache = None
+    updated = storage.get_report(report_id) or report
+    return ReportDetail(**_report_detail(updated))
 
 
 @router.post("/reports/{report_id}/dismiss", status_code=200)

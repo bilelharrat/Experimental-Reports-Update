@@ -165,6 +165,24 @@ def test_settings_analytics_and_rbac(monkeypatch, tmp_path):
     assert patched.status_code == 200, patched.text
     assert patched.json()["preferences"]["compact_density"] is True
 
+    # The memo parallel-run cap: clamped into range, and machine-global —
+    # it lands in the shared preferences branch even for a signed-in user,
+    # so product_store.memo_parallel_runs() (which reads only the global
+    # branch) always sees it.
+    capped = client.patch("/api/workspace/settings", json={"memo_parallel_runs": 99})
+    assert capped.status_code == 200, capped.text
+    assert capped.json()["preferences"]["memo_parallel_runs"] == 8
+    client.patch("/api/workspace/settings", json={"memo_parallel_runs": 3})
+    assert product_store.memo_parallel_runs() == 3
+    stored = yaml.safe_load(
+        (data_root / "settings" / "preferences.yaml").read_text(encoding="utf-8")
+    )
+    assert stored["preferences"]["memo_parallel_runs"] == 3
+    assert not any(
+        "memo_parallel_runs" in overrides
+        for overrides in (stored.get("users") or {}).values()
+    )
+
     user = client.get("/api/workspace/user-center")
     assert user.status_code == 200, user.text
     assert user.json()["analytics"]["copilot_task_acceptance"]["acceptance_rate"] == 1.0

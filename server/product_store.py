@@ -133,6 +133,7 @@ def default_preferences(email: str | None = None) -> dict:
             "agent_alerts": True,
             "compact_density": False,
             "language": "en",
+            "memo_parallel_runs": MEMO_PARALLEL_RUNS_DEFAULT,
         },
         "users": {},
     }
@@ -160,6 +161,7 @@ def update_preferences(email: str | None, patch: dict) -> dict:
         "agent_alerts",
         "compact_density",
         "language",
+        "memo_parallel_runs",
     }
     normalized = {
         key: patch[key]
@@ -171,18 +173,58 @@ def update_preferences(email: str | None, patch: dict) -> dict:
     for key in ("weekly_summary", "stock_auto_refresh", "agent_alerts", "compact_density"):
         if key in normalized:
             normalized[key] = bool(normalized[key])
+    if "memo_parallel_runs" in normalized:
+        normalized["memo_parallel_runs"] = _clamp_memo_parallel_runs(
+            normalized["memo_parallel_runs"]
+        )
+    # Machine-global keys guard shared resources (the memo cap protects the
+    # server's memory), so they never live in a per-user override.
+    global_only = {
+        key: normalized.pop(key)
+        for key in ("memo_parallel_runs",)
+        if key in normalized
+    }
     with _LOCK:
         payload = _read_yaml(default_preferences(email))
         payload["updated_at"] = _now()
         user_key = (email or "").strip().lower()
+        if global_only:
+            payload["preferences"] = {**payload.get("preferences", {}), **global_only}
         if user_key:
             users = payload.setdefault("users", {})
             users[user_key] = {**users.get(user_key, {}), **normalized}
         else:
             payload["preferences"] = {**payload.get("preferences", {}), **normalized}
         _write_yaml(payload)
-    analytics_store.record_event("settings_updated", user_email=email, keys=sorted(normalized))
+    changed = sorted({**normalized, **global_only})
+    analytics_store.record_event("settings_updated", user_email=email, keys=changed)
     return get_preferences(email)
+
+
+MEMO_PARALLEL_RUNS_DEFAULT = 2
+MEMO_PARALLEL_RUNS_MAX = 8
+
+
+def _clamp_memo_parallel_runs(raw) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = MEMO_PARALLEL_RUNS_DEFAULT
+    return max(1, min(MEMO_PARALLEL_RUNS_MAX, value))
+
+
+def memo_parallel_runs() -> int:
+    """The machine-global cap on concurrently running user memo runs.
+
+    Read from the global preferences branch only (per-user overrides are
+    ignored on purpose — the cap protects the server's memory).
+    """
+    with _LOCK:
+        payload = _read_yaml(default_preferences(None))
+    raw = (payload.get("preferences") or {}).get(
+        "memo_parallel_runs", MEMO_PARALLEL_RUNS_DEFAULT
+    )
+    return _clamp_memo_parallel_runs(raw)
 
 
 def display_name(email: str | None) -> str:

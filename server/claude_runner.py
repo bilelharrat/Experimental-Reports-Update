@@ -54,9 +54,12 @@ def _popen_claude(*args, **kwargs) -> subprocess.Popen:
     """subprocess.Popen + registration in the live-process registry.
 
     Every claude CLI spawn in this module must go through this helper so
-    `terminate_live_claude_procs` can reap it at shutdown.
+    `terminate_live_claude_procs` can reap it at shutdown. The spawn cwd
+    is remembered on the proc: memo spawns all use ``cwd=run_dir``, which
+    lets ``terminate_claude_procs_under`` reap one run's whole fleet.
     """
     proc = subprocess.Popen(*args, **kwargs)
+    proc._bsh_spawn_cwd = str(kwargs.get("cwd") or "")  # type: ignore[attr-defined]
     with _LIVE_CLAUDE_PROCS_LOCK:
         _LIVE_CLAUDE_PROCS.add(proc)
     return proc
@@ -79,6 +82,59 @@ def terminate_live_claude_procs() -> int:
 
 
 atexit.register(terminate_live_claude_procs)
+
+
+# ---- Per-run cancellation --------------------------------------------------
+# Cancelling a memo run needs two moves: reap the subprocesses that are
+# alive right now (matched by their spawn cwd — every memo spawn uses
+# cwd=run_dir), and stop the pipeline from spawning replacements between
+# phases / on retries (the run-dir marker checked at the single runner
+# funnel, `_run_memo_local_json_artifact`).
+_CANCELLED_RUN_DIRS: set[str] = set()
+
+MEMO_RUN_CANCELLED_ERROR = "cancelled by user"
+
+
+def mark_run_dir_cancelled(run_dir: str) -> None:
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        _CANCELLED_RUN_DIRS.add(str(run_dir))
+
+
+def clear_run_dir_cancelled(run_dir: str) -> None:
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        _CANCELLED_RUN_DIRS.discard(str(run_dir))
+
+
+def run_dir_cancelled(run_dir) -> bool:
+    if run_dir is None:
+        return False
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        return str(run_dir) in _CANCELLED_RUN_DIRS
+
+
+def terminate_claude_procs_under(run_dir: str) -> int:
+    """Terminate every live claude subprocess spawned with this cwd.
+
+    One memo run's passes, spine, sections, artifacts and translation all
+    spawn with ``cwd=run_dir``, so this reaps exactly that run's fleet.
+    Returns the number of processes terminated.
+    """
+    prefix = str(run_dir)
+    if not prefix:
+        return 0
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        procs = list(_LIVE_CLAUDE_PROCS)
+    killed = 0
+    for proc in procs:
+        if proc.poll() is not None:
+            continue
+        if getattr(proc, "_bsh_spawn_cwd", "") != prefix:
+            continue
+        killed += 1
+        _terminate_process_group(proc, grace_s=2.0)
+    if killed:
+        logger.info("cancel: terminated %d claude subprocess(es) under %s", killed, prefix)
+    return killed
 
 
 def _terminate_process_group(proc: subprocess.Popen, *, grace_s: float = 2.0) -> None:
@@ -3807,6 +3863,10 @@ def _run_memo_local_json_artifact(
             "Claude Code (`claude`) not on PATH. Install it with "
             "`npm install -g @anthropic-ai/claude-code` and authenticate."
         )
+    # Cancelled runs must not spawn replacements: this single funnel covers
+    # every pipeline wrapper, retry loop, repair pass and thread pool.
+    if run_dir_cancelled(run_dir):
+        return None, MEMO_RUN_CANCELLED_ERROR
 
     run_dir.mkdir(parents=True, exist_ok=True)
     cmd = [

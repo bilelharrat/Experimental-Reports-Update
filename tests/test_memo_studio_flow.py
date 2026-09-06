@@ -463,6 +463,45 @@ def test_investigate_endpoint_bootstraps_studio_mode(studio_env, monkeypatch):
     assert record["memo_mode"] == "studio"
 
 
+def test_cancel_endpoint_stops_live_run(studio_env, monkeypatch):
+    import time as _time
+
+    report, run_dir = _make_studio_report(studio_env, status="analyzing")
+    stream = memo_analysis.job_progress.ProgressLog(
+        memo_prep.stream_path(run_dir)
+    )
+    stream.emit("job_init", kind="memo", report_id=report["id"])  # non-terminal
+    killed: list[str] = []
+    monkeypatch.setattr(
+        memo_analysis.claude_runner,
+        "terminate_claude_procs_under",
+        lambda path: killed.append(path) or 0,
+    )
+    client = TestClient(app)
+
+    assert client.post("/api/reports/nope/cancel").status_code == 404
+
+    response = client.post(f"/api/reports/{report['id']}/cancel")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "failed_during_analysis"
+    assert body["failure_phase"] == "cancelled"
+    events = _events(run_dir)
+    terminal = [e for e in events if e["type"] == "error"]
+    assert terminal and terminal[-1]["phase"] == "cancelled"
+    # Respawns are blocked for this run dir until a fresh worker clears it.
+    assert memo_analysis.claude_runner.run_dir_cancelled(str(run_dir)) is True
+    # The subprocess reap runs on a background thread.
+    deadline = _time.monotonic() + 2.0
+    while _time.monotonic() < deadline and not killed:
+        _time.sleep(0.02)
+    assert killed == [str(run_dir)]
+
+    # Already terminal now — a second cancel is a 409.
+    assert client.post(f"/api/reports/{report['id']}/cancel").status_code == 409
+    memo_analysis.claude_runner.clear_run_dir_cancelled(str(run_dir))
+
+
 def test_generate_endpoint_validation_matrix(studio_env, monkeypatch):
     client = TestClient(app)
     # Unknown report.

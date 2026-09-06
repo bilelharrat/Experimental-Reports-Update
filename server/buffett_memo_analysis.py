@@ -219,9 +219,13 @@ def start_resume(report_id: str) -> threading.Thread:
 
 
 def _run_safe(report_id: str) -> None:
+    # Lazy import: memo_analysis owns the shared run-slot registry and does
+    # not import this module, so there is no cycle at call time.
+    from . import memo_analysis
+
     _register_active_run(report_id)
     try:
-        _run(report_id)
+        memo_analysis._with_run_slot(report_id, lambda: _run(report_id))
     except Exception:  # noqa: BLE001
         logger.exception("Buffett memo analysis crashed")
         report = storage.get_report(report_id)
@@ -244,9 +248,11 @@ def _run_safe(report_id: str) -> None:
 
 
 def _resume_safe(report_id: str) -> None:
+    from . import memo_analysis
+
     _register_active_run(report_id)
     try:
-        _resume(report_id)
+        memo_analysis._with_run_slot(report_id, lambda: _resume(report_id))
     except Exception:  # noqa: BLE001
         logger.exception("Buffett memo resume crashed")
         report = storage.get_report(report_id)

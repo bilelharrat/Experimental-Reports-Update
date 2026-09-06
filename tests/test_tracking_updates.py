@@ -347,6 +347,26 @@ def test_execute_skips_while_studio_review_is_parked(tmp_path, monkeypatch):
     assert storage.get_report(parked["id"])["superseded_by"] == "rep-8"
 
 
+def test_execute_skips_when_reserved_lane_full(tmp_path, monkeypatch):
+    monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    company_id = "zainar-inc"
+    auto_run_id = _seed_recommended_run(
+        company_id,
+        title="ZaiNar launches partner network",
+        url="https://example.com/zainar-partner",
+    )
+    monkeypatch.setattr(
+        "server.memo_analysis.reserved_run_slots_available", lambda: False
+    )
+    result = tracking_updates.execute_auto_run(company_id, auto_run_id)
+    assert result["executed"] is False
+    assert result["reason"] == "run_slots_full"
+    latest = tracking_updates.list_updates(company_id)["latest_auto_run"]
+    assert latest["status"] == "recommended"
+
+
 def test_dismissed_parked_run_does_not_block(tmp_path, monkeypatch):
     monkeypatch.setenv("BSH_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("BSH_MEMO_ENGLISH_PARALLEL", "1")
