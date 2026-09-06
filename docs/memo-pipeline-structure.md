@@ -7,6 +7,9 @@ branch `report-speedup-r2`. Three docs cover this system:
   the PRE-optimization pipeline (how agents work, sources, assembly).
   Still correct about fundamentals; superseded on timings and structure.
 - `docs/memo-benchmarks.md` — every benchmark run, gate, and decision.
+- `docs/memo-pipeline-architecture.html` — bilingual (EN/中文 toggle)
+  explainer of the CURRENT architecture for non-code readers: phases,
+  pin sheet, Memo Studio seam, tracked-news loop, optimization record.
 - **This file** — the pipeline as it exists NOW, where each piece lives
   in code, every flag, and (most importantly) the map of everything that
   depends on the memo's section structure. Read this before changing

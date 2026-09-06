@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BSH Memo Pipeline</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #F2F4F6;
+    --surface: #FFFFFF;
+    --ink: #1B2836;
+    --muted: #5C6B7A;
+    --line: #D8DFE5;
+    --accent: #0F766E;
+    --accent-soft: #E1EFEC;
+    --amber: #A16207;
+    --amber-soft: #F4EBDA;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+    --sans-zh: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #12181F;
+      --surface: #1A222B;
+      --ink: #E7ECF1;
+      --muted: #98A6B3;
+      --line: #2A3541;
+      --accent: #2DB39F;
+      --accent-soft: #16332F;
+      --amber: #D9A03C;
+      --amber-soft: #33290F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #12181F;
+    --surface: #1A222B;
+    --ink: #E7ECF1;
+    --muted: #98A6B3;
+    --line: #2A3541;
+    --accent: #2DB39F;
+    --accent-soft: #16332F;
+    --amber: #D9A03C;
+    --amber-soft: #33290F;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .zh-only { font-family: var(--sans-zh); }
+  body.zh .en-only { display: none !important; }
+  body:not(.zh) .zh-only { display: none !important; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 24px 72px; }
+
+  header.masthead {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; margin-bottom: 8px;
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+  }
+  h1 {
+    font-size: 40px; font-weight: 700; line-height: 1.15;
+    letter-spacing: -0.01em; margin: 6px 0 10px; text-wrap: balance;
+  }
+  .lede { color: var(--muted); max-width: 60ch; margin: 0 0 28px; }
+
+  .lang-switch {
+    display: flex; border: 1px solid var(--line); border-radius: 999px;
+    overflow: hidden; flex-shrink: 0; margin-top: 4px;
+  }
+  .lang-switch button {
+    font-family: var(--mono); font-size: 12.5px; font-weight: 500;
+    padding: 6px 14px; border: 0; background: transparent; color: var(--muted);
+    cursor: pointer;
+  }
+  .lang-switch button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+  .lang-switch button:focus-visible,
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+    background: var(--line); border: 1px solid var(--line);
+    border-radius: 10px; overflow: hidden; margin-bottom: 40px;
+  }
+  .stat { background: var(--surface); padding: 16px 18px; }
+  .stat .num {
+    font-family: var(--mono); font-size: 26px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+  }
+  .stat .num small { font-size: 14px; font-weight: 500; color: var(--muted); }
+  .stat .cap { font-size: 12.5px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 32px; } }
+
+  h2 {
+    font-size: 23px; font-weight: 700; letter-spacing: -0.01em;
+    margin: 52px 0 6px; text-wrap: balance;
+  }
+  h2 .idx {
+    font-family: var(--mono); font-size: 14px; font-weight: 500;
+    color: var(--accent); margin-right: 10px;
+  }
+  .sub { color: var(--muted); margin: 0 0 20px; max-width: 62ch; }
+
+  figure { margin: 0 0 8px; }
+  .fig-scroll {
+    overflow-x: auto; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 10px; padding: 18px 10px 8px;
+  }
+  .fig-scroll svg { display: block; min-width: 760px; max-width: 100%; height: auto; margin: 0 auto; }
+  figcaption { font-size: 13px; color: var(--muted); padding: 10px 4px 0; max-width: 70ch; }
+
+  /* Phase rail */
+  .phase { display: grid; grid-template-columns: 64px 1fr; gap: 18px; margin-bottom: 30px; }
+  .phase-no {
+    font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--accent);
+    border-top: 2px solid var(--accent); padding-top: 8px; margin-top: 6px;
+    white-space: nowrap;
+  }
+  .phase-body { border-top: 1px solid var(--line); padding-top: 12px; }
+  .phase h3 { font-size: 17.5px; font-weight: 600; margin: 0 0 6px; }
+  .phase h3 .t {
+    font-family: var(--mono); font-size: 12.5px; font-weight: 500;
+    color: var(--muted); margin-left: 10px;
+  }
+  .phase p { margin: 0 0 10px; max-width: 66ch; }
+  .phase ul { margin: 0 0 10px; padding-left: 20px; max-width: 66ch; }
+  .phase li { margin: 3px 0; }
+  @media (max-width: 560px) { .phase { grid-template-columns: 1fr; gap: 6px; } .phase-no { margin-top: 0; } }
+
+  code, .file {
+    font-family: var(--mono); font-size: 0.86em;
+    background: color-mix(in srgb, var(--line) 42%, transparent);
+    border-radius: 4px; padding: 1px 5px;
+  }
+  .pin { color: var(--accent); font-weight: 600; }
+
+  /* pills */
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 11.5px; font-weight: 500;
+    padding: 2px 9px; border-radius: 999px; vertical-align: 1px;
+  }
+  .pill.teal { background: var(--accent-soft); color: var(--accent); }
+  .pill.amber { background: var(--amber-soft); color: var(--amber); }
+  .pill.plain { border: 1px solid var(--line); color: var(--muted); }
+
+  /* mode compare */
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 10px; }
+  @media (max-width: 640px) { .modes { grid-template-columns: 1fr; } }
+  .mode { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .mode h3 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+  .mode .tag { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .mode ol { margin: 10px 0 0; padding-left: 20px; }
+  .mode li { margin: 5px 0; }
+  .mode li.hinge { color: var(--accent); font-weight: 600; }
+  .mode li.hinge .why { display: block; font-weight: 400; color: var(--muted); font-size: 13.5px; }
+
+  /* impact rows */
+  .impact { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+  .impact-row {
+    display: grid; grid-template-columns: 120px 1fr; gap: 14px;
+    background: var(--surface); padding: 13px 18px; align-items: baseline;
+  }
+  .impact-row + .impact-row { border-top: 1px solid var(--line); }
+  .impact-row p { margin: 0; font-size: 15px; }
+  .impact-row .pill { justify-self: start; }
+  @media (max-width: 520px) { .impact-row { grid-template-columns: 1fr; gap: 4px; } }
+
+  /* table */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 14.5px; }
+  th, td { text-align: left; padding: 10px 16px; border-top: 1px solid var(--line); vertical-align: top; }
+  thead th {
+    border-top: 0; font-family: var(--mono); font-size: 11.5px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  }
+  td.min { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.now td { background: var(--accent-soft); }
+
+  .principle {
+    border-left: 3px solid var(--accent); background: var(--surface);
+    border-radius: 0 10px 10px 0; padding: 18px 22px; margin-top: 44px;
+  }
+  .principle p { margin: 0; max-width: 64ch; }
+  .principle .big { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .lang-switch button { transition: background 0.15s ease, color 0.15s ease; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <div class="eyebrow">BSH Research Center</div>
+      <h1>
+        <span class="en-only">The Memo Pipeline</span><span class="zh-only">研报生成管线</span>
+      </h1>
+    </div>
+    <div class="lang-switch" role="group" aria-label="Language">
+      <button type="button" id="btn-en" aria-pressed="true">EN</button>
+      <button type="button" id="btn-zh" aria-pressed="false">中文</button>
+    </div>
+  </header>
+
+  <p class="lede en-only">How one click turns a company into a bilingual investment memo: eight parallel analyst agents, one pin sheet of facts, and deterministic gates that check every number before the DOCX ships.</p>
+  <p class="lede zh-only">一次点击，如何把一家公司变成一份双语投资研报：八个并行分析代理、一张事实"钉单"、以及在 DOCX 出稿前逐项核对数字的确定性质检闸门。</p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="num">12.9<small>m</small></div>
+      <div class="cap en-only">fastest full report (was 36.5m before optimization)</div>
+      <div class="cap zh-only">最快完整报告用时（优化前为 36.5 分钟）</div>
+    </div>
+    <div class="stat">
+      <div class="num">8 → 5</div>
+      <div class="cap en-only">analysis passes, then section writers — each group fully parallel</div>
+      <div class="cap zh-only">8 个分析代理 → 5 个章节写手，组内全部并行</div>
+    </div>
+    <div class="stat">
+      <div class="num">22 / 0</div>
+      <div class="cap en-only">pin checks passed / findings, six straight live runs</div>
+      <div class="cap zh-only">连续六次真实运行：22 项数字核对通过，0 项异常</div>
+    </div>
+    <div class="stat">
+      <div class="num">EN + 中</div>
+      <div class="cap en-only">both DOCX versions from one run; translation overlaps writing</div>
+      <div class="cap zh-only">一次运行同时产出双语 DOCX，翻译与写作并行</div>
+    </div>
+  </div>
+
+  <h2><span class="en-only">Why it got fast</span><span class="zh-only">为什么这么快</span></h2>
+  <p class="sub en-only">Nothing waits for the whole previous phase. The spine starts on partial results, translation chases each finished section, and a cheap check decides what actually needs redoing.</p>
+  <p class="sub zh-only">没有任何环节等待上一阶段全部完成。钉单基于部分结果提前启动，翻译逐个追赶已完成的章节，一次廉价校验决定哪些内容真正需要重做。</p>
+
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 960 356" role="img" aria-label="Timeline of one ~13-minute run: eight analysis passes overlap, the spine launches before the last passes finish, section writers and translation overlap the tail, and gates finish the run.">
+      <!-- axis -->
+      <line x1="170" y1="34" x2="924" y2="34" stroke="currentColor" stroke-opacity="0.35" stroke-width="1"/>
+      <g font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" fill-opacity="0.6" text-anchor="middle">
+        <text x="170" y="24">0m</text><text x="286" y="24">2m</text><text x="402" y="24">4m</text>
+        <text x="518" y="24">6m</text><text x="634" y="24">8m</text><text x="750" y="24">10m</text><text x="866" y="24">12m</text>
+      </g>
+      <g stroke="currentColor" stroke-opacity="0.25">
+        <line x1="170" y1="30" x2="170" y2="38"/><line x1="286" y1="30" x2="286" y2="38"/>
+        <line x1="402" y1="30" x2="402" y2="38"/><line x1="518" y1="30" x2="518" y2="38"/>
+        <line x1="634" y1="30" x2="634" y2="38"/><line x1="750" y1="30" x2="750" y2="38"/>
+        <line x1="866" y1="30" x2="866" y2="38"/>
+      </g>
+
+      <!-- lane labels -->
+      <g font-family="IBM Plex Sans, sans-serif" font-size="12" fill="currentColor" fill-opacity="0.75" text-anchor="end">
+        <text x="158" y="92" class="en-only">Analysis ×8</text><text x="158" y="92" class="zh-only">分析代理 ×8</text>
+        <text x="158" y="151" class="en-only">Spine + check</text><text x="158" y="151" class="zh-only">钉单 + 校验</text>
+        <text x="158" y="196" class="en-only">Sections ×5</text><text x="158" y="196" class="zh-only">章节写手 ×5</text>
+        <text x="158" y="245" class="en-only">Artifacts</text><text x="158" y="245" class="zh-only">内部工件</text>
+        <text x="158" y="273" class="en-only">Chinese chase</text><text x="158" y="273" class="zh-only">中文追译</text>
+        <text x="158" y="303" class="en-only">Gates → DOCX</text><text x="158" y="303" class="zh-only">质检 → DOCX</text>
+      </g>
+
+      <!-- lane 1: 8 passes -->
+      <g fill="currentColor" fill-opacity="0.28">
+        <rect x="170" y="52"  width="133" height="6" rx="2"/>
+        <rect x="170" y="61"  width="162" height="6" rx="2"/>
+        <rect x="170" y="70"  width="180" height="6" rx="2"/>
+        <rect x="170" y="79"  width="197" height="6" rx="2"/>
+        <rect x="170" y="88"  width="220" height="6" rx="2"/>
+        <rect x="170" y="97"  width="244" height="6" rx="2"/>
+        <rect x="170" y="106" width="273" height="6" rx="2"/>
+        <rect x="170" y="115" width="302" height="6" rx="2"/>
+      </g>
+
+      <!-- lane 2: spine + delta check -->
+      <rect x="390" y="140" width="82" height="14" rx="3" fill="var(--accent)"/>
+      <rect x="472" y="140" width="40" height="14" rx="3" fill="var(--amber)"/>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" fill-opacity="0.65">
+        <text x="390" y="133" class="en-only">launches at 6 of 8 passes</text>
+        <text x="390" y="133" class="zh-only">8 个代理完成 6 个即启动</text>
+        <text x="520" y="151" class="en-only">delta check ~40s</text>
+        <text x="520" y="151" class="zh-only">增量校验 ~40 秒</text>
+      </g>
+
+      <!-- lane 3: 5 sections -->
+      <g fill="currentColor" fill-opacity="0.28">
+        <rect x="472" y="172" width="174" height="7" rx="2"/>
+        <rect x="472" y="183" width="185" height="7" rx="2"/>
+        <rect x="512" y="194" width="157" height="7" rx="2"/>
+        <rect x="512" y="205" width="168" height="7" rx="2"/>
+        <rect x="512" y="216" width="160" height="7" rx="2"/>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" fill-opacity="0.65">
+        <text x="660" y="180" class="en-only">two start early, on matching passes</text>
+        <text x="660" y="180" class="zh-only">两个章节按亲和关系提前开写</text>
+      </g>
+
+      <!-- lane 4: artifacts -->
+      <rect x="472" y="238" width="197" height="10" rx="3" fill="currentColor" fill-opacity="0.18"/>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" fill-opacity="0.65">
+        <text x="678" y="247" class="en-only">detached — never blocks</text>
+        <text x="678" y="247" class="zh-only">独立线程，从不阻塞</text>
+      </g>
+
+      <!-- lane 5: zh chase -->
+      <g fill="var(--accent)" fill-opacity="0.45">
+        <rect x="472" y="266" width="31" height="8" rx="2"/>
+        <rect x="646" y="266" width="58" height="8" rx="2"/>
+        <rect x="657" y="277" width="64" height="8" rx="2"/>
+        <rect x="669" y="288" width="64" height="8" rx="2"/>
+        <rect x="738" y="266" width="47" height="8" rx="2"/>
+      </g>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="11" fill="currentColor" fill-opacity="0.65">
+        <text x="793" y="273" class="en-only">translates each section as it lands</text>
+        <text x="793" y="273" class="zh-only">章节一完成即翻译</text>
+      </g>
+
+      <!-- lane 6: gates + render -->
+      <rect x="680" y="296" width="227" height="12" rx="3" fill="var(--amber)" fill-opacity="0.55"/>
+      <rect x="907" y="296" width="11" height="12" rx="2" fill="var(--accent)"/>
+      <line x1="918" y1="290" x2="918" y2="314" stroke="var(--accent)" stroke-width="1.5"/>
+      <g font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" fill-opacity="0.75">
+        <text x="924" y="320" text-anchor="end" class="en-only">12.9m · DOCX ×2</text>
+        <text x="924" y="320" text-anchor="end" class="zh-only">12.9 分钟 · 双语 DOCX</text>
+      </g>
+
+      <!-- legend -->
+      <g font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="currentColor" fill-opacity="0.7">
+        <rect x="170" y="336" width="14" height="8" rx="2" fill="currentColor" fill-opacity="0.28"/>
+        <text x="190" y="344" class="en-only">agent work</text><text x="190" y="344" class="zh-only">代理工作</text>
+        <rect x="290" y="336" width="14" height="8" rx="2" fill="var(--accent)"/>
+        <text x="310" y="344" class="en-only">pin sheet / render</text><text x="310" y="344" class="zh-only">钉单 / 渲染</text>
+        <rect x="450" y="336" width="14" height="8" rx="2" fill="var(--amber)"/>
+        <text x="470" y="344" class="en-only">cheap verification</text><text x="470" y="344" class="zh-only">廉价校验</text>
+        <rect x="610" y="336" width="14" height="8" rx="2" fill="var(--accent)" fill-opacity="0.45"/>
+        <text x="630" y="344" class="en-only">translation</text><text x="630" y="344" class="zh-only">翻译</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption class="en-only">The shape of one ~13-minute run (schematic, not to exact scale). The teal spine bar starts before the slowest analysis passes finish; the amber delta check then verifies its facts against the late arrivals. Only what the check invalidates gets redone.</figcaption>
+    <figcaption class="zh-only">一次约 13 分钟运行的形态示意图（非精确比例）。青色钉单在最慢的分析代理完成之前就已启动；随后琥珀色的增量校验用后到的结果核对其事实。只有被校验推翻的部分才会重做。</figcaption>
+  </figure>
+
+  <h2><span class="en-only">The five phases</span><span class="zh-only">五个阶段</span></h2>
+  <p class="sub en-only">Every agent is a separate <code>claude -p</code> subprocess with the full tool set, including web search. Cost and duration stream back live to the jobs rail.</p>
+  <p class="sub zh-only">每个代理都是独立的 <code>claude -p</code> 子进程，拥有包括联网搜索在内的全部工具。成本与耗时实时回传到任务栏。</p>
+
+  <div class="phase">
+    <div class="phase-no">P1</div>
+    <div class="phase-body">
+      <h3><span class="en-only">Prepare</span><span class="zh-only">准备</span><span class="t"><span class="en-only">seconds, no AI</span><span class="zh-only">数秒，无 AI</span></span></h3>
+      <p class="en-only">Creates the run folder, checks the company is in scope, and stages two durable fact sources for injection: the hand-curated <span class="file">fact_ledger.md</span> and the auto-captured <span class="file">recent_news.md</span> (refreshed from the news tracker before every run). These fix the "fact lottery" — headline facts no longer depend on lucky web retrieval.</p>
+      <p class="zh-only">创建运行目录、检查公司是否在范围内，并准备两份持久事实来源供注入：人工维护的 <span class="file">fact_ledger.md</span>，以及每次运行前从新闻跟踪器自动刷新的 <span class="file">recent_news.md</span>。这解决了"事实抽奖"问题——头条事实不再依赖运气式的网络检索。</p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-no">P2</div>
+    <div class="phase-body">
+      <h3><span class="en-only">Investigate</span><span class="zh-only">调查</span><span class="t">2.3–6.3m</span></h3>
+      <p class="en-only">Eight analyst agents run at once, each with its own focus: arithmetic and denominators, time bases, growth bridges, competitive rights, and so on. Each writes a schema-capped JSON artifact the moment it finishes. The phase is gated by its slowest pass.</p>
+      <p class="zh-only">八个分析代理同时运行，各有专攻：算术与分母、时间基准、增长桥、竞争权利等。每个代理一完成就写出受 schema 限制的 JSON 工件。该阶段耗时取决于最慢的那个代理。</p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-no">P2.5</div>
+    <div class="phase-body">
+      <h3><span class="en-only">The spine — one pin sheet of facts</span><span class="zh-only">钉单——唯一的事实清单</span><span class="t"><span class="en-only">starts early</span><span class="zh-only">提前启动</span></span></h3>
+      <p class="en-only">One agent distills the passes into the <span class="pin">pin sheet</span>: the recommendation sentence, up to 12 key metrics, bear/base/bull scenarios, and 4–6 rated risks. It launches speculatively once 6 of 8 passes are done — but only after the three pin-feeding passes finish, so its numbers can't be built on missing arithmetic. When the last passes land, a ~40-second delta check asks one question: do the late results change any pinned fact? Usually no; if yes, the spine respins and early section drafts are discarded.</p>
+      <p class="zh-only">一个代理把各项分析提炼成<span class="pin">钉单</span>：投资建议句、至多 12 项关键指标、悲观/基准/乐观情景，以及 4–6 项带评分的风险。8 个代理完成 6 个后它就投机性启动——但必须等三个供数代理先完成，确保数字不建立在缺失的算术之上。最后的代理落地后，约 40 秒的增量校验只问一个问题：后到的结果是否改变了任何已钉事实？通常不会；若会，钉单重做，提前起草的章节作废。</p>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-no">P3</div>
+    <div class="phase-body">
+      <h3><span class="en-only">Write</span><span class="zh-only">写作</span><span class="t"><span class="en-only">5 sections in parallel</span><span class="zh-only">5 个章节并行</span></span></h3>
+      <p class="en-only">Five section writers draft the memo at once. The pin sheet is their <em>only</em> fact channel — every writer gets the identical rendered fact block, can cite sources only by id, and cannot add new ones. Seven private analysis artifacts run on a detached thread and never block the memo. Then the acceptance gates, in order:</p>
+      <p class="zh-only">五个章节写手同时起草研报。钉单是它们<em>唯一</em>的事实通道——每个写手拿到的事实块逐字节相同，只能按编号引用来源，不能新增。七份内部分析工件在独立线程上运行，从不阻塞正文。随后依次通过验收闸门：</p>
+      <ul>
+        <li class="en-only"><span class="pill plain">1</span> deterministic structure repair, then renderer validation;</li>
+        <li class="zh-only"><span class="pill plain">1</span> 确定性结构修复，随后渲染器校验；</li>
+        <li class="en-only"><span class="pill plain">2</span> quality lint on a prerendered DOCX (voice, disclosure, meta rules);</li>
+        <li class="zh-only"><span class="pill plain">2</span> 对预渲染 DOCX 做质量检查（语态、披露、元信息规则）；</li>
+        <li class="en-only"><span class="pill amber">pin echo</span> the recommendation must appear verbatim, every metric token somewhere, risk ratings in the risk section, scenario numbers in the financials — checked by code, not by a model;</li>
+        <li class="zh-only"><span class="pill amber">数字回声</span> 建议句必须逐字出现，每个指标数字必须落地，风险评分要在风险章节，情景数字要在财务章节——由代码而非模型核对；</li>
+        <li class="en-only"><span class="pill plain">3</span> hybrid repair: findings route to the one section (or the envelope) that owns them, repaired in parallel in 1.4–2 minutes — the old whole-package repair took 9.</li>
+        <li class="zh-only"><span class="pill plain">3</span> 混合修复：问题归位到所属章节（或信封部分），并行修复只需 1.4–2 分钟——旧的整包修复要 9 分钟。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="phase">
+    <div class="phase-no">P4</div>
+    <div class="phase-body">
+      <h3><span class="en-only">Translate + render</span><span class="zh-only">翻译 + 渲染</span><span class="t"><span class="en-only">overlaps P3</span><span class="zh-only">与 P3 并行</span></span></h3>
+      <p class="en-only">Chinese doesn't wait for the finished memo: a chaser translates each section the moment it's accepted. Translation sends only the untranslated strings as a numbered list and gets back exactly that many Chinese strings — 56–110 seconds per section instead of 222–398. A fixed style note keeps <code>$24M</code>, multiples, and dates consistent. The final render is pure code: Arial and Microsoft YaHei, roman-numeral sections, sources generated from the envelope. Two DOCX files, about one second.</p>
+      <p class="zh-only">中文版不等英文定稿：追译器在每个章节验收通过的瞬间开始翻译。翻译只发送未译字符串的编号清单，并按数量收回等量中文——每章 56–110 秒，而不是 222–398 秒。固定的风格说明保证 <code>$24M</code>、倍数、日期写法一致。最终渲染是纯代码：Arial 与微软雅黑、罗马数字章节标题、来源章节由信封数据生成。两份 DOCX，约一秒完成。</p>
+    </div>
+  </div>
+
+  <h2><span class="en-only">Two ways to run it</span><span class="zh-only">两种运行方式</span></h2>
+  <p class="sub en-only">The pipeline splits cleanly between investigation and writing. Memo Studio parks the run at that seam and hands the pin sheet to you.</p>
+  <p class="sub zh-only">管线在"调查"与"写作"之间有一道干净的接缝。Memo Studio 让运行在此处暂停，把钉单交到你手上。</p>
+
+  <div class="modes">
+    <div class="mode">
+      <h3><span class="en-only">One-Click</span><span class="zh-only">一键生成</span></h3>
+      <div class="tag"><span class="en-only">agent decides everything · ~13m</span><span class="zh-only">代理全权决定 · 约 13 分钟</span></div>
+      <ol>
+        <li class="en-only">P1 → P4 straight through, exactly as above.</li>
+        <li class="zh-only">P1 → P4 一路到底，流程同上。</li>
+        <li class="en-only">After it finishes, the studio cards refresh so you can see the agent's rankings.</li>
+        <li class="zh-only">完成后工作室卡片同步刷新，展示代理的排序结果。</li>
+      </ol>
+    </div>
+    <div class="mode">
+      <h3><span class="en-only">Studio Review</span><span class="zh-only">工作室审阅</span></h3>
+      <div class="tag"><span class="en-only">you approve the facts first</span><span class="zh-only">你先审定事实</span></div>
+      <ol>
+        <li class="en-only"><strong>Deep Investigate</strong> runs P1–P2 plus one spine, then parks (~9m).</li>
+        <li class="zh-only"><strong>深度调查</strong>运行 P1–P2 加一次钉单生成，然后暂停（约 9 分钟）。</li>
+        <li class="en-only">The pin sheet becomes editable cards: re-rank risks, edit ratings, add or drop theses, pick the conclusion stance.</li>
+        <li class="zh-only">钉单变成可编辑卡片：调整风险排序、修改评分、增删论点、选定结论立场。</li>
+        <li class="en-only"><strong>Generate Report</strong> composes your cards back into the spine and runs P3–P4 with it pinned (~8m).</li>
+        <li class="zh-only"><strong>生成报告</strong>把你的卡片重新组装为钉单，并以固定钉单运行 P3–P4（约 8 分钟）。</li>
+        <li class="hinge">
+          <span class="en-only">Cards ARE pins.</span><span class="zh-only">卡片就是钉子。</span>
+          <span class="why en-only">The same pin-echo gate that checks the agent's numbers now enforces your edits, mechanically. No fallback path can discard them.</span>
+          <span class="why zh-only">核对代理数字的那道"回声"闸门，同样机械地强制执行你的修改。任何降级路径都无法丢弃它们。</span>
+        </li>
+      </ol>
+    </div>
+  </div>
+
+  <h2><span class="en-only">News keeps it current</span><span class="zh-only">新闻让它保持最新</span></h2>
+  <p class="sub en-only">Follow (star) a company and the tracker syncs its news on a loop, fingerprints out duplicates, and classifies each item's impact. Every automatic action is labeled — "regenerated at, affected by" — in the News/Updates tab, on the Overview, and on the report itself.</p>
+  <p class="sub zh-only">关注（加星）一家公司后，跟踪器会循环同步其新闻，按指纹去重，并给每条分级。所有自动行为都带标注——"于何时重新生成、受哪条新闻影响"——显示在"新闻/更新"页、公司概览和报告本身上。</p>
+
+  <div class="impact">
+    <div class="impact-row">
+      <span class="pill plain"><span class="en-only">low impact</span><span class="zh-only">低影响</span></span>
+      <p class="en-only">Saved. It enters <span class="file">recent_news.md</span> and quietly informs every future run.</p>
+      <p class="zh-only">仅保存。写入 <span class="file">recent_news.md</span>，默默供之后的每次运行参考。</p>
+    </div>
+    <div class="impact-row">
+      <span class="pill teal"><span class="en-only">medium</span><span class="zh-only">中影响</span></span>
+      <p class="en-only">Reruns Deep Investigate — fresh cards with the news included.</p>
+      <p class="zh-only">重新运行深度调查——生成包含该新闻的新卡片。</p>
+    </div>
+    <div class="impact-row">
+      <span class="pill amber"><span class="en-only">high</span><span class="zh-only">高影响</span></span>
+      <p class="en-only">Reruns the full report.</p>
+      <p class="zh-only">重新生成完整报告。</p>
+    </div>
+  </div>
+  <p class="sub en-only" style="margin-top:12px">One guard: while your card review is parked, nothing auto-runs. The recommendation waits with a "Run now" button, and running over a parked review asks for your "I've reviewed the cards" confirmation first.</p>
+  <p class="sub zh-only" style="margin-top:12px">一道保护：卡片还在待审阅时，任何任务都不会自动运行。建议会带着"立即执行"按钮等待；要越过待审阅状态执行，需先点击"我已审阅卡片"确认。</p>
+
+  <h2><span class="en-only">The optimization record</span><span class="zh-only">优化历程</span></h2>
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th><span class="en-only">Round</span><span class="zh-only">轮次</span></th>
+          <th><span class="en-only">What changed</span><span class="zh-only">改了什么</span></th>
+          <th><span class="en-only">Same-company time</span><span class="zh-only">同公司用时</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="min">R0</td>
+          <td><span class="en-only">One monolithic agent writes everything</span><span class="zh-only">单一巨型代理包办一切</span></td>
+          <td class="min">36.5–43.7m</td>
+        </tr>
+        <tr>
+          <td class="min">R1</td>
+          <td><span class="en-only">Spine + section split, prompt-cache sharing, translation chasing</span><span class="zh-only">钉单与章节拆分、提示缓存共享、翻译追赶</span></td>
+          <td class="min">22.5–30m</td>
+        </tr>
+        <tr>
+          <td class="min">R2</td>
+          <td><span class="en-only">Speculative spine, early sections, detached artifacts, hybrid repair, pin echo</span><span class="zh-only">投机钉单、章节提前起笔、工件独立线程、混合修复、数字回声</span></td>
+          <td class="min">16.6–18.9m</td>
+        </tr>
+        <tr>
+          <td class="min">R3</td>
+          <td><span class="en-only">Compact translation (send only the blanks), style note, big-unit split</span><span class="zh-only">紧凑翻译（只发未译部分）、风格说明、大单元拆分</span></td>
+          <td class="min">12.9–18.1m</td>
+        </tr>
+        <tr class="now">
+          <td class="min">R4+</td>
+          <td><span class="en-only">Pin-affine launch gate, fact ledger, pin repair armed, Memo Studio seam, tracked-news feed</span><span class="zh-only">钉单亲和启动门、事实台账、数字自动修复、Memo Studio 接缝、跟踪新闻注入</span></td>
+          <td class="min"><span class="en-only">live today</span><span class="zh-only">当前在线</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="principle">
+    <p class="big en-only">Speculate on partial input. Verify cheaply. Redo only what the verifier rejects.</p>
+    <p class="big zh-only">用不完整的输入投机推进；用廉价手段校验；只重做被校验推翻的部分。</p>
+    <p class="en-only">Every speedup is the same move: the spine before the last passes, the translation before acceptance, the sections before the delta check. It stays safe because the verifiers are deterministic code — the pin-echo check, the exact-match translation merge, the schema caps — not another model's opinion.</p>
+    <p class="zh-only">每一次提速都是同一招：钉单先于最后的分析代理，翻译先于英文验收，章节先于增量校验。它之所以安全，是因为校验者都是确定性代码——数字回声核对、逐字匹配的译文合并、schema 上限——而不是另一个模型的看法。</p>
+  </div>
+
+  <footer>
+    <span class="en-only">Sources: docs/memo-pipeline-structure.md · docs/memo-benchmarks.md · branch memo-studio · 2026-09-05</span>
+    <span class="zh-only">来源：docs/memo-pipeline-structure.md · docs/memo-benchmarks.md · memo-studio 分支 · 2026-09-05</span>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var KEY = "bsh.archLang";
+    var btnEn = document.getElementById("btn-en");
+    var btnZh = document.getElementById("btn-zh");
+    function setLang(zh) {
+      document.body.classList.toggle("zh", zh);
+      document.documentElement.lang = zh ? "zh-Hans" : "en";
+      btnEn.setAttribute("aria-pressed", String(!zh));
+      btnZh.setAttribute("aria-pressed", String(zh));
+      try { localStorage.setItem(KEY, zh ? "zh" : "en"); } catch (e) { /* per-viewer convenience only */ }
+    }
+    btnEn.addEventListener("click", function () { setLang(false); });
+    btnZh.addEventListener("click", function () { setLang(true); });
+    var stored = null;
+    try { stored = localStorage.getItem(KEY); } catch (e) { /* default to EN */ }
+    if (stored === "zh") setLang(true);
+  })();
+</script>
+</body>
+</html>
