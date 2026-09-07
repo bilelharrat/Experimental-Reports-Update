@@ -4260,7 +4260,8 @@ Produce ONE JSON object with:
 1. `analysis_artifacts`: concise markdown strings for claim register,
    scenario swim lanes, downside scenario, countercase, source-treatment log,
    risk and valuation sensitivities, and content coverage against the reusable
-   component slugs. Keep each artifact useful but short.
+   component slugs. Keep each artifact useful but short (under 7,000
+   characters each).
 2. `memo_package`: an English source package for the fixed renderer. Every
    user-facing string must be represented as `{{"en": "...", "zh": ""}}`.
    Leave `zh` blank; a separate subprocess will fill Chinese. Do not write
@@ -4808,8 +4809,9 @@ Produce ONE JSON object with `analysis_artifacts` holding concise markdown
 strings for: claim register, scenario swim lanes, downside scenario,
 countercase, source-treatment and assumptions log, risk and valuation
 sensitivities, and content coverage against the reusable component slugs.
-Derive them from `analysis/fast/*.json`. The schema length limits are hard;
-keep each artifact tight and useful.
+Derive them from `analysis/fast/*.json`. The schema rejects any artifact
+longer than 8,000 characters, so keep each one under 7,000 characters —
+count the markdown, and cut rows or examples before cutting substance.
 
 Return only the JSON matching the attached schema.
 """
@@ -5840,7 +5842,9 @@ language in prose; do not add, drop, or renumber sources.
 {spec}
 {risk_contract}{note_block}{repair_block}
 Return only JSON: {{"section": {{"id": "{section_id}", "blocks": [...]}}}}
-matching the attached schema.
+matching the attached schema. Pass the section as a real JSON object — never
+serialized as a string inside another field (the escaping roughly doubles the
+output and the call gets truncated before it completes).
 """
     result, error = _run_memo_local_json_artifact(
         prompt=prompt,
