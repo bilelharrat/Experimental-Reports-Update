@@ -34,6 +34,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import (
+    alert_engine,
     analytics_store,
     auth_store,
     cache,
@@ -49,6 +50,7 @@ from . import (
     console_store,
     context_store,
     deck_summary,
+    desk_store,
     evidence_store,
     evidence_matrix,
     external_store,
@@ -64,6 +66,7 @@ from . import (
     job_progress,
     link_preview as link_preview_mod,
     live_quotes,
+    market_brief,
     memo_analysis,
     memo_editor_store,
     memo_studio_bridge,
@@ -1237,6 +1240,246 @@ def get_live_quotes(
     without waiting on a trader-snapshot Claude pass.
     """
     return live_quotes.fetch_quotes(ticker)
+
+
+@router.get("/quotes/search")
+def search_live_quotes(
+    q: str = Query(default=""),
+) -> dict:
+    """Symbol lookup so Radar can pick any listed name."""
+    try:
+        return live_quotes.search_symbols(q)
+    except Exception:
+        return {"query": q, "matches": []}
+
+
+@router.get("/quotes/screeners")
+def get_quote_screeners() -> dict:
+    """Nasdaq universe slices: gainers, losers, and large-cap actives."""
+    try:
+        from server import quote_workspace
+
+        return quote_workspace.fetch_screeners()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Screener unavailable: {exc}") from exc
+
+
+@router.get("/quotes/calendar")
+def get_quote_calendar(
+    ticker: list[str] | None = Query(default=None),
+) -> dict:
+    """Earnings, dividends, and macro calendar for the next few weeks."""
+    try:
+        from server import quote_workspace
+
+        return quote_workspace.fetch_calendar(ticker or [])
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar unavailable: {exc}") from exc
+
+
+@router.get("/quotes/{ticker}/peers")
+def get_quote_peers(
+    ticker: str,
+    peer: list[str] | None = Query(default=None),
+) -> dict:
+    """Relative performance vs SPY and sector/book peers."""
+    try:
+        from server import quote_workspace
+
+        return quote_workspace.fetch_peers(ticker, peer or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Peers unavailable for {ticker}: {exc}",
+        ) from exc
+
+
+@router.get("/quotes/{ticker}/workspace")
+def get_quote_workspace(ticker: str) -> dict:
+    """Gold-style quote workspace: profile, financials, analysis, holders, options."""
+    try:
+        from server import quote_workspace
+
+        return quote_workspace.fetch_workspace(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Workspace unavailable for {ticker}: {exc}",
+        ) from exc
+
+
+@router.get("/quotes/{ticker}/chart")
+def get_quote_chart(
+    ticker: str,
+    range: str = Query(default="1d"),
+) -> dict:
+    """Yahoo Finance OHLC chart plus key statistics for one ticker."""
+    try:
+        return live_quotes.fetch_chart(ticker, range)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Chart unavailable for {ticker}: {exc}",
+        ) from exc
+
+
+# --- Market desk durable state ----------------------------------------------
+
+
+class DeskPrefsBody(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class AlertEventsBody(BaseModel):
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SignalLedgerBody(BaseModel):
+    ticker: str
+    direction: str = "watch"
+    label: str = ""
+    source: str = "manual"
+    price_at_signal: float | None = None
+
+
+@router.get("/desk/prefs")
+def get_desk_prefs() -> dict:
+    """Server copy of the market-desk localStorage blob."""
+    return desk_store.load_prefs()
+
+
+@router.put("/desk/prefs")
+def put_desk_prefs(body: DeskPrefsBody) -> dict:
+    """Replace the desk prefs blob (frontend owns the key shape)."""
+    try:
+        return desk_store.save_prefs(body.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/alerts/events")
+def get_alert_events(
+    since: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    """Fired-alert history (server + browser fires), newest first."""
+    return {"events": desk_store.list_alert_events(since=since, limit=limit)}
+
+
+@router.post("/alerts/events")
+def post_alert_events(body: AlertEventsBody) -> dict:
+    """Record browser-fired alerts so history survives reloads/devices."""
+    recorded = desk_store.record_alert_events(body.events)
+    return {"recorded": recorded}
+
+
+@router.post("/alerts/check")
+def post_alerts_check() -> dict:
+    """Evaluate stored alert rules against live quotes right now."""
+    try:
+        return alert_engine.run_check()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Alert check failed: {exc}") from exc
+
+
+@router.get("/signals/ledger")
+def get_signal_ledger(score: bool = Query(default=True)) -> dict:
+    """Signal ledger entries, scored against live quotes when possible."""
+    entries = desk_store.list_signals()
+    if score and entries:
+        tickers = sorted({str(row.get("ticker") or "") for row in entries if row.get("ticker")})
+        try:
+            quotes = live_quotes.fetch_quotes(tickers).get("quotes") or {}
+        except Exception:
+            quotes = {}
+        entries = desk_store.score_signals(quotes)
+    return {"entries": entries}
+
+
+@router.post("/signals/ledger")
+def post_signal_ledger(body: SignalLedgerBody) -> dict:
+    """Record one signal call; price defaults to the live last print."""
+    price = body.price_at_signal
+    if price is None:
+        try:
+            quotes = live_quotes.fetch_quotes([body.ticker]).get("quotes") or {}
+            price = (quotes.get(body.ticker.strip().upper()) or {}).get("last_price")
+        except Exception:
+            price = None
+    try:
+        entry = desk_store.record_signal(
+            {
+                "ticker": body.ticker,
+                "direction": body.direction,
+                "label": body.label,
+                "source": body.source,
+                "price_at_signal": price,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"entry": entry}
+
+
+@router.delete("/signals/ledger/{signal_id}")
+def delete_signal_ledger(signal_id: str) -> dict:
+    if not desk_store.delete_signal(signal_id):
+        raise HTTPException(status_code=404, detail="Unknown signal id")
+    return {"ok": True}
+
+
+@router.post("/market-brief/run")
+def post_market_brief_run() -> dict:
+    """Build and archive today's Morning Brief."""
+    try:
+        return market_brief.build_brief()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Brief build failed: {exc}") from exc
+
+
+@router.get("/market-brief")
+def get_market_brief(date: str | None = Query(default=None)) -> dict:
+    """Latest archived brief, or one by date (YYYY-MM-DD)."""
+    try:
+        brief = market_brief.load_brief(date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if brief is None:
+        raise HTTPException(status_code=404, detail="No archived brief")
+    return brief
+
+
+@router.get("/market-brief/archive")
+def get_market_brief_archive() -> dict:
+    return {"dates": market_brief.list_briefs()}
+
+
+class BriefNoteBody(BaseModel):
+    date: str | None = None
+    length: str = "short"
+
+
+@router.post("/market-brief/note")
+def post_market_brief_note(body: BriefNoteBody) -> dict:
+    """Write the model-assisted note for an archived brief (latest by default)."""
+    try:
+        return market_brief.write_note(body.date, body.length)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"Note generation failed: {exc}") from exc
+
+
+@router.get("/diagnostics/quotes")
+def get_quotes_diagnostics() -> dict:
+    """Quote source health: cache ages and recently failing symbols."""
+    return live_quotes.cache_stats()
 
 
 @router.get("/tracking/rollup")

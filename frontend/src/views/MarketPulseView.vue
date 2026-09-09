@@ -161,7 +161,7 @@ onMounted(load);
               Research Pages
             </div>
             <h1 class="font-display text-large-title text-ink-primary">
-              Market Pulse
+              Signals
             </h1>
             <div class="mt-1 text-sm text-ink-muted">
               {{ payload?.as_of || "No as-of date" }} · {{ payload?.status || "loading" }}

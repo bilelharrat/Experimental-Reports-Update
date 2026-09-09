@@ -57,6 +57,21 @@ export function signedChange(value) {
   return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
 
+/**
+ * Data-health read on a quote's `as_of` stamp.
+ *
+ * `stale` flips once the print is older than `staleMinutes` (default 20 —
+ * enough to ride out provider hiccups without flagging every weekend
+ * quote during RTH-adjacent use). Returns null when there is no stamp,
+ * so callers can distinguish "no data" from "old data".
+ */
+export function quoteStaleness(asOf, { now = Date.now(), staleMinutes = 20 } = {}) {
+  const stamp = Date.parse(String(asOf || ""));
+  if (!Number.isFinite(stamp)) return null;
+  const ageMinutes = Math.max(0, Math.round((now - stamp) / 60000));
+  return { ageMinutes, stale: ageMinutes >= staleMinutes };
+}
+
 export function buildTickerTape(companies = [], quotes = {}) {
   return publicTickers(companies).map((ticker) => {
     const company = companies.find(

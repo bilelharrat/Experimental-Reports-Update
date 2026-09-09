@@ -1,6 +1,6 @@
 <script setup>
 import { computed, inject, ref, unref, watch } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   Loader2,
   Newspaper,
@@ -41,12 +41,14 @@ import { useTrackingRollup } from "../useTrackingRollup.js";
 import CompanyFollowButton from "../components/CompanyFollowButton.vue";
 import LiveTickerTape from "../components/LiveTickerTape.vue";
 import TrackingAttentionStrip from "../components/TrackingAttentionStrip.vue";
+import { bookConcentration, bookPnl, loadBookLots, removeBookLot, upsertBookLot } from "../marketBook.js";
 import { trackedCompanyIds } from "../state.js";
 
 const emit = defineEmits(["open-copilot"]);
 
 const t = useT();
 const router = useRouter();
+const route = useRoute();
 
 const workspaceCompanies = inject("workspaceCompanies", ref([]));
 const workspaceNews = inject("workspaceNews", ref([]));
@@ -58,9 +60,50 @@ const newsList = computed(() => unref(workspaceNews) || []);
 const followedOnly = ref(false);
 const syncingAll = ref(false);
 const syncAllError = ref("");
+const bookLots = ref(loadBookLots());
+const lotTicker = ref("");
+const lotShares = ref("");
+const lotCost = ref("");
+
+function submitLot() {
+  const ticker = String(lotTicker.value || "").trim().toUpperCase();
+  const shares = Number(lotShares.value);
+  const cost = Number(lotCost.value);
+  const company = companyList.value.find(
+    (row) => String(row.ticker || "").trim().toUpperCase() === ticker,
+  );
+  bookLots.value = upsertBookLot({
+    ticker,
+    shares,
+    cost,
+    companyId: company?.id || null,
+  });
+  lotTicker.value = "";
+  lotShares.value = "";
+  lotCost.value = "";
+}
+
+function dropLot(ticker) {
+  bookLots.value = removeBookLot(ticker);
+}
+
+watch(
+  () => route.query.panel,
+  (value) => {
+    if (String(value || "") === "lots") {
+      window.setTimeout(() => {
+        document.getElementById("tracking-lots")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  },
+  { immediate: true },
+);
 
 const trackedIds = computed(() => [...trackedCompanyIds.value].map(String));
 const trackedSet = computed(() => new Set(trackedIds.value));
+const trackedCompanies = computed(() =>
+  companyList.value.filter((company) => trackedSet.value.has(String(company.id))),
+);
 
 const visibleCompanies = computed(() => {
   const rows = followedOnly.value
@@ -99,6 +142,11 @@ async function syncAllTracked() {
 }
 const tickerTape = computed(() =>
   buildTickerTape(visibleCompanies.value, liveQuotes.value),
+);
+
+const bookPnlSummary = computed(() => bookPnl(bookLots.value, liveQuotes.value));
+const bookLens = computed(() =>
+  bookConcentration(trackedCompanies.value, liveQuotes.value),
 );
 
 const rollupById = computed(() => {
@@ -355,6 +403,21 @@ function memoChipClass(row) {
 function signed(value) {
   return signedChange(value);
 }
+
+function moneyUsd(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return lastPriceLabel({ last: Number(value), currency: "USD" }) || "—";
+}
+
+function signedMoneyUsd(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  const abs = moneyUsd(Math.abs(n));
+  if (abs === "—") return "—";
+  if (n > 0) return `+${abs}`;
+  if (n < 0) return `-${abs}`;
+  return abs;
+}
 </script>
 
 <template>
@@ -417,6 +480,87 @@ function signed(value) {
     </header>
 
     <p v-if="syncAllError" class="mb-3 text-caption1 text-danger">{{ syncAllError }}</p>
+
+    <section
+      v-if="trackedCompanies.length"
+      class="mb-5 news-grouped px-4 py-3"
+      :aria-label="t('tracking.book_pnl_label')"
+    >
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            {{ t("tracking.book_pnl_label") }}
+          </div>
+          <p v-if="bookLens.avgBeta != null" class="mt-1 text-footnote text-ink-secondary">
+            {{ t("radar.book_beta", { n: bookLens.avgBeta.toFixed(2) }) }}
+            <span v-for="row in bookLens.sectorMix.slice(0, 3)" :key="row.sector" class="ml-2">
+              {{ row.sector }} {{ row.pct.toFixed(0) }}%
+            </span>
+          </p>
+        </div>
+        <div v-if="bookPnlSummary.rows.length" class="text-right">
+          <div
+            class="mono-data text-headline tabular"
+            :class="bookPnlSummary.dayPnl >= 0 ? 'text-success' : 'text-danger'"
+          >
+            {{ t("tracking.book_day", { value: signedMoneyUsd(bookPnlSummary.dayPnl) }) }}
+          </div>
+          <div class="text-caption1 text-ink-muted">
+            {{ t("tracking.book_unrealized", { value: moneyUsd(bookPnlSummary.unrealized) }) }}
+          </div>
+        </div>
+        <p v-else class="text-caption1 text-ink-muted">{{ t("tracking.book_lots_empty") }}</p>
+      </div>
+      <form id="tracking-lots" class="mt-3 flex flex-wrap items-end gap-2" @submit.prevent="submitLot">
+        <label class="yf-screener-field">
+          <span>{{ t("tracking.lot_ticker") }}</span>
+          <input v-model="lotTicker" type="text" class="focus-ring" :placeholder="t('tracking.lot_ticker_ph')" />
+        </label>
+        <label class="yf-screener-field">
+          <span>{{ t("tracking.lot_shares") }}</span>
+          <input v-model="lotShares" type="number" min="0" step="1" class="focus-ring" />
+        </label>
+        <label class="yf-screener-field">
+          <span>{{ t("tracking.lot_cost") }}</span>
+          <input v-model="lotCost" type="number" min="0" step="0.01" class="focus-ring" />
+        </label>
+        <button type="submit" class="yf-range-item focus-ring">{{ t("tracking.lot_add") }}</button>
+      </form>
+      <div v-if="bookPnlSummary.rows.length" class="mt-3 space-y-1">
+        <div
+          v-for="row in bookPnlSummary.rows"
+          :key="row.ticker"
+          class="flex items-center justify-between gap-2 text-footnote"
+        >
+          <button type="button" class="focus-ring font-display tabular" @click="router.push({ name: 'market-radar', query: { ticker: row.ticker } })">
+            {{ row.ticker }}
+            <span class="ml-2 text-ink-muted">{{ row.shares }} @ {{ moneyUsd(row.cost) }}</span>
+          </button>
+          <span class="inline-flex items-center gap-2">
+            <span :class="(row.unrealized || 0) >= 0 ? 'text-success' : 'text-danger'">
+              {{ signedMoneyUsd(row.unrealized) }}
+            </span>
+            <button type="button" class="text-caption1 text-ink-muted focus-ring" @click="dropLot(row.ticker)">
+              {{ t("tracking.lot_remove") }}
+            </button>
+          </span>
+        </div>
+      </div>
+      <div v-if="bookLens.movers.length" class="mt-3 flex flex-wrap gap-2">
+        <button
+          v-for="row in bookLens.movers.slice(0, 6)"
+          :key="row.ticker"
+          type="button"
+          class="yf-range-item focus-ring"
+          @click="router.push({ name: 'market-radar', query: { ticker: row.ticker } })"
+        >
+          {{ row.ticker }}
+          <span :class="row.change >= 0 ? 'text-success' : 'text-danger'">
+            {{ signed(row.change) }}
+          </span>
+        </button>
+      </div>
+    </section>
 
     <p
       v-if="workspaceLoading && companyList.length === 0"

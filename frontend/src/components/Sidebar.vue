@@ -10,7 +10,6 @@ import {
   Newspaper,
   PanelLeft,
   PanelLeftClose,
-  Radar,
 } from "lucide-vue-next";
 import brandLogoUrl from "../assets/berkeley-summit-house.svg";
 import { companyStatusLine, sortCompanies } from "../companyLists.js";
@@ -136,6 +135,39 @@ const collapseLabel = computed(() =>
         </RouterLink>
 
         <RouterLink
+          :to="{ name: 'market-radar' }"
+          class="source-row focus-ring"
+          active-class=""
+          :title="t('sidebar.markets_radar')"
+        >
+          <svg
+            class="h-[18px] w-[18px] shrink-0"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+            <path d="m7 15 3-3 2 3 7-7" />
+            <path d="M15 8h4v4" />
+          </svg>
+          <span v-if="!sidebarCollapsed">{{ t("sidebar.markets_radar") }}</span>
+        </RouterLink>
+
+        <RouterLink
+          :to="{ name: 'weekly-summary' }"
+          class="source-row focus-ring"
+          active-class=""
+          :title="t('sidebar.markets_pulse')"
+        >
+          <Flame class="h-[18px] w-[18px] shrink-0" />
+          <span v-if="!sidebarCollapsed">{{ t("sidebar.markets_pulse") }}</span>
+        </RouterLink>
+
+        <RouterLink
           :to="{ name: 'news-desk' }"
           class="source-row focus-ring"
           active-class=""
@@ -258,28 +290,6 @@ const collapseLabel = computed(() =>
           </div>
         </section>
       </div>
-
-      <section class="shrink-0 space-y-0.5 border-t border-subtle/60 pt-2 pb-3">
-        <div v-if="!sidebarCollapsed" class="mb-1 px-2.5">
-          <div class="vogue-label">{{ t("sidebar.markets") }}</div>
-        </div>
-        <RouterLink
-          :to="{ name: 'market-radar' }"
-          class="source-row focus-ring"
-          :title="t('sidebar.markets_radar')"
-        >
-          <Radar class="h-4 w-4 shrink-0" />
-          <span v-if="!sidebarCollapsed">{{ t("sidebar.markets_radar") }}</span>
-        </RouterLink>
-        <RouterLink
-          :to="{ name: 'weekly-summary' }"
-          class="source-row focus-ring"
-          :title="t('sidebar.markets_pulse')"
-        >
-          <Flame class="h-4 w-4 shrink-0" />
-          <span v-if="!sidebarCollapsed">{{ t("sidebar.markets_pulse") }}</span>
-        </RouterLink>
-      </section>
     </div>
   </aside>
 </template>

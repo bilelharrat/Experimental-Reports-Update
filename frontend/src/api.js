@@ -205,7 +205,7 @@ export const api = {
       .join("&");
     return request(`/api/tracking/rollup?${qs}`, { timeoutMs: 20000 });
   },
-  liveQuotes: (tickers = []) => {
+    liveQuotes: (tickers = []) => {
     const symbols = (tickers || [])
       .map((ticker) => String(ticker || "").trim())
       .filter(Boolean);
@@ -215,6 +215,84 @@ export const api = {
       .join("&");
     return request(`/api/quotes?${qs}`, { timeoutMs: 12000 });
   },
+  quoteChart: (ticker, range = "1d") =>
+    request(
+      `/api/quotes/${encodeURIComponent(ticker)}/chart?range=${encodeURIComponent(range)}`,
+      { timeoutMs: 15000 },
+    ),
+  quoteSearch: (q) =>
+    request(`/api/quotes/search?q=${encodeURIComponent(q)}`, { timeoutMs: 8000 }),
+  quoteWorkspace: (ticker) =>
+    request(`/api/quotes/${encodeURIComponent(ticker)}/workspace`, { timeoutMs: 20000 }),
+  quoteScreeners: () => request("/api/quotes/screeners", { timeoutMs: 20000 }),
+  quoteCalendar: (tickers = []) => {
+    const symbols = (tickers || [])
+      .map((ticker) => String(ticker || "").trim())
+      .filter(Boolean);
+    const qs = symbols
+      .map((ticker) => `ticker=${encodeURIComponent(ticker)}`)
+      .join("&");
+    return request(
+      `/api/quotes/calendar${qs ? `?${qs}` : ""}`,
+      { timeoutMs: 25000 },
+    );
+  },
+  quotePeers: (ticker, peers = []) => {
+    const qs = (peers || [])
+      .map((peer) => `peer=${encodeURIComponent(peer)}`)
+      .join("&");
+    return request(
+      `/api/quotes/${encodeURIComponent(ticker)}/peers${qs ? `?${qs}` : ""}`,
+      { timeoutMs: 25000 },
+    );
+  },
+  deskPrefs: () => request("/api/desk/prefs", { timeoutMs: 10000 }),
+  saveDeskPrefs: (data) =>
+    request("/api/desk/prefs", {
+      method: "PUT",
+      body: JSON.stringify({ data }),
+      timeoutMs: 10000,
+    }),
+  alertEvents: (since = null, limit = 100) => {
+    const params = new URLSearchParams();
+    if (since) params.set("since", since);
+    params.set("limit", String(limit));
+    return request(`/api/alerts/events?${params}`, { timeoutMs: 10000 });
+  },
+  recordAlertEvents: (events = []) =>
+    request("/api/alerts/events", {
+      method: "POST",
+      body: JSON.stringify({ events }),
+      timeoutMs: 10000,
+    }),
+  runAlertCheck: () =>
+    request("/api/alerts/check", { method: "POST", timeoutMs: 20000 }),
+  signalLedger: () => request("/api/signals/ledger", { timeoutMs: 20000 }),
+  recordSignal: (entry) =>
+    request("/api/signals/ledger", {
+      method: "POST",
+      body: JSON.stringify(entry),
+      timeoutMs: 15000,
+    }),
+  deleteSignal: (id) =>
+    request(`/api/signals/ledger/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      timeoutMs: 10000,
+    }),
+  marketBrief: (date = null) =>
+    request(`/api/market-brief${date ? `?date=${encodeURIComponent(date)}` : ""}`, {
+      timeoutMs: 15000,
+    }),
+  marketBriefArchive: () => request("/api/market-brief/archive", { timeoutMs: 10000 }),
+  runMarketBrief: () =>
+    request("/api/market-brief/run", { method: "POST", timeoutMs: 45000 }),
+  writeMarketBriefNote: (date = null, length = "short") =>
+    request("/api/market-brief/note", {
+      method: "POST",
+      body: JSON.stringify({ ...(date ? { date } : {}), length }),
+      timeoutMs: length === "long" ? 480000 : 200000,
+    }),
+  quotesDiagnostics: () => request("/api/diagnostics/quotes", { timeoutMs: 10000 }),
   listReports: () => request("/api/reports"),
   getReport: (id) => request(`/api/reports/${id}`),
   autocompleteCompanies: (q) =>

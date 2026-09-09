@@ -69,25 +69,29 @@ describe("Sidebar", () => {
 
   it("renders one company list and parks extra markets", () => {
     const wrapper = mountSidebar();
+    const text = wrapper.text();
 
-    expect(wrapper.text()).toContain("Companies");
-    expect(wrapper.text()).toContain("Acme Inc.");
-    expect(wrapper.text()).toContain("NVIDIA");
-    expect(wrapper.text()).toContain("Zeta Labs");
-    expect(wrapper.text()).toContain("Markets");
-    expect(wrapper.text()).toContain("Radar");
-    expect(wrapper.text()).toContain("Pulse");
-    expect(wrapper.text()).toContain("News");
-    expect(wrapper.text()).toContain("Tracking");
-    expect(wrapper.text()).not.toContain("Portfolio");
-    expect(wrapper.text()).not.toContain("Top Players");
-    expect(wrapper.text()).not.toContain("More markets");
-    expect(wrapper.text()).not.toContain("Workbench");
-    expect(wrapper.text()).not.toContain("Stats");
-    expect(wrapper.text()).not.toContain("Pipeline");
-    expect(wrapper.text()).not.toContain("News Board");
-    expect(wrapper.text()).not.toContain("Settings");
-    expect(wrapper.text()).not.toContain("Sign out");
+    expect(text).toContain("Companies");
+    expect(text).toContain("Acme Inc.");
+    expect(text).toContain("NVIDIA");
+    expect(text).toContain("Zeta Labs");
+    expect(text).toContain("Home");
+    expect(text).toContain("Market");
+    expect(text).toContain("Pulse");
+    expect(text).toContain("News");
+    expect(text).toContain("Tracking");
+    expect(text.indexOf("Home")).toBeLessThan(text.indexOf("Market"));
+    expect(text.indexOf("Market")).toBeLessThan(text.indexOf("Pulse"));
+    expect(text.indexOf("Pulse")).toBeLessThan(text.indexOf("News"));
+    expect(text).not.toContain("Portfolio");
+    expect(text).not.toContain("Top Players");
+    expect(text).not.toContain("More markets");
+    expect(text).not.toContain("Workbench");
+    expect(text).not.toContain("Stats");
+    expect(text).not.toContain("Pipeline");
+    expect(text).not.toContain("News Board");
+    expect(text).not.toContain("Settings");
+    expect(text).not.toContain("Sign out");
   });
 
   it("sorts A-Z by default and by views via the sort menu", async () => {

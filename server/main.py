@@ -189,6 +189,15 @@ def _startup() -> None:
         tracking_updates.start_tracking_sync_loop()
     except Exception:  # noqa: BLE001
         logger.exception("Tracking sync startup failed")
+    # Server-side alert engine — opt-in via BSH_ALERT_ENGINE_INTERVAL so
+    # tests and offline runs never poll quote providers.
+    try:
+        from . import alert_engine
+
+        if alert_engine.start_background_engine():
+            logger.info("Market alert engine started.")
+    except Exception:  # noqa: BLE001
+        logger.exception("Alert engine startup failed")
     # Warm the autocomplete indexes (SEC EDGAR fetch + deep-search cache scan)
     # off the request path so the first keystrokes aren't slow.
     try:

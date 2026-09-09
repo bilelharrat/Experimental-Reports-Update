@@ -1,10 +1,16 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { Activity, BarChart3, Bell, Database, FlaskConical, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sun, SunMoon } from "lucide-vue-next";
+import { Activity, BarChart3, Bell, Database, Download, FlaskConical, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sun, SunMoon, Upload } from "lucide-vue-next";
 import { api } from "../api.js";
 import AiMark from "../components/AiMark.vue";
 import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
+import {
+  applyDeskState,
+  DESK_KEYS,
+  scheduleDeskSync,
+  snapshotDeskState,
+} from "../deskSync.js";
 import { accountInitials } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage, setAppLanguage } from "../state.js";
@@ -20,6 +26,10 @@ const regeneratingAll = ref(false);
 const refreshingStockViews = ref(false);
 const operationsMessage = ref("");
 const operationsError = ref("");
+const deskMessage = ref("");
+const deskError = ref("");
+const deskBusy = ref(false);
+const fileInput = ref(null);
 
 const prefs = computed(() => settings.value?.preferences || {});
 // Parallel memo-run cap options (News/Updates auto-runs keep their own
@@ -123,6 +133,76 @@ function appearanceIcon(value) {
   if (value === "light") return Sun;
   if (value === "dark") return Moon;
   return SunMoon;
+}
+
+async function exportDeskState() {
+  deskBusy.value = true;
+  deskError.value = "";
+  deskMessage.value = "";
+  try {
+    let data = snapshotDeskState();
+    try {
+      const remote = await api.deskPrefs();
+      if (remote?.data && typeof remote.data === "object") {
+        data = { ...remote.data, ...data };
+      }
+    } catch {
+      // Local snapshot is enough when the server is offline.
+    }
+    const blob = new Blob(
+      [JSON.stringify({ schema: "bsh.marketDesk.v1", exported_at: new Date().toISOString(), data }, null, 2)],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `bsh-desk-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    deskMessage.value = t("settings.desk_export_done", { n: Object.keys(data).length });
+  } catch (e) {
+    deskError.value = e?.message || t("settings.desk_export_failed");
+  } finally {
+    deskBusy.value = false;
+  }
+}
+
+function triggerDeskImport() {
+  fileInput.value?.click();
+}
+
+async function importDeskState(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  deskBusy.value = true;
+  deskError.value = "";
+  deskMessage.value = "";
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const data =
+      payload?.data && typeof payload.data === "object"
+        ? payload.data
+        : payload && typeof payload === "object"
+          ? payload
+          : null;
+    if (!data) throw new Error(t("settings.desk_import_invalid"));
+    const known = Object.keys(data).filter((key) => DESK_KEYS.includes(key));
+    if (!known.length) throw new Error(t("settings.desk_import_empty"));
+    applyDeskState(data, { overwrite: true });
+    scheduleDeskSync();
+    try {
+      await api.saveDeskPrefs(snapshotDeskState());
+    } catch {
+      // Local write succeeded; sync will retry later.
+    }
+    deskMessage.value = t("settings.desk_import_done", { n: known.length });
+  } catch (e) {
+    deskError.value = e?.message || t("settings.desk_import_failed");
+  } finally {
+    deskBusy.value = false;
+    if (event?.target) event.target.value = "";
+  }
 }
 </script>
 
@@ -393,6 +473,43 @@ function appearanceIcon(value) {
             {{ t("sidebar.markets_labs") }}
           </RouterLink>
         </div>
+      </section>
+
+      <section class="rounded-card bg-surface p-5 shadow-card lg:col-span-2">
+        <h2 class="font-display text-title3 text-ink-primary">
+          {{ t("settings.desk_backup") }}
+        </h2>
+        <p class="mt-1 text-footnote text-ink-muted">{{ t("settings.desk_backup_help") }}</p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="btn-bordered focus-ring"
+            :disabled="deskBusy"
+            @click="exportDeskState"
+          >
+            <Loader2 v-if="deskBusy" class="h-4 w-4 animate-spin" />
+            <Download v-else class="h-4 w-4" />
+            {{ t("settings.desk_export") }}
+          </button>
+          <button
+            type="button"
+            class="btn-bordered focus-ring"
+            :disabled="deskBusy"
+            @click="triggerDeskImport"
+          >
+            <Upload class="h-4 w-4" />
+            {{ t("settings.desk_import") }}
+          </button>
+          <input
+            ref="fileInput"
+            type="file"
+            accept="application/json,.json"
+            class="hidden"
+            @change="importDeskState"
+          />
+        </div>
+        <p v-if="deskMessage" class="mt-2 text-footnote text-ink-muted">{{ deskMessage }}</p>
+        <p v-if="deskError" class="mt-2 text-footnote text-danger">{{ deskError }}</p>
       </section>
 
       <section class="rounded-card bg-surface p-5 shadow-card lg:col-span-2">

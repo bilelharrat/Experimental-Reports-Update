@@ -1420,3 +1420,493 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   box-shadow: inset 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.7);
 }
 
+/* Markets board — Yahoo Finance–style summary + movers table. */
+.yf-page {
+  @apply w-full px-5 py-6 md:px-8 md:py-8;
+}
+
+.yf-search {
+  @apply relative w-full max-w-md;
+}
+
+.yf-search-icon {
+  @apply pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted;
+}
+
+.yf-search-input {
+  @apply w-full rounded-pill border-0 bg-fill py-2.5 pl-9 pr-4 text-callout text-ink-primary;
+  box-shadow: 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
+}
+
+.yf-search-menu {
+  @apply absolute z-20 mt-1.5 w-full overflow-hidden rounded-[12px] bg-surface py-1;
+  box-shadow:
+    0 8px 28px rgb(0 0 0 / 0.12),
+    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
+}
+
+.yf-search-item {
+  @apply flex w-full items-center justify-between gap-3 px-3 py-2 text-left;
+}
+
+.yf-search-item:hover {
+  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+}
+
+.yf-index-scroller {
+  @apply flex gap-3 overflow-x-auto pb-1;
+  scrollbar-width: none;
+}
+
+.yf-index-scroller .yf-index-card {
+  @apply min-w-[9.75rem] shrink-0;
+}
+
+.yf-index-grid {
+  @apply grid gap-3 sm:grid-cols-2 xl:grid-cols-4;
+}
+
+.yf-index-card {
+  @apply rounded-[12px] bg-surface px-4 py-3 text-left;
+  box-shadow: 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.yf-index-card:hover,
+.yf-index-card[data-selected="true"] {
+  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+}
+
+.yf-range {
+  @apply flex flex-wrap gap-1;
+}
+
+.yf-range-item {
+  @apply rounded-pill px-2.5 py-1 text-caption1 font-semibold text-ink-muted;
+}
+
+.yf-range-item:hover,
+.yf-range-item[data-selected="true"] {
+  background-color: rgb(var(--color-fill-tertiary));
+  color: rgb(var(--color-text-primary));
+}
+
+.yf-range-bar {
+  @apply relative h-1.5 overflow-visible rounded-full bg-fill;
+}
+
+.yf-range-bar-fill {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 999px;
+  background: rgb(var(--color-text-primary));
+  transform: translateY(-50%);
+}
+
+.yf-stats {
+  @apply grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3;
+}
+
+.yf-stat dt {
+  @apply text-caption1 text-ink-muted;
+}
+
+.yf-stat dd {
+  @apply mt-0.5 text-callout font-semibold tabular text-ink-primary;
+}
+
+.yf-chart {
+  @apply relative;
+}
+
+.yf-chart-tools {
+  @apply mb-2 flex flex-wrap gap-1;
+}
+
+.yf-chart-svg {
+  @apply h-[220px] w-full;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.yf-chart[data-tall="true"] .yf-chart-svg {
+  @apply h-[380px];
+}
+
+.yf-chart-pane {
+  @apply mt-1 h-[72px] w-full;
+}
+
+.yf-workspace {
+  @apply pt-2;
+}
+
+.yf-fin-scroll {
+  @apply overflow-x-auto;
+}
+
+.yf-fin-table {
+  @apply w-full min-w-[36rem] text-left text-caption1 tabular text-ink-primary;
+}
+
+.yf-fin-table th,
+.yf-fin-table td {
+  @apply whitespace-nowrap px-2 py-1.5;
+}
+
+.yf-fin-table thead th {
+  @apply font-semibold text-ink-muted;
+}
+
+.yf-fin-table tbody th {
+  @apply font-medium text-ink-secondary;
+}
+
+.yf-fin-table tbody tr[data-section="true"] th {
+  @apply pt-3 font-semibold uppercase tracking-[0.04em] text-ink-muted;
+}
+
+.yf-chart-tip {
+  @apply mt-2 text-center text-callout font-medium tabular text-ink-primary;
+}
+
+.yf-chart-hint {
+  @apply mt-2 text-center text-footnote text-ink-secondary;
+}
+
+.yf-chart-readout {
+  @apply mt-2 text-center;
+}
+
+.yf-chart-readout-delta {
+  @apply text-title3 font-semibold tabular;
+}
+
+.yf-chart-readout-delta[data-up="true"] {
+  color: rgb(var(--color-success));
+}
+
+.yf-chart-readout-delta[data-up="false"] {
+  color: rgb(var(--color-danger));
+}
+
+.yf-chart-readout-span {
+  @apply mt-1 text-callout font-medium tabular text-ink-primary;
+}
+
+.yf-chart-readout-range {
+  @apply mt-0.5 text-footnote font-medium tabular text-ink-secondary;
+}
+
+.yf-tab-count {
+  margin-left: 0.3rem;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--color-text-muted));
+  font-weight: 500;
+}
+
+.yf-table-head {
+  @apply grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] gap-3 px-4 pb-2 pt-3 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted;
+}
+
+.yf-table-row {
+  @apply grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-center gap-3 px-4 py-3 text-left;
+  box-shadow: inset 0 0.5px 0 rgb(var(--color-border-subtle) / 0.7);
+}
+
+.yf-table-head-wide,
+.yf-table-row-wide {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 0.7fr) minmax(0, 0.7fr);
+}
+
+.yf-table-row:hover,
+.yf-table-row[data-selected="true"] {
+  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+}
+
+.yf-screener-filters {
+  @apply grid gap-2 sm:grid-cols-2 lg:grid-cols-5;
+}
+
+.yf-screener-field {
+  @apply flex flex-col gap-1 text-caption1 font-medium text-ink-muted;
+}
+
+.yf-screener-field select,
+.yf-screener-field input {
+  @apply rounded-md px-2 py-1.5 text-callout text-ink-primary;
+  border: 0.5px solid rgb(var(--color-border-subtle));
+  background: rgb(var(--color-fill-secondary));
+}
+
+.yf-screener-field-wide {
+  @apply sm:col-span-2 lg:col-span-1;
+}
+
+.yf-table-head-flex,
+.yf-table-row.yf-table-head-flex {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.yf-heat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.yf-heat-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, rgb(var(--color-success)) calc((var(--heat, 0) + 1) * 18%), rgb(var(--color-danger)) calc((1 - var(--heat, 0)) * 18%));
+  text-align: left;
+}
+
+.yf-heat-name {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgb(var(--color-text-secondary));
+}
+
+.yf-heat-avg {
+  font-weight: 650;
+}
+
+.yf-heat-count {
+  font-size: 0.65rem;
+  color: rgb(var(--color-text-muted));
+}
+
+.yf-rrg {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.yf-rrg-svg {
+  width: 220px;
+  height: 220px;
+  border-radius: 12px;
+  background: rgb(var(--color-fill-secondary));
+}
+
+.yf-rrg-label {
+  font-size: 9px;
+  fill: rgb(var(--color-text-secondary));
+}
+
+.yf-rrg-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+}
+
+.yf-rrg-hit {
+  cursor: pointer;
+}
+
+.yf-profile {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  max-height: 96px;
+  margin-top: 0.35rem;
+  padding: 0.25rem 0;
+}
+
+.yf-profile-row {
+  display: flex;
+  align-items: center;
+  min-height: 3px;
+}
+
+.yf-profile-bar {
+  display: block;
+  height: 3px;
+  border-radius: 1px;
+  background: rgb(var(--color-accent) / 0.55);
+}
+
+.yf-breadth {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  background: rgb(var(--color-fill-secondary));
+  font-size: 0.78rem;
+}
+
+.yf-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.yf-week-day {
+  min-height: 88px;
+  padding: 0.45rem;
+  border-radius: 10px;
+  background: rgb(var(--color-fill-secondary));
+}
+
+.yf-week-day-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgb(var(--color-text-muted));
+}
+
+.yf-ladder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.yf-ladder-cell {
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: rgb(var(--color-fill-secondary));
+}
+
+.yf-gap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  font-size: 0.78rem;
+}
+
+.yf-kb-hint {
+  font-size: 0.68rem;
+  color: rgb(var(--color-text-muted));
+}
+
+.yf-research-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.yf-alert-hist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 0.75rem;
+}
+
+.yf-season {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 0.35rem;
+  align-items: end;
+  min-height: 72px;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.25rem 0;
+}
+
+.yf-season-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  min-height: 64px;
+}
+
+.yf-season-bar {
+  width: 70%;
+  max-width: 14px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: rgb(var(--color-danger) / 0.75);
+}
+
+.yf-season-bar[data-up="true"] {
+  background: rgb(var(--color-success) / 0.75);
+}
+
+.yf-season-label {
+  font-size: 0.62rem;
+  color: rgb(var(--color-text-muted));
+}
+
+.yf-earn-strip {
+  padding-top: 0.25rem;
+}
+
+[data-focus="true"] {
+  outline: 1.5px solid rgb(var(--color-accent) / 0.55);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.yf-cmd-backdrop {
+  @apply fixed inset-0 z-[80] flex items-start justify-center bg-black/35 px-4 pt-[12vh];
+}
+
+.yf-cmd-panel {
+  @apply w-full max-w-xl overflow-hidden rounded-[14px] bg-surface shadow-lg;
+  box-shadow:
+    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.7),
+    0 24px 64px rgb(0 0 0 / 0.28);
+}
+
+.yf-cmd-input-wrap {
+  @apply flex items-center gap-2 border-b px-3 py-3;
+  border-color: rgb(var(--color-border-subtle) / 0.7);
+}
+
+.yf-cmd-input {
+  @apply min-w-0 flex-1 border-0 bg-transparent text-headline text-ink-primary outline-none;
+}
+
+.yf-cmd-kbd {
+  @apply rounded-md px-1.5 py-0.5 text-caption1 uppercase text-ink-muted;
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.85);
+}
+
+.yf-cmd-list {
+  @apply max-h-[22rem] overflow-y-auto py-1;
+}
+
+.yf-cmd-item {
+  @apply flex w-full items-center px-3 py-2.5 text-left;
+}
+
+.yf-cmd-item[data-active="true"] {
+  background: rgb(var(--color-fill-tertiary) / 0.8);
+}
+
+.yf-cmd-hint {
+  @apply border-t px-3 py-2 text-caption1 text-ink-muted;
+  border-color: rgb(var(--color-border-subtle) / 0.7);
+}
+
+.yf-spark {
+  @apply inline-block align-middle;
+  width: 4.5rem;
+  height: 1.4rem;
+}
+
+.yf-comp-table th:first-child,
+.yf-comp-table td:first-child {
+  @apply sticky left-0 bg-surface;
+}
+

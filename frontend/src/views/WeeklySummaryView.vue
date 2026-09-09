@@ -1,126 +1,66 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { RouterLink, useRouter } from "vue-router";
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
   CalendarClock,
   ExternalLink,
   Flame,
-  Gauge,
   Loader2,
   RefreshCw,
+  TrendingDown,
   TrendingUp,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { indexQuoteCards } from "../homeDesk.js";
+import { lastPriceLabel, signedChange } from "../liveTicker.js";
+import {
+  PULSE_INDEX_TICKERS,
+  calendarWeekBuckets,
+  changedSinceSlice,
+  ledgerHitStats,
+  macroTapeRows,
+  marketBreadthFromUniverse,
+  postureFromBreadth,
+  pulseQuoteUniverse,
+  rankedSignalSlice,
+  screenerMoverLists,
+  sectorRotationRows,
+} from "../marketPulseDesk.js";
 import { appLanguage } from "../state.js";
+import { useLiveQuotes } from "../useLiveQuotes.js";
+import { useT } from "../i18n.js";
 
-const UI = {
-  en: {
-    back: "Home",
-    title: "Weekly Summary",
-    fallbackPulse: "Refresh to research the hottest stocks for the current trading week.",
-    prompt: "Prompt",
-    promptTitle: "Weekly stock research prompt",
-    refresh: "Refresh",
-    loading: "Loading weekly summary…",
-    emptyTitle: "No weekly summary yet",
-    emptyBody: "Start a refresh to research the current week's hottest stocks and build the dashboard.",
-    leadSetup: "Lead setup",
-    weeklyMarketPulse: "Weekly market pulse",
-    score: "Score",
-    weeklyMove: "Weekly move",
-    relativeVolume: "Relative volume",
-    marketCap: "Market cap",
-    dashboardPulse: "Dashboard pulse",
-    sectorHeat: "Sector heat",
-    heat: "Heat",
-    oneWeek: "1W",
-    relVol: "Rel vol",
-    rs: "RS",
-    watchlist: "Watchlist",
-    sources: "Sources",
-    notGenerated: "Not generated",
-    na: "n/a",
-    startStatus: "Starting weekly research",
-    waitingStatus: "Waiting for the updated summary",
-    loadError: "Could not load weekly summary.",
-    startError: "Could not start weekly research.",
-    failed: "Weekly research failed.",
-    streamStalled: "Weekly research stream stalled. Checking for the updated summary.",
-    noChange: "Refresh finished, but the weekly summary did not change.",
-    lastFailed: "Last refresh failed",
-    updated: "Updated",
-    progressTitle: "Refresh progress",
-    candidates: "Candidates",
-    completed: "Completed",
-    skipped: "Skipped",
-    building: "Building",
-    published: "Published",
-    scanFallbackNotice:
-      "The live market scan failed for this refresh. This dashboard was seeded from a static watchlist — rankings and narratives are unverified.",
-    unverifiedCard: "Unverified — scan result only",
-    syntheticSparkline: "Illustrative shape, not real prices",
-  },
-  zh: {
-    back: "首页",
-    title: "每周股票摘要",
-    fallbackPulse: "刷新后生成本周高关注股票研究与仪表盘。",
-    prompt: "提示词",
-    promptTitle: "每周股票研究提示词",
-    refresh: "刷新",
-    loading: "正在加载每周股票摘要…",
-    emptyTitle: "暂无每周股票摘要",
-    emptyBody: "点击刷新，研究本周高关注股票并生成仪表盘。",
-    leadSetup: "首选机会",
-    weeklyMarketPulse: "本周市场概况",
-    score: "评分",
-    weeklyMove: "本周涨跌幅",
-    relativeVolume: "相对成交量",
-    marketCap: "市值",
-    dashboardPulse: "核心指标",
-    sectorHeat: "板块热度",
-    heat: "热度",
-    oneWeek: "1周",
-    relVol: "相对成交量",
-    rs: "相对强度",
-    watchlist: "观察名单",
-    sources: "来源",
-    notGenerated: "暂未生成",
-    na: "N/A",
-    startStatus: "正在启动每周研究",
-    waitingStatus: "正在等待更新后的摘要",
-    loadError: "无法加载每周股票摘要。",
-    startError: "无法启动每周研究。",
-    failed: "每周研究失败。",
-    streamStalled: "每周研究进度已中断。正在检查更新后的摘要。",
-    noChange: "刷新已完成，每周股票摘要没有变化。",
-    lastFailed: "上次刷新失败",
-    updated: "已更新",
-    progressTitle: "刷新进度",
-    candidates: "候选",
-    completed: "已完成",
-    skipped: "已跳过",
-    building: "正在生成",
-    published: "已发布",
-    scanFallbackNotice:
-      "本次刷新的实时市场扫描失败，内容来自静态备用观察名单——排名与叙述均未经验证。",
-    unverifiedCard: "未经验证——仅为扫描结果",
-    syntheticSparkline: "示意图形，非真实价格",
-  },
-};
+const t = useT();
+const router = useRouter();
 
 const loading = ref(true);
 const refreshing = ref(false);
+const marketLoading = ref(true);
 const error = ref(null);
 const payload = ref(null);
 const refreshDraft = ref(null);
 const liveStatus = ref("");
 const expandedPrompt = ref(false);
 const viewLang = ref(appLanguage.value);
+const screeners = ref({ gainers: [], losers: [], active: [], universe: [], sectors: [] });
+const calendar = ref({ events: [] });
+const signalsPayload = ref(null);
+const brief = ref(null);
+const briefDates = ref([]);
+const briefDate = ref("");
+const briefRunning = ref(false);
+const briefError = ref("");
+const noteWriting = ref(false);
+const noteLength = ref("short");
+const ledger = ref([]);
 let activeStream = null;
 let streamIdleTimer = null;
 let activeRefreshContext = null;
+
+const quoteTickers = computed(() => pulseQuoteUniverse());
+const { quotes } = useLiveQuotes(quoteTickers);
 
 const summary = computed(() => {
   const data = payload.value?.summary || null;
@@ -141,7 +81,6 @@ const prompt = computed(() => {
 });
 const stocks = computed(() => summary.value?.stocks || []);
 const sourceList = computed(() => summary.value?.sources || []);
-const leader = computed(() => stocks.value[0] || null);
 const draftCandidates = computed(() => refreshDraft.value?.candidates || []);
 const draftStocks = computed(() => refreshDraft.value?.stocks || []);
 const draftErrors = computed(() => refreshDraft.value?.errors || []);
@@ -154,10 +93,25 @@ const draftTotal = computed(
 const sectorMax = computed(() =>
   Math.max(1, ...(summary.value?.sector_mix || []).map((s) => s.count || 0)),
 );
-const ui = computed(() => UI[viewLang.value] || UI.en);
 const weekLabel = computed(() => pick(summary.value, "week_label"));
 const marketPulse = computed(() => pick(summary.value, "market_pulse"));
 const benchmarkContext = computed(() => pick(summary.value, "benchmark_context"));
+
+const indexCards = computed(() => indexQuoteCards(quotes.value, PULSE_INDEX_TICKERS));
+const sectorRows = computed(() => sectorRotationRows(quotes.value));
+const macroRows = computed(() => macroTapeRows(quotes.value));
+const breadth = computed(() => marketBreadthFromUniverse(screeners.value.universe || []));
+const movers = computed(() => screenerMoverLists(screeners.value, 10));
+const spyChange = computed(() => {
+  const change = Number(quotes.value?.SPY?.change_pct_1d);
+  return Number.isFinite(change) ? change : null;
+});
+const posture = computed(() => postureFromBreadth(breadth.value, spyChange.value));
+const weekCalendar = computed(() => calendarWeekBuckets(calendar.value?.events || []));
+const signalRows = computed(() => rankedSignalSlice(signalsPayload.value, 10));
+const changedSince = computed(() => changedSinceSlice(signalsPayload.value));
+const regime = computed(() => signalsPayload.value?.sections?.market_regime || {});
+const ledgerStats = computed(() => ledgerHitStats(ledger.value));
 
 watch(appLanguage, (lang) => {
   viewLang.value = lang;
@@ -195,9 +149,30 @@ async function loadSummary() {
     refreshDraft.value = payload.value?.draft || null;
     applyRefreshState(payload.value?.refresh_state);
   } catch (e) {
-    error.value = e?.message || ui.value.loadError;
+    error.value = e?.message || t("pulse.load_error");
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadMarketDesk() {
+  marketLoading.value = true;
+  try {
+    const [screenerPayload, signalPayload] = await Promise.all([
+      api.quoteScreeners().catch(() => ({ gainers: [], losers: [], active: [], universe: [] })),
+      api.researchPages.marketPulse().catch(() => null),
+    ]);
+    screeners.value = screenerPayload || { gainers: [], losers: [], active: [], universe: [] };
+    signalsPayload.value = signalPayload;
+    const hot = [
+      ...pulseQuoteUniverse().slice(0, 24),
+      ...(stocks.value || []).map((row) => row.ticker),
+      ...(screenerPayload?.gainers || []).slice(0, 8).map((row) => row.ticker),
+      ...(screenerPayload?.losers || []).slice(0, 8).map((row) => row.ticker),
+    ].filter(Boolean);
+    calendar.value = await api.quoteCalendar(hot).catch(() => ({ events: [] }));
+  } finally {
+    marketLoading.value = false;
   }
 }
 
@@ -208,12 +183,85 @@ function applyRefreshState(state) {
   if (Date.now() - lastEventAt > 30 * 60 * 1000) return;
   const generatedAt = Date.parse(summary.value?.generated_at || "");
   if (!Number.isNaN(generatedAt) && generatedAt >= lastEventAt - 2000) return;
-  error.value = `${ui.value.lastFailed}: ${state.error || ui.value.failed}`;
+  error.value = `${t("pulse.last_failed")}: ${state.error || t("pulse.failed")}`;
 }
 
 async function initializeWeeklySummary() {
-  await loadSummary();
+  await Promise.all([loadSummary(), loadMarketDesk(), loadBrief(), loadLedger()]);
   await attachActiveWeeklyRefresh();
+}
+
+async function loadBrief(date = null) {
+  briefError.value = "";
+  try {
+    const [archive, latest] = await Promise.all([
+      api.marketBriefArchive().catch(() => ({ dates: [] })),
+      api.marketBrief(date).catch(() => null),
+    ]);
+    briefDates.value = archive?.dates || [];
+    brief.value = latest;
+    briefDate.value = latest?.date || "";
+  } catch {
+    briefDates.value = [];
+    brief.value = null;
+  }
+}
+
+async function runBrief() {
+  if (briefRunning.value) return;
+  briefRunning.value = true;
+  briefError.value = "";
+  try {
+    brief.value = await api.runMarketBrief();
+    briefDate.value = brief.value?.date || "";
+    const archive = await api.marketBriefArchive().catch(() => null);
+    if (archive?.dates) briefDates.value = archive.dates;
+  } catch (e) {
+    briefError.value = e?.message || t("pulse.brief_run_error");
+  } finally {
+    briefRunning.value = false;
+  }
+}
+
+async function writeBriefNote() {
+  if (noteWriting.value || !brief.value) return;
+  noteWriting.value = true;
+  briefError.value = "";
+  try {
+    brief.value = await api.writeMarketBriefNote(brief.value.date, noteLength.value);
+  } catch (e) {
+    briefError.value = e?.message || t("pulse.note_error");
+  } finally {
+    noteWriting.value = false;
+  }
+}
+
+async function selectBriefDate(date) {
+  if (!date || date === brief.value?.date) return;
+  try {
+    brief.value = await api.marketBrief(date);
+    briefDate.value = date;
+  } catch {
+    briefError.value = t("pulse.brief_load_error");
+  }
+}
+
+async function loadLedger() {
+  try {
+    const payload = await api.signalLedger();
+    ledger.value = payload?.entries || [];
+  } catch {
+    ledger.value = [];
+  }
+}
+
+async function dropLedgerEntry(id) {
+  try {
+    await api.deleteSignal(id);
+  } catch {
+    return;
+  }
+  await loadLedger();
 }
 
 async function attachActiveWeeklyRefresh() {
@@ -250,7 +298,7 @@ function activeJobStatus(job) {
     return `${action.tool}: ${(action.preview || "").slice(0, 90)}`;
   }
   if (action.preview) return String(action.preview).slice(0, 90);
-  return ui.value.waitingStatus;
+  return t("pulse.waiting_status");
 }
 
 async function refreshSummary({ force = false } = {}) {
@@ -270,7 +318,7 @@ async function refreshSummary({ force = false } = {}) {
   activeRefreshContext = context;
   refreshing.value = true;
   error.value = null;
-  liveStatus.value = ui.value.startStatus;
+  liveStatus.value = t("pulse.start_status");
   try {
     await api.weeklyStocks.refresh({ force });
     openStream(context);
@@ -278,7 +326,7 @@ async function refreshSummary({ force = false } = {}) {
     activeRefreshContext = null;
     refreshing.value = false;
     liveStatus.value = "";
-    error.value = e?.message || ui.value.startError;
+    error.value = e?.message || t("pulse.start_error");
   }
 }
 
@@ -298,7 +346,7 @@ function openStream(context) {
     }
     if (!isFreshEvent(entry, context)) {
       if (entry.type === "done" || entry.type === "error") {
-        liveStatus.value = ui.value.waitingStatus;
+        liveStatus.value = t("pulse.waiting_status");
       }
       return;
     }
@@ -317,16 +365,17 @@ function openStream(context) {
           ...(payload.value || {}),
           summary: entry.summary,
         };
+        loadMarketDesk();
       } else {
         await finishRefreshFromPolling(context);
       }
     } else if (entry.type === "error") {
-      settleRefresh(context, entry.error || ui.value.failed);
+      settleRefresh(context, entry.error || t("pulse.failed"));
     }
   };
   es.onerror = async () => {
     if (activeStream !== es || !refreshing.value || context.settled) return;
-    liveStatus.value = ui.value.streamStalled;
+    liveStatus.value = t("pulse.stream_stalled");
     await finishRefreshFromPolling(context);
   };
 }
@@ -342,7 +391,7 @@ function applyDraftEvent(entry) {
       errors: [],
       total_count: entry.total_count || (entry.candidates || []).length,
     };
-    liveStatus.value = entry.message || ui.value.candidates;
+    liveStatus.value = entry.message || t("pulse.candidates");
     return true;
   }
   if (entry.type === "stock_started") {
@@ -354,7 +403,7 @@ function applyDraftEvent(entry) {
       index: entry.index,
       total_count: entry.total_count || draftTotal.value,
     };
-    liveStatus.value = `${ui.value.building} ${entry.ticker || ""}`.trim();
+    liveStatus.value = `${t("pulse.building")} ${entry.ticker || ""}`.trim();
     return true;
   }
   if (entry.type === "stock_done") {
@@ -370,7 +419,7 @@ function applyDraftEvent(entry) {
       index: entry.index,
       total_count: entry.total_count || current.total_count || nextStocks.length,
     };
-    liveStatus.value = entry.message || `${ui.value.completed} ${entry.ticker || ""}`.trim();
+    liveStatus.value = entry.message || `${t("pulse.completed")} ${entry.ticker || ""}`.trim();
     return true;
   }
   if (entry.type === "stock_error") {
@@ -390,7 +439,7 @@ function applyDraftEvent(entry) {
       index: entry.index,
       total_count: entry.total_count || current.total_count,
     };
-    liveStatus.value = entry.message || `${ui.value.skipped} ${entry.ticker || ""}`.trim();
+    liveStatus.value = entry.message || `${t("pulse.skipped")} ${entry.ticker || ""}`.trim();
     return true;
   }
   if (entry.type === "publish_done") {
@@ -402,7 +451,7 @@ function applyDraftEvent(entry) {
       skipped_count: entry.skipped_count,
       summary_generated_at: entry.generated_at,
     };
-    liveStatus.value = entry.message || ui.value.published;
+    liveStatus.value = entry.message || t("pulse.published");
     return true;
   }
   return false;
@@ -444,7 +493,7 @@ function armStreamIdleTimer(context) {
   if (streamIdleTimer) window.clearTimeout(streamIdleTimer);
   streamIdleTimer = window.setTimeout(() => {
     if (context?.settled) return;
-    liveStatus.value = ui.value.streamStalled;
+    liveStatus.value = t("pulse.stream_stalled");
     finishRefreshFromPolling(context);
   }, 120000);
 }
@@ -465,15 +514,16 @@ function settleRefresh(context, message = "") {
 async function finishRefreshFromPolling(context) {
   if (!context || context.settled || activeRefreshContext !== context) return;
   closeStream();
-  liveStatus.value = ui.value.waitingStatus;
+  liveStatus.value = t("pulse.waiting_status");
   try {
     const updated = await waitForUpdatedSummary(context);
     if (context.settled || activeRefreshContext !== context) return;
     payload.value = updated;
     settleRefresh(context);
+    loadMarketDesk();
   } catch (e) {
     if (context.settled || activeRefreshContext !== context) return;
-    settleRefresh(context, e?.message || ui.value.noChange);
+    settleRefresh(context, e?.message || t("pulse.no_change"));
   }
 }
 
@@ -487,7 +537,7 @@ async function waitForUpdatedSummary(context) {
     }
     await sleep(3000);
   }
-  throw new Error(ui.value.noChange);
+  throw new Error(t("pulse.no_change"));
 }
 
 function sleep(ms) {
@@ -525,18 +575,18 @@ function summaryFingerprint(value) {
 }
 
 function fmtPct(value) {
-  if (value == null || Number.isNaN(Number(value))) return ui.value.na;
+  if (value == null || Number.isNaN(Number(value))) return t("pulse.na");
   const n = Number(value);
   return `${n > 0 ? "+" : ""}${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}%`;
 }
 
 function fmtMultiple(value) {
-  if (value == null || Number.isNaN(Number(value))) return ui.value.na;
+  if (value == null || Number.isNaN(Number(value))) return t("pulse.na");
   return `${Number(value).toFixed(1)}x`;
 }
 
 function fmtUsd(value) {
-  if (value == null || Number.isNaN(Number(value))) return ui.value.na;
+  if (value == null || Number.isNaN(Number(value))) return t("pulse.na");
   const n = Number(value);
   if (n >= 1_000_000_000_000) return `$${(n / 1_000_000_000_000).toFixed(1)}T`;
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
@@ -551,39 +601,44 @@ function scoreTone(score, unverified = false) {
   return "text-ink-secondary";
 }
 
-function scoreRing(score, unverified = false) {
-  const clamped = Math.max(0, Math.min(100, Number(score) || 0));
-  const tone = unverified
-    ? "rgb(var(--color-fill-secondary))"
-    : "rgb(var(--color-success))";
-  return {
-    background: `conic-gradient(${tone} ${clamped * 3.6}deg, rgb(var(--color-surface-muted)) 0deg)`,
-  };
+function changeClass(change) {
+  if (!Number.isFinite(Number(change))) return "text-ink-muted";
+  return Number(change) >= 0 ? "text-success-ink" : "text-danger-ink";
 }
 
-function sparklinePoints(points) {
-  if (!Array.isArray(points) || points.length < 2) return "";
-  return points
-    .map((p, i) => {
-      const x = (i / (points.length - 1)) * 100;
-      const y = 48 - (Math.max(0, Math.min(100, Number(p.value) || 0)) / 100) * 42;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
+function quotePrice(ticker) {
+  return lastPriceLabel(quotes.value?.[ticker] || null);
+}
+
+function quoteChange(ticker) {
+  return signedChange(quotes.value?.[ticker] || null);
+}
+
+function openTicker(ticker) {
+  const symbol = String(ticker || "").trim().toUpperCase();
+  if (!symbol) return;
+  router.push({ name: "market-radar", query: { ticker: symbol } });
 }
 
 function refreshedAtLabel(iso) {
-  if (!iso) return ui.value.notGenerated;
+  if (!iso) return t("pulse.not_generated");
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(viewLang.value === "zh" ? "zh-CN" : "en-US");
 }
 
+function moverChange(row) {
+  const change = Number(row?.change_pct_1d ?? row?.change);
+  return Number.isFinite(change) ? change : null;
+}
+
+function moverLast(row) {
+  const last = Number(row?.last_price ?? row?.last);
+  return Number.isFinite(last) ? last : null;
+}
+
 onMounted(initializeWeeklySummary);
 onBeforeUnmount(() => {
-  // Settle the active context, not just the stream: the fallback poll loop
-  // in waitForUpdatedSummary spins on `!context.settled` and would keep
-  // hitting the API every 3s for up to 15 minutes after navigation.
   if (activeRefreshContext) {
     activeRefreshContext.settled = true;
     activeRefreshContext = null;
@@ -593,68 +648,69 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto px-6 lg:px-8 py-8">
-    <header class="flex flex-col gap-4 border-b border-subtle pb-5 lg:flex-row lg:items-start lg:justify-between">
-      <div class="min-w-0">
-        <div class="flex flex-wrap items-center gap-3">
-          <h1 class="font-display text-large-title text-ink-primary">
-            {{ ui.title }}
-          </h1>
+  <div class="w-full px-4 py-6 lg:px-6">
+    <header class="mb-4 flex flex-col gap-3 border-b border-subtle/70 pb-4 lg:flex-row lg:items-end lg:justify-between">
+      <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-2">
+          <h1 class="font-display text-title2 text-ink-primary">{{ t("pulse.title") }}</h1>
           <span
             v-if="weekLabel"
-            class="inline-flex items-center gap-1.5 rounded-full border border-subtle bg-surface px-2.5 py-1 text-xs text-ink-secondary"
+            class="inline-flex items-center gap-1.5 rounded-subbox border border-subtle px-2 py-0.5 text-caption1 text-ink-secondary"
           >
             <CalendarClock class="h-3.5 w-3.5" />
             {{ weekLabel }}
           </span>
           <span
             v-if="summary?.generated_at"
-            class="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2.5 py-1 text-xs text-accent-ink"
+            class="text-caption1 text-ink-muted"
           >
-            <RefreshCw class="h-3.5 w-3.5" />
-            {{ ui.updated }} {{ refreshedAtLabel(summary.generated_at) }}
+            {{ t("pulse.updated") }} {{ refreshedAtLabel(summary.generated_at) }}
           </span>
         </div>
-        <p v-if="!summary?.scan_fallback" class="mt-2 max-w-3xl text-sm text-ink-secondary">
-          {{ marketPulse || ui.fallbackPulse }}
+        <p class="mt-1 max-w-4xl text-callout text-ink-secondary">
+          {{ marketPulse || t("pulse.subtitle") }}
         </p>
       </div>
-
       <div class="flex flex-wrap items-center gap-2">
+        <RouterLink class="btn-bordered focus-ring" :to="{ name: 'market-radar' }">
+          {{ t("pulse.open_market") }}
+        </RouterLink>
+        <RouterLink class="btn-bordered focus-ring" :to="{ name: 'research-page-market-pulse' }">
+          {{ t("pulse.open_signals") }}
+        </RouterLink>
         <button
           type="button"
-          @click="expandedPrompt = !expandedPrompt"
           class="btn-bordered focus-ring"
+          @click="expandedPrompt = !expandedPrompt"
         >
-          <BarChart3 class="h-4 w-4" />
-          {{ ui.prompt }}
+          {{ t("pulse.prompt") }}
         </button>
         <button
           type="button"
-          @click="refreshSummary({ force: true })"
-          :disabled="refreshing"
           class="btn-filled focus-ring"
+          :disabled="refreshing"
+          @click="refreshSummary({ force: true })"
         >
           <Loader2 v-if="refreshing" class="h-4 w-4 animate-spin" />
           <RefreshCw v-else class="h-4 w-4" />
-          {{ ui.refresh }}
+          {{ t("pulse.refresh") }}
         </button>
       </div>
     </header>
 
     <div
-      v-if="expandedPrompt"
-      class="mt-5 rounded-card bg-surface shadow-card"
+      v-if="expandedPrompt && prompt"
+      class="mb-4 news-grouped px-4 py-3"
     >
-      <div class="border-b border-subtle px-4 py-3 text-sm font-semibold text-ink-primary">
-        {{ ui.promptTitle }}
+      <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+        {{ t("pulse.prompt_title") }}
       </div>
-      <pre class="max-h-80 overflow-auto whitespace-pre-wrap px-4 py-3 text-xs leading-relaxed text-ink-secondary">{{ prompt }}</pre>
+      <pre class="max-h-72 overflow-auto whitespace-pre-wrap text-footnote leading-relaxed text-ink-secondary">{{ prompt }}</pre>
     </div>
 
     <div
       v-if="liveStatus"
-      class="mt-5 flex items-center gap-2 rounded-card border border-accent/30 bg-accent-soft px-4 py-3 text-sm text-accent-ink"
+      class="mb-3 flex items-center gap-2 news-grouped px-4 py-3 text-callout text-accent-ink"
     >
       <Loader2 class="h-4 w-4 animate-spin" />
       <span class="truncate">{{ liveStatus }}</span>
@@ -662,364 +718,726 @@ onBeforeUnmount(() => {
 
     <div
       v-if="refreshing && refreshDraft"
-      class="mt-3 rounded-card bg-surface px-4 py-3 shadow-card"
+      class="mb-3 news-grouped px-4 py-3"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="text-sm font-semibold text-ink-primary">
-          {{ ui.progressTitle }}
-        </div>
-        <div class="flex items-center gap-3 text-xs text-ink-muted">
-          <span>{{ ui.completed }} {{ draftStocks.length }}/{{ draftTotal || "?" }}</span>
-          <span v-if="draftErrors.length">{{ ui.skipped }} {{ draftErrors.length }}</span>
+        <div class="text-callout font-semibold text-ink-primary">{{ t("pulse.progress_title") }}</div>
+        <div class="flex items-center gap-3 text-caption1 text-ink-muted">
+          <span>{{ t("pulse.completed") }} {{ draftStocks.length }}/{{ draftTotal || "?" }}</span>
+          <span v-if="draftErrors.length">{{ t("pulse.skipped") }} {{ draftErrors.length }}</span>
         </div>
       </div>
-      <div
-        v-if="draftCandidates.length"
-        class="mt-3 flex flex-wrap gap-1.5"
-      >
-        <span
+      <div v-if="draftCandidates.length" class="mt-2 flex flex-wrap gap-1.5">
+        <button
           v-for="candidate in draftCandidates"
           :key="candidate.ticker"
-          class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface-muted px-2 py-1 text-[11px] text-ink-secondary"
+          type="button"
+          class="rounded-subbox border border-subtle px-2 py-0.5 font-mono text-caption1 text-ink-secondary focus-ring"
+          @click="openTicker(candidate.ticker)"
         >
-          <span class="font-mono">{{ candidate.ticker }}</span>
-          <span v-if="candidate.score_hint" class="text-ink-muted">
-            {{ Math.round(candidate.score_hint) }}
-          </span>
-        </span>
+          {{ candidate.ticker }}
+        </button>
       </div>
-      <div
-        v-if="draftStocks.length"
-        class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        <div
-          v-for="stock in draftStocks"
-          :key="stock.ticker"
-          class="min-w-0 rounded-lg border border-success/25 bg-success-soft px-3 py-2"
-        >
-          <div class="flex items-center justify-between gap-2 text-xs">
-            <span class="truncate font-mono font-semibold text-success-ink">
-              {{ stock.ticker }}
+    </div>
+
+    <p v-if="error" class="mb-3 news-grouped px-4 py-3 text-callout text-danger">{{ error }}</p>
+
+    <div class="space-y-5">
+        <section class="news-grouped px-4 py-3" :aria-label="t('pulse.posture_label')">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.posture_label") }}
+            </div>
+            <span class="text-callout font-medium text-ink-primary">
+              {{ t(`pulse.posture_${posture}`) }}
             </span>
-            <span class="text-success-ink">{{ Math.round(stock.score || 0) }}</span>
           </div>
-          <div class="mt-1 truncate text-[11px] text-ink-muted">
-            {{ pick(stock, "why_awesome") || stock.name }}
-          </div>
-        </div>
-      </div>
-      <div
-        v-if="draftErrors.length"
-        class="mt-3 flex flex-wrap gap-1.5"
-      >
-        <span
-          v-for="item in draftErrors"
-          :key="item.ticker + item.error"
-          class="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning-soft px-2 py-1 text-[11px] text-warning-ink"
-        >
-          {{ item.ticker || ui.skipped }}
-        </span>
-      </div>
-    </div>
-
-    <div v-if="error" class="mt-5 rounded-card border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger-ink">
-      {{ error }}
-    </div>
-
-    <div v-if="loading" class="mt-10 flex items-center gap-2 text-sm text-ink-muted">
-      <Loader2 class="h-4 w-4 animate-spin" />
-      {{ ui.loading }}
-    </div>
-
-    <div
-      v-else-if="!summary"
-      class="mt-10 rounded-card bg-surface px-6 py-8 text-center shadow-card"
-    >
-      <Flame class="mx-auto h-8 w-8 text-accent" />
-      <h2 class="mt-3 font-display text-title3 text-ink-primary">
-        {{ ui.emptyTitle }}
-      </h2>
-      <p class="mx-auto mt-2 max-w-xl text-sm text-ink-secondary">
-        {{ ui.emptyBody }}
-      </p>
-      <button
-        type="button"
-        @click="refreshSummary()"
-        :disabled="refreshing"
-        class="btn-filled mt-5 focus-ring"
-      >
-        <Loader2 v-if="refreshing" class="h-4 w-4 animate-spin" />
-        <RefreshCw v-else class="h-4 w-4" />
-        {{ ui.refresh }}
-      </button>
-    </div>
-
-    <template v-else>
-      <div
-        v-if="summary.scan_fallback"
-        class="mt-6 flex items-start gap-2 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
-      >
-        <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ ui.scanFallbackNotice }}</span>
-      </div>
-      <section class="mt-6 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        <div class="rounded-card bg-surface p-5 shadow-card">
-          <div class="flex items-start justify-between gap-4">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2 vogue-label">
-                <Flame class="h-3.5 w-3.5" />
-                {{ ui.leadSetup }}
+          <p class="mt-1 text-callout text-ink-secondary">
+            {{
+              regime.posture_summary ||
+              benchmarkContext ||
+              t("pulse.posture_fallback")
+            }}
+          </p>
+          <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div class="rounded-subbox bg-fill-tertiary/60 px-2.5 py-2">
+              <div class="text-caption1 text-ink-muted">{{ t("pulse.breadth_up") }}</div>
+              <div class="font-display text-title3 tabular text-success-ink">{{ breadth.up || 0 }}</div>
+            </div>
+            <div class="rounded-subbox bg-fill-tertiary/60 px-2.5 py-2">
+              <div class="text-caption1 text-ink-muted">{{ t("pulse.breadth_down") }}</div>
+              <div class="font-display text-title3 tabular text-danger-ink">{{ breadth.down || 0 }}</div>
+            </div>
+            <div class="rounded-subbox bg-fill-tertiary/60 px-2.5 py-2">
+              <div class="text-caption1 text-ink-muted">{{ t("pulse.breadth_pct_up") }}</div>
+              <div class="font-display text-title3 tabular text-ink-primary">
+                {{ breadth.pctUp == null ? t("pulse.na") : `${breadth.pctUp.toFixed(0)}%` }}
               </div>
-              <h2 class="mt-3 font-display text-title1 text-ink-primary">
-                <span v-if="leader">{{ leader.ticker }} · {{ leader.name }}</span>
-                <span v-else>{{ ui.weeklyMarketPulse }}</span>
-              </h2>
-              <p class="mt-2 text-sm leading-6 text-ink-secondary">
-                {{ pick(leader, "why_awesome") || benchmarkContext }}
+            </div>
+            <div class="rounded-subbox bg-fill-tertiary/60 px-2.5 py-2">
+              <div class="text-caption1 text-ink-muted">{{ t("pulse.breadth_near_high") }}</div>
+              <div class="font-display text-title3 tabular text-ink-primary">
+                {{ breadth.pctNearHigh == null ? t("pulse.na") : `${breadth.pctNearHigh.toFixed(0)}%` }}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="pulse-morning-brief"
+          class="news-grouped px-4 py-3"
+          :aria-label="t('pulse.morning_brief_label')"
+          data-testid="morning-brief"
+        >
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.morning_brief_label") }}
+            </div>
+            <div class="flex flex-wrap items-center gap-1">
+              <select
+                v-if="briefDates.length"
+                class="yf-range-item focus-ring"
+                :value="briefDate"
+                @change="selectBriefDate($event.target.value)"
+              >
+                <option v-for="date in briefDates" :key="date" :value="date">{{ date }}</option>
+              </select>
+              <button
+                type="button"
+                class="yf-range-item focus-ring"
+                :disabled="briefRunning"
+                @click="runBrief"
+              >
+                <Loader2 v-if="briefRunning" class="h-3.5 w-3.5 animate-spin" />
+                {{ briefRunning ? t("pulse.brief_building") : t("pulse.brief_run") }}
+              </button>
+              <select
+                v-if="brief"
+                v-model="noteLength"
+                class="yf-range-item focus-ring"
+                :aria-label="t('pulse.note_length_label')"
+              >
+                <option value="short">{{ t("pulse.note_len_short") }}</option>
+                <option value="long">{{ t("pulse.note_len_long") }}</option>
+              </select>
+              <button
+                v-if="brief"
+                type="button"
+                class="yf-range-item focus-ring"
+                :disabled="noteWriting"
+                @click="writeBriefNote"
+              >
+                <Loader2 v-if="noteWriting" class="h-3.5 w-3.5 animate-spin" />
+                {{
+                  noteWriting
+                    ? t("pulse.note_writing")
+                    : brief.note
+                      ? t("pulse.note_rewrite")
+                      : t("pulse.note_write")
+                }}
+              </button>
+            </div>
+          </div>
+          <p v-if="briefError" class="text-callout text-danger">{{ briefError }}</p>
+          <template v-else-if="brief">
+            <p class="text-caption1 text-ink-muted">
+              {{ t("pulse.brief_as_of", { when: brief.generated_at || brief.date }) }}
+            </p>
+            <div
+              v-if="brief.note"
+              class="mt-2 rounded-subbox bg-fill-tertiary/60 px-3 py-2.5"
+              data-testid="brief-note"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <p class="text-callout font-semibold text-ink-primary">
+                  {{ pick(brief.note, "headline") }}
+                </p>
+                <span class="rounded-pill bg-accent/10 px-1.5 py-0.5 text-caption2 font-semibold uppercase tracking-[0.04em] text-accent-ink">
+                  {{ t("pulse.note_ai_tag") }}
+                </span>
+              </div>
+              <ul
+                v-if="pickArray(brief.note, 'bullets').length"
+                class="mt-1.5 list-disc space-y-1 pl-4 text-callout text-ink-secondary"
+              >
+                <li v-for="(line, i) in pickArray(brief.note, 'bullets')" :key="`note-${i}`">
+                  {{ line }}
+                </li>
+              </ul>
+              <div
+                v-for="(section, i) in pickArray(brief.note, 'sections')"
+                :key="`note-sec-${i}`"
+                class="mt-2.5"
+              >
+                <div class="text-footnote font-semibold text-ink-primary">
+                  {{ section.title }}
+                </div>
+                <p class="mt-0.5 whitespace-pre-line text-callout leading-relaxed text-ink-secondary">
+                  {{ section.body }}
+                </p>
+              </div>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button
+                v-for="row in (brief.indices || []).slice(0, 6)"
+                :key="`brief-ix-${row.ticker}`"
+                type="button"
+                class="rounded-subbox bg-fill-tertiary/60 px-2.5 py-1.5 text-left focus-ring"
+                @click="openTicker(row.ticker)"
+              >
+                <span class="font-mono text-caption1 text-ink-muted">{{ row.ticker }}</span>
+                <span
+                  class="ml-2 text-callout tabular"
+                  :class="changeClass(row.change_pct_1d)"
+                >
+                  {{ fmtPct(row.change_pct_1d) }}
+                </span>
+              </button>
+            </div>
+            <div
+              v-if="(brief.movers?.gainers || []).length || (brief.movers?.losers || []).length"
+              class="mt-3 grid gap-3 sm:grid-cols-2"
+            >
+              <div>
+                <div class="text-caption1 text-ink-muted">{{ t("pulse.brief_gainers") }}</div>
+                <div class="mt-1 space-y-0.5">
+                  <button
+                    v-for="row in (brief.movers?.gainers || []).slice(0, 4)"
+                    :key="`bg-${row.ticker}`"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-2 rounded-sm text-left focus-ring"
+                    @click="openTicker(row.ticker)"
+                  >
+                    <span class="font-display text-footnote tabular">{{ row.ticker }}</span>
+                    <span class="text-callout tabular text-success">{{ fmtPct(row.change_pct_1d) }}</span>
+                  </button>
+                </div>
+              </div>
+              <div>
+                <div class="text-caption1 text-ink-muted">{{ t("pulse.brief_losers") }}</div>
+                <div class="mt-1 space-y-0.5">
+                  <button
+                    v-for="row in (brief.movers?.losers || []).slice(0, 4)"
+                    :key="`bl-${row.ticker}`"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-2 rounded-sm text-left focus-ring"
+                    @click="openTicker(row.ticker)"
+                  >
+                    <span class="font-display text-footnote tabular">{{ row.ticker }}</span>
+                    <span class="text-callout tabular text-danger">{{ fmtPct(row.change_pct_1d) }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p
+              v-if="(brief.alerts_last_day || []).length"
+              class="mt-2 text-caption1 text-ink-secondary"
+            >
+              {{ t("pulse.brief_alerts", { n: brief.alerts_last_day.length }) }}
+            </p>
+            <p
+              v-if="(brief.calendar || []).length"
+              class="text-caption1 text-ink-muted"
+            >
+              {{ t("pulse.brief_calendar", { n: brief.calendar.length }) }}
+            </p>
+          </template>
+          <p v-else class="text-callout text-ink-muted">{{ t("pulse.brief_empty") }}</p>
+        </section>
+
+        <section :aria-label="t('pulse.indexes_label')">
+          <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            {{ t("pulse.indexes_label") }}
+          </div>
+          <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+            <button
+              v-for="card in indexCards"
+              :key="card.ticker"
+              type="button"
+              class="news-grouped px-3 py-2 text-left focus-ring"
+              @click="openTicker(card.ticker)"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="truncate text-caption1 text-ink-muted">{{ card.label }}</span>
+                <span class="shrink-0 font-mono text-caption1 text-ink-subtle">{{ card.ticker }}</span>
+              </div>
+              <div class="mt-1 flex items-baseline justify-between gap-2">
+                <span class="font-display text-title3 tabular text-ink-primary">
+                  {{ quotePrice(card.ticker) }}
+                </span>
+                <span class="text-callout tabular" :class="changeClass(card.change)">
+                  {{ quoteChange(card.ticker) }}
+                </span>
+              </div>
+            </button>
+          </div>
+        </section>
+
+        <section class="news-grouped px-4 py-3" :aria-label="t('pulse.sectors_label')">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.sectors_label") }}
+            </div>
+            <span class="text-caption1 text-ink-muted">{{ t("pulse.sectors_hint") }}</span>
+          </div>
+          <div class="space-y-1.5">
+            <button
+              v-for="row in sectorRows"
+              :key="row.ticker"
+              type="button"
+              class="grid w-full grid-cols-[minmax(8rem,14rem)_1fr_minmax(4rem,5rem)_minmax(4.5rem,6rem)] items-center gap-3 rounded-subbox px-2 py-1.5 text-left hover:bg-fill-tertiary/50 focus-ring"
+              @click="openTicker(row.ticker)"
+            >
+              <span class="truncate text-callout text-ink-secondary">{{ row.label }}</span>
+              <div class="h-1.5 overflow-hidden rounded-full bg-fill-tertiary">
+                <div
+                  class="h-full rounded-full"
+                  :class="Number(row.change) >= 0 ? 'bg-success' : 'bg-danger'"
+                  :style="{
+                    width: `${Math.min(100, Math.abs(Number(row.change) || 0) * 18 + 8)}%`,
+                  }"
+                />
+              </div>
+              <span class="text-right font-mono text-caption1 text-ink-muted">{{ row.ticker }}</span>
+              <span class="text-right text-callout tabular" :class="changeClass(row.change)">
+                {{ fmtPct(row.change) }}
+              </span>
+            </button>
+            <p v-if="!sectorRows.length" class="py-3 text-callout text-ink-muted">
+              {{ marketLoading ? t("common.loading") : t("pulse.sectors_empty") }}
+            </p>
+          </div>
+        </section>
+
+        <section class="news-grouped px-4 py-3" :aria-label="t('pulse.macro_label')">
+          <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            {{ t("pulse.macro_label") }}
+          </div>
+          <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
+            <button
+              v-for="row in macroRows"
+              :key="row.ticker"
+              type="button"
+              class="rounded-subbox bg-fill-tertiary/50 px-2.5 py-2 text-left focus-ring"
+              @click="openTicker(row.ticker)"
+            >
+              <div class="truncate text-caption1 text-ink-muted">{{ row.label }}</div>
+              <div class="mt-0.5 flex items-baseline justify-between gap-2">
+                <span class="font-mono text-footnote text-ink-primary">{{ row.ticker }}</span>
+                <span class="text-callout tabular" :class="changeClass(row.change)">
+                  {{ fmtPct(row.change) }}
+                </span>
+              </div>
+              <div class="mt-0.5 font-display text-callout tabular text-ink-primary">
+                {{ quotePrice(row.ticker) }}
+              </div>
+            </button>
+          </div>
+        </section>
+
+        <section :aria-label="t('pulse.movers_label')">
+          <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            {{ t("pulse.movers_label") }}
+          </div>
+          <div class="grid gap-3 lg:grid-cols-3">
+            <div
+              v-for="bucket in [
+                { id: 'gainers', label: t('pulse.gainers'), rows: movers.gainers, icon: TrendingUp },
+                { id: 'losers', label: t('pulse.losers'), rows: movers.losers, icon: TrendingDown },
+                { id: 'active', label: t('pulse.most_active'), rows: movers.active, icon: Activity },
+              ]"
+              :key="bucket.id"
+              class="news-grouped overflow-hidden"
+            >
+              <div class="flex items-center gap-1.5 border-b border-subtle/70 px-3 py-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+                <component :is="bucket.icon" class="h-3.5 w-3.5" />
+                {{ bucket.label }}
+              </div>
+              <button
+                v-for="row in bucket.rows"
+                :key="bucket.id + row.ticker"
+                type="button"
+                class="flex w-full items-center justify-between gap-2 border-b border-subtle/40 px-3 py-2 text-left last:border-0 hover:bg-fill-tertiary/40 focus-ring"
+                @click="openTicker(row.ticker)"
+              >
+                <span class="min-w-0">
+                  <span class="block font-mono text-callout font-semibold text-ink-primary">{{ row.ticker }}</span>
+                  <span class="block truncate text-caption1 text-ink-muted">{{ row.name || row.ticker }}</span>
+                </span>
+                <span class="shrink-0 text-right">
+                  <span class="block tabular text-callout text-ink-primary">
+                    {{ moverLast(row) == null ? "—" : moverLast(row).toFixed(2) }}
+                  </span>
+                  <span class="block tabular text-caption1" :class="changeClass(moverChange(row))">
+                    {{ fmtPct(moverChange(row)) }}
+                  </span>
+                </span>
+              </button>
+              <p v-if="!bucket.rows.length" class="px-3 py-4 text-callout text-ink-muted">
+                {{ marketLoading ? t("common.loading") : t("pulse.movers_empty") }}
               </p>
             </div>
-            <div
-              v-if="leader"
-              class="grid h-20 w-20 shrink-0 place-items-center rounded-full p-1"
-              :style="scoreRing(leader.score, summary.scan_fallback)"
-            >
-              <div class="grid h-full w-full place-items-center rounded-full bg-surface text-center">
-                <div>
-                  <div class="font-display text-xl font-semibold" :class="scoreTone(leader.score, summary.scan_fallback)">
-                    {{ Math.round(leader.score) }}
-                  </div>
-                  <div class="text-[10px] uppercase text-ink-muted">{{ ui.score }}</div>
-                </div>
-              </div>
-            </div>
           </div>
-          <div class="mt-5 grid gap-3 border-t border-subtle pt-4 sm:grid-cols-3">
-            <div>
-              <div class="text-xs text-ink-muted">{{ ui.weeklyMove }}</div>
-              <div class="mt-1 text-lg font-semibold" :class="leader?.weekly_change_pct == null ? 'text-ink-muted' : 'text-success-ink'">
-                {{ fmtPct(leader?.weekly_change_pct) }}
-              </div>
-            </div>
-            <div>
-              <div class="text-xs text-ink-muted">{{ ui.relativeVolume }}</div>
-              <div class="mt-1 text-lg font-semibold text-ink-primary">
-                {{ fmtMultiple(leader?.relative_volume) }}
-              </div>
-            </div>
-            <div>
-              <div class="text-xs text-ink-muted">{{ ui.marketCap }}</div>
-              <div class="mt-1 text-lg font-semibold text-ink-primary">
-                {{ fmtUsd(leader?.market_cap_usd) }}
-              </div>
-            </div>
-          </div>
-        </div>
+        </section>
 
-        <div class="rounded-card bg-surface p-5 shadow-card">
-          <div class="flex items-center justify-between gap-3">
-            <div class="text-sm font-semibold text-ink-primary">{{ ui.dashboardPulse }}</div>
-            <span class="text-xs text-ink-muted">{{ refreshedAtLabel(summary.generated_at || summary.as_of) }}</span>
-          </div>
-          <div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-subtle pt-4">
-            <div
-              v-for="card in summary.summary_cards"
-              :key="card.label + card.label_zh"
-              class="min-w-0"
-            >
-              <div class="text-xs text-ink-muted">{{ pick(card, "label") }}</div>
-              <div class="mt-1 text-base font-semibold text-ink-primary">{{ card.value }}</div>
-              <div class="mt-1 text-[11px] leading-snug text-ink-muted">{{ pick(card, "note") }}</div>
+        <section class="news-grouped px-4 py-3" :aria-label="t('pulse.calendar_label')">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.calendar_label") }}
             </div>
+            <span class="text-caption1 text-ink-muted">{{ t("pulse.calendar_hint") }}</span>
           </div>
-        </div>
-      </section>
-
-      <section class="mt-6 grid gap-4 lg:grid-cols-[1fr_2fr]">
-        <div class="rounded-card bg-surface p-5 shadow-card">
-          <div class="flex items-center gap-2 text-sm font-semibold text-ink-primary">
-            <Activity class="h-4 w-4 text-accent" />
-            {{ ui.sectorHeat }}
-          </div>
-          <div class="mt-4 space-y-3">
+          <div class="yf-week-grid grid gap-2 sm:grid-cols-7">
             <div
-              v-for="sector in summary.sector_mix"
-              :key="sector.sector"
-              class="space-y-1"
+              v-for="day in weekCalendar"
+              :key="day.date"
+              class="rounded-subbox border border-subtle/60 px-2 py-2"
             >
-              <div class="flex items-center justify-between gap-3 text-xs">
-                <span class="truncate text-ink-secondary">{{ pick(sector, "sector") }}</span>
-                <span class="font-mono text-ink-muted">{{ sector.count }}</span>
-              </div>
-              <div class="h-2 rounded-full bg-surface-muted">
-                <div
-                  class="h-2 rounded-full bg-accent"
-                  :style="{ width: `${Math.max(8, (sector.count / sectorMax) * 100)}%` }"
-                ></div>
-              </div>
-            </div>
-          </div>
-          <div class="mt-5 border-t border-subtle pt-4 text-xs leading-5 text-ink-secondary">
-            {{ benchmarkContext }}
-          </div>
-        </div>
-
-        <div class="grid gap-4 md:grid-cols-2">
-          <article
-            v-for="stock in stocks"
-            :key="stock.ticker"
-            class="rounded-card bg-surface p-4 shadow-card"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">#{{ stock.rank }}</span>
-                  <h3 class="font-display text-title3 text-ink-primary">
-                    {{ stock.ticker }}
-                  </h3>
-                  <span class="truncate text-sm text-ink-muted">{{ stock.name }}</span>
-                </div>
-                <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
-                  <span v-if="stock.exchange">{{ stock.exchange }}</span>
-                  <span v-if="pick(stock, 'sector')">· {{ pick(stock, "sector") }}</span>
-                  <span>· {{ fmtUsd(stock.market_cap_usd) }}</span>
-                </div>
-                <div
-                  v-if="stock.is_fallback"
-                  class="mt-1.5 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+              <div class="text-caption1 font-medium text-ink-muted">{{ day.label }}</div>
+              <ul class="mt-1 space-y-1">
+                <li
+                  v-for="event in day.events.slice(0, 4)"
+                  :key="day.date + (event.ticker || event.title) + event.kind"
+                  class="truncate text-caption1 text-ink-secondary"
                 >
-                  <AlertTriangle class="h-3 w-3" />
-                  {{ ui.unverifiedCard }}
-                </div>
-              </div>
-              <div class="text-right">
-                <div class="font-display text-xl font-semibold" :class="scoreTone(stock.score, stock.is_fallback || summary.scan_fallback)">
-                  {{ Math.round(stock.score) }}
-                </div>
-                <div class="text-[10px] uppercase text-ink-muted">{{ ui.heat }}</div>
-              </div>
+                  <button
+                    v-if="event.ticker"
+                    type="button"
+                    class="font-mono text-ink-primary focus-ring"
+                    @click="openTicker(event.ticker)"
+                  >
+                    {{ event.ticker }}
+                  </button>
+                  <span v-else>{{ event.title || event.kind }}</span>
+                  <span class="text-ink-muted"> · {{ event.kind }}</span>
+                </li>
+              </ul>
+              <p v-if="!day.events.length" class="mt-1 text-caption1 text-ink-subtle">—</p>
             </div>
+          </div>
+        </section>
 
-            <div class="mt-4 h-16 rounded-subbox bg-fill-tertiary px-2 py-2">
-              <svg viewBox="0 0 100 52" preserveAspectRatio="none" class="h-full w-full">
-                <polyline
-                  :points="sparklinePoints(stock.sparkline)"
-                  fill="none"
-                  stroke="rgb(var(--color-accent))"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  vector-effect="non-scaling-stroke"
-                />
-              </svg>
-            </div>
-            <div v-if="stock.sparkline_synthetic" class="mt-1 text-[10px] text-ink-muted">
-              {{ ui.syntheticSparkline }}
-            </div>
+        <section v-if="loading" class="flex items-center gap-2 py-6 text-callout text-ink-muted">
+          <Loader2 class="h-4 w-4 animate-spin" />
+          {{ t("pulse.loading") }}
+        </section>
 
-            <div class="mt-4 grid grid-cols-3 gap-2 text-center">
-              <div>
-                <div class="text-xs text-ink-muted">{{ ui.oneWeek }}</div>
-                <div class="text-sm font-semibold" :class="stock.weekly_change_pct == null ? 'text-ink-muted' : 'text-success-ink'">{{ fmtPct(stock.weekly_change_pct) }}</div>
-              </div>
-              <div>
-                <div class="text-xs text-ink-muted">{{ ui.relVol }}</div>
-                <div class="text-sm font-semibold text-ink-primary">{{ fmtMultiple(stock.relative_volume) }}</div>
-              </div>
-              <div>
-                <div class="text-xs text-ink-muted">{{ ui.rs }}</div>
-                <div class="text-sm font-semibold text-ink-primary">{{ fmtPct(stock.relative_strength_pct) }}</div>
-              </div>
-            </div>
+        <template v-else-if="summary">
+          <div
+            v-if="summary.scan_fallback"
+            class="flex items-start gap-2 rounded-subbox border border-warning/40 bg-warning-soft px-3 py-2 text-callout text-warning-ink"
+          >
+            <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{{ t("pulse.scan_fallback") }}</span>
+          </div>
 
-            <p class="mt-4 text-sm leading-5 text-ink-secondary">
-              {{ pick(stock, "why_awesome") }}
+          <section class="news-grouped px-4 py-3" :aria-label="t('pulse.brief_label')">
+            <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.brief_label") }}
+            </div>
+            <p class="text-callout leading-relaxed text-ink-secondary">
+              {{ marketPulse }}
             </p>
-
-            <div class="mt-4 space-y-2">
-              <div
-                v-for="driver in stock.drivers"
-                :key="driver.label"
-                class="space-y-1"
-              >
-                <div class="flex items-center justify-between gap-3 text-xs">
-                  <span class="font-medium text-ink-secondary">{{ pick(driver, "label") }}</span>
-                  <span class="font-mono text-ink-muted">{{ driver.value }}</span>
-                </div>
-                <div class="h-1.5 rounded-full bg-surface-muted">
-                  <div
-                    class="h-1.5 rounded-full bg-success"
-                    :style="{ width: `${Math.max(4, Math.min(100, driver.score || 0))}%` }"
-                  ></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-4 grid gap-2 text-xs">
-              <div class="flex items-start gap-2 text-ink-secondary">
-                <TrendingUp class="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-                <span>{{ pick(stock, "setup") }}</span>
-              </div>
-              <div v-if="pick(stock, 'catalyst')" class="flex items-start gap-2 text-ink-secondary">
-                <Gauge class="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
-                <span>{{ pick(stock, "catalyst") }}</span>
-              </div>
-              <div v-if="pick(stock, 'risk')" class="flex items-start gap-2 text-ink-secondary">
-                <AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                <span>{{ pick(stock, "risk") }}</span>
-              </div>
-            </div>
-
-            <div class="mt-4 flex flex-wrap gap-1.5">
-              <span
-                v-for="tag in pickArray(stock, 'tags')"
-                :key="tag"
-                class="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] text-ink-secondary"
-              >
-                {{ tag }}
-              </span>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="mt-6 grid gap-4 lg:grid-cols-2">
-        <div class="rounded-card bg-surface p-5 shadow-card">
-          <div class="text-sm font-semibold text-ink-primary">{{ ui.watchlist }}</div>
-          <div class="mt-3 divide-y divide-subtle">
+            <p v-if="benchmarkContext" class="mt-2 text-callout leading-relaxed text-ink-muted">
+              {{ benchmarkContext }}
+            </p>
             <div
-              v-for="item in summary.watchlist"
-              :key="item.ticker"
-              class="py-3 first:pt-0 last:pb-0"
+              v-if="summary.summary_cards?.length"
+              class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
             >
-              <div class="flex items-center gap-2">
-                <span class="font-mono text-sm font-semibold text-ink-primary">{{ item.ticker }}</span>
-                <span class="text-sm text-ink-muted">{{ item.name }}</span>
+              <div
+                v-for="card in summary.summary_cards"
+                :key="pick(card, 'label')"
+                class="rounded-subbox bg-fill-tertiary/50 px-2.5 py-2"
+              >
+                <div class="text-caption1 text-ink-muted">{{ pick(card, "label") }}</div>
+                <div class="mt-0.5 text-callout font-semibold text-ink-primary">{{ card.value }}</div>
+                <div class="mt-0.5 text-caption1 text-ink-muted">{{ pick(card, "note") }}</div>
               </div>
-              <p class="mt-1 text-sm text-ink-secondary">{{ pick(item, "reason") }}</p>
             </div>
-          </div>
+          </section>
+
+          <section class="news-grouped overflow-hidden" :aria-label="t('pulse.setups_label')">
+            <div class="flex items-center justify-between gap-2 border-b border-subtle/70 px-4 py-2">
+              <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+                {{ t("pulse.setups_label") }}
+              </div>
+              <span class="text-caption1 text-ink-muted">
+                {{ t("pulse.setups_count", { n: stocks.length }) }}
+              </span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="yf-fin-table min-w-full text-left">
+                <thead>
+                  <tr class="text-caption1 uppercase tracking-[0.04em] text-ink-muted">
+                    <th class="px-3 py-2">#</th>
+                    <th class="px-3 py-2">{{ t("pulse.col_symbol") }}</th>
+                    <th class="px-3 py-2">{{ t("pulse.col_1w") }}</th>
+                    <th class="px-3 py-2">{{ t("pulse.col_rel_vol") }}</th>
+                    <th class="px-3 py-2">{{ t("pulse.col_rs") }}</th>
+                    <th class="px-3 py-2">{{ t("pulse.col_score") }}</th>
+                    <th class="px-3 py-2">{{ t("pulse.col_thesis") }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="stock in stocks"
+                    :key="stock.ticker"
+                    class="border-t border-subtle/50 align-top hover:bg-fill-tertiary/30"
+                  >
+                    <td class="px-3 py-2 text-caption1 text-ink-muted">{{ stock.rank }}</td>
+                    <td class="px-3 py-2">
+                      <button
+                        type="button"
+                        class="font-mono font-semibold text-ink-primary focus-ring"
+                        @click="openTicker(stock.ticker)"
+                      >
+                        {{ stock.ticker }}
+                      </button>
+                      <div class="max-w-[12rem] truncate text-caption1 text-ink-muted">
+                        {{ stock.name }}
+                      </div>
+                      <div v-if="pick(stock, 'sector')" class="text-caption1 text-ink-subtle">
+                        {{ pick(stock, "sector") }}
+                      </div>
+                    </td>
+                    <td class="px-3 py-2 tabular" :class="changeClass(stock.weekly_change_pct)">
+                      {{ fmtPct(stock.weekly_change_pct) }}
+                    </td>
+                    <td class="px-3 py-2 tabular text-ink-primary">{{ fmtMultiple(stock.relative_volume) }}</td>
+                    <td class="px-3 py-2 tabular text-ink-primary">{{ fmtPct(stock.relative_strength_pct) }}</td>
+                    <td class="px-3 py-2">
+                      <span class="font-display tabular" :class="scoreTone(stock.score, stock.is_fallback || summary.scan_fallback)">
+                        {{ Math.round(stock.score || 0) }}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2 text-callout text-ink-secondary">
+                      <div>{{ pick(stock, "why_awesome") }}</div>
+                      <div v-if="pick(stock, 'catalyst')" class="mt-1 text-caption1 text-ink-muted">
+                        {{ pick(stock, "catalyst") }}
+                      </div>
+                      <div v-if="pick(stock, 'risk')" class="mt-1 text-caption1 text-warning-ink">
+                        {{ pick(stock, "risk") }}
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="grid gap-4 lg:grid-cols-2">
+            <div class="news-grouped px-4 py-3">
+              <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+                {{ t("pulse.watchlist") }}
+              </div>
+              <div class="divide-y divide-subtle/60">
+                <button
+                  v-for="item in summary.watchlist || []"
+                  :key="item.ticker"
+                  type="button"
+                  class="flex w-full flex-col gap-0.5 py-2 text-left focus-ring"
+                  @click="openTicker(item.ticker)"
+                >
+                  <span class="font-mono font-semibold text-ink-primary">{{ item.ticker }}
+                    <span class="ml-1 font-sans font-normal text-ink-muted">{{ item.name }}</span>
+                  </span>
+                  <span class="text-callout text-ink-secondary">{{ pick(item, "reason") }}</span>
+                </button>
+                <p v-if="!(summary.watchlist || []).length" class="py-3 text-callout text-ink-muted">
+                  {{ t("pulse.watchlist_empty") }}
+                </p>
+              </div>
+            </div>
+            <div class="news-grouped px-4 py-3">
+              <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+                {{ t("pulse.sources") }}
+              </div>
+              <div class="space-y-1">
+                <a
+                  v-for="source in sourceList"
+                  :key="(source.label || '') + (source.url || '')"
+                  :href="source.url || '#'"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="flex items-start gap-2 rounded-subbox px-1 py-1.5 text-callout text-ink-secondary hover:bg-fill-tertiary/40 focus-ring"
+                >
+                  <ExternalLink class="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-muted" />
+                  <span class="min-w-0">
+                    <span class="block truncate">{{ pick(source, "label") }}</span>
+                    <span v-if="source.date" class="block text-caption1 text-ink-muted">{{ source.date }}</span>
+                  </span>
+                </a>
+              </div>
+            </div>
+          </section>
+
+          <section
+            v-if="summary.sector_mix?.length"
+            class="news-grouped px-4 py-3"
+            :aria-label="t('pulse.theme_heat')"
+          >
+            <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.theme_heat") }}
+            </div>
+            <div class="space-y-2">
+              <div v-for="sector in summary.sector_mix" :key="sector.sector" class="space-y-1">
+                <div class="flex items-center justify-between gap-3 text-caption1">
+                  <span class="truncate text-ink-secondary">{{ pick(sector, "sector") }}</span>
+                  <span class="font-mono text-ink-muted">{{ sector.count }}</span>
+                </div>
+                <div class="h-1.5 rounded-full bg-fill-tertiary">
+                  <div
+                    class="h-1.5 rounded-full bg-accent"
+                    :style="{ width: `${Math.max(8, (sector.count / sectorMax) * 100)}%` }"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+        </template>
+
+        <section
+          v-else
+          class="news-grouped px-6 py-8 text-center"
+        >
+          <Flame class="mx-auto h-7 w-7 text-accent" />
+          <h2 class="mt-3 font-display text-title3 text-ink-primary">{{ t("pulse.empty_title") }}</h2>
+          <p class="mx-auto mt-2 max-w-xl text-callout text-ink-secondary">{{ t("pulse.empty_body") }}</p>
+          <button
+            type="button"
+            class="btn-filled mt-4 focus-ring"
+            :disabled="refreshing"
+            @click="refreshSummary()"
+          >
+            <RefreshCw class="h-4 w-4" />
+            {{ t("pulse.refresh") }}
+          </button>
+        </section>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <section class="news-grouped px-4 py-3" :aria-label="t('pulse.signals_label')">
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+                {{ t("pulse.signals_label") }}
+              </div>
+              <RouterLink
+                class="text-caption1 font-medium text-accent-ink focus-ring"
+                :to="{ name: 'research-page-market-pulse' }"
+              >
+                {{ t("pulse.open_signals") }}
+              </RouterLink>
+            </div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <button
+                v-for="signal in signalRows"
+                :key="signal.id || signal.title || signal.ticker"
+                type="button"
+                class="rounded-subbox border border-subtle/60 px-2.5 py-2 text-left hover:bg-fill-tertiary/40 focus-ring"
+                @click="signal.ticker ? openTicker(signal.ticker) : null"
+              >
+                <div class="flex items-start justify-between gap-2">
+                  <span class="text-callout font-medium text-ink-primary">
+                    {{ signal.title || signal.theme || signal.ticker || t("pulse.signal_untitled") }}
+                  </span>
+                  <span
+                    v-if="signal.direction"
+                    class="shrink-0 text-caption1 uppercase text-ink-muted"
+                  >
+                    {{ signal.direction }}
+                  </span>
+                </div>
+                <p class="mt-1 line-clamp-2 text-caption1 text-ink-secondary">
+                  {{ signal.summary || signal.rationale || signal.why || "" }}
+                </p>
+              </button>
+            </div>
+            <p v-if="!signalRows.length" class="py-3 text-callout text-ink-muted">
+              {{ t("pulse.signals_empty") }}
+            </p>
+          </section>
+
+          <section class="news-grouped px-4 py-3" :aria-label="t('pulse.wow_label')">
+            <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.wow_label") }}
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div class="rounded-subbox bg-fill-tertiary/50 px-2 py-2">
+                <div class="text-caption1 text-ink-muted">{{ t("pulse.wow_new") }}</div>
+                <div class="font-display text-title3 tabular">
+                  {{ (changedSince.added || changedSince.new || []).length || changedSince.added_count || 0 }}
+                </div>
+              </div>
+              <div class="rounded-subbox bg-fill-tertiary/50 px-2 py-2">
+                <div class="text-caption1 text-ink-muted">{{ t("pulse.wow_removed") }}</div>
+                <div class="font-display text-title3 tabular">
+                  {{ (changedSince.removed || []).length || changedSince.removed_count || 0 }}
+                </div>
+              </div>
+              <div class="rounded-subbox bg-fill-tertiary/50 px-2 py-2">
+                <div class="text-caption1 text-ink-muted">{{ t("pulse.wow_changed") }}</div>
+                <div class="font-display text-title3 tabular">
+                  {{ (changedSince.changed || changedSince.updated || []).length || changedSince.changed_count || 0 }}
+                </div>
+              </div>
+            </div>
+            <p class="mt-2 text-caption1 text-ink-muted">{{ t("pulse.wow_hint") }}</p>
+          </section>
         </div>
 
-        <div class="rounded-card bg-surface p-5 shadow-card">
-          <div class="text-sm font-semibold text-ink-primary">{{ ui.sources }}</div>
-          <div class="mt-3 space-y-2">
-            <a
-              v-for="source in sourceList"
-              :key="source.label + source.url"
-              :href="source.url || '#'"
-              target="_blank"
-              rel="noreferrer"
-              class="flex items-start gap-2 rounded-lg px-2 py-1.5 text-sm text-ink-secondary hover:bg-surface-muted focus-ring"
-            >
-              <ExternalLink class="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-muted" />
-              <span class="min-w-0 flex-1">
-                <span class="block truncate">{{ pick(source, "label") }}</span>
-                <span v-if="source.date" class="block text-xs text-ink-muted">{{ source.date }}</span>
+        <section
+          v-if="ledger.length || ledgerStats.total"
+          class="news-grouped px-4 py-3"
+          :aria-label="t('pulse.ledger_label')"
+          data-testid="signal-ledger"
+        >
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              {{ t("pulse.ledger_label") }}
+            </div>
+            <div class="flex flex-wrap gap-3 text-caption1 text-ink-muted">
+              <span v-if="ledgerStats.hitRate != null">
+                {{ t("pulse.ledger_hit_rate", { n: ledgerStats.hitRate.toFixed(0) }) }}
               </span>
-            </a>
+              <span v-if="ledgerStats.avgScore != null">
+                {{ t("pulse.ledger_avg_score", { n: signedChange(ledgerStats.avgScore) }) }}
+              </span>
+              <span>{{ t("pulse.ledger_count", { n: ledgerStats.total }) }}</span>
+            </div>
           </div>
-        </div>
-      </section>
-    </template>
+          <div class="space-y-1">
+            <div
+              v-for="row in ledger.slice(0, 8)"
+              :key="row.id"
+              class="flex flex-wrap items-center justify-between gap-2 rounded-subbox px-2 py-1.5 hover:bg-fill-tertiary/40"
+            >
+              <button
+                type="button"
+                class="min-w-0 flex-1 text-left focus-ring rounded-sm"
+                @click="openTicker(row.ticker)"
+              >
+                <span class="font-display text-footnote tabular text-ink-primary">{{ row.ticker }}</span>
+                <span class="ml-2 text-caption1 uppercase text-ink-muted">{{ row.direction }}</span>
+                <span class="ml-2 text-caption1 text-ink-secondary">{{ row.label }}</span>
+              </button>
+              <span
+                v-if="row.score_pct != null"
+                class="mono-data text-caption1 tabular"
+                :class="row.score_pct >= 0 ? 'text-success' : 'text-danger'"
+              >
+                {{ signedChange(row.score_pct) }}
+              </span>
+              <span v-else class="text-caption1 text-ink-subtle">{{ t("pulse.ledger_unscored") }}</span>
+              <button
+                type="button"
+                class="text-caption1 text-ink-muted focus-ring rounded-sm px-1"
+                @click="dropLedgerEntry(row.id)"
+              >
+                {{ t("pulse.ledger_drop") }}
+              </button>
+            </div>
+          </div>
+        </section>
+    </div>
   </div>
 </template>

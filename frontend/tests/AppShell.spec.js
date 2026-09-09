@@ -14,6 +14,9 @@ vi.mock("../src/api.js", () => ({
     listCompanies: vi.fn(),
     uploadFile: vi.fn(),
     uploadResearchFile: vi.fn(),
+    deskPrefs: vi.fn().mockResolvedValue({ updated_at: null, data: {} }),
+    saveDeskPrefs: vi.fn().mockResolvedValue({ updated_at: "x", data: {} }),
+    runAlertCheck: vi.fn().mockResolvedValue({ checked: 0, fired: [] }),
   },
 }));
 
@@ -136,7 +139,7 @@ describe("App global shell", () => {
     expect(wrapper.find('[aria-label="Account"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Account"]').text()).toContain("ES");
     expect(wrapper.find('[aria-label="App language"]').exists()).toBe(false);
-    expect(wrapper.find(`[aria-label="Search or add a company…"]`).exists()).toBe(true);
+    expect(wrapper.find(`[aria-label="Jump · NVDA · HEAT · RRG · DESK"]`).exists()).toBe(true);
 
     await wrapper.find('[aria-label="Add to ZaiNar, Inc."]').trigger("click");
     expect(wrapper.text()).not.toContain("Company files");

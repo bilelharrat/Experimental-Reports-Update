@@ -1,16 +1,19 @@
 <script setup>
 import { RouterLink } from "vue-router";
 import { Activity, FlaskConical, Table2 } from "lucide-vue-next";
+import { useT } from "../../i18n.js";
+
+const t = useT();
 
 const links = [
-  { to: "/research-pages/market-pulse", label: "Market Pulse", icon: Activity },
-  { to: "/research-pages/evidence-matrix", label: "Evidence Matrix", icon: Table2 },
-  { to: "/research-pages/hypothesis-lab", label: "Hypothesis Lab", icon: FlaskConical },
+  { to: "/research-pages/market-pulse", labelKey: "labs.pulse_title", icon: Activity },
+  { to: "/research-pages/evidence-matrix", labelKey: "labs.matrix_title", icon: Table2 },
+  { to: "/research-pages/hypothesis-lab", labelKey: "labs.hypothesis_title", icon: FlaskConical },
 ];
 </script>
 
 <template>
-  <nav class="segmented" aria-label="Research pages">
+  <nav class="segmented" :aria-label="t('labs.title')">
     <RouterLink
       v-for="link in links"
       :key="link.to"
@@ -18,7 +21,7 @@ const links = [
       class="segmented-item focus-ring inline-flex items-center gap-1.5"
     >
       <component :is="link.icon" class="h-3.5 w-3.5" />
-      {{ link.label }}
+      {{ t(link.labelKey) }}
     </RouterLink>
   </nav>
 </template>

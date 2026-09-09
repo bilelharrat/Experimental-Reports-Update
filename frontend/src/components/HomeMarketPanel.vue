@@ -65,7 +65,7 @@ function moverPrice(row) {
       </h2>
       <RouterLink
         class="text-footnote font-medium text-accent-ink focus-ring rounded-pill px-1"
-        :to="{ name: 'research-page-market-pulse' }"
+        :to="{ name: 'weekly-summary' }"
       >
         {{ t("home.desk_open_pulse") }}
       </RouterLink>

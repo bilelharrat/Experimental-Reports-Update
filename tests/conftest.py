@@ -22,9 +22,11 @@ def _isolate_data_dir(monkeypatch, tmp_path):
         auth_store,
         cache,
         console_store,
+        desk_store,
         external_store,
         files_store,
         hormuz_store,
+        market_brief,
         memo_editor_store,
         memo_prep,
         product_store,
@@ -71,6 +73,8 @@ def _isolate_data_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(
         serena_analysis, "TRAINING_ROOT", data_root / "serena_training"
     )
+    monkeypatch.setattr(desk_store, "DESK_ROOT", data_root / "market_desk")
+    monkeypatch.setattr(market_brief, "BRIEFS_ROOT", data_root / "market_briefs")
 
 
 @pytest.fixture(autouse=True)

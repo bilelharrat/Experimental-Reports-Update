@@ -70,6 +70,9 @@ vi.mock("../src/api.js", () => ({
     listTrackingUpdates: vi.fn(),
     syncTrackingUpdates: vi.fn(),
     executeTrackingAutoRun: vi.fn(),
+    liveQuotes: vi.fn().mockResolvedValue({ quotes: {} }),
+    deskPrefs: vi.fn().mockResolvedValue({ updated_at: null, data: {} }),
+    saveDeskPrefs: vi.fn().mockResolvedValue({ updated_at: "x", data: {} }),
     memoAnalysis: {
       get: vi.fn(),
       getEvidenceMatrix: vi.fn(),
@@ -188,6 +191,7 @@ async function mountRouteWithRouter(path) {
       { path: "/innovation-lab/market-pulse", name: "research-page-market-pulse", component: { template: "<div />" } },
       { path: "/innovation-lab/evidence-matrix", name: "research-page-evidence-matrix", component: { template: "<div />" } },
       { path: "/innovation-lab/hypothesis-lab", name: "research-page-hypothesis-lab", component: { template: "<div />" } },
+      { path: "/market-radar", name: "market-radar", component: { template: "<div>Market</div>" } },
       {
         path: "/:companyId",
         name: "research",

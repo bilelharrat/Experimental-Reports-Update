@@ -90,6 +90,10 @@ const STRICT_FILES = new Set([
   "views/ResearchView.vue",
   "components/HomeNewsDesk.vue",
   "components/HomeMarketPanel.vue",
+  "views/MarketRadarView.vue",
+  "components/QuoteChart.vue",
+  "components/QuoteWorkspace.vue",
+  "components/MarketCommandPalette.vue",
 ]);
 
 // Ratchet baseline for the pre-existing backlog (counted 2026-07-14).
@@ -140,7 +144,7 @@ const BASELINE = {
   "views/StockResearchView.vue": 6,
   "views/TraderStatsView.vue": 1,
   "views/UserCenterView.vue": 11,
-  "views/WeeklySummaryView.vue": 1,
+  "views/WeeklySummaryView.vue": 0,
 };
 
 function vueFiles(dir) {

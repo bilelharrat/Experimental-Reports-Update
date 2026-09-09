@@ -18,6 +18,11 @@ import Sidebar from "./components/Sidebar.vue";
 import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import CopilotPanel from "./components/CopilotPanel.vue";
+import MarketCommandPalette from "./components/MarketCommandPalette.vue";
+import {
+  parseMarketCommand,
+  routeForMarketCommand,
+} from "./marketCommands.js";
 import {
   copilotPendingPrompt,
   copilotCompanyOverride,
@@ -26,6 +31,7 @@ import {
   syncCopilotFromRoute,
 } from "./copilotContext.js";
 import { hydrateTrackingWatchlist } from "./trackingWatchlist.js";
+import { initDeskSync } from "./deskSync.js";
 import {
   activeSummaryTarget,
   closeSummary,
@@ -51,6 +57,7 @@ const addMenuOpen = ref(false);
 const accountMenuOpen = ref(false);
 const jumpQuery = ref("");
 const jumpOpen = ref(false);
+const commandOpen = ref(false);
 const signingOut = ref(false);
 const addFileInput = ref(null);
 const addUploading = ref(false);
@@ -175,6 +182,7 @@ function closeChromeMenus() {
   addMenuOpen.value = false;
   accountMenuOpen.value = false;
   jumpOpen.value = false;
+  commandOpen.value = false;
 }
 
 function toggleAddMenu() {
@@ -242,8 +250,18 @@ function onDocPointerDown(event) {
 }
 
 function onChromeKeydown(event) {
+  const key = String(event.key || "").toLowerCase();
+  const meta = event.metaKey || event.ctrlKey;
+  if (meta && key === "k") {
+    event.preventDefault();
+    addMenuOpen.value = false;
+    accountMenuOpen.value = false;
+    jumpOpen.value = false;
+    commandOpen.value = !commandOpen.value;
+    return;
+  }
   if (event.key !== "Escape") return;
-  if (addMenuOpen.value || accountMenuOpen.value || jumpOpen.value) {
+  if (addMenuOpen.value || accountMenuOpen.value || jumpOpen.value || commandOpen.value) {
     closeChromeMenus();
     return;
   }
@@ -264,6 +282,15 @@ function researchQuery() {
 }
 
 function onJumpEnter() {
+  const raw = jumpQuery.value.trim();
+  const cmd = parseMarketCommand(raw);
+  const target = routeForMarketCommand(cmd);
+  if (target && cmd?.action !== "search") {
+    closeChromeMenus();
+    jumpQuery.value = "";
+    router.push(target);
+    return;
+  }
   if (jumpHits.value[0]) goToCompany(jumpHits.value[0]);
   else researchQuery();
 }
@@ -283,6 +310,13 @@ onMounted(() => {
   document.addEventListener("pointerdown", onDocPointerDown);
   document.addEventListener("keydown", onChromeKeydown);
   hydrateTrackingWatchlist();
+  if (isAuthenticated.value) {
+    // Pull the server desk-state copy (watchlists, rules, lots…), then
+    // evaluate alert rules server-side so "fired while away" lands in
+    // history even before the Market desk is opened.
+    initDeskSync();
+    api.runAlertCheck().catch(() => {});
+  }
 });
 
 onBeforeUnmount(() => {
@@ -336,7 +370,7 @@ const breadcrumbs = computed(() => {
   if (name === "home") return [root, t("companies.section_title")];
   if (name === "news-desk") return [root, t("nav.news")];
   if (name === "tracking") return [root, t("sidebar.tracking")];
-  if (name === "market-radar") return [root, t("nav.markets"), t("sidebar.markets_radar")];
+  if (name === "market-radar") return [root, t("sidebar.market")];
   if (name === "stock-research") return [root, t("nav.markets"), t("sidebar.markets_workbench")];
   if (name === "settings") return [root, t("app.settings")];
   if (name === "user-center") return [root, t("app.user_center")];
@@ -359,7 +393,7 @@ const breadcrumbs = computed(() => {
   }
   if (name === "external-news") return [root, t("nav.markets"), t("sidebar.markets_radar")];
   if (name === "external-research") return [root, t("app.external_research")];
-  if (name === "weekly-summary") return [root, t("nav.markets"), t("sidebar.markets_pulse")];
+  if (name === "weekly-summary") return [root, t("pulse.title")];
   if (name === "trader-stats") return [root, t("nav.markets"), t("sidebar.markets_stats")];
   if (name === "research") {
     return [
@@ -522,8 +556,8 @@ provide("copilotNavigate", onCopilotNavigate);
               type="search"
               autocomplete="off"
               class="field h-8 w-full rounded-subbox !py-0 !pl-8 !pr-2 text-footnote"
-              :placeholder="t('home.search_placeholder')"
-              :aria-label="t('home.search_placeholder')"
+              :placeholder="t('cmd.jump_placeholder')"
+              :aria-label="t('cmd.jump_placeholder')"
               @focus="openJumpMenu"
               @keydown.escape.prevent="closeChromeMenus"
               @keydown.enter.prevent="onJumpEnter"
@@ -648,6 +682,19 @@ provide("copilotNavigate", onCopilotNavigate);
               class="hidden"
               @change="onCompanyAddFiles"
             />
+          </div>
+
+          <div class="inline-flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              class="icon-btn"
+              :aria-label="t('cmd.open')"
+              :title="t('cmd.open')"
+              :aria-pressed="commandOpen"
+              @click="commandOpen = !commandOpen"
+            >
+              <Search class="h-[18px] w-[18px]" />
+            </button>
           </div>
 
           <div v-if="showCopilotButton" class="inline-flex shrink-0 items-center gap-1">
@@ -786,6 +833,11 @@ provide("copilotNavigate", onCopilotNavigate);
     </Transition>
 
     <ActiveJobsRail :copilot-open="copilotOpen" />
+    <MarketCommandPalette
+      :open="commandOpen"
+      :companies="companies"
+      @close="commandOpen = false"
+    />
     <DeckSummaryModal
       v-if="summaryCompanyId"
       :company-id="summaryCompanyId"

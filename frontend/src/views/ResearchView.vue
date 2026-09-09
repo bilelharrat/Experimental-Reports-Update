@@ -1,6 +1,6 @@
 <script setup>
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   Download,
   Eye,
@@ -21,8 +21,10 @@ import {
   isTerminalReportStatus,
 } from "../formatters.js";
 import { useT } from "../i18n.js";
+import { lastPriceLabel, signedChange } from "../liveTicker.js";
 import { POLL_MAX_FAILURES, pollDelayMs } from "../pollBackoff.js";
 import { appLanguage, trackedCompanyIds } from "../state.js";
+import { useLiveQuotes } from "../useLiveQuotes.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import CompanyFollowButton from "../components/CompanyFollowButton.vue";
 import CopilotDropZone from "../components/CopilotDropZone.vue";
@@ -126,6 +128,27 @@ const isPublicCompany = computed(() => {
 const canShowMemoStudio = computed(() =>
   Boolean(company.value && !isPublicCompany.value),
 );
+const companyTicker = computed(() =>
+  String(company.value?.ticker || "").trim().toUpperCase(),
+);
+const companyQuoteTickers = computed(() =>
+  companyTicker.value ? [companyTicker.value] : [],
+);
+const { quotes: companyQuotes } = useLiveQuotes(companyQuoteTickers);
+const companyLiveQuote = computed(() => {
+  const ticker = companyTicker.value;
+  if (!ticker) return null;
+  return companyQuotes.value?.[ticker] || null;
+});
+const companyQuoteLabel = computed(() => {
+  const quote = companyLiveQuote.value;
+  if (!quote || quote.last_price == null) return null;
+  return lastPriceLabel({ last: quote.last_price, currency: quote.currency || "USD" });
+});
+const companyQuoteChange = computed(() => {
+  const change = Number(companyLiveQuote.value?.change_pct_1d);
+  return Number.isFinite(change) ? change : null;
+});
 
 // Default to the stage-calibrated auto memo: the agents decide whether
 // the company reads early, late, or post-IPO and calibrate the framing.
@@ -1479,6 +1502,26 @@ onUnmounted(stopPolling);
         <div class="flex flex-wrap items-center gap-2">
           <h1 class="font-display text-title2 text-ink-primary">{{ company.name }}</h1>
           <CompanyFollowButton :company-id="company.id" size="md" />
+          <template v-if="companyTicker">
+            <RouterLink
+              class="inline-flex items-baseline gap-2 rounded-subbox bg-fill-tertiary/70 px-2.5 py-1 focus-ring"
+              :to="{ name: 'market-radar', query: { ticker: companyTicker } }"
+              data-testid="company-live-quote"
+            >
+              <span class="font-mono text-caption1 text-ink-muted">{{ companyTicker }}</span>
+              <span v-if="companyQuoteLabel" class="mono-data text-callout tabular text-ink-primary">
+                {{ companyQuoteLabel }}
+              </span>
+              <span
+                v-if="companyQuoteChange != null"
+                class="text-caption1 font-semibold tabular"
+                :class="companyQuoteChange >= 0 ? 'text-success' : 'text-danger'"
+              >
+                {{ signedChange(companyQuoteChange) }}
+              </span>
+              <span v-else class="text-caption1 text-ink-subtle">{{ tr("tracking.quote_pending") }}</span>
+            </RouterLink>
+          </template>
         </div>
         <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span

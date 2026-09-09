@@ -20,6 +20,7 @@ vi.mock("vue-router", async () => {
   return {
     ...actual,
     useRouter: () => ({ push }),
+    useRoute: () => ({ query: {}, params: {}, name: "tracking" }),
   };
 });
 

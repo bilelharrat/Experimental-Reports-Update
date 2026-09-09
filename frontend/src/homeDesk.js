@@ -222,3 +222,353 @@ export function quoteMovers(companies = [], quotes = {}, limit = 6) {
   rows.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
   return rows.slice(0, limit);
 }
+
+/** ETF proxies for broad market boards (real quotes via /api/quotes). */
+export const MARKET_INDEX_TICKERS = [
+  { ticker: "SPY", label: "S&P 500" },
+  { ticker: "QQQ", label: "Nasdaq 100" },
+  { ticker: "DIA", label: "Dow 30" },
+  { ticker: "IWM", label: "Russell 2000" },
+  { ticker: "EFA", label: "Developed" },
+  { ticker: "EEM", label: "Emerging" },
+  { ticker: "GLD", label: "Gold" },
+  { ticker: "USO", label: "Oil" },
+  { ticker: "TLT", label: "Bonds" },
+  { ticker: "VIXY", label: "VIX" },
+  { ticker: "UUP", label: "USD" },
+  { ticker: "HYG", label: "HY credit" },
+];
+
+/** WEI-style macro strip (subset of index defs). */
+export const WEI_TICKERS = ["SPY", "QQQ", "TLT", "UUP", "USO", "VIXY", "HYG", "GLD"];
+
+export const CHART_RANGES = ["1d", "5d", "1mo", "6mo", "ytd", "1y", "5y", "max"];
+
+export function quoteBoardRows(quotes = {}, companies = []) {
+  const byTicker = new Map();
+  for (const company of companies) {
+    const ticker = String(company?.ticker || "").trim().toUpperCase();
+    if (ticker) byTicker.set(ticker, company);
+  }
+  const rows = [];
+  for (const [ticker, quote] of Object.entries(quotes || {})) {
+    const symbol = String(ticker || "").trim().toUpperCase();
+    if (!symbol || !quote) continue;
+    const change = Number(quote.change_pct_1d);
+    const last = Number(quote.last_price);
+    if (!Number.isFinite(last)) continue;
+    const company = byTicker.get(symbol);
+    rows.push({
+      id: company?.id || symbol,
+      companyId: company?.id || null,
+      name: company?.name || quote.name || symbol,
+      ticker: symbol,
+      change: Number.isFinite(change) ? change : null,
+      last,
+      currency: quote.currency || "USD",
+      asOf: quote.as_of || null,
+      source: quote.source || null,
+      volume: Number.isFinite(Number(quote.volume)) ? Number(quote.volume) : null,
+      exchange: quote.exchange || null,
+    });
+  }
+  return rows;
+}
+
+export function quoteGainers(rows = [], limit = 10) {
+  return [...rows]
+    .filter((row) => Number.isFinite(row.change) && row.change > 0)
+    .sort((a, b) => b.change - a.change)
+    .slice(0, limit);
+}
+
+export function quoteLosers(rows = [], limit = 10) {
+  return [...rows]
+    .filter((row) => Number.isFinite(row.change) && row.change < 0)
+    .sort((a, b) => a.change - b.change)
+    .slice(0, limit);
+}
+
+export function quoteMostActive(rows = [], limit = 10) {
+  return [...rows]
+    .filter((row) => Number.isFinite(row.volume) && row.volume > 0)
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, limit);
+}
+
+export function lookupQuoteMatches(query, companies = []) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return [];
+  const rows = [];
+  const seen = new Set();
+  const tickerGuess = q.replace(/\s+/g, "").toUpperCase();
+  const looksLikeTicker = /^[A-Z][A-Z0-9.-]{0,9}$/.test(tickerGuess);
+  for (const company of companies) {
+    const ticker = String(company?.ticker || "").trim().toUpperCase();
+    const name = String(company?.name || "").trim();
+    const hay = `${ticker} ${name}`.toLowerCase();
+    if (!hay.includes(q)) continue;
+    const key = ticker || String(company.id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      ticker: ticker || null,
+      name,
+      companyId: company.id,
+      kind: "company",
+    });
+    if (rows.length >= 8) break;
+  }
+  if (looksLikeTicker && !seen.has(tickerGuess) && rows.length === 0) {
+    rows.push({
+      ticker: tickerGuess,
+      name: tickerGuess,
+      companyId: null,
+      kind: "ticker",
+    });
+  }
+  return rows;
+}
+
+export function indexQuoteCards(quotes = {}, defs = MARKET_INDEX_TICKERS) {
+  return defs.map((def) => {
+    const quote = quotes[def.ticker] || null;
+    const change = Number(quote?.change_pct_1d);
+    const last = Number(quote?.last_price);
+    return {
+      ticker: def.ticker,
+      label: def.label,
+      last: Number.isFinite(last) ? last : null,
+      change: Number.isFinite(change) ? change : null,
+      currency: quote?.currency || "USD",
+      asOf: quote?.as_of || null,
+    };
+  });
+}
+
+const CAP_BANDS = {
+  mega: [200e9, Infinity],
+  large: [10e9, 200e9],
+  mid: [2e9, 10e9],
+  small: [0, 2e9],
+};
+
+export function filterScreenerRows(
+  rows = [],
+  {
+    sector = "",
+    cap = "",
+    minChange = null,
+    maxChange = null,
+    minVolume = null,
+    query = "",
+    limit = 40,
+  } = {},
+) {
+  const q = String(query || "").trim().toLowerCase();
+  const band = CAP_BANDS[cap] || null;
+  const filtered = (rows || []).filter((row) => {
+    if (sector && row.sector !== sector) return false;
+    if (band) {
+      const mcap = Number(row.market_cap);
+      if (!Number.isFinite(mcap) || mcap < band[0] || mcap >= band[1]) return false;
+    }
+    const change = Number(row.change_pct);
+    if (minChange != null && Number.isFinite(Number(minChange))) {
+      if (!Number.isFinite(change) || change < Number(minChange)) return false;
+    }
+    if (maxChange != null && Number.isFinite(Number(maxChange))) {
+      if (!Number.isFinite(change) || change > Number(maxChange)) return false;
+    }
+    if (minVolume != null && Number.isFinite(Number(minVolume))) {
+      const volume = Number(row.volume);
+      if (!Number.isFinite(volume) || volume < Number(minVolume)) return false;
+    }
+    if (q) {
+      const hay = `${row.ticker || ""} ${row.name || ""} ${row.sector || ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  return filtered
+    .sort((a, b) => (Number(b.market_cap) || 0) - (Number(a.market_cap) || 0))
+    .slice(0, limit);
+}
+
+export function headlinesForTicker(items = [], { ticker = "", name = "", companies = [] } = {}) {
+  const symbol = String(ticker || "").trim().toLowerCase();
+  const label = String(name || "").trim().toLowerCase();
+  const companyIds = new Set(
+    (companies || [])
+      .filter((row) => String(row?.ticker || "").trim().toUpperCase() === String(ticker || "").trim().toUpperCase())
+      .map((row) => String(row.id)),
+  );
+  const matched = [];
+  const rest = [];
+  for (const item of items || []) {
+    const hay = `${item.title || ""} ${item.summary || ""}`.toLowerCase();
+    const byCompany =
+      companyIds.size > 0 &&
+      (item.companyIds || []).some((id) => companyIds.has(String(id)));
+    const byText =
+      (symbol && hay.includes(symbol)) ||
+      (label && label.length > 3 && hay.includes(label));
+    if (byCompany || byText) matched.push(item);
+    else rest.push(item);
+  }
+  return (matched.length ? matched : rest).slice(0, 12);
+}
+
+/** Collapse near-duplicate headlines (same title stem / URL host). */
+export function collapseDuplicateNews(rows = []) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows || []) {
+    const title = String(row?.title || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ")
+      .trim()
+      .slice(0, 48);
+    const host = String(row?.url || "")
+      .replace(/^https?:\/\//i, "")
+      .split("/")[0]
+      .toLowerCase();
+    const key = `${title}|${host}`;
+    if (!title || seen.has(key) || seen.has(title)) continue;
+    seen.add(key);
+    seen.add(title);
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * CN-style ranked news: book boost, ticker hit, filings weight, freshness.
+ * Prefer Chinese title when lang === "zh".
+ */
+export function rankDeskNews(
+  rows = [],
+  { bookIds = [], ticker = "", name = "", lang = "en", limit = 12 } = {},
+) {
+  const book = new Set((bookIds || []).map(String));
+  const symbol = String(ticker || "").trim().toLowerCase();
+  const label = String(name || "").trim().toLowerCase();
+  const now = Date.now();
+  const scored = (rows || []).map((row) => {
+    let score = 0;
+    const title = String(row?.title || "");
+    const titleZh = String(row?.title_zh || row?.headline_zh || row?.raw?.headline_zh || "");
+    const displayTitle =
+      lang === "zh" && titleZh.trim() ? titleZh.trim() : title;
+    const hay = `${displayTitle} ${row?.summary || ""}`.toLowerCase();
+    if ((row.companyIds || []).some((id) => book.has(String(id)))) score += 40;
+    if (symbol && hay.includes(symbol)) score += 30;
+    if (label && label.length > 3 && hay.includes(label)) score += 18;
+    const cat = row.category || inferNewsCategory(row);
+    if (cat === "filings") score += 22;
+    if (cat === "research") score += 8;
+    const source = String(row.source || "").toLowerCase();
+    if (/reuters|bloomberg|wsj|ft|sec\.gov|edgar/.test(source)) score += 10;
+    const stamp = Date.parse(row.ts || row.captured_at || "");
+    if (Number.isFinite(stamp)) {
+      const hours = Math.max(0, (now - stamp) / 3600000);
+      score += Math.max(0, 24 - hours);
+    }
+    return { ...row, title: displayTitle, category: cat, _score: score };
+  });
+  scored.sort((a, b) => b._score - a._score || String(b.ts || "").localeCompare(String(a.ts || "")));
+  return collapseDuplicateNews(scored).slice(0, limit);
+}
+
+function parseFinNumber(raw) {
+  if (raw == null || raw === "" || raw === "—") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const text = String(raw).trim().replace(/[,$%\s]/g, "");
+  if (!text || text === "-" || text === "—") return null;
+  const mult =
+    /t$/i.test(text) ? 1e12 : /b$/i.test(text) ? 1e9 : /m$/i.test(text) ? 1e6 : /k$/i.test(text) ? 1e3 : 1;
+  const n = Number(text.replace(/[tbmK]$/i, ""));
+  return Number.isFinite(n) ? n * mult : null;
+}
+
+const FA_LINE_PATTERNS = [
+  { id: "revenue", re: /^(total\s+)?revenue|net\s+sales|sales$/i },
+  { id: "gross_margin", re: /gross\s+margin/i },
+  { id: "operating_income", re: /operating\s+income|income\s+from\s+operations/i },
+  { id: "op_margin", re: /operating\s+margin/i },
+  { id: "eps", re: /diluted\s+eps|earnings\s+per\s+share|eps$/i },
+  { id: "fcf", re: /free\s+cash\s+flow|fcf/i },
+  { id: "net_cash", re: /cash\s+and\s+cash\s+equivalents|net\s+cash/i },
+];
+
+/** Compact FA lite lines with YoY delta from Nasdaq-style tables. */
+export function faLiteLines(financials = {}) {
+  const income = financials?.income || {};
+  const cashflow = financials?.cashflow || {};
+  const ratios = financials?.ratios || {};
+  const balance = financials?.balance || {};
+  const tables = [income, ratios, cashflow, balance];
+  const lines = [];
+  for (const def of FA_LINE_PATTERNS) {
+    let found = null;
+    for (const table of tables) {
+      for (const row of table?.rows || []) {
+        if (!def.re.test(String(row.label || "").trim())) continue;
+        found = row;
+        break;
+      }
+      if (found) break;
+    }
+    if (!found) continue;
+    const values = (found.values || []).map(parseFinNumber);
+    const latest = values.find((n) => n != null);
+    const prior = values.filter((n) => n != null)[1];
+    let yoy = null;
+    if (latest != null && prior != null && prior !== 0) {
+      yoy = ((latest - prior) / Math.abs(prior)) * 100;
+    }
+    lines.push({
+      id: def.id,
+      label: found.label,
+      latest,
+      latestRaw: (found.values || [])[0] || "—",
+      prior,
+      yoy,
+    });
+  }
+  return lines;
+}
+
+/** Ownership summary: top buyers/sellers from period change column. */
+export function ownershipSummary(holders = {}) {
+  const rows = (holders?.holders || []).map((row) => {
+    const changeRaw = String(row.change_pct ?? row.change ?? "").trim();
+    const change = parseFinNumber(changeRaw.replace(/%/g, ""));
+    return {
+      owner: row.owner || row.name || "—",
+      shares: row.shares,
+      value: row.value,
+      change_pct: changeRaw || "—",
+      change,
+    };
+  });
+  const withChange = rows.filter((row) => Number.isFinite(row.change));
+  const buyers = [...withChange].sort((a, b) => b.change - a.change).slice(0, 3);
+  const sellers = [...withChange].sort((a, b) => a.change - b.change).slice(0, 3);
+  return {
+    ownership_pct: holders.ownership_pct || null,
+    shares_out: holders.shares_out || null,
+    holdings_value: holders.holdings_value || null,
+    buyers,
+    sellers,
+    rows: rows.slice(0, 12),
+  };
+}
+
+/** Filing / transcript snips from ranked desk rows (category filings). */
+export function filingSnips(rows = [], { ticker = "", name = "", limit = 5 } = {}) {
+  const ranked = rankDeskNews(rows, { ticker, name, limit: 40 });
+  return ranked
+    .filter((row) => (row.category || inferNewsCategory(row)) === "filings")
+    .slice(0, limit);
+}
