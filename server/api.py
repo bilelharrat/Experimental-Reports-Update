@@ -4703,10 +4703,19 @@ async def post_research_file(
     company_id: str,
     file: UploadFile = File(...),
     label: str | None = Form(None),
+    folder_name: str | None = Form(None),
+    folder_id: str | None = Form(None),
 ) -> dict:
     _require_permission(request, "sources:edit")
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
+    # Folder handshake: the first member sends folder_name only and the
+    # server mints the id; later members echo it back so the whole batch
+    # groups under one folder.
+    if folder_id and not research_store.FOLDER_ID_RE.match(folder_id):
+        raise HTTPException(status_code=400, detail="Invalid folder id")
+    if folder_name and not folder_id:
+        folder_id = research_store.mint_folder_id()
     data = await _read_upload_bounded(
         file,
         max_bytes=research_store.MAX_FILE_BYTES,
@@ -4718,6 +4727,8 @@ async def post_research_file(
             content_type=file.content_type,
             data=data,
             label=label,
+            folder_id=folder_id,
+            folder_name=folder_name,
         )
         category = evidence_store.normalize_document_category(
             None,

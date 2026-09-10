@@ -81,6 +81,42 @@ def quick_summary_progress_path(company_id: str, file_id: str) -> Path:
     return _company_dir(company_id) / f"{file_id}__quick_summary.progress.jsonl"
 
 
+def analysis_progress_path(company_id: str, target_id: str) -> Path:
+    """JSONL stream path for a document-analysis job (kind=research_analysis).
+
+    ``target_id`` is a file id or a folder id (``fld`` prefix)."""
+    return _company_dir(company_id) / f"{target_id}__analysis.progress.jsonl"
+
+
+# Folder ids are server-minted and self-identifying: the ``fld`` prefix means
+# a folder id can never be confused with a 12-hex file id in analysis
+# targets, progress filenames, or the memo listing.
+FOLDER_ID_RE = re.compile(r"^fld[0-9a-f]{9}$")
+
+
+def mint_folder_id() -> str:
+    return "fld" + uuid.uuid4().hex[:9]
+
+
+def folder_members(company_id: str, folder_id: str) -> list[dict]:
+    """Member entries of one uploaded folder, oldest first."""
+    with _LOCK:
+        entries = _read_index(company_id)
+    members = [e for e in entries if e.get("folder_id") == folder_id]
+    members.sort(key=lambda e: str(e.get("uploaded_at") or ""))
+    return members
+
+
+def analysis_entry_for(company_id: str, target_id: str) -> dict | None:
+    """The analysis file entry for a file or folder id, when one exists."""
+    with _LOCK:
+        entries = _read_index(company_id)
+    for entry in entries:
+        if entry.get("analysis_of") == target_id:
+            return entry
+    return None
+
+
 def _sanitize_filename(name: str) -> str:
     base = Path(name).name
     base = re.sub(r"[\x00-\x1f\\/]+", "", base)
@@ -185,6 +221,8 @@ def upload_file(
     content_type: str | None,
     data: bytes,
     label: str | None = None,
+    folder_id: str | None = None,
+    folder_name: str | None = None,
 ) -> dict:
     if not filename:
         raise ValueError("Missing filename")
@@ -222,6 +260,9 @@ def upload_file(
             "uploaded_at": _now(),
             "quick_summary": None,  # Populated by the summarize endpoint.
         }
+        if folder_id:
+            entry["folder_id"] = folder_id
+            entry["folder_name"] = folder_name or None
         entries = _read_index(company_id)
         entries.append(entry)
         _write_index(company_id, entries)
@@ -244,7 +285,28 @@ def update_record(
         return None
 
 
+def _unlink_quiet(path: Path) -> None:
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        logger.warning("Failed to delete %s", path, exc_info=True)
+
+
 def delete_file(company_id: str, file_id: str) -> bool:
+    """Delete one entry + blob, cascading its analysis relationships.
+
+    - The entry's own analysis progress sidecar is removed.
+    - Deleting an ANALYSIS file nulls the source's ``analysis_file_id``
+      (the Analyze button flips back).
+    - Deleting a SOURCE file cascades its analysis file (an analysis of a
+      deleted document is orphaned noise).
+    - Deleting a folder's LAST member cascades the folder's analysis and
+      its sidecar. Deleting a non-last member leaves the folder analysis
+      (stale until Reanalyze).
+    ``_LOCK`` is reentrant, so cascades re-enter this function; the index
+    is re-read on every entry.
+    """
     with _LOCK:
         entries = _read_index(company_id)
         removed: dict | None = None
@@ -257,10 +319,21 @@ def delete_file(company_id: str, file_id: str) -> bool:
         if removed is None:
             return False
         _write_index(company_id, kept)
-        path = _company_dir(company_id) / removed.get("stored_name", "")
-        try:
-            if path.exists():
-                path.unlink()
-        except Exception:
-            logger.warning("Failed to delete %s", path, exc_info=True)
+        _unlink_quiet(_company_dir(company_id) / removed.get("stored_name", ""))
+        _unlink_quiet(analysis_progress_path(company_id, file_id))
+
+        source_id = removed.get("analysis_of")
+        if source_id:
+            update_record(company_id, str(source_id), analysis_file_id=None)
+
+        analysis_id = removed.get("analysis_file_id")
+        if analysis_id:
+            delete_file(company_id, str(analysis_id))
+
+        folder_id = removed.get("folder_id")
+        if folder_id and not folder_members(company_id, str(folder_id)):
+            folder_analysis = analysis_entry_for(company_id, str(folder_id))
+            if folder_analysis and folder_analysis.get("id"):
+                delete_file(company_id, str(folder_analysis["id"]))
+            _unlink_quiet(analysis_progress_path(company_id, str(folder_id)))
         return True

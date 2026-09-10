@@ -339,6 +339,12 @@ def _document_row(
         "use_in_report_locked": _use_in_report_locked(backend, filename, record),
         "summary": record.get("summary"),
         "quick_summary": record.get("quick_summary"),
+        # Folder-upload grouping + analysis relationships (research files
+        # only; None for every other backend).
+        "folder_id": record.get("folder_id"),
+        "folder_name": record.get("folder_name"),
+        "analysis_of": record.get("analysis_of"),
+        "analysis_file_id": record.get("analysis_file_id"),
         "record": copy.deepcopy(record),
     }
     if report is not None:
