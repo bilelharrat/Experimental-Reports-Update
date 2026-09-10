@@ -184,6 +184,19 @@ export const api = {
       `/api/companies/${companyId}/tracking-updates/auto-runs/${autoRunId}/execute`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  decisionRecords: {
+    list: (companyId) => request(`/api/companies/${companyId}/decisions`),
+    add: (companyId, payload) =>
+      request(`/api/companies/${companyId}/decisions`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    remove: (companyId, decisionId) =>
+      request(
+        `/api/companies/${companyId}/decisions/${encodeURIComponent(decisionId)}`,
+        { method: "DELETE" },
+      ),
+  },
   getTrackingWatchlist: () => request("/api/tracking/watchlist"),
   putTrackingWatchlist: (body) =>
     request("/api/tracking/watchlist", {

@@ -117,6 +117,14 @@ const executeNotice = ref("");
 // Set when Run now was blocked by a parked card review; renders the
 // "I've reviewed — run anyway" confirmation next to the notice.
 const pendingReviewRunId = ref("");
+const decisionRecords = ref(null);
+const decisionSubmitting = ref(false);
+const decisionSubmitError = ref(false);
+const decisionDeleteArmId = ref("");
+const newDecisionVerdict = ref("invest");
+const newDecisionExplanation = ref("");
+const newDecisionDate = ref("");
+const newDecisionReportId = ref("");
 const refreshingCompany = ref(false);
 const refreshCompanyError = ref("");
 
@@ -457,7 +465,7 @@ const submitThreadError = ref("");
 
 const libraryRefresh = ref(0);
 
-const TAB_IDS = ["overview", "documents", "memo", "news"];
+const TAB_IDS = ["overview", "documents", "memo", "news", "decisions"];
 function normalizeTabName(raw) {
   // Legacy Evidence umbrella → Files. Analysis/console deep-links open Report.
   if (raw === "evidence") return "documents";
@@ -515,6 +523,7 @@ const workspaceTabs = computed(() => [
   { id: "documents", label: tr("research.tab_documents"), show: true },
   { id: "memo", label: tr("research.tab_memo"), show: canShowMemoStudio.value },
   { id: "news", label: tr("research.tab_news_updates"), show: true },
+  { id: "decisions", label: tr("research.tab_decisions"), show: true },
 ]);
 
 const primaryReportTypes = computed(() => {
@@ -827,6 +836,7 @@ async function loadCompany() {
       loadNewsFeed(),
       loadIndustryView(),
       loadTrackingUpdates(),
+      loadDecisionRecords(),
     ]);
   } catch (e) {
     if (requestedId !== props.companyId) return;
@@ -884,6 +894,102 @@ async function loadTrackingUpdates() {
   } catch {
     // Non-fatal: the panel keeps whatever it already shows.
   }
+}
+
+async function loadDecisionRecords() {
+  if (!props.companyId) return;
+  const requestedId = props.companyId;
+  try {
+    const fresh = await api.decisionRecords.list(requestedId);
+    if (requestedId !== props.companyId) return;
+    decisionRecords.value = fresh;
+  } catch {
+    // Non-fatal: the tab keeps whatever it already shows.
+  }
+}
+
+async function submitDecision() {
+  if (decisionSubmitting.value || !newDecisionExplanation.value.trim()) return;
+  decisionSubmitting.value = true;
+  decisionSubmitError.value = false;
+  try {
+    await api.decisionRecords.add(props.companyId, {
+      verdict: newDecisionVerdict.value,
+      explanation: newDecisionExplanation.value.trim(),
+      decided_at: newDecisionDate.value || null,
+      report_id: newDecisionReportId.value || null,
+    });
+    newDecisionExplanation.value = "";
+    newDecisionDate.value = "";
+    newDecisionReportId.value = "";
+    await loadDecisionRecords();
+  } catch {
+    decisionSubmitError.value = true;
+  } finally {
+    decisionSubmitting.value = false;
+  }
+}
+
+async function removeDecision(decisionId) {
+  if (decisionDeleteArmId.value !== decisionId) {
+    decisionDeleteArmId.value = decisionId;
+    return;
+  }
+  decisionDeleteArmId.value = "";
+  try {
+    await api.decisionRecords.remove(props.companyId, decisionId);
+    await loadDecisionRecords();
+  } catch {
+    decisionSubmitError.value = true;
+  }
+}
+
+function decisionChipClass(verdict) {
+  const base = "rounded-pill px-2 py-0.5 text-caption1 font-medium";
+  if (verdict === "invest") return `${base} bg-success-soft text-success-ink`;
+  if (verdict === "pass") return `${base} bg-danger/15 text-danger`;
+  return `${base} bg-warning/15 text-warning`;
+}
+
+function decisionVerdictLabel(verdict) {
+  const keys = {
+    invest: "research.decision_verdict_invest",
+    pass: "research.decision_verdict_pass",
+    watch: "research.decision_verdict_watch",
+  };
+  return keys[verdict] ? tr(keys[verdict]) : verdict;
+}
+
+function retroChipClass(verdict) {
+  const base = "rounded-pill px-2 py-0.5 text-caption1 font-medium";
+  if (verdict === "still_right") return `${base} bg-success-soft text-success-ink`;
+  if (verdict === "looks_wrong") return `${base} bg-danger/15 text-danger`;
+  return `${base} bg-warning/15 text-warning`;
+}
+
+function retroVerdictLabel(verdict) {
+  const keys = {
+    still_right: "research.decision_retro_still_right",
+    questionable: "research.decision_retro_questionable",
+    looks_wrong: "research.decision_retro_looks_wrong",
+  };
+  return keys[verdict] ? tr(keys[verdict]) : verdict;
+}
+
+function retroRationale(retro) {
+  if (appLanguage.value === "zh") {
+    return retro?.rationale_zh || retro?.rationale_en || "";
+  }
+  return retro?.rationale_en || retro?.rationale_zh || "";
+}
+
+function decisionLinkedReport(row) {
+  if (!row?.report_id) return null;
+  return (
+    (companyReports.value || []).find((r) => r.id === row.report_id) || {
+      id: row.report_id,
+    }
+  );
 }
 
 async function syncTracking() {
@@ -2333,6 +2439,129 @@ onUnmounted(stopPolling);
             <div class="mt-1 text-xs text-ink-muted">{{ thread.created_at }}</div>
           </li>
         </ul>
+    </section>
+
+    <section
+      v-if="company && activeTab === 'decisions'"
+      class="rounded-card bg-surface shadow-card p-6"
+    >
+      <div class="mb-1 vogue-label">{{ tr("research.decision_record") }}</div>
+      <p class="mb-4 text-sm text-ink-muted">
+        {{ tr("research.decision_record_hint") }}
+      </p>
+
+      <form @submit.prevent="submitDecision" class="space-y-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <select
+            v-model="newDecisionVerdict"
+            class="field w-auto focus-ring"
+            :aria-label="tr('research.decision_verdict_label')"
+            data-testid="decision-verdict"
+          >
+            <option value="invest">{{ tr("research.decision_verdict_invest") }}</option>
+            <option value="pass">{{ tr("research.decision_verdict_pass") }}</option>
+            <option value="watch">{{ tr("research.decision_verdict_watch") }}</option>
+          </select>
+          <input
+            v-model="newDecisionDate"
+            type="date"
+            class="field w-auto focus-ring"
+            :aria-label="tr('research.decision_date_label')"
+            :title="tr('research.decision_date_hint')"
+          />
+          <select
+            v-model="newDecisionReportId"
+            class="field w-auto max-w-[16rem] focus-ring"
+            :aria-label="tr('research.decision_report_label')"
+          >
+            <option value="">{{ tr("research.decision_report_none") }}</option>
+            <option v-for="r in companyReports" :key="r.id" :value="r.id">
+              {{ r.report_type }} · {{ (r.requested_at || "").slice(0, 10) }}
+            </option>
+          </select>
+        </div>
+        <textarea
+          v-model="newDecisionExplanation"
+          rows="2"
+          :placeholder="tr('research.decision_explanation_placeholder')"
+          class="field resize-y focus-ring"
+          data-testid="decision-explanation"
+        ></textarea>
+        <div class="flex items-center justify-end gap-3">
+          <span v-if="decisionSubmitError" class="text-xs text-danger">
+            {{ tr("research.decision_add_failed") }}
+          </span>
+          <button
+            type="submit"
+            :disabled="!newDecisionExplanation.trim() || decisionSubmitting"
+            class="btn-bordered btn-sm focus-ring"
+          >
+            {{ decisionSubmitting ? tr("research.decision_adding") : tr("research.decision_add") }}
+          </button>
+        </div>
+      </form>
+
+      <div
+        v-if="!decisionRecords || decisionRecords.items?.length === 0"
+        class="mt-4 rounded-subbox bg-fill-tertiary p-4 text-sm text-ink-muted"
+      >
+        {{ tr("research.decision_empty") }}
+      </div>
+      <ul v-else class="mt-4 space-y-3">
+        <li
+          v-for="row in decisionRecords.items"
+          :key="row.id"
+          class="rounded-row bg-fill-tertiary p-4"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span :class="decisionChipClass(row.verdict)">
+              {{ decisionVerdictLabel(row.verdict) }}
+            </span>
+            <span class="text-xs text-ink-muted">
+              {{ tr("research.decision_decided_at", { date: (row.decided_at || "").slice(0, 10) }) }}
+              <template v-if="row.created_by"> · {{ tr("research.decision_by", { name: row.created_by }) }}</template>
+            </span>
+            <span class="flex-1"></span>
+            <button
+              v-if="decisionLinkedReport(row)"
+              type="button"
+              class="text-xs font-medium text-accent hover:underline focus-ring rounded"
+              @click="openReportFromLibrary(decisionLinkedReport(row))"
+            >
+              {{ tr("research.decision_view_report") }}
+            </button>
+            <button
+              type="button"
+              class="text-xs font-medium focus-ring rounded"
+              :class="decisionDeleteArmId === row.id ? 'text-danger' : 'text-ink-muted hover:text-danger'"
+              @click="removeDecision(row.id)"
+            >
+              {{ decisionDeleteArmId === row.id ? tr("research.decision_delete_confirm") : tr("research.decision_delete") }}
+            </button>
+          </div>
+          <p class="mt-2 text-sm text-ink-secondary whitespace-pre-wrap">{{ row.explanation }}</p>
+          <div v-if="row.retrospectives?.length" class="mt-3 space-y-2">
+            <div class="text-caption1 font-medium text-ink-muted">
+              {{ tr("research.decision_retro_heading") }}
+            </div>
+            <div
+              v-for="retro in row.retrospectives"
+              :key="retro.id"
+              class="rounded-subbox bg-surface p-3"
+            >
+              <div class="flex flex-wrap items-center gap-2">
+                <span :class="retroChipClass(retro.verdict)">
+                  {{ retroVerdictLabel(retro.verdict) }}
+                </span>
+                <span class="text-xs text-ink-muted">{{ (retro.assessed_at || "").slice(0, 10) }}</span>
+              </div>
+              <p v-if="retroRationale(retro)" class="mt-1 text-sm text-ink-secondary">
+                {{ retroRationale(retro) }}
+              </p>
+            </div>
+          </div>
+        </li>
+      </ul>
     </section>
 
     <section

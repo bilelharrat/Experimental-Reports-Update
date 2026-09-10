@@ -70,6 +70,11 @@ vi.mock("../src/api.js", () => ({
     listTrackingUpdates: vi.fn(),
     syncTrackingUpdates: vi.fn(),
     executeTrackingAutoRun: vi.fn(),
+    decisionRecords: {
+      list: vi.fn(),
+      add: vi.fn(),
+      remove: vi.fn(),
+    },
     liveQuotes: vi.fn().mockResolvedValue({ quotes: {} }),
     deskPrefs: vi.fn().mockResolvedValue({ updated_at: null, data: {} }),
     saveDeskPrefs: vi.fn().mockResolvedValue({ updated_at: "x", data: {} }),
@@ -147,6 +152,10 @@ function emptyTrackingUpdates() {
     counts: { total: 0, low: 0, medium: 0, high: 0 },
     last_synced_at: null,
   };
+}
+
+function emptyDecisionRecords() {
+  return { company_id: "generalist", items: [] };
 }
 
 function memoSession() {
@@ -355,6 +364,9 @@ describe("route smoke tests", () => {
       executed: false,
       reason: "no_recommended_auto_run",
     });
+    api.decisionRecords.list.mockResolvedValue(emptyDecisionRecords());
+    api.decisionRecords.add.mockResolvedValue({ id: "decision-1" });
+    api.decisionRecords.remove.mockResolvedValue(null);
     api.memoAnalysis.get.mockResolvedValue(memoSession());
     api.memoAnalysis.runTool.mockResolvedValue(memoSession());
     api.memoAnalysis.getEvidenceMatrix.mockResolvedValue({ claim_count: 0, claims: [] });
@@ -426,7 +438,13 @@ describe("route smoke tests", () => {
       .at(0)
       ?.findAll('[role="tab"]')
       .map((tab) => tab.text());
-    expect(topTabs).toEqual(["Overview", "Files", "Report", "News/Updates"]);
+    expect(topTabs).toEqual([
+      "Overview",
+      "Files",
+      "Report",
+      "News/Updates",
+      "Decisions",
+    ]);
     expect(wrapper.text()).toContain("Core Memo Workflow");
     expect(wrapper.text()).toContain("Evidence, Ledger, And Source Boundaries");
   });
@@ -561,6 +579,79 @@ describe("route smoke tests", () => {
     await sync.trigger("click");
     await flushPromises();
     expect(wrapper.text()).toContain("Could not sync tracked news.");
+  });
+
+  it("records and removes decisions on the Decisions tab", async () => {
+    const wrapper = await mountRoute("/research/generalist?tab=decisions");
+    expect(wrapper.text()).toContain("Decision Record");
+    expect(wrapper.text()).toContain("No decisions recorded yet.");
+
+    // Empty explanation keeps the submit disabled — explanation is required.
+    const submit = wrapper
+      .findAll("button")
+      .find((b) => b.text() === "Record decision");
+    expect(submit).toBeTruthy();
+    expect(submit.attributes("disabled")).toBeDefined();
+
+    await wrapper
+      .find('[data-testid="decision-explanation"]')
+      .setValue("Valuation too rich.");
+    await wrapper.find('[data-testid="decision-verdict"]').setValue("pass");
+    await submit.trigger("click");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(api.decisionRecords.add).toHaveBeenCalledWith("generalist", {
+      verdict: "pass",
+      explanation: "Valuation too rich.",
+      decided_at: null,
+      report_id: null,
+    });
+  });
+
+  it("lists decisions with retrospectives and a two-step remove", async () => {
+    api.decisionRecords.list.mockResolvedValue({
+      company_id: "generalist",
+      items: [
+        {
+          id: "decision-9",
+          verdict: "pass",
+          explanation: "Churn too high at the time.",
+          decided_at: "2025-02-01T00:00:00+00:00",
+          created_by: "Ben",
+          report_id: null,
+          retrospectives: [
+            {
+              id: "retro-1",
+              verdict: "looks_wrong",
+              assessed_at: "2026-09-01T00:00:00+00:00",
+              rationale_en: "They fixed churn and raised a Series C.",
+              rationale_zh: "客户流失已改善，并完成 C 轮融资。",
+            },
+          ],
+        },
+      ],
+    });
+    const wrapper = await mountRoute("/research/generalist?tab=decisions");
+
+    expect(wrapper.text()).toContain("Pass");
+    expect(wrapper.text()).toContain("Churn too high at the time.");
+    expect(wrapper.text()).toContain("Decided 2025-02-01");
+    expect(wrapper.text()).toContain("Looks wrong");
+    expect(wrapper.text()).toContain("They fixed churn and raised a Series C.");
+
+    const remove = wrapper
+      .findAll("button")
+      .find((b) => b.text() === "Remove");
+    expect(remove).toBeTruthy();
+    await remove.trigger("click");
+    expect(api.decisionRecords.remove).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Click again to remove");
+    await remove.trigger("click");
+    await flushPromises();
+    expect(api.decisionRecords.remove).toHaveBeenCalledWith(
+      "generalist",
+      "decision-9",
+    );
   });
 
   it("lights the Overview auto-updated badge from tracking updates", async () => {
