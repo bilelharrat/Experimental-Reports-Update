@@ -203,6 +203,30 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
                 )
             )
 
+    # 1b. The decision-history pin (what BSH previously decided, factual
+    #     history) gets the same verbatim-echo treatment, but only when the
+    #     spine set it — absent pin means no check, so legacy runs and
+    #     companies without a decision record are untouched.
+    decision_history = str(
+        shared_facts.get("decision_history_sentence") or ""
+    ).strip()
+    if decision_history:
+        pins_checked += 1
+        candidate = decision_history.rstrip(".")
+        if not _contains(exec_norm, exec_squashed, candidate):
+            findings.append(
+                PinFinding(
+                    code="decision_history_not_echoed",
+                    location=_SECTION_EXEC,
+                    pin=decision_history,
+                    detail=(
+                        "the pinned decision-history sentence "
+                        f'"{decision_history}" does not appear verbatim in '
+                        "the executive summary — repeat it exactly as pinned"
+                    ),
+                )
+            )
+
     # 2. Every checkable pinned metric value must appear somewhere in the
     #    package. Short values match verbatim; spines also legally pack
     #    treatment prose into `value` ("~$24M; treated as a revenue

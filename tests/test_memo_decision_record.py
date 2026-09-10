@@ -131,6 +131,57 @@ def test_spine_prompt_carries_decision_record_kwarg(tmp_path, monkeypatch):
     assert "BSH decision record" not in captured["prompt"]
 
 
+def test_spine_block_carries_pin_instruction_sections_do_not():
+    text = "- Decision: pass — decided 2026-01-05"
+    spine_block = claude_runner._memo_decision_record_block(text, for_spine=True)
+    assert "decision_history_sentence" in spine_block
+    assert "BSH made the decision to" in spine_block
+    assert "18 months" in spine_block
+
+    pass_block = claude_runner._memo_decision_record_block(text)
+    assert "decision_history_sentence" not in pass_block
+
+    # The spine schema accepts the optional pin and holds the length cap.
+    props = claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"][
+        "shared_facts"
+    ]["properties"]
+    assert props["decision_history_sentence"]["maxLength"] == 300
+    required = claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"][
+        "shared_facts"
+    ].get("required", [])
+    assert "decision_history_sentence" not in required
+
+
+def test_spine_prompt_pin_instruction_only_with_record(tmp_path, monkeypatch):
+    captured: dict = {}
+
+    def fake_runner(**kw):
+        captured.update(kw)
+        return {}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_runner
+    )
+    run_dir = tmp_path / "memo-run"
+    (run_dir / "logs").mkdir(parents=True)
+    claude_runner.run_memo_fast_english_spine(
+        run_dir=run_dir,
+        company_name="G",
+        common_context="ctx",
+        add_dirs=[run_dir],
+        decision_record="- Decision: pass — decided 2026-01-05",
+    )
+    assert "decision_history_sentence" in captured["prompt"]
+    captured.clear()
+    claude_runner.run_memo_fast_english_spine(
+        run_dir=run_dir,
+        company_name="G",
+        common_context="ctx",
+        add_dirs=[run_dir],
+    )
+    assert "decision_history_sentence" not in captured["prompt"]
+
+
 def test_common_section_context_stays_decision_free(tmp_path, monkeypatch):
     """Sections are fed facts through the pin sheet only — the decision
     record must not leak into the shared context every section reads."""

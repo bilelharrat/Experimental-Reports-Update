@@ -117,6 +117,36 @@ def test_clean_package_passes():
     assert result.pins_skipped == 1
 
 
+def test_decision_history_pin_is_enforced_only_when_present():
+    history = (
+        "BSH made the decision to pass on 2026-01-05 because the valuation "
+        "was too rich."
+    )
+    facts = {**_shared_facts(), "decision_history_sentence": history}
+
+    # Pin set but not echoed → flagged.
+    result = memo_pin_check.check_package_pins(_echoing_package(), facts)
+    codes = [f.code for f in result.findings]
+    assert "decision_history_not_echoed" in codes
+
+    # Pin echoed verbatim in the exec summary → clean.
+    package = _echoing_package()
+    package["sections"][0]["blocks"].append(
+        {"type": "paragraph", "text": _loc(history)}
+    )
+    result = memo_pin_check.check_package_pins(package, facts)
+    assert result.ok, [f.to_dict() for f in result.findings]
+    assert result.pins_checked == 9  # recommendation + history + 7 others
+
+    # No pin → no check (legacy spines and no-decision companies).
+    result = memo_pin_check.check_package_pins(
+        _echoing_package(), _shared_facts()
+    )
+    assert "decision_history_not_echoed" not in [
+        f.code for f in result.findings
+    ]
+
+
 def test_reworded_recommendation_is_flagged():
     package = _echoing_package()
     package["sections"][0]["blocks"][0]["text"] = _loc(

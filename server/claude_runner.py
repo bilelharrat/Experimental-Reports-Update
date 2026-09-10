@@ -2694,6 +2694,13 @@ MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
             "properties": {
                 "recommendation_sentence": {"type": "string", "maxLength": 300},
+                # Optional factual history pin: set only when the company's
+                # decision record lists a recent human decision. Sections
+                # echo it verbatim as history, never as the conclusion.
+                "decision_history_sentence": {
+                    "type": "string",
+                    "maxLength": 300,
+                },
                 "key_metrics": {
                     "type": "array",
                     "maxItems": 12,
@@ -4101,16 +4108,28 @@ def load_memo_decision_record(research_dir: Path | str | None) -> str | None:
     return text
 
 
-def _memo_decision_record_block(text: str | None) -> str:
+def _memo_decision_record_block(text: str | None, *, for_spine: bool = False) -> str:
     if not text:
         return ""
+    spine_pin_instruction = (
+        """
+When the record above lists at least one decision and the most recent is
+18 months old or newer, set `shared_facts.decision_history_sentence` to
+exactly this template (one sentence, filled from that most recent
+decision): `BSH made the decision to <verdict> on <YYYY-MM-DD> because
+<condensed reason>.` Older decisions are historical context only — never
+pin them and never present them as current.
+"""
+        if for_spine
+        else ""
+    )
     return f"""
 ## BSH decision record (human decisions — factual history)
 These are decisions BSH humans actually recorded, with their reasons.
 They are history, not analysis: weight recent decisions (under ~12
 months) when framing the current view; treat older ones as context
 only. Never present them as the memo's own conclusion.
-
+{spine_pin_instruction}
 {text}
 """
 
@@ -4426,7 +4445,9 @@ _MEMO_SECTION_SPECS: dict[str, str] = {
 Open from the sponsor thesis, not a tombstone. At least two substantive
 content blocks. Must include the Key Metrics Snapshot table with
 `component: "key_metrics_snapshot"`. State the recommendation exactly as the
-spine brief fixes it.""",
+spine brief fixes it. When the shared fact sheet pins a
+`decision_history_sentence`, state it verbatim as factual history — it
+records what BSH previously decided, never the memo's own conclusion.""",
     "company_overview": """\
 Must include three tables, each carrying its component slug:
 `component: "revenue"` (revenue picture), `component: "key_operating_metrics"`
@@ -4707,7 +4728,7 @@ Produce ONE JSON object with:
 {extra_instructions}
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
-{_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{_memo_decision_record_block(decision_record)}{speculative_block}{feedback_block}
+{_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{_memo_decision_record_block(decision_record, for_spine=True)}{speculative_block}{feedback_block}
 Return only the JSON matching the attached schema.
 """
     return _run_memo_local_json_artifact(
