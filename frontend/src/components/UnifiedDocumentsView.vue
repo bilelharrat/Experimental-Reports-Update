@@ -73,9 +73,11 @@ const togglingId = ref("");
 const folderFileInput = ref(null);
 const unfoldedFolders = ref(new Set());
 const launchingAnalysisId = ref("");
-// Target ids (file or fld-prefixed folder) with a research_analysis job
-// live in the rail; when one leaves, the analysis file has landed.
-const analysisJobIds = ref(new Set());
+// Analysis job lifecycle (target = file id or fld-prefixed folder id):
+// pendingAnalysisIds = POSTed but not yet seen in the rail (id → ms);
+// runningAnalysisIds = seen in the rail at least once.
+const pendingAnalysisIds = ref(new Map());
+const runningAnalysisIds = ref(new Set());
 
 const errorMessage = computed(() => {
   if (error.value === "load") return t("documents.load_error");
@@ -441,7 +443,8 @@ function canAnalyze(row) {
 function analysisBusy(targetId) {
   return (
     launchingAnalysisId.value === targetId ||
-    analysisJobIds.value.has(targetId)
+    pendingAnalysisIds.value.has(targetId) ||
+    runningAnalysisIds.value.has(targetId)
   );
 }
 
@@ -456,11 +459,13 @@ async function analyzeTarget(targetId) {
   launchingAnalysisId.value = targetId;
   try {
     await api.analyzeResearchFile(props.companyId, targetId);
-    const next = new Set(analysisJobIds.value);
-    next.add(targetId);
-    analysisJobIds.value = next;
-  } catch {
-    error.value = "action";
+    // Pending until the rail (3s poll + 3s server cache) first SHOWS the
+    // job — only a job the rail has seen can later count as finished.
+    const next = new Map(pendingAnalysisIds.value);
+    next.set(targetId, Date.now());
+    pendingAnalysisIds.value = next;
+  } catch (e) {
+    error.value = e?.status === 403 ? "forbidden" : "action";
   } finally {
     launchingAnalysisId.value = "";
   }
@@ -481,6 +486,12 @@ async function removeFolder(folder) {
 
 // Rail sync (pattern from the legacy uploads panel): reload once a tracked
 // analysis job disappears from the shared active-jobs poll.
+// A freshly launched job takes up to ~6s to appear in the rail (3s poll on
+// a 3s server cache) — treating "not in the rail" as "finished" fired a
+// false failure banner the moment Analyze was clicked. Lifecycle:
+// pending (POSTed) → running (seen in the rail) → finished (seen, then
+// gone) — only finished jobs are judged.
+const _PENDING_ANALYSIS_EXPIRY_MS = 120_000;
 watch(activeJobs, (jobs) => {
   const current = new Set(
     (jobs || [])
@@ -490,19 +501,30 @@ watch(activeJobs, (jobs) => {
       )
       .map((j) => String(j.file_id || "")),
   );
-  let finished = false;
-  for (const id of analysisJobIds.value) {
-    if (!current.has(id)) finished = true;
+  const pending = new Map(pendingAnalysisIds.value);
+  const running = new Set(runningAnalysisIds.value);
+  for (const id of current) {
+    if (pending.has(id)) pending.delete(id);
+    running.add(id);
   }
-  const merged = new Set(current);
-  if (launchingAnalysisId.value) merged.add(launchingAnalysisId.value);
-  const finishedIds = [...analysisJobIds.value].filter((id) => !current.has(id));
-  analysisJobIds.value = merged;
-  if (finished) {
+  const finishedIds = [...running].filter((id) => !current.has(id));
+  for (const id of finishedIds) running.delete(id);
+  // A pending job the rail never showed: either it finished before the
+  // first poll (the reload below finds its analysis) or it failed at
+  // launch — after the grace window, judge it like a finished job.
+  const now = Date.now();
+  const expiredIds = [...pending.entries()]
+    .filter(([, addedAt]) => now - addedAt > _PENDING_ANALYSIS_EXPIRY_MS)
+    .map(([id]) => id);
+  for (const id of expiredIds) pending.delete(id);
+  pendingAnalysisIds.value = pending;
+  runningAnalysisIds.value = running;
+  const judged = [...finishedIds, ...expiredIds];
+  if (judged.length) {
     quietReload().then(() => {
       // A finished job with no analysis row means it failed (the rail
       // entry is gone; the transcript lives in Task history).
-      if (finishedIds.some((id) => !analysisByOf.value.has(id))) {
+      if (judged.some((id) => !analysisByOf.value.has(id))) {
         error.value = "analysis_failed";
       }
     });

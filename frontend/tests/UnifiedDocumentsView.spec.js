@@ -437,4 +437,40 @@ describe("UnifiedDocumentsView", () => {
       folder_name: "meeting",
     });
   });
+
+  it("flags analysis failure only after the rail has seen the job leave", async () => {
+    m.listCompanyDocuments.mockResolvedValue(folderPayload());
+    const { activeJobs } = await import("../src/activeJobs.js");
+    activeJobs.value = [];
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc" },
+      global: { stubs: { Teleport: true } },
+    });
+    await flushPromises();
+
+    const analyze = wrapper.findAll("button").find((b) => b.text() === "Analyze");
+    await analyze.trigger("click");
+    await flushPromises();
+
+    // Rail tick WITHOUT the job (3s poll on a 3s cache lags the launch):
+    // this must NOT read as "finished and failed".
+    activeJobs.value = [];
+    await flushPromises();
+    expect(wrapper.text()).not.toContain("did not finish");
+    // The button stays busy while the launch is pending.
+    expect(analyze.attributes("disabled")).toBeDefined();
+
+    // The rail shows the job...
+    activeJobs.value = [
+      { kind: "research_analysis", company_id: "zainar-inc", file_id: "solo" },
+    ];
+    await flushPromises();
+
+    // ...then it leaves with no analysis row -> genuine failure banner.
+    activeJobs.value = [];
+    await flushPromises();
+    await flushPromises();
+    expect(wrapper.text()).toContain("did not finish");
+    activeJobs.value = [];
+  });
 });
