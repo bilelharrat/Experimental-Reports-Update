@@ -1,18 +1,32 @@
 <script setup>
-import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import {
   AlertCircle,
   ChevronDown,
+  ChevronRight,
   Download,
   Eye,
   FileText,
   Filter,
+  Folder,
   Loader2,
   Search,
   Trash2,
   UploadCloud,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
+import {
+  activeJobs,
+  subscribeActiveJobs,
+  unsubscribeActiveJobs,
+} from "../activeJobs.js";
 import AiMark from "./AiMark.vue";
 import { formatIsoDate, humanizeStatus, isTerminalReportStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
@@ -57,6 +71,12 @@ const filtersOpen = ref(false);
 const uploadError = ref("");
 const launchingSummaryId = ref("");
 const togglingId = ref("");
+const folderFileInput = ref(null);
+const unfoldedFolders = ref(new Set());
+const launchingAnalysisId = ref("");
+// Target ids (file or fld-prefixed folder) with a research_analysis job
+// live in the rail; when one leaves, the analysis file has landed.
+const analysisJobIds = ref(new Set());
 
 const errorMessage = computed(() =>
   error.value === "load" ? t("documents.load_error") : t("documents.action_error"),
@@ -66,6 +86,45 @@ const addFileBusy = computed(() => backgroundUploading.value);
 
 function openAddFile() {
   backgroundFileInput.value?.click();
+}
+
+function openAddFolder() {
+  folderFileInput.value?.click();
+}
+
+const _FOLDER_JUNK = /^(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
+
+async function uploadFolder(list) {
+  const files = (list || []).filter((f) => !_FOLDER_JUNK.test(f.name));
+  if (!files.length) return;
+  const folderName =
+    String(files[0].webkitRelativePath || "").split("/")[0] ||
+    t("documents.folder");
+  backgroundUploading.value = true;
+  uploadError.value = "";
+  let folderId = null;
+  let anyFailed = false;
+  for (const file of files) {
+    try {
+      // First member: server mints the folder id; the rest echo it back.
+      const record = await api.uploadResearchFile(
+        props.companyId,
+        file,
+        null,
+        folderId
+          ? { folder_id: folderId, folder_name: folderName }
+          : { folder_name: folderName },
+      );
+      folderId = folderId || record?.folder_id || null;
+    } catch {
+      anyFailed = true;
+    }
+  }
+  if (anyFailed) uploadError.value = "upload";
+  await load();
+  emit("files-changed");
+  backgroundUploading.value = false;
+  if (folderFileInput.value) folderFileInput.value.value = "";
 }
 
 const previewing = ref(null);
@@ -285,12 +344,153 @@ function downloadUrl(row, key = null) {
 }
 
 function canSummarize(row) {
+  if (row.analysis_of) return false; // an analysis is already distilled
   if (row.backend === "document_library") {
     return ["pdf", "ppt", "pptx"].includes(row.kind);
   }
   if (row.backend === "background_documents") return true;
   return false;
 }
+
+// ---- Folder grouping + analysis child rows --------------------------------
+
+const analysisByOf = computed(() => {
+  const map = new Map();
+  for (const group of filteredGroups.value) {
+    for (const row of group.rows) {
+      if (row.analysis_of) map.set(row.analysis_of, row);
+    }
+  }
+  return map;
+});
+
+function toggleFolder(folderId) {
+  const next = new Set(unfoldedFolders.value);
+  if (next.has(folderId)) next.delete(folderId);
+  else next.add(folderId);
+  unfoldedFolders.value = next;
+}
+
+// Uploaded-documents rows re-ordered for display: folder header pseudo-rows
+// (folded by default) with members indented beneath when unfolded, and each
+// analysis file indented under its source. Orphaned analysis rows (source
+// filtered out or deleted) render as plain top-level rows.
+function displayRows(group) {
+  if (group.id !== "uploaded-documents") return group.rows;
+  const out = [];
+  const placedAnalyses = new Set();
+  const seenFolders = new Set();
+  const pushAnalysisChild = (targetId) => {
+    const analysis = analysisByOf.value.get(targetId);
+    if (analysis) {
+      out.push({ ...analysis, _depth: 1, _isAnalysis: true });
+      placedAnalyses.add(analysis.id);
+    }
+  };
+  for (const row of group.rows) {
+    if (row.analysis_of) continue; // placed as a child of its source
+    if (row.folder_id) {
+      if (seenFolders.has(row.folder_id)) continue;
+      seenFolders.add(row.folder_id);
+      const members = group.rows.filter(
+        (r) => r.folder_id === row.folder_id && !r.analysis_of,
+      );
+      out.push({
+        id: `folder:${row.folder_id}`,
+        _folder: {
+          folder_id: row.folder_id,
+          folder_name: row.folder_name || t("documents.folder"),
+          members,
+        },
+      });
+      pushAnalysisChild(row.folder_id);
+      if (unfoldedFolders.value.has(row.folder_id)) {
+        for (const member of members) {
+          out.push({ ...member, _depth: 1, _member: true });
+        }
+      }
+      continue;
+    }
+    out.push(row);
+    pushAnalysisChild(row.record_id);
+  }
+  for (const row of group.rows) {
+    if (row.analysis_of && !placedAnalyses.has(row.id)) out.push(row);
+  }
+  return out;
+}
+
+function canAnalyze(row) {
+  return (
+    row.backend === "background_documents" &&
+    !row.analysis_of &&
+    !row._member
+  );
+}
+
+function analysisBusy(targetId) {
+  return (
+    launchingAnalysisId.value === targetId ||
+    analysisJobIds.value.has(targetId)
+  );
+}
+
+function analyzeLabel(targetId) {
+  return analysisByOf.value.has(targetId)
+    ? t("documents.reanalyze")
+    : t("documents.analyze");
+}
+
+async function analyzeTarget(targetId) {
+  if (analysisBusy(targetId)) return;
+  launchingAnalysisId.value = targetId;
+  try {
+    await api.analyzeResearchFile(props.companyId, targetId);
+    const next = new Set(analysisJobIds.value);
+    next.add(targetId);
+    analysisJobIds.value = next;
+  } catch {
+    error.value = "action";
+  } finally {
+    launchingAnalysisId.value = "";
+  }
+}
+
+async function removeFolder(folder) {
+  if (!window.confirm(`Delete folder ${folder.folder_name}?`)) return;
+  try {
+    for (const member of folder.members) {
+      await api.deleteResearchFile(props.companyId, member.record_id);
+    }
+    await load();
+    emit("files-changed");
+  } catch {
+    error.value = "action";
+  }
+}
+
+// Rail sync (pattern from the legacy uploads panel): reload once a tracked
+// analysis job disappears from the shared active-jobs poll.
+watch(activeJobs, (jobs) => {
+  const current = new Set(
+    (jobs || [])
+      .filter(
+        (j) =>
+          j.kind === "research_analysis" && j.company_id === props.companyId,
+      )
+      .map((j) => String(j.file_id || "")),
+  );
+  let finished = false;
+  for (const id of analysisJobIds.value) {
+    if (!current.has(id)) finished = true;
+  }
+  const merged = new Set(current);
+  if (launchingAnalysisId.value) merged.add(launchingAnalysisId.value);
+  analysisJobIds.value = merged;
+  if (finished) load();
+});
+onMounted(() => subscribeActiveJobs());
+onBeforeUnmount(() => unsubscribeActiveJobs());
 
 async function summarize(row) {
   if (row.backend === "document_library") {
@@ -406,6 +606,17 @@ function openReport(row) {
         <button
           type="button"
           class="btn-bordered focus-ring"
+          :disabled="addFileBusy"
+          :aria-label="t('documents.add_folder')"
+          data-testid="add-folder"
+          @click="openAddFolder"
+        >
+          <Folder class="h-4 w-4" />
+          {{ t("documents.add_folder") }}
+        </button>
+        <button
+          type="button"
+          class="btn-bordered focus-ring"
           :aria-expanded="filtersOpen"
           :aria-pressed="filtersOpen || filtersActive"
           @click="filtersOpen = !filtersOpen"
@@ -427,6 +638,15 @@ function openReport(row) {
         :accept="BACKGROUND_ACCEPT"
         class="hidden"
         @change="uploadBackground(Array.from($event.target.files || []))"
+      />
+      <input
+        ref="folderFileInput"
+        type="file"
+        multiple
+        webkitdirectory
+        class="hidden"
+        data-testid="folder-input"
+        @change="uploadFolder(Array.from($event.target.files || []))"
       />
     </div>
 
@@ -536,11 +756,59 @@ function openReport(row) {
         </div>
         <ul class="divide-y divide-subtle">
           <li
-            v-for="row in group.rows"
+            v-for="row in displayRows(group)"
             :key="row.id"
             class="px-4 py-4"
+            :class="row._depth ? 'pl-10 bg-fill-tertiary/40' : ''"
           >
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-start">
+            <div
+              v-if="row._folder"
+              class="flex flex-wrap items-center gap-3"
+              :data-testid="`folder-row-${row._folder.folder_id}`"
+            >
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 focus-ring rounded text-left"
+                :aria-expanded="unfoldedFolders.has(row._folder.folder_id)"
+                @click="toggleFolder(row._folder.folder_id)"
+              >
+                <ChevronDown
+                  v-if="unfoldedFolders.has(row._folder.folder_id)"
+                  class="h-4 w-4 text-ink-muted"
+                />
+                <ChevronRight v-else class="h-4 w-4 text-ink-muted" />
+                <Folder class="h-4 w-4 text-ink-muted" />
+                <span class="text-sm font-medium text-ink-primary">
+                  {{ row._folder.folder_name }}
+                </span>
+                <span class="font-mono text-xs text-ink-muted">
+                  {{ t("documents.folder_files", { n: row._folder.members.length }) }}
+                </span>
+              </button>
+              <span class="flex-1"></span>
+              <button
+                type="button"
+                :disabled="analysisBusy(row._folder.folder_id)"
+                class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+                @click="analyzeTarget(row._folder.folder_id)"
+              >
+                <Loader2
+                  v-if="analysisBusy(row._folder.folder_id)"
+                  class="h-3.5 w-3.5 animate-spin"
+                />
+                <AiMark v-else class="h-3.5 w-3.5" />
+                {{ analyzeLabel(row._folder.folder_id) }}
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-muted hover:border-danger/40 hover:bg-danger/10 hover:text-danger focus-ring"
+                @click="removeFolder(row._folder)"
+              >
+                <Trash2 class="h-3.5 w-3.5" />
+                {{ t("common.delete") }}
+              </button>
+            </div>
+            <div v-else class="flex flex-col gap-3 lg:flex-row lg:items-start">
               <div
                 class="mono-data grid h-11 w-11 shrink-0 place-items-center rounded-row text-[10px] font-bold"
                 :class="fileTileClass(row)"
@@ -673,7 +941,7 @@ function openReport(row) {
                   {{ t("documents.source_trace") }}
                 </button>
                 <button
-                  v-if="canSummarize(row)"
+                  v-if="canSummarize(row) && !row._member"
                   type="button"
                   @click="summarize(row)"
                   :disabled="launchingSummaryId === row.id"
@@ -682,6 +950,20 @@ function openReport(row) {
                   <Loader2 v-if="launchingSummaryId === row.id" class="h-3.5 w-3.5 animate-spin" />
                   <AiMark v-else class="h-3.5 w-3.5" />
                   {{ t("documents.summarize") }}
+                </button>
+                <button
+                  v-if="canAnalyze(row)"
+                  type="button"
+                  @click="analyzeTarget(row.record_id)"
+                  :disabled="analysisBusy(row.record_id)"
+                  class="inline-flex items-center gap-1 rounded-full border border-subtle bg-surface px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
+                >
+                  <Loader2
+                    v-if="analysisBusy(row.record_id)"
+                    class="h-3.5 w-3.5 animate-spin"
+                  />
+                  <AiMark v-else class="h-3.5 w-3.5" />
+                  {{ analyzeLabel(row.record_id) }}
                 </button>
                 <button
                   v-if="row.backend !== 'generated_report'"

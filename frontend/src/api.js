@@ -485,10 +485,14 @@ export const api = {
   // Distinct from the Document Library above.
   listResearchFiles: (companyId) =>
     request(`/api/companies/${companyId}/research-files`),
-  uploadResearchFile: async (companyId, file, label) => {
+  uploadResearchFile: async (companyId, file, label, extra = {}) => {
     const fd = new FormData();
     fd.append("file", file);
     if (label) fd.append("label", label);
+    // Folder handshake: the first member sends folder_name only; the
+    // response carries the server-minted folder_id the rest echo back.
+    if (extra.folder_name) fd.append("folder_name", extra.folder_name);
+    if (extra.folder_id) fd.append("folder_id", extra.folder_id);
     const res = await ensureOk(
       await apiFetch(`/api/companies/${companyId}/research-files`, {
         method: "POST",
@@ -497,6 +501,20 @@ export const api = {
     );
     return res.json();
   },
+  analyzeResearchFile: (companyId, targetId) =>
+    request(
+      `/api/companies/${companyId}/research-files/${encodeURIComponent(targetId)}/analysis`,
+      { method: "POST" },
+    ),
+  cancelResearchFileAnalysis: (companyId, targetId) =>
+    request(
+      `/api/companies/${companyId}/research-files/${encodeURIComponent(targetId)}/analysis/cancel`,
+      { method: "POST" },
+    ),
+  researchFileAnalysisStreamUrl: (companyId, targetId) =>
+    withApiToken(
+      `/api/companies/${companyId}/research-files/${encodeURIComponent(targetId)}/analysis/stream`,
+    ),
   researchFileUrl: (companyId, fileId, opts = {}) =>
     withApiToken(
       `/api/companies/${companyId}/research-files/${fileId}${

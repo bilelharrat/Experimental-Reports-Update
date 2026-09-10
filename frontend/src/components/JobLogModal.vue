@@ -333,6 +333,7 @@ function kindLabel(kind) {
     summary: "jobs.kind.summary",
     external_research: "jobs.kind.external_research",
     research_summary: "jobs.kind.research_summary",
+    research_analysis: "jobs.kind.research_analysis",
     serena_research_task: "jobs.kind.serena_research_task",
     serena_analysis_tool: "jobs.kind.serena_analysis_tool",
     memo: "jobs.kind.memo",

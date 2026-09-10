@@ -137,6 +137,7 @@ function kindLabel(kind) {
     summary: "jobs.kind.summary",
     external_research: "jobs.kind.external_research",
     research_summary: "jobs.kind.research_summary",
+    research_analysis: "jobs.kind.research_analysis",
     serena_research_task: "jobs.kind.serena_research_task",
     serena_analysis_tool: "jobs.kind.serena_analysis_tool",
     memo: "jobs.kind.memo",
@@ -338,6 +339,10 @@ function cancelCall(job) {
     case "research_summary":
       return job.company_id && job.file_id
         ? () => api.cancelResearchFileSummary(job.company_id, job.file_id)
+        : null;
+    case "research_analysis":
+      return job.company_id && job.file_id
+        ? () => api.cancelResearchFileAnalysis(job.company_id, job.file_id)
         : null;
     case "external_research":
       return job.item_id

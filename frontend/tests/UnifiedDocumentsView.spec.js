@@ -12,6 +12,9 @@ const m = vi.hoisted(() => ({
   fileUrl: vi.fn((companyId, fileId) => `/files/${companyId}/${fileId}`),
   researchFileUrl: vi.fn((companyId, fileId) => `/research/${companyId}/${fileId}`),
   generateResearchFileSummary: vi.fn(),
+  analyzeResearchFile: vi.fn(),
+  cancelResearchFileAnalysis: vi.fn(),
+  listActiveJobs: vi.fn(),
 }));
 
 vi.mock("../src/api.js", () => ({
@@ -162,6 +165,8 @@ describe("UnifiedDocumentsView", () => {
     vi.clearAllMocks();
     m.listCompanyDocuments.mockResolvedValue(documentsPayload());
     m.updateDocumentMetadata.mockResolvedValue({});
+    m.listActiveJobs.mockResolvedValue([]);
+    m.analyzeResearchFile.mockResolvedValue({ kind: "research_analysis" });
     vi.stubGlobal("confirm", vi.fn(() => true));
   });
 
@@ -283,5 +288,153 @@ describe("UnifiedDocumentsView", () => {
     );
     wrapper.unmount();
     expect(document.querySelector("[role='dialog']")).toBeFalsy();
+  });
+
+  function bgRow(recordId, filename, extra = {}) {
+    return {
+      id: `background_documents:${recordId}`,
+      backend: "background_documents",
+      backend_label: "Background Documents",
+      record_id: recordId,
+      title: filename,
+      filename,
+      kind: "text",
+      type_badge: "TXT",
+      category: "external_reports",
+      category_label: "External Reports",
+      source_class: "unknown/pending",
+      source_class_label: "unknown/pending",
+      language: "en",
+      status: "ready",
+      captured_at: "2026-07-02T12:00:00Z",
+      provenance: { title: filename, file: `${recordId}__${filename}` },
+      source_refs: [],
+      source_traces: [],
+      source_trace_count: 0,
+      editable_metadata: true,
+      use_in_report: true,
+      use_in_report_locked: true,
+      record: { id: recordId, filename, kind: "text", size_bytes: 64 },
+      folder_id: null,
+      folder_name: null,
+      analysis_of: null,
+      analysis_file_id: null,
+      ...extra,
+    };
+  }
+
+  function folderPayload() {
+    const rows = [
+      bgRow("m1", "note1.md", { folder_id: "fld123456789", folder_name: "notes" }),
+      bgRow("m2", "note2.md", { folder_id: "fld123456789", folder_name: "notes" }),
+      bgRow("solo", "solo-report.md"),
+      bgRow("an1", "notes_analysis.md", { analysis_of: "fld123456789" }),
+    ];
+    return {
+      categories: [],
+      source_classes: [],
+      filters: { languages: [], statuses: [] },
+      groups: [{ id: "external_reports", label: "External Reports", count: rows.length, rows }],
+      unresolved_intake_count: 0,
+    };
+  }
+
+  it("groups folder members under a folded header with fold/unfold", async () => {
+    m.listCompanyDocuments.mockResolvedValue(folderPayload());
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc" },
+      global: { stubs: { Teleport: true } },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("notes");
+    expect(wrapper.text()).toContain("2 files");
+    // Folded by default: members hidden, standalone row visible.
+    expect(wrapper.text()).not.toContain("note1.md");
+    expect(wrapper.text()).toContain("solo-report.md");
+    // The folder analysis renders as a child row.
+    expect(wrapper.text()).toContain("notes_analysis.md");
+
+    const toggle = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("notes") && b.text().includes("2 files"));
+    await toggle.trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("note1.md");
+    expect(wrapper.text()).toContain("note2.md");
+  });
+
+  it("analyze posts for files, folders reanalyze, members get no buttons", async () => {
+    m.listCompanyDocuments.mockResolvedValue(folderPayload());
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc" },
+      global: { stubs: { Teleport: true } },
+    });
+    await flushPromises();
+
+    // The folder already has an analysis -> Reanalyze; the standalone
+    // file has none -> Analyze.
+    const reanalyze = wrapper.findAll("button").filter((b) => b.text() === "Reanalyze");
+    const analyze = wrapper.findAll("button").filter((b) => b.text() === "Analyze");
+    expect(reanalyze.length).toBe(1);
+    expect(analyze.length).toBe(1);
+
+    await analyze.at(0).trigger("click");
+    await flushPromises();
+    expect(m.analyzeResearchFile).toHaveBeenCalledWith("zainar-inc", "solo");
+
+    await reanalyze.at(0).trigger("click");
+    await flushPromises();
+    expect(m.analyzeResearchFile).toHaveBeenCalledWith(
+      "zainar-inc",
+      "fld123456789",
+    );
+
+    // Unfold: member rows carry no Analyze/Summarize buttons.
+    const toggle = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("2 files"));
+    await toggle.trigger("click");
+    await flushPromises();
+    const memberRowText = wrapper.text();
+    expect(memberRowText).toContain("note1.md");
+    // Only the original two analysis buttons exist (folder + solo).
+    const buttons = wrapper
+      .findAll("button")
+      .filter((b) => ["Analyze", "Reanalyze"].includes(b.text()));
+    expect(buttons.length).toBe(2);
+  });
+
+  it("uploads a picked folder through the folder_id handshake", async () => {
+    m.listCompanyDocuments.mockResolvedValue(folderPayload());
+    m.uploadResearchFile
+      .mockResolvedValueOnce({ id: "n1", folder_id: "fldabcabcabc" })
+      .mockResolvedValueOnce({ id: "n2", folder_id: "fldabcabcabc" });
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc" },
+      global: { stubs: { Teleport: true } },
+    });
+    await flushPromises();
+
+    const input = wrapper.find("[data-testid='folder-input']");
+    expect(input.attributes("webkitdirectory")).toBeDefined();
+
+    const fileA = new File(["a"], "a.md");
+    Object.defineProperty(fileA, "webkitRelativePath", { value: "meeting/a.md" });
+    const fileB = new File(["b"], "b.md");
+    Object.defineProperty(fileB, "webkitRelativePath", { value: "meeting/b.md" });
+    const junk = new File(["x"], ".DS_Store");
+
+    const vm = wrapper.vm;
+    await vm.uploadFolder([fileA, fileB, junk]);
+
+    expect(m.uploadResearchFile).toHaveBeenCalledTimes(2);
+    expect(m.uploadResearchFile.mock.calls[0][3]).toEqual({
+      folder_name: "meeting",
+    });
+    expect(m.uploadResearchFile.mock.calls[1][3]).toEqual({
+      folder_id: "fldabcabcabc",
+      folder_name: "meeting",
+    });
   });
 });
