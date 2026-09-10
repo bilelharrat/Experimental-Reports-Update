@@ -10637,10 +10637,13 @@ def run_research_analysis(
     title_line = f'(This unit is titled "{hint_title}".)\n' if hint_title else ""
 
     prompt = f"""\
-You are writing a PERSISTENT analysis of internal research documents for
-an investment-research team. Your analysis is saved next to the documents
-and read by future report-generation agents INSTEAD of the raw files — so
-capture everything a future analyst would need, and nothing they wouldn't.
+You are writing a PERSISTENT distilled brief on internal research
+documents for an investment-research team. It is saved NEXT TO the raw
+files, which stay available to every future agent — so do NOT restate
+the documents. Extract the fraction that changes an investment view,
+plus the judgments a skim cannot produce. A future analyst who wants a
+detail you left out will open the raw file; your value is selection and
+analysis, not coverage.
 
 Source documents (in your current working directory):
 {chr(10).join(source_lines)}
@@ -10648,23 +10651,30 @@ Source documents (in your current working directory):
 How to read each file:
 {chr(10).join(read_hints)}
 
-Write a markdown document that answers, in this order:
-1. What is in these documents — a factual inventory (per document for a
-   folder, with the upload date noted).
-2. What the documents are trying to say — the argument, position, or
-   story they carry, stated plainly.
-3. What is USEFUL for investment analysis — concrete facts, numbers,
-   dates, names, commitments, risks. Quote figures verbatim with their
-   source document and location (page/slide).
-4. What can be concluded — your synthesis, clearly separated from what
-   the documents themselves claim. Note contradictions between documents
-   and anything material that is conspicuously absent.
-Consider the upload dates: recent material reflects the current state;
-older material still matters as trajectory (how the situation developed).
+HARD LENGTH BUDGET: aim for 800-1,200 words; never exceed 1,500
+(excluding the closing Chinese section). Every line must earn its
+place — if it would not change what an analyst concludes or checks
+next, leave it in the raw file.
 
-End the document with one short `## 中文摘要` section: a faithful
-Simplified Chinese summary of the key facts and conclusions, applying
-this style guide:
+Structure:
+1. `#` title + 2-3 sentences: what these documents are (type, date,
+   participants if a meeting, and how they relate if several).
+2. `## Key facts` — ONE table of only the decision-relevant figures
+   (value, source locator like p.8 or [24:17], as-of date). At most 15
+   rows. Skip generic market statistics unless load-bearing.
+3. `## What they're trying to say` — the argument or story, at most 5
+   bullets.
+4. `## Red flags and open questions` — contradictions between or within
+   documents, claims whose arithmetic does not check out, loose or
+   inconsistent language, and what is conspicuously absent. This is the
+   most valuable section; be specific and cite locators.
+5. `## Conclusions` — YOUR synthesis, at most 5 bullets, clearly your
+   judgment rather than the documents' claims. Weigh upload dates:
+   recent material reflects the current state; older material is
+   trajectory (how the situation developed).
+
+End with one short `## 中文摘要` section (a few sentences: key facts +
+conclusions), applying this style guide:
 {INVESTMENT_RESEARCH_CHINESE_STYLE}
 
 OUTPUT REQUIREMENTS:
