@@ -732,6 +732,136 @@ def start_tracking_sync_loop() -> None:
     threading.Thread(target=_loop, name="tracking-sync", daemon=True).start()
 
 
+def _decision_retro_enabled() -> bool:
+    return os.environ.get("BSH_TRACKING_DECISION_RETRO", "1") == "1"
+
+
+_DECISION_RETRO_SCHEMA: dict = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "assessments": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "decision_id": {"type": "string"},
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["still_right", "questionable", "looks_wrong"],
+                    },
+                    "rationale_en": {"type": "string", "maxLength": 600},
+                    "rationale_zh": {"type": "string", "maxLength": 600},
+                    "news_ids": {
+                        "type": "array",
+                        "maxItems": 10,
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": [
+                    "decision_id",
+                    "verdict",
+                    "rationale_en",
+                    "rationale_zh",
+                ],
+            },
+        },
+    },
+    "required": ["assessments"],
+}
+
+_DECISION_RETRO_SYSTEM_PROMPT = """\
+You assess whether an investment firm's recorded decisions still look
+right, given news that just landed. For each decision, weigh only the
+provided news items against the decision's stated reason and date:
+- still_right: the news supports or does not challenge the reasoning.
+- questionable: the news meaningfully weakens the reasoning.
+- looks_wrong: the news contradicts the reasoning or shows the outcome
+  going clearly the other way.
+Write BOTH rationales: `rationale_en` (concise English, 1-2 sentences,
+name the news that drove the verdict) and `rationale_zh` (the same
+content in natural simplified Chinese, not a literal translation).
+Reference triggering items by their ids in `news_ids`. Assess every
+decision you are given, and only those."""
+
+
+def _assess_decisions_from_news(company_id: str, new_items: list[dict]) -> None:
+    """Retrospective pass: does each recorded decision still look right?
+
+    One tool-free structured call, fired only when new medium/high-impact
+    items landed and the company has decisions. Best-effort by contract —
+    any failure is logged and the sync proceeds untouched. Never called
+    while the tracking ``_LOCK`` is held (the Claude call takes minutes).
+    """
+    try:
+        from . import claude_runner, decisions_store
+
+        decisions = decisions_store.list_decisions(company_id).get("items") or []
+        if not decisions or not claude_runner.is_available():
+            return
+        by_id = {str(item.get("id")): item for item in new_items}
+        decisions_payload = [
+            {
+                "decision_id": row.get("id"),
+                "verdict": row.get("verdict"),
+                "decided_at": row.get("decided_at"),
+                "reason": row.get("explanation"),
+            }
+            for row in decisions
+        ]
+        news_payload = [
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "summary": item.get("summary"),
+                "published_at": item.get("published_at"),
+                "impact": item.get("impact"),
+            }
+            for item in new_items
+        ]
+        user_prompt = (
+            "Recorded decisions:\n"
+            + json.dumps(decisions_payload, ensure_ascii=False, indent=2)
+            + "\n\nNew tracked news:\n"
+            + json.dumps(news_payload, ensure_ascii=False, indent=2)
+        )
+        data, error = claude_runner.run_structured_prompt(
+            system_prompt=_DECISION_RETRO_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            schema=_DECISION_RETRO_SCHEMA,
+            name="decision_retrospective",
+            timeout_sec=180,
+        )
+        if error or not isinstance(data, dict):
+            logger.warning(
+                "decision retrospective failed for %s: %s", company_id, error
+            )
+            return
+        assessments = []
+        for row in data.get("assessments") or []:
+            if not isinstance(row, dict):
+                continue
+            news_ids = [
+                str(item) for item in (row.get("news_ids") or []) if str(item) in by_id
+            ]
+            assessments.append(
+                {
+                    **row,
+                    "news_ids": news_ids,
+                    "news_titles": [
+                        str(by_id[item].get("title") or "") for item in news_ids
+                    ],
+                }
+            )
+        decisions_store.append_retrospectives(
+            company_id, assessments, source="tracking_sync"
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("decision retrospective crashed for %s", company_id)
+
+
 def sync_from_news_feed(
     company_id: str,
     *,
@@ -812,6 +942,11 @@ def sync_from_news_feed(
             payload["auto_runs"] = auto_runs[:50]
 
         _save(company_id, payload)
+
+    # Outside _LOCK: the retrospective makes a Claude call, and holding the
+    # tracking lock for minutes would freeze every other company's sync.
+    if new_medium_or_high and _decision_retro_enabled():
+        _assess_decisions_from_news(company_id, new_medium_or_high)
 
     summary = list_updates(company_id)
     summary["created"] = created

@@ -531,3 +531,138 @@ def test_report_summary_exposes_tracking_provenance():
     assert tagged["trigger"] == "tracking_auto_run"
     assert tagged["auto_run_id"] == "ar-9"
 
+
+
+# ---- Decision retrospectives -----------------------------------------------
+
+
+def _seed_high_impact_news(company_id: str = "zainar-inc") -> str:
+    storage.bootstrap_seed_data()
+    storage.materialize_seed_company_records()
+    storage.update_company(
+        company_id,
+        company_news=[
+            {
+                "title": "ZaiNar raises Series C financing",
+                "summary": "Large round at a step-up valuation",
+                "url": "https://example.com/zainar-series-c",
+                "published_at": "2026-02-01",
+                "tags": ["funding"],
+            }
+        ],
+    )
+    return company_id
+
+
+def test_retro_fires_on_new_impactful_news_with_decisions(monkeypatch):
+    from server import claude_runner, decisions_store
+
+    company_id = _seed_high_impact_news()
+    decision = decisions_store.add_decision(
+        company_id,
+        verdict="pass",
+        explanation="Valuation too rich.",
+        created_by="b",
+    )
+    calls: list[dict] = []
+
+    def fake_structured(**kw):
+        # The Claude call must never run under the tracking lock.
+        assert tracking_updates._LOCK.acquire(blocking=False)
+        tracking_updates._LOCK.release()
+        calls.append(kw)
+        return (
+            {
+                "assessments": [
+                    {
+                        "decision_id": decision["id"],
+                        "verdict": "looks_wrong",
+                        "rationale_en": "The step-up round contradicts the pass.",
+                        "rationale_zh": "新一轮溢价融资与放弃决策相悖。",
+                        "news_ids": ["not-a-real-item", ],
+                    },
+                    {
+                        "decision_id": "unknown-id",
+                        "verdict": "still_right",
+                        "rationale_en": "x",
+                        "rationale_zh": "x",
+                    },
+                ]
+            },
+            None,
+        )
+
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(claude_runner, "run_structured_prompt", fake_structured)
+
+    tracking_updates.sync_from_news_feed(company_id)
+
+    assert len(calls) == 1
+    assert "Valuation too rich." in calls[0]["user_prompt"]
+    assert "Series C" in calls[0]["user_prompt"]
+    stored = decisions_store.list_decisions(company_id)["items"][0]
+    assert len(stored["retrospectives"]) == 1
+    retro = stored["retrospectives"][0]
+    assert retro["verdict"] == "looks_wrong"
+    assert retro["rationale_zh"].startswith("新一轮")
+    assert retro["news_ids"] == []  # unmatched ids dropped
+
+    # Re-sync with no new items: no second call.
+    tracking_updates.sync_from_news_feed(company_id)
+    assert len(calls) == 1
+
+
+def test_retro_skips_without_decisions_or_when_disabled(monkeypatch):
+    from server import claude_runner, decisions_store
+
+    company_id = _seed_high_impact_news()
+    calls: list[dict] = []
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+    monkeypatch.setattr(
+        claude_runner,
+        "run_structured_prompt",
+        lambda **kw: calls.append(kw) or ({"assessments": []}, None),
+    )
+
+    # No decisions recorded: never called.
+    tracking_updates.sync_from_news_feed(company_id)
+    assert calls == []
+
+    decisions_store.add_decision(
+        company_id, verdict="watch", explanation="Wait for Q3.", created_by="b"
+    )
+    # Kill switch: never called even with decisions + fresh impactful news.
+    storage.update_company(
+        company_id,
+        company_news=[
+            {
+                "title": "ZaiNar announces acquisition",
+                "summary": "M&A move",
+                "url": "https://example.com/zainar-acquisition",
+                "published_at": "2026-03-01",
+                "tags": ["m&a"],
+            }
+        ],
+    )
+    monkeypatch.setenv("BSH_TRACKING_DECISION_RETRO", "0")
+    tracking_updates.sync_from_news_feed(company_id)
+    assert calls == []
+
+
+def test_retro_failure_never_fails_the_sync(monkeypatch):
+    from server import claude_runner, decisions_store
+
+    company_id = _seed_high_impact_news()
+    decisions_store.add_decision(
+        company_id, verdict="invest", explanation="Strong team.", created_by="b"
+    )
+    monkeypatch.setattr(claude_runner, "is_available", lambda: True)
+
+    def _boom(**_kw):
+        raise RuntimeError("model exploded")
+
+    monkeypatch.setattr(claude_runner, "run_structured_prompt", _boom)
+    summary = tracking_updates.sync_from_news_feed(company_id)
+    assert summary["created"] >= 1  # sync unaffected
+    stored = decisions_store.list_decisions(company_id)["items"][0]
+    assert stored["retrospectives"] == []
