@@ -49,6 +49,7 @@ from . import (
     console_session,
     console_store,
     context_store,
+    decisions_store,
     deck_summary,
     desk_store,
     evidence_store,
@@ -2689,6 +2690,58 @@ def get_company_tracking_updates(company_id: str, limit: int = 50) -> dict:
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
     return tracking_updates.list_updates(company_id, limit=limit)
+
+
+class DecisionCreate(BaseModel):
+    verdict: str
+    explanation: str
+    decided_at: str | None = None
+    report_id: str | None = None
+
+
+@router.get("/companies/{company_id}/decisions")
+def get_company_decisions(company_id: str) -> dict:
+    """The company's Decision Record — human decisions plus their
+    retrospectives (appended over time by the tracking sync)."""
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return decisions_store.list_decisions(company_id)
+
+
+@router.post("/companies/{company_id}/decisions", status_code=201)
+def create_company_decision(
+    request: Request, company_id: str, body: DecisionCreate
+) -> dict:
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    caller = _caller_email(request)
+    created_by = product_store.display_name(caller) or caller or "shared"
+    try:
+        return decisions_store.add_decision(
+            company_id,
+            verdict=body.verdict,
+            explanation=body.explanation,
+            decided_at=body.decided_at,
+            report_id=body.report_id,
+            created_by=created_by,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/companies/{company_id}/decisions/{decision_id}", status_code=204
+)
+def delete_company_decision(
+    request: Request, company_id: str, decision_id: str
+) -> Response:
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if not decisions_store.remove_decision(company_id, decision_id):
+        raise HTTPException(status_code=404, detail="Decision not found")
+    return Response(status_code=204)
 
 
 class TrackingSyncBody(BaseModel):
