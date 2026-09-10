@@ -2981,6 +2981,21 @@ def _run_fast_memo_pipeline(
     )
 
 
+def _assert_spine_pin_allowed(
+    pinned_spine_path: Path | None, memo_mode: str
+) -> None:
+    """Belt-and-braces: a pinned spine carries studio card edits, and only
+    the studio generate path may supply one. One-Click ("auto") memos must
+    never inherit cards from a previous investigation — a violated
+    invariant here means possible studio contamination and must fail loudly
+    rather than silently produce a card-influenced One-Click memo."""
+    if pinned_spine_path is not None and memo_mode != "studio":
+        raise ValueError(
+            "pinned_spine_path is studio-only; "
+            f"memo_mode={memo_mode!r} must not carry card pins"
+        )
+
+
 def _run_fast_synthesis(
     *,
     run_dir: Path,
@@ -3001,6 +3016,7 @@ def _run_fast_synthesis(
     started_at: str = "",
     started_monotonic: float = 0.0,
     pinned_spine_path: Path | None = None,
+    memo_mode: str = "auto",
 ) -> dict:
     """Phases 3-4: English synthesis, Chinese fill, and the gates.
 
@@ -3014,6 +3030,7 @@ def _run_fast_synthesis(
     before this half; ``started_at``/``started_monotonic`` close the
     whole-pipeline phase timing.
     """
+    _assert_spine_pin_allowed(pinned_spine_path, memo_mode)
     phase3_started_at = _now_iso()
     phase3_started = time.monotonic()
     phase3_progress = _ThreadProgress(stream, claude_runner._MEMO_PHASE3_THREAD)
@@ -6043,6 +6060,7 @@ def _generate_from_studio(report_id: str) -> None:
         started_at=started_at,
         started_monotonic=started_monotonic,
         pinned_spine_path=run_dir / "logs" / "english_units" / "spine.json",
+        memo_mode="studio",
     )
     if not result.get("ok"):
         message = result.get("error") or "Studio memo generation failed"
