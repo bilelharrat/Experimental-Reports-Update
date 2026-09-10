@@ -783,6 +783,11 @@ class ReportSummary(BaseModel):
     # report ("tracking_auto_run" + the auto-run record id).
     trigger: str | None = None
     auto_run_id: str | None = None
+    # Two completion timestamps (report-ready detach): the DOCX became
+    # viewable at report_ready_at; the run fully ended (private artifacts
+    # collected) at run_finished_at. Equal-ish when nothing was deferred.
+    report_ready_at: str | None = None
+    run_finished_at: str | None = None
     # Set when a newer memo run for the same company replaced this failed
     # run; superseded failures are no longer resumable or auto-surfaced.
     superseded_by: str | None = None
@@ -1900,7 +1905,12 @@ def post_weekly_stocks_refresh(request: Request, force: bool = False) -> dict:
     stream_url = "/api/weekly-stocks/refresh/stream"
     with _job_start_lock("weekly"):
         state = _scan_progress_state(path)
-        in_flight = _progress_state_in_flight(state)
+        # Grace 0: a log whose last event is a failed StructuredOutput is
+        # superseded immediately (the historical refresh contract), rather
+        # than blocking refresh for the schema-retry grace window.
+        in_flight = _progress_state_in_flight(
+            state, schema_retry_grace_seconds=0.0
+        )
         if in_flight and not force:
             return {
                 "job_id": "weekly",
@@ -3235,6 +3245,14 @@ def cancel_memo_report(request: Request, report_id: str) -> ReportDetail:
         raise HTTPException(
             status_code=400,
             detail="Only investment memo runs can be cancelled",
+        )
+    if str(report.get("status") or "").startswith("complete"):
+        # The report is already rendered and viewable — the run is only
+        # finalizing private artifacts (report-ready detach). Cancelling
+        # now would mark a delivered report as failed.
+        raise HTTPException(
+            status_code=409,
+            detail="Report is already complete; only artifacts are finalizing",
         )
     state = _scan_progress_state(_memo_stream_path_for_report(report_id))
     if state.get("exists") and state.get("terminated"):
@@ -4998,11 +5016,15 @@ def _progress_path_recent(path: "Path", *, max_idle_seconds: int) -> bool:
 
 
 def _progress_state_in_flight(
-    state: dict, *, max_idle_seconds: int = ACTIVE_JOB_MAX_IDLE_SECONDS
+    state: dict,
+    *,
+    max_idle_seconds: int = ACTIVE_JOB_MAX_IDLE_SECONDS,
+    schema_retry_grace_seconds: float | None = None,
 ) -> bool:
-    return job_progress.progress_state_in_flight(
-        state, max_idle_seconds=max_idle_seconds
-    )
+    kwargs: dict = {"max_idle_seconds": max_idle_seconds}
+    if schema_retry_grace_seconds is not None:
+        kwargs["schema_retry_grace_seconds"] = schema_retry_grace_seconds
+    return job_progress.progress_state_in_flight(state, **kwargs)
 
 
 def _scan_active_progress_state(path: "Path") -> dict | None:
@@ -5662,6 +5684,7 @@ def _memo_kind_records():
             "company_id": init.get("company_id"),
             "run_id": init.get("run_id"),
             "run_dir": init.get("run_dir"),
+            "report_ready": bool(state.get("report_ready")),
             **_common_state_fields(state),
         }
 
@@ -8130,6 +8153,8 @@ def _report_summary(r: dict) -> dict:
         "studio_generate": r.get("studio_generate"),
         "trigger": r.get("trigger"),
         "auto_run_id": r.get("auto_run_id"),
+        "report_ready_at": r.get("report_ready_at"),
+        "run_finished_at": r.get("run_finished_at"),
     }
     download_urls, preview_urls = _memo_report_artifact_urls(r)
     if download_urls:

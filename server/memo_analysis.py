@@ -3469,6 +3469,29 @@ def _run_fast_synthesis(
     cost_usd += phase3_added_cost
     worker_duration_ms += phase3_added_duration
     artifacts = english_result.get("analysis_artifacts")
+    if (
+        async_artifacts is not None
+        and not isinstance(artifacts, dict)
+        and not async_artifacts.done
+        and not _internal_diligence_memo_enabled()
+    ):
+        # Report-ready detach: the package is accepted but the artifacts
+        # agent is still writing. Park the handle instead of blocking —
+        # _finalize_memo_from_package joins it after the DOCX renders, so
+        # the user reads the report while the artifacts finish. Internal
+        # diligence forces the inline join below (Phase 6 reads these
+        # files); a monolithic fallback that returned artifacts inline
+        # keeps the inline harvest too (cost accounting).
+        _park_pending_artifacts(run_dir, async_artifacts)
+        phase3_progress.emit(
+            "stage",
+            stage="memo_fast_english_artifacts_deferred",
+            message=(
+                "Analysis-artifacts agent still running; the run continues "
+                "and collects it after the report is ready"
+            ),
+        )
+        async_artifacts = None
     if async_artifacts is not None:
         # Harvest the detached artifacts agent. It started at wrapper entry
         # and the attempt loop ran spine + wave + gates since, so this join
@@ -4224,6 +4247,49 @@ def reserved_run_slots_available() -> bool:
         return active + waiting < TRACKING_RESERVED_SLOTS
 
 
+# ---- Deferred artifacts tail ------------------------------------------
+# When the detached artifacts agent (BSH_MEMO_ARTIFACTS_ASYNC) is still
+# running at package acceptance, the run no longer waits for it: the
+# handle parks here (keyed by run dir) and _finalize_memo_from_package
+# joins it AFTER the DOCX is rendered and the report is marked complete —
+# the "report ready, finalizing artifacts" tail the jobs rail shows.
+# Failure paths abandon the handle via _abandon_pending_artifacts (called
+# from the worker's finally) so a dead run never leaves a paid agent
+# running unattended.
+_PENDING_ARTIFACTS: dict[str, "claude_runner.AsyncArtifacts"] = {}
+_PENDING_ARTIFACTS_LOCK = threading.Lock()
+
+
+def _park_pending_artifacts(run_dir: Path, handle) -> None:
+    with _PENDING_ARTIFACTS_LOCK:
+        _PENDING_ARTIFACTS[str(run_dir)] = handle
+
+
+def _pop_pending_artifacts(run_dir: Path):
+    with _PENDING_ARTIFACTS_LOCK:
+        return _PENDING_ARTIFACTS.pop(str(run_dir), None)
+
+
+def _abandon_pending_artifacts(report_id: str) -> None:
+    """Reap a parked artifacts agent whose run never reached finalize."""
+    report = storage.get_report(report_id)
+    run_dir = _resolve_run_dir(report or {})
+    if run_dir is None:
+        return
+    handle = _pop_pending_artifacts(run_dir)
+    if handle is None:
+        return
+    try:
+        claude_runner.terminate_claude_procs_under(str(run_dir))
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "failed to reap abandoned artifacts agent for %s",
+            report_id,
+            exc_info=True,
+        )
+    handle.shutdown()
+
+
 def _with_run_slot(report_id: str, worker) -> None:
     """Slot + cancel bookkeeping around one memo worker body."""
     report = storage.get_report(report_id)
@@ -4239,6 +4305,7 @@ def _with_run_slot(report_id: str, worker) -> None:
         worker()
     finally:
         release_run_slot(report_id)
+        _abandon_pending_artifacts(report_id)
         if run_dir is not None:
             claude_runner.clear_run_dir_cancelled(str(run_dir))
 
@@ -4838,6 +4905,62 @@ def _finalize_memo_from_package(
         quality_warnings=quality_warnings or None,
         claude_cost_usd=combined_result.get("cost_usd"),
         claude_duration_ms=combined_result.get("duration_ms"),
+        report_ready_at=_now_iso(),
+    )
+    # ---- Artifacts tail: the report is complete and viewable above; a
+    # parked artifacts agent (report-ready detach) is collected here, so
+    # the rail shows "Done — finalizing artifacts" instead of holding the
+    # whole run hostage to the slowest private artifact.
+    pending_artifacts = _pop_pending_artifacts(run_dir)
+    if pending_artifacts is not None:
+        tail_started_at = _now_iso()
+        tail_started = time.monotonic()
+        stream.emit(
+            "stage",
+            stage="memo_report_ready",
+            message=(
+                "Report is ready to view — finalizing private analysis "
+                "artifacts in the background"
+            ),
+            report_ready=True,
+        )
+        join_result, join_error = pending_artifacts.join(timeout_sec=900.0)
+        pending_artifacts.shutdown()
+        tail_artifacts = (
+            (join_result or {}).get("analysis_artifacts")
+            if not join_error and isinstance(join_result, dict)
+            else None
+        )
+        if not isinstance(tail_artifacts, dict):
+            stream.emit(
+                "stage",
+                stage="memo_fast_english_artifacts_degraded",
+                message=(
+                    "Detached analysis-artifacts agent failed; writing "
+                    "stub artifacts "
+                    f"({str(join_error or 'no artifacts returned')[:300]})"
+                ),
+            )
+            tail_artifacts = {}
+        _write_fast_synthesis_artifacts(run_dir, tail_artifacts)
+        tail_cost = _as_float((join_result or {}).get("claude_cost_usd"))
+        if tail_cost:
+            combined_result["cost_usd"] = round(
+                _as_float(combined_result.get("cost_usd")) + tail_cost, 6
+            )
+        _emit_phase_timing(
+            stream,
+            phase="memo_artifacts_tail",
+            status="failed" if join_error else "finished",
+            started_at=tail_started_at,
+            started_monotonic=tail_started,
+            cost_usd=tail_cost or None,
+            error=str(join_error)[:500] if join_error else None,
+        )
+    storage.update_report(
+        report_id,
+        run_finished_at=_now_iso(),
+        claude_cost_usd=combined_result.get("cost_usd"),
     )
     done_payload = {
         "report_id": report_id,

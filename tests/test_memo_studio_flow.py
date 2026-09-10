@@ -502,6 +502,110 @@ def test_cancel_endpoint_stops_live_run(studio_env, monkeypatch):
     memo_analysis.claude_runner.clear_run_dir_cancelled(str(run_dir))
 
 
+def test_cancel_complete_report_is_conflict(studio_env):
+    # Report-ready detach: the report is complete while the artifacts tail
+    # still runs (stream not yet terminal). Cancelling must not mark a
+    # delivered report as failed.
+    report, run_dir = _make_studio_report(studio_env, status="complete")
+    stream = memo_analysis.job_progress.ProgressLog(
+        memo_prep.stream_path(run_dir)
+    )
+    stream.emit("job_init", kind="memo", report_id=report["id"])  # non-terminal
+    client = TestClient(app)
+    response = client.post(f"/api/reports/{report['id']}/cancel")
+    assert response.status_code == 409
+    assert "complete" in response.json()["detail"]
+    assert storage.get_report(report["id"])["status"] == "complete"
+
+
+class _FakeLint:
+    has_blocking_findings = False
+
+    def to_dict(self):
+        return {"p0_count": 0, "findings": []}
+
+
+class _FakeTailHandle:
+    """Parked artifacts agent whose join delivers real artifacts."""
+
+    def __init__(self):
+        self.shutdowns = 0
+
+    def join(self, timeout_sec=0):
+        return (
+            {
+                "analysis_artifacts": {"claim_register_md": "# Claims\nreal"},
+                "claude_cost_usd": 1.5,
+            },
+            None,
+        )
+
+    def shutdown(self):
+        self.shutdowns += 1
+
+
+def test_finalize_collects_parked_artifacts(studio_env, monkeypatch):
+    report, run_dir = _make_studio_report(studio_env, status="analyzing")
+    for lang in ("en", "zh"):
+        path = run_dir / "memo" / f"{lang}.docx"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"docx")
+    monkeypatch.setattr(
+        memo_analysis, "_block_generated_renderer_scripts", lambda **k: False
+    )
+    monkeypatch.setattr(memo_analysis, "_render_memo_outputs", lambda **k: True)
+    monkeypatch.setattr(
+        memo_analysis, "_renderer_contract_diagnostics", lambda **k: {}
+    )
+    monkeypatch.setattr(
+        memo_analysis, "_maybe_render_memo_pdf_previews", lambda **k: None
+    )
+    monkeypatch.setattr(
+        memo_analysis, "_run_chinese_parity_gate", lambda **k: (None, None)
+    )
+    monkeypatch.setattr(
+        memo_analysis,
+        "_lint_memo_quality_gate",
+        lambda **k: (_FakeLint(), run_dir / "logs" / "lint.md"),
+    )
+    handle = _FakeTailHandle()
+    memo_analysis._park_pending_artifacts(run_dir, handle)
+
+    stream = memo_analysis.job_progress.ProgressLog(
+        memo_prep.stream_path(run_dir)
+    )
+    ok = memo_analysis._finalize_memo_from_package(
+        report_id=report["id"],
+        report=storage.get_report(report["id"]),
+        run_dir=run_dir,
+        stream=stream,
+        result={"cost_usd": 2.0, "duration_ms": 1000, "worker_duration_ms": 900},
+    )
+    assert ok is True
+    assert handle.shutdowns == 1
+    assert memo_analysis._pop_pending_artifacts(run_dir) is None
+
+    updated = storage.get_report(report["id"])
+    assert updated["status"] == "complete"
+    assert updated["report_ready_at"]
+    assert updated["run_finished_at"]
+    # The tail's cost lands on the record and the done event.
+    assert updated["claude_cost_usd"] == pytest.approx(3.5)
+
+    events = _events(run_dir)
+    ready = [e for e in events if e.get("stage") == "memo_report_ready"]
+    assert ready and ready[0]["report_ready"] is True
+    done = [e for e in events if e["type"] == "done"]
+    assert done and done[-1]["cost_usd"] == pytest.approx(3.5)
+    assert events.index(ready[0]) < events.index(done[-1])
+
+    # The joined artifacts were written for real; absent ones are stubs.
+    claims = (run_dir / "analysis" / "claim_register.md").read_text()
+    assert "real" in claims
+    countercase = (run_dir / "analysis" / "countercase.md").read_text()
+    assert "No source-backed material" in countercase
+
+
 def test_generate_endpoint_validation_matrix(studio_env, monkeypatch):
     client = TestClient(app)
     # Unknown report.

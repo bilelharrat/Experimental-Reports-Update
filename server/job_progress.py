@@ -159,6 +159,7 @@ def scan_progress_state(path: Path) -> dict:
         "claude_cost_usd": None,
         "claude_duration_ms": None,
         "error": None,
+        "report_ready": False,
         "job_init": None,
         "kind": None,
         "title": None,
@@ -282,6 +283,8 @@ def scan_progress_state(path: Path) -> dict:
                     state["latest_stage"] = (
                         entry.get("message") or entry.get("stage")
                     )
+                    if entry.get("report_ready"):
+                        state["report_ready"] = True
                     if "slide_no" in entry:
                         state["slide_no"] = entry["slide_no"]
                     if "slide_count" in entry:
@@ -484,12 +487,24 @@ def progress_path_idle_seconds(path: Path) -> float | None:
         return None
 
 
+# How long a run may sit on a failed StructuredOutput validation before the
+# scanner declares it dead. Observed healthy retries take up to ~3 minutes
+# to rewrite a large payload (Mill run 2026-09-10: 188s), so 10 minutes
+# separates "still rewriting" from "the CLI exited on that rejection".
+SCHEMA_RETRY_GRACE_SECONDS = 600.0
+
+
 def progress_path_recent(path: Path, *, max_idle_seconds: int) -> bool:
     idle = progress_path_idle_seconds(path)
     return idle is not None and idle <= max_idle_seconds
 
 
-def progress_state_in_flight(state: dict, *, max_idle_seconds: int) -> bool:
+def progress_state_in_flight(
+    state: dict,
+    *,
+    max_idle_seconds: int,
+    schema_retry_grace_seconds: float = SCHEMA_RETRY_GRACE_SECONDS,
+) -> bool:
     if not state.get("exists") or state.get("terminated"):
         return False
     latest = state.get("latest_action") or {}
@@ -498,7 +513,17 @@ def progress_state_in_flight(state: dict, *, max_idle_seconds: int) -> bool:
         and latest.get("tool") == "StructuredOutput"
         and latest.get("is_error")
     ):
-        return False
+        # A schema rejection is routine mid-run: the CLI feeds the error
+        # back and the agent retries, sometimes taking minutes to rewrite
+        # a large payload before the next event lands. Only a rejection
+        # the stream never moved past means the worker died there —
+        # treating every fresh rejection as terminal blanked the jobs
+        # rail for healthy runs. Takeover-style callers (weekly refresh)
+        # pass schema_retry_grace_seconds=0 to keep superseding such logs
+        # immediately.
+        idle = progress_idle_seconds(state)
+        if idle is None or idle > schema_retry_grace_seconds:
+            return False
     idle = progress_idle_seconds(state)
     return idle is None or idle <= max_idle_seconds
 

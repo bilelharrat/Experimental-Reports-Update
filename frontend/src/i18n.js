@@ -1487,6 +1487,9 @@ const messages = {
     "jobs.cancel": "Cancel run",
     "jobs.cancel_confirm": "Click again to confirm",
     "jobs.cancelling": "Cancelling…",
+    "jobs.done": "Done",
+    "jobs.finalizing_artifacts":
+      "Finalizing artifacts — the report is ready to view.",
     "jobs.kind.search": "search",
     "jobs.kind.pdf_translation": "translation",
     "jobs.kind.summary": "deck summary",
@@ -3431,6 +3434,8 @@ const messages = {
     "jobs.cancel": "取消任务",
     "jobs.cancel_confirm": "再次点击确认",
     "jobs.cancelling": "取消中…",
+    "jobs.done": "已完成",
+    "jobs.finalizing_artifacts": "正在整理分析档案——报告已可查看。",
     "jobs.kind.search": "搜索",
     "jobs.kind.pdf_translation": "翻译",
     "jobs.kind.summary": "演示摘要",

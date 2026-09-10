@@ -118,6 +118,35 @@ describe("ActiveJobsRail", () => {
     expect(apiMock.cancelReportRun).toHaveBeenCalledWith("memo-1");
   });
 
+  it("shows Done + finalizing artifacts instead of cancel once the report is ready", async () => {
+    apiMock.listActiveJobs.mockResolvedValue([
+      {
+        kind: "memo",
+        report_id: "memo-1",
+        title: "Investment memo — ZaiNar, Inc.",
+        latest_stage: "Finalizing private analysis artifacts",
+        report_ready: true,
+      },
+    ]);
+
+    wrapper = mount(ActiveJobsRail, {
+      global: { stubs: { Teleport: true } },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Done");
+    expect(wrapper.text()).toContain(
+      "Finalizing artifacts — the report is ready to view.",
+    );
+    // The raw stage line is replaced by the finalizing banner…
+    expect(wrapper.text()).not.toContain("Finalizing private analysis artifacts");
+    // …and a delivered report can no longer be cancelled from the rail.
+    const cancel = wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Cancel run");
+    expect(cancel).toBeUndefined();
+  });
+
   it("shifts left of the copilot panel when copilot is open", async () => {
     apiMock.listActiveJobs.mockResolvedValue([
       {

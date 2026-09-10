@@ -109,8 +109,17 @@ on any structural failure).
   enforcement is post-hoc.
 - **Detached artifacts** (`claude_runner.AsyncArtifacts`,
   `BSH_MEMO_ARTIFACTS_ASYNC=1`): the 7 private artifacts run on their
-  own thread from wrapper entry, joined by `memo_analysis` after
-  acceptance. Failure degrades to stub files, never sinks the pass.
+  own thread from wrapper entry. If the agent is already done at package
+  acceptance it is harvested inline; otherwise the handle parks
+  (`memo_analysis._PENDING_ARTIFACTS`) and `_finalize_memo_from_package`
+  collects it AFTER the DOCX renders — the report flips `complete` with
+  `report_ready_at`, the stream emits `memo_report_ready`
+  (`report_ready: true`, the jobs rail shows "Done — finalizing
+  artifacts", cancel disabled), and the terminal `done` plus
+  `run_finished_at` land once the agent is joined. Internal diligence
+  (Phase 6 reads these files) forces the inline join. Failure degrades
+  to stub files, never sinks the pass; failed runs reap a parked agent
+  in the worker's `finally` (`_abandon_pending_artifacts`).
 - **Acceptance gates**, in order (in `memo_analysis`'s attempt loop):
   1. deterministic structure repair (`repair_package_structure`);
   2. renderer validation (`english_package_validation_errors`);

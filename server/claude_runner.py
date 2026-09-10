@@ -4873,6 +4873,14 @@ class AsyncArtifacts:
         with self._lock:
             return self._future is not None
 
+    @property
+    def done(self) -> bool:
+        """True once the agent finished (success or failure) — a done
+        handle joins instantly, so callers use this to choose between the
+        inline harvest and the report-ready tail."""
+        with self._lock:
+            return self._future is not None and self._future.done()
+
     def start(
         self,
         *,

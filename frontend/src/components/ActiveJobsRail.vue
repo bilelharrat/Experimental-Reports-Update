@@ -473,7 +473,21 @@ const visible = computed(() => jobs.value.length > 0);
                   </span>
                 </div>
                 <div
-                  v-if="j.latest_stage"
+                  v-if="j.report_ready"
+                  class="mt-1 text-xs inline-flex flex-wrap items-center gap-1.5"
+                >
+                  <span
+                    class="inline-flex items-center gap-1 rounded-full bg-success-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase text-success-ink"
+                  >
+                    <CheckCircle2 class="h-3 w-3 shrink-0" />
+                    {{ t("jobs.done") }}
+                  </span>
+                  <span class="text-ink-secondary">{{
+                    t("jobs.finalizing_artifacts")
+                  }}</span>
+                </div>
+                <div
+                  v-else-if="j.latest_stage"
                   class="mt-1 text-xs text-ink-secondary line-clamp-2 inline-flex items-center gap-1"
                 >
                   <Loader2 class="h-3 w-3 animate-spin shrink-0 text-info" />
@@ -530,7 +544,7 @@ const visible = computed(() => jobs.value.length > 0);
             {{ t("copilot.action_diagnose_job") }}
           </button>
           <button
-            v-if="cancelCall(j) && !jobFailed(j)"
+            v-if="cancelCall(j) && !jobFailed(j) && !j.report_ready"
             type="button"
             class="w-full border-t border-subtle px-3 py-2 text-left text-caption1 font-medium focus-ring"
             :class="
