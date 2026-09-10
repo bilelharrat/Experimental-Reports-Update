@@ -455,6 +455,10 @@ export const api = {
       `/api/companies/${companyId}/files/${fileId}/summary/stream`,
     ),
   listActiveJobs: () => request("/api/jobs/active", { timeoutMs: 8000 }),
+  listJobHistory: (limit = 30) =>
+    request(`/api/jobs/history?limit=${encodeURIComponent(limit)}`, {
+      timeoutMs: 8000,
+    }),
   jobLog: (logUrl) => request(logUrl, { timeoutMs: 8000 }),
   deleteFileSummary: async (companyId, fileId) => {
     await ensureOk(

@@ -65,6 +65,12 @@ class ProgressLog:
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(line + "\n")
                 f.flush()
+        if type_ in self.TERMINAL_TYPES:
+            # Every finished job passes through here exactly when it turns
+            # terminal — the one hook the Task history ledger needs.
+            from server import job_history
+
+            job_history.record_terminal(self.path, type_)
 
     @property
     def is_terminated(self) -> bool:

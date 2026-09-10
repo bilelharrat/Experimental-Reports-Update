@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, nextTick } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
+  History,
   Loader2,
   Link as LinkIcon,
   LogOut,
@@ -16,6 +17,7 @@ import { useT } from "./i18n.js";
 import AiMark from "./components/AiMark.vue";
 import Sidebar from "./components/Sidebar.vue";
 import ActiveJobsRail from "./components/ActiveJobsRail.vue";
+import TaskHistoryPanel from "./components/TaskHistoryPanel.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import CopilotPanel from "./components/CopilotPanel.vue";
 import MarketCommandPalette from "./components/MarketCommandPalette.vue";
@@ -50,6 +52,7 @@ const error = ref(null);
 const route = useRoute();
 const router = useRouter();
 const copilotOpen = ref(false);
+const historyOpen = ref(false);
 const copilotReady = ref(false);
 const copilotPanelRef = ref(null);
 const headerRef = ref(null);
@@ -697,6 +700,20 @@ provide("copilotNavigate", onCopilotNavigate);
             </button>
           </div>
 
+          <div class="inline-flex shrink-0 items-center">
+            <button
+              type="button"
+              class="icon-btn"
+              :aria-label="t('jobs.history_title')"
+              :title="t('jobs.history_title')"
+              :aria-pressed="historyOpen"
+              data-testid="task-history-toggle"
+              @click="historyOpen = !historyOpen"
+            >
+              <History class="h-[18px] w-[18px]" />
+            </button>
+          </div>
+
           <div v-if="showCopilotButton" class="inline-flex shrink-0 items-center gap-1">
             <button
               type="button"
@@ -833,6 +850,11 @@ provide("copilotNavigate", onCopilotNavigate);
     </Transition>
 
     <ActiveJobsRail :copilot-open="copilotOpen" />
+    <TaskHistoryPanel
+      v-if="historyOpen"
+      :copilot-open="copilotOpen"
+      @close="historyOpen = false"
+    />
     <MarketCommandPalette
       :open="commandOpen"
       :companies="companies"

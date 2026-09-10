@@ -63,6 +63,7 @@ from . import (
     hormuz_store,
     hypothesis_cycle,
     hypothesis_store,
+    job_history,
     job_progress,
     link_preview as link_preview_mod,
     live_quotes,
@@ -5453,6 +5454,9 @@ _JOB_KIND_PATHS = {
     "public_snapshot_bulk": lambda key: _trader_refresh_all_progress_path(),
     "company_regen_all": lambda key: _company_regen_all_progress_path(),
     "weekly_stocks": lambda key: weekly_stocks.progress_path(),
+    # Task-history replay: the key is a ledger row id; the ledger recorded
+    # the stream path when the job finished, so no per-kind mapping needed.
+    "history": lambda key: job_history.resolve_log_path(key),
     "stock_tracker": _stock_tracker_progress_path,
     "stock_aggregate": _stock_aggregate_progress_path,
     "stock_strategy": _stock_strategy_progress_path,
@@ -6075,6 +6079,39 @@ def get_active_jobs() -> list[dict]:
     with _active_jobs_lock:
         _active_jobs_cache = (now, data)
     return data
+
+
+@router.get("/jobs/history")
+def get_job_history(limit: int = 30) -> list[dict]:
+    """Recently finished AI tasks, newest first — the Task history panel.
+
+    Rows come from the terminal-event ledger (``job_history``). Memo rows
+    are enriched from the report record (status, the two completion
+    timestamps, final cost) and deep-link to the report; every row with a
+    surviving stream file carries a ``log_url`` for transcript replay.
+    """
+    out: list[dict] = []
+    for row in job_history.list_history(limit=limit):
+        entry = dict(row)
+        kind = str(row.get("kind") or "")
+        report_id = row.get("report_id")
+        if kind in ("memo", "hormuz") and report_id:
+            entry["log_url"] = f"/api/jobs/log?path=memo:{report_id}"
+            report = storage.get_report(str(report_id)) or {}
+            if report:
+                entry["status"] = report.get("status")
+                entry["report_ready_at"] = report.get("report_ready_at")
+                entry["run_finished_at"] = report.get("run_finished_at")
+                if report.get("claude_cost_usd") is not None:
+                    entry["claude_cost_usd"] = report.get("claude_cost_usd")
+            entry["primary_route"] = {
+                "name": "report",
+                "params": {"reportId": report_id},
+            }
+        elif row.get("log_path"):
+            entry["log_url"] = f"/api/jobs/log?path=history:{row.get('id')}"
+        out.append(entry)
+    return out
 
 
 @router.get("/jobs/log")
