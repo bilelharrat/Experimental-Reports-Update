@@ -4063,6 +4063,58 @@ fresher you retrieve, and prefer the newer figure when they conflict.
 """
 
 
+MEMO_DECISION_RECORD_FILENAME = "decision_record.md"
+MEMO_DECISION_RECORD_MAX_CHARS = 4000
+
+
+def _memo_decision_record_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_DECISION_RECORD", "1") == "1"
+
+
+def load_memo_decision_record(research_dir: Path | str | None) -> str | None:
+    """Read the company's human decision-record digest, when one exists.
+
+    ``decision_record.md`` is written into the research folder by the memo
+    workers (from the decisions store) just before Phase 2 — the same
+    mechanism as ``recent_news.md``. Returns ``None`` when absent, empty,
+    or disabled via ``BSH_MEMO_DECISION_RECORD=0``.
+    """
+    if research_dir is None or not _memo_decision_record_enabled():
+        return None
+    path = Path(research_dir) / MEMO_DECISION_RECORD_FILENAME
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    if len(text) > MEMO_DECISION_RECORD_MAX_CHARS:
+        logger.warning(
+            "decision record digest %s exceeds %d chars; truncating",
+            path,
+            MEMO_DECISION_RECORD_MAX_CHARS,
+        )
+        text = (
+            text[:MEMO_DECISION_RECORD_MAX_CHARS].rstrip()
+            + "\n(decision record truncated)"
+        )
+    return text
+
+
+def _memo_decision_record_block(text: str | None) -> str:
+    if not text:
+        return ""
+    return f"""
+## BSH decision record (human decisions — factual history)
+These are decisions BSH humans actually recorded, with their reasons.
+They are history, not analysis: weight recent decisions (under ~12
+months) when framing the current view; treat older ones as context
+only. Never present them as the memo's own conclusion.
+
+{text}
+"""
+
+
 def run_memo_fast_analysis_pass(
     *,
     run_dir: Path,
@@ -4120,7 +4172,7 @@ Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
 {_research_file_listing(research_dir)}
-{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}
 BSH background:
 `{settings_path}`
 {lessons_block}
@@ -4247,7 +4299,7 @@ Files:
 Fast analysis artifacts:
 - JSON directory: `{fast_dir}`
 - Markdown directory: `{analysis_dir}`
-{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}
+{_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}
 Read the relevant packet/artifact files. Do not rerun the eight analysis
 passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
 they already contain the structured results from each pass. Read markdown
@@ -4580,6 +4632,7 @@ def run_memo_fast_english_spine(
     speculative_missing: list[str] | None = None,
     fact_ledger: str | None = None,
     recent_news: str | None = None,
+    decision_record: str | None = None,
     schema: dict | None = None,
     extra_instructions: str = "",
 ) -> tuple[dict | None, str | None]:
@@ -4654,7 +4707,7 @@ Produce ONE JSON object with:
 {extra_instructions}
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
-{_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{speculative_block}{feedback_block}
+{_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{_memo_decision_record_block(decision_record)}{speculative_block}{feedback_block}
 Return only the JSON matching the attached schema.
 """
     return _run_memo_local_json_artifact(
@@ -4749,6 +4802,7 @@ def run_memo_english_spine_standalone(
         speculative_missing=missing_pass_ids or None,
         fact_ledger=load_memo_fact_ledger(research_dir),
         recent_news=load_memo_recent_news(research_dir),
+        decision_record=load_memo_decision_record(research_dir),
         schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA_STUDIO if studio_extras else None,
         extra_instructions=(
             _MEMO_STUDIO_SPINE_EXTRAS_INSTRUCTIONS if studio_extras else ""
@@ -5387,6 +5441,7 @@ class SpeculativeEnglish:
             speculative_missing=late_ids or None,
             fact_ledger=load_memo_fact_ledger(self._research_dir),
             recent_news=load_memo_recent_news(self._research_dir),
+            decision_record=load_memo_decision_record(self._research_dir),
         )
         if error is None and isinstance(result, dict):
             self._note_spine_success(result, common_context, add_dirs)
@@ -6738,6 +6793,7 @@ def run_memo_fast_english_package_parallel(
             validation_feedback=validation_feedback,
             fact_ledger=load_memo_fact_ledger(research_dir),
             recent_news=load_memo_recent_news(research_dir),
+            decision_record=load_memo_decision_record(research_dir),
         )
         _finish_row(
             spine_label,

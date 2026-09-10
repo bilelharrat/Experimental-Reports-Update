@@ -113,6 +113,27 @@ def _write_recent_news_file(company_id: str, research_dir: Path) -> None:
         logger.exception("tracked-news digest write failed for %s", company_id)
 
 
+def _write_decision_record_file(company_id: str, research_dir: Path) -> None:
+    """Refresh the human decision-record digest (``decision_record.md``)
+    the analysis passes and the spine read from the research folder.
+
+    Same contract as the tracked-news digest: best-effort, never fails a
+    run, leaves any existing file alone when the store has no decisions
+    (the loader's kill switch covers full disable)."""
+    try:
+        from . import decisions_store
+
+        text = decisions_store.render_decision_record_md(company_id)
+        if not text:
+            return
+        research_dir.mkdir(parents=True, exist_ok=True)
+        (research_dir / claude_runner.MEMO_DECISION_RECORD_FILENAME).write_text(
+            text, encoding="utf-8"
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("decision-record digest write failed for %s", company_id)
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -5471,6 +5492,10 @@ def _run(report_id: str) -> None:
         str(report.get("company_id") or company_slug),
         research_store.RESEARCH_ROOT / company_slug,
     )
+    _write_decision_record_file(
+        str(report.get("company_id") or company_slug),
+        research_store.RESEARCH_ROOT / company_slug,
+    )
 
     if fast_pipeline_enabled:
         result = _run_fast_memo_pipeline(
@@ -5719,6 +5744,9 @@ def _investigate(report_id: str) -> None:
     scope_check = report.get("scope_check")
     research_dir = research_store.RESEARCH_ROOT / company_slug
     _write_recent_news_file(
+        str(report.get("company_id") or company_slug), research_dir
+    )
+    _write_decision_record_file(
         str(report.get("company_id") or company_slug), research_dir
     )
 
