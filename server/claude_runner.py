@@ -10487,6 +10487,201 @@ OUTPUT REQUIREMENTS:
     return parsed
 
 
+def research_analysis_timeout_sec(file_count: int) -> int:
+    """Single-file parity with the quick summary, +120s per extra member,
+    capped so a huge folder cannot hold a worker thread for hours."""
+    return min(900, 240 + 120 * max(0, int(file_count) - 1))
+
+
+def run_research_analysis(
+    *,
+    sources: list[dict],
+    work_dir: Path,
+    hint_title: str | None = None,
+    progress=None,
+    timeout_sec: int = 240,
+    cancel_event: threading.Event | None = None,
+) -> dict:
+    """Produce a persistent markdown analysis of one document or one
+    uploaded folder of correlated documents.
+
+    ``sources`` rows: ``{path, filename, kind, uploaded_at, label}``. The
+    output is MARKDOWN (not JSON): the payload is multi-KB prose, and
+    plain text avoids the escaping/truncation failure modes of JSON-
+    wrapped documents — the worst failure is imperfect markdown, never an
+    unparseable job. Returns ``{"analysis_md", "claude_cost_usd",
+    "claude_duration_ms", "generated_at"}`` or ``{"error": ...}``.
+    """
+    if not is_available():
+        return {
+            "error": (
+                "Claude Code (`claude`) not on PATH. Install it with "
+                "`npm install -g @anthropic-ai/claude-code` and authenticate."
+            )
+        }
+    if not work_dir.exists():
+        return {"error": f"Work folder missing: {work_dir}"}
+    if not sources:
+        return {"error": "No source documents to analyze"}
+
+    for source in sources:
+        path = Path(source["path"])
+        staged = work_dir / path.name
+        if not staged.exists():
+            try:
+                staged.write_bytes(path.read_bytes())
+            except Exception as exc:  # noqa: BLE001
+                return {"error": f"Failed to stage source file: {exc}"}
+
+    source_lines = []
+    read_hints = []
+    for source in sources:
+        name = Path(source["path"]).name
+        uploaded = str(source.get("uploaded_at") or "")[:10]
+        label = source.get("label")
+        source_lines.append(
+            f"- `{name}`"
+            + (f" — uploaded {uploaded}" if uploaded else "")
+            + (f', label "{label}"' if label else "")
+        )
+        read_hints.append(
+            f"`{name}`:\n"
+            + _quick_summary_read_instructions(str(source.get("kind") or ""), name)
+        )
+    unit_line = (
+        "These documents were uploaded together as ONE folder — treat them "
+        "as a single correlated unit of information (for example, materials "
+        "from one meeting or one diligence batch), and analyze them "
+        "together, cross-referencing where they support or contradict each "
+        "other.\n"
+        if len(sources) > 1
+        else ""
+    )
+    title_line = f'(This unit is titled "{hint_title}".)\n' if hint_title else ""
+
+    prompt = f"""\
+You are writing a PERSISTENT analysis of internal research documents for
+an investment-research team. Your analysis is saved next to the documents
+and read by future report-generation agents INSTEAD of the raw files — so
+capture everything a future analyst would need, and nothing they wouldn't.
+
+Source documents (in your current working directory):
+{chr(10).join(source_lines)}
+{unit_line}{title_line}
+How to read each file:
+{chr(10).join(read_hints)}
+
+Write a markdown document that answers, in this order:
+1. What is in these documents — a factual inventory (per document for a
+   folder, with the upload date noted).
+2. What the documents are trying to say — the argument, position, or
+   story they carry, stated plainly.
+3. What is USEFUL for investment analysis — concrete facts, numbers,
+   dates, names, commitments, risks. Quote figures verbatim with their
+   source document and location (page/slide).
+4. What can be concluded — your synthesis, clearly separated from what
+   the documents themselves claim. Note contradictions between documents
+   and anything material that is conspicuously absent.
+Consider the upload dates: recent material reflects the current state;
+older material still matters as trajectory (how the situation developed).
+
+End the document with one short `## 中文摘要` section: a faithful
+Simplified Chinese summary of the key facts and conclusions, applying
+this style guide:
+{INVESTMENT_RESEARCH_CHINESE_STYLE}
+
+OUTPUT REQUIREMENTS:
+- Output ONLY the markdown document. It must start with a `#` heading.
+- No preamble, no commentary about your process, no code fences around
+  the document.
+"""
+
+    cmd = [
+        claude_path() or "claude",
+        "-p", prompt,
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(work_dir),
+        "--permission-mode", "bypassPermissions",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Read,Bash",
+        "--no-session-persistence",
+        "--exclude-dynamic-system-prompt-sections",
+    ]
+    if progress:
+        progress.emit(
+            "stage",
+            stage="claude_starting",
+            message=(
+                f"Analyzing {len(sources)} documents"
+                if len(sources) > 1
+                else "Analyzing document"
+            ),
+        )
+
+    stderr_log: list[str] = []
+    try:
+        proc = _popen_claude(
+            cmd,
+            cwd=str(work_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        return {"error": f"Failed to launch claude: {exc}"}
+
+    stderr_thread = threading.Thread(
+        target=_drain_stderr, args=(proc, stderr_log), daemon=True
+    )
+    stderr_thread.start()
+
+    state: dict[str, Any] = {}
+    final_text, stream_error = _consume_stream_json_process(
+        proc,
+        stderr_log=stderr_log,
+        progress=progress,
+        state=state,
+        event_handler=_process_event,
+        timeout_sec=timeout_sec,
+        timeout_label="research analysis",
+        cancel_event=cancel_event,
+    )
+    if stream_error:
+        return {"error": stream_error}
+    if proc.returncode and proc.returncode != 0:
+        tail = "".join(stderr_log[-20:]).strip()
+        return {
+            "error": (
+                f"claude exited {proc.returncode}"
+                + (f": {tail[:600]}" if tail else "")
+            )
+        }
+
+    result_event = state.get("result_event")
+    if not final_text and result_event:
+        final_text = result_event.get("result")
+    if not final_text or not final_text.strip():
+        return {"error": "claude returned empty result"}
+
+    text = final_text.strip()
+    # Fence-strip fallback: models occasionally wrap despite instructions.
+    fence = re.match(r"^```(?:markdown|md)?\s*\n(.*)\n```\s*$", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+
+    result: dict[str, Any] = {
+        "analysis_md": text,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if result_event:
+        result["claude_cost_usd"] = result_event.get("total_cost_usd")
+        result["claude_duration_ms"] = result_event.get("duration_ms")
+    return result
+
+
 def run_structured_prompt(
     *,
     system_prompt: str,

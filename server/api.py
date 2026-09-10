@@ -5029,6 +5029,265 @@ def delete_research_file_summary(request: Request, company_id: str, file_id: str
     research_store.update_record(company_id, file_id, quick_summary=None)
 
 
+def _resolve_analysis_target(
+    company_id: str, target_id: str
+) -> tuple[list[dict], str] | None:
+    """Resolve an analysis target into ``(sources, display_name)``.
+
+    A ``fld``-prefixed id resolves to the folder's member files (analyzed
+    as one correlated unit); anything else resolves to a single file.
+    Returns ``None`` when the target does not exist / has no members.
+    """
+    if research_store.FOLDER_ID_RE.match(target_id):
+        members = research_store.folder_members(company_id, target_id)
+        if not members:
+            return None
+        sources = []
+        folder_name = ""
+        for member in members:
+            found = research_store.get_file(company_id, member["id"])
+            if found is None:
+                continue
+            record, path = found
+            folder_name = record.get("folder_name") or folder_name
+            sources.append(
+                {
+                    "path": path,
+                    "filename": record.get("filename"),
+                    "kind": record.get("kind") or "text",
+                    "uploaded_at": record.get("uploaded_at"),
+                    "label": record.get("label"),
+                }
+            )
+        if not sources:
+            return None
+        return sources, (folder_name or "folder")
+    found = research_store.get_file(company_id, target_id)
+    if found is None:
+        return None
+    record, path = found
+    source = {
+        "path": path,
+        "filename": record.get("filename"),
+        "kind": record.get("kind") or "text",
+        "uploaded_at": record.get("uploaded_at"),
+        "label": record.get("label"),
+    }
+    from pathlib import Path as _Path
+
+    return [source], _Path(record.get("filename") or "document").stem
+
+
+def _run_research_analysis_job(
+    company_id: str,
+    target_id: str,
+    cancel_key: str | None = None,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Background worker: analyze one research file or uploaded folder and
+    persist the result as an indexed `<name>_analysis.md` research file
+    (which the memo pipeline then reads instead of the raw documents)."""
+    progress_path = research_store.analysis_progress_path(company_id, target_id)
+    cancel_fields = {
+        "kind": "research_analysis",
+        "company_id": company_id,
+        "file_id": target_id,
+    }
+    if _honor_research_cancel(
+        progress_path,
+        cancel_event,
+        reason="Document analysis cancelled",
+        **cancel_fields,
+    ):
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
+        return
+    progress = job_progress.ProgressLog(progress_path)
+    try:
+        resolved = _resolve_analysis_target(company_id, target_id)
+        company_name = (storage.get_company(company_id) or {}).get(
+            "name"
+        ) or company_id
+        display_name = resolved[1] if resolved else target_id
+        progress.emit(
+            "job_init",
+            kind="research_analysis",
+            title=display_name,
+            subtitle=company_name,
+            company_id=company_id,
+            file_id=target_id,
+        )
+        progress.emit(
+            "stage", stage="starting", message="Starting document analysis"
+        )
+        if resolved is None:
+            progress.emit("error", error="Analysis target not found")
+            return
+        sources, display_name = resolved
+        result = claude_runner.run_research_analysis(
+            sources=sources,
+            work_dir=sources[0]["path"].parent,
+            hint_title=display_name,
+            progress=progress,
+            timeout_sec=claude_runner.research_analysis_timeout_sec(
+                len(sources)
+            ),
+            cancel_event=cancel_event,
+        )
+        if _honor_research_cancel(
+            progress_path,
+            cancel_event,
+            reason="Document analysis cancelled",
+            **cancel_fields,
+        ):
+            return
+        if "error" in result:
+            progress.emit("error", error=result["error"])
+            return
+        # Reanalyze semantics: the previous analysis is replaced wholesale.
+        prior = research_store.analysis_entry_for(company_id, target_id)
+        if prior and prior.get("id"):
+            research_store.delete_file(company_id, str(prior["id"]))
+        analysis_record = research_store.upload_file(
+            company_id,
+            filename=f"{display_name}_analysis.md",
+            content_type="text/markdown",
+            data=str(result.get("analysis_md") or "").encode("utf-8"),
+        )
+        research_store.update_record(
+            company_id,
+            analysis_record["id"],
+            analysis_of=target_id,
+            source_class="internal note",
+            document_category=evidence_store.normalize_document_category(
+                None,
+                filename=analysis_record.get("filename"),
+                kind="text",
+                backend="background_documents",
+            ),
+            provenance={
+                "title": f"Distilled analysis of {display_name}",
+                "file": analysis_record.get("stored_name"),
+                "uploaded_at": analysis_record.get("uploaded_at"),
+                "source_class": "internal note",
+                "confidence": "high",
+                "status": "generated",
+            },
+        )
+        if not research_store.FOLDER_ID_RE.match(target_id):
+            research_store.update_record(
+                company_id, target_id, analysis_file_id=analysis_record["id"]
+            )
+        progress.emit(
+            "done",
+            analysis_file_id=analysis_record["id"],
+            claude_cost_usd=result.get("claude_cost_usd"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        progress.emit(
+            "error", error=f"Job crashed: {type(exc).__name__}: {exc}"
+        )
+    finally:
+        _clear_research_cancel_event(cancel_key or "", cancel_event)
+
+
+@router.post(
+    "/companies/{company_id}/research-files/{file_id}/analysis",
+    status_code=202,
+)
+def post_research_file_analysis(
+    request: Request, company_id: str, file_id: str
+) -> dict:
+    """Analyze one research file — or one uploaded folder (fld-prefixed
+    id) as a single correlated unit. Writes a persistent
+    `<name>_analysis.md` next to the documents; future memo runs read the
+    distilled analysis instead of reprocessing the raw files."""
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if research_store.FOLDER_ID_RE.match(file_id):
+        if not research_store.folder_members(company_id, file_id):
+            raise HTTPException(status_code=404, detail="Folder not found")
+    else:
+        found = research_store.get_file(company_id, file_id)
+        if found is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        if found[0].get("analysis_of"):
+            raise HTTPException(
+                status_code=400,
+                detail="This file is itself an analysis — analyze the source instead",
+            )
+
+    progress_path = research_store.analysis_progress_path(company_id, file_id)
+    stream_url = (
+        f"/api/companies/{company_id}/research-files/{file_id}/analysis/stream"
+    )
+    log_url = f"/api/jobs/log?path=research_analysis:{company_id}/{file_id}"
+    with _job_start_lock(f"research_analysis:{company_id}/{file_id}"):
+        state = _scan_progress_state(progress_path)
+        if _progress_state_in_flight(state):
+            return {
+                "kind": "research_analysis",
+                "company_id": company_id,
+                "file_id": file_id,
+                "status": "already_running",
+                "stream_url": stream_url,
+                "log_url": log_url,
+            }
+        if state.get("exists") and not state.get("terminated"):
+            _supersede_progress_file(
+                progress_path,
+                reason="superseded stale research analysis progress",
+            )
+        cancel_key = _research_cancel_key(
+            "research_analysis", company_id, file_id
+        )
+        cancel_event = _start_research_cancel_event(cancel_key)
+        threading.Thread(
+            target=_run_research_analysis_job,
+            args=(company_id, file_id, cancel_key, cancel_event),
+            name=f"research-analysis-{company_id}-{file_id}",
+            daemon=True,
+        ).start()
+    return {
+        "kind": "research_analysis",
+        "company_id": company_id,
+        "file_id": file_id,
+        "stream_url": stream_url,
+        "log_url": log_url,
+    }
+
+
+@router.post(
+    "/companies/{company_id}/research-files/{file_id}/analysis/cancel",
+)
+def cancel_research_file_analysis(
+    request: Request, company_id: str, file_id: str
+) -> dict:
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    cancel_key = _research_cancel_key(
+        "research_analysis", company_id, file_id
+    )
+    signal_sent = _request_research_cancel(cancel_key)
+    progress_path = research_store.analysis_progress_path(company_id, file_id)
+    state = _emit_cancelled_progress(
+        progress_path,
+        reason="Document analysis cancelled",
+        kind="research_analysis",
+        company_id=company_id,
+        file_id=file_id,
+    )
+    return {
+        "kind": "research_analysis",
+        "company_id": company_id,
+        "file_id": file_id,
+        "status": "cancelled",
+        "signal_sent": signal_sent,
+        "terminal_type": state.get("terminal_type"),
+    }
+
+
 @router.get("/companies/{company_id}/files/{file_id}/summary")
 def get_file_summary(company_id: str, file_id: str) -> dict:
     if storage.get_company(company_id) is None:
@@ -5504,6 +5763,9 @@ _JOB_KIND_PATHS = {
     "memo": _memo_stream_path_for_report,
     # Hormuz appendix reuses the report→run_dir→logs/stream.jsonl resolver.
     "hormuz": _memo_stream_path_for_report,
+    "research_analysis": lambda key: research_store.analysis_progress_path(
+        key.split("/", 1)[0], key.split("/", 1)[1]
+    ),
     "research_summary": lambda key: research_store.quick_summary_progress_path(
         key.split("/", 1)[0], key.split("/", 1)[1]
     ),
@@ -5652,6 +5914,58 @@ def _research_summary_kind_records():
         }
 
 
+def _research_analysis_kind_records():
+    """Yield active-jobs rail entries for document-analysis JSONLs.
+
+    The target id is a file id or a ``fld``-prefixed folder id; folder
+    titles fall back to the members' folder_name."""
+    if not research_store.RESEARCH_ROOT.exists():
+        return
+    company_names = storage.company_names()
+    suffix = "__analysis.progress.jsonl"
+    for jsonl_path in research_store.RESEARCH_ROOT.glob(f"*/*{suffix}"):
+        company_id = jsonl_path.parent.name
+        name = jsonl_path.name
+        if not name.endswith(suffix):
+            continue
+        target_id = name[: -len(suffix)]
+        state = _scan_active_progress_state(jsonl_path)
+        if state is None:
+            continue
+        title = state.get("title")
+        if not title:
+            if research_store.FOLDER_ID_RE.match(target_id):
+                members = research_store.folder_members(company_id, target_id)
+                title = (
+                    members[0].get("folder_name") if members else None
+                ) or "Document analysis"
+            else:
+                record_tuple = research_store.get_file(company_id, target_id)
+                record = record_tuple[0] if record_tuple else None
+                title = (
+                    record and (record.get("label") or record.get("filename"))
+                ) or "Document analysis"
+        yield {
+            "kind": state.get("kind") or "research_analysis",
+            "title": title,
+            "subtitle": state.get("subtitle")
+            or company_names.get(company_id, company_id),
+            "stream_url": (
+                f"/api/companies/{company_id}/research-files/{target_id}/analysis/stream"
+            ),
+            "log_url": (
+                f"/api/jobs/log?path=research_analysis:{company_id}/{target_id}"
+            ),
+            "primary_route": {
+                "name": "research",
+                "params": {"companyId": company_id},
+            },
+            "company_id": company_id,
+            "file_id": target_id,
+            **_common_state_fields(state),
+        }
+
+
 def _stale_research_progress_reason(path: Path) -> str:
     idle = job_progress.progress_path_idle_seconds(path)
     if idle is None:
@@ -5688,6 +6002,27 @@ def _recover_stale_research_jobs() -> int:
                 kind="research_summary",
                 company_id=company_id,
                 file_id=file_id,
+            )
+            recovered += 1
+        for jsonl_path in research_store.RESEARCH_ROOT.glob(
+            "*/*__analysis.progress.jsonl"
+        ):
+            state = _scan_progress_state(jsonl_path)
+            if state.get("terminated"):
+                continue
+            if _progress_state_in_flight(state) and _progress_path_recent(
+                jsonl_path, max_idle_seconds=ACTIVE_JOB_MAX_IDLE_SECONDS
+            ):
+                continue
+            job_progress.ProgressLog(jsonl_path, truncate=False).emit(
+                "recovered",
+                recovered=True,
+                error=_stale_research_progress_reason(jsonl_path),
+                kind="research_analysis",
+                company_id=jsonl_path.parent.name,
+                file_id=jsonl_path.name.removesuffix(
+                    "__analysis.progress.jsonl"
+                ),
             )
             recovered += 1
 
@@ -6105,6 +6440,7 @@ def _collect_active_jobs() -> list[dict]:
         _memo_kind_records(),
         _hormuz_appendix_kind_records(),
         _research_summary_kind_records(),
+        _research_analysis_kind_records(),
         _console_kind_records(),
         _serena_research_task_kind_records(),
         _serena_analysis_tool_kind_records(),
@@ -6239,6 +6575,81 @@ async def stream_file_summary_progress(
 
         pos = 0
         idle_deadline = time.monotonic() + 600.0  # 10 min ceiling
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 600.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        entry = _json.loads(line)
+                        if entry.get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/companies/{company_id}/research-files/{file_id}/analysis/stream"
+)
+async def stream_research_file_analysis_progress(
+    company_id: str, file_id: str
+) -> "StreamingResponse":
+    """SSE stream for a document-analysis job (file or folder target)."""
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if research_store.FOLDER_ID_RE.match(file_id):
+        if not research_store.folder_members(company_id, file_id):
+            raise HTTPException(status_code=404, detail="Folder not found")
+    elif research_store.get_file(company_id, file_id) is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return _research_progress_sse(
+        research_store.analysis_progress_path(company_id, file_id)
+    )
+
+
+def _research_progress_sse(progress_path) -> "StreamingResponse":
+    """SSE replay-and-tail of one research progress JSONL (shared by the
+    summary and analysis streams)."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+
+        pos = 0
+        idle_deadline = time.monotonic() + 600.0
         terminated = False
         while time.monotonic() < idle_deadline and not terminated:
             try:
