@@ -29,7 +29,7 @@ def _sample_package() -> dict:
             {
                 "id": "executive_summary",
                 "blocks": [
-                    {"type": "paragraph", "text": _loc("BSH is committing capital.")},
+                    {"type": "paragraph", "text": _loc("Recommendation: BSH commits capital.")},
                     {
                         "type": "table",
                         "component": "key_metrics_snapshot",
@@ -528,7 +528,7 @@ def test_selective_retry_reruns_only_named_sections(tmp_path, monkeypatch):
     # untouched sections spliced verbatim from the previous attempt
     assert (
         package["sections"][0]["blocks"][0]["text"]["en"]
-        == "BSH is committing capital."
+        == "Recommendation: BSH commits capital."
     )
     assert result["analysis_artifacts"]["claim_register_md"] == "# Claim Register"
     assert result["claude_cost_usd"] == 0.25
@@ -739,7 +739,7 @@ def test_parallel_prompts_share_common_system_prefix(tmp_path, monkeypatch):
     context = shared.pop()
     assert claude_runner.MEMO_PACKAGE_SOURCES_CONTRACT.splitlines()[0] in context
     assert claude_runner.MEMO_CONTENT_PARITY_CONTRACT.splitlines()[0] in context
-    assert "first-person sponsor voice" in context
+    assert "The conclusion is a recommendation" in context
     for kw in captured:
         assert claude_runner.HUMAN_EXEC_MEMO_VOICE_CONTRACT not in kw["prompt"]
     section_prompts = [

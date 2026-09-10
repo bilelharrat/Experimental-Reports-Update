@@ -349,7 +349,7 @@ def test_linter_blocks_meta_process_language_in_source_index(tmp_path):
         path,
         paragraphs=[
             "I. Executive Summary",
-            "BSH is committing capital where valuation support is visible.",
+            "Recommendation: BSH commits capital where valuation support is visible.",
             "VI. Sources, Source Classes, and Fact Reference Index",
             "[S1] Company materials, used for this memo.",
         ],

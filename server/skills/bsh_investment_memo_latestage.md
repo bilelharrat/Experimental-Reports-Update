@@ -47,7 +47,7 @@ writer-process phrasing.
 Avoid meta-commentary about the document itself:
 - do not write memo/document/process narration, analysis-process narration, or writer-process language
 - do not write detached IC jargon for the investment call
-- write in the LP co-invest register: "BSH invests in...", "BSH is committing $X", "The SPV is a $10M SAFE with a 15% discount"
+- write in the LP co-invest register: "BSH invests in..." for the mandate, "Recommendation: BSH commits $X" for the call, "The SPV is a $10M SAFE with a 15% discount"
 - never use the stock phrases "we believe", "we are being offered", "we recommend participating", or "we are participating through"
 - do not explain uncertainty with phrases like "due to lack of data" or "this implies false precision"
 - state uncertainty directly: "Revenue is not disclosed", "contracts are not revenue-recognized", "pipeline is early-stage"
@@ -86,7 +86,7 @@ imperative diligence commands such as "Require X before underwriting"; write
 the implication: "X is not in the disclosed terms" or "X remains the principal risk."
 
 Do not use casual sponsor verbs or exposure-seeking idioms for mandate-level
-statements. Write "BSH invests in..." for the mandate and "BSH is committing..."
+statements. Write "BSH invests in..." for the mandate and "Recommendation: BSH commits..."
 for the action. Prefer physical language over framework metaphors when the
 source supports it; do not prescribe "control layer for" or "is compelling because".
 
@@ -101,7 +101,7 @@ capability claims instead.
 
 Concrete positive writing patterns:
 - Opening: "BSH invests in physical-world infrastructure that makes people safer, healthier, and more capable. ZaiNar locates people and assets from the network itself: no cameras, no biometric capture, no battery-powered devices on workers."
-- Transaction: "The vehicle is a $10,000,000 SAFE with a 15% discount at a $3.0B estimated pre-money. BSH is committing $3,000,000, leaving $7,000,000 for co-investors. Effective entry after the discount is about $2.55B."
+- Transaction: "The vehicle is a $10,000,000 SAFE with a 15% discount at a $3.0B estimated pre-money. Recommendation: BSH commits $3,000,000, leaving $7,000,000 for co-investors. Effective entry after the discount is about $2.55B."
 - Proof: "Commercial pull is $500M+ in signed contracts and MOUs in six months, $36M of DoD work, and named partners including Microsoft, Nvidia, and SoftBank. Steve Jurvetson sits on the board."
 - Scan bullets: bold noun lead-ins, then one fact. "SAFE risk. A SAFE is not equity and has no LP voting. Concentration. A material share of the $500M+ figure remains MOUs."
 - Risk: "A SAFE is not equity and has no LP voting. $3.0B is high relative to disclosed revenue. A material share of the $500M+ figure remains MOUs. Carrier cycles run 18 to 36 months."
@@ -123,7 +123,7 @@ Banned phrase / rewrite guidance:
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
 | The principal risk is that... | SAFE risk. Concentration. Illiquidity. |
-| Detached recommendation framing | BSH is committing $X... / BSH is not participating... |
+| Detached recommendation framing | Recommendation: BSH commits $X... / Recommendation: pass on... |
 | we are being offered / we recommend participating / we are participating through | Firm-as-subject deal English; never reuse these slogans |
 | Sponsor-capability speculation | State the disclosed fact and the risk. |
 | Funding-gate checklist phrase | State the fact or the risk. |
@@ -149,7 +149,7 @@ Banned phrase / rewrite guidance:
 exec-ready sell-side investment memo, not an internal IC, buyer-side diligence
 checklist, or BSH internal allocation note. Write every deal mechanic,
 governance point, and recommendation as plain narrative prose. Say what the
-instrument is, what BSH is committing, and what the risks are. Describe SPV,
+instrument is, what the recommendation commits, and what the risks are. Describe SPV,
 SAFE, and round economics as plain deal mechanics. Ordinary legal English is
 fine ("no LP voting", "annual K-1"). Do not write checklist dumps of `MFN`,
 `down-round protection`, `named lead`, or `named institutional lead`.
@@ -158,7 +158,7 @@ case rests on", "source class", or "model treatment" in the body.
 
 For Wisdom-sponsored opportunities, write in a Wisdom / BSH co-invest register:
 use "BSH invests in..." for mandate-level category statements, and use
-"BSH is committing $X, leaving $Y for co-investors" plus plain SAFE/SPV
+"Recommendation: BSH commits $X, leaving $Y for co-investors" plus plain SAFE/SPV
 mechanics for the transaction. Do not use "we are being offered",
 "we are participating through the SPV", or "we recommend participating".
 
@@ -1443,7 +1443,7 @@ Start this section on page 2.
 
 The Executive Summary is a tight synthesis of Sections II (Company Overview), III (Investment Highlights), and IV (Investment Risk). It opens with BSH's sponsor thesis and why the opportunity fits BSH's mandate, then explains the deal, the evidence supporting investor returns, the failure modes, valuation sensitivity, and the recommendation.
 
-Write it like an offer memo from an experienced investor, not a report introduction or internal IC checklist. In compressed prose, answer: what the company is, what transaction is in front of investors, why now, why the company could win, what risk factors matter, and what BSH is committing. Use the required subsection labels for navigation, but keep the language direct and partner-like. Do not write a five-sentence recipe, and do not make the subsections read as identical generated blocks.
+Write it like an offer memo from an experienced investor, not a report introduction or internal IC checklist. In compressed prose, answer: what the company is, what transaction is in front of investors, why now, why the company could win, what risk factors matter, and what the recommendation commits. Use the required subsection labels for navigation, but keep the language direct and partner-like. Do not write a five-sentence recipe, and do not make the subsections read as identical generated blocks.
 
 Required subsection order:
 1. Investment Opportunity
@@ -1498,7 +1498,7 @@ Do not use funding-gate, source-process, or weak diligence language that narrate
 State what moves the number as facts, not as a worksheet. Examples: binding-contract mix inside a blended commercial figure, SAFE conversion mechanics, final round price, and timing of carrier or defense revenue recognition. Short sentences. No "valuation support is strongest where."
 
 *Investment Recommendation*
-A clear recommendation in sentence form. Use "BSH is committing $X, leaving $Y for co-investors" or "BSH is not participating." Follow with 2–4 sentences defending the logic. Never use "We recommend participating." Do not use conditional verdicts that make the investment decision depend on later confirmation. Do not summarize the memo's structure or methodology.
+A clear recommendation in sentence form, opening with "Recommendation: ". Use "Recommendation: BSH commits $X, leaving $Y for co-investors." or "Recommendation: pass on <target> — <one-line reason>." It is a recommendation, never a decided action — BSH has not decided anything when the memo is written. Follow with 2–4 sentences defending the logic. Never use "We recommend participating." Do not use conditional verdicts that make the investment decision depend on later confirmation. Do not summarize the memo's structure or methodology.
 
 ---
 
@@ -1761,7 +1761,7 @@ Note assumptions explicitly. If financials are unavailable, say so and explain w
 **Investment Decision / Closing View**
 
 Before Sources, include a substantive final investment close that mirrors the opening thesis. It must state:
-- the firm's check in sentence form: "BSH is committing $X..." or "BSH is not participating";
+- the recommendation in sentence form: "Recommendation: BSH commits $X..." or "Recommendation: pass on...";
 - the evidence supporting that;
 - the named risks;
 - what changes the next-round / step-up case;
@@ -1816,7 +1816,7 @@ Translate into Simplified Chinese:
 - All body prose, callout text, and bullet points
 - All table column headers and any descriptive cell text
 - Status labels (e.g., "Supported / Partially supported / Unproven / Disconfirmed")
-- The recommendation in sentence form (e.g., "BSH is committing $X...")
+- The recommendation in sentence form (e.g., "Recommendation: BSH commits $X...")
 - Footer / running header text
 
 Preserve in original Latin form (do **not** translate):
@@ -1940,8 +1940,8 @@ Use exactly these strings:
 | English | Chinese |
 |---|---|
 | Proceed | 建议参与 |
-| BSH is committing | BSH 承诺投资 |
-| BSH is not participating | BSH 不参与 |
+| Recommendation: BSH commits | 建议：BSH 承诺投资 |
+| Recommendation: pass | 建议：不参与 |
 | Pass | 不推荐 |
 
 ### Translation Quality Rules

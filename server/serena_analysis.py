@@ -2113,7 +2113,7 @@ _LESSON_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\breviewer prompts?\b", re.IGNORECASE), "operator review notes"),
     (re.compile(r"\bsource traces?\b", re.IGNORECASE), "source-class evidence"),
     (re.compile(r"\bmemo packet\b", re.IGNORECASE), "source brief"),
-    (re.compile(r"\bBSH should\b", re.IGNORECASE), "BSH is committing"),
+    (re.compile(r"\bBSH should\b", re.IGNORECASE), "the recommendation is that BSH commit"),
     (re.compile(r"\(for BSH\)", re.IGNORECASE), ""),
 )
 
@@ -4192,7 +4192,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "intro-operating-proof",
             "text": (
-                f"BSH is committing capital to {name} where {sensitivity_lc.rstrip('.')}."
+                f"Recommendation: BSH commits capital to {name} where {sensitivity_lc.rstrip('.')}."
             ),
             "purpose": "intro stance",
             "tone": "proof_first",
@@ -4295,7 +4295,7 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
         {
             "id": "conclusion-recommend-participating",
             "text": (
-                "BSH is committing when independent evidence supports "
+                "Recommendation: BSH commits when independent evidence supports "
                 "the lead sensitivities and the disclosed terms."
             ),
             "purpose": "conclusion posture",
@@ -4360,8 +4360,8 @@ def _narrative_hooks(company: dict, artifacts: dict) -> dict:
                 ),
                 "required": False,
                 "options": [
-                    "BSH is committing",
-                    "BSH is not participating",
+                    "Recommendation: BSH commits",
+                    "Recommendation: pass",
                     "Risk-sensitive recommendation",
                 ],
                 "resolved_choice": None,

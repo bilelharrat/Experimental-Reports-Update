@@ -95,7 +95,7 @@ def _write_clean_memo_docx(path):
     document = Document()
     document.add_paragraph("I. Executive Summary")
     document.add_paragraph(
-        "Generalist builds automation infrastructure. BSH is committing capital "
+        "Generalist builds automation infrastructure. Recommendation: BSH commits capital "
         "where deployment depth and valuation support are visible."
     )
     table = document.add_table(rows=2, cols=2)
@@ -183,7 +183,7 @@ def _memo_package(body_en=None, body_zh=None):
                             "en": body_en
                             or (
                                 "Generalist builds automation infrastructure. "
-                                "BSH is committing capital where deployment depth "
+                                "Recommendation: BSH commits capital where deployment depth "
                                 "and valuation support are visible."
                             ),
                             # body_zh="" must stay blank (an untranslated
@@ -710,7 +710,7 @@ def _memo_package(body_en=None, body_zh=None):
                         "type": "paragraph",
                         "text": {
                             "en": (
-                                "BSH is committing capital where customer proof "
+                                "Recommendation: BSH commits capital where customer proof "
                                 "and margin evidence support valuation."
                             ),
                             "zh": "若客户验证和利润率证据支撑估值，我们建议参与。",
@@ -1280,7 +1280,10 @@ def test_memo_package_voice_cleanup_removes_quality_gate_terms(memo_env):
     assert "we want exposure" not in package_text
     assert "BSH should" not in package_text
     assert "we recommend participating in network positioning" not in package_text
-    assert "BSH is committing capital to network positioning" in package_text
+    assert (
+        "the recommendation commits capital to network positioning"
+        in package_text
+    )
     assert "BSH invests in infrastructure" in package_text
     assert "why the opportunity fits BSH's mandate" in package_text
     assert "information rights" not in package_text
@@ -1527,7 +1530,7 @@ def test_memo_run_completes_with_warnings_when_chinese_parity_gate_finds_p0(
     def fake_run_investment_memo(**kwargs):
         package = _memo_package(
             body_zh=(
-                "Generalist builds automation infrastructure. BSH is committing capital "
+                "Generalist builds automation infrastructure. Recommendation: BSH commits capital "
                 "where deployment depth and valuation support are visible."
             )
         )

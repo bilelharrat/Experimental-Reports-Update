@@ -960,7 +960,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "BSH is committing to the SPV. "
+            "Recommendation: BSH commits to the SPV. "
             r"\1 drive entry economics."
         ),
     ),
@@ -971,7 +971,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             re.IGNORECASE,
         ),
         (
-            "BSH is committing to the SPV. "
+            "Recommendation: BSH commits to the SPV. "
             r"\1 are central to the disclosed terms."
         ),
     ),
@@ -981,7 +981,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"subject to the closing confirmations below\.?",
             re.IGNORECASE,
         ),
-        r"BSH is committing capital to \1.",
+        r"Recommendation: BSH commits capital to \1.",
     ),
     (
         re.compile(
@@ -989,14 +989,14 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"subject to (?:the )?Valuation Sensitivity below\.?",
             re.IGNORECASE,
         ),
-        r"BSH is committing capital to \1.",
+        r"Recommendation: BSH commits capital to \1.",
     ),
     (
         re.compile(
             r"\bWe recommend ([^.]+?) subject to ([^.]+?)\.?",
             re.IGNORECASE,
         ),
-        r"BSH is committing to \1. \2 is a named risk.",
+        r"Recommendation: \1. \2 is a named risk.",
     ),
     (
         re.compile(
@@ -1343,7 +1343,7 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"\bwe want exposure to\b", re.IGNORECASE),
-        "BSH is committing capital to",
+        "the recommendation commits capital to",
     ),
     (
         re.compile(r"\bwe are being offered\b", re.IGNORECASE),
@@ -1351,15 +1351,42 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"\bwe are participating through\b", re.IGNORECASE),
-        "BSH is committing through",
+        "the recommended participation is through",
     ),
     (
         re.compile(r"\bwe recommend participating in\b", re.IGNORECASE),
-        "BSH is committing capital to",
+        "the recommendation is to commit capital to",
     ),
     (
         re.compile(r"\bwe recommend participating\b", re.IGNORECASE),
-        "BSH is committing capital",
+        "the recommendation is to commit capital",
+    ),
+    # ---- Decided-language inverse net -------------------------------------
+    # The memo's conclusion is a recommendation; nothing is decided when it
+    # is written. These convert residual decided constructions into
+    # recommendation modality. The history sentence ("BSH made the decision
+    # to ...") is shelved before any rule runs, so it is never touched.
+    (
+        re.compile(
+            r"\bBSH is committing (capital )?to ([^.]+?)\.", re.IGNORECASE
+        ),
+        r"Recommendation: BSH commits \1to \2.",
+    ),
+    (
+        re.compile(r"\bBSH is committing \$", re.IGNORECASE),
+        "Recommendation: BSH commits $",
+    ),
+    (
+        re.compile(r"\bBSH is investing in ([^.]+?)\.", re.IGNORECASE),
+        r"Recommendation: BSH invests in \1.",
+    ),
+    (
+        re.compile(
+            r"\bBSH is not (?:committing capital to|committing to|"
+            r"participating in) ([^.]+?)\.",
+            re.IGNORECASE,
+        ),
+        r"Recommendation: pass on \1.",
     ),
     (
         re.compile(r"\binvest behind\b", re.IGNORECASE),
@@ -1625,10 +1652,28 @@ _MEMO_PACKAGE_VOICE_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
+# Sentences recording an actual past decision ("BSH made the decision to
+# pass on 2026-01-05 because ...") are pinned factual history: the pin-echo
+# gate enforces them verbatim, so no voice rewrite may touch them — not
+# even when the human-entered reason inside the sentence happens to use
+# decided-sounding phrasing.
+_DECISION_HISTORY_SENTENCE = re.compile(
+    r"[^.!?]*\bmade the decision\b[^.!?]*[.!?]?", re.IGNORECASE
+)
+
+
 def _rewrite_memo_package_voice_text(text: str) -> str:
-    updated = text
+    protected: list[str] = []
+
+    def _shelve(match: re.Match) -> str:
+        protected.append(match.group(0))
+        return f"\x00DH{len(protected) - 1}\x00"
+
+    updated = _DECISION_HISTORY_SENTENCE.sub(_shelve, text)
     for pattern, replacement in _MEMO_PACKAGE_VOICE_REWRITES:
         updated = pattern.sub(replacement, updated)
+    for index, sentence in enumerate(protected):
+        updated = updated.replace(f"\x00DH{index}\x00", sentence)
     return updated
 
 

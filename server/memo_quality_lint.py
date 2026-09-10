@@ -156,6 +156,27 @@ _FUZZY_PATTERNS = (
     re.compile(r"\bwhere nothing else works\b", re.IGNORECASE),
     re.compile(r"\bleast-proven part of the story\b", re.IGNORECASE),
 )
+# The memo's conclusion is a recommendation — no decision exists when it is
+# written. Decided-action constructions are banned, EXCEPT inside a sentence
+# recording an actual past decision (the pinned decision-history sentence
+# "BSH made the decision to ... on ... because ...", whose user-entered
+# reason may itself contain decided phrasing). The exemption is
+# sentence-scoped and keyed on the history markers, which the pin template
+# guarantees are present in the one legitimate sentence.
+_DECIDED_LANGUAGE_PATTERNS = (
+    re.compile(
+        r"\bBSH is (?:committing|investing|participating)\b", re.IGNORECASE
+    ),
+    re.compile(
+        r"\bBSH is not (?:committing|investing|participating)\b",
+        re.IGNORECASE,
+    ),
+)
+_DECISION_HISTORY_SENTENCE_PATTERN = re.compile(
+    r"[^.!?]*(?:\bmade the decision\b|\bdecided (?:on|to)\b)[^.!?]*[.!?]?",
+    re.IGNORECASE,
+)
+
 _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(
         r"\bthe recommendation (?:is|should|would|must|remain|remains)\b",
@@ -546,6 +567,27 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
                             "Rewrite buyer-side, detached, treatment-speak, or "
                             "stock participation slogans as LP co-invest "
                             "English: firm as subject, named terms, plain risks."
+                        ),
+                    )
+                )
+                break
+
+        decided_scope = _DECISION_HISTORY_SENTENCE_PATTERN.sub(" ", block.text)
+        for pattern in _DECIDED_LANGUAGE_PATTERNS:
+            match = pattern.search(decided_scope)
+            if match:
+                findings.append(
+                    _finding(
+                        block,
+                        "P0",
+                        "decided_voice_violation",
+                        match.group(0),
+                        (
+                            "The memo's conclusion is a recommendation, not a "
+                            "decision: write 'Recommendation: BSH commits ...' "
+                            "or 'Recommendation: pass on ...'. Decided "
+                            "language is allowed only in the pinned "
+                            "decision-history sentence."
                         ),
                     )
                 )

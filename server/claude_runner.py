@@ -2938,10 +2938,19 @@ Final memo prose must:
   narrate what the memo/document/section/analysis does, and do not use
   writer-process language;
 - write in the LP co-invest register: a partner briefing LPs. Use the firm as
-  a proper noun for mandate and action ("BSH invests in...", "BSH is
-  committing $X"). State the instrument as deal English ("The SPV is a $10M
+  a proper noun for mandate statements ("BSH invests in..." for the category
+  the firm backs). State the instrument as deal English ("The SPV is a $10M
   SAFE with a 15% discount at a $3.0B pre"). Name people, contracts, and
   proof. State risks as facts ("A SAFE is not equity"; "$3.0B is high");
+- the memo's conclusion is a RECOMMENDATION, not a done deal: no decision
+  exists when this memo is written. State the call as "Recommendation: BSH
+  commits $X to <target> at <terms>." or "Recommendation: pass on <target>
+  — <reason>." or "Recommendation: watch <target> — <trigger>." Never
+  write "BSH is committing", "BSH is investing in <this deal>", or "BSH is
+  not committing capital" as if the decision were made. The ONLY decided
+  language allowed is the pinned decision-history sentence ("BSH made the
+  decision to ... on ... because ..."), which records a real past human
+  decision;
 - first person ("we", "our") is allowed sparingly for diligence and the
   firm's own check ("Additional BSH diligence...", "Our role beyond capital").
   Do not stamp every paragraph with "we believe" / "we recommend";
@@ -2983,8 +2992,9 @@ Sell-side investment memo posture:
   Then explain the technical proof, commercial proof, and SPV/round mechanics.
 - Write in a Wisdom/BSH co-invest register: mandate first, then the company,
   then the instrument and the firm's own check. Use "BSH invests in..." for
-  category statements and "BSH is committing $X, leaving $Y for co-investors"
-  for the transaction. Do not describe the recommendation as a slogan.
+  category statements and state the transaction as the recommendation:
+  "Recommendation: BSH commits $X, leaving $Y for co-investors." Do not
+  describe the recommendation as a slogan.
 - Do not write as if BSH is negotiating control terms in a private-equity
   process or exposing its internal intended position to LPs.
 - Do not default to "small/minimum" allocation because revenue, ARR, gross
@@ -3046,8 +3056,8 @@ Sell-side investment memo posture:
   underwriting". Write the implication: "X is not in the disclosed terms."
   or "X remains the principal risk."
 - Do not use casual sponsor verbs or exposure-seeking idioms for mandate-level
-  statements. Write "BSH invests in..." for the mandate and "BSH is
-  committing..." for the action. Prefer physical language over framework
+  statements. Write "BSH invests in..." for the mandate and "Recommendation:
+  BSH commits..." for the action. Prefer physical language over framework
   metaphors when the source supports it ("no cameras, no biometrics, no
   battery on workers"), not "is compelling because" or a prescribed
   "control layer for" slogan.
@@ -3071,8 +3081,9 @@ Concrete positive writing patterns:
   the network itself: no cameras, no biometric capture, no battery-powered
   devices on workers."
 - Transaction: "The vehicle is a $10,000,000 SAFE with a 15% discount at a
-  $3.0B estimated pre-money. BSH is committing $3,000,000, leaving $7,000,000
-  for co-investors. Effective entry after the discount is about $2.55B."
+  $3.0B estimated pre-money. Recommendation: BSH commits $3,000,000, leaving
+  $7,000,000 for co-investors. Effective entry after the discount is about
+  $2.55B."
 - Proof: "Commercial pull is $500M+ in signed contracts and MOUs in six
   months, $36M of DoD work, and named partners including Microsoft, Nvidia,
   and SoftBank. Steve Jurvetson sits on the board."
@@ -3122,7 +3133,7 @@ Final memo body and operating tables must not contain:
   ordinary legal English is fine: "no LP voting", "annual K-1",
   "accredited investors only";
 - passive counterparty-capability or availability speculation;
-- detached recommendation-label headings; state the investment decision directly
+- detached recommendation-label headings; state the recommendation directly
   in a sentence;
 - internal question-list labels, confirmation labels, expected-bar labels, or
   internal-audience suffixes;
@@ -3130,9 +3141,9 @@ Final memo body and operating tables must not contain:
   deal-legal checklist shorthand. This is an LP-facing, exec-ready sell-side
   investment memo, not a BSH internal allocation note. Write every deal
   mechanic, governance point, and recommendation as plain narrative prose.
-  Say what the instrument is, what BSH is committing, and what the risks
-  are. Do not use process labels, confirmation labels, small-check reflexes,
-  or treatment-speak;
+  Say what the instrument is, what the recommendation commits, and what the
+  risks are. Do not use process labels, confirmation labels, small-check
+  reflexes, or treatment-speak;
 - BSH internal participation-sizing language or internal recommendation
   instructions;
 - meta-language about the memo/document/analysis/framework/section, including
@@ -3144,14 +3155,15 @@ Memo spine requirement:
 - current_proof: what is proven today, named (people, contracts, dates);
 - unproven_but_modelable: what is missing, stated as a fact and a risk;
 - risk_sensitivity: what can break the case;
-- action: BSH's commitment or pass, in sentence form.
+- action: the recommended commitment or pass, in sentence form, opening
+  with "Recommendation: ".
 
 The opening, Investment View, risk section, scenario section, and final
 Investment Decision / Closing View must use the same spine. The first two
 body paragraphs must state company, transaction, valuation / entry terms,
 central price/proof tension, and the firm's check. The substantive
-ending must state the commitment or pass, the named risks, and what
-moves the number, before any sources or
+ending must state the recommendation (commit or pass), the named risks,
+and what moves the number, before any sources or
 disclosures. Do not include BSH internal participation sizing in the
 LP-facing memo.
 
@@ -3175,7 +3187,7 @@ Banned phrase / rewrite guidance:
 | Avoid | Prefer |
 |---|---|
 | The investment case is not that... | This is not a conventional SaaS case. |
-| Detached recommendation framing | BSH is committing $X... / BSH is not participating... |
+| Detached recommendation framing | Recommendation: BSH commits $X... / Recommendation: pass on... |
 | Detached opportunity framing | The SPV is a $10M SAFE... / Investors can subscribe up to $Y |
 | Detached base-case framing | Named proof. Then the risk. |
 | we give credit to / our base case credits / the investment case rests on | State the fact. Drop the formula. |
@@ -3184,7 +3196,7 @@ Banned phrase / rewrite guidance:
 | Memo/document/process narration | Remove the frame; make the investment statement. |
 | Analysis-process narration | State the conclusion directly. |
 | Uncertainty apology | "Revenue is not disclosed. $3.0B is high relative to disclosed revenue." |
-| Detached decision label | Investment Decision / BSH is committing... |
+| Detached decision label | Investment Decision / Recommendation: BSH commits... |
 | Question-form closing checklist | State the deal economics or the risk. |
 | Sponsor capability speculation | State the disclosed fact and the risk. |
 | Passive availability language | Remove the process guess; state the risk. |
@@ -3205,7 +3217,7 @@ Banned phrase / rewrite guidance:
 | is compelling because | What the company does, in physical terms. |
 | Unresolved inquiry framing | Risk factors / deal-mechanics disclosure |
 | Missing proof | Named gap, then the risk. |
-| Recommendation labels | BSH is committing... / BSH is not participating... |
+| Recommendation labels | Recommendation: BSH commits... / Recommendation: pass on... |
 | Decision discipline | named risks |
 | False precision | State the evidence range without over-modeling it. |
 | not treated as ARR | not revenue-recognized |
@@ -4471,8 +4483,9 @@ slugs: `time_base_integrity` (valuation/date/multiple timing table),
 `growth_bridge`, `scenario_analysis` (bear/base/bull), `deal_terms`
 (headline terms / deal mechanics), `evidence_thresholds` (written as
 valuation sensitivities), `investment_decision` (final Investment Decision /
-Closing View, firm-as-subject co-invest register), and `disclosures` (concise
-legal/offering disclosure language).""",
+Closing View in recommendation register — the concluding call repeats the
+pinned recommendation sentence, which opens with "Recommendation: "), and
+`disclosures` (concise legal/offering disclosure language).""",
 }
 
 
@@ -4580,9 +4593,12 @@ memo about {company_name}. {source_mode}
 
 {MEMO_CONTENT_PARITY_CONTRACT}
 
-Use first-person sponsor voice: "we recommend participating", "we are being
-offered", and "we are participating through". Never use detached
-recommendation, opportunity, access, or base-case framing.
+Write in the LP co-invest register: firm as subject for mandate statements,
+deal English for the instrument. The conclusion is a recommendation, not a
+decided action — it opens with "Recommendation: ". Never use "we recommend
+participating", "we are being offered", or "we are participating through",
+and never use detached recommendation, opportunity, access, or base-case
+framing.
 
 Company registry entry:
 {registry_block}
@@ -4713,8 +4729,11 @@ Produce ONE JSON object with:
      these by id and cannot add sources, so include every source any
      section will need.
 2. `shared_facts`: the compact pin sheet handed to every section worker:
-   - `recommendation_sentence`: the exact first-person recommendation
-     sentence, verbatim as the executive summary must state it.
+   - `recommendation_sentence`: the exact recommendation sentence, verbatim
+     as the executive summary must state it. It MUST begin with
+     "Recommendation: " — for example "Recommendation: BSH commits $X to
+     <target> at <terms>." or "Recommendation: pass on <target> —
+     <one-line reason>." It is a recommendation, never a decided action.
    - `key_metrics`: the metric values sections repeat (name, value, as_of,
      supporting source ids).
    - `scenarios`: one line of numbers each for bear, base, and bull.
@@ -4754,7 +4773,8 @@ _MEMO_STUDIO_SPINE_EXTRAS_INSTRUCTIONS = """\
      in the analysis artifacts, with supporting source ids.
    - `conclusion_options`: 2-3 candidate conclusion stances (for example
      invest, conditional, decline). Each needs a short label, a complete
-     first-person recommendation sentence in the memo's voice, and a
+     recommendation sentence in the memo's voice — beginning with
+     "Recommendation: ", never phrased as a decided action — and a
      one-line rationale. Put the stance your analysis supports first, and
      make its recommendation sentence identical to
      `shared_facts.recommendation_sentence`."""
@@ -12147,10 +12167,11 @@ Instructions:
 - Candidate text must be IC-ready guidance or near-final memo language:
   specific, compressed, evidence-grounded, and free of meta phrases such as
   document-process framing, analysis-process framing, or section narration.
-- Endings state the firm's own commitment and the co-invest terms as facts,
-  then the key risk. Do not use "we recommend participating", "we are being
-  offered", or "we are participating through". Do not write detached IC
-  jargon for recommendation, opportunity, or base-case framing.
+- Endings state the recommended commitment and the co-invest terms, then
+  the key risk — recommendation register, never as a decided action. Do
+  not use "we recommend participating", "we are being offered", or "we are
+  participating through". Do not write detached IC jargon for
+  recommendation, opportunity, or base-case framing.
 - Each candidate must include supported claims, evidence references, source
   traces where available, confidence, overclaiming risk, and suggested
   infographic pairings where useful.

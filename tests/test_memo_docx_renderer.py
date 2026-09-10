@@ -636,7 +636,7 @@ def _package() -> dict:
                         "type": "paragraph",
                         "text": {
                             "en": (
-                                "BSH is committing capital only where valuation support "
+                                "Recommendation: BSH commits capital only where valuation support "
                                 "tracks repeatable customer deployment and margin evidence."
                             ),
                             "zh": (
@@ -1087,7 +1087,7 @@ def test_chinese_parity_ignores_duplicate_sources_headings(tmp_path):
     en_doc = Document()
     zh_doc = Document()
     for title, body in (
-        ("EXECUTIVE SUMMARY", "BSH is committing capital."),
+        ("EXECUTIVE SUMMARY", "Recommendation: BSH commits capital."),
         ("COMPANY OVERVIEW", "The company sells engineering capacity."),
         ("INVESTMENT HIGHLIGHTS", "Accreditation supports the case."),
         ("INVESTMENT RISK", "Ownership disclosure is incomplete."),
@@ -1133,7 +1133,7 @@ def test_chinese_parity_accepts_bare_section_titles(tmp_path):
         (
             "EXECUTIVE SUMMARY",
             "执行摘要",
-            "BSH is committing capital where deployment depth is visible.",
+            "Recommendation: BSH commits capital where deployment depth is visible.",
             "在部署深度可见时，我们建议参与。",
         ),
         (

@@ -14,7 +14,7 @@ def _loc(en: str) -> dict:
 def _shared_facts() -> dict:
     return {
         "recommendation_sentence": (
-            "We recommend participating in the round through the SPV."
+            "Recommendation: BSH commits to the round through the SPV."
         ),
         "key_metrics": [
             {"name": "ARR", "value": "$10M", "as_of": "2026-05-01"},
@@ -55,7 +55,7 @@ def _echoing_package() -> dict:
                     {
                         "type": "paragraph",
                         "text": _loc(
-                            "We recommend participating in the round "
+                            "Recommendation: BSH commits to the round "
                             "through the SPV."
                         ),
                     },

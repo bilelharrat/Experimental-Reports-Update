@@ -690,7 +690,7 @@ def test_investment_memo_prompt_includes_human_exec_voice_contract(tmp_path):
     assert "Concrete positive writing patterns" in prompt
     assert "Rejected language categories" in prompt
     assert "The vehicle is a $10,000,000 SAFE" in prompt
-    assert "BSH is committing $3,000,000" in prompt
+    assert "Recommendation: BSH commits $3,000,000" in prompt
     assert "BSH invests in physical-world infrastructure" in prompt
     assert "A SAFE is not equity" in prompt
     assert "we are being offered" in prompt  # banned, listed in contract
@@ -757,7 +757,7 @@ def test_fast_english_package_prompt_includes_concrete_voice_guidance(
     assert "Rejected language categories" in prompt
     assert "BSH invests in physical-world infrastructure" in prompt
     assert "The vehicle is a $10,000,000 SAFE" in prompt
-    assert "BSH is committing $3,000,000" in prompt
+    assert "Recommendation: BSH commits $3,000,000" in prompt
     assert "passive sponsor/counterparty capability speculation" in prompt
     assert "Never use detached IC jargon" in prompt
     assert "recommendation, opportunity, access, or base-case framing" in prompt

@@ -1242,7 +1242,7 @@ def test_memo_analysis_narrative_fallback_creates_operator_choices(
     assert hooks["endings"][0]["purpose"] == "conclusion posture"
     assert "The memo should" not in hooks["openings"][0]["text"]
     assert "The right posture is" not in hooks["endings"][0]["text"]
-    assert hooks["endings"][0]["text"].startswith("BSH is committing")
+    assert hooks["endings"][0]["text"].startswith("Recommendation: BSH commits")
     transition_text = " ".join(item["text"] for item in hooks["transitions"])
     assert "evidence gap that can move" not in transition_text
     assert "Named risks concentrate" not in transition_text
