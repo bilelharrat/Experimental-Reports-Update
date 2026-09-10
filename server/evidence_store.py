@@ -519,6 +519,12 @@ _METADATA_COPY_KEYS = (
     "provenance",
     "source_status",
     "source_confidence",
+    # Folder grouping survives the use-in-report move in both directions,
+    # so an unchecked member stays displayed inside its folder. Analysis
+    # links deliberately do NOT survive: the research-side delete cascades
+    # the analysis away, and a copied back-reference would dangle.
+    "folder_id",
+    "folder_name",
 )
 
 

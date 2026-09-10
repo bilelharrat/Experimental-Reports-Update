@@ -212,29 +212,29 @@ describe("UnifiedDocumentsView", () => {
     expect(wrapper.text()).toContain("ARR reached $24M");
   });
 
-  it("persists category/source-class edits through the document metadata API", async () => {
+  it("hides per-row metadata dropdowns and research-file summarize", async () => {
+    // The category/source-class selects confused users and gate nothing
+    // for report generation; Summarize is redundant next to Analyze for
+    // research files (the deck-library summarize modal stays).
     const wrapper = mount(UnifiedDocumentsView, {
       props: { companyId: "zainar-inc" },
     });
     await flushPromises();
 
-    const filterToggle = wrapper
-      .findAll("button")
-      .find((button) => button.text().includes("Filter"));
-    await filterToggle.trigger("click");
-
     const rowSourceSelect = wrapper
       .findAll("select")
       .find((select) => select.element.value === "unknown/pending");
-    await rowSourceSelect.setValue("company material");
-    await flushPromises();
+    expect(rowSourceSelect).toBeUndefined();
 
-    expect(m.updateDocumentMetadata).toHaveBeenCalledWith(
-      "zainar-inc",
-      "document_library",
-      "file-1",
-      { source_class: "company material" },
-    );
+    const summarizeButtons = wrapper
+      .findAll("button")
+      .filter((b) => b.text().includes("Summarize"));
+    // bg-1 (background document) offers Analyze instead; the pdf library
+    // row keeps its deck-summary button.
+    expect(summarizeButtons.length).toBe(1);
+    expect(
+      wrapper.findAll("button").filter((b) => b.text() === "Analyze").length,
+    ).toBe(1);
   });
 
   it("moves a library file into the report set", async () => {

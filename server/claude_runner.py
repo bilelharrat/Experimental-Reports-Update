@@ -10724,6 +10724,9 @@ OUTPUT REQUIREMENTS:
         event_handler=_process_event,
         timeout_sec=timeout_sec,
         timeout_label="research analysis",
+        # A single Read of a large PDF chunk can go quiet well past the
+        # 120s default (observed live: 2-document folder died at 120s).
+        silence_timeout_sec=300.0,
         cancel_event=cancel_event,
     )
     if stream_error:

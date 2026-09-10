@@ -128,3 +128,25 @@ def test_document_rows_expose_grouping_fields(company):
     assert by_record[member["id"]]["folder_name"] == "notes"
     assert by_record[member["id"]]["analysis_file_id"] == analysis["id"]
     assert by_record[analysis["id"]]["analysis_of"] == member["id"]
+
+
+def test_use_in_report_move_preserves_folder_grouping(company):
+    folder_id = research_store.mint_folder_id()
+    member = _upload(company, "m1.md", folder_id=folder_id, folder_name="notes")
+
+    # Uncheck: moves to the document library but keeps its folder fields,
+    # so the Files tab still shows it inside the folder.
+    row = evidence_store.set_use_in_report(
+        company, "background_documents", member["id"], False
+    )
+    assert row["backend"] == "document_library"
+    assert row["folder_id"] == folder_id
+    assert row["folder_name"] == "notes"
+
+    # Re-check: moves back to the research set, grouping intact.
+    row = evidence_store.set_use_in_report(
+        company, "document_library", row["record_id"], True
+    )
+    assert row["backend"] == "background_documents"
+    assert row["folder_id"] == folder_id
+    assert research_store.folder_members(company, folder_id)

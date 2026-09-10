@@ -381,6 +381,8 @@ const messages = {
     "documents.reanalyze": "Reanalyze",
     "documents.folder": "Folder",
     "documents.folder_files": "{n} files",
+    "documents.analysis_failed":
+      "The document analysis did not finish — its transcript is in Task history. Try Analyze again.",
     "documents.use_in_report": "Use in report",
     "documents.use_in_report_help": "Report files ground the investment memo and Co-Pilot.",
     "documents.use_in_report_locked": "This file type has to stay in the report set, or be deleted.",
@@ -2384,6 +2386,7 @@ const messages = {
     "documents.reanalyze": "重新分析",
     "documents.folder": "文件夹",
     "documents.folder_files": "{n} 个文件",
+    "documents.analysis_failed": "文档分析未完成——可在任务历史查看记录，请重试分析。",
     "documents.use_in_report": "用于报告",
     "documents.use_in_report_help": "用于报告的文件会作为投资备忘录和协作助手的依据。",
     "documents.use_in_report_locked": "此文件类型必须保留在报告素材中，或直接删除。",

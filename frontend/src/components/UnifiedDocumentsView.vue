@@ -57,7 +57,6 @@ const payload = ref({
 });
 const loading = ref(true);
 const error = ref("");
-const savingId = ref("");
 
 const categoryFilter = ref("all");
 const sourceClassFilter = ref("all");
@@ -78,9 +77,11 @@ const launchingAnalysisId = ref("");
 // live in the rail; when one leaves, the analysis file has landed.
 const analysisJobIds = ref(new Set());
 
-const errorMessage = computed(() =>
-  error.value === "load" ? t("documents.load_error") : t("documents.action_error"),
-);
+const errorMessage = computed(() => {
+  if (error.value === "load") return t("documents.load_error");
+  if (error.value === "analysis_failed") return t("documents.analysis_failed");
+  return t("documents.action_error");
+});
 const uploadErrorMessage = computed(() => t("documents.upload_error"));
 const addFileBusy = computed(() => backgroundUploading.value);
 
@@ -121,7 +122,7 @@ async function uploadFolder(list) {
     }
   }
   if (anyFailed) uploadError.value = "upload";
-  await load();
+  await quietReload();
   emit("files-changed");
   backgroundUploading.value = false;
   if (folderFileInput.value) folderFileInput.value.value = "";
@@ -176,8 +177,11 @@ function closeViewer() {
 const BACKGROUND_ACCEPT =
   ".pdf,.pptx,.docx,.doc,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*,text/*";
 
-async function load() {
-  loading.value = true;
+async function load({ quiet = false } = {}) {
+  // Quiet refreshes keep the current list mounted: swapping it for the
+  // loading placeholder collapses the page height and throws the scroll
+  // position to the top on every checkbox toggle.
+  if (!quiet) loading.value = true;
   error.value = "";
   try {
     payload.value = await api.listCompanyDocuments(props.companyId);
@@ -186,6 +190,10 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+function quietReload() {
+  return load({ quiet: true });
 }
 
 onMounted(load);
@@ -348,7 +356,8 @@ function canSummarize(row) {
   if (row.backend === "document_library") {
     return ["pdf", "ppt", "pptx"].includes(row.kind);
   }
-  if (row.backend === "background_documents") return true;
+  // Research files use Analyze (persistent, agent-facing) — the quick
+  // summary was redundant next to it.
   return false;
 }
 
@@ -462,7 +471,7 @@ async function removeFolder(folder) {
     for (const member of folder.members) {
       await api.deleteResearchFile(props.companyId, member.record_id);
     }
-    await load();
+    await quietReload();
     emit("files-changed");
   } catch {
     error.value = "action";
@@ -486,8 +495,17 @@ watch(activeJobs, (jobs) => {
   }
   const merged = new Set(current);
   if (launchingAnalysisId.value) merged.add(launchingAnalysisId.value);
+  const finishedIds = [...analysisJobIds.value].filter((id) => !current.has(id));
   analysisJobIds.value = merged;
-  if (finished) load();
+  if (finished) {
+    quietReload().then(() => {
+      // A finished job with no analysis row means it failed (the rail
+      // entry is gone; the transcript lives in Task history).
+      if (finishedIds.some((id) => !analysisByOf.value.has(id))) {
+        error.value = "analysis_failed";
+      }
+    });
+  }
 });
 onMounted(() => subscribeActiveJobs());
 onBeforeUnmount(() => unsubscribeActiveJobs());
@@ -501,7 +519,7 @@ async function summarize(row) {
   launchingSummaryId.value = row.id;
   try {
     await api.generateResearchFileSummary(props.companyId, row.record_id);
-    await load();
+    await quietReload();
   } catch {
     error.value = "action";
   } finally {
@@ -519,22 +537,10 @@ async function removeRow(row) {
     } else if (row.backend === "generated_report") {
       await api.deleteReport(row.record_id);
     }
-    await load();
+    await quietReload();
     emit("files-changed");
   } catch {
     error.value = "action";
-  }
-}
-
-async function updateMetadata(row, patch) {
-  savingId.value = row.id;
-  try {
-    await api.updateDocumentMetadata(props.companyId, row.backend, row.record_id, patch);
-    await load();
-  } catch {
-    error.value = "action";
-  } finally {
-    savingId.value = "";
   }
 }
 
@@ -550,7 +556,7 @@ async function setUseInReport(row, useInReport) {
       row.record_id,
       useInReport,
     );
-    await load();
+    await quietReload();
     emit("files-changed");
   } catch {
     error.value = "action";
@@ -567,7 +573,7 @@ async function uploadBackground(list) {
     for (const file of list) {
       await api.uploadResearchFile(props.companyId, file);
     }
-    await load();
+    await quietReload();
     emit("files-changed");
   } catch {
     uploadError.value = "upload";
@@ -886,32 +892,6 @@ function openReport(row) {
                 >
                   {{ row.summary?.exec_summary?.en || row.quick_summary?.summary_en || row.quick_summary?.summary }}
                 </p>
-                <div v-if="row.editable_metadata" class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                  <select
-                    :value="row.category"
-                    :disabled="savingId === row.id"
-                    class="rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary focus-ring"
-                    @change="updateMetadata(row, { category: $event.target.value })"
-                  >
-                    <option v-for="category in categories" :key="category.id" :value="category.id">
-                      {{ category.label }}
-                    </option>
-                  </select>
-                  <select
-                    :value="row.source_class"
-                    :disabled="savingId === row.id"
-                    class="rounded border border-subtle bg-surface px-2 py-1 text-ink-secondary focus-ring"
-                    @change="updateMetadata(row, { source_class: $event.target.value })"
-                  >
-                    <option v-for="sourceClass in sourceClasses" :key="sourceClass" :value="sourceClass">
-                      {{ sourceClass }}
-                    </option>
-                  </select>
-                  <span v-if="savingId === row.id" class="inline-flex items-center gap-1 text-ink-muted">
-                    <Loader2 class="h-3 w-3 animate-spin" />
-                    {{ t("common.saving") }}
-                  </span>
-                </div>
               </div>
 
               <div class="flex shrink-0 flex-wrap items-center gap-1.5">
