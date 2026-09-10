@@ -1,0 +1,95 @@
+name: BSHResearch
+options:
+  bundleIdPrefix: com.bsh
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+settings:
+  BASE_URL: "http://127.0.0.1:8010"
+  SWIFT_VERSION: "5.10"
+  # Personal team for device installs; applies to every target and survives
+  # `xcodegen generate` (Xcode-UI signing picks get wiped on regen).
+  DEVELOPMENT_TEAM: 8CV4X23Y2T
+  CODE_SIGN_STYLE: Automatic
+targets:
+  BSHResearch:
+    type: application
+    platform: iOS
+    sources:
+      - path: BSHResearch
+    dependencies:
+      - target: BSHResearchWidgets
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bilelharrrat.bshresearch
+      INFOPLIST_FILE: BSHResearch/Info.plist
+      TARGETED_DEVICE_FAMILY: "1,2"
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      GENERATE_INFOPLIST_FILE: false
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: BSHResearch/Info.plist
+      properties:
+        CFBundleDisplayName: BSH Research
+        # Default API origin = the Mac's LAN IP so physical devices work out
+        # of the box (simulator reaches it too). Overridable in Settings tab.
+        BSHBaseURL: http://10.0.0.218:8010
+        NSLocalNetworkUsageDescription: Connects to your BSH Research server on the local network.
+        UILaunchScreen: {}
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bilelharrrat.bshresearch
+            CFBundleURLSchemes:
+              - bshresearch
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  BSHResearchWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BSHResearchWidgets
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bilelharrrat.bshresearch.widgets
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      GENERATE_INFOPLIST_FILE: false
+      INFOPLIST_FILE: BSHResearchWidgets/Info.plist
+      SKIP_INSTALL: true
+    info:
+      path: BSHResearchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: BSH Markets
+        # Widget can't read the app's Settings override, so point it at the
+        # Mac's LAN IP for physical-device testing (works on simulator too).
+        BSHBaseURL: http://10.0.0.218:8010
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  BSHResearchTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BSHResearchTests
+    dependencies:
+      - target: BSHResearch
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.bilelharrrat.bshresearch.tests
+      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      GENERATE_INFOPLIST_FILE: true
+schemes:
+  BSHResearch:
+    build:
+      targets:
+        BSHResearch: all
+        BSHResearchTests: [test]
+    test:
+      targets:
+        - BSHResearchTests

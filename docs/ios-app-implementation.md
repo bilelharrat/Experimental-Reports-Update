@@ -13,6 +13,9 @@ against the existing FastAPI server.
 
 In scope:
 
+- **Market** tab — live index quotes via `/api/quotes` (Phase 1).
+- **Pulse** tab — archived Morning Brief + optional AI note via
+  `/api/market-brief` (Phase 1).
 - Company search + per-company browse (existing `/api/companies/*`).
 - Public-company **Trader view** with the six company trader cards
   (price / momentum / sentiment / heat / catalysts / news), daily
@@ -20,17 +23,24 @@ In scope:
 - **Console** sessions: create, hydrate, ask, attach images / PDF /
   DOC / DOCX, stop mid-stream, archive, read archived transcripts.
 - Bilingual EN / ZH UI mirroring the web app.
-- Bearer-token auth (env-token first, then session-token after
-  login).
+- Bearer-token auth (session-token after login; Keychain).
 
-Explicitly out of scope (v1):
+Scaffold lives in ``ios/`` (XcodeGen). Phase 1 is Market + Pulse +
+Companies + Settings; Trader and Console follow the phases in §16.
 
-- Long-form **memo generation** (`POST /api/reports`) — heavy
-  pipeline, rare action; punt to a "View on web" deep-link.
-- **Document library** uploads (PDF / PPTX management). Read-only
-  access to existing uploads is fine; new uploads stay on web.
-- **News / Hormuz / External research** feeds — secondary surfaces.
-- **Search auto-complete** typeahead: ship later if needed.
+In scope (shipped on iOS):
+
+- Company **search** — library filter, autocomplete typeahead, deep
+  search with SSE progress, and `POST /companies/select` for remote hits.
+- **Report generation** — options, `POST /api/reports`, live SSE/poll
+  progress, cancel / resume / dismiss / delete, EN·ZH reader, DOCX
+  share/download.
+
+Still web-first (open via “Open on web”):
+
+- Memo Studio card review / investigate spine editing.
+- **Document library** uploads (PDF / PPTX management).
+- Console sessions and Trader six-card refresh (later iOS phases).
 
 If the user taps into something out of scope, open the equivalent
 web URL in `SFSafariViewController` instead of building it natively.
