@@ -3796,18 +3796,95 @@ SKILL: bsh-investment-memo-latestage-v1 source standard
 
 
 def _research_file_listing(research_dir: Path | None) -> str:
+    """Annotated listing of the company research folder for memo prompts.
+
+    Uploaded files carry their upload date (and label / folder grouping)
+    from the store index; a `<name>_analysis.md` written by the Analyze
+    job is flagged as the distilled read that should be preferred over
+    reprocessing its raw source. Machine-written digests
+    (fact_ledger.md, recent_news.md, decision_record.md) have no index
+    entry and list bare. Progress sidecars are excluded.
+    """
     if not research_dir or not research_dir.exists():
         return "- No research directory is populated for this run."
     try:
         files = [
             p.name
             for p in sorted(research_dir.iterdir())
-            if p.is_file() and p.name != "index.yaml"
+            if p.is_file()
+            and not p.name.startswith("index.yaml")
+            and not p.name.endswith(".progress.jsonl")
         ][:80]
     except Exception:
         logger.exception("failed to list memo research files: %s", research_dir)
         return "- Research directory exists, but file listing failed."
-    return "\n".join(f"- {name}" for name in files) or "- No research files found."
+    if not files:
+        return "- No research files found."
+
+    entries_by_stored: dict[str, dict] = {}
+    entries_by_id: dict[str, dict] = {}
+    try:
+        from . import research_store
+
+        for entry in research_store.list_files(research_dir.name):
+            stored = str(entry.get("stored_name") or "")
+            if stored:
+                entries_by_stored[stored] = entry
+            entries_by_id[str(entry.get("id") or "")] = entry
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "failed to read research index for %s", research_dir, exc_info=True
+        )
+
+    lines = []
+    any_dated = False
+    for name in files:
+        entry = entries_by_stored.get(name)
+        if entry is None:
+            lines.append(f"- {name}")
+            continue
+        uploaded = str(entry.get("uploaded_at") or "")[:10]
+        analysis_of = entry.get("analysis_of")
+        if analysis_of:
+            source_entry = entries_by_id.get(str(analysis_of))
+            if source_entry is not None:
+                source_name = source_entry.get("filename") or str(analysis_of)
+            elif str(analysis_of).startswith("fld"):
+                members = [
+                    e
+                    for e in entries_by_stored.values()
+                    if e.get("folder_id") == analysis_of
+                ]
+                source_name = (
+                    (members[0].get("folder_name") if members else None)
+                    or "an uploaded folder"
+                )
+                source_name = f'folder "{source_name}"'
+            else:
+                source_name = str(analysis_of)
+            lines.append(
+                f"- {name} — distilled analysis of {source_name}, generated "
+                f"{uploaded}; prefer this over reprocessing the raw file"
+            )
+            any_dated = True
+            continue
+        detail = f"- {name} — uploaded {uploaded}" if uploaded else f"- {name}"
+        label = entry.get("label")
+        if label:
+            detail += f', label "{label}"'
+        if entry.get("folder_name"):
+            detail += f", part of folder \"{entry['folder_name']}\""
+        lines.append(detail)
+        if uploaded:
+            any_dated = True
+    if any_dated:
+        lines.append(
+            "Weight uploaded files by date: recent uploads reflect the "
+            "current state; older ones still matter as trajectory context "
+            "(how the company developed over time) — read them, don't "
+            "ignore them."
+        )
+    return "\n".join(lines)
 
 
 def _analysis_session_file_listing(analysis_session_path: Path | None) -> str:
