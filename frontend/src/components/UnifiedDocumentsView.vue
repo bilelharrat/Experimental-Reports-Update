@@ -80,6 +80,7 @@ const analysisJobIds = ref(new Set());
 const errorMessage = computed(() => {
   if (error.value === "load") return t("documents.load_error");
   if (error.value === "analysis_failed") return t("documents.analysis_failed");
+  if (error.value === "forbidden") return t("documents.forbidden");
   return t("documents.action_error");
 });
 const uploadErrorMessage = computed(() => t("documents.upload_error"));
@@ -473,8 +474,8 @@ async function removeFolder(folder) {
     }
     await quietReload();
     emit("files-changed");
-  } catch {
-    error.value = "action";
+  } catch (e) {
+    error.value = e?.status === 403 ? "forbidden" : "action";
   }
 }
 
@@ -539,8 +540,8 @@ async function removeRow(row) {
     }
     await quietReload();
     emit("files-changed");
-  } catch {
-    error.value = "action";
+  } catch (e) {
+    error.value = e?.status === 403 ? "forbidden" : "action";
   }
 }
 

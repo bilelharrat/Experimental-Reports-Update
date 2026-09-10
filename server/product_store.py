@@ -50,6 +50,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
 }
 
 ROLE_BY_EMAIL = {
+    "benma@bshventures.com": "admin",
     "robert@bshventures.com": "admin",
     "serena@bshfoundation.org": "admin",
     "seline.sun@bshfoundation.org": "partner",

@@ -145,6 +145,17 @@ def test_role_for_email_shared_auth_returns_service():
     assert product_store.role_for_email(None, shared_auth=True) == "service"
 
 
+def test_owner_email_is_admin():
+    # The owner must hold documents:delete (admin-only) — without this
+    # mapping the domain fallback made him a partner and every file
+    # delete 403'd behind a generic UI banner (live bug, 2026-09-10).
+    assert product_store.role_for_email("benma@bshventures.com") == "admin"
+    assert product_store.has_permission(
+        product_store.role_for_email("benma@bshventures.com"),
+        "documents:delete",
+    )
+
+
 @pytest.mark.parametrize(
     "path",
     ["/api/companies/regen-all", "/api/companies/trader/refresh-all"],
