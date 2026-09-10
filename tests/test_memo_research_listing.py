@@ -63,7 +63,11 @@ def test_indexed_files_carry_dates_labels_and_folders(tmp_path, monkeypatch):
     assert "read them, don't" in listing
 
 
-def test_analysis_files_are_flagged_as_preferred(tmp_path, monkeypatch):
+def test_analyzed_sources_are_excluded_from_the_listing(tmp_path, monkeypatch):
+    """An analysis REPLACES its raw source(s): the originals disappear
+    from the listing entirely (a "prefer the analysis" nudge was not
+    enough — observed live, every memo pass re-read the raw 688KB PDF).
+    Un-analyzed uploads still list."""
     cid = _seed(tmp_path, monkeypatch)
     source = research_store.upload_file(
         cid, filename="report.md", content_type="text/markdown", data=b"# r"
@@ -77,7 +81,7 @@ def test_analysis_files_are_flagged_as_preferred(tmp_path, monkeypatch):
     research_store.update_record(cid, analysis["id"], analysis_of=source["id"])
 
     folder_id = research_store.mint_folder_id()
-    research_store.upload_file(
+    member = research_store.upload_file(
         cid,
         filename="n1.md",
         content_type="text/markdown",
@@ -94,13 +98,23 @@ def test_analysis_files_are_flagged_as_preferred(tmp_path, monkeypatch):
     research_store.update_record(
         cid, folder_analysis["id"], analysis_of=folder_id
     )
+    unanalyzed = research_store.upload_file(
+        cid, filename="fresh.md", content_type="text/markdown", data=b"# f"
+    )
 
     listing = claude_runner._research_file_listing(
         research_store.RESEARCH_ROOT / cid
     )
-    assert "distilled analysis of report.md" in listing
-    assert 'distilled analysis of folder "notes"' in listing
-    assert listing.count("prefer this over reprocessing the raw file") == 2
+    # Analysis lines present, with the replacement contract stated.
+    assert "verified distilled analysis of report.md" in listing
+    assert 'verified distilled analysis of folder "notes"' in listing
+    assert listing.count("never the raw files") == 2
+    assert "excluded above on purpose" in listing
+    # The analyzed originals (file and folder member) are NOT listed.
+    assert source["stored_name"] not in listing
+    assert member["stored_name"] not in listing
+    # Un-analyzed uploads still list normally.
+    assert unanalyzed["stored_name"] in listing
 
 
 def test_index_failure_falls_back_to_bare_names(tmp_path, monkeypatch):

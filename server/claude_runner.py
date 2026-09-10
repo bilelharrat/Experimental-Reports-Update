@@ -3799,11 +3799,14 @@ def _research_file_listing(research_dir: Path | None) -> str:
     """Annotated listing of the company research folder for memo prompts.
 
     Uploaded files carry their upload date (and label / folder grouping)
-    from the store index; a `<name>_analysis.md` written by the Analyze
-    job is flagged as the distilled read that should be preferred over
-    reprocessing its raw source. Machine-written digests
-    (fact_ledger.md, recent_news.md, decision_record.md) have no index
-    entry and list bare. Progress sidecars are excluded.
+    from the store index. A `<name>_analysis.md` written by the Analyze
+    job REPLACES its raw source(s) in the listing: analyzed originals are
+    excluded entirely, so memo agents never burn time reprocessing a
+    688KB PDF whose distilled brief sits next to it (observed live: every
+    Phase-2 pass re-read the raw deck despite a "prefer the analysis"
+    nudge — a nudge is not a wall). Un-analyzed uploads still list, and
+    machine-written digests (fact_ledger.md, recent_news.md,
+    decision_record.md) list bare. Progress sidecars are excluded.
     """
     if not research_dir or not research_dir.exists():
         return "- No research directory is populated for this run."
@@ -3836,13 +3839,30 @@ def _research_file_listing(research_dir: Path | None) -> str:
             "failed to read research index for %s", research_dir, exc_info=True
         )
 
+    # Source ids covered by an analysis: those originals are excluded.
+    covered_ids: set[str] = set()
+    for entry in entries_by_id.values():
+        target = entry.get("analysis_of")
+        if not target:
+            continue
+        target = str(target)
+        if target.startswith("fld"):
+            for member in entries_by_id.values():
+                if member.get("folder_id") == target:
+                    covered_ids.add(str(member.get("id")))
+        else:
+            covered_ids.add(target)
+
     lines = []
     any_dated = False
+    any_analyzed = False
     for name in files:
         entry = entries_by_stored.get(name)
         if entry is None:
             lines.append(f"- {name}")
             continue
+        if str(entry.get("id")) in covered_ids:
+            continue  # represented by its analysis file below/above
         uploaded = str(entry.get("uploaded_at") or "")[:10]
         analysis_of = entry.get("analysis_of")
         if analysis_of:
@@ -3852,7 +3872,7 @@ def _research_file_listing(research_dir: Path | None) -> str:
             elif str(analysis_of).startswith("fld"):
                 members = [
                     e
-                    for e in entries_by_stored.values()
+                    for e in entries_by_id.values()
                     if e.get("folder_id") == analysis_of
                 ]
                 source_name = (
@@ -3863,10 +3883,13 @@ def _research_file_listing(research_dir: Path | None) -> str:
             else:
                 source_name = str(analysis_of)
             lines.append(
-                f"- {name} — distilled analysis of {source_name}, generated "
-                f"{uploaded}; prefer this over reprocessing the raw file"
+                f"- {name} — verified distilled analysis of {source_name}, "
+                f"generated {uploaded}. This document REPLACES its raw "
+                "source(s), which are deliberately not listed: read this, "
+                "never the raw files."
             )
             any_dated = True
+            any_analyzed = True
             continue
         detail = f"- {name} — uploaded {uploaded}" if uploaded else f"- {name}"
         label = entry.get("label")
@@ -3877,6 +3900,12 @@ def _research_file_listing(research_dir: Path | None) -> str:
         lines.append(detail)
         if uploaded:
             any_dated = True
+    if any_analyzed:
+        lines.append(
+            "Raw documents that have a distilled analysis are excluded "
+            "above on purpose — do not open, list, or search for them; "
+            "their analysis file is the authoritative source."
+        )
     if any_dated:
         lines.append(
             "Weight uploaded files by date: recent uploads reflect the "
