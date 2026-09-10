@@ -473,4 +473,22 @@ describe("UnifiedDocumentsView", () => {
     expect(wrapper.text()).toContain("did not finish");
     activeJobs.value = [];
   });
+
+  it("keeps the list mounted through refreshKey reloads", async () => {
+    const wrapper = mount(UnifiedDocumentsView, {
+      props: { companyId: "zainar-inc", refreshKey: 0 },
+      global: { stubs: { Teleport: true } },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain("ZaiNar market report");
+
+    // The refresh triggered by a files-changed re-broadcast must not swap
+    // the list for the loading placeholder (that collapse threw the
+    // scroll to the top on every delete).
+    m.listCompanyDocuments.mockReturnValue(new Promise(() => {}));
+    await wrapper.setProps({ refreshKey: 1 });
+    await flushPromises();
+    expect(wrapper.text()).toContain("ZaiNar market report");
+    expect(wrapper.text()).not.toContain("Loading");
+  });
 });

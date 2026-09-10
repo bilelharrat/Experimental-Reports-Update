@@ -201,7 +201,10 @@ function quietReload() {
 
 onMounted(load);
 watch(() => props.companyId, load);
-watch(() => props.refreshKey, load);
+// refreshKey bumps arrive while the tab is already rendered (the parent
+// re-broadcasts every files-changed emit) — reload quietly, or the list
+// unmounts behind the loading placeholder and the scroll jumps to top.
+watch(() => props.refreshKey, quietReload);
 
 const categories = computed(() => payload.value.categories || []);
 const sourceClasses = computed(() => payload.value.source_classes || []);
