@@ -10651,10 +10651,9 @@ Source documents (in your current working directory):
 How to read each file:
 {chr(10).join(read_hints)}
 
-HARD LENGTH BUDGET: aim for 800-1,200 words; never exceed 1,500
-(excluding the closing Chinese section). Every line must earn its
-place — if it would not change what an analyst concludes or checks
-next, leave it in the raw file.
+HARD LENGTH BUDGET: aim for 800-1,200 words; never exceed 1,500.
+Every line must earn its place — if it would not change what an
+analyst concludes or checks next, leave it in the raw file.
 
 Structure:
 1. `#` title + 2-3 sentences: what these documents are (type, date,
@@ -10673,9 +10672,8 @@ Structure:
    recent material reflects the current state; older material is
    trajectory (how the situation developed).
 
-End with one short `## 中文摘要` section (a few sentences: key facts +
-conclusions), applying this style guide:
-{INVESTMENT_RESEARCH_CHINESE_STYLE}
+Write in English only — the memo pipeline that consumes this file
+produces its own Chinese rendering downstream.
 
 OUTPUT REQUIREMENTS:
 - Output ONLY the markdown document. It must start with a `#` heading.
