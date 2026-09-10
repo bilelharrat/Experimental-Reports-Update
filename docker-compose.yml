@@ -1,0 +1,58 @@
+# bsh-research-center — application container.
+#
+# Per ~/Work/ec2-docker-ingress-architecture.md this service publishes NO
+# ports. It is reachable only over the `private_web` network, where Envoy
+# (a separate compose project, so tools can be deployed independently)
+# resolves it by name and forwards to 8010.
+#
+#   Internet -> :443 Envoy container -> private_web -> research:8010
+#
+# Create the shared network once, before the first `up`:
+#   docker network create private_web
+
+services:
+  research:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bsh-research-center:local
+    container_name: bsh-research
+    restart: unless-stopped
+
+    # tini as PID 1. claude_runner.py spawns CLI subprocesses in their own
+    # process groups and kills them on cancel/shutdown; with uvicorn as PID 1
+    # nothing reaps them and they accumulate as zombies.
+    init: true
+
+    # Headless Chromium crashes on Docker's default 64MB /dev/shm, and
+    # browser_archive.py does not pass --disable-dev-shm-usage.
+    shm_size: "1gb"
+
+    # Feature flags only — main.py's docstring confirms no key is required to
+    # run; all LLM calls go through the claude CLI's own credentials.
+    env_file:
+      - .env
+
+    volumes:
+      # Application state: memos, reports, companies, consoles, caches.
+      # storage.py and four other modules hardcode <repo>/data, so this
+      # mount point is not configurable.
+      - research_data:/app/data
+
+      # The whole home directory, not just ~/.claude: Claude Code also keeps
+      # ~/.claude.json. Persisting HOME is what lets `up -d --build` redeploy
+      # without re-authenticating.
+      - claude_home:/home/app
+
+    networks:
+      private_web:
+        aliases:
+          - research
+
+volumes:
+  research_data:
+  claude_home:
+
+networks:
+  private_web:
+    external: true
