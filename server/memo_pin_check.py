@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 
 from server import memo_structure
 
+# Late v1 defaults; check_package_pins resolves the package's own
+# structure from its meta stamp and uses role-based lookups.
 _SECTION_EXEC = memo_structure.LATE.section_for_role("exec").id
 _SECTION_RISK = memo_structure.LATE.section_for_role("risk").id
 _SECTION_FINANCE = memo_structure.LATE.section_for_role("valuation").id
@@ -168,17 +170,21 @@ def _significant_tokens(text: str) -> list[str]:
 
 def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
     """Verify the assembled package echoes every pinned shared fact."""
+    structure = memo_structure.for_package(package)
+    section_exec = structure.section_for_role("exec").id
+    section_risk = structure.section_for_role("risk").id
+    section_finance = structure.section_for_role("valuation").id
     findings: list[PinFinding] = []
     pins_checked = 0
     pins_skipped = 0
 
     package_norm = _norm(_package_text(package))
     package_squashed = _squash(_package_text(package))
-    exec_text = _section_text(package, _SECTION_EXEC)
+    exec_text = _section_text(package, section_exec)
     exec_norm, exec_squashed = _norm(exec_text), _squash(exec_text)
-    risk_text = _section_text(package, _SECTION_RISK)
+    risk_text = _section_text(package, section_risk)
     risk_norm, risk_squashed = _norm(risk_text), _squash(risk_text)
-    finance_text = _section_text(package, _SECTION_FINANCE)
+    finance_text = _section_text(package, section_finance)
     finance_norm = _norm(finance_text)
     finance_squashed = _squash(finance_text)
 
@@ -195,7 +201,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
             findings.append(
                 PinFinding(
                     code="recommendation_not_echoed",
-                    location=_SECTION_EXEC,
+                    location=section_exec,
                     pin=recommendation,
                     detail=(
                         "the pinned recommendation sentence "
@@ -219,7 +225,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
             findings.append(
                 PinFinding(
                     code="decision_history_not_echoed",
-                    location=_SECTION_EXEC,
+                    location=section_exec,
                     pin=decision_history,
                     detail=(
                         "the pinned decision-history sentence "
@@ -289,7 +295,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
             findings.append(
                 PinFinding(
                     code="risk_rating_missing",
-                    location=_SECTION_RISK,
+                    location=section_risk,
                     pin=f"{summary} — {rating}",
                     detail=(
                         f'pinned risk "{summary}" with rating {rating} has '
@@ -306,7 +312,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
                 findings.append(
                     PinFinding(
                         code="risk_summary_weak",
-                        location=_SECTION_RISK,
+                        location=section_risk,
                         pin=f"{summary} — {rating}",
                         detail=(
                             f'pinned risk "{summary}" ({rating}) is not '
@@ -339,7 +345,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
                 findings.append(
                     PinFinding(
                         code="scenario_numbers_missing",
-                        location=_SECTION_FINANCE,
+                        location=section_finance,
                         pin=f"{key}: {line}",
                         detail=(
                             f"the pinned {key} scenario numbers "

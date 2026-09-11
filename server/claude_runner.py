@@ -2675,6 +2675,41 @@ MEMO_PACKAGE_SECTION_IDS: tuple[str, ...] = memo_structure.LATE.section_ids
 # them inside the spine was most of the old spine's ~9-minute runtime. The
 # maxLength/maxItems bounds are hard schema limits so the spine physically
 # cannot regrow into an essay writer.
+_SPELLED_COUNTS = {
+    5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine",
+    10: "Ten", 11: "Eleven", 12: "Twelve", 13: "Thirteen",
+}
+
+
+def _spelled_count(count: int) -> str:
+    return _SPELLED_COUNTS.get(count, str(count))
+
+
+def memo_fast_english_spine_schema(
+    structure: memo_structure.MemoStructure,
+) -> dict[str, Any]:
+    """The spine schema for one structure: identical except that
+    ``section_notes`` enumerates that structure's section ids. The default
+    structure returns the module constant itself so identity (and the
+    prompt-cache byte-identity it guards) is preserved."""
+    if structure is memo_structure.LATE:
+        return MEMO_FAST_ENGLISH_SPINE_SCHEMA
+    return {
+        **MEMO_FAST_ENGLISH_SPINE_SCHEMA,
+        "properties": {
+            **MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"],
+            "section_notes": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    section_id: {"type": "string", "maxLength": 400}
+                    for section_id in structure.section_ids
+                },
+            },
+        },
+    }
+
+
 MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -4483,7 +4518,7 @@ Return only the JSON matching the attached schema.
         add_dirs.append(analysis_session_path)
     if lessons_path and lessons_path.exists():
         add_dirs.append(lessons_path.parent)
-    return _run_memo_local_json_artifact(
+    result, error = _run_memo_local_json_artifact(
         prompt=prompt,
         schema=MEMO_FAST_ENGLISH_PACKAGE_SCHEMA,
         run_dir=run_dir,
@@ -4496,6 +4531,18 @@ Return only the JSON matching the attached schema.
         model=_memo_role_model("ENGLISH"),
         effort=_memo_role_effort("ENGLISH"),
     )
+    # The monolithic prompt writes exactly the late v1 structure; stamp the
+    # package so downstream gates resolve the same structure the parallel
+    # path would have stamped.
+    if (
+        error is None
+        and isinstance(result, dict)
+        and isinstance(result.get("memo_package"), dict)
+    ):
+        result["memo_package"].setdefault(
+            "structure", memo_structure.LATE.meta()
+        )
+    return result, error
 
 
 # ---- Parallel English package synthesis ---------------------------------
@@ -4590,6 +4637,48 @@ def _render_shared_facts_block(shared_facts: dict) -> str:
     return "\n".join(lines)
 
 
+# Appended to the shared common context for structure v2 runs only (the
+# v1 context stays byte-identical). Rides --append-system-prompt so every
+# worker reads one cached copy. The per-section data contracts live in the
+# structure profile; these are the run-wide rules they all assume.
+MEMO_STRUCTURE_V2_ADDENDUM = """\
+
+## Data honesty (structure v2 — these rules override any instinct to fill gaps)
+- Never invent, extrapolate, or "estimate" a number that no source states.
+  A missing datum is stated as missing, in place, every time.
+- Missing table cell: write exactly "Not disclosed — <implication, 15 words
+  max>" (Chinese: "未披露——<含义>"). The implication says what the gap means
+  for the analysis, not that data is unavailable.
+- Missing datum in prose: one sentence states the gap, the next states what
+  follows from it. Never skip a contracted passage because its data is thin.
+- Chart slots render as a small data table plus interpretation. When the
+  series is not disclosed, keep the slot and write: "Chart omitted —
+  <series> is not disclosed. <nearest disclosed anchor, or 'No disclosed
+  anchor exists.'> <what the gap means for the thesis>."
+- A table with most rows undisclosed keeps its full fixed structure; add
+  one sentence naming the disclosure gap itself as evidence about the
+  company.
+- Fund-specific mechanics we cannot know are placeholders, verbatim:
+  "Proposed amount: [TO BE DETERMINED BY IC]", "Allocation: [TO BE
+  DETERMINED BY IC]", "Strategy: [重仓 / 跟投 / 卡位 — IC to select]".
+- Absence of disclosure is itself information about the company; read it.
+
+## Explanatory register (structure v2)
+- Headings state the verdict, not the topic: "Revenue forecasting remains
+  unreliable", never "Revenue forecast".
+- No orphan numbers: every figure is interpreted in the same or the next
+  sentence; a paragraph may not end on an uninterpreted figure.
+- After presenting evidence, weigh it explicitly: "The pipeline is valuable
+  evidence of demand. It is not revenue."
+- Where a number implies a consequence, do the arithmetic in-line:
+  "After note conversion, a $10B outcome produces less than a 2x gross
+  return before later dilution."
+- Short subject-verb-object sentences, one idea per paragraph, verdict
+  first. Ban: "positions the company", "underscores", "highlights",
+  "robust", "significant traction", "leverage" as a verb.
+"""
+
+
 def _memo_english_common_context(
     *,
     company_name: str,
@@ -4602,6 +4691,7 @@ def _memo_english_common_context(
     analysis_session_path: Path | None,
     scope_check: dict | None,
     warnings: list[str] | None,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> str:
     """Shared context for the spine, artifacts agent, and section workers.
 
@@ -4626,6 +4716,13 @@ def _memo_english_common_context(
         "Use the approved Memo Studio packet as the primary synthesis."
         if analysis_session_path and analysis_session_path.exists()
         else "Use the fast parallel analysis artifacts as the primary synthesis."
+    )
+    structure = structure or memo_structure.LATE
+    # v1 keeps the historical context byte-for-byte; v2 appends its
+    # run-wide data-honesty and register rules once, cached for every
+    # worker of the run.
+    v2_addendum = (
+        MEMO_STRUCTURE_V2_ADDENDUM if structure.version >= 2 else ""
     )
     return f"""\
 This is the fast-path synthesis for a BSH LP-facing sell-side investment
@@ -4681,7 +4778,7 @@ rather than loading every full artifact.
 Every user-facing string must be a bilingual object `{{"en": "...", "zh": ""}}`
 with `zh` left blank; a separate subprocess fills Chinese. Do not write final
 DOCX files, and do not write any files — return only JSON.
-"""
+{v2_addendum}"""
 
 
 def _memo_english_add_dirs(
@@ -4718,6 +4815,7 @@ def run_memo_fast_english_spine(
     decision_record: str | None = None,
     schema: dict | None = None,
     extra_instructions: str = "",
+    structure: memo_structure.MemoStructure | None = None,
 ) -> tuple[dict | None, str | None]:
     """Synthesize the lite spine: package envelope plus the shared-facts pin
     sheet. No analysis artifacts, no memo prose — those belong to the side
@@ -4757,9 +4855,11 @@ the artifacts that already exist; do not wait for the missing ones and
 do not invent what they might say. A delta check re-validates your pins
 against the stragglers when they land.
 """
-    section_list = "\n".join(f"- `{sid}`" for sid in MEMO_PACKAGE_SECTION_IDS)
+    structure = structure or memo_structure.LATE
+    section_list = "\n".join(f"- `{sid}`" for sid in structure.section_ids)
+    worker_count = _spelled_count(len(structure.section_ids))
     prompt = f"""\
-You are drafting the SHARED SPINE of the English source package. Five section
+You are drafting the SHARED SPINE of the English source package. {worker_count} section
 workers will author the memo sections in parallel from your output, and a
 side agent writes the private analysis artifacts; none of them see each
 other. Your job is ONLY the package envelope and the shared facts every
@@ -4798,7 +4898,11 @@ Return only the JSON matching the attached schema.
 """
     return _run_memo_local_json_artifact(
         prompt=prompt,
-        schema=schema if schema is not None else MEMO_FAST_ENGLISH_SPINE_SCHEMA,
+        schema=(
+            schema
+            if schema is not None
+            else memo_fast_english_spine_schema(structure)
+        ),
         run_dir=run_dir,
         progress=progress,
         progress_message="Pinning memo spine: envelope and shared facts",
@@ -5343,9 +5447,11 @@ class SpeculativeEnglish:
         on_spine=None,
         on_section=None,
         early_sections: bool = False,
+        structure: memo_structure.MemoStructure | None = None,
     ):
         from concurrent.futures import ThreadPoolExecutor
 
+        self._structure = structure or memo_structure.LATE
         self._run_dir = run_dir
         self._company_name = company_name
         self._company_slug = company_slug
@@ -5378,9 +5484,11 @@ class SpeculativeEnglish:
         self._on_spine = on_spine
         self._on_section = on_section
         self._early_enabled = bool(early_sections)
-        # One thread for the spine, up to four for early sections.
+        # One thread for the spine, plus one per affinity-eligible section
+        # when early starts are on.
         self._pool = ThreadPoolExecutor(
-            max_workers=1 + (len(MEMO_SECTION_PASS_AFFINITY) if early_sections else 0),
+            max_workers=1
+            + (len(self._structure.pass_affinity()) if early_sections else 0),
             thread_name_prefix="memo-spine-spec",
         )
         self._lock = threading.Lock()
@@ -5498,6 +5606,7 @@ class SpeculativeEnglish:
             analysis_session_path=self._analysis_session_path,
             scope_check=self._scope_check,
             warnings=self._warnings,
+            structure=self._structure,
         )
         add_dirs = _memo_english_add_dirs(
             settings_path=self._settings_path,
@@ -5518,6 +5627,7 @@ class SpeculativeEnglish:
             fact_ledger=load_memo_fact_ledger(self._research_dir),
             recent_news=load_memo_recent_news(self._research_dir),
             decision_record=load_memo_decision_record(self._research_dir),
+            structure=self._structure,
         )
         if error is None and isinstance(result, dict):
             self._note_spine_success(result, common_context, add_dirs)
@@ -5624,7 +5734,7 @@ class SpeculativeEnglish:
             or self._early_abandoned
         ):
             return
-        for section_id, affinity in MEMO_SECTION_PASS_AFFINITY.items():
+        for section_id, affinity in self._structure.pass_affinity().items():
             if section_id in self._early_futures:
                 continue
             if all(self._pass_ok.get(pid) for pid in affinity):
@@ -5639,9 +5749,9 @@ class SpeculativeEnglish:
         started_at = datetime.now(timezone.utc).isoformat()
         started_monotonic = time.monotonic()
         try:
-            index = MEMO_PACKAGE_SECTION_IDS.index(section_id)
+            index = self._structure.section_ids.index(section_id)
         except ValueError:
-            index = len(MEMO_PACKAGE_SECTION_IDS)
+            index = len(self._structure.section_ids)
         if self._stream is not None:
             self._stream.emit(
                 "thread_planned",
@@ -5681,6 +5791,7 @@ class SpeculativeEnglish:
             progress=progress,
             timeout_sec=self._timeout_sec,
             section_note=section_note,
+            structure=self._structure,
         )
         if error is None and isinstance(result, dict) and self._on_section:
             try:
@@ -5931,12 +6042,15 @@ def _run_english_section(
     section_note: str = "",
     validation_errors: list[str] | None = None,
     previous_section_path: Path | None = None,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> tuple[dict | None, str | None]:
     """Author (or repair) ONE package section from the shared spine."""
-    spec = _MEMO_SECTION_SPECS.get(section_id, "")
+    structure = structure or memo_structure.LATE
+    spec = structure.section_specs().get(section_id, "")
+    risk_section = structure.section_for_role("risk")
     risk_contract = (
         f"\n{MEMO_RISK_REGISTER_CONTRACT}\n"
-        if section_id == "investment_risk"
+        if section_id == risk_section.id
         else ""
     )
     note_block = (
@@ -6027,13 +6141,19 @@ def _iter_package_strings(value: Any):
         yield value
 
 
-def _section_for_validation_error(package: dict, error: str) -> str | None:
+def _section_for_validation_error(
+    package: dict,
+    error: str,
+    structure: memo_structure.MemoStructure | None = None,
+) -> str | None:
     """Map one validation error string to the package section that owns it.
 
     Returns None when the error is not attributable to a single section
     (envelope/sources defects, or text we cannot locate) — the caller then
     falls back to a full regeneration.
     """
+    structure = structure or memo_structure.for_package(package)
+    section_ids = structure.section_ids
     lowered = error.lower()
     sections = package.get("sections") if isinstance(package, dict) else None
     sections = sections if isinstance(sections, list) else []
@@ -6043,30 +6163,30 @@ def _section_for_validation_error(package: dict, error: str) -> str | None:
         index = int(match.group(1))
         if 0 <= index < len(sections) and isinstance(sections[index], dict):
             section_id = str(sections[index].get("id") or "")
-            if section_id in MEMO_PACKAGE_SECTION_IDS:
+            if section_id in section_ids:
                 return section_id
         return None
 
-    for section_id in MEMO_PACKAGE_SECTION_IDS:
+    for section_id in section_ids:
         if section_id in lowered:
             return section_id
 
     match = re.search(r"missing required memo component (\w+)", lowered)
     if match:
-        return _MEMO_COMPONENT_SECTION.get(match.group(1))
+        return structure.component_section().get(match.group(1))
 
     context_match = re.search(r" at [^():]*\(([^)]+)\)", error)
     if context_match:
         context = context_match.group(1).strip().lower()
         context = re.sub(r"^[ivx]+\.\s*", "", context)
-        mapped = _MEMO_SECTION_TITLE_WORDS.get(context)
+        mapped = structure.title_words().get(context)
         if mapped:
             return mapped
         for section in sections:
             if not isinstance(section, dict):
                 continue
             section_id = str(section.get("id") or "")
-            if section_id not in MEMO_PACKAGE_SECTION_IDS:
+            if section_id not in section_ids:
                 continue
             for block in section.get("blocks") or []:
                 if not isinstance(block, dict):
@@ -6094,7 +6214,7 @@ def _section_for_validation_error(package: dict, error: str) -> str | None:
                 if not isinstance(section, dict):
                     continue
                 section_id = str(section.get("id") or "")
-                if section_id not in MEMO_PACKAGE_SECTION_IDS:
+                if section_id not in section_ids:
                     continue
                 for text in _iter_package_strings(section):
                     if needle in text.lower():
@@ -6105,12 +6225,14 @@ def _section_for_validation_error(package: dict, error: str) -> str | None:
 def _map_validation_errors_to_sections(
     package: dict,
     errors: list[str],
+    structure: memo_structure.MemoStructure | None = None,
 ) -> dict[str, list[str]] | None:
     """Group validation errors by owning section. Returns None when any error
     cannot be attributed to a single section."""
+    structure = structure or memo_structure.for_package(package)
     mapping: dict[str, list[str]] = {}
     for error in errors:
-        section_id = _section_for_validation_error(package, error)
+        section_id = _section_for_validation_error(package, error, structure)
         if section_id is None:
             return None
         mapping.setdefault(section_id, []).append(error)
@@ -6300,6 +6422,7 @@ def run_memo_fast_english_package_parallel(
     async_artifacts: AsyncArtifacts | None = None,
     speculative_english: "SpeculativeEnglish | None" = None,
     pinned_spine_path: Path | None = None,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> tuple[dict | None, str | None]:
     """Spine-lite + parallel per-section synthesis of the English package.
 
@@ -6338,11 +6461,22 @@ def run_memo_fast_english_package_parallel(
     Default OFF behind BSH_MEMO_ENGLISH_PARALLEL — experimental; benchmark
     per docs/memo-benchmarks.md before enabling.
     """
+    structure = structure or memo_structure.LATE
+    # The monolithic pass encodes the late v1 structure in its own prompt;
+    # any other structure has no monolithic twin, so degrading to it would
+    # silently ship the wrong report shape.
+    monolithic_ok = structure.meta() == memo_structure.LATE.meta()
     if os.environ.get("BSH_MEMO_ENGLISH_PARALLEL", "0") != "1":
         if pinned_spine_path is not None:
             return None, (
                 "a pinned studio spine requires BSH_MEMO_ENGLISH_PARALLEL=1; "
                 "the monolithic path cannot honor studio card edits"
+            )
+        if not monolithic_ok:
+            return None, (
+                f"structure {structure.stage} v{structure.version} requires "
+                "BSH_MEMO_ENGLISH_PARALLEL=1; the monolithic path only "
+                "writes the late v1 structure"
             )
         return run_memo_fast_english_package(
             run_dir=run_dir,
@@ -6371,6 +6505,12 @@ def run_memo_fast_english_package_parallel(
                 "parallel English synthesis failed with a pinned studio "
                 f"spine ({reason[:300]}); refusing the monolithic fallback "
                 "that would discard the studio card edits"
+            )
+        if not monolithic_ok:
+            return None, (
+                f"parallel English synthesis failed ({reason[:300]}); "
+                f"refusing the monolithic fallback because it cannot write "
+                f"the {structure.stage} v{structure.version} structure"
             )
         logger.warning(
             "parallel English package falling back to monolithic: %s", reason
@@ -6414,6 +6554,7 @@ def run_memo_fast_english_package_parallel(
         analysis_session_path=analysis_session_path,
         scope_check=scope_check,
         warnings=warnings,
+        structure=structure,
     )
     add_dirs = _memo_english_add_dirs(
         settings_path=settings_path,
@@ -6447,9 +6588,9 @@ def run_memo_fast_english_package_parallel(
     except ValueError:
         env_workers = 6
     workers = max_workers or env_workers
-    # +1: the analysis-artifacts side agent shares the pool with the five
+    # +1: the analysis-artifacts side agent shares the pool with the
     # section workers.
-    workers = max(1, min(workers, len(MEMO_PACKAGE_SECTION_IDS) + 1))
+    workers = max(1, min(workers, len(structure.section_ids) + 1))
     from concurrent.futures import ThreadPoolExecutor
 
     attempt_suffix = f" (attempt {attempt})" if attempt and attempt > 1 else ""
@@ -6576,6 +6717,7 @@ def run_memo_fast_english_package_parallel(
                 add_dirs=add_dirs,
                 progress=progress,
                 timeout_sec=timeout_sec,
+                structure=structure,
                 **job,
             )
             _finish_row(row, phase_name, started, error=error, result=result)
@@ -6678,7 +6820,7 @@ def run_memo_fast_english_package_parallel(
             artifacts = None
         mapping = (
             _map_validation_errors_to_sections(
-                previous_package, list(previous_validation_errors)
+                previous_package, list(previous_validation_errors), structure
             )
             if isinstance(previous_package, dict)
             and isinstance(spine, dict)
@@ -6748,11 +6890,12 @@ def run_memo_fast_english_package_parallel(
                         encoding="utf-8",
                     )
                 package = dict(previous_package)
+                package["structure"] = structure.meta()
                 package["sections"] = [
                     results[section_id]["section"]
                     if section_id in results
                     else previous_sections.get(section_id)
-                    for section_id in MEMO_PACKAGE_SECTION_IDS
+                    for section_id in structure.section_ids
                     if section_id in results
                     or previous_sections.get(section_id) is not None
                 ]
@@ -6870,6 +7013,7 @@ def run_memo_fast_english_package_parallel(
             fact_ledger=load_memo_fact_ledger(research_dir),
             recent_news=load_memo_recent_news(research_dir),
             decision_record=load_memo_decision_record(research_dir),
+            structure=structure,
         )
         _finish_row(
             spine_label,
@@ -6931,7 +7075,7 @@ def run_memo_fast_english_package_parallel(
             3.02,
             "Write the seven private analysis artifacts",
         )
-    for index, section_id in enumerate(MEMO_PACKAGE_SECTION_IDS):
+    for index, section_id in enumerate(structure.section_ids):
         if section_id in early_futures:
             continue  # the speculator already planned this row
         _plan_row(
@@ -6944,7 +7088,7 @@ def run_memo_fast_english_package_parallel(
             "stage",
             stage="memo_fast_english_parallel_dispatch",
             message=(
-                f"Drafting {len(MEMO_PACKAGE_SECTION_IDS) - len(early_futures)}"
+                f"Drafting {len(structure.section_ids) - len(early_futures)}"
                 " memo sections and the analysis artifacts with up to "
                 f"{workers} parallel workers"
                 + (
@@ -6956,7 +7100,7 @@ def run_memo_fast_english_package_parallel(
             ),
             sections=[
                 section_id
-                for section_id in MEMO_PACKAGE_SECTION_IDS
+                for section_id in structure.section_ids
                 if section_id not in early_futures
             ],
             early_sections=sorted(early_futures),
@@ -6977,7 +7121,7 @@ def run_memo_fast_english_package_parallel(
             "validation_errors": feedback_errors,
             "previous_section_path": None,
         }
-        for section_id in MEMO_PACKAGE_SECTION_IDS
+        for section_id in structure.section_ids
         if section_id not in early_futures
     }
     results, errors, artifacts_result, artifacts_error = _run_sections(
@@ -7020,10 +7164,11 @@ def run_memo_fast_english_package_parallel(
 
     sections = [
         results[section_id]["section"]
-        for section_id in MEMO_PACKAGE_SECTION_IDS
+        for section_id in structure.section_ids
     ]
     package = dict(skeleton)
     package.setdefault("schema_version", 1)
+    package["structure"] = structure.meta()
     package["sections"] = sections
     cost = (
         _to_float(spine_result.get("claude_cost_usd"))
@@ -7197,6 +7342,7 @@ def run_memo_section_repair(
     findings: list[str],
     progress=None,
     timeout_sec: int = 900,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> tuple[dict | None, str | None]:
     """Surgically fix listed findings in ONE package section.
 
@@ -7205,6 +7351,7 @@ def run_memo_section_repair(
     the observed ~8-minute repair rounds. This variant re-emits only the
     defective section.
     """
+    structure = structure or memo_structure.LATE
     units_dir = _memo_english_units_dir(run_dir)
     units_dir.mkdir(parents=True, exist_ok=True)
     section_path = units_dir / f"{section_id}.repair-input.json"
@@ -7215,7 +7362,7 @@ def run_memo_section_repair(
     error_lines = "\n".join(f"- {finding}" for finding in findings[:20])
     risk_contract = (
         f"\n{MEMO_RISK_REGISTER_CONTRACT}\n"
-        if section_id == "investment_risk"
+        if section_id == structure.section_for_role("risk").id
         else ""
     )
     prompt = f"""\
@@ -7298,6 +7445,7 @@ def run_memo_package_sectional_repair(
     so this can only save time, never lose correctness. The caller re-runs
     every acceptance gate on the returned package either way.
     """
+    structure = memo_structure.for_package(package)
     mapping, envelope_findings, unmapped = _partition_repair_findings(
         package, findings
     )
@@ -7353,6 +7501,7 @@ def run_memo_package_sectional_repair(
             findings=mapping[section_id],
             progress=progress,
             timeout_sec=timeout_sec,
+            structure=structure,
         )
         duration_ms = int((time.monotonic() - started_monotonic) * 1000)
         finished_at = datetime.now(timezone.utc).isoformat()
@@ -7478,7 +7627,7 @@ def run_memo_package_sectional_repair(
             1,
             min(
                 len(mapping) + (1 if envelope_findings else 0),
-                len(MEMO_PACKAGE_SECTION_IDS) + 1,
+                len(structure.section_ids) + 1,
             ),
         ),
         thread_name_prefix="memo-repair",
@@ -7942,9 +8091,11 @@ class BilingualChaser:
         stream=None,
         max_workers: int | None = None,
         unit_timeout_sec: int = 1200,
+        structure: memo_structure.MemoStructure | None = None,
     ):
         from concurrent.futures import ThreadPoolExecutor
 
+        self._structure = structure or memo_structure.LATE
         self._run_dir = run_dir
         self._company_name = company_name
         self._run_id = run_id
@@ -7991,9 +8142,9 @@ class BilingualChaser:
             if not isinstance(section, dict):
                 return
             try:
-                index = MEMO_PACKAGE_SECTION_IDS.index(str(section_id))
+                index = self._structure.section_ids.index(str(section_id))
             except ValueError:
-                index = len(MEMO_PACKAGE_SECTION_IDS)
+                index = len(self._structure.section_ids)
             self._submit(
                 str(section_id),
                 f"section {section_id} (chase)",

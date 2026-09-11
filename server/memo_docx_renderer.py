@@ -50,10 +50,16 @@ GENERATED_RENDERER_SCRIPT_PATTERNS = (
 )
 
 # Structure-derived skeleton (server/memo_structure.py is the single
-# source of truth; numbering is positional).
+# source of truth; numbering is positional). The module constants are the
+# late v1 defaults; every validation/render path resolves the package's own
+# structure from its ``structure`` meta stamp via ``_structure_for``.
 SECTION_TITLES = memo_structure.LATE.section_titles()
 REQUIRED_SECTION_IDS = memo_structure.LATE.section_ids
 REQUIRED_MEMO_COMPONENTS = memo_structure.LATE.components
+
+
+def _structure_for(package: Any) -> memo_structure.MemoStructure:
+    return memo_structure.for_package(package)
 SUPPORTED_BLOCK_TYPES = {
     "heading",
     "paragraph",
@@ -395,11 +401,15 @@ def _risk_card_format_errors(package: dict) -> list[str]:
     sections = package.get("sections")
     if not isinstance(sections, list):
         return []
+    try:
+        risk_id = _structure_for(package).section_for_role("risk").id
+    except KeyError:
+        return []
     section = next(
         (
             s
             for s in sections
-            if isinstance(s, dict) and str(s.get("id") or "") == "investment_risk"
+            if isinstance(s, dict) and str(s.get("id") or "") == risk_id
         ),
         None,
     )
@@ -542,6 +552,9 @@ def _package_validation_errors(package: Any) -> list[str]:
     errors: list[str] = []
     if not isinstance(package, dict):
         return ["memo package must be a JSON object"]
+    structure = _structure_for(package)
+    section_titles = structure.section_titles()
+    floors = structure.content_floors()
     try:
         version = int(package.get("schema_version") or SCHEMA_VERSION)
     except (TypeError, ValueError):
@@ -574,7 +587,7 @@ def _package_validation_errors(package: Any) -> list[str]:
         section_id = str(section.get("id") or "").strip()
         if section_id:
             by_id[section_id] = section
-            if section_id not in SECTION_TITLES and not _loc(
+            if section_id not in section_titles and not _loc(
                 section.get("title"), "en"
             ):
                 errors.append(
@@ -594,12 +607,14 @@ def _package_validation_errors(package: Any) -> list[str]:
         for block_index, block in enumerate(blocks):
             _validate_block(block, f"{location}.blocks[{block_index}]", errors)
 
-    for section_id in REQUIRED_SECTION_IDS:
+    for section_id in structure.section_ids:
         if section_id not in by_id:
             errors.append(f"missing required section {section_id}")
         else:
-            _validate_section_content_floor(section_id, by_id[section_id], errors)
-    _validate_required_memo_components(package, errors)
+            _validate_section_content_floor(
+                section_id, by_id[section_id], errors, floors.get(section_id)
+            )
+    _validate_required_memo_components(package, errors, structure)
 
     if isinstance(sources, list):
         for index, source in enumerate(sources):
@@ -607,9 +622,14 @@ def _package_validation_errors(package: Any) -> list[str]:
     return errors
 
 
-def _validate_required_memo_components(package: dict, errors: list[str]) -> None:
-    coverage = _memo_component_coverage(package)
-    for component in REQUIRED_MEMO_COMPONENTS:
+def _validate_required_memo_components(
+    package: dict,
+    errors: list[str],
+    structure: memo_structure.MemoStructure | None = None,
+) -> None:
+    structure = structure or _structure_for(package)
+    coverage = _memo_component_coverage(package, structure)
+    for component in structure.components:
         component_id = str(component["id"])
         if not coverage.get(component_id):
             errors.append(
@@ -618,14 +638,22 @@ def _validate_required_memo_components(package: dict, errors: list[str]) -> None
             )
 
 
-def _memo_component_coverage(package: dict) -> dict[str, bool]:
-    coverage = {str(component["id"]): False for component in REQUIRED_MEMO_COMPONENTS}
+def _memo_component_coverage(
+    package: dict,
+    structure: memo_structure.MemoStructure | None = None,
+) -> dict[str, bool]:
+    structure = structure or _structure_for(package)
+    components = structure.components
+    section_titles = structure.section_titles()
+    coverage = {str(component["id"]): False for component in components}
     if isinstance(package.get("sources"), list) and package.get("sources"):
         coverage["source_index"] = True
     for section in package.get("sections") or []:
         if not isinstance(section, dict):
             continue
-        section_title = _content_text(section.get("title")) or _section_title(section, "en")
+        section_title = _content_text(section.get("title")) or _section_title(
+            section, "en", section_titles
+        )
         previous_heading = ""
         for block in section.get("blocks") or []:
             if not isinstance(block, dict):
@@ -635,7 +663,7 @@ def _memo_component_coverage(package: dict) -> dict[str, bool]:
                     coverage[component_id] = True
             signature = _block_signature_text(block, section_title, previous_heading)
             kind = str(block.get("type") or "paragraph")
-            for component in REQUIRED_MEMO_COMPONENTS:
+            for component in components:
                 component_id = str(component["id"])
                 if coverage.get(component_id) or kind not in component["block_types"]:
                     continue
@@ -681,8 +709,8 @@ def _validate_section_content_floor(
     section_id: str,
     section: dict,
     errors: list[str],
+    floor: memo_structure.ContentFloor | None,
 ) -> None:
-    floor = memo_structure.LATE.content_floors().get(section_id)
     score = _section_content_score(section)
     if score["real_blocks"] < 1:
         errors.append(f"section {section_id} must contain substantive memo content")
@@ -1019,15 +1047,16 @@ def render_memos(
 
 
 def _build_document(package: dict, locale: str) -> Document:
+    section_titles = _structure_for(package).section_titles()
     document = Document()
     _configure_document(document, package, locale)
     _add_cover(document, package, locale)
     for section in package.get("sections") or []:
         if not isinstance(section, dict):
             continue
-        _add_section(document, section, locale)
+        _add_section(document, section, locale, section_titles)
     if package.get("sources") and not _has_section(package, "sources"):
-        _add_sources_section(document, package, locale)
+        _add_sources_section(document, package, locale, section_titles)
     return document
 
 
@@ -1109,8 +1138,13 @@ def _add_cover(document: Document, package: dict, locale: str) -> None:
     document.add_page_break()
 
 
-def _add_section(document: Document, section: dict, locale: str) -> None:
-    title = _section_title(section, locale)
+def _add_section(
+    document: Document,
+    section: dict,
+    locale: str,
+    section_titles: dict[str, dict[str, str]] | None = None,
+) -> None:
+    title = _section_title(section, locale, section_titles)
     if title:
         _add_heading(document, title, level=1, locale=locale)
     for block in section.get("blocks") or []:
@@ -1158,8 +1192,18 @@ def _add_block(document: Document, block: dict, locale: str) -> None:
             _add_paragraph(document, text, locale=locale)
 
 
-def _add_sources_section(document: Document, package: dict, locale: str) -> None:
-    _add_heading(document, _section_title({"id": "sources"}, locale), level=1, locale=locale)
+def _add_sources_section(
+    document: Document,
+    package: dict,
+    locale: str,
+    section_titles: dict[str, dict[str, str]] | None = None,
+) -> None:
+    _add_heading(
+        document,
+        _section_title({"id": "sources"}, locale, section_titles),
+        level=1,
+        locale=locale,
+    )
     headers = (
         ["Source", "Class", "Treatment", "As of"]
         if locale == "en"
@@ -1474,10 +1518,11 @@ def _validation_report(package: dict, output_path: Path, locale: str) -> str:
         for block in section.get("blocks", [])
         if isinstance(block, dict) and block.get("type") == "callout"
     )
-    coverage = _memo_component_coverage(package)
+    structure = _structure_for(package)
+    coverage = _memo_component_coverage(package, structure)
     coverage_lines = [
         f"- {component['id']}: {'present' if coverage[str(component['id'])] else 'missing'}"
-        for component in REQUIRED_MEMO_COMPONENTS
+        for component in structure.components
     ]
     return "\n".join([
         "# Memo Renderer Validation",
@@ -1547,22 +1592,28 @@ def _has_section(package: dict, section_id: str) -> bool:
     )
 
 
-def _section_title(section: dict, locale: str) -> str:
+def _section_title(
+    section: dict,
+    locale: str,
+    section_titles: dict[str, dict[str, str]] | None = None,
+) -> str:
+    titles = SECTION_TITLES if section_titles is None else section_titles
     return _loc(section.get("title"), locale) or _loc(
-        SECTION_TITLES.get(str(section.get("id") or ""), ""), locale
+        titles.get(str(section.get("id") or ""), ""), locale
     )
 
 
 def _toc_titles(package: dict, locale: str) -> list[str]:
+    section_titles = _structure_for(package).section_titles()
     titles: list[str] = []
     for section in package.get("sections") or []:
         if not isinstance(section, dict):
             continue
-        title = _section_title(section, locale)
+        title = _section_title(section, locale, section_titles)
         if title:
             titles.append(title)
     if package.get("sources") and not _has_section(package, "sources"):
-        titles.append(_section_title({"id": "sources"}, locale))
+        titles.append(_section_title({"id": "sources"}, locale, section_titles))
     return titles
 
 

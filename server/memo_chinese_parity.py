@@ -97,13 +97,19 @@ class _DocShape:
 def lint_chinese_memo_pair(
     en_path: str | Path,
     zh_path: str | Path,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> ChineseParityResult:
-    """Compare rendered English and Chinese memo DOCX files."""
+    """Compare rendered English and Chinese memo DOCX files.
+
+    ``structure`` names the report structure the pair was rendered
+    against (section ids + heading patterns); default is late v1."""
+    structure = structure or memo_structure.LATE
+    patterns = structure.parity_patterns()
     en_docx = Path(en_path)
     zh_docx = Path(zh_path)
     try:
-        en_shape = _extract_docx_shape(en_docx, "en")
-        zh_shape = _extract_docx_shape(zh_docx, "zh")
+        en_shape = _extract_docx_shape(en_docx, "en", patterns)
+        zh_shape = _extract_docx_shape(zh_docx, "zh", patterns)
     except Exception as exc:  # noqa: BLE001
         return ChineseParityResult(
             en_path=str(en_docx),
@@ -118,7 +124,7 @@ def lint_chinese_memo_pair(
                 )
             ],
         )
-    findings = _lint_shapes(en_shape, zh_shape)
+    findings = _lint_shapes(en_shape, zh_shape, structure)
     return ChineseParityResult(
         en_path=str(en_docx),
         zh_path=str(zh_docx),
@@ -158,7 +164,11 @@ def render_markdown_report(result: ChineseParityResult) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def _extract_docx_shape(path: Path, locale: str) -> _DocShape:
+def _extract_docx_shape(
+    path: Path,
+    locale: str,
+    patterns: dict | None = None,
+) -> _DocShape:
     from docx import Document  # type: ignore
     from docx.oxml.table import CT_Tbl  # type: ignore
     from docx.oxml.text.paragraph import CT_P  # type: ignore
@@ -180,7 +190,7 @@ def _extract_docx_shape(path: Path, locale: str) -> _DocShape:
             if not text:
                 continue
             paragraph_index += 1
-            section_id = _section_id_from_heading(text, locale)
+            section_id = _section_id_from_heading(text, locale, patterns)
             kind = "heading" if section_id else "paragraph"
             if section_id:
                 current_section = section_id
@@ -231,7 +241,9 @@ def _extract_docx_shape(path: Path, locale: str) -> _DocShape:
 def _lint_shapes(
     en_shape: _DocShape,
     zh_shape: _DocShape,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> list[ChineseParityFinding]:
+    structure = structure or memo_structure.LATE
     findings: list[ChineseParityFinding] = []
 
     if en_shape.section_count != zh_shape.section_count:
@@ -245,7 +257,7 @@ def _lint_shapes(
             )
         )
 
-    for section_id in REQUIRED_SECTION_IDS:
+    for section_id in structure.section_ids:
         if section_id not in zh_shape.section_ids:
             findings.append(
                 _finding(
@@ -358,9 +370,13 @@ def _lint_shapes(
     return _dedupe_findings(findings)
 
 
-def _section_id_from_heading(text: str, locale: str) -> str | None:
-    for section_id, patterns in SECTION_PATTERNS.items():
-        if patterns[locale].search(text):
+def _section_id_from_heading(
+    text: str,
+    locale: str,
+    patterns: dict | None = None,
+) -> str | None:
+    for section_id, locale_patterns in (patterns or SECTION_PATTERNS).items():
+        if locale_patterns[locale].search(text):
             return section_id
     return None
 

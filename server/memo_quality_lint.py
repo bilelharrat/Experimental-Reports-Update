@@ -357,11 +357,18 @@ _DISCLOSURE_LANGUAGE_PATTERNS = (
 )
 
 
-def lint_memo_docx(path: str | Path) -> MemoLintResult:
-    """Lint one generated memo DOCX and return structured findings."""
+def lint_memo_docx(
+    path: str | Path,
+    structure: memo_structure.MemoStructure | None = None,
+) -> MemoLintResult:
+    """Lint one generated memo DOCX and return structured findings.
+
+    ``structure`` names the report structure the memo was rendered
+    against (heading recognizers, the risk section key); default late v1."""
+    structure = structure or memo_structure.LATE
     docx_path = Path(path)
     try:
-        blocks = _extract_docx_blocks(docx_path)
+        blocks = _extract_docx_blocks(docx_path, structure)
     except Exception as exc:  # noqa: BLE001
         return MemoLintResult(
             path=str(docx_path),
@@ -377,7 +384,9 @@ def lint_memo_docx(path: str | Path) -> MemoLintResult:
                 )
             ],
         )
-    return MemoLintResult(path=str(docx_path), findings=_lint_blocks(blocks))
+    return MemoLintResult(
+        path=str(docx_path), findings=_lint_blocks(blocks, structure)
+    )
 
 
 def render_markdown_report(result: MemoLintResult) -> str:
@@ -412,7 +421,11 @@ def render_markdown_report(result: MemoLintResult) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def _extract_docx_blocks(path: Path) -> list[_TextBlock]:
+def _extract_docx_blocks(
+    path: Path,
+    structure: memo_structure.MemoStructure | None = None,
+) -> list[_TextBlock]:
+    structure = structure or memo_structure.LATE
     from docx import Document  # type: ignore
     from docx.oxml.table import CT_Tbl  # type: ignore
     from docx.oxml.text.paragraph import CT_P  # type: ignore
@@ -432,7 +445,7 @@ def _extract_docx_blocks(path: Path) -> list[_TextBlock]:
             if not text:
                 continue
             paragraph_index += 1
-            section = _section_after_heading(text, section)
+            section = _section_after_heading(text, section, structure)
             allowed = _allowed_trace_section(section)
             blocks.append(
                 _TextBlock(
@@ -473,7 +486,12 @@ def _extract_docx_blocks(path: Path) -> list[_TextBlock]:
     return blocks
 
 
-def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
+def _lint_blocks(
+    blocks: list[_TextBlock],
+    structure: memo_structure.MemoStructure | None = None,
+) -> list[MemoLintFinding]:
+    structure = structure or memo_structure.LATE
+    risk_section_key = structure.numbered_lint_key("risk")
     findings: list[MemoLintFinding] = []
     for block in blocks:
         if not block.allowed_trace_section:
@@ -668,7 +686,7 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
 
     risk_headings: dict[str, _TextBlock] = {}
     for index, block in enumerate(blocks):
-        if block.section != _RISK_SECTION_KEY:
+        if block.section != risk_section_key:
             continue
         for pattern in _RISK_GENERIC_FILLER_PATTERNS:
             match = pattern.search(block.text)
@@ -742,17 +760,18 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
     return _dedupe_findings(findings)
 
 
-_RISK_SECTION_KEY = memo_structure.LATE.numbered_lint_key("risk")
-_SECTION_PREFIX_RE = memo_structure.LATE.numbered_prefix_pattern()
-_SECTION_TITLE_SET = memo_structure.LATE.lint_section_titles()
-
-
-def _section_after_heading(text: str, current: str) -> str:
+def _section_after_heading(
+    text: str,
+    current: str,
+    structure: memo_structure.MemoStructure | None = None,
+) -> str:
+    structure = structure or memo_structure.LATE
     lowered = text.strip().lower()
     if _allowed_trace_section(lowered):
         return lowered
     if len(text) <= 140 and (
-        _SECTION_PREFIX_RE.match(lowered) or lowered in _SECTION_TITLE_SET
+        structure.numbered_prefix_pattern().match(lowered)
+        or lowered in structure.lint_section_titles()
     ):
         return lowered
     return current

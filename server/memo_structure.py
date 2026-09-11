@@ -14,6 +14,8 @@ v2 structure; the profile files are the iteration surface.
 """
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -179,6 +181,21 @@ class MemoStructure:
         position = self.section_ids.index(target.id) + 1
         return f"{_roman(position).lower()}. {target.en_title.lower()}"
 
+    def meta(self) -> dict[str, Any]:
+        """The identity stamp carried inside every memo package, so gates
+        and renderers resolve the structure the package was written
+        against (:func:`for_package`)."""
+        return {"stage": self.stage, "version": self.version}
+
+    def profile_digest(self) -> str:
+        """Short digest of the profile + component files — lets a run
+        record (and a prompt assert) exactly which structure text it ran
+        against."""
+        hasher = hashlib.sha256()
+        hasher.update(_profile_path(self.stage, self.version).read_bytes())
+        hasher.update((STRUCTURES_DIR / "components.yaml").read_bytes())
+        return hasher.hexdigest()[:12]
+
 
 _SECTION_HEADER_RE = re.compile(r"^## section: ([a-z0-9_]+)\s*$")
 
@@ -223,9 +240,14 @@ def _parse_profile(path: Path) -> dict[str, Any]:
     return head
 
 
+def _profile_path(stage: str, version: int = 1) -> Path:
+    name = stage if version == 1 else f"{stage}_v{version}"
+    return STRUCTURES_DIR / f"{name}.md"
+
+
 @lru_cache(maxsize=None)
-def load_structure(stage: str) -> MemoStructure:
-    profile = _parse_profile(STRUCTURES_DIR / f"{stage}.md")
+def load_structure(stage: str, version: int = 1) -> MemoStructure:
+    profile = _parse_profile(_profile_path(stage, version))
     components_doc = yaml.safe_load(
         (STRUCTURES_DIR / "components.yaml").read_text(encoding="utf-8")
     )
@@ -273,6 +295,12 @@ def load_structure(stage: str) -> MemoStructure:
         components=components,
         lint_extra_titles=tuple(profile.get("lint_extra_titles") or ()),
     )
+    if structure.stage != stage or structure.version != version:
+        raise ValueError(
+            f"profile {_profile_path(stage, version).name} declares "
+            f"stage={structure.stage!r} version={structure.version} but was "
+            f"loaded as stage={stage!r} version={version}"
+        )
     _validate_structure(structure)
     return structure
 
@@ -299,3 +327,36 @@ def clear_cache() -> None:
 
 
 LATE = load_structure("late")
+
+
+def active_structure(stage: str = "late") -> MemoStructure:
+    """The structure a NEW pipeline run should use for this stage.
+
+    ``BSH_MEMO_STRUCTURE_V2=1`` opts a run into the v2 profile where one
+    exists; the default stays the v1 structure until the owner's live
+    test rounds sign it off (restructure Round 5 flips it)."""
+    if os.environ.get("BSH_MEMO_STRUCTURE_V2", "0") == "1":
+        try:
+            return load_structure(stage, 2)
+        except FileNotFoundError:
+            pass
+    return load_structure(stage, 1)
+
+
+def for_package(package: Any) -> MemoStructure:
+    """Resolve the structure a memo package was written against, from the
+    ``structure`` meta stamped into it at assembly. Packages without a
+    stamp (legacy runs, hand-built fixtures) resolve to the late v1
+    structure — exactly what every pre-registry package was."""
+    meta = package.get("structure") if isinstance(package, dict) else None
+    if isinstance(meta, dict):
+        stage = str(meta.get("stage") or "").strip() or "late"
+        try:
+            version = int(meta.get("version") or 1)
+        except (TypeError, ValueError):
+            version = 1
+        try:
+            return load_structure(stage, version)
+        except (FileNotFoundError, ValueError):
+            return LATE
+    return LATE

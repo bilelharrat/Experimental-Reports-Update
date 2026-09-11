@@ -50,6 +50,7 @@ from . import (
     memo_docx_renderer,
     memo_pin_check,
     memo_quality_lint,
+    memo_structure,
     memo_prep,
     product_store,
     research_store,
@@ -548,6 +549,7 @@ def _memo_package_prerender_quality_findings(
         else:
             payload = package
         payload, _ = _rewritten_memo_package_voice(payload)
+        structure = memo_structure.for_package(payload)
         with tempfile.TemporaryDirectory(prefix="memo-prelint-") as tmp:
             tmp_dir = Path(tmp)
             out_en = tmp_dir / "memo" / "prelint_en.docx"
@@ -562,7 +564,7 @@ def _memo_package_prerender_quality_findings(
                 manifest_path=tmp_dir / "logs" / "run_manifest.md",
             )
             problems: list[str] = []
-            lint_result = memo_quality_lint.lint_memo_docx(out_en)
+            lint_result = memo_quality_lint.lint_memo_docx(out_en, structure)
             for finding in lint_result.p0_findings[:12]:
                 problems.append(
                     f"quality gate {finding.code} at {finding.location}: "
@@ -572,6 +574,7 @@ def _memo_package_prerender_quality_findings(
                 parity_result = memo_chinese_parity.lint_chinese_memo_pair(
                     out_en,
                     out_zh,
+                    structure,
                 )
                 for finding in parity_result.p0_findings[:12]:
                     problems.append(
@@ -594,6 +597,19 @@ def _memo_package_prerender_quality_error(
         package, check_parity=check_parity
     )
     return "; ".join(problems) if problems else None
+
+
+def _structure_for_run(run_dir: Path) -> memo_structure.MemoStructure:
+    """Resolve the structure the run's accepted package was written
+    against (from the meta stamp in ``memo_package.json``); late v1 for
+    legacy runs and unreadable packages."""
+    try:
+        package = json.loads(
+            _memo_package_path(run_dir).read_text(encoding="utf-8")
+        )
+    except Exception:  # noqa: BLE001
+        return memo_structure.LATE
+    return memo_structure.for_package(package)
 
 
 def _memo_shared_facts_from_disk(run_dir: Path) -> dict | None:
@@ -2208,6 +2224,7 @@ def _run_chinese_parity_gate(
         parity_result = memo_chinese_parity.lint_chinese_memo_pair(
             memo_paths_abs["en"],
             memo_paths_abs["zh"],
+            _structure_for_run(run_dir),
         )
         parity_path = run_dir / "logs" / "memo_chinese_parity.md"
         parity_path.write_text(
@@ -2260,7 +2277,9 @@ def _lint_memo_quality_gate(
         recovered=recovered,
         english_memo=memo_prep._rel(memo_path),
     ) as timing:
-        lint_result = memo_quality_lint.lint_memo_docx(memo_path)
+        lint_result = memo_quality_lint.lint_memo_docx(
+            memo_path, _structure_for_run(run_dir)
+        )
         lint_path = run_dir / "logs" / "memo_quality_lint.md"
         lint_path.write_text(
             memo_quality_lint.render_markdown_report(lint_result),
@@ -2900,6 +2919,9 @@ def _run_fast_memo_pipeline(
     scope_check = report.get("scope_check")
     research_dir = research_store.RESEARCH_ROOT / company_slug
     memo_paths = {k: str(v) for k, v in memo_paths_abs.items()}
+    # The report structure for this run: late v1 today; the stage
+    # classifier starts choosing growth/early profiles in a later round.
+    structure = memo_structure.active_structure("late")
 
     stream.emit(
         "stage",
@@ -2907,6 +2929,8 @@ def _run_fast_memo_pipeline(
         message="Running fast memo pipeline with real parallel Claude workers",
         max_workers=_memo_fast_max_workers(),
         packet_mode=bool(analysis_session_path),
+        structure_stage=structure.stage,
+        structure_version=structure.version,
     )
     _emit_phase_timing(
         stream,
@@ -2955,6 +2979,7 @@ def _run_fast_memo_pipeline(
             company_name=company_name,
             run_id=run_id,
             stream=stream,
+            structure=structure,
         )
     speculator = None
 
@@ -2998,6 +3023,7 @@ def _run_fast_memo_pipeline(
                     zh_chaser.on_section if zh_chaser is not None else None
                 ),
                 early_sections=claude_runner._memo_section_early_start_enabled(),
+                structure=structure,
             )
         pass_results, phase2_cost_usd, phase2_duration_ms = _run_fast_phase2(
             report_id=report_id,
@@ -3044,6 +3070,7 @@ def _run_fast_memo_pipeline(
         worker_duration_ms=worker_duration_ms,
         started_at=started_at,
         started_monotonic=started_monotonic,
+        structure=structure,
     )
 
 
@@ -3083,6 +3110,7 @@ def _run_fast_synthesis(
     started_monotonic: float = 0.0,
     pinned_spine_path: Path | None = None,
     memo_mode: str = "auto",
+    structure: memo_structure.MemoStructure | None = None,
 ) -> dict:
     """Phases 3-4: English synthesis, Chinese fill, and the gates.
 
@@ -3097,6 +3125,12 @@ def _run_fast_synthesis(
     whole-pipeline phase timing.
     """
     _assert_spine_pin_allowed(pinned_spine_path, memo_mode)
+    if memo_mode == "studio":
+        # Studio spines are composed from v1 cards; the studio flow stays
+        # on late v1 until the restructure's studio bridge lands.
+        structure = memo_structure.LATE
+    else:
+        structure = structure or memo_structure.active_structure("late")
     phase3_started_at = _now_iso()
     phase3_started = time.monotonic()
     phase3_progress = _ThreadProgress(stream, claude_runner._MEMO_PHASE3_THREAD)
@@ -3195,6 +3229,7 @@ def _run_fast_synthesis(
                 async_artifacts=async_artifacts,
                 speculative_english=speculator,
                 pinned_spine_path=pinned_spine_path,
+                structure=structure,
             )
         )
         attempt_cost = max(0.0, phase3_progress.cost_usd - attempt_cost_before)
@@ -3959,6 +3994,7 @@ def _recover_done_memo_report(
     parity_result = memo_chinese_parity.lint_chinese_memo_pair(
         memo_paths_abs["en"],
         memo_paths_abs["zh"],
+        _structure_for_run(run_dir),
     )
     if parity_result.has_blocking_findings:
         return False
@@ -3968,7 +4004,9 @@ def _recover_done_memo_report(
         encoding="utf-8",
     )
 
-    lint_result = memo_quality_lint.lint_memo_docx(memo_paths_abs["en"])
+    lint_result = memo_quality_lint.lint_memo_docx(
+        memo_paths_abs["en"], _structure_for_run(run_dir)
+    )
     if lint_result.has_blocking_findings:
         return False
     lint_path = run_dir / "logs" / "memo_quality_lint.md"
