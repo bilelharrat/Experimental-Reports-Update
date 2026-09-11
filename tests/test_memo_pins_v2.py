@@ -181,6 +181,46 @@ def test_gate_catches_topic_label_risk_summary():
     assert any("topic label" in p for p in problems)
 
 
+def test_gate_accepts_long_summary_with_unlisted_verb():
+    """Live run 2026-09-11: 'commitments behave like senior obligations'
+    was flagged because 'behave' was not in the curated verb list. A
+    summary long enough to be a sentence must never fail the gate."""
+    facts = _good_shared_facts()
+    facts["risks"].append(
+        {
+            "summary": (
+                "More than $275B of multi-year compute commitments behave "
+                "like senior obligations and become stranded cost if "
+                "growth decelerates"
+            ),
+            "rating": "8/10",
+        }
+    )
+    problems = memo_pin_check.check_spine_pins_v2(facts, V2)
+    assert not any("topic label" in p for p in problems), problems
+
+
+def test_gate_handles_trillion_scale_values():
+    """Live run 2026-09-11: '$1.05T' parsed as 1.05 dollars, breaking
+    the fair-value ordering and MOIC ratio checks for Anthropic-scale
+    companies."""
+    assert memo_pin_check._parse_money("$1.05T") == 1.05e12
+    assert memo_pin_check._parse_money("1.2 trillion") == 1.2e12
+    facts = _good_shared_facts()
+    facts["fair_value_range"] = {
+        "low": "$300B",
+        "high": "$1.05T",
+        "basis": "growth-adjusted comps",
+    }
+    facts["entry"]["valuation"] = "$350B"
+    facts["scenarios"]["base"].update(
+        {"exit_value": "$1.2T", "moic": "1.4x"}
+    )
+    problems = memo_pin_check.check_spine_pins_v2(facts, V2)
+    assert not any("low exceeds high" in p for p in problems), problems
+    assert not any("inconsistent with" in p for p in problems), problems
+
+
 def test_gate_catches_fictional_moic():
     facts = _good_shared_facts()
     facts["scenarios"]["base"]["moic"] = "9.0x"  # exit 1.2B / entry 1.0B

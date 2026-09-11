@@ -101,6 +101,18 @@ def _no_real_claude_cli(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _neutral_structure_flag(monkeypatch):
+    """Tests must not inherit the developer's .env: importing server.main
+    anywhere in the session load_dotenv()s the project .env into
+    os.environ, and a BSH_MEMO_STRUCTURE_V2=1 there flips every
+    pipeline test to the v2 structure mid-session (observed 2026-09-11
+    as order-dependent failures). Default the flag off; tests that
+    exercise v2 set it themselves.
+    """
+    monkeypatch.delenv("BSH_MEMO_STRUCTURE_V2", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _disable_auth(monkeypatch):
     """Let API tests through without credentials. ``require_api_token`` now
     fails closed, so we clear any shared token AND opt into anonymous dev

@@ -490,7 +490,7 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
 
 
 _MONEY_RE = re.compile(
-    r"\$?\s*(\d+(?:\.\d+)?)\s*(b(?:n|illion)?|m(?:m|illion)?|k)?",
+    r"\$?\s*(\d+(?:\.\d+)?)\s*(t(?:n|rillion)?|b(?:n|illion)?|m(?:m|illion)?|k)?\b",
     re.IGNORECASE,
 )
 _MOIC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*x", re.IGNORECASE)
@@ -505,7 +505,8 @@ _FINITE_VERB_RE = re.compile(
     r"dilutes?|concentrates?|rests?|hinges?|outpaces?|trails?|"
     r"exposes?|limits?|constrains?|undermines?|overstates?|"
     r"understates?|breaks?|kills?|holds?|comes?|goes?|puts?|"
-    r"gets?|means?|implies?|says?|shows?|masks?|hides?|"
+    r"gets?|means?|implies?|says?|shows?|masks?|hides?|behaves?|"
+    r"becomes?|sits?|faces?|relies?|works?|stands?|acts?|looks?|"
     r"turns?|falls?|rises?|grows?|shrinks?|competes?|loses?|wins?)\b",
     re.IGNORECASE,
 )
@@ -517,6 +518,8 @@ def _parse_money(text: str) -> float | None:
         return None
     value = float(match.group(1))
     suffix = (match.group(2) or "").lower()
+    if suffix.startswith("t"):
+        return value * 1_000_000_000_000
     if suffix.startswith("b"):
         return value * 1_000_000_000
     if suffix.startswith("m"):
@@ -662,7 +665,16 @@ def check_spine_pins_v2(
         if not isinstance(risk, dict):
             continue
         summary = str(risk.get("summary") or "").strip()
-        if summary and not _FINITE_VERB_RE.search(summary):
+        # Topic labels are short noun phrases ("Entry price"). A summary
+        # long enough to be a sentence passes even when the curated verb
+        # list misses its verb — false positives cost a spine respin
+        # (live run 2026-09-11: "commitments behave like senior
+        # obligations" was flagged because "behave" was unlisted).
+        if (
+            summary
+            and len(summary.split()) <= 5
+            and not _FINITE_VERB_RE.search(summary)
+        ):
             problems.append(
                 f'risk summary "{summary}" is a topic label — rewrite it as '
                 "a complete verdict sentence with a finite verb"
