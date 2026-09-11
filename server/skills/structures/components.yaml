@@ -1,0 +1,155 @@
+# Memo component registry — shared across stage profiles.
+# Extracted verbatim from memo_docx_renderer.REQUIRED_MEMO_COMPONENTS
+# (Round 0 of the report restructure); this file is now the source.
+components:
+- id: key_metrics_snapshot
+  label: Executive Summary / Key Metrics Snapshot table
+  block_types:
+  - table
+  patterns:
+  - \bkey metrics snapshot\b
+- id: deal_terms
+  label: deal mechanics / headline terms table
+  block_types:
+  - table
+  patterns:
+  - \bheadline terms\b
+  - \bdeal terms\b
+  - \btransaction terms\b
+  - \bspv\b.*\bsafe\b
+- id: board
+  label: Company Overview / Board of Directors table
+  block_types:
+  - table
+  patterns:
+  - \bboard of directors\b
+  - \bboard\b.*\bstrategic value\b
+- id: revenue
+  label: Company Overview / Revenue table
+  block_types:
+  - table
+  patterns:
+  - \brevenue picture\b
+  - \brevenue\b
+  - \barr\b
+- id: key_operating_metrics
+  label: Company Overview / Key Operating Metrics table
+  block_types:
+  - table
+  patterns:
+  - \bkey operating metrics\b
+  - \bkey metrics\b
+  - \barr per employee\b
+  - \bgross margin\b
+- id: competitive_analysis
+  label: Investment Highlights / Competitive Analysis table
+  block_types:
+  - table
+  patterns:
+  - \bcompetitive analysis\b
+  - \bcompetitive landscape\b
+  - \bcompetitor\b.*\bweakness\b
+- id: replacement_coexistence
+  label: Investment Highlights / Replacement vs. Coexistence treatment
+  block_types:
+  - table
+  patterns:
+  - \breplacement\b.*\bcoexistence\b
+  - \breplaces?\b.*\bcoexists?\b
+- id: moat
+  label: Investment Highlights / Moat or defensibility table
+  block_types:
+  - table
+  patterns:
+  - \bmoat\b
+  - \bdefensibility\b
+  - \bright[s]? durability\b
+- id: risk_register
+  label: Investment Risk / per-risk card tables
+  block_types:
+  - table
+  patterns:
+  - \brisk register\b
+  - \brisk type\b.*\brisk rating\b
+  - \bseverity\b.*\blikelihood\b
+- id: disconfirming_evidence
+  label: Investment Risk / disconfirming evidence treatment
+  block_types:
+  - bullets
+  - callout
+  - paragraph
+  - table
+  patterns:
+  - \bdisconfirming evidence\b
+  - \bbear-case evidence\b
+  - \bdownside scenario\b
+  - \bcountercase\b
+- id: time_base_integrity
+  label: Financial Forecast & Valuation / Time-Base Integrity table
+  block_types:
+  - table
+  patterns:
+  - \btime-base integrity\b
+  - \btime base integrity\b
+  - \blast priced valuation\b
+  - \bstale-mark\b
+- id: growth_bridge
+  label: Financial Forecast & Valuation / Growth Bridge table
+  block_types:
+  - table
+  patterns:
+  - \bgrowth bridge\b
+  - \bbridge\b.*\bconversion\b
+  - \borganic\b.*\bpricing\b
+- id: scenario_analysis
+  label: Financial Forecast & Valuation / Scenario Analysis table
+  block_types:
+  - table
+  patterns:
+  - \bscenario analysis\b
+  - \bseries b scenario\b
+  - \bbear\b.*\bbase\b.*\bbull\b
+  - \bgross moic\b
+- id: investment_decision
+  label: Investment Decision / Closing View
+  block_types:
+  - callout
+  - heading
+  - paragraph
+  patterns:
+  - \binvestment decision\b
+  - \bclosing view\b
+  - \brecommendation\b
+  - \bwe recommend\b
+- id: evidence_thresholds
+  label: Evidence thresholds / step-up support treatment
+  block_types:
+  - bullets
+  - callout
+  - paragraph
+  - table
+  patterns:
+  - \bevidence thresholds?\b
+  - \bstep-up evidence\b
+  - \bstep-up case\b
+  - \bevidence required\b
+  - \bdiligence priorit(?:y|ies)\b
+- id: source_index
+  label: Sources, Source Classes, and Fact Reference Index
+  block_types:
+  - table
+  patterns:
+  - \bsource index\b
+  - \bfact reference index\b
+- id: disclosures
+  label: Legal / offering disclosures
+  block_types:
+  - callout
+  - paragraph
+  - table
+  patterns:
+  - \bdisclosures?\b
+  - \bnot an offer to sell securities\b
+  - \bdefinitive subscription documents\b
+  - \baccredited investors\b
+  - \bpartial or total loss\b

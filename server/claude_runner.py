@@ -34,7 +34,7 @@ from typing import Any
 
 import yaml
 
-from . import job_progress
+from . import job_progress, memo_structure
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
 
@@ -2664,16 +2664,10 @@ MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA: dict[str, Any] = {
     "required": ["memo_package"],
 }
 
-# Canonical renderer section ids, in package order. Mirrors
-# memo_docx_renderer.REQUIRED_SECTION_IDS (kept literal here so claude_runner
-# stays import-free of the renderer).
-MEMO_PACKAGE_SECTION_IDS: tuple[str, ...] = (
-    "executive_summary",
-    "company_overview",
-    "investment_highlights",
-    "investment_risk",
-    "financial_forecast_valuation",
-)
+# Canonical section ids, in package order — derived from the structure
+# registry (server/memo_structure.py + skills/structures/), the single
+# source of truth for report structure.
+MEMO_PACKAGE_SECTION_IDS: tuple[str, ...] = memo_structure.LATE.section_ids
 
 # The "spine-lite" contract: the spine pins ONLY the envelope and the shared
 # facts every section must agree on. The seven analysis artifacts moved to a
@@ -4530,69 +4524,15 @@ _MEMO_ENGLISH_UNITS_DIRNAME = "english_units"
 # and every accepted package on record. Used to route "missing required memo
 # component" validation errors to the owning section, and to tell each
 # section worker which component slugs it must produce.
-_MEMO_COMPONENT_SECTION: dict[str, str] = {
-    "key_metrics_snapshot": "executive_summary",
-    "board": "company_overview",
-    "revenue": "company_overview",
-    "key_operating_metrics": "company_overview",
-    "competitive_analysis": "investment_highlights",
-    "replacement_coexistence": "investment_highlights",
-    "moat": "investment_highlights",
-    "risk_register": "investment_risk",
-    "disconfirming_evidence": "investment_risk",
-    "time_base_integrity": "financial_forecast_valuation",
-    "growth_bridge": "financial_forecast_valuation",
-    "scenario_analysis": "financial_forecast_valuation",
-    "deal_terms": "financial_forecast_valuation",
-    "evidence_thresholds": "financial_forecast_valuation",
-    "investment_decision": "financial_forecast_valuation",
-    "disclosures": "financial_forecast_valuation",
-}
+_MEMO_COMPONENT_SECTION: dict[str, str] = (
+    memo_structure.LATE.component_section()
+)
 
-_MEMO_SECTION_TITLE_WORDS: dict[str, str] = {
-    "executive summary": "executive_summary",
-    "company overview": "company_overview",
-    "investment highlights": "investment_highlights",
-    "investment risk": "investment_risk",
-    "financial forecast & valuation": "financial_forecast_valuation",
-    "financial forecast and valuation": "financial_forecast_valuation",
-}
+_MEMO_SECTION_TITLE_WORDS: dict[str, str] = (
+    memo_structure.LATE.title_words()
+)
 
-_MEMO_SECTION_SPECS: dict[str, str] = {
-    "executive_summary": """\
-Open from the sponsor thesis, not a tombstone. At least two substantive
-content blocks. Must include the Key Metrics Snapshot table with
-`component: "key_metrics_snapshot"`. State the recommendation exactly as the
-spine brief fixes it. When the shared fact sheet pins a
-`decision_history_sentence`, state it verbatim as factual history — it
-records what BSH previously decided, never the memo's own conclusion.""",
-    "company_overview": """\
-Must include three tables, each carrying its component slug:
-`component: "revenue"` (revenue picture), `component: "key_operating_metrics"`
-(key operating metrics), and `component: "board"` (Board of Directors with
-strategic value).""",
-    "investment_highlights": """\
-At least two substantive bullets, or explanatory prose plus a substantive
-table/callout. Must include tables with `component: "competitive_analysis"`,
-`component: "replacement_coexistence"` (replacement vs. coexistence), and
-`component: "moat"` (moat / defensibility).""",
-    "investment_risk": """\
-Present 4-6 material risks as per-risk cards (contract below), every card
-table carrying `component: "risk_register"`, plus a disconfirming-evidence
-treatment block with `component: "disconfirming_evidence"`. Use the risk list
-and ratings the spine brief fixes. Each card must connect a named fact to a
-failure mode, an economic consequence, and an observable signal.""",
-    "financial_forecast_valuation": """\
-Must reference scenario ranges, valuation, revenue, margins,
-or what moves the number, and include blocks carrying these component
-slugs: `time_base_integrity` (valuation/date/multiple timing table),
-`growth_bridge`, `scenario_analysis` (bear/base/bull), `deal_terms`
-(headline terms / deal mechanics), `evidence_thresholds` (written as
-valuation sensitivities), `investment_decision` (final Investment Decision /
-Closing View in recommendation register — the concluding call repeats the
-pinned recommendation sentence, which opens with "Recommendation: "), and
-`disclosures` (concise legal/offering disclosure language).""",
-}
+_MEMO_SECTION_SPECS: dict[str, str] = memo_structure.LATE.section_specs()
 
 
 def _memo_english_units_dir(run_dir: Path) -> Path:
@@ -5246,20 +5186,9 @@ def _memo_section_early_start_enabled() -> bool:
 # pass artifacts. A section may start early once its affine passes have
 # completed (plus the speculative spine). executive_summary is absent by
 # design: it distills every pass, so it only starts on the full-input path.
-MEMO_SECTION_PASS_AFFINITY: dict[str, frozenset[str]] = {
-    "company_overview": frozenset(
-        {"deployment_behavior", "gtm_operating_burden"}
-    ),
-    "investment_highlights": frozenset(
-        {"replacement_coexistence", "competitive_rights"}
-    ),
-    "investment_risk": frozenset(
-        {"alternative_explanations", "competitive_rights"}
-    ),
-    "financial_forecast_valuation": frozenset(
-        {"arithmetic_denominators", "time_base", "growth_bridge"}
-    ),
-}
+MEMO_SECTION_PASS_AFFINITY: dict[str, frozenset[str]] = (
+    memo_structure.LATE.pass_affinity()
+)
 
 
 def _memo_spine_speculate_after() -> int:

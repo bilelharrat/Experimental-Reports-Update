@@ -20,9 +20,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-_SECTION_EXEC = "executive_summary"
-_SECTION_RISK = "investment_risk"
-_SECTION_FINANCE = "financial_forecast_valuation"
+from server import memo_structure
+
+_SECTION_EXEC = memo_structure.LATE.section_for_role("exec").id
+_SECTION_RISK = memo_structure.LATE.section_for_role("risk").id
+_SECTION_FINANCE = memo_structure.LATE.section_for_role("valuation").id
 
 _SKIPPABLE_VALUES = {
     "",

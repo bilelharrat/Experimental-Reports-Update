@@ -6,85 +6,13 @@ from pathlib import Path
 import re
 from typing import Any
 
-REQUIRED_SECTION_IDS = (
-    "executive_summary",
-    "company_overview",
-    "investment_highlights",
-    "investment_risk",
-    "financial_forecast_valuation",
-)
+from server import memo_structure
 
-# Section headings are full-line titles: optional numbering, the title
-# text, an optional trailing colon, end of line. The $ anchor matters —
-# _extract_docx_shape tests EVERY paragraph, not just heading-styled
-# ones, so an unanchored pattern would misread body sentences that merely
-# start with a section word ("Source index follows.") as headings.
-SECTION_PATTERNS = {
-    "executive_summary": {
-        "en": re.compile(
-            r"^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:i|1|一)[\.\、]\s*)?(?:执行摘要|核心摘要)\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-    },
-    "company_overview": {
-        "en": re.compile(
-            r"^\s*(?:(?:ii|2)[\.\、]\s*)?company\s+overview\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:ii|2|二)[\.\、]\s*)?(?:公司概览|公司概况|项目简介)\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-    },
-    "investment_highlights": {
-        "en": re.compile(
-            r"^\s*(?:(?:iii|3)[\.\、]\s*)?investment\s+highlights\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:iii|3|三)[\.\、]\s*)?投资亮点\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-    },
-    "investment_risk": {
-        "en": re.compile(
-            r"^\s*(?:(?:iv|4)[\.\、]\s*)?investment\s+risks?\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:iv|4|四)[\.\、]\s*)?投资风险\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-    },
-    "financial_forecast_valuation": {
-        "en": re.compile(
-            r"^\s*(?:(?:v|5)[\.\、]\s*)?financial\s+forecast\s+(?:&|and)\s+valuation"
-            r"\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:v|5|五)[\.\、]\s*)?财务预测与估值\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-    },
-    "sources": {
-        "en": re.compile(
-            r"^\s*(?:(?:vi|6)[\.\、]\s*)?sources?"
-            r"(?:,\s*source\s+classes,\s*and\s+(?:fact\s+reference\s+index|disclosures))?"
-            r"\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-        "zh": re.compile(
-            r"^\s*(?:(?:vi|6|六)[\.\、]\s*)?(?:来源、来源类别与事实索引|来源与事实索引|来源)"
-            r"\s*[:：]?\s*$",
-            re.IGNORECASE,
-        ),
-    },
-}
+REQUIRED_SECTION_IDS = memo_structure.LATE.section_ids
+
+# Section headings are full-line anchored patterns per id per locale,
+# defined in the structure profile (server/skills/structures/).
+SECTION_PATTERNS = memo_structure.LATE.parity_patterns()
 
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 LATIN_RE = re.compile(r"[A-Za-z]")

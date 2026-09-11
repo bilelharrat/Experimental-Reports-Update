@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import re
+
+from server import memo_structure
 from typing import Any
 
 
@@ -666,7 +668,7 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
 
     risk_headings: dict[str, _TextBlock] = {}
     for index, block in enumerate(blocks):
-        if block.section != "iv. investment risk":
+        if block.section != _RISK_SECTION_KEY:
             continue
         for pattern in _RISK_GENERIC_FILLER_PATTERNS:
             match = pattern.search(block.text)
@@ -740,26 +742,17 @@ def _lint_blocks(blocks: list[_TextBlock]) -> list[MemoLintFinding]:
     return _dedupe_findings(findings)
 
 
+_RISK_SECTION_KEY = memo_structure.LATE.numbered_lint_key("risk")
+_SECTION_PREFIX_RE = memo_structure.LATE.numbered_prefix_pattern()
+_SECTION_TITLE_SET = memo_structure.LATE.lint_section_titles()
+
+
 def _section_after_heading(text: str, current: str) -> str:
     lowered = text.strip().lower()
     if _allowed_trace_section(lowered):
         return lowered
     if len(text) <= 140 and (
-        re.match(r"^(i|ii|iii|iv|v|vi)\.\s+", lowered)
-        or lowered in {
-            "executive summary",
-            "company overview",
-            "investment highlights",
-            "investment risk",
-            "financial forecast & valuation",
-            "financial forecast and valuation",
-            "investment decision / closing view",
-            "closing view",
-            "investment decision",
-            "key metrics snapshot",
-            "sources",
-            "references",
-        }
+        _SECTION_PREFIX_RE.match(lowered) or lowered in _SECTION_TITLE_SET
     ):
         return lowered
     return current

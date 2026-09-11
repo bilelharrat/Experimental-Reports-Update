@@ -18,6 +18,8 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+from server import memo_structure
+
 SCHEMA_VERSION = 1
 
 EN_FONT = "Arial"
@@ -47,217 +49,11 @@ GENERATED_RENDERER_SCRIPT_PATTERNS = (
     "render_memos*.js",
 )
 
-SECTION_TITLES = {
-    "executive_summary": {
-        "en": "I. Executive Summary",
-        "zh": "I. 执行摘要",
-    },
-    "company_overview": {
-        "en": "II. Company Overview",
-        "zh": "II. 公司概览",
-    },
-    "investment_highlights": {
-        "en": "III. Investment Highlights",
-        "zh": "III. 投资亮点",
-    },
-    "investment_risk": {
-        "en": "IV. Investment Risk",
-        "zh": "IV. 投资风险",
-    },
-    "financial_forecast_valuation": {
-        "en": "V. Financial Forecast & Valuation",
-        "zh": "V. 财务预测与估值",
-    },
-    "sources": {
-        "en": "VI. Sources, Source Classes, and Fact Reference Index",
-        "zh": "VI. 来源、来源类别与事实索引",
-    },
-    "validation_log": {
-        "en": "Appendix: Source Treatment And Assumptions",
-        "zh": "附录：来源处理与假设",
-    },
-}
-
-TOC_SECTION_IDS = (
-    "executive_summary",
-    "company_overview",
-    "investment_highlights",
-    "investment_risk",
-    "financial_forecast_valuation",
-    "sources",
-)
-REQUIRED_SECTION_IDS = (
-    "executive_summary",
-    "company_overview",
-    "investment_highlights",
-    "investment_risk",
-    "financial_forecast_valuation",
-)
-REQUIRED_MEMO_COMPONENTS = (
-    {
-        "id": "key_metrics_snapshot",
-        "label": "Executive Summary / Key Metrics Snapshot table",
-        "block_types": {"table"},
-        "patterns": (r"\bkey metrics snapshot\b",),
-    },
-    {
-        "id": "deal_terms",
-        "label": "deal mechanics / headline terms table",
-        "block_types": {"table"},
-        "patterns": (
-            r"\bheadline terms\b",
-            r"\bdeal terms\b",
-            r"\btransaction terms\b",
-            r"\bspv\b.*\bsafe\b",
-        ),
-    },
-    {
-        "id": "board",
-        "label": "Company Overview / Board of Directors table",
-        "block_types": {"table"},
-        "patterns": (r"\bboard of directors\b", r"\bboard\b.*\bstrategic value\b"),
-    },
-    {
-        "id": "revenue",
-        "label": "Company Overview / Revenue table",
-        "block_types": {"table"},
-        "patterns": (r"\brevenue picture\b", r"\brevenue\b", r"\barr\b"),
-    },
-    {
-        "id": "key_operating_metrics",
-        "label": "Company Overview / Key Operating Metrics table",
-        "block_types": {"table"},
-        "patterns": (
-            r"\bkey operating metrics\b",
-            r"\bkey metrics\b",
-            r"\barr per employee\b",
-            r"\bgross margin\b",
-        ),
-    },
-    {
-        "id": "competitive_analysis",
-        "label": "Investment Highlights / Competitive Analysis table",
-        "block_types": {"table"},
-        "patterns": (
-            r"\bcompetitive analysis\b",
-            r"\bcompetitive landscape\b",
-            r"\bcompetitor\b.*\bweakness\b",
-        ),
-    },
-    {
-        "id": "replacement_coexistence",
-        "label": "Investment Highlights / Replacement vs. Coexistence treatment",
-        "block_types": {"table"},
-        "patterns": (
-            r"\breplacement\b.*\bcoexistence\b",
-            r"\breplaces?\b.*\bcoexists?\b",
-        ),
-    },
-    {
-        "id": "moat",
-        "label": "Investment Highlights / Moat or defensibility table",
-        "block_types": {"table"},
-        "patterns": (
-            r"\bmoat\b",
-            r"\bdefensibility\b",
-            r"\bright[s]? durability\b",
-        ),
-    },
-    {
-        "id": "risk_register",
-        "label": "Investment Risk / per-risk card tables",
-        "block_types": {"table"},
-        "patterns": (
-            r"\brisk register\b",
-            r"\brisk type\b.*\brisk rating\b",
-            r"\bseverity\b.*\blikelihood\b",
-        ),
-    },
-    {
-        "id": "disconfirming_evidence",
-        "label": "Investment Risk / disconfirming evidence treatment",
-        "block_types": {"paragraph", "bullets", "callout", "table"},
-        "patterns": (
-            r"\bdisconfirming evidence\b",
-            r"\bbear-case evidence\b",
-            r"\bdownside scenario\b",
-            r"\bcountercase\b",
-        ),
-    },
-    {
-        "id": "time_base_integrity",
-        "label": "Financial Forecast & Valuation / Time-Base Integrity table",
-        "block_types": {"table"},
-        "patterns": (
-            r"\btime-base integrity\b",
-            r"\btime base integrity\b",
-            r"\blast priced valuation\b",
-            r"\bstale-mark\b",
-        ),
-    },
-    {
-        "id": "growth_bridge",
-        "label": "Financial Forecast & Valuation / Growth Bridge table",
-        "block_types": {"table"},
-        "patterns": (
-            r"\bgrowth bridge\b",
-            r"\bbridge\b.*\bconversion\b",
-            r"\borganic\b.*\bpricing\b",
-        ),
-    },
-    {
-        "id": "scenario_analysis",
-        "label": "Financial Forecast & Valuation / Scenario Analysis table",
-        "block_types": {"table"},
-        "patterns": (
-            r"\bscenario analysis\b",
-            r"\bseries b scenario\b",
-            r"\bbear\b.*\bbase\b.*\bbull\b",
-            r"\bgross moic\b",
-        ),
-    },
-    {
-        "id": "investment_decision",
-        "label": "Investment Decision / Closing View",
-        "block_types": {"heading", "paragraph", "callout"},
-        "patterns": (
-            r"\binvestment decision\b",
-            r"\bclosing view\b",
-            r"\brecommendation\b",
-            r"\bwe recommend\b",
-        ),
-    },
-    {
-        "id": "evidence_thresholds",
-        "label": "Evidence thresholds / step-up support treatment",
-        "block_types": {"paragraph", "bullets", "callout", "table"},
-        "patterns": (
-            r"\bevidence thresholds?\b",
-            r"\bstep-up evidence\b",
-            r"\bstep-up case\b",
-            r"\bevidence required\b",
-            r"\bdiligence priorit(?:y|ies)\b",
-        ),
-    },
-    {
-        "id": "source_index",
-        "label": "Sources, Source Classes, and Fact Reference Index",
-        "block_types": {"table"},
-        "patterns": (r"\bsource index\b", r"\bfact reference index\b"),
-    },
-    {
-        "id": "disclosures",
-        "label": "Legal / offering disclosures",
-        "block_types": {"paragraph", "callout", "table"},
-        "patterns": (
-            r"\bdisclosures?\b",
-            r"\bnot an offer to sell securities\b",
-            r"\bdefinitive subscription documents\b",
-            r"\baccredited investors\b",
-            r"\bpartial or total loss\b",
-        ),
-    },
-)
+# Structure-derived skeleton (server/memo_structure.py is the single
+# source of truth; numbering is positional).
+SECTION_TITLES = memo_structure.LATE.section_titles()
+REQUIRED_SECTION_IDS = memo_structure.LATE.section_ids
+REQUIRED_MEMO_COMPONENTS = memo_structure.LATE.components
 SUPPORTED_BLOCK_TYPES = {
     "heading",
     "paragraph",
@@ -886,16 +682,20 @@ def _validate_section_content_floor(
     section: dict,
     errors: list[str],
 ) -> None:
+    floor = memo_structure.LATE.content_floors().get(section_id)
     score = _section_content_score(section)
     if score["real_blocks"] < 1:
         errors.append(f"section {section_id} must contain substantive memo content")
         return
-    if section_id == "executive_summary" and score["real_blocks"] < 2:
+    if floor is None:
+        return
+    if floor.min_real_blocks > 1 and score["real_blocks"] < floor.min_real_blocks:
         errors.append(
-            "section executive_summary must contain at least two substantive "
-            "content blocks"
+            f"section {section_id} must contain at least "
+            f"{'two' if floor.min_real_blocks == 2 else floor.min_real_blocks} "
+            "substantive content blocks"
         )
-    if section_id in {"investment_highlights", "investment_risk"}:
+    if floor.bullets_or_prose:
         has_bullets = score["bullet_items"] >= 2
         has_table_or_callout_with_prose = (
             score["paragraphs"] >= 1
@@ -906,12 +706,9 @@ def _validate_section_content_floor(
                 f"section {section_id} must contain at least two substantive "
                 "bullets or explanatory prose plus a substantive table/callout"
             )
-    if (
-        section_id == "financial_forecast_valuation"
-        and score["valuation_refs"] < 1
-    ):
+    if floor.require_valuation_refs and score["valuation_refs"] < 1:
         errors.append(
-            "section financial_forecast_valuation must reference scenario "
+            f"section {section_id} must reference scenario "
             "ranges, valuation, revenue, margins, or what moves the number"
         )
 
