@@ -3421,7 +3421,13 @@ def _run_fast_synthesis(
             )
             if quality_error:
                 if attempt < max_attempts:
-                    validation_errors = [quality_error]
+                    # One finding per list entry: the selective section
+                    # retry maps each error to its owning section, and a
+                    # single joined string collapses every finding onto
+                    # the first section mentioned (observed live
+                    # 2026-09-11: a financial_analysis finding never
+                    # reached its section across three attempts).
+                    validation_errors = list(quality_findings)
                 else:
                     # Out of retries; the package renders, so carry the
                     # findings forward as warnings instead of failing the

@@ -221,7 +221,16 @@ _SELL_SIDE_BANNED_PATTERNS = (
     re.compile(r"\bopen questions\b", re.IGNORECASE),
     re.compile(r"\btop\s+3\s+(?:decision|gating)\s+questions\b", re.IGNORECASE),
     re.compile(r"\(for BSH\)", re.IGNORECASE),
-    re.compile(r"\bunderwrit(?:e|es|ing|ten|er|ers)\b", re.IGNORECASE),
+    # Deal-context underwriting only: "we underwrite", "the underwriting
+    # case/posture". The bare profession noun ("insurance underwriters
+    # use the product") is legitimate domain content — the blanket ban
+    # locked a live Anthropic run in an unfixable repair loop
+    # (2026-09-11: customer-evidence prose about underwriters).
+    re.compile(
+        r"\b(?:we|bsh)\s+underwrit(?:e|es|ing|ten)\b"
+        r"|\bunderwriting\s+(?:case|view|posture|assumption|basis|lens)\b",
+        re.IGNORECASE,
+    ),
     re.compile(r"\btickets?\b", re.IGNORECASE),
     re.compile(r"\bBSH target allocation\b", re.IGNORECASE),
     re.compile(r"\btarget allocation\b", re.IGNORECASE),
