@@ -137,9 +137,11 @@ def _parse_funding_usd(raw: Any) -> float | None:
     if not m:
         return None
     val = float(m.group(1))
-    if "billion" in s or re.search(r"\bb(?:n)?\b", s):
+    # Suffixes hug the number ("$420M", "1.2B") — a \b between digit and
+    # letter never matches, so test the digit-suffix shape directly.
+    if "billion" in s or re.search(r"\d\s*b(?:n)?\b", s):
         return val * 1_000_000_000
-    if "million" in s or re.search(r"\bm(?:m)?\b", s):
+    if "million" in s or re.search(r"\d\s*m(?:m)?\b", s):
         return val * 1_000_000
     if "thousand" in s or s.endswith("k"):
         return val * 1_000
@@ -262,6 +264,85 @@ def _classify_stage(company: dict) -> dict:
         ),
         "signals": signals,
     }
+
+
+# --- Structure-stage classification ----------------------------------------
+#
+# Separate from the scope gate above: this picks which REPORT STRUCTURE a
+# run writes (early / growth / late profiles in server/skills/structures/),
+# never whether the run proceeds. Indeterminate resolves to late — the
+# richest structure, whose data-honesty rules state the gaps.
+
+_STRUCTURE_EARLY_ROUNDS = (
+    "pre-seed", "pre seed", "preseed", "seed", "angel", "series a",
+)
+_STRUCTURE_GROWTH_ROUNDS = ("series b", "series c")
+_STRUCTURE_EARLY_FUNDING_CEILING_USD = 30_000_000
+_STRUCTURE_LATE_FUNDING_FLOOR_USD = 150_000_000
+
+
+def classify_structure_stage(company: dict) -> dict:
+    """Which structure profile a run should write: early, growth, or late.
+
+    Returns ``{stage, source, signals}``. Round labels beat funding
+    totals; public companies and indeterminate records are late.
+    """
+    signals: list[str] = []
+
+    exchange = (company.get("exchange") or "").strip()
+    if exchange:
+        return {
+            "stage": "late",
+            "source": "public listing",
+            "signals": [f"public on {exchange}"],
+        }
+
+    lf = company.get("latest_funding") or {}
+    round_raw = (lf.get("round") or lf.get("round_name") or "").strip().lower()
+    if round_raw:
+        signals.append(f"latest round: {round_raw}")
+        if any(k in round_raw for k in _STRUCTURE_GROWTH_ROUNDS):
+            return {
+                "stage": "growth",
+                "source": "funding round",
+                "signals": signals,
+            }
+        if any(k in round_raw for k in _STRUCTURE_EARLY_ROUNDS):
+            return {
+                "stage": "early",
+                "source": "funding round",
+                "signals": signals,
+            }
+        if any(k in round_raw for k in _LATE_STAGE_ROUNDS):
+            return {
+                "stage": "late",
+                "source": "funding round",
+                "signals": signals,
+            }
+
+    total = _parse_funding_usd(company.get("total_funding_usd"))
+    if total is not None:
+        signals.append(f"total funding ~ ${total/1_000_000:.0f}M")
+        if total >= _STRUCTURE_LATE_FUNDING_FLOOR_USD:
+            return {
+                "stage": "late",
+                "source": "total funding",
+                "signals": signals,
+            }
+        if total < _STRUCTURE_EARLY_FUNDING_CEILING_USD:
+            return {
+                "stage": "early",
+                "source": "total funding",
+                "signals": signals,
+            }
+        return {
+            "stage": "growth",
+            "source": "total funding",
+            "signals": signals,
+        }
+
+    signals.append("no clean stage signal in registry")
+    return {"stage": "late", "source": "default", "signals": signals}
 
 
 # --- Run-folder primitives -------------------------------------------------
@@ -701,6 +782,32 @@ def bootstrap_memo_run(
         include_settings=not buffett,
     )
 
+    # Which report structure the run writes (early/growth/late profile).
+    # Only the auto type classifies; the explicit late-stage type pins
+    # late. Advisory until the structure-v2 rollout flips the default —
+    # memo_structure.active_structure() decides what the stage maps to.
+    structure_stage = None
+    if not buffett:
+        if auto_stage:
+            structure_stage = classify_structure_stage(company)
+        else:
+            structure_stage = {
+                "stage": "late",
+                "source": "report type",
+                "signals": [f"report type: {selected_report_type}"],
+            }
+        stream.emit(
+            "stage",
+            stage="structure_stage",
+            message=(
+                f"Report structure stage: {structure_stage['stage']} "
+                f"({structure_stage['source']})"
+            ),
+            structure_stage=structure_stage["stage"],
+            source=structure_stage["source"],
+            signals=structure_stage["signals"],
+        )
+
     storage.update_report(
         report["id"],
         status="ready_for_analysis",
@@ -708,6 +815,11 @@ def bootstrap_memo_run(
         progress=10,
         warnings=warnings,
         scope_check=stage_assessment,
+        **(
+            {"structure_stage": structure_stage}
+            if structure_stage is not None
+            else {}
+        ),
     )
     prepared_report = storage.get_report(report["id"])
 

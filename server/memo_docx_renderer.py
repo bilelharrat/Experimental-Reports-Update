@@ -76,7 +76,9 @@ SUPPORTED_BLOCK_TYPES = {
 # symmetrically). Legitimate sub-headings are unnumbered, so this prefix is a
 # safe signal to drop the block.
 _NUMBERED_SECTION_HEADING_RE = re.compile(
-    r"^\s*(?:(?:i|ii|iii|iv|v|vi|vii|viii|ix|x)\.|[一二三四五六七八九十]+[、.．])",
+    # longest-first so xi..xv match before their x/i prefixes
+    r"^\s*(?:(?:xiii|xiv|xii|xv|xi|x|ix|viii|vii|vi|v|iv|iii|ii|i)\."
+    r"|[一二三四五六七八九十]+[、.．])",
     re.IGNORECASE,
 )
 # Per-risk cards in `investment_risk`: a "Risk N: <one-line summary>" heading
@@ -111,8 +113,10 @@ _RISK_CARD_ROW_LABELS = (
     ("likelihood", "Likelihood"),
     ("risk rating", "Risk Rating"),
 )
+# The {section_id} placeholder is filled with the structure's risk-role
+# section at check time, so the repair mapper can attribute the finding.
 _RISK_CARD_FORMAT_HINT = (
-    "section investment_risk must present risks as per-risk cards: 4-6 "
+    "section {section_id} must present risks as per-risk cards: 4-6 "
     "`heading` blocks titled 'Risk N: <one-line summary>', each immediately "
     "followed by a `table` block with component 'risk_register', layout "
     "'key_value', headers [], and exactly five two-cell rows labeled "
@@ -425,7 +429,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
         heading_text = _content_text(block.get("text") or block.get("title"))
         if not _RISK_CARD_HEADING_RE.match(heading_text):
             continue
-        location = f"investment_risk blocks[{index}]"
+        location = f"{risk_id} blocks[{index}]"
         nxt = blocks[index + 1] if index + 1 < len(blocks) else None
         if not isinstance(nxt, dict) or str(nxt.get("type") or "") != "table":
             errors.append(
@@ -433,11 +437,11 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                 "immediately followed by its key_value risk card table"
             )
             continue
-        cards.append((heading_text, nxt, f"investment_risk blocks[{index + 1}]"))
+        cards.append((heading_text, nxt, f"{risk_id} blocks[{index + 1}]"))
     if not 4 <= len(cards) <= 6:
-        errors.append(_RISK_CARD_FORMAT_HINT)
+        errors.append(_RISK_CARD_FORMAT_HINT.format(section_id=risk_id))
         errors.append(
-            "investment_risk: risk register must contain 4-6 material "
+            f"{risk_id}: risk register must contain 4-6 material "
             f"risk cards, found {len(cards)}"
         )
         return errors
@@ -540,7 +544,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
     for (prev_title, prev_rating), (title, rating) in zip(ratings, ratings[1:]):
         if rating > prev_rating:
             errors.append(
-                "investment_risk: risk cards must be ordered by Risk Rating, "
+                f"{risk_id}: risk cards must be ordered by Risk Rating, "
                 f"highest first — {title!r} ({rating}/10) is rated above "
                 f"{prev_title!r} ({prev_rating}/10) but listed after it"
             )

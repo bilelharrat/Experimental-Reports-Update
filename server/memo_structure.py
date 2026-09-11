@@ -251,6 +251,11 @@ def load_structure(stage: str, version: int = 1) -> MemoStructure:
     components_doc = yaml.safe_load(
         (STRUCTURES_DIR / "components.yaml").read_text(encoding="utf-8")
     )
+    # A profile may declare `components:` in its front matter to include
+    # only a subset of the shared registry (an early-stage memo has no
+    # moat table to require). Default: every component.
+    include = profile.get("components")
+    include_set = set(include) if isinstance(include, list) else None
     components = tuple(
         {
             "id": c["id"],
@@ -259,7 +264,16 @@ def load_structure(stage: str, version: int = 1) -> MemoStructure:
             "patterns": tuple(c["patterns"]),
         }
         for c in components_doc["components"]
+        if include_set is None or c["id"] in include_set
     )
+    if include_set is not None:
+        known = {c["id"] for c in components_doc["components"]}
+        unknown = include_set - known
+        if unknown:
+            raise ValueError(
+                f"{stage} v{version} includes unknown components "
+                f"{sorted(unknown)}"
+            )
     sections = tuple(
         SectionDef(
             id=s["id"],
@@ -332,15 +346,21 @@ LATE = load_structure("late")
 def active_structure(stage: str = "late") -> MemoStructure:
     """The structure a NEW pipeline run should use for this stage.
 
-    ``BSH_MEMO_STRUCTURE_V2=1`` opts a run into the v2 profile where one
-    exists; the default stays the v1 structure until the owner's live
-    test rounds sign it off (restructure Round 5 flips it)."""
-    if os.environ.get("BSH_MEMO_STRUCTURE_V2", "0") == "1":
+    Default (flag off): every run writes the historical late v1
+    structure regardless of stage — classification is advisory until the
+    owner's live test rounds sign the restructure off (Round 5 flips
+    this default). ``BSH_MEMO_STRUCTURE_V2=1`` opts a run into the
+    restructure: the classified stage picks its profile (late -> the
+    12-section late v2, growth/early -> their own profiles), and a stage
+    without a profile falls back to the late v2 chain."""
+    if os.environ.get("BSH_MEMO_STRUCTURE_V2", "0") != "1":
+        return LATE
+    for candidate in ((stage, 2), (stage, 1), ("late", 2)):
         try:
-            return load_structure(stage, 2)
-        except FileNotFoundError:
-            pass
-    return load_structure(stage, 1)
+            return load_structure(*candidate)
+        except (FileNotFoundError, ValueError):
+            continue
+    return LATE
 
 
 def for_package(package: Any) -> MemoStructure:

@@ -2976,9 +2976,16 @@ def _run_fast_memo_pipeline(
     scope_check = report.get("scope_check")
     research_dir = research_store.RESEARCH_ROOT / company_slug
     memo_paths = {k: str(v) for k, v in memo_paths_abs.items()}
-    # The report structure for this run: late v1 today; the stage
-    # classifier starts choosing growth/early profiles in a later round.
-    structure = memo_structure.active_structure("late")
+    # The report structure for this run: prep classified the stage
+    # (auto type) or pinned late (explicit type); active_structure maps
+    # it to a profile — late v1 for everyone until the v2 flag flips.
+    stage_info = report.get("structure_stage")
+    structure_stage = (
+        str(stage_info.get("stage") or "late")
+        if isinstance(stage_info, dict)
+        else "late"
+    )
+    structure = memo_structure.active_structure(structure_stage)
 
     stream.emit(
         "stage",
