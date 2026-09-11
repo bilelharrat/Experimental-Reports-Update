@@ -2763,9 +2763,19 @@ def memo_fast_english_spine_schema(
                                             "minimum": 0,
                                             "maximum": max_weight,
                                         },
+                                        # The prompt says "0 to that
+                                        # dimension's max" and spines echo
+                                        # a max field back — allow it
+                                        # instead of rejecting the whole
+                                        # response (live 2026-09-11).
+                                        "max": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                        },
                                         "why": {
                                             "type": "string",
-                                            "maxLength": 140,
+                                            "maxLength": 180,
                                         },
                                     },
                                     "required": ["score", "why"],
@@ -2860,7 +2870,7 @@ MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
                         "additionalProperties": False,
                         "properties": {
                             "name": {"type": "string", "maxLength": 80},
-                            "value": {"type": "string", "maxLength": 120},
+                            "value": {"type": "string", "maxLength": 160},
                             "as_of": {"type": "string", "maxLength": 40},
                             "source_ids": {
                                 "type": "array",
@@ -2889,7 +2899,7 @@ MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "summary": {"type": "string", "maxLength": 160},
+                            "summary": {"type": "string", "maxLength": 200},
                             "rating": {
                                 "type": "string",
                                 "pattern": "^(10|[1-9])/10$",
@@ -2993,16 +3003,20 @@ MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA: dict[str, Any] = {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "claim_register_md": {"type": "string", "maxLength": 8000},
-                "scenario_swim_lanes_md": {"type": "string", "maxLength": 8000},
-                "downside_scenario_md": {"type": "string", "maxLength": 8000},
-                "countercase_md": {"type": "string", "maxLength": 8000},
+                # 16K caps: the cap exists to stop runaway essays, not to
+                # ration real content — claim registers landed 8-12.5K in
+                # EVERY live run, and each overrun costs a full re-emit
+                # retry inside the agent session (2026-09-11 observation).
+                "claim_register_md": {"type": "string", "maxLength": 16000},
+                "scenario_swim_lanes_md": {"type": "string", "maxLength": 16000},
+                "downside_scenario_md": {"type": "string", "maxLength": 16000},
+                "countercase_md": {"type": "string", "maxLength": 16000},
                 "source_treatment_assumptions_md": {
                     "type": "string",
-                    "maxLength": 8000,
+                    "maxLength": 16000,
                 },
-                "risk_sensitivities_md": {"type": "string", "maxLength": 8000},
-                "content_coverage_md": {"type": "string", "maxLength": 8000},
+                "risk_sensitivities_md": {"type": "string", "maxLength": 16000},
+                "content_coverage_md": {"type": "string", "maxLength": 16000},
             },
             "required": [
                 "claim_register_md",

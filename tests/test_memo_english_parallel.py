@@ -599,7 +599,7 @@ def test_spine_lite_schema_drops_artifacts_and_bounds_output():
     artifact_props = artifacts_schema["properties"]["analysis_artifacts"][
         "properties"
     ]
-    assert artifact_props["claim_register_md"]["maxLength"] == 8000
+    assert artifact_props["claim_register_md"]["maxLength"] == 16000
     assert "content_coverage_md" in artifact_props
 
 
