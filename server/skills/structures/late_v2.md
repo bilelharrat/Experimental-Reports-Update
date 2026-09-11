@@ -1,6 +1,16 @@
 ---
 stage: late
 version: 2
+scorecard:
+  market_size_growth: 15
+  industry_position: 15
+  moat: 15
+  revenue_growth_quality: 15
+  business_model_ue: 10
+  team_governance: 10
+  valuation: 10
+  exit_certainty: 5
+  risk_reward: 5
 lint_extra_titles:
 - investment decision
 - investment decision / closing view
@@ -129,6 +139,8 @@ Fixed blocks:
 ## section: market_industry
 ```yaml
 id: market_industry
+scorecard_dimensions:
+- market_size_growth
 en_title: Market & Industry Analysis
 zh_title: 市场与行业分析
 parity_en: ^\s*(?:(?:iii|3)[\.\、]\s*)?market\s*(?:&|and)\s*industry(?:\s+analysis)?\s*[:：]?\s*$
@@ -171,6 +183,8 @@ could cap it. Fixed blocks:
 ## section: product_business_model
 ```yaml
 id: product_business_model
+scorecard_dimensions:
+- business_model_ue
 en_title: Product, Business Model & Unit Economics
 zh_title: 产品、商业模式与单位经济
 parity_en: ^\s*(?:(?:iv|4)[\.\、]\s*)?product,?\s*business\s+model\s*(?:&|and)\s*unit\s+economics\s*[:：]?\s*$
@@ -220,6 +234,8 @@ and whether a dollar in produces more than a dollar out. Fixed blocks:
 ## section: competitive_landscape
 ```yaml
 id: competitive_landscape
+scorecard_dimensions:
+- industry_position
 en_title: Competitive Landscape
 zh_title: 竞争格局
 parity_en: ^\s*(?:(?:v|5)[\.\、]\s*)?competitive\s+landscape\s*[:：]?\s*$
@@ -261,6 +277,8 @@ title_word_aliases: []
 ## section: moat
 ```yaml
 id: moat
+scorecard_dimensions:
+- moat
 en_title: Moat & Defensibility
 zh_title: 护城河
 parity_en: ^\s*(?:(?:vi|6)[\.\、]\s*)?moat\s*(?:(?:&|and)\s*defensibility)?\s*[:：]?\s*$
@@ -298,6 +316,8 @@ $5B+ every incumbent and well-funded copy will come. Fixed blocks:
 ## section: financial_analysis
 ```yaml
 id: financial_analysis
+scorecard_dimensions:
+- revenue_growth_quality
 en_title: Financial Analysis
 zh_title: 财务分析
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?financial\s+analysis\s*[:：]?\s*$
@@ -345,6 +365,8 @@ forecast deserves belief. Fixed blocks:
 ## section: team_governance
 ```yaml
 id: team_governance
+scorecard_dimensions:
+- team_governance
 en_title: Team & Governance
 zh_title: 团队与治理
 parity_en: ^\s*(?:(?:viii|8)[\.\、]\s*)?team\s*(?:&|and)\s*governance\s*[:：]?\s*$
@@ -380,6 +402,8 @@ and whether shareholders can course-correct if not. Fixed blocks:
 ## section: valuation
 ```yaml
 id: valuation
+scorecard_dimensions:
+- valuation
 en_title: Valuation Analysis
 zh_title: 估值分析
 parity_en: ^\s*(?:(?:ix|9)[\.\、]\s*)?valuation(?:\s+analysis)?\s*[:：]?\s*$
@@ -430,6 +454,8 @@ is worth on the evidence. Fixed blocks:
 ## section: returns_exit
 ```yaml
 id: returns_exit
+scorecard_dimensions:
+- exit_certainty
 en_title: Return & Exit Analysis
 zh_title: 回报测算与退出分析
 parity_en: ^\s*(?:(?:x|10)[\.\、]\s*)?returns?\s*(?:&|and)\s*exit(?:\s+analysis)?\s*[:：]?\s*$
@@ -484,6 +510,8 @@ the money actually comes back. Fixed blocks:
 ## section: investment_risk
 ```yaml
 id: investment_risk
+scorecard_dimensions:
+- risk_reward
 en_title: Investment Risk
 zh_title: 风险分析
 parity_en: ^\s*(?:(?:xi|11)[\.\、]\s*)?investment\s+risks?\s*[:：]?\s*$

@@ -1,6 +1,16 @@
 ---
 stage: early
 version: 1
+scorecard:
+  market_size_growth: 20
+  industry_position: 5
+  moat: 10
+  revenue_growth_quality: 10
+  business_model_ue: 10
+  team_governance: 25
+  valuation: 10
+  exit_certainty: 5
+  risk_reward: 5
 components:
 - key_metrics_snapshot
 - deal_terms
@@ -93,6 +103,8 @@ role: exec
 ## section: company_team
 ```yaml
 id: company_team
+scorecard_dimensions:
+- team_governance
 en_title: Founders & Company
 zh_title: 创始团队与公司
 parity_en: ^\s*(?:(?:ii|2)[\.\、]\s*)?founders?\s*(?:&|and)\s*company\s*[:：]?\s*$
@@ -126,6 +138,9 @@ section earns or denies them. Fixed blocks:
 ## section: market_thesis
 ```yaml
 id: market_thesis
+scorecard_dimensions:
+- market_size_growth
+- industry_position
 en_title: Market & Thesis
 zh_title: 市场与投资逻辑
 parity_en: ^\s*(?:(?:iii|3)[\.\、]\s*)?market\s*(?:&|and)\s*thesis\s*[:：]?\s*$
@@ -160,6 +175,10 @@ Fixed blocks:
 ## section: product_traction
 ```yaml
 id: product_traction
+scorecard_dimensions:
+- moat
+- revenue_growth_quality
+- business_model_ue
 en_title: Product & Early Validation
 zh_title: 产品与早期验证
 parity_en: ^\s*(?:(?:iv|4)[\.\、]\s*)?product\s*(?:&|and)\s*early\s+validation\s*[:：]?\s*$
@@ -201,6 +220,9 @@ blocks:
 ## section: deal_returns
 ```yaml
 id: deal_returns
+scorecard_dimensions:
+- valuation
+- exit_certainty
 en_title: Deal Terms & Required Returns
 zh_title: 交易条款与回报测算
 parity_en: ^\s*(?:(?:v|5)[\.\、]\s*)?deal\s+terms\s*(?:&|and)\s*required\s+returns?\s*[:：]?\s*$
@@ -252,6 +274,8 @@ requires. Fixed blocks:
 ## section: risks_milestones
 ```yaml
 id: risks_milestones
+scorecard_dimensions:
+- risk_reward
 en_title: Risks & Milestones
 zh_title: 风险与里程碑
 parity_en: ^\s*(?:(?:vi|6)[\.\、]\s*)?risks?\s*(?:&|and)\s*milestones?\s*[:：]?\s*$

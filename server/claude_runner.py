@@ -2689,19 +2689,137 @@ def _spelled_count(count: int) -> str:
     return _SPELLED_COUNTS.get(count, str(count))
 
 
+def _spine_scenario_object_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            key: {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "narrative": {"type": "string", "maxLength": 240},
+                    "exit_year": {"type": "string", "maxLength": 8},
+                    "exit_revenue": {"type": "string", "maxLength": 24},
+                    "exit_multiple": {"type": "string", "maxLength": 16},
+                    "exit_value": {"type": "string", "maxLength": 24},
+                    "moic": {"type": "string", "maxLength": 10},
+                    "irr": {"type": "string", "maxLength": 10},
+                },
+                "required": ["narrative", "exit_year", "exit_value", "moic"],
+            }
+            for key in ("bear", "base", "bull")
+        },
+        "required": ["bear", "base", "bull"],
+    }
+
+
 def memo_fast_english_spine_schema(
     structure: memo_structure.MemoStructure,
 ) -> dict[str, Any]:
-    """The spine schema for one structure: identical except that
-    ``section_notes`` enumerates that structure's section ids. The default
-    structure returns the module constant itself so identity (and the
-    prompt-cache byte-identity it guards) is preserved."""
+    """The spine schema for one structure: ``section_notes`` enumerates
+    that structure's section ids, and v2-family structures (any profile
+    with a scorecard) extend ``shared_facts`` with the verdict, scorecard,
+    fair-value range, entry, stage, and object-shaped scenarios. The
+    default structure returns the module constant itself so identity (and
+    the prompt-cache byte-identity it guards) is preserved."""
     if structure is memo_structure.LATE:
         return MEMO_FAST_ENGLISH_SPINE_SCHEMA
+    weights = structure.scorecard_weights()
+    shared_facts = MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"]["shared_facts"]
+    if weights:
+        max_weight = max(weights.values())
+        shared_facts = {
+            **shared_facts,
+            "properties": {
+                **shared_facts["properties"],
+                "stage": {
+                    "type": "string",
+                    "enum": ["early", "growth", "late"],
+                },
+                "verdict": {
+                    "type": "string",
+                    "enum": [band[0] for band in memo_structure.VERDICT_BANDS],
+                },
+                "scorecard": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "total": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                        },
+                        "dimensions": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                dimension: {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "score": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": max_weight,
+                                        },
+                                        "why": {
+                                            "type": "string",
+                                            "maxLength": 140,
+                                        },
+                                    },
+                                    "required": ["score", "why"],
+                                }
+                                for dimension in (
+                                    memo_structure.SCORECARD_DIMENSION_KEYS
+                                )
+                            },
+                            "required": list(
+                                memo_structure.SCORECARD_DIMENSION_KEYS
+                            ),
+                        },
+                    },
+                    "required": ["total", "dimensions"],
+                },
+                "fair_value_range": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "low": {"type": "string", "maxLength": 24},
+                        "high": {"type": "string", "maxLength": 24},
+                        "basis": {"type": "string", "maxLength": 160},
+                    },
+                    "required": ["low", "high", "basis"],
+                },
+                "entry": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "valuation": {"type": "string", "maxLength": 40},
+                        "basis": {"type": "string", "maxLength": 120},
+                        "holding_period": {"type": "string", "maxLength": 24},
+                    },
+                    "required": ["valuation", "basis"],
+                },
+                "scenarios": _spine_scenario_object_schema(),
+            },
+            "required": [
+                "recommendation_sentence",
+                "key_metrics",
+                "scenarios",
+                "risks",
+                "stage",
+                "verdict",
+                "scorecard",
+                "fair_value_range",
+                "entry",
+            ],
+        }
     return {
         **MEMO_FAST_ENGLISH_SPINE_SCHEMA,
         "properties": {
             **MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"],
+            "shared_facts": shared_facts,
             "section_notes": {
                 "type": "object",
                 "additionalProperties": False,
@@ -3378,6 +3496,73 @@ separate blocks after the risk cards. Both must connect to the highest-impact
 risk and explain how the downside reaches revenue, margin, dilution, or exit
 value.
 """
+
+
+# Risk Card v2 (structure-v2 family): six rows — Mitigation joins the
+# card — and the heading contract hardens from "scan label plus the
+# fact" to a complete verdict sentence. Selected per structure by
+# memo_risk_register_contract(); the v1 contract above stays byte-frozen
+# for the default pipeline.
+MEMO_RISK_REGISTER_CONTRACT_V2 = """\
+## Risk Register Format Contract (hard requirement — validated before rendering)
+
+The risk section presents risks as PER-RISK CARDS, not one wide risk
+table. Structure, in order:
+
+1. One short intro paragraph naming where the risk really concentrates —
+   which single risk carries the thesis.
+2. 4-6 risk cards. Each card is exactly two consecutive blocks:
+   - a `heading` block (level 3) whose text is
+     `{"en": "Risk N: <verdict sentence>", "zh": "风险 N：<结论句>"}`.
+     The sentence is a COMPLETE PREDICATION with a finite verb that
+     states the judgment — "Risk 1: The entry price already assumes
+     success — ordinary execution earns nothing." Never a topic label
+     ("Entry price"), never a naked statistic. Use the pinned risk
+     summaries verbatim: the spine writes them in this form.
+   - a `table` block with `component: "risk_register"`,
+     `"layout": "key_value"`, `"headers": []`, and EXACTLY these six
+     two-cell rows (label cell first, content cell second):
+       1. `Risk Type` / `风险类型` — a 1-4 word category. Not a sentence.
+       2. `Why it matters` / `为什么重要` — fact → failure mode →
+          economic consequence, with the consequence arithmetic in-line
+          when it is quantifiable ("at ~42x, ARR must double before the
+          price merely matches peers"). Do not leave the consequence
+          implied.
+       3. `What we watch` / `跟踪信号` — 1-2 observable leading
+          indicators, named and dated where possible. A signal, never an
+          instruction to confirm or obtain something.
+       4. `Mitigation` / `缓释措施` — the real mechanism that reduces
+          this risk: a company action underway, a deal-structure term,
+          or position sizing. When none exists, write exactly
+          "No structural mitigation exists. <consequence>" — honesty
+          over invention.
+       5. `Likelihood` / `可能性` — `"High|Medium|Low: <short reason>"`
+          (Chinese `"高|中|低：<简短理由>"`), grounded in evidence.
+       6. `Risk Rating` / `风险评分` — `"N/10: <short reason>"`,
+          impact-weighted importance to the case (Likelihood carries
+          probability). 9-10 could break the case alone; 7-8 pushes the
+          outcome well below the current path; 5-6 meaningful but
+          monitorable; 3-4 limited; 1-2 minor.
+3. Order the cards by Risk Rating, highest first. Use 4-6 cards selected
+   from the evidence; omit irrelevant categories instead of filling a
+   quota.
+4. Keep the disconfirming-evidence treatment and the downside scenario
+   as separate blocks after the cards, connected to the highest-rated
+   risk.
+
+Card prose style: short declarative sentences; concrete nouns and
+numbers over abstractions; never "furthermore", "moreover", "notably",
+"it is important to note", or symmetrical templated phrasing.
+"""
+
+
+def memo_risk_register_contract(structure=None) -> str:
+    """The risk-card contract for one structure: v1 keeps the frozen
+    five-row card; the v2 family (any profile with a scorecard) gets the
+    six-row card with the Mitigation row and verdict-sentence headings."""
+    if structure is not None and structure.scorecard_weights():
+        return MEMO_RISK_REGISTER_CONTRACT_V2
+    return MEMO_RISK_REGISTER_CONTRACT
 
 
 def _load_skill_text() -> str:
@@ -4675,14 +4860,64 @@ def _memo_english_units_dir(run_dir: Path) -> Path:
     return run_dir / "logs" / _MEMO_ENGLISH_UNITS_DIRNAME
 
 
-def _render_shared_facts_block(shared_facts: dict) -> str:
+def _render_shared_facts_block(
+    shared_facts: dict,
+    structure: memo_structure.MemoStructure | None = None,
+) -> str:
     """Deterministic markdown rendering of the spine's shared-facts pin
     sheet. Rendered once per attempt and handed byte-identical to every
-    section worker, so the sections cannot disagree on the pinned facts."""
+    section worker, so the sections cannot disagree on the pinned facts.
+    v1 pin sheets render byte-identically to the historical block; the
+    v2-family pins (verdict, scorecard, fair value, entry, object
+    scenarios) append their own blocks with the echo rules inline."""
+    structure = structure or memo_structure.LATE
     lines: list[str] = ["## Shared fact sheet (pinned — repeat these exactly)"]
     recommendation = str(shared_facts.get("recommendation_sentence") or "").strip()
     if recommendation:
         lines.append(f"Recommendation sentence: {recommendation}")
+    verdict = str(shared_facts.get("verdict") or "").strip()
+    scorecard = shared_facts.get("scorecard")
+    if verdict and isinstance(scorecard, dict):
+        total = scorecard.get("total")
+        zh = memo_structure.VERDICT_ZH.get(verdict, "")
+        lines.append(
+            f"Verdict: {verdict} ({zh}) — {total}/100. The executive "
+            "summary and the decision section open their verdict blocks "
+            f'with "{verdict} — {total}/100".'
+        )
+        dimensions = scorecard.get("dimensions")
+        weights = structure.scorecard_weights()
+        if isinstance(dimensions, dict) and weights:
+            lines.append(
+                "Scorecard (the OWNING section closes with the sentence "
+                '"This dimension scores {score} of {max}."; the decision '
+                "section repeats every score and why-line exactly):"
+            )
+            for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
+                entry_value = dimensions.get(dimension)
+                if not isinstance(entry_value, dict):
+                    continue
+                owner = structure.scorecard_owner(dimension)
+                owner_note = f" (owner: {owner.id})" if owner else ""
+                lines.append(
+                    f"- {dimension}{owner_note}: "
+                    f"{entry_value.get('score')} of "
+                    f"{weights.get(dimension)} — {entry_value.get('why')}"
+                )
+    fair_value = shared_facts.get("fair_value_range")
+    if isinstance(fair_value, dict) and fair_value.get("low"):
+        lines.append(
+            f"Fair value range: {fair_value.get('low')} - "
+            f"{fair_value.get('high')} ({fair_value.get('basis')})"
+        )
+    entry_pin = shared_facts.get("entry")
+    if isinstance(entry_pin, dict) and entry_pin.get("valuation"):
+        holding = str(entry_pin.get("holding_period") or "").strip()
+        holding_note = f"; holding period {holding}" if holding else ""
+        lines.append(
+            f"Entry: {entry_pin.get('valuation')} "
+            f"({entry_pin.get('basis')}{holding_note})"
+        )
     metrics = shared_facts.get("key_metrics")
     if isinstance(metrics, list) and metrics:
         lines.append("Key metrics:")
@@ -4703,7 +4938,24 @@ def _render_shared_facts_block(shared_facts: dict) -> str:
     if isinstance(scenarios, dict):
         lines.append("Scenarios:")
         for key in ("bear", "base", "bull"):
-            value = str(scenarios.get(key) or "").strip()
+            scenario = scenarios.get(key)
+            if isinstance(scenario, dict):
+                # v2 object scenario — one deterministic line per case.
+                parts = [str(scenario.get("narrative") or "").strip()]
+                for field_key, label in (
+                    ("exit_year", "exit year"),
+                    ("exit_revenue", "exit revenue"),
+                    ("exit_multiple", "exit multiple"),
+                    ("exit_value", "exit value"),
+                    ("moic", "gross MOIC"),
+                    ("irr", "IRR"),
+                ):
+                    field_value = str(scenario.get(field_key) or "").strip()
+                    if field_value:
+                        parts.append(f"{label} {field_value}")
+                lines.append(f"- {key}: " + "; ".join(p for p in parts if p))
+                continue
+            value = str(scenario or "").strip()
             if value:
                 lines.append(f"- {key}: {value}")
     risks = shared_facts.get("risks")
@@ -4765,6 +5017,28 @@ MEMO_STRUCTURE_V2_ADDENDUM = """\
 - Short subject-verb-object sentences, one idea per paragraph, verdict
   first. Ban: "positions the company", "underscores", "highlights",
   "robust", "significant traction", "leverage" as a verb.
+- Ambiguous evidence is argued both ways in its own passage, then
+  weighed: the honest bull reading, the honest bear reading, and which
+  one the evidence favors.
+
+Worked examples (match the Prefer register, never the Avoid one):
+- Avoid: "Risk 1: Entry price. $1.0B+ on ~$24M ARR is ~42x against a
+  ~12x comp median."
+  Prefer: "Risk 1: The entry price already assumes success — ordinary
+  execution earns nothing. At $1.0B+ on ~$24M ARR the round is priced
+  at ~42x, three and a half times the ~12x comp median. ARR must
+  roughly double before the price merely matches peers, so flawless
+  execution holds value flat, and any multiple compression comes out
+  of principal first."
+- Avoid: "NRR: 118%. CAC payback: 19 months."
+  Prefer: "NRR of 118% means the installed base grows on its own — a
+  real asset. The 19-month CAC payback works against it: each new
+  customer ties up cash for over a year and a half, so growth is
+  rationed by the balance sheet, not by demand."
+- Avoid: "The company has a strong pipeline of $40M."
+  Prefer: "The company reports a $40M pipeline. The pipeline is
+  valuable evidence of demand. It is not revenue, and at the company's
+  own 25% historical conversion it supports roughly $10M of bookings."
 """
 
 
@@ -4807,11 +5081,12 @@ def _memo_english_common_context(
         else "Use the fast parallel analysis artifacts as the primary synthesis."
     )
     structure = structure or memo_structure.LATE
-    # v1 keeps the historical context byte-for-byte; v2 appends its
+    # v1 keeps the historical context byte-for-byte; the v2 family
+    # (any profile with a scorecard: late v2, growth, early) appends its
     # run-wide data-honesty and register rules once, cached for every
     # worker of the run.
     v2_addendum = (
-        MEMO_STRUCTURE_V2_ADDENDUM if structure.version >= 2 else ""
+        MEMO_STRUCTURE_V2_ADDENDUM if structure.scorecard_weights() else ""
     )
     return f"""\
 This is the fast-path synthesis for a BSH LP-facing sell-side investment
@@ -4947,6 +5222,35 @@ against the stragglers when they land.
     structure = structure or memo_structure.LATE
     section_list = "\n".join(f"- `{sid}`" for sid in structure.section_ids)
     worker_count = _spelled_count(len(structure.section_ids))
+    weights = structure.scorecard_weights()
+    v2_pins_block = ""
+    if weights:
+        weight_list = ", ".join(
+            f"{dimension} (max {weights[dimension]})"
+            for dimension in memo_structure.SCORECARD_DIMENSION_KEYS
+        )
+        band_list = "; ".join(
+            f"{name} {low}-{high}"
+            for name, low, high in memo_structure.VERDICT_BANDS
+        )
+        v2_pins_block = f"""\
+   - `stage`: "{structure.stage}" — this run's classified report stage.
+   - `verdict`: the tier your evidence supports (Strong Buy / Buy /
+     Watch / Pass). It must agree with the recommendation sentence's
+     stance and sit in the scorecard band: {band_list}.
+   - `scorecard`: `total` plus all nine `dimensions`, each with an
+     integer `score` (0 to that dimension's max) and a one-line `why`.
+     Weights for this stage: {weight_list}. The total MUST equal the sum
+     of the nine scores — a deterministic gate recomputes it.
+   - `fair_value_range`: `low` and `high` (e.g. "$800M" / "$1.4B") with
+     a one-line `basis` naming the method that anchors the range.
+   - `entry`: the round's `valuation`, its `basis`, and the assumed
+     `holding_period`.
+   - `scenarios` here are OBJECTS per bear/base/bull: `narrative` (one
+     line), `exit_year`, `exit_revenue`, `exit_multiple`, `exit_value`,
+     `moic` ("N.Nx"), `irr` ("NN%"). Base MOIC must be consistent with
+     exit_value against the entry valuation after reasonable dilution.
+"""
     prompt = f"""\
 You are drafting the SHARED SPINE of the English source package. {worker_count} section
 workers will author the memo sections in parallel from your output, and a
@@ -4974,8 +5278,11 @@ Produce ONE JSON object with:
    - `scenarios`: one line of numbers each for bear, base, and bull.
    - `risks`: the full risk list, ordered by rating highest first — one-line
      summary, `N/10` rating, and High/Medium/Low likelihood per risk.
+     Each summary is a complete verdict sentence with a finite verb
+     ("The entry price already assumes success"), never a topic label
+     ("Entry price").
    - `source_topics`: source id -> one line on what it supports.
-3. `section_notes` (optional): at most one or two short sentences per
+{v2_pins_block}3. `section_notes` (optional): at most one or two short sentences per
    section id, only for section-specific pointers the standing section
    requirements do not already cover:
 {section_list}
@@ -5792,6 +6099,21 @@ class SpeculativeEnglish:
             or not isinstance(shared_facts, dict)
         ):
             return
+        # A speculative spine whose v2 pins fail the deterministic gate
+        # would brief early sections with numbers the wrapper is about to
+        # reject — withhold everything and let the wrapper respin.
+        from server import memo_pin_check as _pin_check
+
+        gate_problems = _pin_check.check_spine_pins_v2(
+            shared_facts, self._structure
+        )
+        if gate_problems:
+            logger.warning(
+                "speculative spine failed the v2 pin gate; withholding "
+                "early sections: %s",
+                "; ".join(gate_problems[:3]),
+            )
+            return
         spine_payload = {
             "package_skeleton": skeleton,
             "shared_facts": shared_facts,
@@ -5821,7 +6143,9 @@ class SpeculativeEnglish:
         with self._lock:
             self._common_context = common_context
             self._add_dirs = list(add_dirs)
-            self._facts_block = _render_shared_facts_block(shared_facts)
+            self._facts_block = _render_shared_facts_block(
+                shared_facts, self._structure
+            )
             self._section_notes = section_notes
             self._maybe_start_sections_locked()
 
@@ -6149,7 +6473,7 @@ def _run_english_section(
     spec = structure.section_specs().get(section_id, "")
     risk_section = structure.section_for_role("risk")
     risk_contract = (
-        f"\n{MEMO_RISK_REGISTER_CONTRACT}\n"
+        f"\n{memo_risk_register_contract(structure)}\n"
         if section_id == risk_section.id
         else ""
     )
@@ -6931,7 +7255,9 @@ def run_memo_fast_english_package_parallel(
             else None
         )
         if mapping:
-            facts_block = _render_shared_facts_block(spine["shared_facts"])
+            facts_block = _render_shared_facts_block(
+                spine["shared_facts"], structure
+            )
             section_notes = spine.get("section_notes")
             if not isinstance(section_notes, dict):
                 section_notes = {}
@@ -7137,6 +7463,70 @@ def run_memo_fast_english_package_parallel(
         or not isinstance(shared_facts, dict)
     ):
         return _fallback("spine returned an unusable skeleton or shared facts")
+    # Deterministic v2 pin gate (arithmetic, verdict bands, finite-verb
+    # risk summaries) — runs BEFORE any section launches, so bad pins
+    # cost one cheap spine retry, never a section wave. No-op for v1.
+    from server import memo_pin_check as _pin_check
+
+    pin_problems = _pin_check.check_spine_pins_v2(shared_facts, structure)
+    if pin_problems and pinned_spine_path is None:
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_spine_pin_gate_retry",
+                message=(
+                    "Spine pins failed the deterministic gate; respinning "
+                    "with the problems fed back"
+                ),
+                problems=pin_problems[:10],
+            )
+        retry_label = "English spine (pin gate retry)"
+        _plan_row(retry_label, 3.015, "Respin the spine with pin-gate feedback")
+        retry_row = _start_row(retry_label, "english_spine")
+        retry_result, retry_error = run_memo_fast_english_spine(
+            run_dir=run_dir,
+            company_name=company_name,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+            validation_feedback="\n".join(f"- {p}" for p in pin_problems),
+            fact_ledger=load_memo_fact_ledger(research_dir),
+            recent_news=load_memo_recent_news(research_dir),
+            decision_record=load_memo_decision_record(research_dir),
+            structure=structure,
+        )
+        _finish_row(
+            retry_label,
+            "english_spine",
+            retry_row,
+            error=retry_error,
+            result=retry_result if isinstance(retry_result, dict) else None,
+        )
+        if not retry_error and isinstance(retry_result, dict):
+            retry_skeleton = retry_result.get("package_skeleton")
+            retry_facts = retry_result.get("shared_facts")
+            if (
+                isinstance(retry_skeleton, dict)
+                and isinstance(retry_skeleton.get("company"), dict)
+                and isinstance(retry_skeleton.get("sources"), list)
+                and retry_skeleton.get("sources")
+                and isinstance(retry_facts, dict)
+            ):
+                spine_result = retry_result
+                skeleton = retry_skeleton
+                shared_facts = retry_facts
+                section_notes = retry_result.get("section_notes")
+                if not isinstance(section_notes, dict):
+                    section_notes = {}
+                pin_problems = _pin_check.check_spine_pins_v2(
+                    shared_facts, structure
+                )
+    if pin_problems:
+        return _fallback(
+            "spine pins failed the deterministic v2 gate: "
+            + "; ".join(pin_problems[:5])
+        )
     spine_payload = {
         "package_skeleton": skeleton,
         "shared_facts": shared_facts,
@@ -7213,7 +7603,7 @@ def run_memo_fast_english_package_parallel(
             for line in validation_feedback.splitlines()
             if line.strip()
         ]
-    facts_block = _render_shared_facts_block(shared_facts)
+    facts_block = _render_shared_facts_block(shared_facts, structure)
     section_jobs = {
         section_id: {
             "shared_facts_block": facts_block,
@@ -7461,7 +7851,7 @@ def run_memo_section_repair(
     )
     error_lines = "\n".join(f"- {finding}" for finding in findings[:20])
     risk_contract = (
-        f"\n{MEMO_RISK_REGISTER_CONTRACT}\n"
+        f"\n{memo_risk_register_contract(structure)}\n"
         if section_id == structure.section_for_role("risk").id
         else ""
     )

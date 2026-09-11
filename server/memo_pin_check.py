@@ -324,10 +324,26 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
 
     # 4. Each pinned scenario line's numbers should appear in the financial
     #    section (majority of its numeric tokens, since prose may reflow).
+    #    v2 pins scenarios as objects; their numeric fields join into one
+    #    checkable line.
     scenarios = shared_facts.get("scenarios")
     if isinstance(scenarios, dict):
         for key in ("bear", "base", "bull"):
-            line = str(scenarios.get(key) or "").strip()
+            scenario = scenarios.get(key)
+            if isinstance(scenario, dict):
+                line = " ".join(
+                    str(scenario.get(field) or "")
+                    for field in (
+                        "exit_year",
+                        "exit_revenue",
+                        "exit_multiple",
+                        "exit_value",
+                        "moic",
+                        "irr",
+                    )
+                ).strip()
+            else:
+                line = str(scenario or "").strip()
             if not line:
                 continue
             numbers = _NUMBER_TOKEN_RE.findall(line)
@@ -356,11 +372,302 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
                     )
                 )
 
+    # 5. v2 pins (verdict, scorecard, fair value): the owning sections and
+    #    the decision section must echo them. Absent pins mean no checks,
+    #    so v1 packages are untouched.
+    weights = structure.scorecard_weights()
+    scorecard = shared_facts.get("scorecard")
+    verdict = str(shared_facts.get("verdict") or "").strip()
+    decision_section = structure.section("investment_decision")
+    decision_id = (
+        decision_section.id
+        if decision_section is not None
+        else structure.section_ids[-1]
+    )
+    decision_text = _section_text(package, decision_id)
+    decision_norm = _norm(decision_text)
+    decision_squashed = _squash(decision_text)
+    if weights and isinstance(scorecard, dict) and verdict:
+        total = scorecard.get("total")
+        verdict_token = f"{verdict} — {total}/100"
+        pins_checked += 1
+        for location, norm_text, squashed in (
+            (section_exec, exec_norm, exec_squashed),
+            (decision_id, decision_norm, decision_squashed),
+        ):
+            if not _contains(norm_text, squashed, verdict_token):
+                findings.append(
+                    PinFinding(
+                        code="verdict_not_echoed",
+                        location=location,
+                        pin=verdict_token,
+                        detail=(
+                            f'the pinned verdict line "{verdict_token}" does '
+                            f"not appear in {location} — open the verdict "
+                            "block with it exactly as pinned"
+                        ),
+                    )
+                )
+        dimensions = (
+            scorecard.get("dimensions")
+            if isinstance(scorecard.get("dimensions"), dict)
+            else {}
+        )
+        for dimension, weight in weights.items():
+            entry = dimensions.get(dimension)
+            if not isinstance(entry, dict):
+                continue
+            score = entry.get("score")
+            owner = structure.scorecard_owner(dimension)
+            if owner is not None and isinstance(score, int):
+                pins_checked += 1
+                owner_text = _section_text(package, owner.id)
+                sentence = f"scores {score} of {weight}"
+                if not _contains(
+                    _norm(owner_text), _squash(owner_text), sentence
+                ):
+                    findings.append(
+                        PinFinding(
+                            code="scorecard_dimension_not_echoed",
+                            location=owner.id,
+                            pin=f"{dimension}: {sentence}",
+                            detail=(
+                                f"section {owner.id} owns the scorecard "
+                                f"dimension {dimension} and must close with "
+                                f'"This dimension scores {score} of '
+                                f'{weight}." — the pinned score sentence is '
+                                "missing"
+                            ),
+                        )
+                    )
+            why = str(entry.get("why") or "").strip()
+            if why:
+                pins_checked += 1
+                if not _contains(decision_norm, decision_squashed, why):
+                    findings.append(
+                        PinFinding(
+                            code="scorecard_why_not_echoed",
+                            location=decision_id,
+                            pin=f"{dimension}: {why}",
+                            detail=(
+                                f"the decision section's scorecard table "
+                                f"must repeat the pinned why-line for "
+                                f'{dimension} ("{why}") exactly'
+                            ),
+                        )
+                    )
+    fair_value = shared_facts.get("fair_value_range")
+    if weights and isinstance(fair_value, dict):
+        valuation_owner = structure.scorecard_owner("valuation")
+        if valuation_owner is not None:
+            owner_text = _section_text(package, valuation_owner.id)
+            owner_norm, owner_squashed = _norm(owner_text), _squash(owner_text)
+            for bound in ("low", "high"):
+                value = str(fair_value.get(bound) or "").strip()
+                if not value:
+                    continue
+                pins_checked += 1
+                if not _contains(owner_norm, owner_squashed, value):
+                    findings.append(
+                        PinFinding(
+                            code="fair_value_not_echoed",
+                            location=valuation_owner.id,
+                            pin=f"fair value {bound}: {value}",
+                            detail=(
+                                f"the pinned fair-value {bound} bound "
+                                f'"{value}" does not appear in '
+                                f"{valuation_owner.id} — state the pinned "
+                                "range verbatim"
+                            ),
+                        )
+                    )
+
     return PinCheckResult(
         findings=findings,
         pins_checked=pins_checked,
         pins_skipped=pins_skipped,
     )
+
+
+_MONEY_RE = re.compile(
+    r"\$?\s*(\d+(?:\.\d+)?)\s*(b(?:n|illion)?|m(?:m|illion)?|k)?",
+    re.IGNORECASE,
+)
+_MOIC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*x", re.IGNORECASE)
+# A pinned risk summary must be a predication, not a topic label. The
+# verb list is deliberately broad; only a summary with NO recognizable
+# finite verb is flagged (false positives cost a spine respin).
+_FINITE_VERB_RE = re.compile(
+    r"\b(is|are|was|were|has|have|had|does|do|did|remains?|requires?|"
+    r"assumes?|depends?|lacks?|exceeds?|needs?|fails?|cannot|can't|"
+    r"will|would|could|must|earns?|leaves?|makes?|takes?|"
+    r"drives?|carries?|threatens?|erodes?|blocks?|stalls?|"
+    r"dilutes?|concentrates?|rests?|hinges?|outpaces?|trails?|"
+    r"exposes?|limits?|constrains?|undermines?|overstates?|"
+    r"understates?|breaks?|kills?|holds?|comes?|goes?|puts?|"
+    r"gets?|means?|implies?|says?|shows?|masks?|hides?|"
+    r"turns?|falls?|rises?|grows?|shrinks?|competes?|loses?|wins?)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_money(text: str) -> float | None:
+    match = _MONEY_RE.search(str(text or ""))
+    if not match:
+        return None
+    value = float(match.group(1))
+    suffix = (match.group(2) or "").lower()
+    if suffix.startswith("b"):
+        return value * 1_000_000_000
+    if suffix.startswith("m"):
+        return value * 1_000_000
+    if suffix.startswith("k"):
+        return value * 1_000
+    return value
+
+
+def check_spine_pins_v2(
+    shared_facts: dict,
+    structure,
+) -> list[str]:
+    """Deterministic arithmetic/consistency gate on the v2 pin sheet.
+
+    Runs after spine validation and BEFORE any section launches, so bad
+    pins cost one cheap spine retry instead of a full section wave.
+    Returns a list of failure strings (empty = pass). A structure
+    without a scorecard (late v1) always passes — these pins do not
+    exist there.
+    """
+    weights = structure.scorecard_weights()
+    if not weights:
+        return []
+    problems: list[str] = []
+
+    stage = str(shared_facts.get("stage") or "").strip()
+    if stage and stage != structure.stage:
+        problems.append(
+            f"pinned stage {stage!r} does not match the run's classified "
+            f"stage {structure.stage!r}"
+        )
+
+    scorecard = shared_facts.get("scorecard")
+    total_score: int | None = None
+    if not isinstance(scorecard, dict):
+        problems.append("shared_facts.scorecard is missing")
+    else:
+        dimensions = scorecard.get("dimensions")
+        if not isinstance(dimensions, dict):
+            problems.append("scorecard.dimensions is missing")
+        else:
+            computed = 0
+            for dimension, weight in weights.items():
+                entry = dimensions.get(dimension)
+                if not isinstance(entry, dict):
+                    problems.append(
+                        f"scorecard dimension {dimension} is missing"
+                    )
+                    continue
+                score = entry.get("score")
+                if not isinstance(score, int) or not 0 <= score <= weight:
+                    problems.append(
+                        f"scorecard {dimension} score {score!r} must be an "
+                        f"integer between 0 and {weight} (this stage's "
+                        "weight)"
+                    )
+                    continue
+                computed += score
+                if not str(entry.get("why") or "").strip():
+                    problems.append(
+                        f"scorecard {dimension} needs a one-line why"
+                    )
+            stated_total = scorecard.get("total")
+            if isinstance(stated_total, int) and stated_total != computed:
+                problems.append(
+                    f"scorecard total {stated_total} does not equal the sum "
+                    f"of the dimension scores ({computed}) — recompute it"
+                )
+            total_score = computed
+
+    from server import memo_structure as _ms
+
+    verdict = str(shared_facts.get("verdict") or "").strip()
+    bands = {name: (low, high) for name, low, high in _ms.VERDICT_BANDS}
+    if verdict not in bands:
+        problems.append(
+            f"verdict {verdict!r} must be one of {', '.join(bands)}"
+        )
+    elif total_score is not None:
+        low, high = bands[verdict]
+        if not low <= total_score <= high:
+            problems.append(
+                f"verdict {verdict} requires a scorecard total between "
+                f"{low} and {high}; the dimensions sum to {total_score}"
+            )
+
+    recommendation = str(
+        shared_facts.get("recommendation_sentence") or ""
+    ).strip().lower()
+    if verdict in bands and recommendation.startswith("recommendation:"):
+        stance = recommendation[len("recommendation:"):].strip()
+        invests = stance.startswith(("bsh commits", "bsh invests"))
+        watches = stance.startswith("watch")
+        passes = stance.startswith("pass")
+        if verdict in ("Strong Buy", "Buy") and (watches or passes):
+            problems.append(
+                f"verdict {verdict} conflicts with the recommendation "
+                "sentence's watch/pass stance"
+            )
+        if verdict == "Watch" and (invests or passes):
+            problems.append(
+                "verdict Watch conflicts with the recommendation sentence's "
+                "stance"
+            )
+        if verdict == "Pass" and (invests or watches):
+            problems.append(
+                "verdict Pass conflicts with the recommendation sentence's "
+                "stance"
+            )
+
+    fair_value = shared_facts.get("fair_value_range")
+    if isinstance(fair_value, dict):
+        low_value = _parse_money(fair_value.get("low"))
+        high_value = _parse_money(fair_value.get("high"))
+        if low_value is not None and high_value is not None:
+            if low_value > high_value:
+                problems.append(
+                    "fair_value_range low exceeds high — swap or fix them"
+                )
+
+    scenarios = shared_facts.get("scenarios")
+    entry_pin = shared_facts.get("entry")
+    if isinstance(scenarios, dict) and isinstance(entry_pin, dict):
+        base = scenarios.get("base")
+        entry_valuation = _parse_money(entry_pin.get("valuation"))
+        if isinstance(base, dict) and entry_valuation:
+            exit_value = _parse_money(base.get("exit_value"))
+            moic_match = _MOIC_RE.search(str(base.get("moic") or ""))
+            if exit_value and moic_match:
+                stated = float(moic_match.group(1))
+                undiluted = exit_value / entry_valuation
+                # Dilution only lowers the multiple; a stated MOIC above
+                # the undiluted ratio (with slack) is arithmetic fiction.
+                if stated > undiluted * 1.2 or stated < undiluted * 0.3:
+                    problems.append(
+                        f"base scenario MOIC {stated}x is inconsistent with "
+                        f"exit value / entry valuation (~{undiluted:.1f}x "
+                        "before dilution) — fix the numbers or the MOIC"
+                    )
+
+    for risk in shared_facts.get("risks") or []:
+        if not isinstance(risk, dict):
+            continue
+        summary = str(risk.get("summary") or "").strip()
+        if summary and not _FINITE_VERB_RE.search(summary):
+            problems.append(
+                f'risk summary "{summary}" is a topic label — rewrite it as '
+                "a complete verdict sentence with a finite verb"
+            )
+    return problems
 
 
 def render_markdown_report(result: PinCheckResult, *, attempt: int | None = None) -> str:

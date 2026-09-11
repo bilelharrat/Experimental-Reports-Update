@@ -113,16 +113,33 @@ _RISK_CARD_ROW_LABELS = (
     ("likelihood", "Likelihood"),
     ("risk rating", "Risk Rating"),
 )
+# Risk Card v2 (structure-v2 family): the Mitigation row joins the card.
+_RISK_CARD_ROW_LABELS_V2 = (
+    ("risk type", "Risk Type"),
+    ("why it matters", "Why it matters"),
+    ("what we watch", "What we watch"),
+    ("mitigation", "Mitigation"),
+    ("likelihood", "Likelihood"),
+    ("risk rating", "Risk Rating"),
+)
+
+
+def _risk_card_row_labels(
+    structure: "memo_structure.MemoStructure",
+) -> tuple[tuple[str, str], ...]:
+    if structure.scorecard_weights():
+        return _RISK_CARD_ROW_LABELS_V2
+    return _RISK_CARD_ROW_LABELS
 # The {section_id} placeholder is filled with the structure's risk-role
 # section at check time, so the repair mapper can attribute the finding.
 _RISK_CARD_FORMAT_HINT = (
     "section {section_id} must present risks as per-risk cards: 4-6 "
     "`heading` blocks titled 'Risk N: <one-line summary>', each immediately "
     "followed by a `table` block with component 'risk_register', layout "
-    "'key_value', headers [], and exactly five two-cell rows labeled "
-    "'Risk Type', 'Why it matters', 'What we watch', 'Likelihood' (written "
-    "as 'High|Medium|Low: short reason'), 'Risk Rating' (written as "
-    "'N/10: short reason'), ordered highest rating first"
+    "'key_value', headers [], and exactly {row_count} two-cell rows labeled "
+    "{row_list}, with 'Likelihood' written as 'High|Medium|Low: short "
+    "reason' and 'Risk Rating' written as 'N/10: short reason', ordered "
+    "highest rating first"
 )
 VALUATION_CONTENT_TERMS = (
     "model",
@@ -405,10 +422,14 @@ def _risk_card_format_errors(package: dict) -> list[str]:
     sections = package.get("sections")
     if not isinstance(sections, list):
         return []
+    structure = _structure_for(package)
     try:
-        risk_id = _structure_for(package).section_for_role("risk").id
+        risk_id = structure.section_for_role("risk").id
     except KeyError:
         return []
+    row_labels = _risk_card_row_labels(structure)
+    row_index = {prefix: i for i, (prefix, _label) in enumerate(row_labels)}
+    row_list_text = " / ".join(label for _p, label in row_labels)
     section = next(
         (
             s
@@ -439,7 +460,15 @@ def _risk_card_format_errors(package: dict) -> list[str]:
             continue
         cards.append((heading_text, nxt, f"{risk_id} blocks[{index + 1}]"))
     if not 4 <= len(cards) <= 6:
-        errors.append(_RISK_CARD_FORMAT_HINT.format(section_id=risk_id))
+        errors.append(
+            _RISK_CARD_FORMAT_HINT.format(
+                section_id=risk_id,
+                row_count="five" if len(row_labels) == 5 else "six",
+                row_list=", ".join(
+                    f"'{label}'" for _p, label in row_labels
+                ),
+            )
+        )
         errors.append(
             f"{risk_id}: risk register must contain 4-6 material "
             f"risk cards, found {len(cards)}"
@@ -475,14 +504,16 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                 row_texts.append((_content_text(cells[0]), _content_text(cells[1])))
             else:
                 row_texts.append(None)
-        if len(row_texts) != 5 or any(row is None for row in row_texts):
+        if len(row_texts) != len(row_labels) or any(
+            row is None for row in row_texts
+        ):
             errors.append(
-                f"{location}: risk card table needs exactly five two-cell rows "
-                "(Risk Type / Why it matters / What we watch / Likelihood / "
-                "Risk Rating)"
+                f"{location}: risk card table needs exactly "
+                f"{'five' if len(row_labels) == 5 else 'six'} two-cell rows "
+                f"({row_list_text})"
             )
             continue
-        for (prefix, label), row in zip(_RISK_CARD_ROW_LABELS, row_texts):
+        for (prefix, label), row in zip(row_labels, row_texts):
             label_text, value_text = row  # type: ignore[misc]
             if not label_text.lower().startswith(prefix):
                 errors.append(
@@ -490,7 +521,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                 )
             elif not value_text.strip():
                 errors.append(f"{location}: row {label!r} must not be empty")
-        why_row = row_texts[1]
+        why_row = row_texts[row_index["why it matters"]]
         if why_row and why_row[0].lower().startswith("why it matters"):
             why_text = why_row[1].strip()
             if not _has_meaningful_text(why_text, min_chars=35, min_words=6):
@@ -509,7 +540,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                     f"{location}: Why it matters must state an economic "
                     "consequence"
                 )
-        watch_row = row_texts[2]
+        watch_row = row_texts[row_index["what we watch"]]
         if watch_row and watch_row[0].lower().startswith("what we watch"):
             watch_text = watch_row[1].strip()
             if not _has_meaningful_text(watch_text, min_chars=18, min_words=3):
@@ -521,7 +552,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                     f"{location}: What we watch must be a signal, not a "
                     "confirmation or diligence command"
                 )
-        likelihood_row = row_texts[3]
+        likelihood_row = row_texts[row_index["likelihood"]]
         if (
             likelihood_row
             and likelihood_row[0].lower().startswith("likelihood")
@@ -531,7 +562,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
                 f"{location}: Likelihood must be written as "
                 "'High|Medium|Low: short reason'"
             )
-        rating_row = row_texts[4]
+        rating_row = row_texts[row_index["risk rating"]]
         if rating_row and rating_row[0].lower().startswith("risk rating"):
             match = _RISK_RATING_VALUE_RE.match(rating_row[1])
             if match:

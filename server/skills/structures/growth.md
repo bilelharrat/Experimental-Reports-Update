@@ -1,6 +1,16 @@
 ---
 stage: growth
 version: 1
+scorecard:
+  market_size_growth: 15
+  industry_position: 12
+  moat: 13
+  revenue_growth_quality: 15
+  business_model_ue: 12
+  team_governance: 13
+  valuation: 10
+  exit_certainty: 5
+  risk_reward: 5
 lint_extra_titles:
 - investment decision
 - closing view
@@ -82,6 +92,8 @@ role: exec
 ## section: company_team
 ```yaml
 id: company_team
+scorecard_dimensions:
+- team_governance
 en_title: Company & Team
 zh_title: 公司与团队
 parity_en: ^\s*(?:(?:ii|2)[\.\、]\s*)?company\s*(?:&|and)\s*team\s*[:：]?\s*$
@@ -119,6 +131,8 @@ blocks:
 ## section: market_industry
 ```yaml
 id: market_industry
+scorecard_dimensions:
+- market_size_growth
 en_title: Market & Industry Analysis
 zh_title: 市场与行业分析
 parity_en: ^\s*(?:(?:iii|3)[\.\、]\s*)?market\s*(?:&|and)\s*industry(?:\s+analysis)?\s*[:：]?\s*$
@@ -153,6 +167,8 @@ Fixed blocks:
 ## section: product_business_model
 ```yaml
 id: product_business_model
+scorecard_dimensions:
+- business_model_ue
 en_title: Product, Business Model & Unit Economics
 zh_title: 产品、商业模式与单位经济
 parity_en: ^\s*(?:(?:iv|4)[\.\、]\s*)?product,?\s*business\s+model\s*(?:&|and)\s*unit\s+economics\s*[:：]?\s*$
@@ -197,6 +213,9 @@ machine yet. Fixed blocks:
 ## section: competition_moat
 ```yaml
 id: competition_moat
+scorecard_dimensions:
+- industry_position
+- moat
 en_title: Competition & Moat
 zh_title: 竞争格局与护城河
 parity_en: ^\s*(?:(?:v|5)[\.\、]\s*)?competition\s*(?:&|and)\s*moat\s*[:：]?\s*$
@@ -243,6 +262,8 @@ company getting noticed. Fixed blocks:
 ## section: financial_analysis
 ```yaml
 id: financial_analysis
+scorecard_dimensions:
+- revenue_growth_quality
 en_title: Financial Analysis
 zh_title: 财务分析
 parity_en: ^\s*(?:(?:vi|6)[\.\、]\s*)?financial\s+analysis\s*[:：]?\s*$
@@ -286,6 +307,9 @@ it costs. Fixed blocks:
 ## section: valuation_returns_exit
 ```yaml
 id: valuation_returns_exit
+scorecard_dimensions:
+- valuation
+- exit_certainty
 en_title: Valuation, Returns & Exit
 zh_title: 估值、回报与退出
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?valuation,?\s*returns?\s*(?:&|and)\s*exit\s*[:：]?\s*$
@@ -345,6 +369,8 @@ in each world, and how the money comes back. Fixed blocks:
 ## section: investment_risk
 ```yaml
 id: investment_risk
+scorecard_dimensions:
+- risk_reward
 en_title: Investment Risk
 zh_title: 风险分析
 parity_en: ^\s*(?:(?:viii|8)[\.\、]\s*)?investment\s+risks?\s*[:：]?\s*$

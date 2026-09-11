@@ -55,6 +55,9 @@ class SectionDef:
     pass_affinity: frozenset[str]
     title_word_aliases: tuple[str, ...] = ()
     role: str | None = None
+    # Scorecard dimensions this section owns (v2-family profiles): the
+    # section's analysis produces those dimensions' scores.
+    scorecard_dimensions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,36 @@ class PseudoSection:
     parity_zh: str | None = None
 
 
+# The nine fixed scorecard dimensions, canonical order (weights vary per
+# stage profile; the keys never do).
+SCORECARD_DIMENSION_KEYS: tuple[str, ...] = (
+    "market_size_growth",
+    "industry_position",
+    "moat",
+    "revenue_growth_quality",
+    "business_model_ue",
+    "team_governance",
+    "valuation",
+    "exit_certainty",
+    "risk_reward",
+)
+
+# Verdict tiers and their scorecard-total bands (inclusive bounds).
+VERDICT_BANDS: tuple[tuple[str, int, int], ...] = (
+    ("Strong Buy", 85, 100),
+    ("Buy", 80, 84),
+    ("Watch", 70, 79),
+    ("Pass", 0, 69),
+)
+
+VERDICT_ZH: dict[str, str] = {
+    "Strong Buy": "强烈推荐",
+    "Buy": "推荐投资",
+    "Watch": "观察名单",
+    "Pass": "不建议投资",
+}
+
+
 @dataclass(frozen=True)
 class MemoStructure:
     stage: str
@@ -75,6 +108,10 @@ class MemoStructure:
     pseudo_sections: tuple[PseudoSection, ...]
     components: tuple[dict[str, Any], ...]
     lint_extra_titles: tuple[str, ...] = ()
+    # dimension -> weight for the v2-family scorecard; empty for profiles
+    # without one (late v1). Doubles as the v2-family marker: a structure
+    # with a scorecard runs the v2 pin sheet, contracts, and gates.
+    scorecard: dict[str, int] = field(default_factory=dict)
 
     @property
     def section_ids(self) -> tuple[str, ...]:
@@ -180,6 +217,17 @@ class MemoStructure:
         target = self.section_for_role(role)
         position = self.section_ids.index(target.id) + 1
         return f"{_roman(position).lower()}. {target.en_title.lower()}"
+
+    def scorecard_weights(self) -> dict[str, int]:
+        """dimension -> max score for this stage; empty means the profile
+        predates the scorecard (late v1)."""
+        return dict(self.scorecard)
+
+    def scorecard_owner(self, dimension: str) -> SectionDef | None:
+        for section in self.sections:
+            if dimension in section.scorecard_dimensions:
+                return section
+        return None
 
     def meta(self) -> dict[str, Any]:
         """The identity stamp carried inside every memo package, so gates
@@ -287,6 +335,7 @@ def load_structure(stage: str, version: int = 1) -> MemoStructure:
             pass_affinity=frozenset(s.get("pass_affinity") or ()),
             title_word_aliases=tuple(s.get("title_word_aliases") or ()),
             role=s.get("role"),
+            scorecard_dimensions=tuple(s.get("scorecard_dimensions") or ()),
         )
         for s in profile["section_list"]
     )
@@ -308,6 +357,10 @@ def load_structure(stage: str, version: int = 1) -> MemoStructure:
         pseudo_sections=pseudo,
         components=components,
         lint_extra_titles=tuple(profile.get("lint_extra_titles") or ()),
+        scorecard={
+            str(k): int(v)
+            for k, v in (profile.get("scorecard") or {}).items()
+        },
     )
     if structure.stage != stage or structure.version != version:
         raise ValueError(
@@ -334,6 +387,39 @@ def _validate_structure(structure: MemoStructure) -> None:
             re.compile(s.parity_en)
         if s.parity_zh:
             re.compile(s.parity_zh)
+    if structure.scorecard:
+        keys = tuple(structure.scorecard)
+        if set(keys) != set(SCORECARD_DIMENSION_KEYS):
+            raise ValueError(
+                f"stage {structure.stage} scorecard must carry exactly the "
+                f"nine fixed dimensions; got {sorted(keys)}"
+            )
+        total = sum(structure.scorecard.values())
+        if total != 100:
+            raise ValueError(
+                f"stage {structure.stage} scorecard weights sum to {total}, "
+                "not 100"
+            )
+        owners: dict[str, str] = {}
+        for s in structure.sections:
+            for dimension in s.scorecard_dimensions:
+                if dimension not in structure.scorecard:
+                    raise ValueError(
+                        f"section {s.id} owns unknown scorecard dimension "
+                        f"{dimension!r}"
+                    )
+                if dimension in owners:
+                    raise ValueError(
+                        f"scorecard dimension {dimension!r} owned by both "
+                        f"{owners[dimension]} and {s.id}"
+                    )
+                owners[dimension] = s.id
+        missing = set(structure.scorecard) - set(owners)
+        if missing:
+            raise ValueError(
+                f"stage {structure.stage} scorecard dimensions without an "
+                f"owning section: {sorted(missing)}"
+            )
 
 
 def clear_cache() -> None:

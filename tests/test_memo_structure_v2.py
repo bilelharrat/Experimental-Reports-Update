@@ -144,9 +144,16 @@ def test_spine_schema_default_identity_and_v2_notes():
     v2_schema = claude_runner.memo_fast_english_spine_schema(V2)
     notes = v2_schema["properties"]["section_notes"]["properties"]
     assert tuple(notes) == V2_SECTION_IDS
-    # everything else identical to the base schema
+    # the envelope half is identical to the base schema; shared_facts
+    # gains the v2 pins (covered by test_memo_pins_v2)
     base = claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA
-    assert v2_schema["properties"]["shared_facts"] == base["properties"]["shared_facts"]
+    assert (
+        v2_schema["properties"]["package_skeleton"]
+        == base["properties"]["package_skeleton"]
+    )
+    v1_props = set(base["properties"]["shared_facts"]["properties"])
+    v2_props = set(v2_schema["properties"]["shared_facts"]["properties"])
+    assert v1_props <= v2_props
 
 
 def test_common_context_v1_unchanged_and_v2_appends(tmp_path):
