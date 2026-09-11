@@ -2457,6 +2457,10 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "countercase.md": "Countercase analysis",
     "source_treatment_assumptions.md": "Source treatment and assumptions",
     "risk_sensitivities.md": "Risk and valuation sensitivities",
+    "market_sizing.md": "Market sizing / TAM",
+    "team_governance.md": "Team & governance",
+    "valuation_comps.md": "Valuation comparables",
+    "exit_paths.md": "Exit paths",
 }
 
 _BUFFETT_ANALYSIS_PASSES: dict[str, str] = {
@@ -3996,6 +4000,38 @@ def _memo_role_effort(role: str) -> str | None:
     return _memo_role_env("EFFORT", role)
 
 
+def _memo_run_max_procs() -> int:
+    """Hard per-run cap on concurrent Claude subprocesses (owner cap: 10).
+
+    ``BSH_MEMO_RUN_MAX_PROCS`` can lower it, never raise it."""
+    raw = os.environ.get("BSH_MEMO_RUN_MAX_PROCS")
+    try:
+        value = int(raw) if raw is not None else 10
+    except (TypeError, ValueError):
+        value = 10
+    return max(1, min(value, 10))
+
+
+_MEMO_RUN_LIMITERS: dict[str, threading.BoundedSemaphore] = {}
+_MEMO_RUN_LIMITERS_LOCK = threading.Lock()
+
+
+def _memo_run_limiter(run_dir: Path) -> threading.BoundedSemaphore:
+    """The per-run subprocess limiter. Every memo Claude subprocess of one
+    run (passes, spine, sections, artifacts agent, repairs, translations,
+    chase units) holds one permit for its subprocess lifetime — thread
+    pools shape scheduling, this enforces the process ceiling. Held only
+    around a single subprocess, never across a join, so it cannot
+    deadlock."""
+    key = str(Path(run_dir).resolve())
+    with _MEMO_RUN_LIMITERS_LOCK:
+        limiter = _MEMO_RUN_LIMITERS.get(key)
+        if limiter is None:
+            limiter = threading.BoundedSemaphore(_memo_run_max_procs())
+            _MEMO_RUN_LIMITERS[key] = limiter
+        return limiter
+
+
 def _run_memo_local_json_artifact(
     *,
     prompt: str,
@@ -4022,6 +4058,59 @@ def _run_memo_local_json_artifact(
     if run_dir_cancelled(run_dir):
         return None, MEMO_RUN_CANCELLED_ERROR
 
+    limiter = _memo_run_limiter(run_dir)
+    queued_emitted = False
+    while not limiter.acquire(timeout=1):
+        # Re-check cancellation while queued so a cancel drains the queue
+        # instead of launching replacements the moment permits free up.
+        if run_dir_cancelled(run_dir):
+            return None, MEMO_RUN_CANCELLED_ERROR
+        if not queued_emitted and progress is not None:
+            queued_emitted = True
+            progress.emit(
+                "stage",
+                stage="memo_proc_queued",
+                message=(
+                    f"{timeout_label}: waiting for a subprocess slot "
+                    f"(per-run cap {_memo_run_max_procs()})"
+                ),
+            )
+    try:
+        return _run_memo_local_json_artifact_inner(
+            prompt=prompt,
+            schema=schema,
+            run_dir=run_dir,
+            progress=progress,
+            progress_message=progress_message,
+            timeout_label=timeout_label,
+            timeout_sec=timeout_sec,
+            silence_timeout_sec=silence_timeout_sec,
+            add_dirs=add_dirs,
+            allowed_tools=allowed_tools,
+            model=model,
+            effort=effort,
+            append_system_prompt=append_system_prompt,
+        )
+    finally:
+        limiter.release()
+
+
+def _run_memo_local_json_artifact_inner(
+    *,
+    prompt: str,
+    schema: dict[str, Any],
+    run_dir: Path,
+    progress,
+    progress_message: str,
+    timeout_label: str,
+    timeout_sec: int,
+    silence_timeout_sec: int = 180,
+    add_dirs: list[Path] | None = None,
+    allowed_tools: str = "Read,Bash,Grep,Glob",
+    model: str | None = None,
+    effort: str | None = None,
+    append_system_prompt: str | None = None,
+) -> tuple[dict | None, str | None]:
     run_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         claude_path() or "claude",
@@ -4466,7 +4555,7 @@ Fast analysis artifacts:
 - JSON directory: `{fast_dir}`
 - Markdown directory: `{analysis_dir}`
 {_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}
-Read the relevant packet/artifact files. Do not rerun the eight analysis
+Read the relevant packet/artifact files. Do not rerun the analysis
 passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
 they already contain the structured results from each pass. Read markdown
 artifacts only when a JSON artifact is missing, contradictory, or needs a
@@ -4768,7 +4857,7 @@ Fast analysis artifacts:
 - JSON directory: `{fast_dir}`
 - Markdown directory: `{analysis_dir}`
 
-Read the relevant packet/artifact files. Do not rerun the eight analysis
+Read the relevant packet/artifact files. Do not rerun the analysis
 passes. Use `analysis/fast/*.json` as the primary synthesis inputs because
 they already contain the structured results from each pass. Read markdown
 artifacts only when a JSON artifact is missing, contradictory, or needs a
@@ -4951,7 +5040,7 @@ def run_memo_english_spine_standalone(
 ) -> tuple[dict | None, str | None]:
     """Run the spine agent alone over a completed Phase-2 run dir.
 
-    The Memo Studio investigation seam: after the eight analysis passes
+    The Memo Studio investigation seam: after the analysis passes
     land on disk this rebuilds the shared context, runs one deterministic
     spine call (no speculation, no delta check), validates the shape with
     the same guard the parallel orchestrator uses, and writes
@@ -5296,25 +5385,36 @@ MEMO_SECTION_PASS_AFFINITY: dict[str, frozenset[str]] = (
 
 
 def _memo_spine_speculate_after() -> int:
-    """How many of the 8 analysis passes must finish before the spine
-    launches speculatively. Default 6: the typical straggler gap is the
-    last one or two passes."""
+    """How many of the 12 analysis passes must finish before the spine
+    launches speculatively. Default 9: the typical straggler gap is the
+    last one to three passes. SpeculativeEnglish re-clamps to the run's
+    actual pass count minus one."""
     raw = os.environ.get("BSH_MEMO_SPINE_SPECULATE_AFTER")
     try:
-        value = int(raw) if raw is not None else 6
+        value = int(raw) if raw is not None else 9
     except (TypeError, ValueError):
-        value = 6
-    return max(4, min(value, 7))
+        value = 9
+    return max(4, min(value, 11))
 
 
 # The pin-feeding passes: their numbers land in the shared-facts pin sheet
 # (key metrics, scenarios, the rated risks' figures). Both observed stale
 # speculation draws (nvda E_v2/E_v3) traced to exactly these passes
 # finishing last — the spine guessed its pins without its own inputs, and
-# the delta check charged ~4 minutes to discard and respin.
-MEMO_SPINE_PIN_FEEDING_PASSES: frozenset[str] = MEMO_SECTION_PASS_AFFINITY[
-    "financial_forecast_valuation"
-]
+# the delta check charged ~4 minutes to discard and respin. valuation_comps
+# and exit_paths joined the set with the Phase-2 rebuild: fair-value range
+# and exit/scenario scaffolding are pin inputs. SpeculativeEnglish drops
+# any id absent from the run's actual pass list, so older resumed runs
+# with 8 passes still speculate.
+MEMO_SPINE_PIN_FEEDING_PASSES: frozenset[str] = frozenset(
+    {
+        "arithmetic_denominators",
+        "time_base",
+        "growth_bridge",
+        "valuation_comps",
+        "exit_paths",
+    }
+)
 
 
 def _memo_spine_speculate_require() -> frozenset[str]:
@@ -6583,10 +6683,10 @@ def run_memo_fast_english_package_parallel(
         )
     try:
         env_workers = int(
-            os.environ.get("BSH_MEMO_ENGLISH_SECTION_WORKERS", "6") or 6
+            os.environ.get("BSH_MEMO_ENGLISH_SECTION_WORKERS", "8") or 8
         )
     except ValueError:
-        env_workers = 6
+        env_workers = 8
     workers = max_workers or env_workers
     # +1: the analysis-artifacts side agent shares the pool with the
     # section workers.
@@ -7628,6 +7728,7 @@ def run_memo_package_sectional_repair(
             min(
                 len(mapping) + (1 if envelope_findings else 0),
                 len(structure.section_ids) + 1,
+                _memo_run_max_procs(),
             ),
         ),
         thread_name_prefix="memo-repair",
@@ -8431,10 +8532,10 @@ def _count_blank_zh(obj: Any) -> int:
 def _memo_bilingual_max_workers() -> int:
     raw = os.environ.get("BSH_MEMO_FAST_MAX_WORKERS")
     try:
-        value = int(raw) if raw is not None else 8
+        value = int(raw) if raw is not None else 10
     except (TypeError, ValueError):
-        value = 8
-    return max(1, min(value, 8))
+        value = 10
+    return max(1, min(value, 10))
 
 
 def run_memo_fast_bilingual_package_parallel(

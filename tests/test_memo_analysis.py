@@ -3911,10 +3911,16 @@ def test_phase2_launches_speculative_spine_and_threads_it_into_phase3(
     )
 
     assert result.get("ok") is True
-    # The speculative spine ran once, launched at 6/8 completions with the
-    # two not-yet-noted passes named.
+    # The speculative spine ran once, launched at the default threshold
+    # with the not-yet-noted passes named (pass count minus threshold).
+    expected_missing = len(memo_analysis._FAST_MEMO_PASSES) - (
+        claude_runner._memo_spine_speculate_after()
+    )
     assert len(spine_calls) == 1
-    assert isinstance(spine_calls[0], list) and len(spine_calls[0]) == 2
+    assert (
+        isinstance(spine_calls[0], list)
+        and len(spine_calls[0]) == expected_missing
+    )
     speculator = wrapper_kwargs.get("speculative_english")
     assert isinstance(speculator, claude_runner.SpeculativeEnglish)
     assert speculator.launched is True

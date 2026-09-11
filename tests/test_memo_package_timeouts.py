@@ -487,17 +487,17 @@ def test_thread_progress_locked_accumulation():
     assert progress.duration_ms == 8 * 200
 
 
-def test_memo_fast_max_workers_default_is_8(monkeypatch):
+def test_memo_fast_max_workers_default_is_10(monkeypatch):
     from server import memo_analysis
 
     monkeypatch.delenv("BSH_MEMO_FAST_MAX_WORKERS", raising=False)
-    assert memo_analysis._memo_fast_max_workers() == 8
-    assert claude_runner._memo_bilingual_max_workers() == 8
+    assert memo_analysis._memo_fast_max_workers() == 10
+    assert claude_runner._memo_bilingual_max_workers() == 10
     monkeypatch.setenv("BSH_MEMO_FAST_MAX_WORKERS", "4")
     assert memo_analysis._memo_fast_max_workers() == 4
     assert claude_runner._memo_bilingual_max_workers() == 4
     monkeypatch.setenv("BSH_MEMO_FAST_MAX_WORKERS", "99")
-    assert memo_analysis._memo_fast_max_workers() == 8
+    assert memo_analysis._memo_fast_max_workers() == 10
     monkeypatch.setenv("BSH_MEMO_FAST_MAX_WORKERS", "garbage")
-    assert memo_analysis._memo_fast_max_workers() == 8
-    assert claude_runner._memo_bilingual_max_workers() == 8
+    assert memo_analysis._memo_fast_max_workers() == 10
+    assert claude_runner._memo_bilingual_max_workers() == 10

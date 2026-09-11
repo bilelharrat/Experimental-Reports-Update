@@ -96,13 +96,13 @@ def test_flag_helpers(monkeypatch):
     assert claude_runner._memo_spine_speculative_enabled() is True
 
     monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATE_AFTER", raising=False)
-    assert claude_runner._memo_spine_speculate_after() == 6
+    assert claude_runner._memo_spine_speculate_after() == 9
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_AFTER", "2")
     assert claude_runner._memo_spine_speculate_after() == 4
-    monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_AFTER", "12")
-    assert claude_runner._memo_spine_speculate_after() == 7
+    monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_AFTER", "15")
+    assert claude_runner._memo_spine_speculate_after() == 11
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_AFTER", "junk")
-    assert claude_runner._memo_spine_speculate_after() == 6
+    assert claude_runner._memo_spine_speculate_after() == 9
 
 
 def test_speculate_require_helper(monkeypatch):
@@ -112,7 +112,13 @@ def test_speculate_require_helper(monkeypatch):
         == claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
     )
     assert claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES == frozenset(
-        {"arithmetic_denominators", "time_base", "growth_bridge"}
+        {
+            "arithmetic_denominators",
+            "time_base",
+            "growth_bridge",
+            "valuation_comps",
+            "exit_paths",
+        }
     )
     for off in ("", "none", "NONE", "0", "  none  "):
         monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", off)

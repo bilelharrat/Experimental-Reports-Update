@@ -135,7 +135,8 @@ parity_en: ^\s*(?:(?:iii|3)[\.\、]\s*)?market\s*(?:&|and)\s*industry(?:\s+analy
 parity_zh: ^\s*(?:(?:iii|3|三)[\.\、]\s*)?(?:市场与行业分析|市场分析|行业分析)\s*[:：]?\s*$
 components: []
 floor: {}
-pass_affinity: []
+pass_affinity:
+- market_sizing
 title_word_aliases:
 - market and industry analysis
 - market & industry
@@ -352,7 +353,7 @@ components:
 - board
 floor: {}
 pass_affinity:
-- gtm_operating_burden
+- team_governance
 title_word_aliases:
 - team and governance
 ```
@@ -390,6 +391,7 @@ floor:
 pass_affinity:
 - time_base
 - arithmetic_denominators
+- valuation_comps
 title_word_aliases:
 - valuation analysis
 - valuation
@@ -440,6 +442,7 @@ pass_affinity:
 - arithmetic_denominators
 - time_base
 - growth_bridge
+- exit_paths
 title_word_aliases:
 - return and exit analysis
 - return analysis

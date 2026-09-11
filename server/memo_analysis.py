@@ -187,12 +187,15 @@ def _memo_pin_check_repair_enabled() -> bool:
 
 
 def _memo_fast_max_workers() -> int:
+    """Phase-2 pass pool width. The per-run subprocess ceiling
+    (claude_runner._memo_run_max_procs, owner cap 10) is enforced
+    separately at the subprocess funnel."""
     raw = os.environ.get("BSH_MEMO_FAST_MAX_WORKERS")
     try:
-        value = int(raw) if raw is not None else 8
+        value = int(raw) if raw is not None else 10
     except ValueError:
-        value = 8
-    return max(1, min(value, 8))
+        value = 10
+    return max(1, min(value, 10))
 
 
 def _memo_fast_english_package_retries() -> int:
@@ -439,6 +442,60 @@ _FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
             "Identify disconfirming evidence, downside sensitivity, and the "
             "specific risk or valuation sensitivities that would change the "
             "decision."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="market_sizing",
+        label="Market sizing / TAM",
+        artifact_filename="market_sizing.md",
+        focus=(
+            "Size the market the company actually competes in: TAM/SAM/SOM "
+            "with the derivation method for each, the market definition and "
+            "value-chain position, growth drivers with a supporting datum "
+            "per driver, the policy/regulatory regimes that constrain or "
+            "subsidize the business, and where the ceiling sits ($20B / "
+            "$100B / $500B enterprise-value bands). Flag every number the "
+            "company self-reports versus independent sizing."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="team_governance",
+        label="Team & governance",
+        artifact_filename="team_governance.md",
+        focus=(
+            "Assess leadership track records, key-person dependence, board "
+            "composition and independence, ownership and voting control, "
+            "ESOP, protective provisions, missing officers (CFO especially), "
+            "audit history, related-party exposure, and public-company "
+            "readiness. State facts with dates; separate verified history "
+            "from company-claimed bios."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="valuation_comps",
+        label="Valuation comparables",
+        artifact_filename="valuation_comps.md",
+        focus=(
+            "Build the comparables set with growth-adjusted multiples, "
+            "collect precedent transactions, judge which of the three "
+            "methods (comps / precedents / DCF-earnings-power) can be run "
+            "on the disclosures and why the others cannot, and derive an "
+            "implied fair-value range with the arithmetic shown. Translate "
+            "the entry price into what growth and margin it already pays "
+            "for."
+        ),
+    ),
+    _FastMemoPassSpec(
+        pass_id="exit_paths",
+        label="Exit paths",
+        artifact_filename="exit_paths.md",
+        focus=(
+            "Map the realistic exits: IPO readiness and timing evidence, "
+            "M&A with named plausible acquirers and the strategic or "
+            "antitrust constraint on each, secondary-market depth for this "
+            "name, dated catalysts over the next 12-36 months, and the "
+            "exit-year/multiple scaffolding a scenario table needs "
+            "(bear/base/bull exit valuations with dilution assumptions)."
         ),
     ),
 )
@@ -2770,7 +2827,7 @@ def _run_fast_phase2(
     warnings: list[str],
     speculator=None,
 ) -> tuple[list[_FastMemoPassResult] | None, float, int]:
-    """Phase 2: the eight parallel analysis passes.
+    """Phase 2: the parallel analysis passes (12 of them).
 
     Extracted from the straight-line pipeline so Memo Studio's standalone
     investigation can run it without Phase 3+. Writes only
