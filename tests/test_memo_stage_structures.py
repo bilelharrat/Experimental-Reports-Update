@@ -251,6 +251,34 @@ def test_stage_package_requires_all_its_sections(structure):
     assert len(missing) == len(structure.section_ids) - 2
 
 
+@pytest.mark.parametrize(
+    "structure",
+    [memo_structure.load_structure("late", 2), GROWTH, EARLY],
+    ids=["late_v2", "growth", "early"],
+)
+def test_full_docx_gate_chain_per_stage(structure, tmp_path):
+    """Render a stamped stage package and run BOTH docx gates with the
+    stage's structure — the end-to-end silent-degradation canary: every
+    heading the renderer emits must clear quality lint and Chinese
+    parity."""
+    from server import (
+        memo_chinese_parity,
+        memo_docx_renderer,
+        memo_quality_lint,
+    )
+
+    package = _stage_package(structure)
+    out_en = tmp_path / "memo" / "en.docx"
+    out_zh = tmp_path / "memo" / "zh.docx"
+    memo_docx_renderer.render_memos(package, out_en=out_en, out_zh=out_zh)
+    lint = memo_quality_lint.lint_memo_docx(out_en, structure)
+    assert not lint.p0_findings, [f.to_dict() for f in lint.p0_findings]
+    parity = memo_chinese_parity.lint_chinese_memo_pair(
+        out_en, out_zh, structure
+    )
+    assert not parity.p0_findings, [f.to_dict() for f in parity.p0_findings]
+
+
 def test_risk_card_hint_names_the_stage_risk_section():
     from server import memo_docx_renderer
 
