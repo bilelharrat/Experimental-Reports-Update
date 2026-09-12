@@ -6,6 +6,7 @@ all DOCX construction so memo runs do not generate bespoke Python/JS renderers.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 from pathlib import Path
@@ -16,7 +17,7 @@ from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt, RGBColor
+from docx.shared import Cm, Inches, Pt, RGBColor
 
 from server import memo_structure
 
@@ -66,8 +67,10 @@ SUPPORTED_BLOCK_TYPES = {
     "bullets",
     "callout",
     "table",
+    "chart",
     "spacer",
 }
+SUPPORTED_CHART_TYPES = {"bar", "grouped_bar", "line"}
 # Top-level section titles ("I."–"X." or "一、"–"十、") are emitted automatically
 # by ``_add_section`` from ``SECTION_TITLES``. A heading *block* that carries the
 # same numbered prefix is a redundant restatement of the section title; rendering
@@ -360,6 +363,9 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                     repairs.append(
                         f"{where}.title: derived callout title from its content"
                     )
+            elif kind == "chart":
+                _repair_localized(block, "title", repairs, f"{where}.title")
+                _repair_localized(block, "caption", repairs, f"{where}.caption")
             elif kind == "table":
                 _repair_localized(block, "title", repairs, f"{where}.title")
                 block["headers"] = _repair_localized_list(
@@ -409,6 +415,108 @@ def english_package_validation_errors(package: Any) -> list[str]:
     filled = fill_blank_zh_placeholders(package)
     errors = _package_validation_errors(filled)
     errors.extend(_risk_card_format_errors(filled))
+    errors.extend(_subsection_heading_errors(filled))
+    errors.extend(_exec_summary_format_errors(filled))
+    return errors
+
+
+_SUBSECTION_NUMBER_RE = re.compile(r"^\s*(\d+)\s*[\.、]\s*")
+
+
+def _subsection_heading_errors(package: dict) -> list[str]:
+    """Generation-time gate for the fixed numbered subsections a
+    structure-v2 profile declares per section.
+
+    Each declared subsection must appear, in order, as a heading block
+    whose text starts with its position number ("2. Market size").
+    Extra headings between declared ones (risk cards, sub-headings the
+    contract asks for) are allowed. Kept out of render-time validation
+    so packages from runs that predate subsections still re-render.
+    """
+    sections = package.get("sections")
+    if not isinstance(sections, list):
+        return []
+    structure = _structure_for(package)
+    errors: list[str] = []
+    by_id = {
+        str(s.get("id") or ""): s for s in sections if isinstance(s, dict)
+    }
+    for sdef in structure.sections:
+        if not sdef.subsections:
+            continue
+        section = by_id.get(sdef.id)
+        if section is None:
+            continue  # the missing-section error is raised elsewhere
+        headings = [
+            _content_text(b.get("text") or b.get("title"))
+            for b in section.get("blocks") or []
+            if isinstance(b, dict)
+            and str(b.get("type") or "paragraph") == "heading"
+        ]
+        cursor = 0
+        for number, sub in enumerate(sdef.subsections, start=1):
+            expected = f"{number}. {sub.en}"
+            found = False
+            while cursor < len(headings):
+                heading = headings[cursor]
+                cursor += 1
+                match = _SUBSECTION_NUMBER_RE.match(heading)
+                if (
+                    match
+                    and int(match.group(1)) == number
+                    and sub.en.lower()
+                    in _SUBSECTION_NUMBER_RE.sub("", heading).strip().lower()
+                ):
+                    found = True
+                    break
+            if not found:
+                errors.append(
+                    f"section {sdef.id} must contain its fixed numbered "
+                    f"subsection heading {expected!r} (a `heading` block, "
+                    "level 2, in the declared order)"
+                )
+    return errors
+
+
+def _exec_summary_format_errors(package: dict) -> list[str]:
+    """Generation-time gate: a structure-v2 executive summary carries no
+    tables — its job is the point, not the data. The snapshot tables
+    live in the overview section the profile routes them to."""
+    structure = _structure_for(package)
+    if not structure.scorecard_weights():
+        return []
+    try:
+        exec_id = structure.section_for_role("exec").id
+    except KeyError:
+        return []
+    sections = package.get("sections")
+    if not isinstance(sections, list):
+        return []
+    section = next(
+        (
+            s
+            for s in sections
+            if isinstance(s, dict) and str(s.get("id") or "") == exec_id
+        ),
+        None,
+    )
+    if section is None:
+        return []
+    routing = structure.component_section()
+    homes = ", ".join(
+        f"{slug} belongs in {routing[slug]}"
+        for slug in ("deal_terms", "key_metrics_snapshot")
+        if routing.get(slug)
+    )
+    errors: list[str] = []
+    for index, block in enumerate(section.get("blocks") or []):
+        if isinstance(block, dict) and str(block.get("type") or "") == "table":
+            errors.append(
+                f"section {exec_id} blocks[{index}]: the executive summary "
+                "must contain NO table blocks — state its numbers in "
+                "interpreted prose"
+                + (f" ({homes})" if homes else "")
+            )
     return errors
 
 
@@ -723,7 +831,7 @@ def _declared_component_ids(block: dict) -> list[str]:
 
 def _block_signature_text(block: dict, section_title: str, previous_heading: str) -> str:
     values = [section_title, previous_heading]
-    for key in ("component", "title", "label", "text", "body"):
+    for key in ("component", "title", "label", "text", "body", "caption"):
         value = block.get(key)
         if isinstance(value, list):
             values.extend(_content_text(item) for item in value)
@@ -836,6 +944,21 @@ def _block_content_score(block: Any) -> dict[str, int]:
             score["real_blocks"] = 1
             score["tables"] = 1
             score["valuation_refs"] = int(_has_valuation_reference(_table_body_text(block)))
+    elif kind == "chart":
+        if any(
+            isinstance(series, dict) and series.get("points")
+            for series in block.get("series") or []
+        ):
+            score["real_blocks"] = 1
+            score["tables"] = 1
+            score["valuation_refs"] = int(
+                _has_valuation_reference(
+                    " ".join(
+                        _content_text(block.get(key))
+                        for key in ("title", "caption")
+                    )
+                )
+            )
     return score
 
 
@@ -935,6 +1058,8 @@ def _validate_block(block: Any, location: str, errors: list[str]) -> None:
             return
         for index, item in enumerate(items):
             _validate_localized_value(item, f"{location}.items[{index}]", errors)
+    elif kind == "chart":
+        _validate_chart_block(block, location, errors)
     elif kind == "table":
         _validate_localized_value(
             block.get("title"),
@@ -959,6 +1084,84 @@ def _validate_block(block: Any, location: str, errors: list[str]) -> None:
                     f"{location}.rows[{row_index}].cells[{cell_index}]",
                     errors,
                 )
+
+
+def _validate_chart_block(block: dict, location: str, errors: list[str]) -> None:
+    """Validate a ``chart`` block (structure-v2 chart slots).
+
+    Text INSIDE the image (series labels, x categories) is plain
+    English/neutral strings — one PNG serves both locales. The text
+    AROUND the image (title, caption, unit) is bilingual like any other
+    block text.
+    """
+    chart_type = str(block.get("chart_type") or "").strip().lower()
+    if chart_type not in SUPPORTED_CHART_TYPES:
+        errors.append(
+            f"{location}.chart_type must be one of "
+            f"{sorted(SUPPORTED_CHART_TYPES)}"
+        )
+        return
+    _validate_localized_value(block.get("title"), f"{location}.title", errors)
+    _validate_localized_value(
+        block.get("caption"), f"{location}.caption", errors, required=False
+    )
+    _validate_localized_value(
+        block.get("unit"), f"{location}.unit", errors, required=False,
+        allow_plain=True,
+    )
+    series = block.get("series")
+    if not isinstance(series, list) or not 1 <= len(series) <= 4:
+        errors.append(f"{location}.series must be a list of 1-4 series")
+        return
+    if chart_type == "bar" and len(series) != 1:
+        errors.append(
+            f"{location}: chart_type 'bar' takes exactly one series — use "
+            "'grouped_bar' for several"
+        )
+    x_shapes: list[tuple[str, ...]] = []
+    total_points = 0
+    for s_index, one in enumerate(series):
+        where = f"{location}.series[{s_index}]"
+        if not isinstance(one, dict):
+            errors.append(f"{where} must be an object")
+            continue
+        if not str(one.get("label") or "").strip():
+            errors.append(f"{where}.label must be a non-empty plain string")
+        points = one.get("points")
+        if not isinstance(points, list) or not points:
+            errors.append(f"{where}.points must be a non-empty list")
+            continue
+        xs: list[str] = []
+        for p_index, point in enumerate(points):
+            spot = f"{where}.points[{p_index}]"
+            if not isinstance(point, dict):
+                errors.append(f"{spot} must be an object with x and y")
+                continue
+            x = point.get("x")
+            if not str(x if x is not None else "").strip():
+                errors.append(f"{spot}.x must be a non-empty label")
+            y = point.get("y")
+            if isinstance(y, bool) or not isinstance(y, (int, float)):
+                errors.append(f"{spot}.y must be a plain number")
+            xs.append(str(x))
+            total_points += 1
+        x_shapes.append(tuple(xs))
+    if len({shape for shape in x_shapes}) > 1:
+        errors.append(
+            f"{location}: every series must share the same x categories in "
+            "the same order"
+        )
+    if total_points < 2 and not errors:
+        errors.append(
+            f"{location}: a chart needs at least two data points — use "
+            "prose for a single number"
+        )
+    source_ids = block.get("source_ids")
+    if source_ids is not None and (
+        not isinstance(source_ids, list)
+        or any(not str(item or "").strip() for item in source_ids)
+    ):
+        errors.append(f"{location}.source_ids must be a list of source ids")
 
 
 def _validate_source(source: Any, location: str, errors: list[str]) -> None:
@@ -1217,6 +1420,8 @@ def _add_block(document: Document, block: dict, locale: str) -> None:
         if block.get("title"):
             _add_heading(document, _loc(block.get("title"), locale), level=3, locale=locale)
         _add_table(document, block, locale)
+    elif kind == "chart":
+        _add_chart(document, block, locale)
     elif kind == "callout":
         _add_callout(document, block, locale)
     elif kind == "spacer":
@@ -1305,6 +1510,62 @@ def _add_bullet(document: Document, text: str, *, locale: str) -> None:
     paragraph.paragraph_format.first_line_indent = Cm(-0.18)
     paragraph.paragraph_format.space_after = Pt(3)
     _add_run(paragraph, f"• {text}", locale=locale)
+
+
+def _add_chart(document: Document, block: dict, locale: str) -> None:
+    """Render a ``chart`` block: localized heading, one shared PNG (all
+    image-internal text is English/neutral), localized caption. When the
+    chart cannot be drawn (matplotlib missing or a render fault), fall
+    back to the series as a small table so the data always ships."""
+    title = _loc(block.get("title"), locale)
+    if title:
+        _add_heading(document, title, level=3, locale=locale)
+    png: bytes | None = None
+    try:
+        from server import memo_charts
+
+        png = memo_charts.chart_png(block)
+    except Exception:
+        png = None
+    if png:
+        paragraph = document.add_paragraph()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        paragraph.paragraph_format.space_after = Pt(4)
+        paragraph.add_run().add_picture(io.BytesIO(png), width=Inches(6.0))
+    else:
+        _add_table(document, _chart_fallback_table(block), locale)
+    caption = _loc(block.get("caption"), locale)
+    source_ids = ", ".join(
+        str(item).strip()
+        for item in block.get("source_ids") or []
+        if str(item or "").strip()
+    )
+    if source_ids:
+        sources_text = (
+            f"Sources: {source_ids}" if locale == "en" else f"来源：{source_ids}"
+        )
+        caption = f"{caption}  {sources_text}".strip() if caption else sources_text
+    if caption:
+        _add_paragraph(
+            document, caption, locale=locale, size=8.5, color=GREY, after=8
+        )
+
+
+def _chart_fallback_table(block: dict) -> dict:
+    """The chart's series as a plain table block (language-neutral cells)."""
+    series = [s for s in block.get("series") or [] if isinstance(s, dict)]
+    first = series[0] if series else {}
+    xs = [str(p.get("x")) for p in first.get("points") or [] if isinstance(p, dict)]
+    unit = _content_text(block.get("unit"))
+    headers: list[Any] = [unit or "", *xs]
+    rows = []
+    for one in series:
+        cells: list[Any] = [str(one.get("label") or "")]
+        for point in one.get("points") or []:
+            value = point.get("y") if isinstance(point, dict) else ""
+            cells.append(str(value))
+        rows.append(cells)
+    return {"type": "table", "headers": headers, "rows": rows}
 
 
 def _add_callout(document: Document, block: dict, locale: str) -> None:

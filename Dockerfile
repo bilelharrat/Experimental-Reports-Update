@@ -67,7 +67,9 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_PYTHON_DOWNLOADS=never \
     PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
-    TZ=America/Los_Angeles
+    TZ=America/Los_Angeles \
+    MPLBACKEND=Agg \
+    MPLCONFIGDIR=/tmp/mpl
 
 # Dependencies before source: this layer only rebuilds when the lock changes,
 # so a code-only redeploy skips the whole dependency install.

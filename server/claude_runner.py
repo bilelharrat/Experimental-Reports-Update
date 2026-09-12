@@ -3564,6 +3564,13 @@ table. Structure, in order:
    as separate blocks after the cards, connected to the highest-rated
    risk.
 
+The section's fixed numbered subsection headings (the subsection
+scaffold below) wrap this structure: the intro paragraph sits under
+subsection 1, all cards under the "Risk cards" subsection, and the
+disconfirming evidence and downside/verdict passages under their own
+subsections. Card headings stay level 3 beneath the level-2 subsection
+headings.
+
 Card prose style: short declarative sentences; concrete nouns and
 numbers over abstractions; never "furthermore", "moreover", "notably",
 "it is important to note", or symmetrical templated phrasing.
@@ -5006,8 +5013,9 @@ MEMO_STRUCTURE_V2_ADDENDUM = """\
   for the analysis, not that data is unavailable.
 - Missing datum in prose: one sentence states the gap, the next states what
   follows from it. Never skip a contracted passage because its data is thin.
-- Chart slots render as a small data table plus interpretation. When the
-  series is not disclosed, keep the slot and write: "Chart omitted —
+- Chart slots render as real `chart` blocks (rules below) built ONLY from
+  numbers the tables or pins already state. When the series is not
+  disclosed, no chart: keep the slot and write: "Chart omitted —
   <series> is not disclosed. <nearest disclosed anchor, or 'No disclosed
   anchor exists.'> <what the gap means for the thesis>."
 - A table with most rows undisclosed keeps its full fixed structure; add
@@ -5017,6 +5025,50 @@ MEMO_STRUCTURE_V2_ADDENDUM = """\
   "Proposed amount: [TO BE DETERMINED BY IC]", "Allocation: [TO BE
   DETERMINED BY IC]", "Strategy: [重仓 / 跟投 / 卡位 — IC to select]".
 - Absence of disclosure is itself information about the company; read it.
+
+## Section navigation (structure v2)
+- Every section is organized under the fixed numbered subsections its
+  contract declares, in order. Emit each as a `heading` block, level 2,
+  with BOTH languages filled exactly as the contract lists them:
+  {"type": "heading", "level": 2, "text": {"en": "1. <en title>",
+  "zh": "1. <zh title>"}}. Numbering restarts at 1 in each section and
+  is arabic ("1.") in BOTH languages — never roman ("i.") and never
+  Chinese numerals ("一、"); those prefixes are dropped by the renderer.
+- Every other block belongs under one of the declared subsections; no
+  content precedes subsection 1's heading.
+- The heading does the orienting: never open a passage by announcing
+  what it is about ("This section examines...", "Turning to the
+  market..."). Under its heading, the passage starts with the verdict.
+- The executive summary contains NO tables. It says the point: what the
+  company is, what the deal is, why invest, what could kill it, and the
+  recommendation — every number interpreted in its own sentence. The
+  snapshot tables live in the overview section the contract routes them
+  to.
+
+## Charts (structure v2)
+Where a section contract names a chart slot, emit a `chart` block:
+{"type": "chart", "chart_type": "bar" | "grouped_bar" | "line",
+ "title": {"en": ..., "zh": ""}, "unit": {"en": "US$B", "zh": ""},
+ "caption": {"en": <one interpretation sentence>, "zh": ""},
+ "series": [{"label": "<plain EN string>",
+             "points": [{"x": "<label>", "y": <plain number>}, ...]}],
+ "source_ids": ["S1", ...]}
+- Numbers only from the section's tables or the pinned fact sheet —
+  a chart never introduces a number the text does not carry.
+- `y` is a PLAIN NUMBER in the stated `unit` ("$1.1T" with unit US$B is
+  y: 1100). No strings, no ranges; convert carefully.
+- Series labels and x labels are plain English/neutral strings — they
+  render inside the image, which is shared by both language documents.
+  `title`, `caption`, and `unit` are bilingual objects like all block
+  text.
+- 1-4 series; every series shares the same x categories in the same
+  order; `bar` takes exactly one series; at least two data points —
+  a single number is prose, not a chart.
+- The caption interprets, never restates: what the shape or gap means
+  for the thesis.
+- A chart slot whose series is not disclosed emits NO chart block —
+  write the chart-omitted fallback line from the data-honesty rules.
+  Never a chart with invented or placeholder numbers.
 
 ## Explanatory register (structure v2)
 - Headings state the verdict, not the topic: "Revenue forecasting remains
@@ -6491,6 +6543,21 @@ def _run_english_section(
         if section_id == risk_section.id
         else ""
     )
+    section_def = structure.section(section_id)
+    scaffold_block = ""
+    if section_def is not None and section_def.subsections:
+        scaffold_lines = "\n".join(
+            f'{{"type": "heading", "level": 2, "text": '
+            f'{{"en": "{number}. {sub.en}", "zh": "{number}. {sub.zh}"}}}}'
+            for number, sub in enumerate(section_def.subsections, start=1)
+        )
+        scaffold_block = f"""
+## Subsection scaffold (fixed — validated before rendering)
+Emit these heading blocks EXACTLY as listed, in this order, both
+languages pre-filled. Every other block goes under its subsection;
+nothing precedes the first heading:
+{scaffold_lines}
+"""
     note_block = (
         f"\n## Spine note for this section\n{section_note}\n" if section_note else ""
     )
@@ -6531,7 +6598,7 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{risk_contract}{note_block}{repair_block}
+{scaffold_block}{risk_contract}{note_block}{repair_block}
 Return only JSON: {{"section": {{"id": "{section_id}", "blocks": [...]}}}}
 matching the attached schema. Pass the section as a real JSON object — never
 serialized as a string inside another field (the escaping roughly doubles the

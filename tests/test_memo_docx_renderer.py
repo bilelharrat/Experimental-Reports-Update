@@ -902,11 +902,24 @@ def test_renderer_renders_plain_scalar_cells_in_both_locales(tmp_path):
 def test_renderer_rejects_unsupported_block_type():
     package = copy.deepcopy(_package())
     package["sections"][0]["blocks"].append({
-        "type": "chart",
+        "type": "video",
         "title": {"en": "Unsupported", "zh": "不支持"},
     })
 
     with pytest.raises(memo_docx_renderer.MemoRenderError, match="unsupported"):
+        memo_docx_renderer.validate_package(package)
+
+
+def test_renderer_rejects_malformed_chart_block():
+    # "chart" is a supported type since the chart round, so a bare chart
+    # block fails on its own contract, not as an unknown type.
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append({
+        "type": "chart",
+        "title": {"en": "Bare", "zh": "空"},
+    })
+
+    with pytest.raises(memo_docx_renderer.MemoRenderError, match="chart_type"):
         memo_docx_renderer.validate_package(package)
 
 

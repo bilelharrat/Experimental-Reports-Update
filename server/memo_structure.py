@@ -43,6 +43,20 @@ class ContentFloor:
 
 
 @dataclass(frozen=True)
+class SubsectionDef:
+    """A fixed, numbered subsection inside a section (v2-family profiles).
+
+    Rendered as a level-2 heading block "N. {title}" in both locales
+    (numbering restarts at 1 inside each section, arabic in both
+    languages — roman/Chinese-numeral prefixes get dropped by the
+    renderer as section-title restatements). The generation-time gate
+    requires each declared subsection to appear, in order."""
+
+    en: str
+    zh: str
+
+
+@dataclass(frozen=True)
 class SectionDef:
     id: str
     en_title: str  # bare — numbering is positional
@@ -58,6 +72,8 @@ class SectionDef:
     # Scorecard dimensions this section owns (v2-family profiles): the
     # section's analysis produces those dimensions' scores.
     scorecard_dimensions: tuple[str, ...] = ()
+    # Fixed numbered subsections (v2-family profiles); empty for late v1.
+    subsections: tuple[SubsectionDef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -336,6 +352,10 @@ def load_structure(stage: str, version: int = 1) -> MemoStructure:
             title_word_aliases=tuple(s.get("title_word_aliases") or ()),
             role=s.get("role"),
             scorecard_dimensions=tuple(s.get("scorecard_dimensions") or ()),
+            subsections=tuple(
+                SubsectionDef(en=str(sub["en"]), zh=str(sub["zh"]))
+                for sub in s.get("subsections") or ()
+            ),
         )
         for s in profile["section_list"]
     )
@@ -387,6 +407,23 @@ def _validate_structure(structure: MemoStructure) -> None:
             re.compile(s.parity_en)
         if s.parity_zh:
             re.compile(s.parity_zh)
+        seen_subs: set[str] = set()
+        for sub in s.subsections:
+            if not sub.en.strip() or not sub.zh.strip():
+                raise ValueError(
+                    f"section {s.id} declares a subsection with an empty title"
+                )
+            if re.match(r"^\s*\d", sub.en):
+                raise ValueError(
+                    f"section {s.id} subsection {sub.en!r} must not carry its "
+                    "own number — numbering is positional"
+                )
+            key = sub.en.strip().lower()
+            if key in seen_subs:
+                raise ValueError(
+                    f"section {s.id} declares duplicate subsection {sub.en!r}"
+                )
+            seen_subs.add(key)
     if structure.scorecard:
         keys = tuple(structure.scorecard)
         if set(keys) != set(SCORECARD_DIMENSION_KEYS):
