@@ -335,3 +335,39 @@ def test_bootstrap_rejects_unknown_report_mode():
 
     with pytest.raises(ValueError, match="report_mode"):
         memo_prep.bootstrap_memo_run("whatever", report_mode="tiny")
+
+
+# ---- artifacts prompt stays consistent with its schema -----------------------
+
+
+def test_artifacts_prompt_matches_schema_cap(monkeypatch, tmp_path):
+    """The artifacts prompt once kept an old 8,000-char figure after the
+    schema cap moved to 16,000 AND told the agent to 'count the
+    markdown' — a live run burned 17 minutes in shell trim loops chasing
+    the phantom limit. The prompt must state the real cap and ban
+    scratch-file measuring."""
+    from server import claude_runner
+
+    captured = {}
+
+    def fake_artifact(**kwargs):
+        captured["prompt"] = kwargs.get("prompt")
+        return None, "stop here"
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    claude_runner.run_memo_fast_english_artifacts(
+        run_dir=tmp_path,
+        company_name="Acme",
+        common_context="",
+        add_dirs=[],
+        progress=None,
+    )
+    prompt = captured["prompt"]
+    schema_cap = claude_runner.MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA[
+        "properties"
+    ]["analysis_artifacts"]["properties"]["claim_register_md"]["maxLength"]
+    assert f"{schema_cap:,}" in prompt
+    assert "8,000" not in prompt
+    assert "Do NOT draft them in scratch files" in prompt

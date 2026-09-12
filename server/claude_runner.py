@@ -2899,7 +2899,10 @@ MEMO_FAST_ENGLISH_SPINE_SCHEMA: dict[str, Any] = {
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "summary": {"type": "string", "maxLength": 200},
+                            # 240: verdict-sentence summaries brushed a
+                            # 200 cap live (208/226 chars → a spine
+                            # re-emit retry, 2026-09-12).
+                            "summary": {"type": "string", "maxLength": 240},
                             "rating": {
                                 "type": "string",
                                 "pattern": "^(10|[1-9])/10$",
@@ -5559,9 +5562,16 @@ Produce ONE JSON object with `analysis_artifacts` holding concise markdown
 strings for: claim register, scenario swim lanes, downside scenario,
 countercase, source-treatment and assumptions log, risk and valuation
 sensitivities, and content coverage against the reusable component slugs.
-Derive them from `analysis/fast/*.json`. The schema rejects any artifact
-longer than 8,000 characters, so keep each one under 7,000 characters —
-count the markdown, and cut rows or examples before cutting substance.
+Derive them from `analysis/fast/*.json`.
+
+Read the pass files, then write the artifacts DIRECTLY in the
+StructuredOutput call. Do NOT draft them in scratch files and do NOT
+measure their size with shell commands — a live run burned seventeen
+minutes on wc/awk trim loops chasing a limit it was nowhere near. The
+schema caps each artifact at 16,000 characters and a typical one runs
+4-9K, so length needs no attention; in the rare case one is rejected as
+too long, the error names the field — cut that artifact's longest rows
+and resubmit.
 
 Return only the JSON matching the attached schema.
 """
