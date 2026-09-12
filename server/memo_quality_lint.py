@@ -633,13 +633,16 @@ def _lint_blocks(
                     continue
                 # The Sources / Fact Reference Index and validation
                 # appendix describe the memo's own sourcing by definition —
-                # neutral-article references ("the memo carries…", "the
-                # registry fields are not used") are treatment language
-                # there, not process leakage. Demonstrative/possessive
-                # forms ("this memo", "our analysis") stay banned
-                # everywhere.
+                # article and demonstrative references ("the memo
+                # carries…", "figures in this memo", "the registry fields
+                # are not used") are treatment language there, not process
+                # leakage; the sources contract itself asks how "the memo
+                # weighs and uses this source". Possessive/process forms
+                # ("our analysis", "we will outline") stay banned
+                # everywhere — a live compact run lost a full regeneration
+                # cycle to "in this memo" flagged inside the sources table.
                 if block.allowed_trace_section and match.group(0).lower().startswith(
-                    "the "
+                    ("the ", "this ")
                 ):
                     continue
                 findings.append(

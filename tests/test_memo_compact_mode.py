@@ -50,6 +50,38 @@ def test_compact_recognizer_canary():
     assert patterns["sources"]["en"].match(titles["sources"]["en"])
 
 
+def test_compact_contracts_demand_the_scorecard_sentences():
+    """Live compact run 2 lost two retry cycles to sections dropping the
+    pinned 'scores N of M' closers under the tight word budgets — every
+    owning section's contract must ask for them explicitly."""
+    for section in COMPACT.sections:
+        if section.scorecard_dimensions:
+            assert "scores" in section.contract_md.lower(), section.id
+
+
+def test_sources_table_may_reference_this_memo(tmp_path):
+    """The sources contract asks how 'the memo weighs and uses this
+    source'; lint must not flag 'in this memo' inside the sources table
+    (a live run lost a full regeneration cycle to exactly that)."""
+    from server import memo_quality_lint
+
+    package = full_fixtures._v2_gen_package()
+    package["sources"][0]["treatment"] = {
+        "en": "The recognized-revenue base for every multiple in this memo.",
+        "zh": "本备忘录中所有倍数的确认收入基础。",
+    }
+    out_en = tmp_path / "memo" / "en.docx"
+    memo_docx_renderer.render_memos(
+        package, out_en=out_en, out_zh=tmp_path / "memo" / "zh.docx"
+    )
+    structure = memo_structure.load_structure("late", 2)
+    lint = memo_quality_lint.lint_memo_docx(out_en, structure)
+    meta = [
+        f for f in lint.p0_findings if f.code == "meta_process_language"
+    ]
+    assert not meta, [f.to_dict() for f in meta]
+
+
 def test_full_profiles_keep_card_risk_format():
     for stage, version in (("late", 1), ("late", 2), ("growth", 1), ("early", 1)):
         assert memo_structure.load_structure(stage, version).risk_format == "cards"

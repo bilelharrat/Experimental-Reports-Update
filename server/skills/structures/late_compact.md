@@ -50,7 +50,16 @@ the scorecard, and at most two charts. Same evidence discipline as the
 full report: the same pin sheet, the same scorecard, the same
 data-honesty rules — LESS information, never worse information. Every
 number that survives into this memo is one the decision turns on; the
-detail lives in the full report, not here. Every section is organized
+detail lives in the full report, not here. PINS ARE THE FLOOR:
+compactness cuts commentary, never pinned facts. Every pinned key
+metric (with its exact values), every scenario number, the fair-value
+range, the entry terms, every risk summary verbatim with its rating,
+and each owning section's scorecard sentence ("This dimension scores
+N of M.") must appear in this memo — the pin-echo gate rejects the
+package otherwise, however elegant the prose. Section word budgets are
+CEILINGS, not targets: a section past its budget cuts commentary — one
+bullet per point, one clause per judgment — until it fits. When in
+doubt, cut; the full report exists for depth. Every section is organized
 under its declared numbered subsections; the run-wide data-honesty,
 navigation, and chart rules ride the shared context. Bullets, not
 paragraphs, are the default: prose only where an argument genuinely
@@ -139,7 +148,10 @@ subsections:
    Revenue/ARR | Growth rate | Gross margin | Burn or FCF | Cash
    runway | Last/current valuation | Implied multiple — columns
    Value | Reading (the Reading cell is a verdict fragment). Missing
-   cells: "Not disclosed — <implication>".
+   cells: "Not disclosed — <implication>". When the pin sheet carries
+   key metrics beyond these seven, ADD a row per pinned metric with
+   its exact pinned values — every pinned number must live somewhere
+   in this memo.
 2. The deal: the "Deal Snapshot" key_value table with
    `component: "deal_terms"`, exactly these 10 rows: Round |
    Instrument | Raise size | Pre-money | Post-money | Implied stake |
@@ -151,7 +163,9 @@ subsections:
    that THIS business requires, verified with dates." — then one
    answer-first verdict sentence on founder-market fit (proven by
    prior work / asserted but unproven / absent) and one on governance
-   (who can course-correct if the founders are wrong).
+   (who can course-correct if the founders are wrong). Close the
+   section with its pinned scorecard sentence: "This dimension scores
+   N of M." for 团队与治理.
 
 ## section: thesis_market
 ```yaml
@@ -197,7 +211,9 @@ subsections:
    3-5 years (with the datum); the 2-3 moat sources that are real,
    each with its evidence, and the ones that are absent, named; one
    answer-first verdict: the moat is widening / stable / narrowing and
-   what that implies for the exit multiple.
+   what that implies for the exit multiple. Close the section with its
+   three pinned scorecard sentences — "This dimension scores N of M."
+   for each of 市场空间与增速, 行业地位, and 护城河.
 
 ## section: business_financials
 ```yaml
@@ -240,6 +256,8 @@ subsections:
    fallback line needed in compact — the bullets carry the gap.
 3. Healthier or hungrier: open with the one-line answer; two sentences
    of the arithmetic that proves it; end by restating the verdict.
+   Close the section with its two pinned scorecard sentences — "This
+   dimension scores N of M." for 商业模式与单位经济 and 收入增长与质量.
 
 ## section: valuation_returns
 ```yaml
@@ -279,15 +297,18 @@ subsections:
    arithmetic of what the buyer is already paying for. Answer first:
    is the price above, at, or below what the evidence supports.
 2. Fair value & scenarios: the pinned fair-value range verbatim with
-   its basis; then bear | base | bull in one bullet each — exit year,
-   exit value, gross MOIC, IRR, all pinned numbers exactly. Chart slot
-   `chart_return_scenarios` (suggested bar; x = Bear / Base / Bull;
-   y = gross MOIC) from the pinned MOICs, with its reading note and
-   one-sentence caption.
+   its basis; then bear | base | bull in one bullet each carrying
+   EVERY pinned scenario number exactly — exit year, exit-year
+   revenue, exit multiple, exit value, gross MOIC, IRR (the pin gate
+   checks each figure). Chart slot `chart_return_scenarios` (suggested
+   bar; x = Bear / Base / Bull; y = gross MOIC) from the pinned MOICs,
+   with its reading note and one-sentence caption.
 3. Exit paths: the realistic route(s) with named acquirers or the IPO
    window, the constraint on each, and the consequence arithmetic on
    one non-premium outcome. Answer first: how does the money actually
-   come back, and how certain is that.
+   come back, and how certain is that. Close the section with its two
+   pinned scorecard sentences — "This dimension scores N of M." for
+   估值 and 退出确定性.
 
 ## section: risks
 ```yaml
@@ -331,6 +352,8 @@ subsections:
 3. Disconfirming evidence: 2-3 bullets with
    `component: "disconfirming_evidence"` — the strongest facts
    AGAINST this memo's recommendation, each weighed in one clause.
+   Close the section with its pinned scorecard sentence: "This
+   dimension scores N of M." for 风险收益比.
 
 ## section: investment_decision
 ```yaml
