@@ -55,6 +55,50 @@ def test_full_profiles_keep_card_risk_format():
         assert memo_structure.load_structure(stage, version).risk_format == "cards"
 
 
+def test_pin_stage_strips_the_compact_suffix():
+    """The spine pins early/growth/late (schema enum); the deterministic
+    gate must compare against the profile's INVESTMENT stage, not its
+    file name — the first compact live run died on 'late' != 'late_compact'."""
+    assert COMPACT.pin_stage == "late"
+    assert memo_structure.LATE.pin_stage == "late"
+    assert memo_structure.load_structure("late", 2).pin_stage == "late"
+    assert memo_structure.load_structure("early", 1).pin_stage == "early"
+
+
+def test_spine_gate_accepts_parent_stage_pin_for_compact():
+    from server import memo_pin_check
+
+    facts = {"stage": "late"}
+    problems = memo_pin_check.check_spine_pins_v2(facts, COMPACT)
+    assert not [p for p in problems if "pinned stage" in p], problems
+    problems = memo_pin_check.check_spine_pins_v2({"stage": "early"}, COMPACT)
+    assert any("pinned stage 'early'" in p and "'late'" in p for p in problems)
+
+
+def test_spine_prompt_pins_parent_stage(monkeypatch, tmp_path):
+    """The spine prompt must ask for the schema-legal parent stage."""
+    from server import claude_runner
+
+    captured = {}
+
+    def fake_artifact(**kwargs):
+        captured["prompt"] = kwargs.get("prompt")
+        return None, "stop here"
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_artifact
+    )
+    claude_runner.run_memo_fast_english_spine(
+        run_dir=tmp_path,
+        company_name="Acme",
+        common_context="",
+        add_dirs=[],
+        progress=None,
+        structure=COMPACT,
+    )
+    assert '`stage`: "late"' in captured["prompt"]
+
+
 # ---- mode mapping -----------------------------------------------------------
 
 

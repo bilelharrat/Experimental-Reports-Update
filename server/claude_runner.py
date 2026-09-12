@@ -5343,7 +5343,7 @@ against the stragglers when they land.
             for name, low, high in memo_structure.VERDICT_BANDS
         )
         v2_pins_block = f"""\
-   - `stage`: "{structure.stage}" — this run's classified report stage.
+   - `stage`: "{structure.pin_stage}" — this run's classified report stage.
    - `verdict`: the tier your evidence supports (Strong Buy / Buy /
      Watch / Pass). It must agree with the recommendation sentence's
      stance and sit in the scorecard band: {band_list}.

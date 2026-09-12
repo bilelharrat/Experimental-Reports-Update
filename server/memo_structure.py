@@ -138,6 +138,19 @@ class MemoStructure:
     def section_ids(self) -> tuple[str, ...]:
         return tuple(s.id for s in self.sections)
 
+    @property
+    def pin_stage(self) -> str:
+        """The investment stage the spine pins (early/growth/late).
+
+        A compact profile is named "{stage}_compact" so the loader and
+        the package stamp can address it, but its INVESTMENT stage is
+        the parent's: the spine schema enums early/growth/late, and the
+        deterministic pin gate must compare against that — comparing
+        against the profile name killed the first compact live run
+        (pinned 'late' vs profile 'late_compact')."""
+        stage = self.stage
+        return stage[: -len("_compact")] if stage.endswith("_compact") else stage
+
     def section(self, section_id: str) -> SectionDef | None:
         for s in self.sections:
             if s.id == section_id:
