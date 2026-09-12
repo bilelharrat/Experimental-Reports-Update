@@ -104,7 +104,9 @@ Content per subsection:
    breath. Prose only.
 3. Investment highlights: exactly 3 bullets, complete verdict
    sentences: (a) the wedge opens a market that matters, (b) this team
-   is the reason to believe, (c) the terms pay for the risk. A bullet
+   is the reason to believe, (c) the terms pay for the risk. Every
+   bullet OPENS with a short claim carrying the direction, then the
+   evidence — never a naked topic label ("Team.", "Market."). A bullet
    the evidence cannot support says so.
 4. Key risks: ≤3 bullets quoting the highest-rated pinned risk
    summaries verbatim with ratings.
@@ -167,7 +169,7 @@ section earns or denies them. Content per subsection:
    founders" as the row, plus the consequence.
 5. Why this team wins — or doesn't: weigh the founders' edge against
    what the problem actually requires; name the gap the next two hires
-   must fill. End on the verdict sentence.
+   must fill. Open with the one-line answer; end by restating the verdict.
 
 ## section: market_thesis
 ```yaml
@@ -334,14 +336,14 @@ requires. Content per subsection:
    revenue at exit (at a stated multiple) | How plausible (verdict
    fragment). Cells repeat the pinned scenario numbers exactly where
    pins exist; the required-exit arithmetic is shown in-line. Then
-   chart slot `chart_required_exits`: a `chart` block (bar; x = 3x /
+   chart slot `chart_required_exits`: a `chart` block (suggested bar; x = 3x /
    5x / 10x; y = the required exit valuation) from those same
    numbers, followed by its one-sentence reading.
 4. The merely-good outcome: what a merely-good outcome (the most
    common early-stage "success": a $50-150M acquisition) returns to
    this cheque after the stack above it — in dollars and MOIC.
 5. Do the terms pay for the risk: the price against the bet, in two or
-   three sentences. End on the verdict sentence.
+   three sentences. Open with the one-line answer; end by restating the verdict.
 
 ## section: risks_milestones
 ```yaml

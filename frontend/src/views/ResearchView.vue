@@ -187,6 +187,27 @@ watch(generationMode, (mode) => {
   }
 });
 
+// Report length: "full" (the complete IC report) or "compact" (the
+// short partner-style memo). Applies to One-Click generation.
+const REPORT_MODE_KEY = "bsh.research.reportMode";
+function loadReportMode() {
+  try {
+    const stored = localStorage.getItem(REPORT_MODE_KEY);
+    if (stored === "full" || stored === "compact") return stored;
+  } catch {
+    // Storage unavailable — fall through to the default.
+  }
+  return "full";
+}
+const reportMode = ref(loadReportMode());
+watch(reportMode, (mode) => {
+  try {
+    localStorage.setItem(REPORT_MODE_KEY, mode);
+  } catch {
+    // Best-effort persistence only.
+  }
+});
+
 const activeReport = ref(null);
 const companyReports = ref([]);
 const generationError = ref(null);
@@ -1309,6 +1330,7 @@ async function generate(analysisSessionId = null) {
       // produce both EN + ZH; legacy report types default to en.
       language: "en",
       analysis_session_id: memoAnalysisSessionId,
+      report_mode: reportMode.value,
     });
     activeReport.value = r;
     await loadCompanyReports();
@@ -1853,6 +1875,38 @@ onUnmounted(stopPolling);
                   @click="generationMode = 'studio_review'"
                 >
                   {{ tr("research.mode_studio_review") }}
+                </button>
+              </div>
+            </div>
+            <div v-if="generationMode === 'one_click'" class="min-w-[10rem]">
+              <div class="vogue-label mb-1.5">
+                {{ tr("research.label_report_length") }}
+              </div>
+              <div
+                class="segmented w-fit"
+                role="radiogroup"
+                :aria-label="tr('research.label_report_length')"
+                :title="tr('research.report_length_compact_hint')"
+              >
+                <button
+                  type="button"
+                  class="segmented-item focus-ring"
+                  role="radio"
+                  :data-selected="reportMode === 'full'"
+                  :aria-checked="reportMode === 'full'"
+                  @click="reportMode = 'full'"
+                >
+                  {{ tr("research.report_length_full") }}
+                </button>
+                <button
+                  type="button"
+                  class="segmented-item focus-ring"
+                  role="radio"
+                  :data-selected="reportMode === 'compact'"
+                  :aria-checked="reportMode === 'compact'"
+                  @click="reportMode = 'compact'"
+                >
+                  {{ tr("research.report_length_compact") }}
                 </button>
               </div>
             </div>

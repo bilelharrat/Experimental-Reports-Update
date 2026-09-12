@@ -2992,7 +2992,10 @@ def _run_fast_memo_pipeline(
         if isinstance(stage_info, dict)
         else "late"
     )
-    structure = memo_structure.active_structure(structure_stage)
+    structure_mode = str(report.get("structure_mode") or "full")
+    structure = memo_structure.active_structure(
+        structure_stage, structure_mode
+    )
 
     stream.emit(
         "stage",
@@ -5368,7 +5371,9 @@ def _resume(report_id: str) -> None:
             if isinstance(stage_info, dict)
             else "late"
         )
-        resume_structure = memo_structure.active_structure(resume_stage)
+        resume_structure = memo_structure.active_structure(
+            resume_stage, str(report.get("structure_mode") or "full")
+        )
         if resume_structure.scorecard_weights():
             message = (
                 "Resume cannot regenerate this memo: the run uses the "

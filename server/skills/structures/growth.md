@@ -81,8 +81,10 @@ in the Company & Team section). Content per subsection:
    the price already assumes, interpreted in the same breath. Prose
    only.
 3. Investment highlights: 3-5 bullets, each a complete verdict
-   sentence with its strongest number. The first three are always the
-   thesis trio: (a) the market supports a 5-10x bigger company,
+   sentence with its strongest number. Every bullet OPENS with a short
+   claim carrying the direction, then the evidence — never a naked
+   topic label ("Price.", "Market size."). The first three are always
+   the thesis trio: (a) the market supports a 5-10x bigger company,
    (b) the growth is repeatable, not founder-sold, (c) the price
    leaves a venture return. A bullet the evidence cannot support says
    so.
@@ -124,11 +126,13 @@ subsections:
   zh: 发展历程
 - en: Leadership & board
   zh: 管理团队与董事会
+- en: Founder-market fit
+  zh: 创始人与赛道匹配
 - en: Scale-up readiness
   zh: 规模化准备度
 ```
 
-1,000-1,300 words. The company's story and the people scaling it,
+1,100-1,400 words. The company's story and the people scaling it,
 judged together — at growth stage the team IS most of the evidence.
 Content per subsection:
 
@@ -147,7 +151,9 @@ Content per subsection:
    rows: Round | Instrument | Raise size | Pre-money | Post-money |
    Implied stake | Primary / secondary split | Use of proceeds |
    Co-investors | Expected close. Missing cells: "Not disclosed —
-   <implication>".
+   <implication>". Close with a short reading of the tables that
+   OPENS with its verdict — do the marks support or undercut the
+   entry price — then the numbers that prove it.
 3. Development milestones: 2-3 paragraphs, cause and effect, not
    dates.
 4. Leadership & board: the "Leadership" table (CEO plus key executives
@@ -156,10 +162,18 @@ Content per subsection:
    Directors" table with `component: "board"` (members, affiliation,
    strategic value) plus an Ownership & Governance key_value block
    (founder control, ESOP, protective provisions).
-5. Scale-up readiness: can this team run a company 5-10x this size —
+5. Founder-market fit: open with the one-line answer — are these
+   founders demonstrably the right people for THIS problem — then the
+   proof: what each founder built or ran before that this business
+   actually requires (verified facts with dates, separated from
+   self-claimed bio), and where the record is silent. A celebrated
+   background in a different discipline is stated as exactly that.
+   End on the verdict: fit proven by prior work, asserted but
+   unproven, or absent.
+6. Scale-up readiness: can this team run a company 5-10x this size —
    hiring record, executive bench, founder dependence, and what the
-   organization looks like without its founder for a quarter. End on
-   the verdict sentence.
+   organization looks like without its founder for a quarter. Open
+   with the one-line answer; end by restating the verdict.
 
 ## section: market_industry
 ```yaml
@@ -206,7 +220,7 @@ needs. Content per subsection:
 3. Growth drivers: one claim sentence plus one supporting datum per
    driver; unsupported drivers are named assumptions.
 4. The ceiling question: what the market caps this company at, which
-   assumption moves the band, verdict sentence last.
+   assumption moves the band, open with the one-line answer; restate the verdict last.
 5. Policy & regulation — never silently omitted; when nothing applies,
    say so and say what could change it.
 
@@ -315,7 +329,7 @@ company getting noticed. Content per subsection:
    named competitors. Columns (reduced for the disclosure level of
    this stage): Offering | Scale/funding | Growth | Flagship customers
    | Core advantage. Sparse rows keep the missing-data rule. Then
-   chart slot `chart_competitor_scale`: a `chart` block (bar; x = the
+   chart slot `chart_competitor_scale`: a `chart` block (suggested bar; x = the
    table's companies, target first; y = the stated scale measure)
    built ONLY from disclosed figures, followed by one sentence on the
    gap. When the series is not disclosed, no chart: the chart-omitted
@@ -332,7 +346,7 @@ company getting noticed. Content per subsection:
 5. The fast-follower question: when this category is proven, what
    stops a better-funded fast follower — answered from the audit rows.
 6. Number one — now and in five years: who leads today, who most
-   likely leads in 3-5 years, and why. End on the verdict sentence.
+   likely leads in 3-5 years, and why. Open with the one-line answer; end by restating the verdict.
 
 ## section: financial_analysis
 ```yaml
@@ -374,7 +388,7 @@ of it costs. Content per subsection:
 2. Forecast: the "Forecast" table (+3 years, one row per year, "Key
    assumption" column naming what each year's number leans on;
    unpinned, undisclosed cells follow the missing-data rule). Then
-   chart slot `chart_revenue_trajectory`: a `chart` block (line;
+   chart slot `chart_revenue_trajectory`: a `chart` block (suggested line;
    x = the fiscal years, history then forecast; one series "Revenue")
    built ONLY from the tables' disclosed or pinned figures, followed
    by one sentence on the shape that also names where actuals end and
@@ -392,7 +406,7 @@ of it costs. Content per subsection:
    audit status — checked and uncheckable both stated.
 5. Healthier or hungrier: is incremental revenue getting cheaper or
    dearer, and what that means for how many more rounds this company
-   needs. End on the verdict sentence.
+   needs. Open with the one-line answer; end by restating the verdict.
 
 ## section: valuation_returns_exit
 ```yaml
@@ -442,7 +456,7 @@ in each world, and how the money comes back. Content per subsection:
 
 1. Comparables: the "Comparables" table — 4-6 disclosed comparables
    with growth-adjusted multiples, the target listed first. Then chart
-   slot `chart_comps_multiples`: a `chart` block (bar; x = the
+   slot `chart_comps_multiples`: a `chart` block (suggested bar; x = the
    table's companies, target first; y = the revenue multiple) built
    ONLY from disclosed figures, followed by one sentence placing the
    entry multiple. When the multiples are not disclosed, no chart: the

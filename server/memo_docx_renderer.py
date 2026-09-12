@@ -70,7 +70,8 @@ SUPPORTED_BLOCK_TYPES = {
     "chart",
     "spacer",
 }
-SUPPORTED_CHART_TYPES = {"bar", "grouped_bar", "line"}
+SUPPORTED_CHART_TYPES = {"bar", "grouped_bar", "hbar", "line", "pie"}
+_SINGLE_SERIES_CHART_TYPES = {"bar", "hbar", "pie"}
 # Top-level section titles ("I."–"X." or "一、"–"十、") are emitted automatically
 # by ``_add_section`` from ``SECTION_TITLES``. A heading *block* that carries the
 # same numbered prefix is a redundant restatement of the section title; rendering
@@ -366,6 +367,7 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
             elif kind == "chart":
                 _repair_localized(block, "title", repairs, f"{where}.title")
                 _repair_localized(block, "caption", repairs, f"{where}.caption")
+                _repair_localized(block, "reading", repairs, f"{where}.reading")
             elif kind == "table":
                 _repair_localized(block, "title", repairs, f"{where}.title")
                 block["headers"] = _repair_localized_list(
@@ -417,6 +419,34 @@ def english_package_validation_errors(package: Any) -> list[str]:
     errors.extend(_risk_card_format_errors(filled))
     errors.extend(_subsection_heading_errors(filled))
     errors.extend(_exec_summary_format_errors(filled))
+    errors.extend(_chart_reading_errors(filled))
+    return errors
+
+
+def _chart_reading_errors(package: dict) -> list[str]:
+    """Generation-time gate: every structure-v2 chart carries a `reading`
+    note ("Higher is better", "Bars below 1.0x lose money") so the
+    reader knows how to read it. Render-time validation stays lenient —
+    packages from runs that predate the field still re-render."""
+    structure = _structure_for(package)
+    if not structure.scorecard_weights():
+        return []
+    errors: list[str] = []
+    sections = package.get("sections")
+    for section in sections if isinstance(sections, list) else []:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("id") or "")
+        for index, block in enumerate(section.get("blocks") or []):
+            if not isinstance(block, dict) or block.get("type") != "chart":
+                continue
+            if not _content_text(block.get("reading")):
+                errors.append(
+                    f"section {section_id} blocks[{index}]: chart must carry "
+                    "a `reading` note (bilingual) telling the reader how to "
+                    "read it — 'Higher is better', 'Bars below 1.0x lose "
+                    "money'"
+                )
     return errors
 
 
@@ -510,14 +540,50 @@ def _exec_summary_format_errors(package: dict) -> list[str]:
     )
     errors: list[str] = []
     for index, block in enumerate(section.get("blocks") or []):
-        if isinstance(block, dict) and str(block.get("type") or "") == "table":
+        if not isinstance(block, dict):
+            continue
+        if str(block.get("type") or "") == "table":
             errors.append(
                 f"section {exec_id} blocks[{index}]: the executive summary "
                 "must contain NO table blocks — state its numbers in "
                 "interpreted prose"
                 + (f" ({homes})" if homes else "")
             )
+        if str(block.get("type") or "") == "bullets":
+            for item_index, item in enumerate(block.get("items") or []):
+                lead = _bullet_lead_sentence(_content_text(item))
+                if (
+                    lead
+                    and len(lead.split()) < 4
+                    # Digits or an inner period mean a figure or an
+                    # abbreviation ("U.S."), not a bare topic label.
+                    and "." not in lead
+                    and not any(ch.isdigit() for ch in lead)
+                ):
+                    errors.append(
+                        f"section {exec_id} blocks[{index}]"
+                        f".items[{item_index}]: bullet opens with the topic "
+                        f"label {lead!r} — open with a short claim that "
+                        "carries the direction ('The price sits below every "
+                        "disclosed peer — 13.8x vs a 21x median.'), never a "
+                        "naked label"
+                    )
     return errors
+
+
+_BULLET_LEAD_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+|(?<=[。])")
+
+
+def _bullet_lead_sentence(text: str) -> str:
+    """The words a bullet leads with — up to the first sentence break.
+    A bare topic label ("Price. 13.8x vs 21x.") shows up here as a one-
+    to three-word fragment; a colon lead ("Market size: the pool is
+    $125B...") keeps its judgment in the same sentence and passes."""
+    stripped = text.strip().lstrip("*_•- ").strip()
+    if not stripped:
+        return ""
+    parts = _BULLET_LEAD_SPLIT_RE.split(stripped, maxsplit=1)
+    return parts[0].strip().rstrip(".!?。*_").strip()
 
 
 def _risk_card_format_errors(package: dict) -> list[str]:
@@ -531,6 +597,10 @@ def _risk_card_format_errors(package: dict) -> list[str]:
     if not isinstance(sections, list):
         return []
     structure = _structure_for(package)
+    if structure.risk_format != "cards":
+        # Compact profiles present the pinned risks as verdict-lead
+        # bullets; the pin-echo gate still enforces the risk list.
+        return []
     try:
         risk_id = structure.section_for_role("risk").id
     except KeyError:
@@ -1106,6 +1176,9 @@ def _validate_chart_block(block: dict, location: str, errors: list[str]) -> None
         block.get("caption"), f"{location}.caption", errors, required=False
     )
     _validate_localized_value(
+        block.get("reading"), f"{location}.reading", errors, required=False
+    )
+    _validate_localized_value(
         block.get("unit"), f"{location}.unit", errors, required=False,
         allow_plain=True,
     )
@@ -1113,10 +1186,10 @@ def _validate_chart_block(block: dict, location: str, errors: list[str]) -> None
     if not isinstance(series, list) or not 1 <= len(series) <= 4:
         errors.append(f"{location}.series must be a list of 1-4 series")
         return
-    if chart_type == "bar" and len(series) != 1:
+    if chart_type in _SINGLE_SERIES_CHART_TYPES and len(series) != 1:
         errors.append(
-            f"{location}: chart_type 'bar' takes exactly one series — use "
-            "'grouped_bar' for several"
+            f"{location}: chart_type {chart_type!r} takes exactly one series "
+            "— use 'grouped_bar' for several"
         )
     x_shapes: list[tuple[str, ...]] = []
     total_points = 0
@@ -1289,11 +1362,20 @@ def _build_document(package: dict, locale: str) -> Document:
     document = Document()
     _configure_document(document, package, locale)
     _add_cover(document, package, locale)
+    # Each numbered section opens on a fresh page (the cover's own page
+    # break already precedes the first one) — sections packed back to
+    # back read cramped.
+    first = True
     for section in package.get("sections") or []:
         if not isinstance(section, dict):
             continue
+        if not first:
+            document.add_page_break()
+        first = False
         _add_section(document, section, locale, section_titles)
     if package.get("sources") and not _has_section(package, "sources"):
+        if not first:
+            document.add_page_break()
         _add_sources_section(document, package, locale, section_titles)
     return document
 
@@ -1467,8 +1549,14 @@ def _add_heading(document: Document, text: str, *, level: int, locale: str) -> N
         return
     paragraph = document.add_paragraph()
     paragraph.paragraph_format.keep_with_next = True
-    paragraph.paragraph_format.space_before = Pt(12 if level == 1 else 7)
-    paragraph.paragraph_format.space_after = Pt(5 if level == 1 else 3)
+    # Level-2 subsection headings get real air above them so the fixed
+    # numbered subsections read as visual units, not a wall of text.
+    paragraph.paragraph_format.space_before = Pt(
+        12 if level == 1 else 16 if level == 2 else 7
+    )
+    paragraph.paragraph_format.space_after = Pt(
+        5 if level == 1 else 4 if level == 2 else 3
+    )
     if level == 1:
         _add_bottom_border(paragraph, TIFFANY)
     _add_run(
@@ -1535,6 +1623,12 @@ def _add_chart(document: Document, block: dict, locale: str) -> None:
     else:
         _add_table(document, _chart_fallback_table(block), locale)
     caption = _loc(block.get("caption"), locale)
+    reading = _loc(block.get("reading"), locale)
+    if reading:
+        reading_text = (
+            f"Reading: {reading}" if locale == "en" else f"读法：{reading}"
+        )
+        caption = f"{reading_text}  {caption}".strip() if caption else reading_text
     source_ids = ", ".join(
         str(item).strip()
         for item in block.get("source_ids") or []

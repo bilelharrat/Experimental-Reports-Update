@@ -128,6 +128,11 @@ class MemoStructure:
     # without one (late v1). Doubles as the v2-family marker: a structure
     # with a scorecard runs the v2 pin sheet, contracts, and gates.
     scorecard: dict[str, int] = field(default_factory=dict)
+    # How the risk section presents the pinned risks: "cards" (heading +
+    # six-row key_value table per risk — the full-report format, enforced
+    # by the renderer's card gate) or "bullets" (compact profiles: one
+    # verdict-lead bullet per pinned risk; the card gate stands down).
+    risk_format: str = "cards"
 
     @property
     def section_ids(self) -> tuple[str, ...]:
@@ -381,6 +386,7 @@ def load_structure(stage: str, version: int = 1) -> MemoStructure:
             str(k): int(v)
             for k, v in (profile.get("scorecard") or {}).items()
         },
+        risk_format=str(profile.get("risk_format") or "cards"),
     )
     if structure.stage != stage or structure.version != version:
         raise ValueError(
@@ -466,7 +472,7 @@ def clear_cache() -> None:
 LATE = load_structure("late")
 
 
-def active_structure(stage: str = "late") -> MemoStructure:
+def active_structure(stage: str = "late", mode: str = "full") -> MemoStructure:
     """The structure a NEW pipeline run should use for this stage.
 
     Default (flag off): every run writes the historical late v1
@@ -475,10 +481,22 @@ def active_structure(stage: str = "late") -> MemoStructure:
     this default). ``BSH_MEMO_STRUCTURE_V2=1`` opts a run into the
     restructure: the classified stage picks its profile (late -> the
     12-section late v2, growth/early -> their own profiles), and a stage
-    without a profile falls back to the late v2 chain."""
+    without a profile falls back to the late v2 chain.
+
+    ``mode="compact"`` prefers the stage's compact profile
+    (``{stage}_compact.md`` — the short Wisdom-style memo: fewer merged
+    sections, tight budgets, bullet-format risks) and falls back to the
+    full chain when the stage has none, so the mode can ship stage by
+    stage without ever failing a run."""
     if os.environ.get("BSH_MEMO_STRUCTURE_V2", "0") != "1":
         return LATE
-    for candidate in ((stage, 2), (stage, 1), ("late", 2)):
+    candidates: list[tuple[str, int]] = []
+    if mode == "compact":
+        candidates.append((f"{stage}_compact", 1))
+        if stage != "late":
+            candidates.append(("late_compact", 1))
+    candidates.extend([(stage, 2), (stage, 1), ("late", 2)])
+    for candidate in candidates:
         try:
             return load_structure(*candidate)
         except (FileNotFoundError, ValueError):

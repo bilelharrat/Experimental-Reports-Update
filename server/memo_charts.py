@@ -32,6 +32,7 @@ def chart_png(block: dict) -> bytes:
     spec = {
         "chart_type": str(block.get("chart_type") or "bar"),
         "unit": _en(block.get("unit")),
+        "reading": _en(block.get("reading")),
         "series": [
             {
                 "label": str(series.get("label") or ""),
@@ -78,7 +79,49 @@ def _render(spec: dict) -> bytes:
     series = spec["series"]
     fig, ax = plt.subplots(figsize=(6.6, 3.3), dpi=160)
     try:
-        if chart_type == "line":
+        if chart_type == "pie":
+            points = series[0]["points"]
+            values = [max(p["y"], 0.0) for p in points]
+            labels = [p["x"] for p in points]
+            colors = [
+                _SERIES_COLORS[i % len(_SERIES_COLORS)]
+                for i in range(len(points))
+            ]
+            _wedges, _texts, autotexts = ax.pie(
+                values,
+                labels=labels,
+                colors=colors,
+                autopct="%1.0f%%",
+                startangle=90,
+                counterclock=False,
+                textprops={"fontsize": 9, "color": "#333333"},
+                wedgeprops={"linewidth": 1, "edgecolor": "white"},
+            )
+            for autotext in autotexts:
+                autotext.set_color("white")
+            ax.axis("equal")
+        elif chart_type == "hbar":
+            points = series[0]["points"]
+            labels = [p["x"] for p in points]
+            values = [p["y"] for p in points]
+            positions = range(len(points))
+            bars = ax.barh(
+                list(positions), values, height=0.55, color=_NAVY
+            )
+            ax.set_yticks(list(positions))
+            ax.set_yticklabels(labels)
+            ax.invert_yaxis()  # first point on top
+            ax.bar_label(
+                bars,
+                fmt=lambda v: _format_value(v),
+                fontsize=8,
+                padding=3,
+                color="#333333",
+            )
+            ax.margins(x=0.12)
+            if spec["unit"]:
+                ax.set_xlabel(spec["unit"], fontsize=9, color="#333333")
+        elif chart_type == "line":
             for index, one in enumerate(series):
                 xs = [p["x"] for p in one["points"]]
                 ys = [p["y"] for p in one["points"]]
@@ -117,21 +160,37 @@ def _render(spec: dict) -> bytes:
             ax.set_xticklabels(categories)
             ax.margins(y=0.16)
 
-        if len(series) > 1:
-            ax.legend(frameon=False, fontsize=8.5, loc="best")
-        if spec["unit"]:
-            ax.set_ylabel(spec["unit"], fontsize=9, color="#333333")
-        ax.tick_params(labelsize=9, colors="#333333")
-        for spine in ("top", "right"):
-            ax.spines[spine].set_visible(False)
-        for spine in ("left", "bottom"):
-            ax.spines[spine].set_color("#BBBBBB")
-        ax.grid(axis="y", linewidth=0.6, alpha=0.3)
-        ax.set_axisbelow(True)
-        labels = [str(label.get_text()) for label in ax.get_xticklabels()]
-        if any(len(label) > 9 for label in labels):
-            plt.setp(ax.get_xticklabels(), rotation=18, ha="right")
-        fig.tight_layout()
+        if chart_type != "pie":
+            if len(series) > 1:
+                ax.legend(frameon=False, fontsize=8.5, loc="best")
+            if spec["unit"] and chart_type != "hbar":
+                ax.set_ylabel(spec["unit"], fontsize=9, color="#333333")
+            ax.tick_params(labelsize=9, colors="#333333")
+            for spine in ("top", "right"):
+                ax.spines[spine].set_visible(False)
+            for spine in ("left", "bottom"):
+                ax.spines[spine].set_color("#BBBBBB")
+            ax.grid(
+                axis="x" if chart_type == "hbar" else "y",
+                linewidth=0.6,
+                alpha=0.3,
+            )
+            ax.set_axisbelow(True)
+            labels = [str(label.get_text()) for label in ax.get_xticklabels()]
+            if chart_type != "hbar" and any(len(label) > 9 for label in labels):
+                plt.setp(ax.get_xticklabels(), rotation=18, ha="right")
+        if spec["reading"]:
+            fig.text(
+                0.99,
+                0.97,
+                spec["reading"],
+                ha="right",
+                va="top",
+                fontsize=8,
+                style="italic",
+                color="#777777",
+            )
+        fig.tight_layout(rect=(0, 0, 1, 0.94) if spec["reading"] else None)
         buffer = io.BytesIO()
         fig.savefig(buffer, format="png")
         return buffer.getvalue()

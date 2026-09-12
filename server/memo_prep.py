@@ -536,6 +536,7 @@ def bootstrap_memo_run(
     analysis_session_id: str | None = None,
     report_type: str | None = None,
     memo_mode: str = "auto",
+    report_mode: str = "full",
     trigger: str | None = None,
     auto_run_id: str | None = None,
 ) -> dict:
@@ -553,6 +554,11 @@ def bootstrap_memo_run(
     """
     if memo_mode not in ("auto", "studio"):
         raise ValueError(f"Unknown memo_mode: {memo_mode}")
+    # "full" is the complete IC report; "compact" prefers the stage's
+    # short profile (memo_structure.active_structure resolves it, and
+    # falls back to full when the stage has no compact profile yet).
+    if report_mode not in ("full", "compact"):
+        raise ValueError(f"Unknown report_mode: {report_mode}")
     company = storage.get_company(company_id)
     if company is None:
         raise ValueError(f"Unknown company_id: {company_id}")
@@ -818,6 +824,11 @@ def bootstrap_memo_run(
         **(
             {"structure_stage": structure_stage}
             if structure_stage is not None
+            else {}
+        ),
+        **(
+            {"structure_mode": report_mode}
+            if not buffett and report_mode != "full"
             else {}
         ),
     )

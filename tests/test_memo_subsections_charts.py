@@ -275,6 +275,7 @@ def _chart_block(**overrides) -> dict:
         "chart_type": "grouped_bar",
         "title": {"en": "Market size", "zh": "市场空间"},
         "unit": {"en": "US$B", "zh": "十亿美元"},
+        "reading": {"en": "Higher is better", "zh": "越高越好"},
         "caption": {
             "en": "SAM triples by 2030, so the ceiling is not the cap.",
             "zh": "SAM 到 2030 年增至三倍。",

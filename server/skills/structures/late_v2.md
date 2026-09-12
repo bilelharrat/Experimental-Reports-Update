@@ -86,13 +86,21 @@ Company Overview section). Content per subsection:
    interpreted where it appears.
 3. Investment highlights: 3-5 bullets, each a complete verdict
    sentence with its strongest supporting number — the hardest, least
-   replaceable facts of the case. The first three are always the
-   thesis trio: (a) the market is big enough to matter, (b) the
-   company is (or is not) top-1-3 in it, (c) the price does (or does
-   not) leave a return. A bullet the evidence cannot support states
-   that instead — the thesis structure never bends to advocacy.
+   replaceable facts of the case. Every bullet OPENS with a short
+   claim that carries the direction, then the evidence: "The price
+   sits below every disclosed peer — 13.8x against a 21x median.",
+   never "Price. 13.8x vs 21x." A naked topic label ("Price.",
+   "Market size.", "Accessibility.") fails validation — the reader
+   must get the judgment before the first period. The first three
+   bullets are always the thesis trio: (a) the market is big enough
+   to matter, (b) the company is (or is not) top-1-3 in it, (c) the
+   price does (or does not) leave a return. A bullet the evidence
+   cannot support states that instead — the thesis structure never
+   bends to advocacy.
 4. Key risks: at most 3 bullets, quoting the highest-rated pinned risk
-   summaries verbatim with their N/10 ratings.
+   summaries verbatim with their N/10 ratings. The pinned summaries
+   are already complete verdict sentences — never compress one back
+   to a topic label.
 5. Recommendation: a verdict callout — state the recommendation
    sentence EXACTLY as the shared fact sheet pins it, then the entry
    valuation, the fair-value range, the base-case outcome from the
@@ -156,7 +164,12 @@ Content per subsection:
    Instrument | Raise size | Pre-money | Post-money | Implied stake |
    Primary / secondary split | Use of proceeds | Co-investors |
    Expected close. Missing cells follow the missing-data rule
-   ("Not disclosed — <implication>").
+   ("Not disclosed — <implication>"). Close the subsection with a
+   short reading of the tables that OPENS with its verdict in one
+   plain sentence — do the marks support or undercut the entry price,
+   and is that positive or negative for this deal — then the two or
+   three numbers that prove it. A paragraph that only restates the
+   rounds and prices without saying what they mean fails the register.
 3. Development milestones: 2-3 short paragraphs telling the company's
    development as cause and effect ("X worked, so Y followed"), not a
    date list.
@@ -218,8 +231,8 @@ could cap it. Content per subsection:
    as an assumption.
 4. The ceiling question: argue whether this market caps the company
    nearer $20B, $100B, or $500B of enterprise value, and say which
-   assumption moves it between those bands. End on the verdict
-   sentence.
+   assumption moves it between those bands. Open with the one-line
+   answer; end by restating the verdict.
 5. Policy & regulation — never silently omitted: name the regimes that
    constrain or subsidize the business (data, export, sector-specific,
    procurement). When none applies, write the sentence "No regulatory
@@ -433,7 +446,7 @@ the forecast deserves belief. Content per subsection:
    with a "Key assumption" column naming the single assumption that
    year's number leans on hardest; cells without a disclosed or pinned
    basis follow the missing-data rule). Then chart slot
-   `chart_revenue_trajectory`: a `chart` block (line; x = the fiscal
+   `chart_revenue_trajectory`: a `chart` block (suggested line; x = the fiscal
    years, history then forecast; one series "Revenue") built ONLY
    from the tables' disclosed or pinned figures, followed by one
    sentence on the shape (accelerating, decelerating, hockey-stick
@@ -454,7 +467,7 @@ the forecast deserves belief. Content per subsection:
    what could not be checked.
 5. Healthier or hungrier: is each incremental revenue dollar getting
    cheaper or dearer to buy, and what follows for the financing risk.
-   End on the verdict sentence.
+   Open with the one-line answer; end by restating the verdict.
 
 ## section: team_governance
 ```yaml
@@ -477,13 +490,15 @@ subsections:
   zh: 管理团队
 - en: Board & ownership
   zh: 董事会与股权治理
+- en: Founder-market fit
+  zh: 创始人与赛道匹配
 - en: Founder dependence
   zh: 创始人依赖
 - en: Public-company readiness
   zh: 上市公司准备度
 ```
 
-600-800 words. Whether this team can run the company the price
+700-950 words. Whether this team can run the company the price
 assumes, and whether shareholders can course-correct if not. Content
 per subsection:
 
@@ -497,10 +512,19 @@ per subsection:
    (votes vs economics) | ESOP size | Investor roster | Protective
    provisions | Public-company readiness (this cell is a verdict:
    Ready / 12-18 months of work / Not close).
-3. Founder dependence: what breaks if the founder leaves or fails to
+3. Founder-market fit: open with the one-line answer — are these
+   founders demonstrably the right people for THIS problem — then the
+   proof. For each founder who matters: what they built or ran before
+   that this business actually requires (verified facts with dates,
+   separated from self-claimed bio), what in their record maps to the
+   next phase's hardest job, and where the record is silent. A
+   celebrated background in a different discipline is stated as
+   exactly that. End on the verdict sentence: fit proven by prior
+   work, fit asserted but unproven, or fit absent.
+4. Founder dependence: what breaks if the founder leaves or fails to
    scale, and what evidence exists that the organization runs beyond
    them.
-4. Public-company readiness: audit history, financial reporting
+5. Public-company readiness: audit history, financial reporting
    cadence, missing officers, related-party exposure — each stated as
    fact plus consequence, not as a checklist.
 
@@ -544,7 +568,7 @@ is worth on the evidence. Content per subsection:
    with growth-adjusted multiples, the target's row highlighted by
    listing it first. Columns: Company | Revenue | Growth | Multiple |
    Growth-adjusted multiple | Note. Then chart slot
-   `chart_comps_multiples`: a `chart` block (bar; x = the table's
+   `chart_comps_multiples`: a `chart` block (suggested bar; x = the table's
    companies, target first; y = the revenue multiple) built ONLY from
    the table's disclosed figures, followed by one sentence placing the
    target's entry multiple against the set. When the multiples are not
@@ -618,7 +642,7 @@ the money actually comes back. Content per subsection:
    numeric cell repeats the pinned scenario numbers from the shared
    fact sheet exactly; cells the pins do not state follow the
    missing-data rule. No new scenario numbers may be invented here.
-   Then chart slot `chart_return_scenarios`: a `chart` block (bar;
+   Then chart slot `chart_return_scenarios`: a `chart` block (suggested bar;
    x = Bear / Base / Bull; y = gross MOIC as a plain number) built
    ONLY from the pinned MOICs, followed by its one-sentence reading.
 2. Return decomposition: how much of the base return comes from
@@ -626,7 +650,7 @@ the money actually comes back. Content per subsection:
    from multiple compression = base MOIC"), with a small table or the
    arithmetic in prose. State the crossover: at what exit multiple the
    return goes to zero. Then chart slot `chart_return_decomposition`:
-   a `chart` block (bar; x = Growth factor / Multiple factor / Base
+   a `chart` block (suggested bar; x = Growth factor / Multiple factor / Base
    MOIC; y = the three factors) from those same numbers, with its
    one-sentence reading. When the decomposition cannot be computed
    from pinned numbers, no chart: the chart-omitted fallback line.
@@ -643,7 +667,7 @@ the money actually comes back. Content per subsection:
    exposed the outcome is to multiple compression alone. Take at least
    one non-premium outcome (the bear case, or a flat exit multiple)
    and show what happens to this round's money, in dollars and MOIC,
-   before later dilution. End on the verdict sentence.
+   before later dilution. Open with the one-line answer; end by restating the verdict.
 
 ## section: investment_risk
 ```yaml

@@ -1422,6 +1422,11 @@ const messages = {
       "Studio Review runs a deep investigation first, pauses at the cards for your edits, then generates the report from your decisions.",
     "research.mode_buffett_one_click":
       "Buffett memos always run One-Click.",
+    "research.label_report_length": "Report length",
+    "research.report_length_full": "Full",
+    "research.report_length_compact": "Compact",
+    "research.report_length_compact_hint":
+      "Compact writes a short partner-style memo — the critical facts and the decision, same evidence discipline.",
     "research.deep_investigate_button": "Start Deep Investigate",
     "research.generate_report_button": "Generate Report",
     "research.reinvestigate_button": "Re-investigate",
@@ -3414,6 +3419,11 @@ const messages = {
     "research.mode_studio_review_hint":
       "工作室审阅会先进行深度调查，停在卡片让你编辑，再按你的决定生成报告。",
     "research.mode_buffett_one_click": "巴菲特备忘录始终一键生成。",
+    "research.label_report_length": "报告篇幅",
+    "research.report_length_full": "完整版",
+    "research.report_length_compact": "精简版",
+    "research.report_length_compact_hint":
+      "精简版生成简短的合伙人风格备忘录——只保留关键事实与结论，证据标准不变。",
     "research.deep_investigate_button": "开始深度调查",
     "research.generate_report_button": "生成报告",
     "research.reinvestigate_button": "重新调查",

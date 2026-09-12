@@ -817,6 +817,9 @@ class GenerateRequest(BaseModel):
     audience: str
     language: str = "en"
     analysis_session_id: str | None = None
+    # "full" = the complete IC report; "compact" = the short partner-memo
+    # profile (falls back to full for stages without a compact profile).
+    report_mode: str = "full"
 
 
 class MemoPrepRequest(BaseModel):
@@ -2955,6 +2958,14 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
             detail="Invalid language",
         )
         raise HTTPException(status_code=400, detail="Invalid language")
+    if payload.report_mode not in ("full", "compact"):
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail="Invalid report_mode",
+        )
+        raise HTTPException(status_code=400, detail="Invalid report_mode")
 
     # Investment memos (late-stage and Buffett) route through the prep
     # pipeline (run folder, scope check) instead of the placeholder generator.
@@ -2964,6 +2975,7 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
                 payload.company_id,
                 analysis_session_id=payload.analysis_session_id,
                 report_type=payload.report_type,
+                report_mode=payload.report_mode,
             )
         except memo_prep.AnalysisSessionNotReadyError as exc:
             _record_report_generation_event(

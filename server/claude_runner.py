@@ -3577,11 +3577,31 @@ numbers over abstractions; never "furthermore", "moreover", "notably",
 """
 
 
+MEMO_RISK_REGISTER_CONTRACT_COMPACT = """\
+## Risk Register Format Contract (compact — validated before rendering)
+
+The compact risk section presents the pinned risks as BULLETS, not
+cards and not a table. One bullet per pinned risk, ordered by rating
+highest first, using EXACTLY the pinned risk list:
+
+- Each bullet: the pinned summary VERBATIM (it is already a complete
+  verdict sentence with a finite verb), then " — N/10." with the
+  pinned rating, then ONE clause naming the real mitigation (a company
+  action underway, a deal-structure term, or position sizing) or
+  exactly "No structural mitigation exists."
+- Never a topic label, never a rewritten summary, never a risk the pin
+  sheet does not carry, never a table.
+"""
+
+
 def memo_risk_register_contract(structure=None) -> str:
     """The risk-card contract for one structure: v1 keeps the frozen
     five-row card; the v2 family (any profile with a scorecard) gets the
-    six-row card with the Mitigation row and verdict-sentence headings."""
+    six-row card with the Mitigation row and verdict-sentence headings;
+    compact profiles (risk_format "bullets") get the bullet register."""
     if structure is not None and structure.scorecard_weights():
+        if getattr(structure, "risk_format", "cards") != "cards":
+            return MEMO_RISK_REGISTER_CONTRACT_COMPACT
         return MEMO_RISK_REGISTER_CONTRACT_V2
     return MEMO_RISK_REGISTER_CONTRACT
 
@@ -5047,23 +5067,33 @@ MEMO_STRUCTURE_V2_ADDENDUM = """\
 
 ## Charts (structure v2)
 Where a section contract names a chart slot, emit a `chart` block:
-{"type": "chart", "chart_type": "bar" | "grouped_bar" | "line",
+{"type": "chart",
+ "chart_type": "bar" | "grouped_bar" | "hbar" | "line" | "pie",
  "title": {"en": ..., "zh": ""}, "unit": {"en": "US$B", "zh": ""},
+ "reading": {"en": "Higher is better", "zh": ""},
  "caption": {"en": <one interpretation sentence>, "zh": ""},
  "series": [{"label": "<plain EN string>",
              "points": [{"x": "<label>", "y": <plain number>}, ...]}],
  "source_ids": ["S1", ...]}
+- The contract's chart type is a SUGGESTION: use whichever supported
+  type explains the point best (hbar suits long names; line suits a
+  trajectory; pie suits a composition summing to a whole).
+- `reading` is REQUIRED: one short phrase telling the reader how to
+  read the chart — "Higher is better", "Lower is better", "Bars below
+  1.0x lose money", "Shares of total revenue". When the natural
+  reading has an exception, say it there ("Higher is better — the
+  2027 bar is a company forecast").
 - Numbers only from the section's tables or the pinned fact sheet —
   a chart never introduces a number the text does not carry.
 - `y` is a PLAIN NUMBER in the stated `unit` ("$1.1T" with unit US$B is
   y: 1100). No strings, no ranges; convert carefully.
 - Series labels and x labels are plain English/neutral strings — they
   render inside the image, which is shared by both language documents.
-  `title`, `caption`, and `unit` are bilingual objects like all block
-  text.
+  `title`, `reading`, `caption`, and `unit` are bilingual objects like
+  all block text.
 - 1-4 series; every series shares the same x categories in the same
-  order; `bar` takes exactly one series; at least two data points —
-  a single number is prose, not a chart.
+  order; `bar`, `hbar`, and `pie` take exactly one series; at least
+  two data points — a single number is prose, not a chart.
 - The caption interprets, never restates: what the shape or gap means
   for the thesis.
 - A chart slot whose series is not disclosed emits NO chart block —
@@ -5073,6 +5103,19 @@ Where a section contract names a chart slot, emit a `chart` block:
 ## Explanatory register (structure v2)
 - Headings state the verdict, not the topic: "Revenue forecasting remains
   unreliable", never "Revenue forecast".
+- Answer first: every named verdict passage ("The ceiling question",
+  "Healthier or hungrier", "Widening or narrowing", ...) OPENS with its
+  one-line answer in plain words a reader can quote, then argues it, then
+  restates it. A reader who stops after the first sentence must still
+  have the verdict.
+- Every table is followed by a reading that OPENS with what the numbers
+  MEAN — good, bad, or mixed for this investment, and why — before any
+  numbers repeat. A passage that walks through the data without saying
+  which way it cuts is unfinished, however accurate.
+- Bullets open with the claim, not the topic: the words before the first
+  period carry the direction ("The price sits below every disclosed
+  peer — 13.8x vs a 21x median."), never a naked label ("Price.",
+  "市场规模。").
 - No orphan numbers: every figure is interpreted in the same or the next
   sentence; a paragraph may not end on an uninterpreted figure.
 - After presenting evidence, weigh it explicitly: "The pipeline is valuable
