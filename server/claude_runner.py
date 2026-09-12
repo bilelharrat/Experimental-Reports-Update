@@ -7301,13 +7301,20 @@ def run_memo_fast_english_package_parallel(
 
         def _run_artifacts_agent():
             started = _start_row("English artifacts", "english_artifacts")
+            # Longer leash than the sections: on a 12-section run this
+            # agent queues behind the whole wave under the 10-proc cap,
+            # and the shared 20-minute budget expired in queue+write
+            # (live full run: failed at exactly 1200s → stub artifacts).
+            # It gates nothing — sections never read it — so patience
+            # costs nothing.
+            artifacts_timeout = max(timeout_sec, 2100)
             result, error = run_memo_fast_english_artifacts(
                 run_dir=run_dir,
                 company_name=company_name,
                 common_context=common_context,
                 add_dirs=add_dirs,
                 progress=progress,
-                timeout_sec=timeout_sec,
+                timeout_sec=artifacts_timeout,
             )
             _finish_row(
                 "English artifacts",

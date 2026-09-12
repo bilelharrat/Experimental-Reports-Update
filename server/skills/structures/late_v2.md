@@ -239,6 +239,8 @@ could cap it. Content per subsection:
    regime materially constrains this business today" and say why that
    could change.
 
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 市场空间与增速 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: product_business_model
 ```yaml
 id: product_business_model
@@ -304,6 +306,8 @@ subsection:
    prepayments, and reference checks where disclosed; the missing-data
    sentence where not.
 
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 商业模式与单位经济 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: competitive_landscape
 ```yaml
 id: competitive_landscape
@@ -359,6 +363,8 @@ subsection:
    not the projected leader, say what following the leader is worth at
    this price.
 
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 行业地位 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: moat
 ```yaml
 id: moat
@@ -404,6 +410,8 @@ subsection:
    commoditization of the underlying technology base explicitly, and
    end on one sentence: the moat is widening / stable / narrowing, and
    what that implies for exit multiple assumptions.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 护城河 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: financial_analysis
 ```yaml
@@ -469,6 +477,8 @@ the forecast deserves belief. Content per subsection:
    cheaper or dearer to buy, and what follows for the financing risk.
    Open with the one-line answer; end by restating the verdict.
 
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 收入增长与质量 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: team_governance
 ```yaml
 id: team_governance
@@ -527,6 +537,8 @@ per subsection:
 5. Public-company readiness: audit history, financial reporting
    cadence, missing officers, related-party exposure — each stated as
    fact plus consequence, not as a checklist.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 团队与治理 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: valuation
 ```yaml
@@ -595,6 +607,8 @@ is worth on the evidence. Content per subsection:
    oversubscription, insider support, or a stale mark — read it both
    as validation and as adverse-selection risk, then say which reading
    the evidence favors.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 估值 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: returns_exit
 ```yaml
@@ -669,6 +683,8 @@ the money actually comes back. Content per subsection:
    and show what happens to this round's money, in dollars and MOIC,
    before later dilution. Open with the one-line answer; end by restating the verdict.
 
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 退出确定性 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: investment_risk
 ```yaml
 id: investment_risk
@@ -727,6 +743,8 @@ not listed. Content per subsection:
    events (which risk fires first, what it triggers), ending in the
    pinned bear numbers. Then weigh the rated risks against the return
    analysis in one short paragraph, ending on a verdict sentence.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 风险收益比 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: investment_decision
 ```yaml

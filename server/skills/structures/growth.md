@@ -175,6 +175,8 @@ Content per subsection:
    organization looks like without its founder for a quarter. Open
    with the one-line answer; end by restating the verdict.
 
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 团队与治理 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: market_industry
 ```yaml
 id: market_industry
@@ -223,6 +225,8 @@ needs. Content per subsection:
    assumption moves the band, open with the one-line answer; restate the verdict last.
 5. Policy & regulation — never silently omitted; when nothing applies,
    say so and say what could change it.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 市场空间与增速 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: product_business_model
 ```yaml
@@ -283,6 +287,8 @@ machine yet. Content per subsection:
 6. Repeatability: what fraction of revenue was founder-sold vs
    rep-sold, ramp time of the last cohort of reps, and the verdict on
    whether the motion scales with money.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 商业模式与单位经济 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: competition_moat
 ```yaml
@@ -348,6 +354,8 @@ company getting noticed. Content per subsection:
 6. Number one — now and in five years: who leads today, who most
    likely leads in 3-5 years, and why. Open with the one-line answer; end by restating the verdict.
 
+Close this section with its pinned scorecard sentences — one per dimension, "This dimension scores N of M." for 行业地位、护城河 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: financial_analysis
 ```yaml
 id: financial_analysis
@@ -407,6 +415,8 @@ of it costs. Content per subsection:
 5. Healthier or hungrier: is incremental revenue getting cheaper or
    dearer, and what that means for how many more rounds this company
    needs. Open with the one-line answer; end by restating the verdict.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 收入增长与质量 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: valuation_returns_exit
 ```yaml
@@ -495,6 +505,8 @@ in each world, and how the money comes back. Content per subsection:
    milestones over the next 12-36 months, each with the metric it
    moves and what hitting or missing it does to the thesis.
 
+Close this section with its pinned scorecard sentences — one per dimension, "This dimension scores N of M." for 估值、退出确定性 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: investment_risk
 ```yaml
 id: investment_risk
@@ -547,6 +559,8 @@ subsections:
 4. Downside scenario & verdict: the bear case narrated as a sequence
    of events ending in the pinned bear numbers, then the closing
    risk/reward verdict paragraph.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 风险收益比 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: investment_decision
 ```yaml

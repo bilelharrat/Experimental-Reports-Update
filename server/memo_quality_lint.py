@@ -133,7 +133,15 @@ _PACKET_PROCESS_LABEL_PATTERNS = (
     re.compile(r"\bDesign prompt\b", re.IGNORECASE),
     re.compile(r"\bReviewer prompts?\b", re.IGNORECASE),
     re.compile(r"\bNarrative reviewer prompts?\b", re.IGNORECASE),
-    re.compile(r"\bConfidence\s*:", re.IGNORECASE),
+    # A copied packet label is "Confidence: High" — the label plus a
+    # rating. Bare "confidence:" fires on ordinary prose punctuation
+    # ("...with much confidence: at $2T the...") and survived THREE
+    # repair attempts in a live run because no rewording removes a colon
+    # the writer cannot see as the trigger.
+    re.compile(
+        r"\bConfidence\s*:\s*(?:very\s+)?(?:high|medium|moderate|low|\d)",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bSource traces?\b", re.IGNORECASE),
     re.compile(r"\bsource[-_ ]trace notes?\b", re.IGNORECASE),
     re.compile(r"\bNo-go\b", re.IGNORECASE),
@@ -302,7 +310,18 @@ _META_LANGUAGE_PATTERNS = (
     re.compile(r"\b(?:the|this|our) memo\b", re.IGNORECASE),
     re.compile(r"\b(?:the|this|our) analysis\b", re.IGNORECASE),
     re.compile(r"\b(?:the|this|our) framework\b", re.IGNORECASE),
-    re.compile(r"\b(?:the|this|our) section\b", re.IGNORECASE),
+    # Scaffold references only ("This section examines...", "in this
+    # section, we..."): the answer-first register legitimately writes
+    # "the strongest number in the section" and "every other risk in
+    # this section works through that channel" — both burned repair
+    # cycles in a live full run.
+    re.compile(
+        r"\b(?:the|this) section,?\s+(?:we|will|discusses|examines|covers|"
+        r"outlines|reviews|summari[sz]es|analy[sz]es|addresses|turns|"
+        r"presents|explores)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bour section\b", re.IGNORECASE),
     re.compile(r"\b(?:the|this|our) document\b", re.IGNORECASE),
     re.compile(r"\bmemo language was\b", re.IGNORECASE),
     re.compile(r"\bthe sponsor (?:itself )?(?:implies|frames|flags)\b", re.IGNORECASE),
@@ -583,7 +602,13 @@ def _lint_blocks(
                     )
                 )
 
-        for pattern in _SELL_SIDE_BANNED_PATTERNS:
+        # The Sources index describes how each source shaped the memo —
+        # "which is why the recommendation is capped at..." is treatment
+        # language there, not body voice (two live source cells burned a
+        # repair cycle on exactly that).
+        for pattern in (
+            () if block.allowed_trace_section else _SELL_SIDE_BANNED_PATTERNS
+        ):
             match = pattern.search(block.text)
             if match:
                 findings.append(

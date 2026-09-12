@@ -171,6 +171,8 @@ section earns or denies them. Content per subsection:
    what the problem actually requires; name the gap the next two hires
    must fill. Open with the one-line answer; end by restating the verdict.
 
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 团队与治理 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: market_thesis
 ```yaml
 id: market_thesis
@@ -220,6 +222,8 @@ Content per subsection:
    market bet is most of the bet: if everything works, is this a $500M
    company or a $20B one, and which assumption decides it. Verdict
    sentence last.
+
+Close this section with its pinned scorecard sentences — one per dimension, "This dimension scores N of M." for 市场空间与增速、行业地位 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: product_traction
 ```yaml
@@ -278,6 +282,8 @@ Content per subsection:
    this works, what accumulates (data, network, switching cost, brand)
    that a copy cannot shortcut? At this stage the answer is potential,
    and is labeled as such.
+
+Close this section with its pinned scorecard sentences — one per dimension, "This dimension scores N of M." for 护城河、收入增长与质量、商业模式与单位经济 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: deal_returns
 ```yaml
@@ -345,6 +351,8 @@ requires. Content per subsection:
 5. Do the terms pay for the risk: the price against the bet, in two or
    three sentences. Open with the one-line answer; end by restating the verdict.
 
+Close this section with its pinned scorecard sentences — one per dimension, "This dimension scores N of M." for 估值、退出确定性 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
+
 ## section: risks_milestones
 ```yaml
 id: risks_milestones
@@ -401,6 +409,8 @@ Content per subsection:
    Milestone | Expected date | Risk it retires | What missing it
    means. This is the spending plan for the raise, read as evidence.
 5. Risk/reward verdict: the closing risk/reward verdict paragraph.
+
+Close this section with its pinned scorecard sentence — "This dimension scores N of M." for 风险收益比 — repeated verbatim from the shared fact sheet (the pin-echo gate rejects the section without it, and a regenerated section drops it most often).
 
 ## section: investment_decision
 ```yaml
