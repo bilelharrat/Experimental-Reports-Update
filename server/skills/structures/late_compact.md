@@ -57,9 +57,12 @@ range, the entry terms, every risk summary verbatim with its rating,
 and each owning section's scorecard sentence ("This dimension scores
 N of M.") must appear in this memo — the pin-echo gate rejects the
 package otherwise, however elegant the prose. Section word budgets are
-CEILINGS, not targets: a section past its budget cuts commentary — one
-bullet per point, one clause per judgment — until it fits. When in
-doubt, cut; the full report exists for depth. Every section is organized
+CEILINGS, not targets: each section's `budget_words` (in its yaml) is
+the hard maximum for ALL its English text — table cells included — and
+a deterministic gate rejects a section over it. A section past its
+budget cuts commentary — one bullet per point, one clause per
+judgment — until it fits. When in doubt, cut; the full report exists
+for depth. Every section is organized
 under its declared numbered subsections; the run-wide data-honesty,
 navigation, and chart rules ride the shared context. Bullets, not
 paragraphs, are the default: prose only where an argument genuinely
@@ -68,6 +71,7 @@ needs consecutive sentences.
 ## section: executive_summary
 ```yaml
 id: executive_summary
+budget_words: 600
 en_title: Executive Summary
 zh_title: 执行摘要
 parity_en: ^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\s*[:：]?\s*$
@@ -115,6 +119,7 @@ subsections:
 ## section: company_team
 ```yaml
 id: company_team
+budget_words: 750
 scorecard_dimensions:
 - team_governance
 en_title: Company, Team & Deal
@@ -170,6 +175,7 @@ subsections:
 ## section: thesis_market
 ```yaml
 id: thesis_market
+budget_words: 650
 scorecard_dimensions:
 - market_size_growth
 - industry_position
@@ -218,6 +224,7 @@ subsections:
 ## section: business_financials
 ```yaml
 id: business_financials
+budget_words: 600
 scorecard_dimensions:
 - business_model_ue
 - revenue_growth_quality
@@ -262,6 +269,7 @@ subsections:
 ## section: valuation_returns
 ```yaml
 id: valuation_returns
+budget_words: 750
 scorecard_dimensions:
 - valuation
 - exit_certainty
@@ -313,6 +321,7 @@ subsections:
 ## section: risks
 ```yaml
 id: risks
+budget_words: 500
 scorecard_dimensions:
 - risk_reward
 en_title: Risks
@@ -358,6 +367,7 @@ subsections:
 ## section: investment_decision
 ```yaml
 id: investment_decision
+budget_words: 700
 en_title: Investment Decision
 zh_title: 投资决定
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?(?:final\s+)?investment\s+decision\s*[:：]?\s*$

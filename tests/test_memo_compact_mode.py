@@ -371,3 +371,40 @@ def test_artifacts_prompt_matches_schema_cap(monkeypatch, tmp_path):
     assert f"{schema_cap:,}" in prompt
     assert "8,000" not in prompt
     assert "Do NOT draft them in scratch files" in prompt
+
+
+# ---- word-budget ceiling gate -----------------------------------------------
+
+
+def test_compact_declares_word_ceilings():
+    for section in COMPACT.sections:
+        assert section.budget_words, section.id
+    # full profiles carry no ceiling — the gate must not touch them
+    for section in memo_structure.load_structure("late", 2).sections:
+        assert section.budget_words is None
+
+
+def test_word_budget_gate_flags_overrun_and_accepts_fit():
+    package = _compact_package()
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert not [e for e in errors if "word" in e and "ceiling" in e], errors
+    risks = next(s for s in package["sections"] if s["id"] == "risks")
+    risks["blocks"].append(
+        {
+            "type": "paragraph",
+            "text": {"en": "filler word " * 300, "zh": ""},
+        }
+    )
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    overruns = [e for e in errors if "ceiling" in e]
+    assert len(overruns) == 1 and "section risks" in overruns[0]
+    assert "500-word ceiling" in overruns[0]
+
+
+def test_money_parser_handles_digit_grouping():
+    from server import memo_pin_check
+
+    assert memo_pin_check._parse_money("$1,950B") == 1_950_000_000_000
+    assert memo_pin_check._parse_money("$1,200 billion") == 1_200_000_000_000
+    assert memo_pin_check._parse_money("$1.95T") == 1_950_000_000_000
+    assert memo_pin_check._parse_money("$965B") == 965_000_000_000

@@ -420,6 +420,59 @@ def english_package_validation_errors(package: Any) -> list[str]:
     errors.extend(_subsection_heading_errors(filled))
     errors.extend(_exec_summary_format_errors(filled))
     errors.extend(_chart_reading_errors(filled))
+    errors.extend(_word_budget_errors(filled))
+    return errors
+
+
+def _section_en_word_count(section: dict) -> int:
+    """All English words in a section's blocks — prose, bullets, table
+    cells, chart captions alike. What the reader has to get through."""
+    words = 0
+
+    def walk(value: Any) -> None:
+        nonlocal words
+        if isinstance(value, dict):
+            if "en" in value:
+                words += len(str(value.get("en") or "").split())
+            else:
+                for item in value.values():
+                    walk(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                walk(item)
+
+    walk(section.get("blocks") or [])
+    return words
+
+
+def _word_budget_errors(package: dict) -> list[str]:
+    """Generation-time gate for profiles that declare hard word ceilings
+    (compact only). Prose budgets alone failed twice live (5.2K and
+    5.5K words against a 2.6-3.2K target); the ceiling is deterministic
+    so the retry loop can enforce it."""
+    sections = package.get("sections")
+    if not isinstance(sections, list):
+        return []
+    structure = _structure_for(package)
+    errors: list[str] = []
+    by_id = {
+        str(s.get("id") or ""): s for s in sections if isinstance(s, dict)
+    }
+    for sdef in structure.sections:
+        if not sdef.budget_words:
+            continue
+        section = by_id.get(sdef.id)
+        if section is None:
+            continue
+        count = _section_en_word_count(section)
+        if count > sdef.budget_words:
+            errors.append(
+                f"section {sdef.id} runs {count} English words against its "
+                f"{sdef.budget_words}-word ceiling — this is the COMPACT "
+                "memo: cut commentary (one bullet per point, one clause per "
+                "judgment) until it fits; never cut pinned facts, "
+                "subsection headings, or the scorecard sentences"
+            )
     return errors
 
 

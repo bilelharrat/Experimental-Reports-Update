@@ -74,6 +74,11 @@ class SectionDef:
     scorecard_dimensions: tuple[str, ...] = ()
     # Fixed numbered subsections (v2-family profiles); empty for late v1.
     subsections: tuple[SubsectionDef, ...] = ()
+    # Hard English word ceiling for the whole section (all `en` text,
+    # table cells included), enforced by a generation-time gate. None =
+    # no gate — declared only by compact profiles, whose prose budgets
+    # alone failed to keep sections short in two live runs.
+    budget_words: int | None = None
 
 
 @dataclass(frozen=True)
@@ -373,6 +378,9 @@ def load_structure(stage: str, version: int = 1) -> MemoStructure:
             subsections=tuple(
                 SubsectionDef(en=str(sub["en"]), zh=str(sub["zh"]))
                 for sub in s.get("subsections") or ()
+            ),
+            budget_words=(
+                int(s["budget_words"]) if s.get("budget_words") else None
             ),
         )
         for s in profile["section_list"]

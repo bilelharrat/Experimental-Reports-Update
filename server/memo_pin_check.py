@@ -490,7 +490,10 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
 
 
 _MONEY_RE = re.compile(
-    r"\$?\s*(\d+(?:\.\d+)?)\s*(t(?:n|rillion)?|b(?:n|illion)?|m(?:m|illion)?|k)?\b",
+    # Digit grouping first, so "$1,950B" reads 1950, not 1 (a live spine
+    # respin traced to exactly that: base MOIC vs "~0.0x", 2026-09-12).
+    r"\$?\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
+    r"\s*(t(?:n|rillion)?|b(?:n|illion)?|m(?:m|illion)?|k)?\b",
     re.IGNORECASE,
 )
 _MOIC_RE = re.compile(r"(\d+(?:\.\d+)?)\s*x", re.IGNORECASE)
@@ -516,7 +519,7 @@ def _parse_money(text: str) -> float | None:
     match = _MONEY_RE.search(str(text or ""))
     if not match:
         return None
-    value = float(match.group(1))
+    value = float(match.group(1).replace(",", ""))
     suffix = (match.group(2) or "").lower()
     if suffix.startswith("t"):
         return value * 1_000_000_000_000
