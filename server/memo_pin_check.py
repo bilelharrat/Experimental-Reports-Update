@@ -516,7 +516,18 @@ _FINITE_VERB_RE = re.compile(
 
 
 def _parse_money(text: str) -> float | None:
-    match = _MONEY_RE.search(str(text or ""))
+    """Parse the money value a pin string carries.
+
+    Prefer the first match that carries a scale suffix: pins like
+    "2029: $2.6T" or "$1.9-2.3T" lead with a bare number (a year, a
+    range's low end) that a first-match parse mistakes for the value —
+    the "~0.0x" MOIC false positive that cost a spine respin in two
+    consecutive live runs. A string with no suffixed match still parses
+    its first number."""
+    matches = list(_MONEY_RE.finditer(str(text or "")))
+    match = next((m for m in matches if m.group(2)), None) or (
+        matches[0] if matches else None
+    )
     if not match:
         return None
     value = float(match.group(1).replace(",", ""))

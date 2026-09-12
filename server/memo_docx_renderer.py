@@ -465,7 +465,10 @@ def _word_budget_errors(package: dict) -> list[str]:
         if section is None:
             continue
         count = _section_en_word_count(section)
-        if count > sdef.budget_words:
+        # 5% grace: a marginal overshoot (618 vs 600 live) is not worth
+        # a full section re-emit; the gate is for real blowouts (1435
+        # vs 750 in the same run).
+        if count > sdef.budget_words * 1.05:
             errors.append(
                 f"section {sdef.id} runs {count} English words against its "
                 f"{sdef.budget_words}-word ceiling — this is the COMPACT "

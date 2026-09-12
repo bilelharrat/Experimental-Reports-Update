@@ -408,3 +408,8 @@ def test_money_parser_handles_digit_grouping():
     assert memo_pin_check._parse_money("$1,200 billion") == 1_200_000_000_000
     assert memo_pin_check._parse_money("$1.95T") == 1_950_000_000_000
     assert memo_pin_check._parse_money("$965B") == 965_000_000_000
+    # A leading bare number (a year, a range's low end) must not shadow
+    # the suffixed value — the "~0.0x" MOIC respin in two live runs.
+    assert memo_pin_check._parse_money("2029: $2.6T") == 2_600_000_000_000
+    assert memo_pin_check._parse_money("$1.9-2.3T") == 2_300_000_000_000
+    assert memo_pin_check._parse_money("2028E, $190B") == 190_000_000_000
