@@ -344,6 +344,9 @@ def test_linter_blocks_meta_process_language(tmp_path):
 
 
 def test_linter_blocks_meta_process_language_in_source_index(tmp_path):
+    """Possessive and process forms stay banned even in Section VI —
+    only the memo/document references ("the memo", "this memo") are
+    treatment language there."""
     path = tmp_path / "source-index-meta-process.docx"
     _save_docx(
         path,
@@ -351,7 +354,7 @@ def test_linter_blocks_meta_process_language_in_source_index(tmp_path):
             "I. Executive Summary",
             "Recommendation: BSH commits capital where valuation support is visible.",
             "VI. Sources, Source Classes, and Fact Reference Index",
-            "[S1] Company materials, used for this memo.",
+            "[S1] Company materials; our analysis weighs them lightly.",
         ],
     )
 
@@ -360,13 +363,15 @@ def test_linter_blocks_meta_process_language_in_source_index(tmp_path):
 
     assert result.has_blocking_findings is True
     assert any(f.code == "meta_process_language" for f in result.findings)
-    assert "this memo" in snippets
+    assert "our analysis" in snippets
 
 
 def test_linter_allows_neutral_meta_references_in_source_index(tmp_path):
     """Section VI describes the memo's own sourcing by definition — the
-    2026-08-28 benchmark runs both burned a surgical-repair round on these
-    exact neutral-article phrasings. Demonstrative forms stay banned."""
+    2026-08-28 benchmark runs both burned a surgical-repair round on
+    neutral-article phrasings, and the 2026-09-12 compact run burned a
+    full regeneration on the demonstrative form. Both are treatment
+    language in the index; possessive/process forms stay banned."""
     path = tmp_path / "source-index-neutral-meta.docx"
     _save_docx(
         path,
@@ -391,11 +396,13 @@ def test_linter_allows_neutral_meta_references_in_source_index(tmp_path):
     meta = [f for f in result.findings if f.code == "meta_process_language"]
     snippets = " ".join(f.snippet for f in meta)
 
-    # Neutral-article references in the index are treatment language.
+    # Article and demonstrative references in the index are treatment
+    # language — the sources contract itself says how "the memo weighs
+    # and uses this source", and a live compact run burned a full
+    # regeneration on "in this memo" inside a treatment cell.
     assert "the memo" not in snippets
     assert "the registry" not in snippets
-    # The demonstrative form is still process leakage, even in Section VI.
-    assert "this memo" in snippets
+    assert "this memo" not in snippets
 
 
 def test_linter_allows_mandatory_disclosure_language(tmp_path):
