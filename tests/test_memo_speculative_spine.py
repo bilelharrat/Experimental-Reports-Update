@@ -123,11 +123,23 @@ def test_speculate_require_helper(monkeypatch):
     for off in ("", "none", "NONE", "0", "  none  "):
         monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", off)
         assert claude_runner._memo_spine_speculate_require() == frozenset()
+    # The env var ADDS to the code default — it can never remove a
+    # pin-feeding pass. A live .env pinning the pre-rebuild three-pass
+    # list exempted valuation_comps/exit_paths and made every v2 run's
+    # delta check stale; additive semantics make that override harmless.
     monkeypatch.setenv(
         "BSH_MEMO_SPINE_SPECULATE_REQUIRE", " time_base, growth_bridge ,"
     )
-    assert claude_runner._memo_spine_speculate_require() == frozenset(
-        {"time_base", "growth_bridge"}
+    assert (
+        claude_runner._memo_spine_speculate_require()
+        == claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
+    )
+    monkeypatch.setenv(
+        "BSH_MEMO_SPINE_SPECULATE_REQUIRE", "competitive_rights"
+    )
+    assert claude_runner._memo_spine_speculate_require() == (
+        claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
+        | {"competitive_rights"}
     )
 
 
@@ -216,7 +228,8 @@ def test_require_none_restores_count_only_launch(tmp_path, monkeypatch):
 
 
 def test_require_unknown_ids_are_filtered(tmp_path, monkeypatch):
-    # An env typo must not silently disable speculation for the whole run.
+    # An env typo adds nothing (unknown ids are dropped against the
+    # run's pass list) and cannot weaken the default pin-affine gate.
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", "bogus_pass")
     monkeypatch.setattr(
         claude_runner,
@@ -226,9 +239,32 @@ def test_require_unknown_ids_are_filtered(tmp_path, monkeypatch):
     spec = _speculator(tmp_path, threshold=4)
     for pass_id in _PASS_IDS[3:7]:
         spec.note_pass_result(pass_id, True)
+    # Count met, but the default pin-feeding passes still gate the launch.
+    assert spec.launched is False
+    for pass_id in ("arithmetic_denominators", "time_base", "growth_bridge"):
+        spec.note_pass_result(pass_id, True)
     assert spec.launched is True
     spec.consume()
     spec.shutdown()
+
+
+def test_pin_feeding_passes_dispatch_in_the_immediate_pool_window():
+    """Dispatch order is execution order: the pass pool runs the first
+    max-workers specs immediately and queues the rest. Every pin-feeding
+    pass must sit in the immediate window, or it always finishes last
+    and the speculative spine either waits out its whole benefit or
+    (with a weakened gate) respins stale — the observed 3-for-3 stale
+    delta checks traced to valuation_comps/exit_paths being the two
+    queued passes."""
+    from server import memo_analysis
+
+    ordered_ids = [spec.pass_id for spec in memo_analysis._FAST_MEMO_PASSES]
+    window = set(ordered_ids[: memo_analysis._memo_fast_max_workers()])
+    missing = claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES - window
+    assert not missing, (
+        f"pin-feeding passes {sorted(missing)} are queued behind the "
+        f"{memo_analysis._memo_fast_max_workers()}-slot pool"
+    )
 
 
 def test_spine_prompt_carries_speculative_block(tmp_path, monkeypatch):

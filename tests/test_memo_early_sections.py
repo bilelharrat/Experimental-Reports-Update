@@ -5,7 +5,17 @@ import json
 import threading
 from pathlib import Path
 
+import pytest
+
 from server import claude_runner, memo_analysis
+
+
+@pytest.fixture(autouse=True)
+def _pin_speculate_require(monkeypatch):
+    """server.main loads the machine-local .env into os.environ
+    mid-suite; a BSH_MEMO_SPINE_SPECULATE_REQUIRE there widens the
+    launch gate and changes when the speculator launches."""
+    monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", raising=False)
 
 
 def _loc(en: str) -> dict:
@@ -14,13 +24,16 @@ def _loc(en: str) -> dict:
 
 _PASS_IDS = [spec.pass_id for spec in memo_analysis._FAST_MEMO_PASSES]
 
-# The six passes noted first in these tests: satisfies the affinity of
-# every early-startable section except company_overview (whose two affine
-# passes are the two stragglers).
-_FIRST_SIX = [
+# The passes noted first in these tests: every pin-feeding pass (the
+# spine's launch gate) plus enough color to satisfy the affinity of
+# every early-startable section except company_overview (whose two
+# affine passes are the two stragglers).
+_FIRST_EIGHT = [
     "arithmetic_denominators",
     "time_base",
     "growth_bridge",
+    "valuation_comps",
+    "exit_paths",
     "replacement_coexistence",
     "competitive_rights",
     "alternative_explanations",
@@ -144,14 +157,14 @@ def test_sections_start_only_after_spine_and_their_affine_passes(
         claude_runner, "_run_english_section", _fake_section(section_calls)
     )
     spec = _speculator(tmp_path)
-    for pass_id in _FIRST_SIX:
+    for pass_id in _FIRST_EIGHT:
         spec.note_pass_result(pass_id, True)
     # Spine still gated: nothing may start.
     assert spec.had_early_sections is False
     gate.set()
     result, reason = spec.consume()
     assert reason is None and isinstance(result, dict)
-    # Spine done + six passes: three sections are affinity-satisfied;
+    # Spine done + eight passes: three sections are affinity-satisfied;
     # company_overview waits on the two stragglers.
     started = set(spec.early_futures())
     assert started == {

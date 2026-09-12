@@ -5796,15 +5796,23 @@ def _memo_spine_speculate_require() -> frozenset[str]:
     launch gate. When these finish last, the spine simply waits and the
     run degrades to normal spine timing instead of a likely stale respin.
     A failed pass counts as satisfied: it will never land an artifact, so
-    there is nothing to wait for. Override with a comma-separated pass-id
-    list in BSH_MEMO_SPINE_SPECULATE_REQUIRE; "none" (or empty) restores
-    the count-only launch."""
+    there is nothing to wait for.
+
+    BSH_MEMO_SPINE_SPECULATE_REQUIRE ADDS pass ids to the code default
+    (comma-separated); "none" (or empty) restores the count-only launch.
+    It used to REPLACE the default, and an owner .env pinning the pre-
+    rebuild three-pass list silently exempted valuation_comps/exit_paths
+    when they joined the pin sheet — every v2 run then speculated without
+    its fair-value inputs and lost ~10 minutes to a guaranteed stale
+    respin (observed three for three on 2026-09-11/12). Additive
+    semantics make a stale override harmless."""
     raw = os.environ.get("BSH_MEMO_SPINE_SPECULATE_REQUIRE")
     if raw is None:
         return MEMO_SPINE_PIN_FEEDING_PASSES
     if raw.strip().lower() in {"", "none", "0"}:
         return frozenset()
-    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+    extra = frozenset(part.strip() for part in raw.split(",") if part.strip())
+    return MEMO_SPINE_PIN_FEEDING_PASSES | extra
 
 
 MEMO_SPINE_DELTA_CHECK_SCHEMA: dict[str, Any] = {
@@ -5815,7 +5823,10 @@ MEMO_SPINE_DELTA_CHECK_SCHEMA: dict[str, Any] = {
         "reasons": {
             "type": "array",
             "maxItems": 6,
-            "items": {"type": "string", "maxLength": 300},
+            # 300 forced a StructuredOutput reject+retry on a 346-char
+            # reason in a live run; stale reasons legitimately quote two
+            # conflicting ranges plus their source.
+            "items": {"type": "string", "maxLength": 600},
         },
     },
     "required": ["pins_stale"],

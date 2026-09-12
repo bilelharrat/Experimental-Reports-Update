@@ -394,23 +394,30 @@ _FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
         ),
     ),
     _FastMemoPassSpec(
-        pass_id="deployment_behavior",
-        label="Adoption ladder",
-        artifact_filename="adoption_ladder.md",
+        pass_id="valuation_comps",
+        label="Valuation comparables",
+        artifact_filename="valuation_comps.md",
         focus=(
-            "Assess deployment depth and adoption maturity by product/use case. "
-            "Separate announced, pilot, named production, repeatable production, "
-            "renewal/upsell, and broad deployment evidence."
+            "Build the comparables set with growth-adjusted multiples, "
+            "collect precedent transactions, judge which of the three "
+            "methods (comps / precedents / DCF-earnings-power) can be run "
+            "on the disclosures and why the others cannot, and derive an "
+            "implied fair-value range with the arithmetic shown. Translate "
+            "the entry price into what growth and margin it already pays "
+            "for."
         ),
     ),
     _FastMemoPassSpec(
-        pass_id="gtm_operating_burden",
-        label="Distribution / GTM",
-        artifact_filename="distribution_notes.md",
+        pass_id="exit_paths",
+        label="Exit paths",
+        artifact_filename="exit_paths.md",
         focus=(
-            "Assess distribution model, customer acquisition path, sales cycle, "
-            "implementation burden, budget owner, channel leverage, carrier or "
-            "enterprise access, and GTM strain."
+            "Map the realistic exits: IPO readiness and timing evidence, "
+            "M&A with named plausible acquirers and the strategic or "
+            "antitrust constraint on each, secondary-market depth for this "
+            "name, dated catalysts over the next 12-36 months, and the "
+            "exit-year/multiple scaffolding a scenario table needs "
+            "(bear/base/bull exit valuations with dilution assumptions)."
         ),
     ),
     _FastMemoPassSpec(
@@ -471,31 +478,31 @@ _FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
             "from company-claimed bios."
         ),
     ),
+    # Dispatch order is execution order: the pool runs the first
+    # max-workers specs immediately and queues the rest, so the two
+    # tail passes always finish last. Keep every pass in
+    # MEMO_SPINE_PIN_FEEDING_PASSES inside the immediate window (the
+    # speculative spine holds its launch for them) and park the most
+    # section-local color passes in the queue — their late arrival is
+    # what the delta check is FOR, and it reads them as additive.
     _FastMemoPassSpec(
-        pass_id="valuation_comps",
-        label="Valuation comparables",
-        artifact_filename="valuation_comps.md",
+        pass_id="deployment_behavior",
+        label="Adoption ladder",
+        artifact_filename="adoption_ladder.md",
         focus=(
-            "Build the comparables set with growth-adjusted multiples, "
-            "collect precedent transactions, judge which of the three "
-            "methods (comps / precedents / DCF-earnings-power) can be run "
-            "on the disclosures and why the others cannot, and derive an "
-            "implied fair-value range with the arithmetic shown. Translate "
-            "the entry price into what growth and margin it already pays "
-            "for."
+            "Assess deployment depth and adoption maturity by product/use case. "
+            "Separate announced, pilot, named production, repeatable production, "
+            "renewal/upsell, and broad deployment evidence."
         ),
     ),
     _FastMemoPassSpec(
-        pass_id="exit_paths",
-        label="Exit paths",
-        artifact_filename="exit_paths.md",
+        pass_id="gtm_operating_burden",
+        label="Distribution / GTM",
+        artifact_filename="distribution_notes.md",
         focus=(
-            "Map the realistic exits: IPO readiness and timing evidence, "
-            "M&A with named plausible acquirers and the strategic or "
-            "antitrust constraint on each, secondary-market depth for this "
-            "name, dated catalysts over the next 12-36 months, and the "
-            "exit-year/multiple scaffolding a scenario table needs "
-            "(bear/base/bull exit valuations with dilution assumptions)."
+            "Assess distribution model, customer acquisition path, sales cycle, "
+            "implementation burden, budget owner, channel leverage, carrier or "
+            "enterprise access, and GTM strain."
         ),
     ),
 )
