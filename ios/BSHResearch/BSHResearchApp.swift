@@ -9,6 +9,7 @@ struct BSHResearchApp: App {
     @StateObject private var desk = DeskStore()
     @StateObject private var askPersona = AskPersonaStore()
     @StateObject private var router = DeepLinkRouter()
+    @StateObject private var dataCache = AppDataCache.shared
 
     var body: some Scene {
         WindowGroup {
@@ -19,6 +20,10 @@ struct BSHResearchApp: App {
                 .environmentObject(desk)
                 .environmentObject(askPersona)
                 .environmentObject(router)
+                .environmentObject(dataCache)
+                .task {
+                    await dataCache.preloadAll(lang: language.language)
+                }
                 // Read `language.language` (not only the computed locale) so App
                 // body invalidates; `.id` forces TabView chrome to rebuild with
                 // fresh `language.t(...)` strings after an in-app switch.
@@ -35,6 +40,39 @@ struct BSHResearchApp: App {
                         router.pending = link
                     }
                 }
+        }
+
+        WindowGroup(id: "reports") {
+            ReportsWindowRootView()
+                .environmentObject(session)
+                .environmentObject(language)
+                .environmentObject(appearance)
+                .environmentObject(desk)
+                .environmentObject(askPersona)
+                .environmentObject(router)
+                .environmentObject(dataCache)
+                .environment(\.locale, Locale(identifier: language.language.localeIdentifier))
+                .id(language.language)
+                .preferredColorScheme(appearance.appearance.colorScheme)
+        }
+
+        WindowGroup(id: "report-detail", for: String.self) { $reportId in
+            if let id = reportId {
+                NavigationStack {
+                    ReportDetailView(reportId: id)
+                        .id(id)
+                }
+                .environmentObject(session)
+                .environmentObject(language)
+                .environmentObject(appearance)
+                .environmentObject(desk)
+                .environmentObject(askPersona)
+                .environmentObject(router)
+                .environmentObject(dataCache)
+                .environment(\.locale, Locale(identifier: language.language.localeIdentifier))
+                .id(language.language)
+                .preferredColorScheme(appearance.appearance.colorScheme)
+            }
         }
     }
 }

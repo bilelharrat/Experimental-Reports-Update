@@ -1,12 +1,14 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var language: LanguageStore
     @EnvironmentObject private var appearance: AppearanceStore
     @EnvironmentObject private var askPersona: AskPersonaStore
     @State private var baseURL: String = AppGroupStore.loadBaseURL() ?? AppConfig.baseURL.absoluteString
     @State private var savedPulse = false
+    @State private var showAlerts = false
 
     var body: some View {
         NavigationStack {
@@ -29,6 +31,27 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                }
+
+                Section {
+                    Button {
+                        showAlerts = true
+                    } label: {
+                        HStack {
+                            Label {
+                                Text(language.t("alerts.title"))
+                            } icon: {
+                                SettingsIcon(symbol: "bell.fill", color: .red)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } header: {
+                    Text(language.t("alerts.title"))
                 }
 
                 Section {
@@ -140,7 +163,16 @@ struct SettingsView: View {
                 }
             }
             .readableContentWidth()
-            .compactRootChrome(title: language.t("tab.settings"))
+            .compactRootChrome(title: language.t("tab.settings")) {
+                Button(language.t("common.done")) {
+                    dismiss()
+                }
+                .font(.body.weight(.semibold))
+            }
+            .sheet(isPresented: $showAlerts) {
+                AlertsView()
+                    .bshSheetChrome()
+            }
         }
     }
 

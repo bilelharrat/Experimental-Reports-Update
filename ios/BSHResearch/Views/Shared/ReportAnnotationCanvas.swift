@@ -1,14 +1,123 @@
+import PDFKit
 import PencilKit
+import QuickLook
 import SwiftUI
 import UIKit
+import WebKit
 
-/// Transparent PencilKit canvas for freehand ink over a document preview (DOCX / QL fallback).
+// MARK: - Document Converter (DOCX to PDF)
+
+@MainActor
+final class DocumentConverter: NSObject, WKNavigationDelegate {
+    static let shared = DocumentConverter()
+    private var webView: WKWebView?
+    private var continuation: CheckedContinuation<URL?, Never>?
+    private var targetURL: URL?
+
+    func convertDocxToPDF(sourceURL: URL, destinationURL: URL) async -> URL? {
+        if sourceURL.pathExtension.lowercased() == "pdf" {
+            return sourceURL
+        }
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            return destinationURL
+        }
+
+        return await withCheckedContinuation { cont in
+            self.continuation = cont
+            self.targetURL = destinationURL
+            let config = WKWebViewConfiguration()
+            let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 612, height: 792), configuration: config)
+            wv.navigationDelegate = self
+            self.webView = wv
+            wv.loadFileURL(sourceURL, allowingReadAccessTo: sourceURL.deletingLastPathComponent())
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor in
+            let config = WKPDFConfiguration()
+            webView.createPDF(configuration: config) { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .success(let data):
+                    if let dest = self.targetURL {
+                        try? data.write(to: dest, options: .atomic)
+                        self.continuation?.resume(returning: dest)
+                    } else {
+                        self.continuation?.resume(returning: nil)
+                    }
+                case .failure:
+                    self.continuation?.resume(returning: nil)
+                }
+                self.continuation = nil
+                self.webView = nil
+            }
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        Task { @MainActor in
+            self.continuation?.resume(returning: nil)
+            self.continuation = nil
+            self.webView = nil
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        Task { @MainActor in
+            self.continuation?.resume(returning: nil)
+            self.continuation = nil
+            self.webView = nil
+        }
+    }
+}
+
+// MARK: - Native QuickLook Document Viewer
+
+struct QuickLookDocViewer: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
+        if context.coordinator.url != url {
+            context.coordinator.url = url
+            controller.reloadData()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        var url: URL
+
+        init(url: URL) {
+            self.url = url
+        }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+            1
+        }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as NSURL
+        }
+    }
+}
+
+// MARK: - Legacy PencilCanvasView (backwards compatibility)
+
 struct PencilCanvasView: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     var isDrawingEnabled: Bool
     var showsToolPicker: Bool
     var canvasRef: Binding<PKCanvasView?>
-    /// Bump to force-replace the canvas drawing from the binding (clear / load).
     var replaceToken: Int
     var pencilOnly: Bool = false
 
@@ -82,7 +191,8 @@ struct PencilCanvasView: UIViewRepresentable {
 // MARK: - Paper desk reader
 
 /// Full-screen memo reader optimized for deep reading + Apple Pencil on iPad.
-/// Uses a paper-desk PDF surface when the file is a PDF; falls back to Quick Look for DOCX.
+/// Uses native continuous PDFView with page-locked Apple PencilKit annotations.
+/// Drawings scroll, zoom, and stay locked to the exact document pages.
 struct PaperDeskReader: View {
     let url: URL
     let reportId: String
@@ -97,7 +207,9 @@ struct PaperDeskReader: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var drawing = PKDrawing()
+    @State private var pageDrawings: [Int: PKDrawing] = [:]
     @State private var isAnnotating = false
+    @State private var pencilOnly = AdaptiveLayout.isPad
     @State private var canvasView: PKCanvasView?
     @State private var replaceToken = 0
     @State private var saveTask: Task<Void, Never>?
@@ -108,16 +220,13 @@ struct PaperDeskReader: View {
     @State private var askPrompt: String?
     @State private var askSessionID = UUID()
 
+    @State private var resolvedURL: URL?
+    @State private var isConverting = false
+    @State private var shareItems: [Any]?
+    @State private var isPreparingShare = false
+
     private var supportsAnnotating: Bool {
         AdaptiveLayout.isPad || sizeClass == .regular
-    }
-
-    private var isPDF: Bool {
-        url.pathExtension.lowercased() == "pdf"
-    }
-
-    private var usePaperDesk: Bool {
-        isPDF
     }
 
     private var canAsk: Bool {
@@ -174,18 +283,21 @@ struct PaperDeskReader: View {
                 .id(askSessionID)
             }
         }
-        .onAppear {
-            suppressAutosave = true
-            let local = ReportAnnotationStore.loadLocal(reportId: reportId)
-            drawing = local.drawing
-            strokeCount = local.drawing.strokes.count
-            replaceToken += 1
-            suppressAutosave = false
-            syncTask?.cancel()
-            syncTask = Task { await pullRemoteIfNeeded() }
+        .sheet(isPresented: Binding(
+            get: { shareItems != nil },
+            set: { if !$0 { shareItems = nil } }
+        )) {
+            if let items = shareItems {
+                ShareSheet(items: items)
+            }
         }
-        .onChange(of: drawing.strokes.count) { _, count in
-            strokeCount = count
+        .task {
+            await prepareDocument()
+        }
+        .onAppear {
+            loadAnnotations()
+        }
+        .onChange(of: strokeCount) { _, _ in
             guard !suppressAutosave else { return }
             scheduleSave()
         }
@@ -206,8 +318,8 @@ struct PaperDeskReader: View {
         }
     }
 
-    /// Document + always-visible floating chrome. Scoped here so Share/Ask never
-    /// sit under the inline Copilot inspector.
+    // MARK: - Document Pane & Navigation
+
     private var documentPane: some View {
         documentStack
             .overlay(alignment: .topLeading) {
@@ -226,18 +338,29 @@ struct PaperDeskReader: View {
             }
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 10) {
-                    ShareLink(item: url) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.body.weight(.semibold))
-                            .frame(width: 42, height: 42)
-                            .background {
-                                Circle()
-                                    .fill(.ultraThinMaterial)
-                                    .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+                    // Share Button (Annotated PDF export)
+                    Button {
+                        Task { await handleShare() }
+                    } label: {
+                        Group {
+                            if isPreparingShare {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.body.weight(.semibold))
                             }
-                            .contentShape(Circle())
+                        }
+                        .frame(width: 42, height: 42)
+                        .background {
+                            Circle()
+                                .fill(.ultraThinMaterial)
+                                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+                        }
+                        .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(isPreparingShare)
                     .accessibilityLabel(language.t("common.share"))
 
                     if canAsk {
@@ -261,52 +384,52 @@ struct PaperDeskReader: View {
                 .padding(.trailing, 14)
             }
             .overlay(alignment: .bottom) {
-                if supportsAnnotating {
+                if resolvedURL?.pathExtension.lowercased() == "pdf" {
                     floatingAnnotationControls
-                        .padding(.bottom, AdaptiveLayout.isPad ? 22 : 12)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .padding(.bottom, 16)
                 }
             }
-            .animation(.snappy(duration: 0.22), value: isAnnotating)
     }
 
     @ViewBuilder
     private var documentStack: some View {
         ZStack {
-            if usePaperDesk {
-                MemoPaperDocumentView(
-                    url: url,
-                    drawing: $drawing,
-                    isAnnotating: isAnnotating,
-                    showsToolPicker: isAnnotating && supportsAnnotating,
-                    canvasRef: $canvasView,
-                    replaceToken: replaceToken,
-                    pencilOnly: AdaptiveLayout.isPad,
-                    askMenuTitle: askPersona.investor.inviteTitle(lang: language.language),
-                    onAskSelection: { text in openAsk(withSelection: text) }
-                )
-                .ignoresSafeArea()
-            } else {
-                // DOCX / other: full-bleed Quick Look with ink overlay (not scroll-synced).
-                ZStack {
-                    Color(red: 0.89, green: 0.89, blue: 0.90)
-                        .ignoresSafeArea()
-                    QuickLookPreview(url: url, hidesNavigationChrome: true)
-                        .ignoresSafeArea(edges: .bottom)
-                        .allowsHitTesting(!isAnnotating)
-
-                    PencilCanvasView(
+            if let activeURL = resolvedURL {
+                if activeURL.pathExtension.lowercased() == "pdf" {
+                    MemoPaperDocumentView(
+                        url: activeURL,
                         drawing: $drawing,
-                        isDrawingEnabled: isAnnotating,
+                        pageDrawings: $pageDrawings,
+                        isAnnotating: isAnnotating,
                         showsToolPicker: isAnnotating && supportsAnnotating,
                         canvasRef: $canvasView,
                         replaceToken: replaceToken,
-                        pencilOnly: AdaptiveLayout.isPad
+                        pencilOnly: pencilOnly,
+                        askMenuTitle: askPersona.investor.inviteTitle(lang: language.language),
+                        onAskSelection: { text in openAsk(withSelection: text) },
+                        onPageDrawingsChanged: { updated in
+                            pageDrawings = updated
+                            strokeCount = updated.values.reduce(0) { $0 + $1.strokes.count }
+                        }
                     )
-                    .ignoresSafeArea(edges: .bottom)
-                    .allowsHitTesting(isAnnotating)
-                    .opacity(strokeCount == 0 && !isAnnotating ? 0 : 1)
+                    .ignoresSafeArea()
+                } else {
+                    QuickLookDocViewer(url: activeURL)
+                        .ignoresSafeArea()
                 }
+            } else if isConverting {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Text("Preparing document…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.89, green: 0.89, blue: 0.91).ignoresSafeArea())
+            } else {
+                QuickLookDocViewer(url: url)
+                    .ignoresSafeArea()
             }
         }
     }
@@ -315,26 +438,51 @@ struct PaperDeskReader: View {
         min(420, max(320, totalWidth * 0.42))
     }
 
-    // MARK: Floating chrome (always visible — no auto-hide, no full-width bar)
+    // MARK: - Floating Annotation Controls
 
     private var floatingAnnotationControls: some View {
         HStack(spacing: 8) {
             if isAnnotating {
+                // Undo
                 toolButton(
                     systemName: "arrow.uturn.backward",
                     label: language.t("research.ink_undo"),
                     disabled: strokeCount == 0
                 ) {
                     canvasView?.undoManager?.undo()
-                    syncFromCanvas()
                 }
 
+                // Apple Pencil vs Finger Drawing Toggle
+                if AdaptiveLayout.isPad {
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            pencilOnly.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: pencilOnly ? "applepencil.and.scribble" : "hand.draw")
+                            Text(pencilOnly ? "Pencil Only" : "Draw with Finger")
+                                .font(.caption2.weight(.bold))
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 42)
+                        .background(
+                            Capsule().fill(pencilOnly ? Color.secondary.opacity(0.12) : Color.orange.opacity(0.2))
+                        )
+                        .foregroundStyle(pencilOnly ? Color.primary : Color.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help(pencilOnly ? "Only Apple Pencil draws; fingers scroll" : "Finger draws on document")
+                }
+
+                // Clear
                 toolButton(
                     systemName: "trash",
                     label: language.t("research.ink_clear"),
                     disabled: strokeCount == 0,
                     role: .destructive
                 ) {
+                    pageDrawings.removeAll()
                     drawing = PKDrawing()
                     strokeCount = 0
                     replaceToken += 1
@@ -349,6 +497,7 @@ struct PaperDeskReader: View {
                 }
             }
 
+            // Annotate Toggle Button
             Button {
                 withAnimation(.snappy(duration: 0.2)) {
                     isAnnotating.toggle()
@@ -377,7 +526,7 @@ struct PaperDeskReader: View {
                 .fill(.ultraThinMaterial)
                 .shadow(color: .black.opacity(0.14), radius: 14, y: 5)
         }
-        .frame(maxWidth: AdaptiveLayout.isPad ? 520 : .infinity)
+        .frame(maxWidth: AdaptiveLayout.isPad ? 560 : .infinity)
         .frame(maxWidth: .infinity)
     }
 
@@ -400,7 +549,72 @@ struct PaperDeskReader: View {
         .accessibilityLabel(label)
     }
 
-    // MARK: Dismiss / Ask
+    // MARK: - Document Preparation & Share
+
+    private func prepareDocument() async {
+        if url.pathExtension.lowercased() == "pdf" {
+            resolvedURL = url
+            return
+        }
+
+        // If a converted PDF already exists in temp, use it immediately
+        let tempDir = FileManager.default.temporaryDirectory
+        let safeName = reportId.replacingOccurrences(of: "/", with: "_")
+        let dest = tempDir.appendingPathComponent("\(safeName)_converted.pdf")
+        if FileManager.default.fileExists(atPath: dest.path) {
+            resolvedURL = dest
+            return
+        }
+
+        // DOCX or other office format: try quick conversion or fallback to native QuickLook
+        isConverting = true
+        let conversionTask = Task { @MainActor () -> URL? in
+            await DocumentConverter.shared.convertDocxToPDF(sourceURL: url, destinationURL: dest)
+        }
+        let timeoutTask = Task { () -> URL? in
+            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2.0s max wait
+            return nil
+        }
+
+        let pdfURL = await withTaskGroup(of: URL?.self) { group in
+            group.addTask { await conversionTask.value }
+            group.addTask { await timeoutTask.value }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        if let pdf = pdfURL {
+            resolvedURL = pdf
+        } else {
+            // Native QuickLook handles .docx with complete formatting and pinch-zoom
+            resolvedURL = url
+        }
+        isConverting = false
+    }
+
+    private func handleShare() async {
+        isPreparingShare = true
+        defer { isPreparingShare = false }
+
+        guard let activeURL = resolvedURL else { return }
+
+        // If there are annotations, bake them into the actual PDF for export
+        if strokeCount > 0, let doc = PDFDocument(url: activeURL) {
+            if let annotatedURL = ReportAnnotationStore.renderAnnotatedPDF(
+                document: doc,
+                pageDrawings: pageDrawings,
+                reportId: reportId
+            ) {
+                shareItems = [annotatedURL]
+                return
+            }
+        }
+
+        shareItems = [activeURL]
+    }
+
+    // MARK: - Dismiss / Ask
 
     private func closeReader() {
         persistNow(pushRemote: true)
@@ -440,7 +654,18 @@ struct PaperDeskReader: View {
         return "Explain / challenge this:\n\n\"\(clipped)\""
     }
 
-    // MARK: Persistence
+    // MARK: - Persistence & Sync
+
+    private func loadAnnotations() {
+        suppressAutosave = true
+        pageDrawings = ReportAnnotationStore.loadPageDrawings(reportId: reportId)
+        drawing = ReportAnnotationStore.load(reportId: reportId)
+        strokeCount = pageDrawings.values.reduce(0) { $0 + $1.strokes.count }
+        replaceToken += 1
+        suppressAutosave = false
+        syncTask?.cancel()
+        syncTask = Task { await pullRemoteIfNeeded() }
+    }
 
     private func currentCanvasSize() -> CGSize? {
         guard let canvasView else { return nil }
@@ -449,41 +674,22 @@ struct PaperDeskReader: View {
         return size
     }
 
-    private func syncFromCanvas() {
-        guard let canvasView else { return }
-        drawing = canvasView.drawing
-        strokeCount = canvasView.drawing.strokes.count
-        scheduleSave()
-    }
-
     private func scheduleSave() {
         saveTask?.cancel()
-        // Snapshot after stroke end; debounce local+cloud write (~0.4s).
-        let snapshot = drawing
-        let size = currentCanvasSize()
         saveTask = Task {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            let latest = canvasView?.drawing ?? snapshot
-            ReportAnnotationStore.save(latest, reportId: reportId, canvasSize: size)
-            _ = await ReportAnnotationStore.push(
-                latest,
-                reportId: reportId,
-                canvasSize: size ?? currentCanvasSize()
-            )
+            persistNow(pushRemote: true)
         }
     }
 
     private func persistNow(pushRemote: Bool) {
         saveTask?.cancel()
-        if let canvasView {
-            drawing = canvasView.drawing
-            strokeCount = canvasView.drawing.strokes.count
-        }
-        let size = currentCanvasSize()
-        ReportAnnotationStore.save(drawing, reportId: reportId, canvasSize: size)
+        ReportAnnotationStore.savePageDrawings(pageDrawings, reportId: reportId)
+
         guard pushRemote else { return }
         let snapshot = drawing
+        let size = currentCanvasSize()
         Task {
             _ = await ReportAnnotationStore.push(
                 snapshot,
@@ -500,7 +706,11 @@ struct PaperDeskReader: View {
         await MainActor.run {
             suppressAutosave = true
             drawing = remote
-            strokeCount = remote.strokes.count
+            // Refresh per-page drawings if local was empty
+            if pageDrawings.isEmpty && !remote.strokes.isEmpty {
+                pageDrawings = [0: remote]
+            }
+            strokeCount = pageDrawings.values.reduce(0) { $0 + $1.strokes.count }
             replaceToken += 1
             suppressAutosave = false
         }

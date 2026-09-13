@@ -52,7 +52,7 @@ enum WatchConfig {
            let url = URL(string: plist), !plist.isEmpty {
             return url
         }
-        return URL(string: "http://10.0.0.218:8010")!
+        return URL(string: "http://192.168.1.181:8010")!
     }
 
     static var apiRoot: URL {

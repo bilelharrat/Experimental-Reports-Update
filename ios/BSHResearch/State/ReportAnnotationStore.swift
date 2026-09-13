@@ -1,11 +1,18 @@
+import PDFKit
 import Foundation
 import PencilKit
 import UIKit
 
 /// Persists freehand memo annotations (`PKDrawing`) per report id locally,
-/// and syncs them to the signed-in account via `/api/reports/{id}/annotations`.
+/// anchored per PDF page, and syncs composite ink to the signed-in account via
+/// `/api/reports/{id}/annotations`.
 enum ReportAnnotationStore {
     private static let folderName = "ReportAnnotations"
+
+    struct MultiPageDrawingArchive: Codable {
+        var version: Int = 1
+        var pages: [String: String] // "\(pageIndex)" -> base64 encoded PKDrawing data
+    }
 
     struct RemotePayload: Codable {
         let reportId: String
@@ -52,7 +59,126 @@ enum ReportAnnotationStore {
         var cleared: Bool
     }
 
-    // MARK: Local disk
+    // MARK: Local disk (per-page and composite)
+
+    /// Load per-page drawings for a report. Falls back to single composite drawing on page 0 if legacy.
+    static func loadPageDrawings(reportId: String) -> [Int: PKDrawing] {
+        let url = pagesURL(for: reportId)
+        if let data = try? Data(contentsOf: url),
+           let archive = try? JSONDecoder().decode(MultiPageDrawingArchive.self, from: data) {
+            var result: [Int: PKDrawing] = [:]
+            for (key, b64) in archive.pages {
+                if let index = Int(key),
+                   let raw = Data(base64Encoded: b64),
+                   let drawing = try? PKDrawing(data: raw) {
+                    result[index] = drawing
+                }
+            }
+            if !result.isEmpty {
+                return result
+            }
+        }
+
+        // Fallback: load legacy single composite drawing and assign to page 0
+        let legacy = load(reportId: reportId)
+        if !legacy.strokes.isEmpty {
+            return [0: legacy]
+        }
+        return [:]
+    }
+
+    /// Save per-page drawings, build a composite drawing for legacy/cloud sync, and update meta.
+    static func savePageDrawings(
+        _ pageDrawings: [Int: PKDrawing],
+        reportId: String,
+        pageSizes: [CGSize] = []
+    ) {
+        do {
+            try ensureDirectory()
+            var archive = MultiPageDrawingArchive(version: 1, pages: [:])
+            var totalStrokes = 0
+            for (index, drawing) in pageDrawings {
+                if !drawing.strokes.isEmpty {
+                    archive.pages[String(index)] = drawing.dataRepresentation().base64EncodedString()
+                    totalStrokes += drawing.strokes.count
+                }
+            }
+            let data = try JSONEncoder().encode(archive)
+            try data.write(to: pagesURL(for: reportId), options: .atomic)
+
+            // Synthesize composite drawing for web/cloud sync
+            let composite = compositeDrawing(from: pageDrawings, pageSizes: pageSizes)
+            let totalHeight: CGFloat = pageSizes.reduce(0) { $0 + $1.height } + CGFloat(max(0, pageSizes.count - 1)) * 28 + 120
+            let maxWidth: CGFloat = pageSizes.map(\.width).max() ?? 612
+            let compositeSize = CGSize(width: maxWidth, height: totalHeight)
+            save(composite, reportId: reportId, canvasSize: compositeSize)
+        } catch {
+            // Local ink is best effort
+        }
+    }
+
+    /// Create a single vertically stacked PKDrawing from per-page drawings.
+    static func compositeDrawing(from pageDrawings: [Int: PKDrawing], pageSizes: [CGSize]) -> PKDrawing {
+        var composite = PKDrawing()
+        let gap: CGFloat = 28
+        let topPad: CGFloat = 36
+        var y: CGFloat = topPad
+
+        let maxCount = max(pageSizes.count, (pageDrawings.keys.max() ?? -1) + 1)
+        for index in 0..<maxCount {
+            let pageSize = index < pageSizes.count ? pageSizes[index] : CGSize(width: 612, height: 792)
+            if let drawing = pageDrawings[index], !drawing.strokes.isEmpty {
+                let transform = CGAffineTransform(translationX: 0, y: y)
+                var pageCopy = drawing
+                pageCopy.transform(using: transform)
+                composite = composite.appending(pageCopy)
+            }
+            y += pageSize.height + gap
+        }
+        return composite
+    }
+
+    /// High-resolution PDF renderer that burns per-page Apple PencilKit drawings directly into PDF pages.
+    /// Returns the URL to the annotated PDF file.
+    static func renderAnnotatedPDF(
+        document: PDFDocument,
+        pageDrawings: [Int: PKDrawing],
+        reportId: String
+    ) -> URL? {
+        let outputURL = annotatedPDFURL(for: reportId)
+        let format = UIGraphicsPDFRendererFormat()
+        let renderer = UIGraphicsPDFRenderer(bounds: .zero, format: format)
+
+        let pdfData = renderer.pdfData { context in
+            for index in 0..<document.pageCount {
+                guard let page = document.page(at: index) else { continue }
+                let mediaBox = page.bounds(for: .mediaBox)
+                context.beginPage(withBounds: mediaBox, pageInfo: [:])
+                let cgContext = context.cgContext
+
+                // Draw original PDF page contents
+                cgContext.saveGState()
+                cgContext.translateBy(x: 0, y: mediaBox.height)
+                cgContext.scaleBy(x: 1.0, y: -1.0)
+                page.draw(with: .mediaBox, to: cgContext)
+                cgContext.restoreGState()
+
+                // Draw vector ink annotations directly on the page
+                if let drawing = pageDrawings[index], !drawing.strokes.isEmpty {
+                    let image = drawing.image(from: mediaBox, scale: 2.0)
+                    image.draw(in: mediaBox)
+                }
+            }
+        }
+
+        do {
+            try ensureDirectory()
+            try pdfData.write(to: outputURL, options: .atomic)
+            return outputURL
+        } catch {
+            return nil
+        }
+    }
 
     static func load(reportId: String) -> PKDrawing {
         let url = drawingURL(for: reportId)
@@ -96,6 +222,8 @@ enum ReportAnnotationStore {
 
     static func clear(reportId: String) {
         try? FileManager.default.removeItem(at: drawingURL(for: reportId))
+        try? FileManager.default.removeItem(at: pagesURL(for: reportId))
+        try? FileManager.default.removeItem(at: annotatedPDFURL(for: reportId))
         let meta = LocalMeta(
             updatedAt: isoNow(),
             etag: nil,
@@ -108,6 +236,10 @@ enum ReportAnnotationStore {
     }
 
     static func hasInk(reportId: String) -> Bool {
+        let pagesUrl = pagesURL(for: reportId)
+        if FileManager.default.fileExists(atPath: pagesUrl.path) {
+            return true
+        }
         let url = drawingURL(for: reportId)
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? NSNumber
@@ -270,6 +402,20 @@ enum ReportAnnotationStore {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "_")
         return directoryURL().appendingPathComponent("\(safe).pkdrawing")
+    }
+
+    private static func pagesURL(for reportId: String) -> URL {
+        let safe = reportId
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+        return directoryURL().appendingPathComponent("\(safe).pages.json")
+    }
+
+    static func annotatedPDFURL(for reportId: String) -> URL {
+        let safe = reportId
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+        return directoryURL().appendingPathComponent("\(safe)_annotated.pdf")
     }
 
     private static func metaURL(for reportId: String) -> URL {

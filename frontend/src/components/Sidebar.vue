@@ -4,6 +4,7 @@ import { RouterLink } from "vue-router";
 import {
   ArrowUpDown,
   Check,
+  FileText,
   Gauge,
   Home,
   Newspaper,
@@ -176,6 +177,16 @@ const collapseLabel = computed(() =>
         >
           <Newspaper class="h-[18px] w-[18px] shrink-0" />
           <span v-if="!sidebarCollapsed">{{ t("nav.news") }}</span>
+        </RouterLink>
+
+        <RouterLink
+          :to="{ name: 'reports' }"
+          class="source-row focus-ring"
+          active-class=""
+          :title="t('sidebar.reports')"
+        >
+          <FileText class="h-[18px] w-[18px] shrink-0" />
+          <span v-if="!sidebarCollapsed">{{ t("sidebar.reports") }}</span>
         </RouterLink>
 
         <RouterLink

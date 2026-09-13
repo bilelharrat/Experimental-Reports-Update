@@ -474,41 +474,115 @@ struct ReportDetailView: View {
     @ViewBuilder
     private func openMemoSection(_ report: ReportDetail) -> some View {
         let urls = report.downloadUrls ?? [:]
-        if !urls.isEmpty {
-            Section {
-                ForEach(urls.keys.sorted(), id: \.self) { key in
-                    Button {
-                        Task { await model.openDocument(language: key) }
-                    } label: {
-                        Label(
-                            model.downloading
-                                ? language.t("common.loading")
-                                : String(format: language.t("research.open_memo"), key.uppercased()),
-                            systemImage: "doc.richtext"
-                        )
-                    }
-                    .disabled(model.downloading)
+        return Group {
+            if !urls.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.12))
+                                    .frame(width: 40, height: 40)
+                                Image(systemName: "doc.richtext.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Investment Diligence Memo")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Full institutional analysis deliverable")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
 
-                    Button {
-                        Task { await model.shareDocument(language: key) }
-                    } label: {
-                        Label(
-                            String(format: language.t("research.share_memo"), key.uppercased()),
-                            systemImage: "square.and.arrow.up"
-                        )
+                        HStack(spacing: 8) {
+                            if urls["en"] != nil {
+                                Button {
+                                    Task { await model.openDocument(language: "en") }
+                                } label: {
+                                    Label(
+                                        model.downloading ? language.t("common.loading") : "Read (EN)",
+                                        systemImage: "book.pages"
+                                    )
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(model.downloading)
+                            }
+
+                            if urls["zh"] != nil {
+                                Button {
+                                    Task { await model.openDocument(language: "zh") }
+                                } label: {
+                                    Label(
+                                        model.downloading ? language.t("common.loading") : "Read (ZH)",
+                                        systemImage: "book.pages"
+                                    )
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(model.downloading)
+                            }
+
+                            ForEach(urls.keys.filter { $0 != "en" && $0 != "zh" }.sorted(), id: \.self) { key in
+                                Button {
+                                    Task { await model.openDocument(language: key) }
+                                } label: {
+                                    Label(
+                                        model.downloading ? language.t("common.loading") : "Read (\(key.uppercased()))",
+                                        systemImage: "book.pages"
+                                    )
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(model.downloading)
+                            }
+
+                            Spacer(minLength: 4)
+
+                            if urls.count == 1, let singleKey = urls.keys.first {
+                                Button {
+                                    Task { await model.shareDocument(language: singleKey) }
+                                } label: {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.subheadline)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(model.downloading)
+                            } else {
+                                Menu {
+                                    ForEach(urls.keys.sorted(), id: \.self) { key in
+                                        Button {
+                                            Task { await model.shareDocument(language: key) }
+                                        } label: {
+                                            Label("Share (\(key.uppercased()))", systemImage: "square.and.arrow.up")
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.subheadline)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(model.downloading)
+                            }
+                        }
                     }
-                    .disabled(model.downloading)
+                    .padding(.vertical, 4)
+                } header: {
+                    Text(language.t("research.memo_files"))
+                } footer: {
+                    Text(language.t("research.memo_files_hint"))
                 }
-            } header: {
-                Text(language.t("research.memo_files"))
-            } footer: {
-                Text(language.t("research.memo_files_hint"))
-            }
-        } else if report.isComplete {
-            Section {
-                Text(language.t("research.no_docx"))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            } else if report.isComplete {
+                Section {
+                    Text(language.t("research.no_docx"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

@@ -386,6 +386,7 @@ const breadcrumbs = computed(() => {
   const root = t("nav.research_center");
   if (name === "home") return [root, t("companies.section_title")];
   if (name === "news-desk") return [root, t("nav.news")];
+  if (name === "reports") return [root, t("nav.reports")];
   if (name === "tracking") return [root, t("sidebar.tracking")];
   if (name === "market-radar") return [root, t("sidebar.market")];
   if (name === "stock-research") return [root, t("nav.markets"), t("sidebar.markets_workbench")];

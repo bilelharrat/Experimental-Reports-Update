@@ -65,8 +65,23 @@ final class HomeDeskViewModel: ObservableObject {
         pulse?.summary?.topSignal ?? ""
     }
 
+    init() {
+        if !AppDataCache.shared.companies.isEmpty {
+            self.companies = AppDataCache.shared.companies
+        }
+        if !AppDataCache.shared.newsItems.isEmpty {
+            self.news = Array(AppDataCache.shared.newsItems.prefix(40))
+        }
+        let cached = QuoteCache.quotes(for: indexTickers)
+        if !cached.isEmpty {
+            self.indexes = cached
+        }
+    }
+
     func load() async {
-        loading = true
+        if companies.isEmpty && news.isEmpty && indexes.isEmpty {
+            loading = true
+        }
         error = nil
         defer { loading = false }
 
@@ -306,7 +321,7 @@ struct HomeView: View {
     @EnvironmentObject private var desk: DeskStore
     @StateObject private var model = HomeDeskViewModel()
     @State private var path = NavigationPath()
-    @State private var showAlerts = false
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -326,15 +341,17 @@ struct HomeView: View {
                 searchPrompt: language.t("search.placeholder")
             ) {
                 Button {
-                    showAlerts = true
+                    showSettings = true
                 } label: {
-                    Image(systemName: "bell")
+                    Image(systemName: "gearshape")
                         .font(.title3)
                         .symbolRenderingMode(.hierarchical)
                 }
+                .accessibilityLabel(language.t("tab.settings"))
             }
-            .sheet(isPresented: $showAlerts) {
-                AlertsView()
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+                    .bshSheetChrome()
             }
             .onChange(of: model.query) { _, value in model.onQueryChanged(value) }
             .navigationDestination(for: TickerNav.self) { nav in
@@ -345,6 +362,7 @@ struct HomeView: View {
             }
             .navigationDestination(for: ReportNav.self) { nav in
                 ReportDetailView(reportId: nav.id)
+                    .id(nav.id)
             }
             .navigationDestination(for: NewsItem.self) { item in
                 NewsDetailView(item: item)
@@ -377,6 +395,9 @@ struct HomeView: View {
         case .report(let id):
             router.pending = nil
             path.append(ReportNav(id: id))
+        case .settings:
+            router.pending = nil
+            showSettings = true
         case .tab:
             // Tab switches are the root view's business, not Home's.
             break

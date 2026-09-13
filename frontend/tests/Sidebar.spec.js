@@ -79,10 +79,13 @@ describe("Sidebar", () => {
     expect(text).toContain("Market");
     expect(text).toContain("Pulse");
     expect(text).toContain("News");
+    expect(text).toContain("Reports");
     expect(text).toContain("Tracking");
     expect(text.indexOf("Home")).toBeLessThan(text.indexOf("Market"));
     expect(text.indexOf("Market")).toBeLessThan(text.indexOf("Pulse"));
     expect(text.indexOf("Pulse")).toBeLessThan(text.indexOf("News"));
+    expect(text.indexOf("News")).toBeLessThan(text.indexOf("Reports"));
+    expect(text.indexOf("Reports")).toBeLessThan(text.indexOf("Tracking"));
     expect(text).not.toContain("Portfolio");
     expect(text).not.toContain("Top Players");
     expect(text).not.toContain("More markets");

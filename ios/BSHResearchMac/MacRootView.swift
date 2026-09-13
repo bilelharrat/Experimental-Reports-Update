@@ -1,165 +1,230 @@
 import SwiftUI
 
 enum MacTab: String, CaseIterable, Identifiable, Hashable {
-    case home, news, market, pulse, settings
+    case home
+    case research
+    case documents
+    case market
+    case news
+    case pulse
+    case copilot
+    case settings
+
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .home: return "Home"
-        case .news: return "News"
-        case .market: return "Market"
-        case .pulse: return "Pulse"
+        case .research: return "Research Desk"
+        case .documents: return "Documents"
+        case .market: return "Market Radar"
+        case .news: return "News Desk"
+        case .pulse: return "Market Pulse"
+        case .copilot: return "Ask Warren"
         case .settings: return "Settings"
         }
     }
 
-    var systemImage: String? {
+    var systemImage: String {
         switch self {
-        case .home: return "house"
-        case .news: return "newspaper"
+        case .home: return "house.fill"
+        case .research: return "building.columns"
+        case .documents: return "doc.text.magnifyingglass"
         case .market: return "chart.line.uptrend.xyaxis"
-        case .pulse: return nil
+        case .news: return "newspaper"
+        case .pulse: return "waveform.path.ecg"
+        case .copilot: return "bubble.left.and.bubble.right.fill"
         case .settings: return "gearshape"
         }
     }
 }
 
-/// Same landscape chrome as iPad `MainSidebarChrome` — icon rail + detail.
 struct MacRootView: View {
     @StateObject private var store = MacAppStore()
-    @State private var selection: MacTab = .home
-    @AppStorage("bsh.rootSidebarExpanded") private var isExpanded = true
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showInspector = false
+    @State private var showNewReportSheet = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            MacSidebarRail(selection: $selection, isExpanded: $isExpanded)
-                .frame(width: isExpanded ? 240 : 64)
-                .animation(.easeInOut(duration: 0.22), value: isExpanded)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            // macOS Native Sidebar
+            List(selection: $store.selectedTab) {
+                Section("Desks") {
+                    Label(MacTab.home.title, systemImage: MacTab.home.systemImage)
+                        .tag(MacTab.home)
 
-            Divider()
+                    Label(MacTab.research.title, systemImage: MacTab.research.systemImage)
+                        .badge(store.runningReports.isEmpty ? 0 : store.runningReports.count)
+                        .tag(MacTab.research)
 
-            detail(for: selection)
-                .id(selection)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .environmentObject(store)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .task { await store.bootstrap() }
-    }
+                    Label(MacTab.documents.title, systemImage: MacTab.documents.systemImage)
+                        .badge(store.reports.isEmpty ? 0 : store.reports.count)
+                        .tag(MacTab.documents)
 
-    @ViewBuilder
-    private func detail(for tab: MacTab) -> some View {
-        NavigationStack {
-            switch tab {
-            case .home:
-                MacHomeView()
-            case .news:
-                MacNewsTabView()
-            case .market:
-                MacMarketTabView()
-            case .pulse:
-                MacPulseTabView()
-            case .settings:
-                MacSettingsTabView()
-            }
-        }
-    }
-}
+                    Label(MacTab.market.title, systemImage: MacTab.market.systemImage)
+                        .badge(store.pinnedTickers.count)
+                        .tag(MacTab.market)
 
-private struct MacSidebarRail: View {
-    @Binding var selection: MacTab
-    @Binding var isExpanded: Bool
+                    Label(MacTab.news.title, systemImage: MacTab.news.systemImage)
+                        .tag(MacTab.news)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                if isExpanded {
-                    Text("BSH Research")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Label(MacTab.pulse.title, systemImage: MacTab.pulse.systemImage)
+                        .tag(MacTab.pulse)
                 }
-                Button {
-                    isExpanded.toggle()
-                } label: {
-                    Image(systemName: isExpanded
-                          ? "rectangle.lefthalf.inset.filled"
-                          : "sidebar.left")
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
+
+                Section("Intelligence") {
+                    Label(MacTab.copilot.title, systemImage: MacTab.copilot.systemImage)
+                        .tag(MacTab.copilot)
                 }
-                .buttonStyle(.plain)
-                .frame(maxWidth: isExpanded ? nil : .infinity)
-            }
-            .padding(.bottom, 6)
 
-            ForEach(MacTab.allCases) { tab in
-                railRow(tab)
+                Section("System") {
+                    Label(MacTab.settings.title, systemImage: MacTab.settings.systemImage)
+                        .tag(MacTab.settings)
+                }
             }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, isExpanded ? 10 : 8)
-        .padding(.top, 10)
-        .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-    }
-
-    private func railRow(_ tab: MacTab) -> some View {
-        let selected = selection == tab
-        return Button {
-            selection = tab
-        } label: {
-            HStack(spacing: isExpanded ? 10 : 0) {
+            .listStyle(.sidebar)
+            .navigationTitle("BSH Research")
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        Task { await store.bootstrap() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .help("Refresh All Desks (⌘R)")
+                    .keyboardShortcut("r", modifiers: .command)
+                }
+            }
+        } detail: {
+            HSplitView {
                 Group {
-                    if let symbol = tab.systemImage {
-                        Image(systemName: symbol)
-                            .font(.body.weight(selected ? .semibold : .regular))
-                    } else {
-                        MacPulseECGIcon()
-                            .frame(width: 18, height: 14)
+                    switch store.selectedTab {
+                    case .home:
+                        MacHomeDeskView()
+                    case .research:
+                        MacResearchDeskView()
+                    case .documents:
+                        MacDocumentsDeskView()
+                    case .market:
+                        MacMarketRadarView()
+                    case .news:
+                        MacNewsDeskView()
+                    case .pulse:
+                        MacPulseDeskView()
+                    case .copilot:
+                        MacCopilotView()
+                    case .settings:
+                        MacSettingsView()
                     }
                 }
-                .frame(width: 22, height: 22)
+                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
 
-                if isExpanded {
-                    Text(tab.title)
-                        .font(.callout.weight(selected ? .semibold : .regular))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
+                if store.showBrowserPanel {
+                    MacEmbeddedBrowserPanel()
+                        .frame(minWidth: 360, idealWidth: 460, maxWidth: 850)
+                        .layoutPriority(0)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
-            .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-            .padding(.horizontal, isExpanded ? 10 : 0)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
-            .background {
-                if selected {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.14))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    // New Report Button
+                    Button {
+                        showNewReportSheet = true
+                    } label: {
+                        Label("New Report", systemImage: "plus.rectangle.on.rectangle")
+                    }
+                    .help("Generate New Investment Memo (⌘N)")
+                    .keyboardShortcut("n", modifiers: .command)
+
+                    // Embedded Browser Panel Toggle (Cursor Style)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            store.showBrowserPanel.toggle()
+                        }
+                    } label: {
+                        Label("Web Browser", systemImage: store.showBrowserPanel ? "globe.americas.fill" : "globe")
+                    }
+                    .help("Toggle Embedded Research Browser (⌘B)")
+                    .keyboardShortcut("b", modifiers: .command)
+
+                    // Open Web Portal directly
+                    Button {
+                        openWebPortal()
+                    } label: {
+                        Label("Open on Web", systemImage: "safari")
+                    }
+                    .help("Open Web Portal in Embedded Browser (⌘⇧W)")
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+
+                    // Inspector Toggle
+                    Button {
+                        withAnimation { showInspector.toggle() }
+                    } label: {
+                        Label("Inspector", systemImage: "sidebar.trailing")
+                    }
+                    .help("Toggle Inspector Panel (⌥⌘I)")
+                    .keyboardShortcut("i", modifiers: [.command, .option])
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .inspector(isPresented: $showInspector) {
+                MacInspectorView()
+            }
         }
-        .buttonStyle(.plain)
+        .navigationSplitViewStyle(.balanced)
+        .environmentObject(store)
+        .task {
+            await store.bootstrap()
+        }
+        .sheet(isPresented: Binding(
+            get: { store.openDocumentURL != nil && store.selectedTab != .documents },
+            set: { if !$0 { store.closeMemo() } }
+        )) {
+            MacPaperDeskReader()
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showNewReportSheet) {
+            if let company = store.selectedCompany ?? store.companies.first {
+                MacGenerateReportSheet(company: company) { newRep in
+                    showNewReportSheet = false
+                    store.openReportInViewer(newRep)
+                }
+                .environmentObject(store)
+            } else {
+                Text("Please register or select a company first.")
+                    .padding()
+            }
+        }
+        // Keyboard shortcuts to jump between tabs
+        .background {
+            Group {
+                Button("") { store.selectedTab = .home }.keyboardShortcut("1", modifiers: .command)
+                Button("") { store.selectedTab = .research }.keyboardShortcut("2", modifiers: .command)
+                Button("") { store.selectedTab = .documents }.keyboardShortcut("3", modifiers: .command)
+                Button("") { store.selectedTab = .market }.keyboardShortcut("4", modifiers: .command)
+                Button("") { store.selectedTab = .news }.keyboardShortcut("5", modifiers: .command)
+                Button("") { store.selectedTab = .pulse }.keyboardShortcut("6", modifiers: .command)
+                Button("") { store.selectedTab = .copilot }.keyboardShortcut("7", modifiers: .command)
+            }
+            .opacity(0)
+        }
+    }
+
+    private func openWebPortal() {
+        let url: URL
+        if let company = store.selectedCompany {
+            url = MacConfig.webCompanyURL(id: company.id)
+        } else if let ticker = store.selectedTicker {
+            url = MacConfig.webQuoteURL(ticker: ticker)
+        } else {
+            url = MacConfig.baseURL
+        }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            store.openInEmbeddedBrowser(url)
+        }
     }
 }
 
-/// Tiny ECG glyph for Pulse (same role as iOS PulseECGTabIcon).
-struct MacPulseECGIcon: View {
-    var body: some View {
-        Canvas { ctx, size in
-            var path = Path()
-            let midY = size.height * 0.55
-            path.move(to: CGPoint(x: 0, y: midY))
-            path.addLine(to: CGPoint(x: size.width * 0.22, y: midY))
-            path.addLine(to: CGPoint(x: size.width * 0.32, y: size.height * 0.15))
-            path.addLine(to: CGPoint(x: size.width * 0.42, y: size.height * 0.85))
-            path.addLine(to: CGPoint(x: size.width * 0.52, y: size.height * 0.35))
-            path.addLine(to: CGPoint(x: size.width * 0.62, y: midY))
-            path.addLine(to: CGPoint(x: size.width, y: midY))
-            ctx.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
-        }
-    }
-}

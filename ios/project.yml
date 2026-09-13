@@ -40,7 +40,7 @@ targets:
         CFBundleDisplayName: BSH Research
         # Default API origin = the Mac's LAN IP so physical devices work out
         # of the box (simulator reaches it too). Overridable in Settings tab.
-        BSHBaseURL: http://10.0.0.218:8010
+        BSHBaseURL: http://192.168.1.181:8010
         NSLocalNetworkUsageDescription: Connects to your BSH Research server on the local network.
         NSSpeechRecognitionUsageDescription: Dictates questions for Ask Warren.
         NSMicrophoneUsageDescription: Records voice questions for Ask.
@@ -60,6 +60,8 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
   BSHResearchWidgets:
     type: app-extension
     platform: iOS
@@ -78,7 +80,7 @@ targets:
         CFBundleDisplayName: BSH Markets
         # Widget can't read the app's Settings override, so point it at the
         # Mac's LAN IP for physical-device testing (works on simulator too).
-        BSHBaseURL: http://10.0.0.218:8010
+        BSHBaseURL: http://192.168.1.181:8010
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
         NSAppTransportSecurity:
@@ -112,7 +114,7 @@ targets:
         CFBundleDisplayName: BSH
         WKCompanionAppBundleIdentifier: com.bilelharrrat.bshresearch
         WKRunsIndependentlyOfCompanionApp: true
-        BSHBaseURL: http://10.0.0.218:8010
+        BSHBaseURL: http://192.168.1.181:8010
         NSLocalNetworkUsageDescription: Connects to your BSH Research server on the local network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -139,7 +141,7 @@ targets:
       path: BSHResearchWatchWidgets/Info.plist
       properties:
         CFBundleDisplayName: BSH Face
-        BSHBaseURL: http://10.0.0.218:8010
+        BSHBaseURL: http://192.168.1.181:8010
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
         NSAppTransportSecurity:
@@ -153,9 +155,11 @@ targets:
           - "**/*.md"
     dependencies:
       - sdk: SwiftUI.framework
+      - sdk: Charts.framework
       - sdk: PDFKit.framework
       - sdk: QuickLookUI.framework
       - sdk: QuickLook.framework
+      - sdk: WebKit.framework
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.bilelharrrat.bshresearch.mac
       INFOPLIST_FILE: BSHResearchMac/Info.plist
@@ -175,6 +179,7 @@ targets:
         LSApplicationCategoryType: public.app-category.finance
         BSHBaseURL: http://127.0.0.1:8010
         NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
   BSHResearchTests:
     type: bundle.unit-test

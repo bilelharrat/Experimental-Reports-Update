@@ -16,11 +16,20 @@ final class CompanyResearchViewModel: ObservableObject {
 
     init(companyId: String, seed: CompanyDetail? = nil) {
         self.companyId = companyId
-        self.company = seed
+        let cached = seed ?? AppDataCache.shared.cachedCompany(id: companyId) ?? APIClient.shared.getCached("companies/\(companyId)")
+        self.company = cached
+        let cachedReps: [ReportSummary]? = AppDataCache.shared.cachedReports(for: companyId) ?? APIClient.shared.getCached("companies/\(companyId)/reports")
+        self.reports = (cachedReps ?? []).sorted { ($0.updatedAt ?? $0.createdAt ?? "") > ($1.updatedAt ?? $1.createdAt ?? "") }
+        if let ticker = cached?.ticker, !ticker.isEmpty {
+            self.liveQuote = AppDataCache.shared.cachedQuote(for: ticker) ?? QuoteCache.load()[ticker.uppercased()]?.asQuote
+        }
+        self.loading = cached == nil
     }
 
     func load() async {
-        loading = true
+        if company == nil {
+            loading = true
+        }
         error = nil
         defer { loading = false }
         do {
@@ -29,9 +38,13 @@ final class CompanyResearchViewModel: ObservableObject {
             let (c, r) = try await (companyTask, reportsTask)
             company = c
             reports = r.sorted { ($0.updatedAt ?? $0.createdAt ?? "") > ($1.updatedAt ?? $1.createdAt ?? "") }
+            AppDataCache.shared.update(company: c)
+            AppDataCache.shared.update(reports: reports, for: companyId)
             await loadQuote()
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            if company == nil {
+                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
         }
     }
 
@@ -180,6 +193,7 @@ struct CompanyResearchView: View {
         }
         .navigationDestination(item: $openedReport) { nav in
             ReportDetailView(reportId: nav.id)
+                .id(nav.id)
         }
         .onChange(of: model.openedReportId) { _, id in
             if let id {

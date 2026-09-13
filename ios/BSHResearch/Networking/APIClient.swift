@@ -41,6 +41,13 @@ actor APIClient {
         try await request(path, method: "GET", query: query)
     }
 
+    nonisolated func getCached<T: Decodable>(_ path: String, query: [URLQueryItem] = []) -> T? {
+        let key = APIResponseCache.cacheKey(path: path, query: query)
+        guard let data = APIResponseCache.shared.load(for: key) else { return nil }
+        let decoder = JSONDecoder()
+        return try? decoder.decode(T.self, from: data)
+    }
+
     func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, timeout: TimeInterval? = nil) async throws -> T {
         try await request(path, method: "POST", body: body, timeout: timeout)
     }
@@ -154,8 +161,18 @@ actor APIClient {
         }
         let name = http.value(forHTTPHeaderField: "Content-Disposition")
             .flatMap { disposition -> String? in
-                guard let range = disposition.range(of: "filename=") else { return nil }
+                if let starRange = disposition.range(of: "filename*=", options: .caseInsensitive) {
+                    let raw = disposition[starRange.upperBound...]
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+                    if let quoteIdx = raw.range(of: "''") {
+                        let encName = String(raw[quoteIdx.upperBound...])
+                        return encName.removingPercentEncoding ?? encName
+                    }
+                    return raw.removingPercentEncoding ?? raw
+                }
+                guard let range = disposition.range(of: "filename=", options: .caseInsensitive) else { return nil }
                 return disposition[range.upperBound...]
+                    .components(separatedBy: ";").first?
                     .trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
             }
         return (data, name)
@@ -190,11 +207,18 @@ actor APIClient {
             req.httpBody = try encoder.encode(AnyEncodable(body))
         }
 
+        let cacheKey = APIResponseCache.cacheKey(path: path, query: query)
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: req)
         } catch {
+            if method == "GET", let cached = APIResponseCache.shared.load(for: cacheKey) {
+                if T.self == Empty.self { return Empty() as! T }
+                if let decoded = try? decoder.decode(T.self, from: cached) {
+                    return decoded
+                }
+            }
             throw APIError.transport(error)
         }
         guard let http = response as? HTTPURLResponse else {
@@ -205,7 +229,16 @@ actor APIClient {
             throw APIError.unauthorized
         }
         guard (200..<300).contains(http.statusCode) else {
+            if method == "GET", let cached = APIResponseCache.shared.load(for: cacheKey) {
+                if T.self == Empty.self { return Empty() as! T }
+                if let decoded = try? decoder.decode(T.self, from: cached) {
+                    return decoded
+                }
+            }
             throw APIError.http(status: http.statusCode, detail: Self.detail(from: data, status: http.statusCode))
+        }
+        if method == "GET" {
+            APIResponseCache.shared.save(data: data, for: cacheKey)
         }
         if T.self == Empty.self {
             return Empty() as! T

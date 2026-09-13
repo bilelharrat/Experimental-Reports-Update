@@ -41,8 +41,18 @@ final class NewsViewModel: ObservableObject {
         return Array(filtered.dropFirst())
     }
 
+    init() {
+        let cached = AppDataCache.shared.newsItems
+        if !cached.isEmpty {
+            self.items = cached
+            self.loading = false
+        }
+    }
+
     func load(lang: AppLanguage = .en) async {
-        loading = true
+        if items.isEmpty {
+            loading = true
+        }
         error = nil
         defer { loading = false }
         do {
@@ -564,12 +574,20 @@ final class NewsDetailViewModel: ObservableObject {
 
     func loadCached(lang: AppLanguage) async {
         guard brief == nil else { return }
+        if let memoryCached = AppDataCache.shared.cachedBrief(title: item.title, lang: lang) {
+            brief = memoryCached
+            return
+        }
         var query = [
             URLQueryItem(name: "title", value: item.title),
             URLQueryItem(name: "lang", value: lang.rawValue),
         ]
         if let company = item.companyName {
             query.append(URLQueryItem(name: "company", value: company))
+        }
+        if let diskCached: NewsBrief = APIClient.shared.getCached("news/brief", query: query) {
+            brief = diskCached
+            return
         }
         brief = try? await APIClient.shared.get("news/brief", query: query)
     }

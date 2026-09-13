@@ -106,39 +106,49 @@ enum DeepLink: Equatable {
     case company(String)
     case report(String)
     case tab(AppTab)
+    case settings
 
     /// bshresearch://ticker/NVDA · bshresearch://company/zainar-inc
-    /// bshresearch://report/abc123 · bshresearch://tab/news
+    /// bshresearch://report/abc123 · bshresearch://tab/news · bshresearch://settings
     init?(url: URL) {
-        guard url.scheme == "bshresearch" else { return nil }
+        guard url.scheme == "bshresearch", let kind = url.host else { return nil }
+        if kind == "settings" {
+            self = .settings
+            return
+        }
         let value = url.pathComponents.count > 1
             ? url.pathComponents[1]
             : url.host.map { _ in url.lastPathComponent } ?? ""
-        guard let kind = url.host, !value.isEmpty else { return nil }
+        guard !value.isEmpty else { return nil }
         switch kind {
         case "ticker": self = .ticker(value.uppercased())
         case "company": self = .company(value)
         case "report": self = .report(value)
         case "tab":
-            guard let tab = AppTab(rawValue: value.lowercased()) else { return nil }
-            self = .tab(tab)
+            if value.lowercased() == "settings" {
+                self = .settings
+            } else if let tab = AppTab(rawValue: value.lowercased()) {
+                self = .tab(tab)
+            } else {
+                return nil
+            }
         default: return nil
         }
     }
 }
 
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-    case home, news, market, pulse, settings
+    case home, reports, news, pulse, market
 
     var id: String { rawValue }
 
     var index: Int {
         switch self {
         case .home: return 0
-        case .news: return 1
-        case .market: return 2
+        case .reports: return 1
+        case .news: return 2
         case .pulse: return 3
-        case .settings: return 4
+        case .market: return 4
         }
     }
 
@@ -149,10 +159,10 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var titleKey: String {
         switch self {
         case .home: return "tab.home"
+        case .reports: return "tab.reports"
         case .news: return "tab.news"
-        case .market: return "tab.market"
         case .pulse: return "tab.pulse"
-        case .settings: return "tab.settings"
+        case .market: return "tab.market"
         }
     }
 
@@ -160,10 +170,10 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String? {
         switch self {
         case .home: return "house"
+        case .reports: return "doc.text"
         case .news: return "newspaper"
-        case .market: return "chart.line.uptrend.xyaxis"
         case .pulse: return nil
-        case .settings: return "gearshape"
+        case .market: return "chart.line.uptrend.xyaxis"
         }
     }
 }

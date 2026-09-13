@@ -23,6 +23,7 @@ const TrackingView = () => import("./views/TrackingView.vue");
 const NewsDeskView = () => import("./views/NewsDeskView.vue");
 const MarketRadarView = () => import("./views/MarketRadarView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
+const ReportsView = () => import("./views/ReportsView.vue");
 
 function routerHistoryBase() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -57,6 +58,7 @@ export const router = createRouter({
     },
     { path: "/", name: "home", component: HomeView },
     { path: "/news-desk", name: "news-desk", component: NewsDeskView },
+    { path: "/reports", name: "reports", component: ReportsView },
     { path: "/tracking", name: "tracking", component: TrackingView },
     { path: "/market-radar", name: "market-radar", component: MarketRadarView },
     {

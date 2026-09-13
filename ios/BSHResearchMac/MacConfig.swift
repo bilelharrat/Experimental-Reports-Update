@@ -1,4 +1,6 @@
-import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 enum MacConfig {
     static let baseURLKey = "bsh.baseURL"
@@ -46,5 +48,25 @@ enum MacConfig {
 
     static func clearToken() {
         UserDefaults.standard.removeObject(forKey: tokenKey)
+    }
+
+    // MARK: - Web Bridges
+
+    static func webCompanyURL(id: String) -> URL {
+        baseURL.appendingPathComponent("#/companies/\(id)")
+    }
+
+    static func webReportURL(id: String) -> URL {
+        baseURL.appendingPathComponent("#/reports/\(id)")
+    }
+
+    static func webQuoteURL(ticker: String) -> URL {
+        baseURL.appendingPathComponent("#/market?ticker=\(ticker.uppercased())")
+    }
+
+    static func openInBrowser(_ url: URL) {
+        #if canImport(AppKit)
+        NSWorkspace.shared.open(url)
+        #endif
     }
 }

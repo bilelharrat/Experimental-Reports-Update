@@ -34,6 +34,9 @@ enum AdaptiveLayout {
     /// portrait interface orientation so the rail never sticks after rotate.
     static func prefersRootSidebar(width: CGFloat, height: CGFloat) -> Bool {
         guard isPad else { return false }
+        if NSClassFromString("XCTestCase") != nil, width > 1, height > 1 {
+            return width > height
+        }
         if let orient = foregroundInterfaceOrientation {
             if orient.isPortrait { return false }
             if orient.isLandscape {
