@@ -84,23 +84,36 @@ Company Overview section). Content per subsection:
    entry multiple in the same breath ("...priced at ~NNx, which
    already includes X of the success case"). Prose only; every figure
    interpreted where it appears.
-3. Investment highlights: 3-5 bullets, each a complete verdict
-   sentence with its strongest supporting number — the hardest, least
-   replaceable facts of the case. Every bullet OPENS with a short
-   claim that carries the direction, then the evidence: "The price
-   sits below every disclosed peer — 13.8x against a 21x median.",
-   never "Price. 13.8x vs 21x." A naked topic label ("Price.",
-   "Market size.", "Accessibility.") fails validation — the reader
-   must get the judgment before the first period. The first three
-   bullets are always the thesis trio: (a) the market is big enough
-   to matter, (b) the company is (or is not) top-1-3 in it, (c) the
-   price does (or does not) leave a return. A bullet the evidence
-   cannot support states that instead — the thesis structure never
-   bends to advocacy.
-4. Key risks: at most 3 bullets, quoting the highest-rated pinned risk
-   summaries verbatim with their N/10 ratings. The pinned summaries
-   are already complete verdict sentences — never compress one back
-   to a topic label.
+3. Investment highlights: OPEN with the pinned case-summary sentence
+   from the shared fact sheet, with the company's name in place of
+   "The case" — one short paragraph that says WHICH dimensions carry
+   the case and which are weak, with their scores ("Anthropic's case
+   rests on market size and growth (14/15), industry position (13/15)
+   and revenue growth and quality (12/15); the weak points are
+   business model and unit economics (5/10) and valuation (6/10)."),
+   optionally followed by one sentence saying what that pattern
+   means. Then ONE `bullets` block with `"component":
+   "investment_highlights"` and EXACTLY three items, one per pinned
+   highlight, in pinned order. Each item opens with the pinned
+   headline VERBATIM (it is rendered bold — the reader gets the
+   judgment before the first period), then the pinned evidence
+   sentences. An evidence sentence that carries a number says what the
+   number measures and where it comes from — a named source, or "the
+   memo's own estimate" with its inputs — before the reader meets the
+   figure; never "a $450-675B market" without saying who sized it and
+   how. No highlight rests on a derived number whose derivation is not
+   named. Nothing here is new: the headlines and the evidence are the
+   pin sheet's, repeated exactly.
+4. Key risks: ONE `bullets` block with `"component": "key_risks"` and
+   EXACTLY three items — the three highest-rated pinned risks, in
+   pinned order. Each item reads "<Area label> — <pinned summary
+   verbatim>. Impact: <pinned impact verbatim>. (N/10, <likelihood>
+   likelihood)", for example "Valuation & exit — The entry price
+   already assumes the 2028 plan is delivered. Impact: the base case
+   returns 0.9x, a loss even if the plan lands. (9/10, High
+   likelihood)". The area label is the one the pin sheet files the
+   risk under. No new numbers, no rewritten summaries, no arithmetic
+   chain — the risk section's card explains each risk in full.
 5. Recommendation: a verdict callout — state the recommendation
    sentence EXACTLY as the shared fact sheet pins it, then the entry
    valuation, the fair-value range, the base-case outcome from the
@@ -216,11 +229,26 @@ could cap it. Content per subsection:
 1. Market definition & value chain: what market the company actually
    competes in (not the largest label it markets), where it sits in
    the value chain, and who captures the value above and below it.
-2. Market size: the "Market Sizing" table — ALWAYS all three rows
+2. Market size: FIRST the "Market estimates" table — one row per
+   estimate the research found, never fewer than three when they
+   exist: each syndicated house (Gartner, IDC, Stratpace, Technavio,
+   MarketsandMarkets, Grand View ...), the company's own pitched TAM,
+   bank or analyst sizing, and LAST the memo's own derivation; columns
+   Source | What it counts (definition) | Value | Year | How it was
+   built. An estimate is never dropped because it disagrees — a
+   $23B "foundation-model spend" figure and a $30T "labor
+   substitution" pitch can both be true of different definitions, and
+   the table shows which definition each uses. Follow it with a
+   reading that OPENS with the range the memo adopts and why that
+   definition is the right one for this company, then explains the
+   disagreements in plain words (what each counts that the others do
+   not). Then the "Market Sizing" table — ALWAYS all three rows
    TAM | SAM | SOM, columns Definition | Size today | Size at exit
-   year | CAGR | Basis/source. Rows without a disclosed or derivable
-   figure follow the missing-data rule; never substitute a bigger
-   adjacent market's number. Then chart slot `chart_market_size`: a
+   year | CAGR | Basis/source, where Basis/source names the estimate
+   row it rests on or states the memo's own inputs and factors. Rows
+   without a disclosed or derivable figure follow the missing-data
+   rule; never substitute a bigger adjacent market's number. Then
+   chart slot `chart_market_size`: a
    `chart` block (grouped_bar; x = TAM / SAM / SOM; one series for
    today and one for the exit year, labeled with their actual years)
    built ONLY from the table's disclosed or derivable figures,

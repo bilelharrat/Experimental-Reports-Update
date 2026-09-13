@@ -105,6 +105,54 @@ SCORECARD_DIMENSION_KEYS: tuple[str, ...] = (
     "risk_reward",
 )
 
+# Plain-language names for the nine dimensions. The pin sheet, the
+# executive summary's opening "case rests on ..." sentence, and the
+# highlight headlines all use these so every section names a dimension
+# the same way (founder feedback 2026-09-13: say WHICH aspects carry the
+# case before explaining them).
+SCORECARD_DIMENSION_LABELS: dict[str, dict[str, str]] = {
+    "market_size_growth": {"en": "market size and growth", "zh": "市场空间与增速"},
+    "industry_position": {"en": "industry position", "zh": "行业地位"},
+    "moat": {"en": "moat", "zh": "护城河"},
+    "revenue_growth_quality": {
+        "en": "revenue growth and quality",
+        "zh": "收入增长与质量",
+    },
+    "business_model_ue": {
+        "en": "business model and unit economics",
+        "zh": "商业模式与单位经济",
+    },
+    "team_governance": {"en": "team and governance", "zh": "团队与治理"},
+    "valuation": {"en": "valuation", "zh": "估值"},
+    "exit_certainty": {"en": "exit certainty", "zh": "退出确定性"},
+    "risk_reward": {"en": "risk-reward balance", "zh": "风险收益比"},
+}
+
+# The seven areas a pinned risk is filed under, so a risk first says
+# WHICH aspect of the case it concentrates on.
+RISK_AREA_KEYS: tuple[str, ...] = (
+    "market",
+    "technology",
+    "competition",
+    "commercialization",
+    "concentration",
+    "team_governance_regulatory",
+    "valuation_exit",
+)
+
+RISK_AREA_LABELS: dict[str, dict[str, str]] = {
+    "market": {"en": "Market", "zh": "市场"},
+    "technology": {"en": "Technology", "zh": "技术"},
+    "competition": {"en": "Competition", "zh": "竞争"},
+    "commercialization": {"en": "Commercialization", "zh": "商业化"},
+    "concentration": {"en": "Concentration", "zh": "集中度"},
+    "team_governance_regulatory": {
+        "en": "Team, governance & regulation",
+        "zh": "团队、治理与监管",
+    },
+    "valuation_exit": {"en": "Valuation & exit", "zh": "估值与退出"},
+}
+
 # Verdict tiers and their scorecard-total bands (inclusive bounds).
 VERDICT_BANDS: tuple[tuple[str, int, int], ...] = (
     ("Strong Buy", 85, 100),

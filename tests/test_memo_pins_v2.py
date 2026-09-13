@@ -73,11 +73,41 @@ def _good_shared_facts() -> dict:
                 ),
                 "rating": "9/10",
                 "likelihood": "High",
+                "area": "valuation_exit",
+                "impact": "the base case returns 1.1x, barely our money back",
             },
             {
                 "summary": "Revenue concentration exposes half of ARR to one renewal",
                 "rating": "7/10",
                 "likelihood": "Medium",
+                "area": "concentration",
+                "impact": "one lost renewal removes $12M of the $24M ARR",
+            },
+        ],
+        "highlights": [
+            {
+                "dimension": "market_size_growth",
+                "headline": "The market is large enough to carry the price.",
+                "evidence": [
+                    "Gartner sizes 2026 spend at $8B, growing 30% a year.",
+                    "The memo's own estimate reaches $25B by 2030.",
+                ],
+            },
+            {
+                "dimension": "industry_position",
+                "headline": "Acme leads its category rather than chasing it.",
+                "evidence": [
+                    "It holds 40% of enterprise spend per the 2025 survey.",
+                    "It is the only vendor on all three clouds.",
+                ],
+            },
+            {
+                "dimension": "revenue_growth_quality",
+                "headline": "Growth is real and mostly recurring.",
+                "evidence": [
+                    "ARR tripled in twelve months to $24M.",
+                    "Net revenue retention is 118%.",
+                ],
             },
         ],
         "stage": "late",
@@ -264,6 +294,98 @@ def test_facts_block_renders_v2_pins():
     assert "This dimension scores {score} of {max}" in block
 
 
+def test_facts_block_renders_case_summary_highlights_and_risk_areas():
+    block = claude_runner._render_shared_facts_block(_good_shared_facts(), V2)
+    # The opening sentence: strong dimensions = the pinned highlights in
+    # pinned order, weak points = the two lowest score-to-weight ratios.
+    assert (
+        '"The case rests on market size and growth (12/15), industry '
+        "position (11/15) and revenue growth and quality (11/15); the weak "
+        'points are valuation (6/10) and risk-reward balance (3/5)."'
+    ) in block
+    assert "Investment highlights (exactly these three" in block
+    assert (
+        "1. [market size and growth (12/15)] The market is large enough to "
+        "carry the price."
+    ) in block
+    assert "   - Gartner sizes 2026 spend at $8B" in block
+    assert (
+        "1. [Valuation & exit] The entry price already assumes success — "
+        "ordinary execution earns nothing — Impact: the base case returns "
+        "1.1x, barely our money back — 9/10 (High)"
+    ) in block
+
+
+def test_spine_schema_requires_highlights_area_and_impact():
+    schema = claude_runner.memo_fast_english_spine_schema(V2)
+    facts = schema["properties"]["shared_facts"]
+    assert "highlights" in facts["required"]
+    highlights = facts["properties"]["highlights"]
+    assert highlights["minItems"] == 3 and highlights["maxItems"] == 3
+    assert highlights["items"]["properties"]["dimension"]["enum"] == list(
+        memo_structure.SCORECARD_DIMENSION_KEYS
+    )
+    risk_item = facts["properties"]["risks"]["items"]
+    assert risk_item["properties"]["area"]["enum"] == list(
+        memo_structure.RISK_AREA_KEYS
+    )
+    assert set(risk_item["required"]) >= {"area", "impact", "likelihood"}
+    # v1 risks stay as they were (no area/impact).
+    v1_item = claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"][
+        "shared_facts"
+    ]["properties"]["risks"]["items"]
+    assert "area" not in v1_item["properties"]
+
+
+def test_gate_checks_highlights():
+    facts = _good_shared_facts()
+    assert memo_pin_check.check_spine_pins_v2(facts, V2) == []
+    two = copy.deepcopy(facts)
+    two["highlights"] = two["highlights"][:2]
+    assert any(
+        "exactly three" in p for p in memo_pin_check.check_spine_pins_v2(two, V2)
+    )
+    dup = copy.deepcopy(facts)
+    dup["highlights"][1]["dimension"] = "market_size_growth"
+    assert any(
+        "used twice" in p for p in memo_pin_check.check_spine_pins_v2(dup, V2)
+    )
+    weak = copy.deepcopy(facts)
+    weak["highlights"][2]["dimension"] = "risk_reward"  # 3 of 5 = 60% passes
+    assert memo_pin_check.check_spine_pins_v2(weak, V2) == []
+    weak["highlights"][2]["dimension"] = "valuation"  # 6 of 10 = 60% passes
+    assert memo_pin_check.check_spine_pins_v2(weak, V2) == []
+    weak["scorecard"]["dimensions"]["valuation"]["score"] = 5
+    weak["scorecard"]["total"] = 71
+    problems = memo_pin_check.check_spine_pins_v2(weak, V2)
+    assert any("below 60%" in p and "valuation" in p for p in problems)
+    label = copy.deepcopy(facts)
+    label["highlights"][0]["headline"] = "Market size"
+    assert any(
+        "topic label" in p for p in memo_pin_check.check_spine_pins_v2(label, V2)
+    )
+
+
+def test_package_pin_check_flags_missing_highlight_and_impact_echo():
+    facts = _good_shared_facts()
+    package = _echoing_package(facts)
+    exec_section = next(
+        s for s in package["sections"] if s["id"] == "executive_summary"
+    )
+    exec_section["blocks"] = [
+        b
+        for b in exec_section["blocks"]
+        if "Acme leads its category" not in b["text"]["en"]
+        and "one lost renewal" not in b["text"]["en"]
+    ]
+    result = memo_pin_check.check_package_pins(package, facts)
+    codes = {(f.code, f.location) for f in result.findings}
+    assert ("highlight_not_echoed", "executive_summary") in codes
+    assert ("risk_impact_not_echoed", "executive_summary") in codes
+    # The risk section still carries every impact, so no risk-section finding.
+    assert ("risk_impact_not_echoed", "investment_risk") not in codes
+
+
 def test_facts_block_v1_output_unchanged():
     sheet = {
         "recommendation_sentence": "Recommendation: watch Acme.",
@@ -308,6 +430,13 @@ def _echoing_package(facts: dict) -> dict:
             texts.append(facts["recommendation_sentence"])
             texts.append("Watch — 72/100.")
             texts.append("ARR stands at $24M as of June 2026.")
+            for item in facts.get("highlights") or []:
+                texts.append(f"{item['headline']} {' '.join(item['evidence'])}")
+            for risk in facts["risks"][:3]:
+                texts.append(
+                    f"Valuation & exit — {risk['summary']}. Impact: "
+                    f"{risk['impact']}. ({risk['rating']}, High likelihood)"
+                )
         if section_id == "investment_decision":
             texts.append("Watch — 72/100.")
             for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
@@ -334,6 +463,8 @@ def _echoing_package(facts: dict) -> dict:
         if section_id == "investment_risk":
             for risk in facts["risks"]:
                 texts.append(f"{risk['summary']} — {risk['rating']}")
+                if risk.get("impact"):
+                    texts.append(f"Impact: {risk['impact']}.")
         sections.append(
             {
                 "id": section_id,
@@ -448,6 +579,11 @@ def _risk_card_blocks(labels: list[str]) -> list[dict]:
         for label in labels:
             value = {
                 "Risk Type": "Commercial",
+                "Verdict": (
+                    f"The concentration risk number {index} erodes the "
+                    "return case."
+                ),
+                "Impact": "one lost renewal removes half of ARR.",
                 "Why it matters": (
                     "Half of ARR renews in one quarter; a single loss cuts "
                     "revenue growth to zero and burns cash reserves."
@@ -473,10 +609,20 @@ def _risk_card_blocks(labels: list[str]) -> list[dict]:
     return blocks
 
 
-def test_card_gate_accepts_six_row_cards_for_v2(tmp_path):
+def test_card_gate_accepts_eight_row_cards_for_v2(tmp_path):
     from server import memo_docx_renderer
 
     labels_v2 = [label for _p, label in memo_docx_renderer._RISK_CARD_ROW_LABELS_V2]
+    assert labels_v2 == [
+        "Risk Type",
+        "Verdict",
+        "Impact",
+        "Why it matters",
+        "What we watch",
+        "Mitigation",
+        "Likelihood",
+        "Risk Rating",
+    ]
     package = {
         "structure": V2.meta(),
         "sections": [
@@ -486,11 +632,14 @@ def test_card_gate_accepts_six_row_cards_for_v2(tmp_path):
     errors = memo_docx_renderer._risk_card_format_errors(package)
     assert errors == [], errors
     # five-row cards (the v1 shape) fail the v2 gate and the error names
-    # six rows including Mitigation
+    # eight rows including Verdict, Impact and Mitigation
     labels_v1 = [label for _p, label in memo_docx_renderer._RISK_CARD_ROW_LABELS]
     package["sections"][0]["blocks"] = _risk_card_blocks(labels_v1)
     errors = memo_docx_renderer._risk_card_format_errors(package)
-    assert any("six two-cell rows" in e and "Mitigation" in e for e in errors)
+    assert any(
+        "eight two-cell rows" in e and "Impact" in e and "Mitigation" in e
+        for e in errors
+    )
 
 
 def test_card_gate_keeps_five_rows_for_v1():

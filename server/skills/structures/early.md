@@ -102,14 +102,21 @@ Content per subsection:
 2. The round: the instrument (SAFE/note/priced), raise size, valuation
    or cap, and what the terms already assume — interpreted in the same
    breath. Prose only.
-3. Investment highlights: exactly 3 bullets, complete verdict
-   sentences: (a) the wedge opens a market that matters, (b) this team
-   is the reason to believe, (c) the terms pay for the risk. Every
-   bullet OPENS with a short claim carrying the direction, then the
-   evidence — never a naked topic label ("Team.", "Market."). A bullet
-   the evidence cannot support says so.
-4. Key risks: ≤3 bullets quoting the highest-rated pinned risk
-   summaries verbatim with ratings.
+3. Investment highlights: OPEN with the pinned case-summary sentence
+   from the shared fact sheet, the company's name in place of "The
+   case" — which dimensions carry the bet and which are weak, with
+   their scores (at this stage the team and the market usually carry
+   it). Then ONE `bullets` block with `"component":
+   "investment_highlights"` and EXACTLY three items, one per pinned
+   highlight, in pinned order: the pinned headline VERBATIM (rendered
+   bold), then the pinned evidence sentences, every number introduced
+   by what it measures and where it comes from before the reader meets
+   the figure. Never a naked topic label ("Team.", "Market."), never
+   a new number.
+4. Key risks: ONE `bullets` block with `"component": "key_risks"` and
+   EXACTLY three items — the three highest-rated pinned risks in
+   pinned order, each "<Area label> — <pinned summary verbatim>.
+   Impact: <pinned impact verbatim>. (N/10, <likelihood> likelihood)".
 5. Recommendation: a verdict callout — the pinned recommendation
    sentence verbatim, the entry terms, the required-exit arithmetic in
    one line ("a 3x fund return needs a $NNN M exit"), and the fund
@@ -205,11 +212,19 @@ Content per subsection:
 
 1. The wedge: the specific entry problem, why it is urgent for the
    first customers, and what larger market winning it opens.
-2. Market size: the "Market Sizing" table — TAM | SAM | SOM rows
-   always, columns Definition | Size today | Size in 5-7y |
-   Basis/source. At this stage most cells will be estimates or missing
-   — say which is which; never present a founder's pitch-deck TAM as
-   independent. Then chart slot `chart_market_size`: a `chart` block
+2. Market size: FIRST the "Market estimates" table — one row per
+   estimate found (syndicated houses, the founder's pitch-deck TAM
+   labeled as such, analyst sizing, and LAST the memo's own
+   derivation), columns Source | What it counts (definition) | Value |
+   Year | How it was built; nothing is dropped for disagreeing. Follow
+   it with a reading that OPENS with the range the memo adopts and
+   why, then explains the disagreements in plain words. Then the
+   "Market Sizing" table — TAM | SAM | SOM rows always, columns
+   Definition | Size today | Size in 5-7y | Basis/source (naming the
+   estimate row or the memo's own inputs each rests on). At this stage
+   most cells will be estimates or missing — say which is which; never
+   present a founder's pitch-deck TAM as independent. Then chart slot
+   `chart_market_size`: a `chart` block
    (grouped_bar; x = TAM / SAM / SOM; one series for today and one for
    the 5-7y horizon, labeled with their years) built ONLY from the
    table's disclosed or independently derived figures, followed by one

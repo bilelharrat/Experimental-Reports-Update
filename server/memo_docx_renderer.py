@@ -117,9 +117,14 @@ _RISK_CARD_ROW_LABELS = (
     ("likelihood", "Likelihood"),
     ("risk rating", "Risk Rating"),
 )
-# Risk Card v2 (structure-v2 family): the Mitigation row joins the card.
+# Risk Card v2 (structure-v2 family): Verdict and Impact rows open the
+# card (founder feedback 2026-09-13 — say which aspect, how big, then
+# explain), Mitigation joins it. "Why it matters" / "What we watch" keep
+# their exact labels: the checks below index rows by those prefixes.
 _RISK_CARD_ROW_LABELS_V2 = (
     ("risk type", "Risk Type"),
+    ("verdict", "Verdict"),
+    ("impact", "Impact"),
     ("why it matters", "Why it matters"),
     ("what we watch", "What we watch"),
     ("mitigation", "Mitigation"),
@@ -134,6 +139,11 @@ def _risk_card_row_labels(
     if structure.scorecard_weights():
         return _RISK_CARD_ROW_LABELS_V2
     return _RISK_CARD_ROW_LABELS
+
+
+def _spelled_row_count(count: int) -> str:
+    words = {5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+    return words.get(count, str(count))
 # The {section_id} placeholder is filled with the structure's risk-role
 # section at check time, so the repair mapper can attribute the finding.
 _RISK_CARD_FORMAT_HINT = (
@@ -693,11 +703,12 @@ def _risk_card_format_errors(package: dict) -> list[str]:
             )
             continue
         cards.append((heading_text, nxt, f"{risk_id} blocks[{index + 1}]"))
+    row_count_word = _spelled_row_count(len(row_labels))
     if not 4 <= len(cards) <= 6:
         errors.append(
             _RISK_CARD_FORMAT_HINT.format(
                 section_id=risk_id,
-                row_count="five" if len(row_labels) == 5 else "six",
+                row_count=row_count_word,
                 row_list=", ".join(
                     f"'{label}'" for _p, label in row_labels
                 ),
@@ -743,7 +754,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
         ):
             errors.append(
                 f"{location}: risk card table needs exactly "
-                f"{'five' if len(row_labels) == 5 else 'six'} two-cell rows "
+                f"{row_count_word} two-cell rows "
                 f"({row_list_text})"
             )
             continue
@@ -1552,8 +1563,11 @@ def _add_block(document: Document, block: dict, locale: str) -> None:
             locale=locale,
         )
     elif kind == "bullets":
+        bold_lead = str(block.get("component") or "") in _BOLD_LEAD_COMPONENTS
         for item in block.get("items") or []:
-            _add_bullet(document, _loc(item, locale), locale=locale)
+            _add_bullet(
+                document, _loc(item, locale), locale=locale, bold_lead=bold_lead
+            )
     elif kind == "table":
         if block.get("title"):
             _add_heading(document, _loc(block.get("title"), locale), level=3, locale=locale)
@@ -1648,11 +1662,37 @@ def _add_paragraph(
     _add_run(paragraph, text, size=size, bold=bold, color=color, locale=locale)
 
 
-def _add_bullet(document: Document, text: str, *, locale: str) -> None:
+# Bullet blocks whose items open with a verdict headline (the executive
+# summary's investment highlights and key risks): the lead sentence is
+# rendered bold, the way the fund's own LP deck sets its highlights.
+_BOLD_LEAD_COMPONENTS = frozenset({"investment_highlights", "key_risks"})
+_LEAD_SENTENCE_RE = re.compile(r"^(.+?(?:[.!?](?=\s)|[。！？]))(.*)$", re.DOTALL)
+
+
+def split_lead_sentence(text: str) -> tuple[str, str]:
+    """Split ``text`` into (lead sentence, remainder). The lead ends at
+    the first sentence-final mark followed by whitespace (so "$1.5T" and
+    "vs." inside a sentence do not split it) or at a CJK full stop. A
+    single sentence with no remainder is entirely the lead."""
+    match = _LEAD_SENTENCE_RE.match(text)
+    if match:
+        return match.group(1), match.group(2)
+    return text, ""
+
+
+def _add_bullet(
+    document: Document, text: str, *, locale: str, bold_lead: bool = False
+) -> None:
     paragraph = document.add_paragraph(style=None)
     paragraph.paragraph_format.left_indent = Cm(0.45)
     paragraph.paragraph_format.first_line_indent = Cm(-0.18)
     paragraph.paragraph_format.space_after = Pt(3)
+    if bold_lead:
+        lead, rest = split_lead_sentence(str(text or ""))
+        _add_run(paragraph, f"• {lead}", bold=True, locale=locale)
+        if rest:
+            _add_run(paragraph, rest, locale=locale)
+        return
     _add_run(paragraph, f"• {text}", locale=locale)
 
 

@@ -2714,6 +2714,60 @@ def _spine_scenario_object_schema() -> dict[str, Any]:
     }
 
 
+def _spine_highlights_schema() -> dict[str, Any]:
+    """Exactly three investment highlights, each filed under a scorecard
+    dimension: a plain verdict headline plus 2-3 evidence sentences. The
+    executive summary repeats them verbatim (pin-echo gate)."""
+    return {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "dimension": {
+                    "type": "string",
+                    "enum": list(memo_structure.SCORECARD_DIMENSION_KEYS),
+                },
+                "headline": {"type": "string", "maxLength": 200},
+                "evidence": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 3,
+                    "items": {"type": "string", "maxLength": 260},
+                },
+            },
+            "required": ["dimension", "headline", "evidence"],
+        },
+    }
+
+
+def _spine_risks_schema_v2() -> dict[str, Any]:
+    """The v1 risk item plus `area` (which aspect the risk concentrates
+    on) and `impact` (what it costs the investment, in plain words with
+    the one number that sizes it); likelihood becomes required."""
+    base = MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"]["shared_facts"][
+        "properties"
+    ]["risks"]
+    item = base["items"]
+    return {
+        **base,
+        "items": {
+            **item,
+            "properties": {
+                **item["properties"],
+                "area": {
+                    "type": "string",
+                    "enum": list(memo_structure.RISK_AREA_KEYS),
+                },
+                "impact": {"type": "string", "maxLength": 160},
+            },
+            "required": ["summary", "rating", "likelihood", "area", "impact"],
+        },
+    }
+
+
 def memo_fast_english_spine_schema(
     structure: memo_structure.MemoStructure,
 ) -> dict[str, Any]:
@@ -2812,6 +2866,8 @@ def memo_fast_english_spine_schema(
                     "required": ["valuation", "basis"],
                 },
                 "scenarios": _spine_scenario_object_schema(),
+                "highlights": _spine_highlights_schema(),
+                "risks": _spine_risks_schema_v2(),
             },
             "required": [
                 "recommendation_sentence",
@@ -2823,6 +2879,7 @@ def memo_fast_english_spine_schema(
                 "scorecard",
                 "fair_value_range",
                 "entry",
+                "highlights",
             ],
         }
     return {
@@ -3537,25 +3594,43 @@ table. Structure, in order:
      ("Entry price"), never a naked statistic. Use the pinned risk
      summaries verbatim: the spine writes them in this form.
    - a `table` block with `component: "risk_register"`,
-     `"layout": "key_value"`, `"headers": []`, and EXACTLY these six
-     two-cell rows (label cell first, content cell second):
-       1. `Risk Type` / `风险类型` — a 1-4 word category. Not a sentence.
-       2. `Why it matters` / `为什么重要` — fact → failure mode →
-          economic consequence, with the consequence arithmetic in-line
-          when it is quantifiable ("at ~42x, ARR must double before the
-          price merely matches peers"). Do not leave the consequence
-          implied.
-       3. `What we watch` / `跟踪信号` — 1-2 observable leading
+     `"layout": "key_value"`, `"headers": []`, and EXACTLY these eight
+     two-cell rows (label cell first, content cell second). The first
+     three rows are the reader's one-glance answer — which aspect, the
+     verdict, how big — and the fourth is the explanation:
+       1. `Risk Type` / `风险类型` — the area the pin sheet files the
+          risk under, as its label: Market / Technology / Competition /
+          Commercialization / Concentration / Team, governance &
+          regulation / Valuation & exit (Chinese 市场 / 技术 / 竞争 /
+          商业化 / 集中度 / 团队、治理与监管 / 估值与退出). Not a sentence.
+       2. `Verdict` / `一句话结论` — the pinned risk summary VERBATIM:
+          one plain sentence with at most one number.
+       3. `Impact` / `影响有多大` — the pinned impact VERBATIM: what the
+          risk costs the investment, with the one number that sizes it.
+       4. `Why it matters` / `为什么重要` — the explanation, written for
+          a senior investor who has never seen this company, the way a
+          professor walks a student through it: the fact, then why that
+          fact is a problem, then what it costs, in that order. Every
+          number is introduced by what it measures BEFORE it appears
+          ("the sellers are discussing a price of $1.75T; that is about
+          9 times the $190-200B of revenue the company plans for 2028"),
+          the arithmetic is shown in-line ("2.6T divided by 1.75T is
+          1.5x"), and each comparison names the rule it is judged
+          against ("below our 1.5x hurdle"). Never a chain of figures
+          the reader must decode; never a fact-to-conclusion jump with
+          the middle step missing. End with the "so what" for the
+          return in one sentence.
+       5. `What we watch` / `跟踪信号` — 1-2 observable leading
           indicators, named and dated where possible. A signal, never an
           instruction to confirm or obtain something.
-       4. `Mitigation` / `缓释措施` — the real mechanism that reduces
+       6. `Mitigation` / `缓释措施` — the real mechanism that reduces
           this risk: a company action underway, a deal-structure term,
           or position sizing. When none exists, write exactly
           "No structural mitigation exists. <consequence>" — honesty
           over invention.
-       5. `Likelihood` / `可能性` — `"High|Medium|Low: <short reason>"`
+       7. `Likelihood` / `可能性` — `"High|Medium|Low: <short reason>"`
           (Chinese `"高|中|低：<简短理由>"`), grounded in evidence.
-       6. `Risk Rating` / `风险评分` — `"N/10: <short reason>"`,
+       8. `Risk Rating` / `风险评分` — `"N/10: <short reason>"`,
           impact-weighted importance to the case (Likelihood carries
           probability). 9-10 could break the case alone; 7-8 pushes the
           outcome well below the current path; 5-6 meaningful but
@@ -3587,11 +3662,19 @@ The compact risk section presents the pinned risks as BULLETS, not
 cards and not a table. One bullet per pinned risk, ordered by rating
 highest first, using EXACTLY the pinned risk list:
 
-- Each bullet: the pinned summary VERBATIM (it is already a complete
-  verdict sentence with a finite verb), then " — N/10." with the
-  pinned rating, then ONE clause naming the real mitigation (a company
-  action underway, a deal-structure term, or position sizing) or
-  exactly "No structural mitigation exists."
+- Each bullet reads: "<Area label> — <pinned summary VERBATIM>.
+  Impact: <pinned impact VERBATIM>. (N/10, <likelihood> likelihood)"
+  then ONE sentence naming the real mitigation (a company action
+  underway, a deal-structure term, or position sizing) or exactly
+  "No structural mitigation exists." The area label is the one the pin
+  sheet files the risk under (Market / Technology / Competition /
+  Commercialization / Concentration / Team, governance & regulation /
+  Valuation & exit).
+- The "center of gravity" paragraph before the bullets explains the
+  highest-rated risk in full, for a reader who has never seen the
+  company: the fact, why it is a problem, what it costs — every number
+  introduced by what it measures before it appears, the arithmetic
+  shown in-line, each comparison naming the rule it is judged against.
 - Never a topic label, never a rewritten summary, never a risk the pin
   sheet does not carry, never a table.
 """
@@ -4972,6 +5055,94 @@ def _memo_english_units_dir(run_dir: Path) -> Path:
     return run_dir / "logs" / _MEMO_ENGLISH_UNITS_DIRNAME
 
 
+def _dimension_label(dimension: str) -> str:
+    return memo_structure.SCORECARD_DIMENSION_LABELS.get(
+        dimension, {"en": dimension}
+    )["en"]
+
+
+def _render_case_summary_lines(
+    shared_facts: dict, dimensions: dict, weights: dict
+) -> list[str]:
+    """The deterministic "case rests on ..." sentence and the pinned
+    highlights, rendered right after the scorecard so the executive
+    summary opens its highlights subsection from one shared text.
+    Strong dimensions are the pinned highlight dimensions in pinned
+    order (falling back to the top three score-to-weight ratios); weak
+    points are the two lowest ratios."""
+    ratios: list[tuple[float, str, int, int]] = []
+    for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
+        entry = dimensions.get(dimension)
+        weight = weights.get(dimension)
+        if not isinstance(entry, dict) or not isinstance(weight, int):
+            continue
+        score = entry.get("score")
+        if isinstance(score, int) and weight > 0:
+            ratios.append((score / weight, dimension, score, weight))
+    if len(ratios) < 5:
+        return []
+    by_key = {dimension: (score, weight) for _r, dimension, score, weight in ratios}
+    highlights = shared_facts.get("highlights")
+    strong: list[str] = []
+    if isinstance(highlights, list):
+        for item in highlights:
+            if isinstance(item, dict) and item.get("dimension") in by_key:
+                strong.append(str(item["dimension"]))
+    if not strong:
+        strong = [
+            dimension
+            for _r, dimension, _s, _w in sorted(
+                ratios,
+                key=lambda r: (
+                    -r[0],
+                    memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1]),
+                ),
+            )[:3]
+        ]
+    weak = [
+        dimension
+        for _r, dimension, _s, _w in sorted(
+            ratios,
+            key=lambda r: (r[0], memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1])),
+        )
+        if dimension not in strong
+    ][:2]
+
+    def _cell(dimension: str) -> str:
+        score, weight = by_key[dimension]
+        return f"{_dimension_label(dimension)} ({score}/{weight})"
+
+    strong_text = ", ".join(_cell(d) for d in strong[:-1])
+    if len(strong) > 1:
+        strong_text = f"{strong_text} and {_cell(strong[-1])}"
+    else:
+        strong_text = _cell(strong[0])
+    weak_text = " and ".join(_cell(d) for d in weak)
+    lines = [
+        "Case summary (the executive summary's Investment highlights "
+        "subsection OPENS with this sentence, with the company's name in "
+        "place of 'The case'): \"The case rests on "
+        f"{strong_text}; the weak points are {weak_text}.\""
+    ]
+    if isinstance(highlights, list) and highlights:
+        lines.append(
+            "Investment highlights (exactly these three, in this order. "
+            "The executive summary's highlight bullets open with each "
+            "headline VERBATIM and then give the evidence sentences; the "
+            "decision section's 'what is demonstrated' list repeats the "
+            "headlines):"
+        )
+        for index, item in enumerate(highlights, start=1):
+            if not isinstance(item, dict):
+                continue
+            dimension = str(item.get("dimension") or "")
+            cell = _cell(dimension) if dimension in by_key else dimension
+            lines.append(f"{index}. [{cell}] {item.get('headline')}")
+            for evidence in item.get("evidence") or []:
+                lines.append(f"   - {evidence}")
+    return lines
+
+
 def _render_shared_facts_block(
     shared_facts: dict,
     structure: memo_structure.MemoStructure | None = None,
@@ -5016,6 +5187,9 @@ def _render_shared_facts_block(
                     f"{entry_value.get('score')} of "
                     f"{weights.get(dimension)} — {entry_value.get('why')}"
                 )
+            lines.extend(
+                _render_case_summary_lines(shared_facts, dimensions, weights)
+            )
     fair_value = shared_facts.get("fair_value_range")
     if isinstance(fair_value, dict) and fair_value.get("low"):
         lines.append(
@@ -5072,12 +5246,36 @@ def _render_shared_facts_block(
                 lines.append(f"- {key}: {value}")
     risks = shared_facts.get("risks")
     if isinstance(risks, list) and risks:
-        lines.append("Risk list (ordered by rating, highest first):")
+        has_areas = any(
+            isinstance(r, dict) and r.get("area") and r.get("impact")
+            for r in risks
+        )
+        if has_areas:
+            lines.append(
+                "Risk list (ordered by rating, highest first; each line is "
+                "[area] verdict — Impact: consequence — rating (likelihood). "
+                "The executive summary's Key risks bullets and the risk "
+                "section's cards repeat the verdict and the Impact text "
+                "VERBATIM):"
+            )
+        else:
+            lines.append("Risk list (ordered by rating, highest first):")
         for index, risk in enumerate(risks, start=1):
             if not isinstance(risk, dict):
                 continue
             likelihood = str(risk.get("likelihood") or "").strip()
             likelihood_note = f" ({likelihood})" if likelihood else ""
+            area = str(risk.get("area") or "").strip()
+            impact = str(risk.get("impact") or "").strip()
+            if area and impact:
+                area_label = memo_structure.RISK_AREA_LABELS.get(
+                    area, {"en": area}
+                )["en"]
+                lines.append(
+                    f"{index}. [{area_label}] {risk.get('summary')} — "
+                    f"Impact: {impact} — {risk.get('rating')}{likelihood_note}"
+                )
+                continue
             lines.append(
                 f"{index}. {risk.get('summary')} — "
                 f"{risk.get('rating')}{likelihood_note}"
@@ -5230,6 +5428,66 @@ Worked examples (match the Prefer register, never the Avoid one):
   Prefer: "The company reports a $40M pipeline. The pipeline is
   valuable evidence of demand. It is not revenue, and at the company's
   own 25% historical conversion it supports roughly $10M of bookings."
+
+## Teach, don't assert (structure v2)
+The reader is a senior investor who has never seen this company and
+reads the memo once, fast. Write the way a professor walks a student
+through a case: nothing is assumed known, every step is shown.
+- Define a term the first time it appears, in five to ten words:
+  "run-rate (the latest month's revenue multiplied by twelve)", "NRR
+  (how much last year's customers spend this year, as a percentage)",
+  "MOIC (money returned divided by money invested)", "IRR (the
+  annualized return over the holding period)".
+- A number is preceded by what it measures and followed by what it
+  means. "Revenue is $65B" is not enough; say what kind of revenue,
+  over what period, measured how — then what that size implies.
+- Every derived number shows its arithmetic in the sentence or the
+  next one: "the base case values the company at 13 times $200B of
+  2029 revenue, or $2.6T; against today's $1.75T entry that is 1.5x,
+  a 15% annual return over three years". Every comparison names the
+  rule it is judged against: "1.44x is below the 1.5x floor we require
+  for a late-stage position, which is why the verdict is Watch".
+- Every external number names who produced it and what it counts; the
+  memo's own estimates say so ("the memo's own estimate, built from
+  X and Y") and never pass as a market fact.
+- Never jump from a fact to a conclusion with the middle step missing.
+  If the reader would have to ask "why does that follow?", the
+  sentence that answers it is missing.
+- Highlights and risks lead with a plain verdict sentence a reader can
+  quote, then the evidence — the judgment first, the support second.
+
+Worked examples (from the founder's review of a live memo):
+- Avoid: "Growth is exceptional and the price still decides the
+  outcome: run-rate went from roughly $9B in December 2025 to $65B at
+  end-July 2026, sevenfold in seven months, yet the base case returns
+  only 1.5x gross and a 15% IRR over three years. At $1.5T that return
+  exists; above $1.8T no margin of safety remains."
+  Prefer: "Growth is exceptional, but the price already pays for most
+  of it. Annualized revenue (the latest month multiplied by twelve, as
+  the company reports it to investors) rose from about $9B in
+  December 2025 to $65B by July 2026 — seven times in seven months.
+  The base case assumes $200B of revenue in 2029 valued at 13 times
+  revenue, or $2.6T. Against a $1.75T entry price that returns 1.5x,
+  a 15% annual return over three years. At an entry of $1.5T the same
+  exit returns 1.7x; at $1.8T it returns 1.44x, below the 1.5x floor
+  we require for a late-stage position — so the price, not the
+  growth, decides whether this works."
+- Avoid: "Risk 1: The entry price already assumes the plan is
+  delivered. At $1.75T the buyer pays about 9x a 2028 revenue line
+  that was revised from $70B to $190-200B in ten months, and the base
+  case returns 0.91x. Rated 9/10, likelihood high."
+  Prefer: "Risk 1 — Valuation & exit: the price already assumes the
+  2028 plan comes true. Impact: the base case returns 0.91x — a 9%
+  loss even if the company executes. Why: the sellers are discussing
+  a price of $1.75T. That is about 9 times the revenue the company
+  now plans for 2028 ($190-200B). Ten months ago the same plan said
+  $70B, so the plan nearly tripled before any of it was earned. If
+  2028 revenue comes in at the plan and the market pays 8 times
+  revenue — the multiple mature software leaders trade at — the
+  company is worth about $1.6T, less than the $1.75T paid. The risk is
+  rated 9/10 because it alone can turn a good company into a losing
+  investment, and likelihood is high because the price range is
+  already public."
 """
 
 
@@ -5441,6 +5699,25 @@ against the stragglers when they land.
      line), `exit_year`, `exit_revenue`, `exit_multiple`, `exit_value`,
      `moic` ("N.Nx"), `irr` ("NN%"). Base MOIC must be consistent with
      exit_value against the entry valuation after reasonable dilution.
+   - `highlights`: EXACTLY three. Pick the three scorecard dimensions
+     with the highest score-to-max ratio (each at least 60% of its max —
+     a weak dimension is never a highlight; a deterministic gate checks
+     this and rejects duplicates). Per item: `dimension` (the scorecard
+     key), `headline` (ONE plain verdict sentence a reader can quote,
+     at most one number, written for someone who has never seen the
+     company: "Anthropic leads enterprise adoption rather than chasing
+     it."), `evidence` (2-3 sentences, one fact each, with its number
+     and where that number comes from — a named source or the memo's
+     own calculation stated as such). The executive summary repeats the
+     headline and evidence verbatim.
+   - each risk ALSO carries `area` — which aspect it concentrates on:
+     market / technology / competition / commercialization /
+     concentration / team_governance_regulatory / valuation_exit — and
+     `impact`: what it costs the investment in plain words with the ONE
+     number that sizes it ("the base case returns 0.9x — a loss even if
+     the plan is delivered"). The `summary` is one plain sentence with
+     at most one number; the arithmetic chain that supports it belongs
+     in the risk section's card, never in the summary.
 """
     prompt = f"""\
 You are drafting the SHARED SPINE of the English source package. {worker_count} section

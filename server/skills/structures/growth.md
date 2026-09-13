@@ -80,16 +80,22 @@ in the Company & Team section). Content per subsection:
 2. The round: round, instrument, size, price, implied stake — and what
    the price already assumes, interpreted in the same breath. Prose
    only.
-3. Investment highlights: 3-5 bullets, each a complete verdict
-   sentence with its strongest number. Every bullet OPENS with a short
-   claim carrying the direction, then the evidence — never a naked
-   topic label ("Price.", "Market size."). The first three are always
-   the thesis trio: (a) the market supports a 5-10x bigger company,
-   (b) the growth is repeatable, not founder-sold, (c) the price
-   leaves a venture return. A bullet the evidence cannot support says
-   so.
-4. Key risks: ≤3 bullets quoting the highest-rated pinned risk
-   summaries verbatim with ratings.
+3. Investment highlights: OPEN with the pinned case-summary sentence
+   from the shared fact sheet, the company's name in place of "The
+   case" — one short paragraph saying WHICH dimensions carry the case
+   and which are weak, with their scores. Then ONE `bullets` block
+   with `"component": "investment_highlights"` and EXACTLY three
+   items, one per pinned highlight, in pinned order: the pinned
+   headline VERBATIM (rendered bold), then the pinned evidence
+   sentences. Every number is introduced by what it measures and where
+   it comes from — a named source, or "the memo's own estimate" with
+   its inputs — before the reader meets the figure. Never a naked
+   topic label ("Price.", "Market size."), never a new number.
+4. Key risks: ONE `bullets` block with `"component": "key_risks"` and
+   EXACTLY three items — the three highest-rated pinned risks in
+   pinned order, each "<Area label> — <pinned summary verbatim>.
+   Impact: <pinned impact verbatim>. (N/10, <likelihood> likelihood)".
+   No new numbers, no rewritten summaries.
 5. Recommendation: a verdict callout — the pinned recommendation
    sentence verbatim, entry, the fair-value range, base-case outcome
    from the pinned scenarios, holding period, and the fund
@@ -210,10 +216,19 @@ needs. Content per subsection:
 
 1. Market definition & value chain: the market actually competed in,
    the value-chain position, who captures value above and below.
-2. Market size: the "Market Sizing" table — ALWAYS TAM | SAM | SOM
-   rows, columns Definition | Size today | Size at exit year | CAGR |
-   Basis/source; missing rows follow the missing-data rule, never a
-   borrowed number. Then chart slot `chart_market_size`: a `chart`
+2. Market size: FIRST the "Market estimates" table — one row per
+   estimate the research found (each syndicated house, the company's
+   own pitched TAM, bank or analyst sizing, and LAST the memo's own
+   derivation), columns Source | What it counts (definition) | Value |
+   Year | How it was built; an estimate is never dropped for
+   disagreeing — the table shows which definition each uses. Follow it
+   with a reading that OPENS with the range the memo adopts and why
+   that definition fits this company, then explains the disagreements
+   in plain words. Then the "Market Sizing" table — ALWAYS TAM | SAM |
+   SOM rows, columns Definition | Size today | Size at exit year |
+   CAGR | Basis/source (naming the estimate row or the memo's own
+   inputs each rests on); missing rows follow the missing-data rule,
+   never a borrowed number. Then chart slot `chart_market_size`: a `chart`
    block (grouped_bar; x = TAM / SAM / SOM; one series for today and
    one for the exit year, labeled with their actual years) built ONLY
    from the table's disclosed or derivable figures, followed by one
