@@ -269,7 +269,7 @@ def _classify_stage(company: dict) -> dict:
 # --- Structure-stage classification ----------------------------------------
 #
 # Separate from the scope gate above: this picks which REPORT STRUCTURE a
-# run writes (early / growth / late profiles in server/skills/structures/),
+# run writes (early / growth / late profiles in skills/memo/structures/),
 # never whether the run proceeds. Indeterminate resolves to late — the
 # richest structure, whose data-honesty rules state the gaps.
 

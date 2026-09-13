@@ -1,6 +1,6 @@
 """Single source of truth for the memo report structure.
 
-Stage profiles live in ``server/skills/structures/{stage}.md`` (per-section
+Stage profiles live in ``skills/memo/structures/{stage}.md`` (per-section
 YAML metadata + the section's prompt contract as the markdown body) plus the
 shared ``components.yaml``. Everything that used to be a scattered literal —
 section ids, numbered titles, Chinese-parity regexes, section specs,
@@ -24,7 +24,9 @@ from typing import Any
 
 import yaml
 
-STRUCTURES_DIR = Path(__file__).resolve().parent / "skills" / "structures"
+# Repo-root skills/memo/structures — the editorial stage profiles, beside
+# the other memo prompts the founder's team edits (see skills/memo/README.md).
+STRUCTURES_DIR = Path(__file__).resolve().parents[1] / "skills" / "memo" / "structures"
 
 _ROMAN = (
     "I II III IV V VI VII VIII IX X XI XII XIII XIV XV".split()
