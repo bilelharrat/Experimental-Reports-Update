@@ -36,6 +36,7 @@ export function newsHaystack(item) {
     newsTitle(item),
     item?.summary,
     item?.company,
+    item?.ticker,
     item?.source,
     item?.domain,
     item?.category,
@@ -43,6 +44,14 @@ export function newsHaystack(item) {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+/** Local company archive rows older than this are dropped once live headlines exist. */
+export const MAX_ARCHIVE_AGE_DAYS = 14;
+
+function parseNewsTime(ts) {
+  const stamp = Date.parse(ts);
+  return Number.isFinite(stamp) ? stamp : null;
 }
 
 export function inferNewsCategory(item) {
@@ -76,6 +85,15 @@ export function matchCompaniesForNews(item, companies = []) {
     const row = companies.find((c) => String(c.id) === String(assigned));
     if (row) push(row);
   }
+  const itemTicker = String(item?.ticker || "")
+    .trim()
+    .toUpperCase();
+  if (itemTicker) {
+    const byTicker = companies.find(
+      (c) => String(c?.ticker || "").trim().toUpperCase() === itemTicker,
+    );
+    if (byTicker) push(byTicker);
+  }
   const hay = newsHaystack(item);
   for (const company of companies) {
     const name = String(company?.name || "").trim().toLowerCase();
@@ -94,6 +112,17 @@ export function isMarketNews(item, matchedCompanies = []) {
 function makeRow(item, companies, extras = {}) {
   const matched = extras.matched || matchCompaniesForNews(item, companies);
   const category = extras.category || inferNewsCategory(item);
+  const kind = extras.kind || item.kind || "news";
+  const ticker = String(
+    extras.ticker || item.ticker || matched[0]?.ticker || "",
+  )
+    .trim()
+    .toUpperCase();
+  const companyName = String(
+    extras.companyName || matched[0]?.name || item.company || "",
+  ).trim();
+  const marketDefault =
+    kind === "live_news" ? matched.length === 0 : isMarketNews(item, matched);
   return {
     id: String(extras.id || item.id || ""),
     title: newsTitle(item),
@@ -102,8 +131,10 @@ function makeRow(item, companies, extras = {}) {
     url: String(item.source_url || item.url || "").trim(),
     ts: newsTimestamp(item),
     category,
-    kind: extras.kind || item.kind || "news",
-    market: Boolean(extras.market ?? isMarketNews(item, matched)),
+    kind,
+    market: Boolean(extras.market ?? marketDefault),
+    ticker,
+    companyName,
     companies: matched,
     companyIds: matched.map((c) => String(c.id)),
     raw: item,
@@ -136,6 +167,7 @@ export function normalizeCompanyNews(company, item, index = 0) {
       title,
       company_id: company.id,
       company: company.name,
+      ticker: company.ticker,
     },
     [company],
     {
@@ -143,33 +175,80 @@ export function normalizeCompanyNews(company, item, index = 0) {
       matched: [company],
       kind: "company_news",
       market: false,
+      companyName: company.name,
+      ticker: company.ticker,
     },
   );
 }
 
-export function assembleDeskNews({ feed = [], companies = [] } = {}) {
+export function normalizeLiveNews(item, companies = []) {
+  const title = newsTitle(item);
+  if (!title) return null;
+  const matched = matchCompaniesForNews(item, companies);
+  const rawId = String(item.id || "").trim();
+  return makeRow(item, companies, {
+    id: rawId ? (rawId.startsWith("live:") ? rawId : `live:${rawId}`) : `live:${title}`,
+    matched,
+    kind: item.kind || "live_news",
+    category: item.category || "markets",
+    market: matched.length === 0,
+  });
+}
+
+function isFreshArchiveRow(row, { hasLive = false, now = Date.now() } = {}) {
+  const stamp = parseNewsTime(row?.ts);
+  if (stamp == null) {
+    // Undated archive rows only survive when nothing live is in.
+    return !hasLive;
+  }
+  if (!hasLive) return true;
+  const cutoff = now - MAX_ARCHIVE_AGE_DAYS * 24 * 60 * 60 * 1000;
+  return stamp >= cutoff;
+}
+
+export function assembleDeskNews({
+  feed = [],
+  companies = [],
+  live = [],
+  limit = 100,
+  now = Date.now(),
+} = {}) {
+  const liveRows = (live || [])
+    .map((item) => normalizeLiveNews(item, companies))
+    .filter(Boolean);
+  const hasLive = liveRows.length > 0;
+  const feedRows = (feed || [])
+    .map((item) => normalizeFeedItem(item, companies))
+    .filter(Boolean);
+  const companyRows = [];
+  for (const company of companies || []) {
+    const local =
+      Array.isArray(company.company_news) && company.company_news.length
+        ? company.company_news
+        : company.recent_news || [];
+    local.forEach((item, index) => {
+      const row = normalizeCompanyNews(company, item, index);
+      if (row && isFreshArchiveRow(row, { hasLive, now })) companyRows.push(row);
+    });
+  }
+
+  const candidates = [...liveRows, ...feedRows, ...companyRows].sort((a, b) =>
+    String(b.ts || "").localeCompare(String(a.ts || "")),
+  );
   const rows = [];
   const seen = new Set();
-  const push = (row) => {
-    if (!row?.id || seen.has(row.id)) return;
+  for (const row of candidates) {
+    if (!row?.title) continue;
+    const titleKey = row.title.toLowerCase();
+    if (seen.has(titleKey) || seen.has(row.id)) continue;
     const key = `${row.url || ""}|${row.title}|${row.companyIds[0] || ""}`;
-    if (seen.has(key)) return;
+    if (seen.has(key)) continue;
+    seen.add(titleKey);
     seen.add(row.id);
     seen.add(key);
     rows.push(row);
-  };
-  for (const item of feed) {
-    push(normalizeFeedItem(item, companies));
+    if (rows.length >= limit) break;
   }
-  for (const company of companies) {
-    const local = Array.isArray(company.company_news) && company.company_news.length
-      ? company.company_news
-      : company.recent_news || [];
-    local.forEach((item, index) => {
-      push(normalizeCompanyNews(company, item, index));
-    });
-  }
-  rows.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
   return rows;
 }
 
@@ -190,6 +269,32 @@ export function filterDeskNews(
     const hay = `${row.title} ${row.summary} ${row.source}`.toLowerCase();
     return hay.includes(q);
   });
+}
+
+/** Stable hash so lead/thumbnail tones match across renders (iOS-style). */
+export function newsToneIndex(seed = "", size = 6) {
+  const text = String(seed || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % Math.max(1, size);
+}
+
+/** iOS system palette used by NewsLeadCard / NewsThumbnail. */
+export const NEWS_TONE_KEYS = [
+  "blue",
+  "indigo",
+  "purple",
+  "teal",
+  "orange",
+  "pink",
+  "mint",
+];
+
+export function newsToneKey(seed = "", { withMint = false } = {}) {
+  const keys = withMint ? NEWS_TONE_KEYS : NEWS_TONE_KEYS.slice(0, 6);
+  return keys[newsToneIndex(seed, keys.length)];
 }
 
 export function newsAgeParts(ts, now = Date.now()) {

@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted, ref, unref, watch } from "vue";
 import { api } from "./api.js";
+import { cacheQuotes, loadCachedQuotes } from "./offlineCache.js";
 
 export const QUOTE_POLL_MS = 45000;
 
@@ -10,6 +11,7 @@ function readTickers(source) {
 
 export function useLiveQuotes(tickersSource) {
   const quotes = ref({});
+  const offline = ref(false);
   let timer = null;
   let inFlight = false;
 
@@ -18,14 +20,26 @@ export function useLiveQuotes(tickersSource) {
     const tickers = readTickers(tickersSource);
     if (tickers.length === 0) {
       quotes.value = {};
+      offline.value = false;
       return;
     }
     inFlight = true;
     try {
       const payload = await api.liveQuotes(tickers);
       quotes.value = payload?.quotes || {};
+      offline.value = false;
+      cacheQuotes(quotes.value, { asOf: payload?.generated_at || null });
     } catch {
       // Keep the last good tape rather than flashing empty on a blip.
+      if (!Object.keys(quotes.value || {}).length) {
+        const cached = loadCachedQuotes();
+        if (cached?.quotes) {
+          quotes.value = cached.quotes;
+          offline.value = true;
+        }
+      } else {
+        offline.value = true;
+      }
     } finally {
       inFlight = false;
     }
@@ -51,5 +65,5 @@ export function useLiveQuotes(tickersSource) {
   onMounted(startQuotePoll);
   onUnmounted(stopQuotePoll);
 
-  return { quotes, loadQuotes };
+  return { quotes, offline, loadQuotes };
 }

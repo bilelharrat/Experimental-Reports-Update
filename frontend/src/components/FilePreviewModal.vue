@@ -6,10 +6,11 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  PenLine,
   Presentation,
   X,
 } from "lucide-vue-next";
-import { api } from "../api.js";
+import { api, withApiToken } from "../api.js";
 import { renderMarkdown } from "../markdown.js";
 
 const props = defineProps({
@@ -20,6 +21,8 @@ const props = defineProps({
   // inline with no server-side conversion) can pass their own URLs here.
   previewUrl: { type: String, default: null },
   downloadUrl: { type: String, default: null },
+  // Memo reports: load account-scoped ink overlay from iOS PencilKit sync.
+  reportId: { type: String, default: null },
   // Which `file.kind` values render inline. Research files don't get
   // server-side PPT→PDF conversion, so that caller narrows the set.
   previewableKinds: {
@@ -70,12 +73,28 @@ const previewBlobUrl = ref(null);
 const previewText = ref(null);
 let abortCtl = null;
 
+const annotationMeta = ref(null);
+const annotationOverlayUrl = ref(null);
+const showInkOverlay = ref(true);
+const annotationLoading = ref(false);
+
+const hasInkOverlay = computed(
+  () => !!(annotationMeta.value?.has_overlay && annotationOverlayUrl.value),
+);
+
 function clearBlob() {
   if (previewBlobUrl.value) {
     URL.revokeObjectURL(previewBlobUrl.value);
     previewBlobUrl.value = null;
   }
   previewText.value = null;
+}
+
+function clearAnnotations() {
+  annotationMeta.value = null;
+  annotationOverlayUrl.value = null;
+  showInkOverlay.value = true;
+  annotationLoading.value = false;
 }
 
 async function loadPreview() {
@@ -113,6 +132,30 @@ async function loadPreview() {
   }
 }
 
+async function loadAnnotations() {
+  clearAnnotations();
+  if (!props.reportId) return;
+  annotationLoading.value = true;
+  try {
+    const meta = await api.getReportAnnotations(props.reportId, {
+      includeDrawing: false,
+      includeOverlay: false,
+    });
+    annotationMeta.value = meta;
+    if (meta?.has_overlay) {
+      annotationOverlayUrl.value = withApiToken(
+        meta.overlay_url || `/api/reports/${props.reportId}/annotations/overlay.png`,
+      );
+      showInkOverlay.value = true;
+    }
+  } catch {
+    // No ink / offline — preview still works.
+    clearAnnotations();
+  } finally {
+    annotationLoading.value = false;
+  }
+}
+
 function fmtSize(bytes) {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -129,6 +172,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKey);
   if (abortCtl) abortCtl.abort();
   clearBlob();
+  clearAnnotations();
 });
 
 // Lock body scroll while open + (re)load preview when file changes.
@@ -140,14 +184,23 @@ watch(
     }
     if (f) {
       loadPreview();
+      loadAnnotations();
     } else {
       if (abortCtl) abortCtl.abort();
       clearBlob();
+      clearAnnotations();
       previewError.value = null;
       previewLoading.value = false;
     }
   },
   { immediate: true },
+);
+
+watch(
+  () => props.reportId,
+  () => {
+    if (props.file) loadAnnotations();
+  },
 );
 </script>
 
@@ -187,8 +240,33 @@ watch(
               <span v-if="isPpt && previewBlobUrl" class="ml-1 text-ink-subtle">
                 · converted to PDF
               </span>
+              <span
+                v-if="hasInkOverlay"
+                class="ml-1 text-accent"
+              >
+                · Apple Pencil ink synced
+              </span>
             </div>
           </div>
+          <button
+            v-if="hasInkOverlay"
+            type="button"
+            class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5"
+            :aria-pressed="showInkOverlay"
+            @click="showInkOverlay = !showInkOverlay"
+          >
+            <PenLine class="h-3 w-3" />
+            {{ showInkOverlay ? "Hide ink" : "Show ink" }}
+          </button>
+          <a
+            v-if="hasInkOverlay"
+            :href="annotationOverlayUrl"
+            target="_blank"
+            rel="noopener"
+            class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5"
+          >
+            <ImageIcon class="h-3 w-3" /> Ink PNG
+          </a>
           <a
             v-if="canPreview"
             :href="previewUrl"
@@ -215,7 +293,7 @@ watch(
           </button>
         </header>
 
-        <div class="flex-1 min-h-0 bg-surface-muted">
+        <div class="flex-1 min-h-0 bg-surface-muted relative">
           <iframe
             v-if="previewBlobUrl"
             :src="previewBlobUrl"
@@ -281,6 +359,26 @@ watch(
                 </button>
               </div>
             </div>
+          </div>
+
+          <!-- Account-synced PencilKit overlay (best-effort alignment over PDF). -->
+          <div
+            v-if="hasInkOverlay && showInkOverlay && previewBlobUrl"
+            class="pointer-events-none absolute inset-0 overflow-auto"
+            aria-hidden="true"
+          >
+            <img
+              :src="annotationOverlayUrl"
+              alt=""
+              class="block w-full h-auto max-w-none opacity-90 mix-blend-multiply"
+            />
+          </div>
+
+          <div
+            v-if="annotationLoading"
+            class="absolute top-3 right-3 text-[11px] text-ink-muted bg-surface/90 px-2 py-1 rounded"
+          >
+            Checking ink…
           </div>
         </div>
       </div>

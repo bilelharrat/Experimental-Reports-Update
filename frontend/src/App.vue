@@ -47,6 +47,7 @@ import { isAuthenticated, sessionEmail, sessionInitials, sessionName, signOut } 
 const news = ref([]);
 const externalResearch = ref([]);
 const companies = ref([]);
+const liveNews = ref([]);
 const loading = ref(true);
 const error = ref(null);
 const route = useRoute();
@@ -73,6 +74,7 @@ const FILE_ACCEPT =
 provide("workspaceCompanies", companies);
 provide("workspaceNews", news);
 provide("workspaceResearch", externalResearch);
+provide("workspaceLiveNews", liveNews);
 provide("workspaceLoading", loading);
 
 // This feeds the toolbar radar and sidebar company list. Poll slowly;
@@ -88,9 +90,17 @@ async function refreshAll() {
   try {
     // allSettled, not all: one slow/failed endpoint must not blank the whole
     // sidebar (previously a single rejection dropped every assignment).
-    const [f, c] = await Promise.allSettled([
+    const bookTickers = [
+      ...new Set(
+        (companies.value || [])
+          .map((company) => String(company?.ticker || "").trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    ].slice(0, 10);
+    const [f, c, live] = await Promise.allSettled([
       api.externalFeed(),
       api.listCompanies(),
+      api.quotesNews({ tickers: bookTickers, limit: 50 }),
     ]);
     if (f.status === "fulfilled") {
       news.value = f.value.filter((it) => it.kind === "news");
@@ -99,6 +109,9 @@ async function refreshAll() {
       );
     }
     if (c.status === "fulfilled") companies.value = c.value;
+    if (live.status === "fulfilled") {
+      liveNews.value = live.value?.items || [];
+    }
     // A 401 means auth.js already tore down the session and is redirecting —
     // don't surface it. Show any other failure.
     const failure = [f, c].find(
@@ -145,6 +158,7 @@ function stopPolling() {
   news.value = [];
   externalResearch.value = [];
   companies.value = [];
+  liveNews.value = [];
   loading.value = true;
   error.value = null;
 }
@@ -372,6 +386,7 @@ const breadcrumbs = computed(() => {
   const root = t("nav.research_center");
   if (name === "home") return [root, t("companies.section_title")];
   if (name === "news-desk") return [root, t("nav.news")];
+  if (name === "reports") return [root, t("nav.reports")];
   if (name === "tracking") return [root, t("sidebar.tracking")];
   if (name === "market-radar") return [root, t("sidebar.market")];
   if (name === "stock-research") return [root, t("nav.markets"), t("sidebar.markets_workbench")];
@@ -724,7 +739,7 @@ provide("copilotNavigate", onCopilotNavigate);
               @click="setCopilotOpen(!copilotOpen)"
             >
               <AiMark class="h-[18px] w-[18px] shrink-0" />
-              <span class="text-caption1 font-medium">{{ t("copilot.title") }}</span>
+              <span class="text-caption1 font-medium">{{ t("copilot.ask_short") }}</span>
             </button>
           </div>
 
@@ -803,13 +818,22 @@ provide("copilotNavigate", onCopilotNavigate);
     <Transition name="copilot-drawer">
       <aside
         v-if="copilotOpen && copilotReady"
-        class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[400px] flex-col bg-surface hairline-l xl:sticky xl:top-0 xl:z-20 xl:h-screen xl:w-[400px] xl:shrink-0"
+        class="copilot-sheet fixed inset-x-0 bottom-0 top-auto z-50 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-[1.5rem] bg-surface shadow-[0_-12px_40px_rgb(0_0_0_/0.12)] xl:inset-y-0 xl:right-0 xl:left-auto xl:top-0 xl:bottom-auto xl:z-20 xl:h-screen xl:max-h-none xl:w-[400px] xl:max-w-[400px] xl:shrink-0 xl:rounded-none xl:shadow-none xl:sticky hairline-l"
         :aria-label="t('copilot.title')"
       >
-        <header class="flex items-center gap-3 px-4 py-3 hairline-b">
+        <div
+          class="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-fill-secondary xl:hidden"
+          aria-hidden="true"
+        />
+        <header class="flex items-center gap-3 px-4 pb-3 pt-2 hairline-b xl:pt-3">
           <div class="min-w-0 flex-1">
-            <div class="text-headline text-ink-primary">{{ t("copilot.title") }}</div>
-            <div class="truncate text-footnote text-ink-muted">
+            <div class="flex items-center gap-2">
+              <AiMark class="h-5 w-5 shrink-0 text-accent-ink" />
+              <div class="text-title3 font-semibold tracking-tight text-ink-primary">
+                {{ t("copilot.ask_short") }}
+              </div>
+            </div>
+            <div class="mt-0.5 truncate text-footnote text-ink-muted">
               {{ copilotContext }}
             </div>
           </div>

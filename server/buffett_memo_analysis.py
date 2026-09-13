@@ -305,19 +305,27 @@ def _run(report_id: str) -> None:
         message="Running Buffett investment analysis and memorandum",
     )
 
-    result = claude_runner.run_buffett_investment_memo(
-        run_dir=run_dir,
-        company_name=company_name,
-        company_slug=company_slug,
-        run_id=run_id,
-        companies_yaml_path=memo_prep.COMPANIES_FILE,
-        memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-        research_dir=research_dir,
-        scope_check=report.get("scope_check"),
-        warnings=list(report.get("warnings") or []),
-        progress=stream,
-        timeout_sec=3600,
-    )
+    from . import memo_analysis as _memo_analysis
+
+    with _memo_analysis._creeping_report_progress(
+        report_id,
+        floor=15,
+        ceiling=78,
+        stage="Running Buffett investment-memo skill",
+    ):
+        result = claude_runner.run_buffett_investment_memo(
+            run_dir=run_dir,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            companies_yaml_path=memo_prep.COMPANIES_FILE,
+            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+            research_dir=research_dir,
+            scope_check=report.get("scope_check"),
+            warnings=list(report.get("warnings") or []),
+            progress=stream,
+            timeout_sec=3600,
+        )
     if not result.get("ok"):
         message = result.get("error") or "Claude skill run failed"
         if buffett_memo_renderer.package_path(run_dir).exists():

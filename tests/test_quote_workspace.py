@@ -132,6 +132,47 @@ def test_parse_options_keeps_strikes_near_last_price():
     assert parsed["rows"][0]["strike"] <= parsed["rows"][-1]["strike"]
 
 
+def test_compact_options_snapshot_uses_workspace_cache(monkeypatch):
+    quote_workspace.clear_cache()
+    payload = {
+        "ticker": "NVDA",
+        "summary": {"previous_close": "180"},
+        "options": quote_workspace._parse_options(OPTIONS_NVDA, 180.0),
+    }
+    with quote_workspace.live_quotes._CACHE_LOCK:
+        quote_workspace._WORKSPACE_CACHE["NVDA"] = (
+            __import__("time").monotonic() + 60,
+            payload,
+        )
+
+    def boom(*_a, **_k):
+        raise AssertionError("should not hit network")
+
+    monkeypatch.setattr(quote_workspace, "fetch_options_chain", boom)
+    monkeypatch.setattr(quote_workspace.live_quotes, "fetch_quotes", boom)
+    snap = quote_workspace.compact_options_snapshot("nvda", max_rows=2)
+    assert snap["ticker"] == "NVDA"
+    assert len(snap["rows"]) == 2
+    assert snap["implied_vol_available"] is False
+    text = quote_workspace.format_options_snapshot_for_prompt(snap)
+    assert "Options premiums (NVDA" in text
+    assert "call bid/ask/last" in text
+    assert "180" in text
+
+
+def test_format_options_snapshot_empty_rows():
+    text = quote_workspace.format_options_snapshot_for_prompt(
+        {
+            "ticker": "QQQ",
+            "last_trade": None,
+            "underlying_last": 500.0,
+            "rows": [],
+        }
+    )
+    assert "no option chain rows" in text
+    assert "QQQ" in text
+
+
 def test_parse_screener_sorts_gainers_losers_and_large_cap():
     rows = quote_workspace._parse_screener(SCREENER)
     assert [row["ticker"] for row in rows] == ["AAA", "BBB", "CCC"]

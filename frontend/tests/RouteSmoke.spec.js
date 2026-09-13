@@ -201,6 +201,7 @@ async function mountRouteWithRouter(path) {
       { path: "/innovation-lab/evidence-matrix", name: "research-page-evidence-matrix", component: { template: "<div />" } },
       { path: "/innovation-lab/hypothesis-lab", name: "research-page-hypothesis-lab", component: { template: "<div />" } },
       { path: "/market-radar", name: "market-radar", component: { template: "<div>Market</div>" } },
+      { path: "/reports", name: "reports", component: { template: "<div>Research Reports</div>" } },
       {
         path: "/:companyId",
         name: "research",
@@ -412,6 +413,12 @@ describe("route smoke tests", () => {
     expect(wrapper.text()).toContain("Stock Research");
     expect(wrapper.text()).toContain("Latest Weekly Aggregate");
     expect(wrapper.text()).toContain("Data health");
+  });
+
+  it("renders the Reports route shell", async () => {
+    const wrapper = await mountRoute("/reports");
+
+    expect(wrapper.text()).toContain("Research Reports");
   });
 
   it("renders the Memo Tools analysis route shell", async () => {

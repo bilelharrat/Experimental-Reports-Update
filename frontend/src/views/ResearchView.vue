@@ -417,6 +417,25 @@ function openArtifactViewer(artifact) {
     ],
   };
 }
+function openMemoDocViewer() {
+  const r = activeReport.value;
+  if (!r) return;
+  const rawUrls = r.download_urls || {};
+  const order = { en: 0, zh: 1, internal: 2 };
+  const sources = Object.keys(rawUrls)
+    .sort((a, b) => (order[a] ?? 9) - (order[b] ?? 9))
+    .map((k) => ({
+      key: String(k).toUpperCase(),
+      url: withApiToken(rawUrls[k]),
+      kind: "docx",
+    }));
+  if (!sources.length) return;
+  const name = r.company_name || company.value?.name || "Memo";
+  docViewer.value = {
+    title: `${name} — ${tr("research.tab_memo")}`,
+    sources,
+  };
+}
 function closeDocViewer() {
   docViewer.value = null;
 }
@@ -2201,6 +2220,15 @@ onUnmounted(stopPolling);
              once complete) plus a PDF preview when one was rendered. -->
         <div class="flex flex-wrap items-center gap-3">
           <button
+            v-if="Object.keys(activeReport.download_urls || {}).length"
+            type="button"
+            @click="openMemoDocViewer"
+            class="btn-primary focus-ring"
+          >
+            <FileText class="h-4 w-4" />
+            <span>{{ tr("research.view_in_document_viewer") }}</span>
+          </button>
+          <button
             v-if="activeReport.preview_urls?.en"
             type="button"
             @click="openMemoPreview('en')"
@@ -3032,6 +3060,7 @@ onUnmounted(stopPolling);
       :file="previewFile"
       :preview-url="previewPdfUrl"
       :download-url="previewDocxUrl"
+      :report-id="activeReport?.id || null"
       :previewable-kinds="['pdf']"
       @close="closeMemoPreview"
     />

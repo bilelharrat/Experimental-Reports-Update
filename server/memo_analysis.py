@@ -157,6 +157,69 @@ def _memo_fast_pipeline_enabled() -> bool:
     return _env_flag("BSH_MEMO_FAST_PIPELINE", default=True)
 
 
+@contextmanager
+def _creeping_report_progress(
+    report_id: str,
+    *,
+    floor: int = 15,
+    ceiling: int = 78,
+    interval_sec: float = 10.0,
+    half_life_sec: float = 300.0,
+    stage: str | None = None,
+):
+    """Keep ``report.progress`` moving during long Claude waits.
+
+    The memo pipeline used to park at 15% for 5–15 minutes while analysis
+    ran, which made every client look frozen. This heartbeat creeps
+    asymptotically from ``floor`` toward ``ceiling`` so the meter moves,
+    without overtaking the real render milestones (~85+).
+    """
+    stop = threading.Event()
+    started = time.monotonic()
+
+    def _tick() -> None:
+        while not stop.wait(interval_sec):
+            try:
+                elapsed = max(0.0, time.monotonic() - started)
+                # Halfway from floor→ceiling at half_life_sec.
+                frac = 1.0 - (0.5 ** (elapsed / max(half_life_sec, 1.0)))
+                target = int(floor + (ceiling - floor) * frac)
+                target = max(floor, min(ceiling, target))
+                report = storage.get_report(report_id)
+                if report is None:
+                    return
+                status = str(report.get("status") or "")
+                if (
+                    status.startswith("complete")
+                    or status.startswith("failed")
+                    or status in {"cancelled", "awaiting_studio"}
+                ):
+                    return
+                current = int(report.get("progress") or 0)
+                if target <= current:
+                    continue
+                patch: dict[str, Any] = {"progress": target}
+                if stage:
+                    patch["stage"] = stage
+                storage.update_report(report_id, **patch)
+            except Exception:  # noqa: BLE001 — never kill the memo for UI polish
+                logger.exception(
+                    "creeping progress tick failed for %s", report_id
+                )
+
+    thread = threading.Thread(
+        target=_tick,
+        name=f"memo-progress-{report_id[:8]}",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=interval_sec + 1.0)
+
+
 def _memo_zh_chasing_enabled() -> bool:
     """Speculative Chinese translation of English sections as they finish.
 
@@ -5171,6 +5234,23 @@ def _finalize_memo_from_package(
         claude_duration_ms=combined_result.get("duration_ms"),
         report_ready_at=_now_iso(),
     )
+    try:
+        from . import push_notify
+
+        company = storage.get_company(str(report.get("company_id") or "")) or {}
+        name = company.get("name") or report.get("company_id") or "Memo"
+        push_notify.notify(
+            "memo",
+            "Memo ready",
+            f"{name} — {final_stage}",
+            data={
+                "report_id": report_id,
+                "company_id": report.get("company_id"),
+                "deep_link": f"bshresearch://report/{report_id}",
+            },
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("memo push notify failed for %s", report_id)
     # ---- Artifacts tail: the report is complete and viewable above; a
     # parked artifacts agent (report-ready detach) is collected here, so
     # the rail shows "Done — finalizing artifacts" instead of holding the
@@ -5740,10 +5820,15 @@ def _run(report_id: str) -> None:
         pdf_previews_enabled=_memo_pdf_previews_enabled(),
     )
 
+    analyzing_stage = (
+        "Running parallel analysis passes"
+        if fast_pipeline_enabled
+        else "Running BSH investment memo skill (Serena's version)"
+    )
     storage.update_report(
         report_id,
         status="analyzing",
-        stage="Running BSH investment memo skill (Serena's version)",
+        stage=analyzing_stage,
         progress=15,
     )
 
@@ -5756,66 +5841,72 @@ def _run(report_id: str) -> None:
         research_store.RESEARCH_ROOT / company_slug,
     )
 
-    if fast_pipeline_enabled:
-        result = _run_fast_memo_pipeline(
-            report_id=report_id,
-            report=report,
-            run_dir=run_dir,
-            stream=stream,
-            company_name=company_name,
-            company_slug=company_slug,
-            run_id=run_id,
-            memo_paths_abs=memo_paths_abs,
-            analysis_session_path=approved_analysis_session_path,
-            lessons_path=lessons_path,
-        )
-    else:
-        legacy_started_at = _now_iso()
-        legacy_started = time.monotonic()
-        _emit_phase_timing(
-            stream,
-            phase="memo_legacy_claude",
-            status="started",
-            started_at=legacy_started_at,
-            started_monotonic=legacy_started,
-            timeout_sec=3600,
-        )
-        stream.emit(
-            "stage",
-            stage="memo_legacy_pipeline_starting",
-            message=(
-                "Running legacy single-Claude memo pipeline because "
-                "BSH_MEMO_FAST_PIPELINE=0"
-            ),
-        )
-        # --- One Claude subprocess; Serena's skill runs end-to-end ---------
-        result = claude_runner.run_investment_memo(
-            run_dir=run_dir,
-            company_name=company_name,
-            company_slug=company_slug,
-            run_id=run_id,
-            settings_path=memo_prep.SETTINGS_FILE,
-            companies_yaml_path=memo_prep.COMPANIES_FILE,
-            memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
-            research_dir=research_store.RESEARCH_ROOT / company_slug,
-            analysis_session_path=analysis_session_path,
-            lessons_path=lessons_path,
-            scope_check=report.get("scope_check"),
-            warnings=list(report.get("warnings") or []),
-            progress=stream,
-            timeout_sec=3600,
-        )
-        _emit_phase_timing(
-            stream,
-            phase="memo_legacy_claude",
-            status="finished" if result.get("ok") else "failed",
-            started_at=legacy_started_at,
-            started_monotonic=legacy_started,
-            cost_usd=result.get("cost_usd"),
-            claude_duration_ms=result.get("duration_ms"),
-            usage=result.get("usage"),
-            error=result.get("error"),
-        )
+    with _creeping_report_progress(
+        report_id,
+        floor=15,
+        ceiling=78,
+        stage=analyzing_stage,
+    ):
+        if fast_pipeline_enabled:
+            result = _run_fast_memo_pipeline(
+                report_id=report_id,
+                report=report,
+                run_dir=run_dir,
+                stream=stream,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                memo_paths_abs=memo_paths_abs,
+                analysis_session_path=approved_analysis_session_path,
+                lessons_path=lessons_path,
+            )
+        else:
+            legacy_started_at = _now_iso()
+            legacy_started = time.monotonic()
+            _emit_phase_timing(
+                stream,
+                phase="memo_legacy_claude",
+                status="started",
+                started_at=legacy_started_at,
+                started_monotonic=legacy_started,
+                timeout_sec=3600,
+            )
+            stream.emit(
+                "stage",
+                stage="memo_legacy_pipeline_starting",
+                message=(
+                    "Running legacy single-Claude memo pipeline because "
+                    "BSH_MEMO_FAST_PIPELINE=0"
+                ),
+            )
+            # --- One Claude subprocess; Serena's skill runs end-to-end ---------
+            result = claude_runner.run_investment_memo(
+                run_dir=run_dir,
+                company_name=company_name,
+                company_slug=company_slug,
+                run_id=run_id,
+                settings_path=memo_prep.SETTINGS_FILE,
+                companies_yaml_path=memo_prep.COMPANIES_FILE,
+                memo_paths={k: str(v) for k, v in memo_paths_abs.items()},
+                research_dir=research_store.RESEARCH_ROOT / company_slug,
+                analysis_session_path=analysis_session_path,
+                lessons_path=lessons_path,
+                scope_check=report.get("scope_check"),
+                warnings=list(report.get("warnings") or []),
+                progress=stream,
+                timeout_sec=3600,
+            )
+            _emit_phase_timing(
+                stream,
+                phase="memo_legacy_claude",
+                status="finished" if result.get("ok") else "failed",
+                started_at=legacy_started_at,
+                started_monotonic=legacy_started,
+                cost_usd=result.get("cost_usd"),
+                claude_duration_ms=result.get("duration_ms"),
+                usage=result.get("usage"),
+                error=result.get("error"),
+            )
 
     if not result.get("ok"):
         message = result.get("error") or "Claude skill run failed"
@@ -6059,19 +6150,25 @@ def _investigate(report_id: str) -> None:
         )
     stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
 
-    pass_results, cost_usd, worker_duration_ms = _run_fast_phase2(
-        report_id=report_id,
-        run_dir=run_dir,
-        stream=stream,
-        company_name=company_name,
-        company_slug=company_slug,
-        run_id=run_id,
-        research_dir=research_dir,
-        lessons_path=lessons_path,
-        scope_check=scope_check,
-        warnings=warnings,
-        speculator=None,
-    )
+    with _creeping_report_progress(
+        report_id,
+        floor=15,
+        ceiling=42,
+        stage="Deep investigation — running analysis passes",
+    ):
+        pass_results, cost_usd, worker_duration_ms = _run_fast_phase2(
+            report_id=report_id,
+            run_dir=run_dir,
+            stream=stream,
+            company_name=company_name,
+            company_slug=company_slug,
+            run_id=run_id,
+            research_dir=research_dir,
+            lessons_path=lessons_path,
+            scope_check=scope_check,
+            warnings=warnings,
+            speculator=None,
+        )
     if pass_results is None:
         # _run_fast_phase2 already recorded the failure and emitted the
         # stream error.

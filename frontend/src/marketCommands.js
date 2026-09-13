@@ -70,11 +70,15 @@ const VERB_ACTIONS = {
   SETTINGS: "settings",
   HORMUZ: "hormuz",
   LAB: "lab",
+  REPORT: "reports",
+  REPORTS: "reports",
+  RP: "reports",
 };
 
 // Verbs that just open an app view — no ticker argument.
 const NAV_ACTIONS = new Set([
   "newsdesk",
+  "reports",
   "signals",
   "brief",
   "stats",
@@ -422,6 +426,7 @@ export function routeForMarketCommand(cmd) {
     return { name: "market-radar", query: { ticker: cmd.ticker } };
   }
   if (cmd.action === "newsdesk") return { name: "news-desk" };
+  if (cmd.action === "reports") return { name: "reports" };
   if (cmd.action === "signals") return { name: "research-page-market-pulse" };
   if (cmd.action === "brief") {
     return { name: "weekly-summary", query: { panel: "brief" } };

@@ -19,6 +19,16 @@ vi.mock("../src/api.js", () => ({
   api: {
     liveQuotes: vi.fn(),
     researchPages: { marketPulse: vi.fn() },
+    prewarmNewsBriefs: vi.fn().mockResolvedValue({ queued: 0, started: false }),
+    getNewsBrief: vi.fn().mockRejectedValue({ status: 404, message: "missing" }),
+    postNewsBrief: vi.fn().mockResolvedValue({
+      what_happened: "Expanded desk briefing body.",
+      why_it_matters: "Investment read.",
+      context: [],
+      watch_next: [],
+      sources: [],
+    }),
+    newsBriefStatuses: vi.fn().mockResolvedValue({ ready: 0, items: [] }),
   },
 }));
 

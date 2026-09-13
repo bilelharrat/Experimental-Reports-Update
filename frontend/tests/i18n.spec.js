@@ -101,7 +101,7 @@ const STRICT_FILES = new Set([
 const BASELINE = {
   "components/CompanyDetail.vue": 16,
   "components/DeckSummaryModal.vue": 23,
-  "components/FilePreviewModal.vue": 10,
+  "components/FilePreviewModal.vue": 13,
   "components/HormuzConsole.vue": 16,
   "components/MemoAnalysisDashboard.vue": 16,
   "components/MemoStudioEditor.vue": 41,

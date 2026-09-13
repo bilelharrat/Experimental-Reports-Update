@@ -1,6 +1,6 @@
 <script setup>
-import { computed, inject, ref, unref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, inject, ref, unref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { companyViews, trackedCompanyIds } from "../state.js";
 import { buildTickerTape, displayTicker, publicTickers } from "../liveTicker.js";
 import { useLiveQuotes } from "../useLiveQuotes.js";
@@ -9,12 +9,35 @@ import HomeMarketPanel from "../components/HomeMarketPanel.vue";
 import HomeNewsDesk from "../components/HomeNewsDesk.vue";
 import LiveTickerTape from "../components/LiveTickerTape.vue";
 
+const NEWS_LAYOUT_KEY = "bsh.newsDesk.expanded";
+
+function loadNewsExpanded() {
+  try {
+    return window.localStorage.getItem(NEWS_LAYOUT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveNewsExpanded(value) {
+  try {
+    window.localStorage.setItem(NEWS_LAYOUT_KEY, value ? "1" : "0");
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 const emit = defineEmits(["open-copilot"]);
 const t = useT();
+const route = useRoute();
 const router = useRouter();
 
 const companies = inject("workspaceCompanies", ref([]));
 const companyList = computed(() => unref(companies) || []);
+
+const deskExpanded = ref(
+  route.query.wide === "1" || route.query.wide === "true" || loadNewsExpanded(),
+);
 
 const recentCompanies = computed(() => {
   const views = companyViews.value || {};
@@ -55,6 +78,25 @@ const { quotes: liveQuotes } = useLiveQuotes(deskTickers);
 const tickerTape = computed(() =>
   buildTickerTape(companyList.value, liveQuotes.value),
 );
+const watchlistTape = computed(() =>
+  buildTickerTape(followingCompanies.value, liveQuotes.value),
+);
+
+watch(
+  () => route.query.wide,
+  (value) => {
+    deskExpanded.value = value === "1" || value === "true" || loadNewsExpanded();
+  },
+);
+
+function toggleDeskExpanded() {
+  deskExpanded.value = !deskExpanded.value;
+  saveNewsExpanded(deskExpanded.value);
+  const query = { ...route.query };
+  if (deskExpanded.value) query.wide = "1";
+  else delete query.wide;
+  router.replace({ query });
+}
 
 function followInitial(company) {
   const ticker = displayTicker(company, companyList.value);
@@ -67,7 +109,17 @@ function followLabel(company) {
 }
 
 function openCompany(company) {
-  router.push({ name: "research", params: { companyId: company.id } });
+  if (!company) return;
+  const ticker =
+    String(company.ticker || "").trim().toUpperCase() ||
+    displayTicker(company, companyList.value);
+  if (ticker) {
+    router.push({ name: "market-radar", query: { ticker } });
+    return;
+  }
+  if (company.id) {
+    router.push({ name: "research", params: { companyId: company.id } });
+  }
 }
 
 function openNews(row) {
@@ -86,22 +138,30 @@ function openNews(row) {
 </script>
 
 <template>
-  <div class="news-page">
+  <div class="news-page" :data-expanded="deskExpanded ? 'true' : 'false'">
     <header class="news-page-header">
       <h1 class="font-display text-large-title text-ink-primary">
         {{ t("nav.news") }}
       </h1>
     </header>
 
-    <LiveTickerTape
-      v-if="tickerTape.length"
-      class="mb-5"
-      :items="tickerTape"
-      link-to-tracking
-      @select="openCompany"
-    />
+    <div class="mb-5 space-y-2">
+      <LiveTickerTape
+        v-if="tickerTape.length"
+        :items="tickerTape"
+        link-to-tracking
+        @select="openCompany"
+      />
+      <LiveTickerTape
+        v-if="deskExpanded && watchlistTape.length"
+        :items="watchlistTape"
+        :label="t('home.desk_movers')"
+        link-to-tracking
+        @select="openCompany"
+      />
+    </div>
 
-    <section v-if="followingCompanies.length" class="mb-6">
+    <section v-if="!deskExpanded && followingCompanies.length" class="mb-6">
       <h2 class="mb-3 px-1 font-display text-title2 text-ink-primary">
         {{ t("home.desk_following") }}
       </h2>
@@ -121,15 +181,24 @@ function openNews(row) {
       </div>
     </section>
 
-    <div class="grid items-start gap-8 lg:grid-cols-12">
+    <div
+      :class="
+        deskExpanded
+          ? 'space-y-6'
+          : 'grid items-start gap-8 lg:grid-cols-12'
+      "
+    >
       <HomeNewsDesk
-        class="lg:col-span-8"
+        :class="deskExpanded ? '' : 'lg:col-span-8'"
         :book-ids="bookCompanyIds"
+        :expanded="deskExpanded"
+        @toggle-expand="toggleDeskExpanded"
         @open-company="openCompany"
         @open-news="openNews"
         @open-copilot="emit('open-copilot', $event)"
       />
       <HomeMarketPanel
+        v-if="!deskExpanded"
         class="lg:col-span-4"
         :companies="companyList"
         :quotes="liveQuotes"

@@ -79,6 +79,43 @@ describe("homeDesk", () => {
     expect(market.every((r) => r.market)).toBe(true);
   });
 
+  it("prefers live headlines and drops stale company archive", () => {
+    const rows = assembleDeskNews({
+      feed: [],
+      companies: [
+        {
+          ...zainar,
+          company_news: [
+            {
+              title: "Ancient ZaiNar archive story",
+              published_at: "2025-01-01",
+              summary: "Too old.",
+            },
+            {
+              title: "Fresh ZaiNar update",
+              published_at: "2026-09-05",
+              summary: "Recent.",
+            },
+          ],
+        },
+      ],
+      live: [
+        {
+          id: "live-1",
+          title: "NVDA climbs on AI demand",
+          published_at: "2026-09-09T12:00:00Z",
+          ticker: "NVDA",
+          source: "Yahoo",
+        },
+      ],
+      now: Date.parse("2026-09-10T00:00:00Z"),
+    });
+    expect(rows.some((r) => r.title.includes("NVDA climbs"))).toBe(true);
+    expect(rows.some((r) => r.title.includes("Fresh ZaiNar"))).toBe(true);
+    expect(rows.some((r) => r.title.includes("Ancient"))).toBe(false);
+    expect(rows[0].kind).toBe("live_news");
+  });
+
   it("ranks quote movers by absolute move", () => {
     const movers = quoteMovers(
       [nvda, { id: "tsm", name: "TSMC", ticker: "TSM" }],

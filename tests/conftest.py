@@ -19,6 +19,7 @@ def _isolate_data_dir(monkeypatch, tmp_path):
     own layout simply monkeypatch over these (their patch runs later).
     """
     from server import (
+        annotation_store,
         auth_store,
         cache,
         console_store,
@@ -29,6 +30,7 @@ def _isolate_data_dir(monkeypatch, tmp_path):
         market_brief,
         memo_editor_store,
         memo_prep,
+        news_brief,
         product_store,
         research_store,
         serena_analysis,
@@ -74,7 +76,11 @@ def _isolate_data_dir(monkeypatch, tmp_path):
         serena_analysis, "TRAINING_ROOT", data_root / "serena_training"
     )
     monkeypatch.setattr(desk_store, "DESK_ROOT", data_root / "market_desk")
+    monkeypatch.setattr(
+        annotation_store, "ANNOTATIONS_ROOT", data_root / "report_annotations"
+    )
     monkeypatch.setattr(market_brief, "BRIEFS_ROOT", data_root / "market_briefs")
+    monkeypatch.setattr(news_brief, "BRIEFS_ROOT", data_root / "news_briefs")
 
 
 @pytest.fixture(autouse=True)
