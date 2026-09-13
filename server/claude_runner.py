@@ -5117,6 +5117,17 @@ MEMO_STRUCTURE_V2_ADDENDUM = """\
   DETERMINED BY IC]", "Strategy: [重仓 / 跟投 / 卡位 — IC to select]".
 - Absence of disclosure is itself information about the company; read it.
 
+## Inputs are closed (structure v2)
+- Your inputs are this run's folder, its research folder and studio
+  packet, and the registry entry above — nothing else on disk.
+- Never read this application's source code (server/, frontend/,
+  tests/) to infer schemas or field meanings. The JSON schema you were
+  given is the complete, authoritative output contract; if a field is
+  not in it, do not produce it.
+- Never open another company's or another run's folders under
+  data/memos/. A prior memo is not evidence, not a template, and not a
+  schema example — copying its shape or facts contaminates this memo.
+
 ## Section navigation (structure v2)
 - Every section is organized under the fixed numbered subsections its
   contract declares, in order. Emit each as a `heading` block, level 2,

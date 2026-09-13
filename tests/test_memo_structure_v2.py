@@ -504,3 +504,14 @@ def test_pin_check_uses_returns_exit_for_scenarios_in_v2():
     codes = {finding.code for finding in result.findings}
     assert "scenario_numbers_missing" in codes
     assert {finding.location for finding in result.findings} == {"returns_exit"}
+
+
+def test_v2_addendum_closes_the_input_surface():
+    """Live runs showed spine agents grepping the server source and
+    opening OTHER companies' memo packages as schema examples — a token
+    sink and a contamination vector. The shared v2 context must pin the
+    input surface shut."""
+    addendum = claude_runner.MEMO_STRUCTURE_V2_ADDENDUM
+    assert "## Inputs are closed" in addendum
+    assert "authoritative output contract" in addendum
+    assert "another company's or another run's folders" in addendum
