@@ -12,9 +12,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+import itertools
+
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Inches, Pt, RGBColor
@@ -857,6 +860,8 @@ def _package_validation_errors(package: Any) -> list[str]:
     sources = package.get("sources")
     if not isinstance(sources, list) or not sources:
         errors.append("sources must be a non-empty list")
+    errors.extend(_calculation_errors(package))
+    errors.extend(_citation_errors(package))
 
     by_id: dict[str, dict] = {}
     for index, section in enumerate(sections):
@@ -1304,6 +1309,80 @@ def _validate_chart_block(block: dict, location: str, errors: list[str]) -> None
         errors.append(f"{location}.source_ids must be a list of source ids")
 
 
+_CALC_ID_RE = re.compile(r"^C\d+$")
+
+
+def _calculation_errors(package: dict) -> list[str]:
+    """`calculations` is optional; when present it is a list of notes with
+    an id "C<n>", a formula and a result (label/meaning may be localized
+    or plain), and ids are unique."""
+    calculations = package.get("calculations")
+    if calculations is None:
+        return []
+    if not isinstance(calculations, list):
+        return ["calculations must be a list when present"]
+    errors: list[str] = []
+    seen: set[str] = set()
+    for index, calc in enumerate(calculations):
+        location = f"calculations[{index}]"
+        if not isinstance(calc, dict):
+            errors.append(f"{location} must be an object")
+            continue
+        calc_id = str(calc.get("id") or "").strip()
+        if not _CALC_ID_RE.match(calc_id):
+            errors.append(f"{location}.id must look like C1, C2, ...")
+        elif calc_id in seen:
+            errors.append(f"{location}.id {calc_id} is duplicated")
+        seen.add(calc_id)
+        for key in ("formula", "result"):
+            if not str(calc.get(key) or "").strip():
+                errors.append(f"{location}.{key} is required")
+        inputs = calc.get("inputs")
+        if inputs is not None and not isinstance(inputs, list):
+            errors.append(f"{location}.inputs must be a list")
+    return errors
+
+
+def _iter_strings(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_strings(item)
+
+
+def _citation_errors(package: dict) -> list[str]:
+    """Every inline `[S#]` / `[C#]` must name an existing source or
+    calculation note — a dangling link is a fabricated citation."""
+    known: set[str] = set()
+    for source in package.get("sources") or []:
+        if isinstance(source, dict):
+            known.add(str(source.get("id") or "").strip())
+    for calc in package.get("calculations") or []:
+        if isinstance(calc, dict):
+            known.add(str(calc.get("id") or "").strip())
+    errors: list[str] = []
+    reported: set[str] = set()
+    for index, section in enumerate(package.get("sections") or []):
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("id") or f"sections[{index}]")
+        for text in _iter_strings(section.get("blocks")):
+            for citation_id in citation_ids(text):
+                if citation_id in known or citation_id in reported:
+                    continue
+                reported.add(citation_id)
+                errors.append(
+                    f"{section_id}: unknown_citation [{citation_id}] — cite "
+                    "only ids that exist in the package sources or the "
+                    "pinned calculation notes"
+                )
+    return errors
+
+
 def _validate_source(source: Any, location: str, errors: list[str]) -> None:
     if not isinstance(source, dict):
         errors.append(f"{location} must be an object")
@@ -1311,6 +1390,12 @@ def _validate_source(source: Any, location: str, errors: list[str]) -> None:
     for key in ("id", "title", "class", "treatment", "as_of"):
         if not str(source.get(key) or "").strip():
             errors.append(f"{location}.{key} is required")
+    url = source.get("url")
+    if url is not None and str(url).strip():
+        if not isinstance(url, str) or not url.strip().startswith(
+            ("http://", "https://")
+        ):
+            errors.append(f"{location}.url must be an http(s) URL when present")
     _validate_localized_value(
         source.get("class"),
         f"{location}.class",
@@ -1444,6 +1529,8 @@ def _build_document(package: dict, locale: str) -> Document:
         if not first:
             document.add_page_break()
         _add_sources_section(document, package, locale, section_titles)
+    if package.get("calculations"):
+        _add_calculations_section(document, package, locale)
     return document
 
 
@@ -1602,9 +1689,8 @@ def _add_sources_section(
         else ["来源", "类别", "处理方式", "时点"]
     )
     rows = []
-    for source in package.get("sources") or []:
-        if not isinstance(source, dict):
-            continue
+    sources = [s for s in package.get("sources") or [] if isinstance(s, dict)]
+    for source in sources:
         rows.append([
             _loc(source.get("title") or source.get("id"), locale),
             _loc(source.get("class") or source.get("type"), locale),
@@ -1612,6 +1698,81 @@ def _add_sources_section(
             _loc(source.get("as_of"), locale),
         ])
     _add_table(document, {"headers": headers, "rows": rows}, locale)
+    if not rows:
+        return
+    # Bookmark every row (the target of inline `[S#]` links) and turn the
+    # title into an external link when the source carries a URL.
+    table = document.tables[-1]
+    for index, source in enumerate(sources):
+        source_id = str(source.get("id") or "").strip()
+        cell = table.rows[index + 1].cells[0]
+        paragraph = cell.paragraphs[0]
+        if source_id:
+            _add_bookmark(paragraph, citation_anchor(source_id))
+        url = str(source.get("url") or "").strip()
+        if url.startswith(("http://", "https://")):
+            for run in list(paragraph.runs):
+                run._r.getparent().remove(run._r)
+            _append_hyperlink(
+                paragraph,
+                _loc(source.get("title") or source_id, locale),
+                url=url,
+                locale=locale,
+                size=9.3,
+            )
+
+
+CALCULATIONS_TITLE = {"en": "Calculation notes", "zh": "计算说明"}
+
+
+def _calculation_inputs_text(calculation: dict) -> str:
+    parts = []
+    for item in calculation.get("inputs") or []:
+        if not isinstance(item, dict):
+            continue
+        ref = str(item.get("ref") or "").strip()
+        ref_note = f" [{ref}]" if ref else ""
+        parts.append(f"{item.get('name')} = {item.get('value')}{ref_note}")
+    return "; ".join(parts)
+
+
+def _add_calculations_section(
+    document: Document, package: dict, locale: str
+) -> None:
+    """The appendix behind every `[C#]` link: one bookmarked row per
+    pinned calculation note — what was computed, from which inputs, the
+    arithmetic, the result, and what it means."""
+    calculations = [
+        c for c in package.get("calculations") or [] if isinstance(c, dict)
+    ]
+    if not calculations:
+        return
+    _add_heading(document, CALCULATIONS_TITLE[locale], level=1, locale=locale)
+    headers = (
+        ["ID", "What", "Inputs", "Formula", "Result", "Meaning"]
+        if locale == "en"
+        else ["编号", "计算内容", "输入", "公式", "结果", "含义"]
+    )
+    rows = [
+        [
+            str(calc.get("id") or ""),
+            _loc(calc.get("label"), locale),
+            _calculation_inputs_text(calc),
+            str(calc.get("formula") or ""),
+            str(calc.get("result") or ""),
+            _loc(calc.get("meaning"), locale),
+        ]
+        for calc in calculations
+    ]
+    _add_table(document, {"headers": headers, "rows": rows}, locale)
+    table = document.tables[-1]
+    for index, calc in enumerate(calculations):
+        calc_id = str(calc.get("id") or "").strip()
+        if calc_id:
+            _add_bookmark(
+                table.rows[index + 1].cells[0].paragraphs[0],
+                citation_anchor(calc_id),
+            )
 
 
 def _add_heading(document: Document, text: str, *, level: int, locale: str) -> None:
@@ -1868,6 +2029,68 @@ def _cell_text(cell: Any, text: Any, *, locale: str, bold: bool = False, color: 
     _add_run(paragraph, _loc(text, locale), locale=locale, bold=bold, color=color, size=9.3)
 
 
+# Inline citations: `[S3]`, `[C2]`, `[S3, C2]` — ids of package sources
+# (S) and calculation notes (C). The renderer turns each id into a
+# superscript link to its bookmarked row in the Sources table or the
+# Calculation notes appendix, so a reader can click through to where a
+# number came from and how it was computed (founder feedback 2026-09-13).
+_CITATION_RE = re.compile(r"\[((?:[SC]\d+)(?:\s*,\s*[SC]\d+)*)\]")
+_BOOKMARK_IDS = itertools.count(9000)
+CITATION_LINK_COLOR = "1F4E79"
+
+
+def citation_ids(text: Any) -> list[str]:
+    """Every citation id in ``text`` in order (with repeats)."""
+    ids: list[str] = []
+    for group in _CITATION_RE.findall(str(text or "")):
+        ids.extend(part.strip() for part in group.split(","))
+    return ids
+
+
+def citation_anchor(citation_id: str) -> str:
+    return f"src_{citation_id}" if citation_id.startswith("S") else f"calc_{citation_id}"
+
+
+def _add_bookmark(paragraph: Any, name: str) -> None:
+    bookmark_id = str(next(_BOOKMARK_IDS))
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), bookmark_id)
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), bookmark_id)
+    paragraph._p.insert(0, start)
+    paragraph._p.append(end)
+
+
+def _append_hyperlink(
+    paragraph: Any,
+    text: str,
+    *,
+    anchor: str | None = None,
+    url: str | None = None,
+    locale: str = "en",
+    size: float = 10.2,
+    superscript: bool = False,
+) -> Any:
+    """Append a run wrapped in ``w:hyperlink`` — internal (``anchor`` to a
+    bookmark) or external (``url`` via a document relationship)."""
+    hyperlink = OxmlElement("w:hyperlink")
+    if url:
+        r_id = paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)
+        hyperlink.set(qn("r:id"), r_id)
+    elif anchor:
+        hyperlink.set(qn("w:anchor"), anchor)
+    run = paragraph.add_run(str(text or ""))
+    _style_run(run, size=size, bold=False, color=CITATION_LINK_COLOR, locale=locale)
+    if superscript:
+        run.font.superscript = True
+    else:
+        run.font.underline = True
+    hyperlink.append(run._r)
+    paragraph._p.append(hyperlink)
+    return run
+
+
 def _add_run(
     paragraph: Any,
     text: str,
@@ -1877,9 +2100,33 @@ def _add_run(
     color: str = BLACK,
     locale: str = "en",
 ) -> Any:
-    run = paragraph.add_run(str(text or ""))
-    _style_run(run, size=size, bold=bold, color=color, locale=locale)
-    return run
+    text = str(text or "")
+    if "[" not in text or not _CITATION_RE.search(text):
+        run = paragraph.add_run(text)
+        _style_run(run, size=size, bold=bold, color=color, locale=locale)
+        return run
+    last: Any = None
+    position = 0
+    for match in _CITATION_RE.finditer(text):
+        if match.start() > position:
+            last = paragraph.add_run(text[position : match.start()])
+            _style_run(last, size=size, bold=bold, color=color, locale=locale)
+        ids = [part.strip() for part in match.group(1).split(",")]
+        for index, citation_id in enumerate(ids):
+            label = citation_id if index == len(ids) - 1 else f"{citation_id},"
+            last = _append_hyperlink(
+                paragraph,
+                label,
+                anchor=citation_anchor(citation_id),
+                locale=locale,
+                size=size,
+                superscript=True,
+            )
+        position = match.end()
+    if position < len(text):
+        last = paragraph.add_run(text[position:])
+        _style_run(last, size=size, bold=bold, color=color, locale=locale)
+    return last
 
 
 def _style_run(
@@ -2100,6 +2347,8 @@ def _toc_titles(package: dict, locale: str) -> list[str]:
             titles.append(title)
     if package.get("sources") and not _has_section(package, "sources"):
         titles.append(_section_title({"id": "sources"}, locale, section_titles))
+    if package.get("calculations"):
+        titles.append(CALCULATIONS_TITLE[locale])
     return titles
 
 

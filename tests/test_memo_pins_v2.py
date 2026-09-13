@@ -129,6 +129,33 @@ def _good_shared_facts() -> dict:
             "basis": "current round pre-money",
             "holding_period": "4-5 years",
         },
+        "calculations": [
+            {
+                "id": "C1",
+                "label": "Scenario exit values and multiples",
+                "inputs": [
+                    {"name": "entry valuation", "value": "$1.0B", "ref": "S1"},
+                    {"name": "exit multiples", "value": "6x/10x/14x", "ref": "assumption"},
+                ],
+                "formula": (
+                    "bear 6x × $40M = $240M → 0.2x; base 10x × $120M = $1.2B → "
+                    "1.1x; bull 14x × $250M = $3.5B → 3.2x"
+                ),
+                "result": "0.2x / 1.1x / 3.2x",
+                "meaning": "Only the bull case clears a venture return.",
+            },
+            {
+                "id": "C2",
+                "label": "Fair value range",
+                "inputs": [
+                    {"name": "ARR", "value": "$24M", "ref": "S1"},
+                    {"name": "comp multiples", "value": "25-37x", "ref": "S2"},
+                ],
+                "formula": "25x × $24M = $600M; 37x × $24M = $900M",
+                "result": "$600M - $900M",
+                "meaning": "The round price sits above the range.",
+            },
+        ],
     }
 
 

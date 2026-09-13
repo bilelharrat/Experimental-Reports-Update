@@ -2593,6 +2593,9 @@ MEMO_FAST_PASS_SCHEMA: dict[str, Any] = {
                     "source_class": {"type": "string"},
                     "detail": {"type": "string"},
                     "as_of": {"type": ["string", "null"]},
+                    # The page URL for web-retrieved evidence, so the memo
+                    # can link the reader to it (null for files/private).
+                    "url": {"type": ["string", "null"]},
                 },
                 "required": ["source", "source_class", "detail", "as_of"],
             },
@@ -2669,7 +2672,7 @@ MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA: dict[str, Any] = {
 }
 
 # Canonical section ids, in package order — derived from the structure
-# registry (server/memo_structure.py + skills/structures/), the single
+# registry (server/memo_structure.py + skills/memo/structures/), the single
 # source of truth for report structure.
 MEMO_PACKAGE_SECTION_IDS: tuple[str, ...] = memo_structure.LATE.section_ids
 
@@ -2711,6 +2714,45 @@ def _spine_scenario_object_schema() -> dict[str, Any]:
             for key in ("bear", "base", "bull")
         },
         "required": ["bear", "base", "bull"],
+    }
+
+
+def _spine_calculations_schema() -> dict[str, Any]:
+    """Numbered calculation notes behind every derived number: inputs
+    (each with its source id, another note, or "assumption"), the
+    arithmetic with the numbers in it, the result, and its meaning.
+    Sections cite them inline as [C#]; the docx renders an appendix."""
+    return {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 12,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "id": {"type": "string", "pattern": "^C[1-9][0-9]?$"},
+                "label": {"type": "string", "maxLength": 80},
+                "inputs": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "name": {"type": "string", "maxLength": 60},
+                            "value": {"type": "string", "maxLength": 40},
+                            "ref": {"type": "string", "maxLength": 24},
+                        },
+                        "required": ["name", "value", "ref"],
+                    },
+                },
+                "formula": {"type": "string", "maxLength": 200},
+                "result": {"type": "string", "maxLength": 60},
+                "meaning": {"type": "string", "maxLength": 220},
+            },
+            "required": ["id", "label", "inputs", "formula", "result", "meaning"],
+        },
     }
 
 
@@ -2868,6 +2910,7 @@ def memo_fast_english_spine_schema(
                 "scenarios": _spine_scenario_object_schema(),
                 "highlights": _spine_highlights_schema(),
                 "risks": _spine_risks_schema_v2(),
+                "calculations": _spine_calculations_schema(),
             },
             "required": [
                 "recommendation_sentence",
@@ -2880,6 +2923,7 @@ def memo_fast_english_spine_schema(
                 "fair_value_range",
                 "entry",
                 "highlights",
+                "calculations",
             ],
         }
     return {
@@ -3114,7 +3158,11 @@ these keys, all non-empty:
   "third-party market data", "BSH primary diligence", "public filings", ...);
 - `treatment`: {"en": "...", "zh": ""} — one sentence on how the memo
   weighs and uses this source;
-- `as_of`: the data vintage as an ISO date string.
+- `as_of`: the data vintage as an ISO date string;
+- `url` (optional): the page URL for a source retrieved from the web —
+  the analysis artifacts record it; the memo renders the title as a link.
+  Omit it (never invent one) for files, filings held privately, or
+  interviews.
 
 Do NOT reuse the analysis-pass evidence vocabulary (`source`,
 `source_class`, `label`, `detail`) for package sources — the renderer
@@ -3339,8 +3387,12 @@ Rejected language categories:
   "available evidence does not document").
 
 Final memo body and operating tables must not contain:
-- bracketed source tokens or file references such as `[S1]`, `[WV]`,
-  `[WV SPV memo]`, `[companies.yaml]`, `[internal]`, or similar;
+- file references or internal tokens such as `[WV]`, `[WV SPV memo]`,
+  `[companies.yaml]`, `[internal]`, or similar. Structure-v2 packages
+  cite the Sources table and the Calculation notes inline as `[S3]` /
+  `[C2]` — those two forms are the ONLY bracketed tokens allowed, and
+  only in v2 (see the citations rules in the v2 addendum); v1 packages
+  keep source ids in the Sources index alone;
 - internal artifact names such as `companies.yaml`, `memo_packet`,
   `source_trace`, `claim_register`, `research_tasks`, `reviewer_prompts`, or
   analysis file names;
@@ -4932,6 +4984,9 @@ Focus for this pass:
 {type_block}
 Rules:
 - Do not write files. Return only the JSON object matching the attached schema.
+- For every `supporting_evidence` item retrieved from the web, set `url` to
+  the page it came from (null for files, private documents or interviews).
+  The memo links readers to it, so never invent or guess a URL.
 - Hard output budget (schema-enforced — exceeding any limit rejects the
   whole response): at most 8 `key_findings`, 8 `supporting_evidence`,
   6 `disconfirming_evidence`, 5 `remaining_evidence_limits`,
@@ -5392,6 +5447,25 @@ def _render_shared_facts_block(
                 f"{index}. {risk.get('summary')} — "
                 f"{risk.get('rating')}{likelihood_note}"
             )
+    calculations = shared_facts.get("calculations")
+    if isinstance(calculations, list) and calculations:
+        lines.append(
+            "Calculation notes (cite the id in square brackets — [C2] — "
+            "wherever the result appears in prose or a table cell; the "
+            "renderer links it to the Calculation notes appendix):"
+        )
+        for note in calculations:
+            if not isinstance(note, dict):
+                continue
+            inputs = "; ".join(
+                f"{i.get('name')} = {i.get('value')} [{i.get('ref')}]"
+                for i in note.get("inputs") or []
+                if isinstance(i, dict)
+            )
+            lines.append(
+                f"- {note.get('id')} {note.get('label')}: {note.get('formula')} "
+                f"→ {note.get('result')} (inputs: {inputs}) — {note.get('meaning')}"
+            )
     source_topics = shared_facts.get("source_topics")
     if isinstance(source_topics, dict) and source_topics:
         lines.append("Source coverage:")
@@ -5540,6 +5614,20 @@ Worked examples (match the Prefer register, never the Avoid one):
   Prefer: "The company reports a $40M pipeline. The pipeline is
   valuable evidence of demand. It is not revenue, and at the company's
   own 25% historical conversion it supports roughly $10M of bookings."
+
+## Citations (structure v2)
+- Every external fact carries the id of the source it rests on, inline,
+  as `[S3]` (several: `[S3, S7]`); every derived number carries the id
+  of its calculation note as `[C2]`. The renderer turns them into links
+  to the Sources table and the Calculation notes appendix, so a reader
+  can click to see where a number came from and how it was computed.
+- Highlights, key risks, the verdict callout, every table cell that
+  holds a number, and every scenario, fair-value and market-size figure
+  MUST carry them. Cite only ids that exist in the pin sheet's
+  calculation notes or the package sources — an unknown id fails
+  validation. Place the token after the number or at the end of the
+  sentence, never inside a heading.
+- Keep the tokens exactly as written in both languages.
 
 ## Teach, don't assert (structure v2)
 The reader is a senior investor who has never seen this company and
@@ -5846,6 +5934,19 @@ against the stragglers when they land.
      the plan is delivered"). The `summary` is one plain sentence with
      at most one number; the arithmetic chain that supports it belongs
      in the risk section's card, never in the summary.
+   - `calculations`: every derived number the memo relies on, as a
+     numbered note (`id` "C1", "C2", ...): `label`, `inputs` (name,
+     value, `ref` = the source id "S3" it comes from, another note
+     "C1", or "assumption"), `formula` (the arithmetic WITH the numbers
+     in it: "13 × $200B = $2.6T; $2.6T ÷ $1.75T = 1.5x"), `result`, and
+     `meaning` (what the result says, in plain words). Required notes:
+     the bear, base and bull exit values with their MOIC and IRR, the
+     fair-value range, the entry multiple, and the adopted market size.
+     Sections cite a note as [C2] wherever its result appears; a
+     deterministic gate checks that every scenario MOIC and both
+     fair-value bounds have a note whose formula or result shows them.
+   - Package `sources`: add `url` for every source the analysis
+     artifacts retrieved from the web (they record it); never invent one.
 """
     prompt = f"""\
 You are drafting the SHARED SPINE of the English source package. {worker_count} section
@@ -8296,6 +8397,9 @@ def run_memo_fast_english_package_parallel(
     package.setdefault("schema_version", 1)
     package["structure"] = structure.meta()
     package["sections"] = sections
+    calculations = _package_calculations(spine_result.get("shared_facts"))
+    if calculations:
+        package["calculations"] = calculations
     cost = (
         _to_float(spine_result.get("claude_cost_usd"))
         + _to_float((artifacts_result or {}).get("claude_cost_usd"))
@@ -8366,8 +8470,12 @@ Chinese style:
 - Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
   source-trace labels, memo-package labels, reviewer-prompt labels,
   decision-question labels, `硬 IP 墙`, or `软性工具`.
+- Inline citation tokens `[S3]`, `[C2]`, `[S3, C2]` are ids, not words:
+  keep every one exactly as written, in the same place in the sentence.
+  A translation that drops, adds or renumbers one is rejected.
 - Use these fixed translations for risk-card row labels: Risk Type →
-  风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
+  风险类型; Verdict → 一句话结论; Impact → 影响有多大; Why it matters →
+  为什么重要; What we watch → 跟踪信号; Mitigation → 缓释措施;
   Likelihood → 可能性; Risk Rating → 风险评分. A card heading
   "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
   High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
@@ -8831,8 +8939,12 @@ Chinese style:
 - Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
   source-trace labels, memo-package labels, reviewer-prompt labels,
   decision-question labels, `硬 IP 墙`, or `软性工具`.
+- Inline citation tokens `[S3]`, `[C2]`, `[S3, C2]` are ids, not words:
+  keep every one exactly as written, in the same place in the sentence.
+  A translation that drops, adds or renumbers one is rejected.
 - Use these fixed translations for risk-card row labels: Risk Type →
-  风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
+  风险类型; Verdict → 一句话结论; Impact → 影响有多大; Why it matters →
+  为什么重要; What we watch → 跟踪信号; Mitigation → 缓释措施;
   Likelihood → 可能性; Risk Rating → 风险评分. A card heading
   "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
   High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
@@ -9060,6 +9172,46 @@ def _run_bilingual_unit_compact(
     return unit, None
 
 
+_CITATION_TOKEN_RE = re.compile(r"\[((?:[SC]\d+)(?:\s*,\s*[SC]\d+)*)\]")
+
+
+def _citation_ids(text: Any) -> list[str]:
+    ids: list[str] = []
+    for group in _CITATION_TOKEN_RE.findall(str(text or "")):
+        ids.extend(part.strip() for part in group.split(","))
+    return ids
+
+
+def _package_calculations(shared_facts: Any) -> list[dict]:
+    """The spine's pinned calculation notes as package entries: label and
+    meaning become {en, zh} slots so the translation pass fills them;
+    ids, inputs, formula and result stay as written."""
+    notes = shared_facts.get("calculations") if isinstance(shared_facts, dict) else None
+    out: list[dict] = []
+    for note in notes or []:
+        if not isinstance(note, dict) or not str(note.get("id") or "").strip():
+            continue
+        out.append(
+            {
+                "id": str(note["id"]).strip(),
+                "label": {"en": str(note.get("label") or ""), "zh": ""},
+                "inputs": [
+                    {
+                        "name": str(i.get("name") or ""),
+                        "value": str(i.get("value") or ""),
+                        "ref": str(i.get("ref") or ""),
+                    }
+                    for i in note.get("inputs") or []
+                    if isinstance(i, dict)
+                ],
+                "formula": str(note.get("formula") or ""),
+                "result": str(note.get("result") or ""),
+                "meaning": {"en": str(note.get("meaning") or ""), "zh": ""},
+            }
+        )
+    return out
+
+
 def _adopt_zh_translations(source: Any, translated: Any) -> None:
     """Copy ONLY ``zh`` strings from ``translated`` into ``source`` in place.
 
@@ -9075,6 +9227,10 @@ def _adopt_zh_translations(source: Any, translated: Any) -> None:
                 str(translated.get("zh") or "").strip()
                 and translated.get("en") == source.get("en")
                 and not str(source.get("zh") or "").strip()
+                # Citation ids are links: a zh string that lost, gained
+                # or renumbered one stays blank and goes to the chaser.
+                and sorted(_citation_ids(translated["zh"]))
+                == sorted(_citation_ids(source.get("en")))
             ):
                 source["zh"] = translated["zh"]
         for key, value in source.items():

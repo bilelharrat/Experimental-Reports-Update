@@ -734,6 +734,40 @@ def check_spine_pins_v2(
                         "before dilution) — fix the numbers or the MOIC"
                     )
 
+    calculations = shared_facts.get("calculations")
+    if isinstance(calculations, list):
+        seen_calc_ids: set[str] = set()
+        blob_parts: list[str] = []
+        for note in calculations:
+            if not isinstance(note, dict):
+                continue
+            calc_id = str(note.get("id") or "").strip()
+            if calc_id in seen_calc_ids:
+                problems.append(f"calculation id {calc_id} is duplicated")
+            seen_calc_ids.add(calc_id)
+            blob_parts.append(
+                f"{note.get('formula') or ''} {note.get('result') or ''}"
+            )
+        blob = " ".join(blob_parts).lower().replace(" ", "")
+        needed: list[tuple[str, object]] = []
+        if isinstance(scenarios, dict):
+            for key in ("bear", "base", "bull"):
+                scenario = scenarios.get(key)
+                if isinstance(scenario, dict) and scenario.get("moic"):
+                    needed.append((f"{key} scenario MOIC", scenario["moic"]))
+        if isinstance(fair_value, dict):
+            for bound in ("low", "high"):
+                if fair_value.get(bound):
+                    needed.append((f"fair value {bound}", fair_value[bound]))
+        for label, value in needed:
+            token = str(value or "").strip().lower().replace(" ", "")
+            if token and token not in blob:
+                problems.append(
+                    f"calculations must include a note whose formula or "
+                    f"result shows the {label} {value} — add the arithmetic "
+                    "behind it"
+                )
+
     highlights = shared_facts.get("highlights")
     dimensions_pinned = (
         scorecard.get("dimensions")
