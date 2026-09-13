@@ -771,9 +771,13 @@ def bootstrap_memo_run(
             "stream_path": str(stream_path(run_dir)),
         }
 
+    # Stage-classification "warn" outcomes are calibration guidance for
+    # the agents, not user-facing problems — the stage-aware structures
+    # cover every stage, so a fuzzy registry label is not a warning. The
+    # agents still read the full assessment via ``scope_check``; the UI
+    # shows the evidence-confirmed "Company stage" once the run's spine
+    # pins it (report.company_stage).
     warnings: list[str] = []
-    if stage_assessment["outcome"] == "warn":
-        warnings.append(stage_assessment.get("reason") or "Stage assessment indeterminate")
 
     manifest_path = _write_manifest_skeleton(
         run_dir,

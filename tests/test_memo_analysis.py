@@ -4398,7 +4398,12 @@ def test_fast_pipeline_chasing_flag_off_passes_no_hooks(memo_env, monkeypatch):
     package = _memo_package(body_zh="")
 
     def fake_parallel_english(**kwargs):
-        assert kwargs["on_spine"] is None
+        # Chasing off: no chaser hooks. The company-stage publisher is
+        # the only on_spine hook allowed to remain.
+        on_spine = kwargs["on_spine"]
+        assert on_spine is None or on_spine.__qualname__.startswith(
+            "_company_stage_spine_hook"
+        )
         assert kwargs["on_section"] is None
         return {
             "analysis_artifacts": _chasing_artifacts(),

@@ -2130,22 +2130,23 @@ onUnmounted(stopPolling);
         </button>
       </div>
 
+      <!-- Company stage: the run's evidence-confirmed stage, pinned by
+           the spine after Phase 2 research. Absent until the spine
+           lands, so it never shows a registry guess. -->
       <div
-        v-if="
-          isMemo &&
-          activeReport.scope_check &&
-          activeReport.scope_check.outcome === 'warn'
-        "
-        class="mt-4 rounded-lg border border-warning bg-warning-soft p-4 text-sm text-warning-ink"
+        v-if="isMemo && activeReport.company_stage?.stage"
+        class="mt-4 rounded-lg border border-subtle bg-surface-muted p-4 text-sm text-ink-primary"
       >
-        <div class="font-semibold mb-1">
+        <span class="font-semibold">
+          {{ tr("research.company_stage_label") }}
+        </span>
+        <span class="ml-2">
           {{
-            tr("research.scope_check_warning", {
-              classification: activeReport.scope_check.classification,
-            })
+            tr(
+              "research.company_stage_" + activeReport.company_stage.stage,
+            )
           }}
-        </div>
-        <p>{{ activeReport.scope_check.reason }}</p>
+        </span>
       </div>
 
       <!-- Memo-specific affordances: downloads, partial analysis artifacts,

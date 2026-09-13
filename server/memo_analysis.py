@@ -3148,6 +3148,7 @@ def _run_fast_memo_pipeline(
         started_at=started_at,
         started_monotonic=started_monotonic,
         structure=structure,
+        report_id=report_id,
     )
 
 
@@ -3164,6 +3165,56 @@ def _assert_spine_pin_allowed(
             "pinned_spine_path is studio-only; "
             f"memo_mode={memo_mode!r} must not carry card pins"
         )
+
+
+def _company_stage_spine_hook(report_id: str, stream):
+    """Publish the company's stage the moment a run's spine is accepted.
+
+    The spine pins ``shared_facts.stage`` right after Phase 2 research,
+    and the pin gate holds sections to it — that is the first
+    evidence-confirmed stage judgment of a run, so it (not the prep-time
+    registry guess) is what the UI shows as "Company stage". Fires once;
+    spines without a stage pin (late v1 / studio-composed) publish
+    nothing."""
+    fired = {"done": False}
+
+    def _publish(spine_payload) -> None:
+        if fired["done"]:
+            return
+        shared = (spine_payload or {}).get("shared_facts") or {}
+        stage = str(shared.get("stage") or "").strip().lower()
+        if stage not in ("early", "growth", "late"):
+            return
+        fired["done"] = True
+        try:
+            storage.update_report(
+                report_id,
+                company_stage={"stage": stage, "source": "memo_spine"},
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("company-stage publish failed", exc_info=True)
+        stream.emit(
+            "stage",
+            stage="company_stage",
+            message=f"Company stage confirmed from the pinned spine: {stage}",
+            classification=stage,
+        )
+
+    return _publish
+
+
+def _compose_spine_hooks(*hooks):
+    active = [hook for hook in hooks if hook is not None]
+    if not active:
+        return None
+    if len(active) == 1:
+        return active[0]
+
+    def _fire(spine_payload) -> None:
+        for hook in active:
+            hook(spine_payload)
+
+    return _fire
 
 
 def _run_fast_synthesis(
@@ -3188,6 +3239,7 @@ def _run_fast_synthesis(
     pinned_spine_path: Path | None = None,
     memo_mode: str = "auto",
     structure: memo_structure.MemoStructure | None = None,
+    report_id: str | None = None,
 ) -> dict:
     """Phases 3-4: English synthesis, Chinese fill, and the gates.
 
@@ -3239,6 +3291,9 @@ def _run_fast_synthesis(
         )
     phase3_cost_before = phase3_progress.cost_usd
     phase3_duration_before = phase3_progress.duration_ms
+    company_stage_hook = (
+        _company_stage_spine_hook(report_id, stream) if report_id else None
+    )
     for attempt in range(1, max_attempts + 1):
         attempts_used = attempt
         attempt_started_at = _now_iso()
@@ -3288,13 +3343,18 @@ def _run_fast_synthesis(
                 attempt=attempt,
                 # Chase only the clean first attempt: retries and repairs
                 # rewrite English, which would strand the speculative
-                # translations (bounded-waste rule).
-                on_spine=(
-                    zh_chaser.on_spine
-                    if zh_chaser is not None
-                    and attempt == 1
-                    and not validation_feedback
-                    else None
+                # translations (bounded-waste rule). The company-stage
+                # hook rides every attempt — a respun spine still pins
+                # the stage, and the hook fires only once.
+                on_spine=_compose_spine_hooks(
+                    company_stage_hook,
+                    (
+                        zh_chaser.on_spine
+                        if zh_chaser is not None
+                        and attempt == 1
+                        and not validation_feedback
+                        else None
+                    ),
                 ),
                 on_section=(
                     zh_chaser.on_section
@@ -6115,6 +6175,7 @@ def _investigate(report_id: str) -> None:
         cost_usd=round(spine_progress.cost_usd, 6),
         claude_duration_ms=spine_progress.duration_ms,
     )
+    _company_stage_spine_hook(report_id, stream)(spine_payload)
 
     seeded_revision_id = None
     try:
@@ -6291,6 +6352,7 @@ def _generate_from_studio(report_id: str) -> None:
         started_monotonic=started_monotonic,
         pinned_spine_path=run_dir / "logs" / "english_units" / "spine.json",
         memo_mode="studio",
+        report_id=report_id,
     )
     if not result.get("ok"):
         message = result.get("error") or "Studio memo generation failed"
