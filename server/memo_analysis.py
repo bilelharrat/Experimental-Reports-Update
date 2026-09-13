@@ -2819,10 +2819,21 @@ def _run_fast_memo_pass(
     lessons_path: Path | None,
     scope_check: dict | None,
     warnings: list[str],
+    structure: memo_structure.MemoStructure | None = None,
 ) -> _FastMemoPassResult:
     started_at = _now_iso()
     started_monotonic = time.monotonic()
     sub_progress = _ThreadProgress(stream, spec.label)
+    type_focus = (
+        memo_structure.company_type_research_focus(structure, spec.pass_id)
+        if structure is not None
+        else ""
+    )
+    type_profile = (
+        memo_structure.load_company_type(structure.company_type)
+        if structure is not None
+        else None
+    )
     sub_progress.emit(
         "thread_started",
         title=spec.label,
@@ -2854,6 +2865,8 @@ def _run_fast_memo_pass(
             scope_check=scope_check,
             warnings=warnings,
             progress=sub_progress,
+            type_focus=type_focus or None,
+            type_label=type_profile.label["en"] if type_profile else None,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("fast memo pass crashed: %s", spec.pass_id)
@@ -2911,6 +2924,7 @@ def _run_fast_phase2(
     scope_check: dict | None,
     warnings: list[str],
     speculator=None,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> tuple[list[_FastMemoPassResult] | None, float, int]:
     """Phase 2: the parallel analysis passes (12 of them).
 
@@ -2980,6 +2994,7 @@ def _run_fast_phase2(
                 lessons_path=lessons_path,
                 scope_check=scope_check,
                 warnings=warnings,
+                structure=structure,
             ): spec
             for spec in _FAST_MEMO_PASSES
         }
@@ -3040,6 +3055,51 @@ def _run_fast_phase2(
     return pass_results, cost_usd, worker_duration_ms
 
 
+def _resolve_company_type(
+    report_id: str,
+    report: dict,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+) -> dict | None:
+    """Phase 1 company type: the registry-sourced value prep persisted,
+    else one tool-free classifier call. A classifier failure files the
+    company under `other` and never blocks the run. Publishes the result
+    to the report (UI card) and the stream either way."""
+    existing = report.get("company_type")
+    if (
+        isinstance(existing, dict)
+        and existing.get("type") in memo_structure.COMPANY_TYPE_KEYS
+    ):
+        return existing
+    company = storage.get_company(str(report.get("company_id") or "")) or {}
+    info: dict | None = None
+    try:
+        info = claude_runner.run_memo_company_type_classifier(
+            run_dir=run_dir, company=company, progress=stream
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("company type classifier crashed")
+    if not info:
+        info = {"type": "other", "source": "classifier_failed"}
+    try:
+        storage.update_report(report_id, company_type=info)
+    except Exception:  # noqa: BLE001
+        logger.warning("company-type publish failed", exc_info=True)
+    label = memo_structure.COMPANY_TYPE_LABELS.get(info["type"], {}).get(
+        "en", info["type"]
+    )
+    stream.emit(
+        "stage",
+        stage="company_type",
+        message=f"Company type: {label} ({info.get('source')})",
+        thread=claude_runner._MEMO_PHASE1_THREAD,
+        company_type=info["type"],
+        source=info.get("source"),
+        confidence=info.get("confidence"),
+    )
+    return info
+
+
 def _run_fast_memo_pipeline(
     *,
     report_id: str,
@@ -3071,6 +3131,9 @@ def _run_fast_memo_pipeline(
         else "late"
     )
     structure_mode = str(report.get("structure_mode") or "full")
+    # Provisional (type-less) structure for the starting event; the Phase
+    # 1 thread classifies the company type below and re-resolves it with
+    # the type's lens and weight overlay.
     structure = memo_structure.active_structure(
         structure_stage, structure_mode
     )
@@ -3122,6 +3185,14 @@ def _run_fast_memo_pipeline(
             thread=claude_runner._MEMO_PHASE1_THREAD,
             chars=len(fact_ledger),
             path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
+        )
+    company_type_info = _resolve_company_type(report_id, report, run_dir, stream)
+    company_type = (
+        str(company_type_info.get("type") or "") if company_type_info else ""
+    )
+    if company_type:
+        structure = memo_structure.active_structure(
+            structure_stage, structure_mode, company_type
         )
     stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
 
@@ -3192,6 +3263,7 @@ def _run_fast_memo_pipeline(
             scope_check=scope_check,
             warnings=warnings,
             speculator=speculator,
+            structure=structure,
         )
         cost_usd += phase2_cost_usd
         worker_duration_ms += phase2_duration_ms
@@ -5532,8 +5604,15 @@ def _resume(report_id: str) -> None:
             if isinstance(stage_info, dict)
             else "late"
         )
+        resume_type_info = report.get("company_type")
         resume_structure = memo_structure.active_structure(
-            resume_stage, str(report.get("structure_mode") or "full")
+            resume_stage,
+            str(report.get("structure_mode") or "full"),
+            (
+                str(resume_type_info.get("type") or "") or None
+                if isinstance(resume_type_info, dict)
+                else None
+            ),
         )
         if resume_structure.scorecard_weights():
             message = (

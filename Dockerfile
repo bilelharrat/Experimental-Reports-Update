@@ -77,6 +77,10 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY server/ ./server/
+# Editorial memo prompts (company-type lenses, structures, zh twins) live
+# at the repo root so the founder's team can edit them without touching
+# server code; the runtime resolves them relative to server/.
+COPY skills/ ./skills/
 COPY --from=frontend /build/dist ./frontend/dist
 RUN uv sync --frozen --no-dev
 

@@ -4427,6 +4427,7 @@ def _run_memo_local_json_artifact(
     model: str | None = None,
     effort: str | None = None,
     append_system_prompt: str | None = None,
+    tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
     if not is_available():
         return None, (
@@ -4470,6 +4471,7 @@ def _run_memo_local_json_artifact(
             model=model,
             effort=effort,
             append_system_prompt=append_system_prompt,
+            tools=tools,
         )
     finally:
         limiter.release()
@@ -4490,6 +4492,7 @@ def _run_memo_local_json_artifact_inner(
     model: str | None = None,
     effort: str | None = None,
     append_system_prompt: str | None = None,
+    tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
     run_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -4515,6 +4518,11 @@ def _run_memo_local_json_artifact_inner(
         cmd.extend(["--model", model])
     if effort:
         cmd.extend(["--effort", effort])
+    if tools is not None:
+        # `--allowedTools` is an allow-list and cannot REMOVE tools under
+        # bypassPermissions; `--tools ""` is the only way to run a
+        # tool-free call (the company-type classifier).
+        cmd.extend(["--tools", tools])
     if append_system_prompt:
         # Shared context appended to the system prompt lands on the CLI's
         # system-prompt cache breakpoint, so concurrent subprocesses with the
@@ -4750,6 +4758,98 @@ only. Never present them as the memo's own conclusion.
 """
 
 
+MEMO_COMPANY_TYPE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "type": {
+            "type": "string",
+            "enum": list(memo_structure.COMPANY_TYPE_KEYS),
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "rationale": {"type": "string", "maxLength": 200},
+    },
+    "required": ["type", "confidence", "rationale"],
+}
+
+
+def run_memo_company_type_classifier(
+    *,
+    run_dir: Path,
+    company: dict,
+    progress=None,
+    timeout_sec: int = 120,
+) -> dict | None:
+    """Phase 1 fallback: one tool-free Sonnet call that files the company
+    under one of the fund's company types from its registry text. Used
+    only when the registry carries no `vertical`. Returns
+    ``{type, source: "classifier", confidence, rationale}`` or None on
+    any failure — the caller falls back to ``other`` and the run goes
+    on."""
+    fields = {}
+    for key in ("name", "industry", "sector", "description", "positioning"):
+        value = company.get(key) if isinstance(company, dict) else None
+        if value:
+            fields[key] = value
+    products = company.get("products") if isinstance(company, dict) else None
+    if isinstance(products, list) and products:
+        fields["products"] = products[:6]
+    type_lines = "\n".join(
+        f"- `{key}`: {memo_structure.COMPANY_TYPE_LABELS[key]['en']}"
+        for key in memo_structure.COMPANY_TYPE_KEYS
+    )
+    prompt = f"""\
+Classify this company into EXACTLY ONE of the fund's company types, from
+the registry text below only (no research, no tools).
+
+Types:
+{type_lines}
+
+Guidance: a lab whose product is a frontier model is `ai_foundation_model`;
+chips, inference clouds, data platforms, training data and orchestration
+are `ai_infra`; products built on models for a vertical or workflow are
+`ai_application`; generative-video models, tools and short-drama studios
+are `ai_video_short_drama`; humanoids, manipulation, warehouse robots and
+robot foundation models are `robotics`; anything else is `other`.
+
+Registry entry:
+```json
+{json.dumps(fields, ensure_ascii=False, indent=2)}
+```
+
+Return only the JSON object matching the attached schema: `type`,
+`confidence` (0-1), and a one-sentence `rationale`.
+"""
+    data, _error = _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_COMPANY_TYPE_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Classifying company type",
+        timeout_label="company type classifier",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=90,
+        allowed_tools="",
+        tools="",
+        model="sonnet",
+    )
+    if not isinstance(data, dict):
+        return None
+    company_type = str(data.get("type") or "").strip()
+    if company_type not in memo_structure.COMPANY_TYPE_KEYS:
+        return None
+    try:
+        confidence = round(float(data.get("confidence") or 0.0), 2)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "type": company_type,
+        "source": "classifier",
+        "confidence": confidence,
+        "rationale": str(data.get("rationale") or "")[:200],
+    }
+
+
 def run_memo_fast_analysis_pass(
     *,
     run_dir: Path,
@@ -4768,8 +4868,20 @@ def run_memo_fast_analysis_pass(
     warnings: list[str] | None = None,
     progress=None,
     timeout_sec: int = 900,
+    type_focus: str | None = None,
+    type_label: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    """Run one narrow memo-analysis pass as its own Claude subprocess."""
+    """Run one narrow memo-analysis pass as its own Claude subprocess.
+
+    ``type_focus`` is the company-type research addendum for this pass
+    (skills/memo/types/<type>.md ``research_focus``); passes share no
+    prompt cache, so it rides the per-pass prompt at no cost."""
+    type_block = (
+        f"\nCompany-type research focus ({type_label or 'this company type'}):\n"
+        f"{type_focus.strip()}\n"
+        if type_focus and type_focus.strip()
+        else ""
+    )
     registry_entry = _extract_company_registry_entry_yaml(
         companies_yaml_path,
         company_slug,
@@ -4817,7 +4929,7 @@ Warnings:
 
 Focus for this pass:
 {focus}
-
+{type_block}
 Rules:
 - Do not write files. Return only the JSON object matching the attached schema.
 - Hard output budget (schema-enforced — exceeding any limit rejects the
@@ -5537,6 +5649,13 @@ def _memo_english_common_context(
     v2_addendum = (
         MEMO_STRUCTURE_V2_ADDENDUM if structure.scorecard_weights() else ""
     )
+    # The company-type lens (skills/memo/types/<type>.md body) rides the
+    # same cached block, once per run, v2-family only — v1 context stays
+    # byte-identical and a run without a type appends nothing.
+    if v2_addendum:
+        type_lens = memo_structure.company_type_lens(structure)
+        if type_lens:
+            v2_addendum = f"{v2_addendum}\n\n{type_lens}"
     return f"""\
 This is the fast-path synthesis for a BSH LP-facing sell-side investment
 memo about {company_name}. {source_mode}
@@ -5682,8 +5801,17 @@ against the stragglers when they land.
             f"{name} {low}-{high}"
             for name, low, high in memo_structure.VERDICT_BANDS
         )
+        type_profile = memo_structure.load_company_type(structure.company_type)
+        type_line = (
+            f"   - This run's company type is {type_profile.label['en']} "
+            "(the executive summary's company-profile sentence names it; "
+            "the company-type lens in your instructions says where the "
+            "case usually lives for this type).\n"
+            if type_profile is not None
+            else ""
+        )
         v2_pins_block = f"""\
-   - `stage`: "{structure.pin_stage}" — this run's classified report stage.
+{type_line}   - `stage`: "{structure.pin_stage}" — this run's classified report stage.
    - `verdict`: the tier your evidence supports (Strong Buy / Buy /
      Watch / Pass). It must agree with the recommendation sentence's
      stance and sit in the scorecard band: {band_list}.

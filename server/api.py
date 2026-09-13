@@ -711,6 +711,9 @@ class CompanyOut(BaseModel):
     exchange: str | None = None
     status: str | None = None
     company_type: str | None = None  # "public" | "private" (see storage.infer_company_type)
+    # The fund's company type (memo_structure.COMPANY_TYPE_KEYS); None when
+    # the registry has not been told and the run-time classifier decides.
+    vertical: str | None = None
     hq: str | None = None
     founded_year: int | None = None
     website: str | None = None
@@ -806,6 +809,11 @@ class ReportDetail(ReportSummary):
     content_zh: str | None = None
     warnings: list[str] = Field(default_factory=list)
     scope_check: dict | None = None
+    # Phase 1 company type ({type, source, confidence?}) and the spine's
+    # evidence-confirmed stage ({stage, source}); the research view renders
+    # both as cards once they land.
+    company_type: dict | None = None
+    company_stage: dict | None = None
     stream_url: str | None = None
     log_url: str | None = None
     analysis_artifacts: list[dict] = Field(default_factory=list)
@@ -8835,6 +8843,7 @@ def _company_view(c: dict) -> dict:
         "exchange": c.get("exchange"),
         "status": c.get("status"),
         "company_type": c.get("company_type") or storage.infer_company_type(c),
+        "vertical": storage._valid_vertical(c.get("vertical")),
         "hq": c.get("hq"),
         "founded_year": c.get("founded_year"),
         "website": c.get("website"),
@@ -8971,6 +8980,8 @@ def _report_detail(r: dict) -> dict:
         "content_zh": r.get("content_zh"),
         "warnings": list(r.get("warnings") or []),
         "scope_check": r.get("scope_check"),
+        "company_type": r.get("company_type"),
+        "company_stage": r.get("company_stage"),
     }
     # Attach unified-rail URLs and download links for memo runs so the
     # frontend can tail the same JSONL the prep wrote and offer

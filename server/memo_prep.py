@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import claude_runner, job_progress, serena_analysis, storage
+from . import claude_runner, job_progress, memo_structure, serena_analysis, storage
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +279,18 @@ _STRUCTURE_EARLY_ROUNDS = (
 _STRUCTURE_GROWTH_ROUNDS = ("series b", "series c")
 _STRUCTURE_EARLY_FUNDING_CEILING_USD = 30_000_000
 _STRUCTURE_LATE_FUNDING_FLOOR_USD = 150_000_000
+
+
+def classify_company_type(company: dict) -> dict | None:
+    """Phase 1 company type from the registry: the record's `vertical`
+    (one of memo_structure.COMPANY_TYPE_KEYS) when set. None means the
+    pipeline's tool-free classifier decides at run time."""
+    if not isinstance(company, dict):
+        return None
+    vertical = storage._valid_vertical(company.get("vertical"))
+    if not vertical:
+        return None
+    return {"type": vertical, "source": "registry"}
 
 
 def classify_structure_stage(company: dict) -> dict:
@@ -824,6 +836,20 @@ def bootstrap_memo_run(
             signals=structure_stage["signals"],
         )
 
+    # The fund's company type, when the registry already carries it
+    # (`vertical`). Otherwise the pipeline's Phase 1 thread runs the
+    # classifier and publishes the result the same way.
+    company_type = classify_company_type(company) if not buffett else None
+    if company_type is not None:
+        type_label = memo_structure.COMPANY_TYPE_LABELS[company_type["type"]]["en"]
+        stream.emit(
+            "stage",
+            stage="company_type",
+            message=f"Company type: {type_label} (registry)",
+            company_type=company_type["type"],
+            source=company_type["source"],
+        )
+
     storage.update_report(
         report["id"],
         status="ready_for_analysis",
@@ -836,6 +862,7 @@ def bootstrap_memo_run(
             if structure_stage is not None
             else {}
         ),
+        **({"company_type": company_type} if company_type is not None else {}),
         **(
             {"structure_mode": report_mode}
             if not buffett and report_mode != "full"

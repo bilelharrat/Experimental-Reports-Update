@@ -242,6 +242,16 @@ def _valid_company_type(value: Any) -> str | None:
     return normalized if normalized in {"public", "private"} else None
 
 
+def _valid_vertical(value: Any) -> str | None:
+    """The fund's company type on a registry record (`vertical`), or None."""
+    from . import memo_structure
+
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in memo_structure.COMPANY_TYPE_KEYS else None
+
+
 def _remember_company_type(record: dict, *, force: bool = False) -> None:
     if not force and _valid_company_type(record.get("company_type")):
         record["company_type"] = _valid_company_type(record.get("company_type"))
@@ -945,6 +955,7 @@ def bootstrap_seed_data() -> None:
             _write_yaml(COMPANIES_FILE, [])
         _purge_placeholder_companies_locked()
         _backfill_company_types()
+        _backfill_verticals()
 
 
 def _load_company_seed_records(seed_file: Path = COMPANY_SEED_FILE) -> list[dict]:
@@ -1063,6 +1074,7 @@ def materialize_seed_company_records(
         if changed_records:
             _write_yaml(COMPANIES_FILE, merged)
         _backfill_company_types()
+        _backfill_verticals()
         return changed_records
 
 
@@ -1081,5 +1093,29 @@ def _backfill_company_types() -> None:
             continue
         c["company_type"] = infer_company_type(c)
         changed = True
+    if changed:
+        _write_yaml(COMPANIES_FILE, companies)
+
+
+def _backfill_verticals() -> None:
+    """Set ``vertical`` (the fund's company type) on any record that lacks
+    a valid one and appears in the committed seed map. A value already in
+    the yaml always wins; unmapped records stay unset for the run-time
+    classifier. Caller holds the lock."""
+    from .company_verticals_seed import COMPANY_VERTICALS
+
+    companies = _read_yaml(COMPANIES_FILE, [])
+    if not isinstance(companies, list):
+        return
+    changed = False
+    for c in companies:
+        if not isinstance(c, dict):
+            continue
+        if _valid_vertical(c.get("vertical")):
+            continue
+        seeded = COMPANY_VERTICALS.get(str(c.get("id") or ""))
+        if seeded and _valid_vertical(seeded):
+            c["vertical"] = seeded
+            changed = True
     if changed:
         _write_yaml(COMPANIES_FILE, companies)
