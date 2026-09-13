@@ -4221,12 +4221,80 @@ def _memo_role_env(kind: str, role: str) -> str | None:
     return value or None
 
 
-def _memo_role_model(role: str) -> str | None:
-    return _memo_role_env("MODEL", role)
+# Per-run quality tiers, selected by the user at generation time
+# ("Quality" toggle → GenerateRequest.quality → report["model_quality"]
+# → register_memo_run_quality at each analysis-worker entry). A tier
+# maps subprocess roles to (model, effort); roles a tier leaves out run
+# on the CLI default, and "best" (the default) maps nothing — byte-
+# identical to historical behavior. Env overrides (BSH_MEMO_MODEL[_*] /
+# BSH_MEMO_EFFORT[_*]) are the owner's server-level tuning and always
+# win over the tier. Caveat: prompt caches are model/effort-scoped, so
+# any tier that touches SPINE/SECTION/ARTIFACTS/REPAIR must give all
+# four the SAME (model, effort) or the section wave forfeits its
+# shared-context cache reuse (test_memo_quality_tiers pins this).
+MEMO_QUALITY_LEVELS = ("best", "balanced", "economy")
+
+_MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
+    # Everything on the CLI default model/effort.
+    "best": {},
+    # Research, verification, and translation move to Sonnet; the
+    # English writing wave (spine/sections/artifacts/repair) keeps the
+    # default model, so the prose the founder reads is unchanged.
+    "balanced": {
+        "ANALYSIS_PASS": ("sonnet", None),
+        "SPINE_CHECK": ("sonnet", "medium"),
+        "TRANSLATION": ("sonnet", "medium"),
+    },
+    # Everything on Sonnet. The writing roles share one (model, effort)
+    # pair to keep the section wave's shared prompt cache intact.
+    "economy": {
+        "ANALYSIS_PASS": ("sonnet", None),
+        "ENGLISH": ("sonnet", None),
+        "SPINE": ("sonnet", None),
+        "SECTION": ("sonnet", None),
+        "ARTIFACTS": ("sonnet", None),
+        "REPAIR": ("sonnet", None),
+        "SPINE_CHECK": ("sonnet", "medium"),
+        "TRANSLATION": ("sonnet", "medium"),
+    },
+}
+
+_MEMO_RUN_QUALITY: dict[str, str] = {}
+_MEMO_RUN_QUALITY_LOCK = threading.Lock()
 
 
-def _memo_role_effort(role: str) -> str | None:
-    return _memo_role_env("EFFORT", role)
+def register_memo_run_quality(run_dir: Path, quality: str) -> None:
+    """Pin a run's quality tier so every subprocess of that run resolves
+    its model/effort against it. Unknown tiers register as "best" (no
+    overrides) rather than failing a run over a bad stamp."""
+    if quality not in _MEMO_QUALITY_TIERS:
+        quality = "best"
+    key = str(Path(run_dir).resolve())
+    with _MEMO_RUN_QUALITY_LOCK:
+        _MEMO_RUN_QUALITY[key] = quality
+
+
+def _memo_run_quality(run_dir: Path | None) -> str:
+    if run_dir is None:
+        return "best"
+    key = str(Path(run_dir).resolve())
+    with _MEMO_RUN_QUALITY_LOCK:
+        return _MEMO_RUN_QUALITY.get(key, "best")
+
+
+def _memo_quality_override(
+    role: str, run_dir: Path | None
+) -> tuple[str | None, str | None]:
+    tier = _MEMO_QUALITY_TIERS[_memo_run_quality(run_dir)]
+    return tier.get(role, (None, None))
+
+
+def _memo_role_model(role: str, run_dir: Path | None = None) -> str | None:
+    return _memo_role_env("MODEL", role) or _memo_quality_override(role, run_dir)[0]
+
+
+def _memo_role_effort(role: str, run_dir: Path | None = None) -> str | None:
+    return _memo_role_env("EFFORT", role) or _memo_quality_override(role, run_dir)[1]
 
 
 def _memo_run_max_procs() -> int:
@@ -4699,8 +4767,8 @@ Rules:
         timeout_label=f"memo pass {pass_id}",
         timeout_sec=timeout_sec,
         add_dirs=add_dirs,
-        model=_memo_role_model("ANALYSIS_PASS"),
-        effort=_memo_role_effort("ANALYSIS_PASS"),
+        model=_memo_role_model("ANALYSIS_PASS", run_dir),
+        effort=_memo_role_effort("ANALYSIS_PASS", run_dir),
     )
 
 
@@ -4846,8 +4914,8 @@ Return only the JSON matching the attached schema.
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
-        model=_memo_role_model("ENGLISH"),
-        effort=_memo_role_effort("ENGLISH"),
+        model=_memo_role_model("ENGLISH", run_dir),
+        effort=_memo_role_effort("ENGLISH", run_dir),
     )
     # The monolithic prompt writes exactly the late v1 structure; stamp the
     # package so downstream gates resolve the same structure the parallel
@@ -5418,8 +5486,8 @@ Return only the JSON matching the attached schema.
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
-        model=_memo_role_model("SPINE"),
-        effort=_memo_role_effort("SPINE"),
+        model=_memo_role_model("SPINE", run_dir),
+        effort=_memo_role_effort("SPINE", run_dir),
         append_system_prompt=common_context,
     )
 
@@ -5585,8 +5653,8 @@ Return only the JSON matching the attached schema.
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
-        model=_memo_role_model("ARTIFACTS"),
-        effort=_memo_role_effort("ARTIFACTS"),
+        model=_memo_role_model("ARTIFACTS", run_dir),
+        effort=_memo_role_effort("ARTIFACTS", run_dir),
         append_system_prompt=common_context,
     )
 
@@ -5938,8 +6006,8 @@ short `reasons` when stale).
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
-        model=_memo_role_model("SPINE_CHECK"),
-        effort=_memo_role_effort("SPINE_CHECK"),
+        model=_memo_role_model("SPINE_CHECK", run_dir),
+        effort=_memo_role_effort("SPINE_CHECK", run_dir),
     )
 
 
@@ -6678,8 +6746,8 @@ output and the call gets truncated before it completes).
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=add_dirs,
-        model=_memo_role_model("SECTION"),
-        effort=_memo_role_effort("SECTION"),
+        model=_memo_role_model("SECTION", run_dir),
+        effort=_memo_role_effort("SECTION", run_dir),
         append_system_prompt=common_context,
     )
     if error:
@@ -6945,8 +7013,8 @@ Task:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
-        model=_memo_role_model("REPAIR"),
-        effort=_memo_role_effort("REPAIR"),
+        model=_memo_role_model("REPAIR", run_dir),
+        effort=_memo_role_effort("REPAIR", run_dir),
     )
     if error:
         return None, error
@@ -7902,8 +7970,8 @@ Chinese style:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
-        model=_memo_role_model("TRANSLATION"),
-        effort=_memo_role_effort("TRANSLATION"),
+        model=_memo_role_model("TRANSLATION", run_dir),
+        effort=_memo_role_effort("TRANSLATION", run_dir),
     )
 
 
@@ -7965,8 +8033,8 @@ Task:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
-        model=_memo_role_model("REPAIR"),
-        effort=_memo_role_effort("REPAIR"),
+        model=_memo_role_model("REPAIR", run_dir),
+        effort=_memo_role_effort("REPAIR", run_dir),
     )
 
 
@@ -8041,8 +8109,8 @@ Task:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
-        model=_memo_role_model("REPAIR"),
-        effort=_memo_role_effort("REPAIR"),
+        model=_memo_role_model("REPAIR", run_dir),
+        effort=_memo_role_effort("REPAIR", run_dir),
     )
     if error:
         return None, error
@@ -8473,8 +8541,8 @@ English strings:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
-        model=_memo_role_model("TRANSLATION"),
-        effort=_memo_role_effort("TRANSLATION"),
+        model=_memo_role_model("TRANSLATION", run_dir),
+        effort=_memo_role_effort("TRANSLATION", run_dir),
     )
     if error:
         return None, error, 0.0, 0
@@ -8670,8 +8738,8 @@ Task:
         timeout_sec=timeout_sec,
         silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
         add_dirs=[run_dir],
-        model=_memo_role_model("TRANSLATION"),
-        effort=_memo_role_effort("TRANSLATION"),
+        model=_memo_role_model("TRANSLATION", run_dir),
+        effort=_memo_role_effort("TRANSLATION", run_dir),
     )
     if error:
         return None, error

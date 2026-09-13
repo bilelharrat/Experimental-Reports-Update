@@ -820,6 +820,9 @@ class GenerateRequest(BaseModel):
     # "full" = the complete IC report; "compact" = the short partner-memo
     # profile (falls back to full for stages without a compact profile).
     report_mode: str = "full"
+    # "best" = every agent on the CLI default model; "balanced"/"economy"
+    # route roles to cheaper models (claude_runner quality tiers).
+    quality: str = "best"
 
 
 class MemoPrepRequest(BaseModel):
@@ -2966,6 +2969,14 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
             detail="Invalid report_mode",
         )
         raise HTTPException(status_code=400, detail="Invalid report_mode")
+    if payload.quality not in claude_runner.MEMO_QUALITY_LEVELS:
+        _record_report_generation_event(
+            "request_rejected",
+            **base_event,
+            status_code=400,
+            detail="Invalid quality",
+        )
+        raise HTTPException(status_code=400, detail="Invalid quality")
 
     # Investment memos (late-stage and Buffett) route through the prep
     # pipeline (run folder, scope check) instead of the placeholder generator.
@@ -2976,6 +2987,7 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
                 analysis_session_id=payload.analysis_session_id,
                 report_type=payload.report_type,
                 report_mode=payload.report_mode,
+                quality=payload.quality,
             )
         except memo_prep.AnalysisSessionNotReadyError as exc:
             _record_report_generation_event(

@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import job_progress, serena_analysis, storage
+from . import claude_runner, job_progress, serena_analysis, storage
 
 logger = logging.getLogger(__name__)
 
@@ -537,6 +537,7 @@ def bootstrap_memo_run(
     report_type: str | None = None,
     memo_mode: str = "auto",
     report_mode: str = "full",
+    quality: str = "best",
     trigger: str | None = None,
     auto_run_id: str | None = None,
 ) -> dict:
@@ -559,6 +560,11 @@ def bootstrap_memo_run(
     # falls back to full when the stage has no compact profile yet).
     if report_mode not in ("full", "compact"):
         raise ValueError(f"Unknown report_mode: {report_mode}")
+    # "best" = every agent on the CLI default model (today's behavior);
+    # "balanced"/"economy" route roles to cheaper models per the tier
+    # table in claude_runner (env overrides still win).
+    if quality not in claude_runner.MEMO_QUALITY_LEVELS:
+        raise ValueError(f"Unknown quality: {quality}")
     company = storage.get_company(company_id)
     if company is None:
         raise ValueError(f"Unknown company_id: {company_id}")
@@ -829,6 +835,11 @@ def bootstrap_memo_run(
         **(
             {"structure_mode": report_mode}
             if not buffett and report_mode != "full"
+            else {}
+        ),
+        **(
+            {"model_quality": quality}
+            if not buffett and quality != "best"
             else {}
         ),
     )

@@ -208,6 +208,28 @@ watch(reportMode, (mode) => {
   }
 });
 
+// Quality: "best" (every agent on the default model), "balanced"
+// (research + translation on a cheaper model), or "economy" (everything
+// on a cheaper model). Applies to One-Click generation.
+const QUALITY_KEY = "bsh.research.quality";
+function loadQuality() {
+  try {
+    const stored = localStorage.getItem(QUALITY_KEY);
+    if (["best", "balanced", "economy"].includes(stored)) return stored;
+  } catch {
+    // Storage unavailable — fall through to the default.
+  }
+  return "best";
+}
+const quality = ref(loadQuality());
+watch(quality, (level) => {
+  try {
+    localStorage.setItem(QUALITY_KEY, level);
+  } catch {
+    // Best-effort persistence only.
+  }
+});
+
 const activeReport = ref(null);
 const companyReports = ref([]);
 const generationError = ref(null);
@@ -1331,6 +1353,7 @@ async function generate(analysisSessionId = null) {
       language: "en",
       analysis_session_id: memoAnalysisSessionId,
       report_mode: reportMode.value,
+      quality: quality.value,
     });
     activeReport.value = r;
     await loadCompanyReports();
@@ -1907,6 +1930,48 @@ onUnmounted(stopPolling);
                   @click="reportMode = 'compact'"
                 >
                   {{ tr("research.report_length_compact") }}
+                </button>
+              </div>
+            </div>
+            <div v-if="generationMode === 'one_click'" class="min-w-[10rem]">
+              <div class="vogue-label mb-1.5">
+                {{ tr("research.label_quality") }}
+              </div>
+              <div
+                class="segmented w-fit"
+                role="radiogroup"
+                :aria-label="tr('research.label_quality')"
+                :title="tr('research.quality_hint')"
+              >
+                <button
+                  type="button"
+                  class="segmented-item focus-ring"
+                  role="radio"
+                  :data-selected="quality === 'best'"
+                  :aria-checked="quality === 'best'"
+                  @click="quality = 'best'"
+                >
+                  {{ tr("research.quality_best") }}
+                </button>
+                <button
+                  type="button"
+                  class="segmented-item focus-ring"
+                  role="radio"
+                  :data-selected="quality === 'balanced'"
+                  :aria-checked="quality === 'balanced'"
+                  @click="quality = 'balanced'"
+                >
+                  {{ tr("research.quality_balanced") }}
+                </button>
+                <button
+                  type="button"
+                  class="segmented-item focus-ring"
+                  role="radio"
+                  :data-selected="quality === 'economy'"
+                  :aria-checked="quality === 'economy'"
+                  @click="quality = 'economy'"
+                >
+                  {{ tr("research.quality_economy") }}
                 </button>
               </div>
             </div>

@@ -2996,6 +2996,8 @@ def _run_fast_memo_pipeline(
     structure = memo_structure.active_structure(
         structure_stage, structure_mode
     )
+    model_quality = str(report.get("model_quality") or "best")
+    claude_runner.register_memo_run_quality(run_dir, model_quality)
 
     stream.emit(
         "stage",
@@ -3005,6 +3007,7 @@ def _run_fast_memo_pipeline(
         packet_mode=bool(analysis_session_path),
         structure_stage=structure.stage,
         structure_version=structure.version,
+        model_quality=model_quality,
     )
     _emit_phase_timing(
         stream,
@@ -5206,6 +5209,9 @@ def _resume(report_id: str) -> None:
     run_dir = _resolve_run_dir(report)
     if run_dir is None or not run_dir.exists():
         raise RuntimeError(f"Run folder missing for report {report_id}")
+    claude_runner.register_memo_run_quality(
+        run_dir, str(report.get("model_quality") or "best")
+    )
 
     package_path = _memo_package_path(run_dir)
     analysis_artifacts = _analysis_artifact_paths(run_dir)
@@ -5919,6 +5925,9 @@ def _investigate(report_id: str) -> None:
     run_dir = _resolve_run_dir(report)
     if run_dir is None or not run_dir.exists():
         raise RuntimeError(f"Run folder missing for report {report_id}")
+    claude_runner.register_memo_run_quality(
+        run_dir, str(report.get("model_quality") or "best")
+    )
     stream = job_progress.ProgressLog(
         memo_prep.stream_path(run_dir), truncate=False
     )

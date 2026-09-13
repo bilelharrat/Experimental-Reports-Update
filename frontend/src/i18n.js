@@ -1427,6 +1427,12 @@ const messages = {
     "research.report_length_compact": "Compact",
     "research.report_length_compact_hint":
       "Compact writes a short partner-style memo — the critical facts and the decision, same evidence discipline.",
+    "research.label_quality": "Quality",
+    "research.quality_best": "Best",
+    "research.quality_balanced": "Balanced",
+    "research.quality_economy": "Economy",
+    "research.quality_hint":
+      "Best runs every agent on the top model. Balanced moves research and translation to a faster model; Economy moves everything. Lower tiers cost less but may analyze less deeply.",
     "research.deep_investigate_button": "Start Deep Investigate",
     "research.generate_report_button": "Generate Report",
     "research.reinvestigate_button": "Re-investigate",
@@ -3424,6 +3430,12 @@ const messages = {
     "research.report_length_compact": "精简版",
     "research.report_length_compact_hint":
       "精简版生成简短的合伙人风格备忘录——只保留关键事实与结论，证据标准不变。",
+    "research.label_quality": "质量",
+    "research.quality_best": "最佳",
+    "research.quality_balanced": "均衡",
+    "research.quality_economy": "经济",
+    "research.quality_hint":
+      "最佳档所有环节使用顶级模型；均衡档将调研与翻译换用更快的模型；经济档全部换用。档位越低成本越低，但分析深度可能略降。",
     "research.deep_investigate_button": "开始深度调查",
     "research.generate_report_button": "生成报告",
     "research.reinvestigate_button": "重新调查",
