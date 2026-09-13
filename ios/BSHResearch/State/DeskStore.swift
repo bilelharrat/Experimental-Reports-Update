@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import WidgetKit
 
 /// Watchlist + alert rules, synced with the server desk-prefs blob
 /// (`GET/PUT /api/desk/prefs`). The blob is shared with the web desk, so we
@@ -8,9 +9,11 @@ import Combine
 final class DeskStore: ObservableObject {
     static let watchlistKey = "bsh.marketPinnedTickers"
     static let alertRulesKey = "bsh.marketAlertRules"
+    static let bookLotsKey = "bsh.bookLots"
 
     @Published private(set) var watchlist: [String] = []
     @Published private(set) var alertRules: [AlertRule] = []
+    @Published private(set) var bookLots: [BookLot] = []
     @Published var syncError: String?
 
     private var blob: [String: AnyCodable] = [:]
@@ -28,14 +31,20 @@ final class DeskStore: ObservableObject {
             watchlist = (blob[Self.watchlistKey]?.value as? [Any])?
                 .compactMap { $0 as? String } ?? []
             alertRules = Self.decodeRules(blob[Self.alertRulesKey]?.value)
+            bookLots = Self.decodeLots(blob[Self.bookLotsKey]?.value)
             loaded = true
             syncError = nil
+            AppGroupStore.saveWatchlist(watchlist)
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             syncError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            // Fall back to whatever we last cached locally.
             if let data = UserDefaults.standard.data(forKey: "bsh.watchlist.cache"),
                let cached = try? JSONDecoder().decode([String].self, from: data) {
                 watchlist = cached
+            }
+            let shared = AppGroupStore.loadWatchlist()
+            if !shared.isEmpty {
+                watchlist = shared
             }
         }
     }
@@ -51,6 +60,20 @@ final class DeskStore: ObservableObject {
         } else {
             watchlist.append(t)
         }
+        await push()
+    }
+
+    func upsertLot(_ lot: BookLot) async {
+        if let idx = bookLots.firstIndex(where: { $0.id == lot.id }) {
+            bookLots[idx] = lot
+        } else {
+            bookLots.append(lot)
+        }
+        await push()
+    }
+
+    func removeLot(id: String) async {
+        bookLots.removeAll { $0.id == id }
         await push()
     }
 
@@ -75,8 +98,11 @@ final class DeskStore: ObservableObject {
         UserDefaults.standard.set(
             try? JSONEncoder().encode(watchlist), forKey: "bsh.watchlist.cache"
         )
+        AppGroupStore.saveWatchlist(watchlist)
+        WidgetCenter.shared.reloadAllTimelines()
         blob[Self.watchlistKey] = AnyCodable(watchlist)
         blob[Self.alertRulesKey] = AnyCodable(Self.encodeRules(alertRules))
+        blob[Self.bookLotsKey] = AnyCodable(Self.encodeLots(bookLots))
         do {
             struct Body: Encodable {
                 let data: JSONBlob
@@ -112,8 +138,28 @@ final class DeskStore: ObservableObject {
         }
     }
 
-    /// Web rules include kinds the iOS UI doesn't create (sma_cross, earnings…).
-    /// Decode leniently and keep them intact when pushing back.
+    private static func decodeLots(_ raw: Any?) -> [BookLot] {
+        guard let arr = raw as? [Any],
+              let data = try? JSONSerialization.data(withJSONObject: arr)
+        else { return [] }
+        return (try? JSONDecoder().decode([LooseLot].self, from: data))?
+            .compactMap(\.lot) ?? []
+    }
+
+    private static func encodeLots(_ lots: [BookLot]) -> [[String: Any]] {
+        lots.map { lot in
+            [
+                "id": lot.id,
+                "ticker": lot.ticker,
+                "shares": lot.shares,
+                "qty": lot.shares,
+                "cost": lot.costBasis,
+                "costBasis": lot.costBasis,
+                "avgCost": lot.costBasis,
+            ]
+        }
+    }
+
     private struct LooseRule: Decodable {
         let id: String?
         let ticker: String?
@@ -133,6 +179,27 @@ final class DeskStore: ObservableObject {
                 window: window,
                 direction: direction ?? "above",
                 enabled: enabled ?? true
+            )
+        }
+    }
+
+    private struct LooseLot: Decodable {
+        let id: String?
+        let ticker: String?
+        let shares: Double?
+        let qty: Double?
+        let cost: Double?
+        let costBasis: Double?
+        let avgCost: Double?
+
+        var lot: BookLot? {
+            guard let ticker else { return nil }
+            let sh = shares ?? qty ?? 0
+            return BookLot(
+                id: id ?? UUID().uuidString,
+                ticker: ticker.uppercased(),
+                shares: sh,
+                costBasis: costBasis ?? avgCost ?? cost ?? 0
             )
         }
     }

@@ -7,48 +7,109 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00E5D8E31D74FF0E88CF7BEF /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11696DF32E556CEBE31ED61C /* SwiftUI.framework */; };
+		0245BFF8D3F375A609BCF440 /* BSHResearchMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BD2400F66E6BD3272450D48 /* BSHResearchMacApp.swift */; };
+		04F80D68A6C57DE6029FCC96 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */; };
 		050E38E4D22F35F61CB2CBD3 /* DeskModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 268CF0D8CD662D0200D06372 /* DeskModels.swift */; };
+		0C6DE43D28D658E26F1D3BF1 /* MacIOSPages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EA83BE5E7241BBEB7FCA2F0 /* MacIOSPages.swift */; };
+		0E819C3D81E0875A8E0B4944 /* AskPersonaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9202150635CB2DC806E8BF60 /* AskPersonaStore.swift */; };
+		0EE0A1D232371855ED3126D3 /* CopilotModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97FC714A482FCC5566984AC9 /* CopilotModels.swift */; };
+		0FE1EDDAEA0C3AF6176EDDF7 /* PDFKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D3C30BC82ECEDE667CEDB8A8 /* PDFKit.framework */; };
 		105E11316876A199C20CF672 /* NewsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3878ADA92257F999D474AEB4 /* NewsView.swift */; };
 		172E5D5D75AD7C89F04CFB09 /* GenerateReportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 014B36498E780B6DA489A6F2 /* GenerateReportSheet.swift */; };
+		1D53993424FF3283F9DE3E41 /* QuickLookUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F04BEDA697B05B37E32ACDEE /* QuickLookUI.framework */; };
 		20BD0D3168FB039F588A73CE /* ResearchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05313CA9D7B73D2754CE839A /* ResearchModels.swift */; };
 		249BE13F0E1CBA9BBECCBA77 /* BSHResearchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60373DCF587C1E680967EAFF /* BSHResearchApp.swift */; };
 		278B6638E7BB48ED2E0EEA6E /* QuoteChartCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32058E6EA8FE8490673B37CF /* QuoteChartCanvas.swift */; };
+		27EAE9D4A7B82C38204196A9 /* AskAnswerText.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEED5BE2F498826C406C1003 /* AskAnswerText.swift */; };
 		287B8DF9165C4BDA380BEDB4 /* DeskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D91E4E36A17C0238461FC2 /* DeskStore.swift */; };
+		29529E517FB0FADE7756351A /* BSHResearchWatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B4001378A8472D7EA4E7605F /* BSHResearchWatchWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2DCB12F4BBC9FCB67E34709F /* VoiceAskController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97532D33F3B7F886867FD114 /* VoiceAskController.swift */; };
+		2F5AC3246F014CE197F9CB61 /* AskHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC003800189502CEEDA96A32 /* AskHistoryStore.swift */; };
 		2FDCBFD8034413A864E0B73B /* ConsoleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58FC7B822AEB93A9378E3BAD /* ConsoleModels.swift */; };
 		3175C589A20A0A5CA31E30D3 /* Stores.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13C0FA2A87F5017ED39093F /* Stores.swift */; };
+		374E5076802D06782D3C0A0D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD8FF1BFC209A416047AB4E2 /* AppDelegate.swift */; };
+		3DABD1C3C93F8AAE344CCF1B /* WatchRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F52F5FA8B64F845ED2467C96 /* WatchRootView.swift */; };
+		3E9D59F1CCAFFEE499003FEC /* WatchQuotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63E8D3113E3A259E153656EF /* WatchQuotesStore.swift */; };
+		3F0ABC171F2859FD4510BC30 /* PulseECGIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66261E5A53125BAD75BC82C /* PulseECGIcon.swift */; };
 		40209C5C2D9C3CB45DCC5606 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF88DF1533A8A6075B286615 /* ShareSheet.swift */; };
 		4AEF0601CD282CD51ABB361D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BF8AA313E4F698A11434B62 /* Models.swift */; };
 		4B087DF88857BA4536FCA1FE /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6794228F400A2EABBFE689 /* SearchView.swift */; };
+		4C107AB88398DCBE26DE5FE3 /* WatchQuoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA93B6873CB36F0E79C69B07 /* WatchQuoteModels.swift */; };
+		5383F3D0F3A57179F1AC4659 /* AskMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F9D1C463DA63C92CD758CF7 /* AskMark.swift */; };
 		5890641482B63D309EEEF7DF /* TraderCardsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F60455E0F9114FD10C1AEC2 /* TraderCardsSection.swift */; };
 		64301E653948D690E0462482 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AFCD7BF84D51F036B116BC62 /* Assets.xcassets */; };
 		704DD3A02A0D8CAA019A6A35 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58B4B6BC5D280BA58747513D /* HomeView.swift */; };
 		78CFD68B954524AE51423D10 /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DE0650E999063FF8F014DCA /* L10n.swift */; };
+		7C7A8A136D2BBC573147EFCB /* MemoPaperDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED206ADB931A80DE19E6164 /* MemoPaperDocumentView.swift */; };
+		7F64EE6F8D31A7C496E9643A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3ED973D9F599FB9F64299441 /* Assets.xcassets */; };
+		81F93012FB35AA2A36A3A312 /* SparklineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60828A495176E99CFDC8B47D /* SparklineView.swift */; };
 		81FEA4B43F0A0C605FD8BA80 /* BSHWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BA4E1678BB8397B4EE795D9 /* BSHWidgets.swift */; };
+		8456BF02FBB124E459438892 /* ReportAnnotationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A7219FBE5389FE4CD822DD /* ReportAnnotationStore.swift */; };
 		846F7AE9E43FA120379500A2 /* PulseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1AA3521C5D59E1EE5A3EA5 /* PulseView.swift */; };
 		866F0E97B21448C1FBFD4093 /* HomeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFB1AEAEB3631503D4F7A435 /* HomeModels.swift */; };
+		90B0EBA109716F95B65C2D9C /* MacAppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2F3A80283B7F93DF09BDC57 /* MacAppStore.swift */; };
 		9452EA196AF1FC036971058A /* SSEClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 940B768FB42B715411E84DFA /* SSEClient.swift */; };
+		9583B15577CE7206EF73BEDF /* MacPaperDeskReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BC07C02EE168302CD9B141A /* MacPaperDeskReader.swift */; };
+		9A43AFE2ADAB8D20C4580B26 /* MacRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3785397A077E6363BECBCD6E /* MacRootView.swift */; };
+		9CAD23F4D58D84716664E9D2 /* CopilotSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2881FD8CB6C80853A472694 /* CopilotSheet.swift */; };
 		9E983E57F9D352811AB36C42 /* QuoteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9553387E265F7A1D910BD662 /* QuoteDetailView.swift */; };
 		9EB7640BDAD32349D204B423 /* CompanyResearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7C6EC37E01F28EC550231E /* CompanyResearchView.swift */; };
+		9FB4BD75E89DC6ECA5A92478 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */; };
+		A51D906902D43DAE535708FB /* VoiceAskSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2640396EFF89D5BB1B77AA /* VoiceAskSupportTests.swift */; };
 		A78F0D284C2337AC8220AD97 /* TraderModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4692BE31C7E03657A9FF1112 /* TraderModels.swift */; };
 		A9473794C7EFB28FD2053969 /* CompactPageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D4D73F6CB2B3AC11F425CB /* CompactPageHeader.swift */; };
+		A97BAFF5B406F244AA148296 /* AdaptiveLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C41F62229F1D97D8F6C2D8 /* AdaptiveLayout.swift */; };
 		AB61C94F72046809A0284472 /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 344177AD4528799F2FC1EECD /* TokenStore.swift */; };
+		B2369B410AC0244E09DED4D8 /* WatchConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ACCD950976A076053A4551E /* WatchConfig.swift */; };
+		B2D8E603AFDDEA60007C15AA /* WatchAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63EA08DF3486A620CDBF452 /* WatchAPIClient.swift */; };
+		B3D12B69477AC3A139CB3CB4 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC38D76A608A00A8ECCAE939 /* QuickLook.framework */; };
 		B514BF1DD40DC5036963CA3E /* ChartPrepareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF71A4F38023FFBF7A95C64C /* ChartPrepareTests.swift */; };
+		BBDD7609B9DFE5BD95DE14A7 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11696DF32E556CEBE31ED61C /* SwiftUI.framework */; };
 		C6A2CD27D5C99EC17B7A1EB5 /* MarketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E52FF3EDAFF78360D01460 /* MarketView.swift */; };
 		C6DC57E907713B3B77A7BE40 /* ReportDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917366A13310685FE92CDE55 /* ReportDetailView.swift */; };
+		C7BBB6034FD8096CD9540320 /* MacMemoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCAD3275009E6446E737E121 /* MacMemoModels.swift */; };
 		CCFF18476473901F42BD85F6 /* QuickLookPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA827F4F11E642A136665F1 /* QuickLookPreview.swift */; };
 		CDB27768235E756E4DC017F0 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC570C3B338732BD5539A853 /* LoginView.swift */; };
+		CF091DFDF3C230B1DB273FC9 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11696DF32E556CEBE31ED61C /* SwiftUI.framework */; };
+		D0BE3E8DDEF993CD0BB1205D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C1D5FFB024D91A311B26FD59 /* Assets.xcassets */; };
+		D2F691B4D48EF7659D93D964 /* BSHResearchWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6268F004A8C4A2A774678AA3 /* BSHResearchWatchApp.swift */; };
 		D6125342CADF8A7700D8D3A0 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414F46B2F3261F6900061B30 /* APIClient.swift */; };
+		D89AF766760E3740856D8358 /* ChangeBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A6E708D5DBB3062195151B4 /* ChangeBadge.swift */; };
 		D9D256FC7CA523AA3A39BB11 /* QuoteFormatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3256C2485B370DDB7B0F271 /* QuoteFormatTests.swift */; };
+		DB9FEC95A8953D40411D066D /* BSHResearchWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = EA7EC36374251B360EBB9E28 /* BSHResearchWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DEF7D3BA2589DC2B15322EC5 /* QuoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86BE894BEED6FE5E7AE765BC /* QuoteModels.swift */; };
+		DF5EF7A131BBD445A032E801 /* AppGroupStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48EDA3B79E0F262273FCC6AF /* AppGroupStore.swift */; };
 		E0E1C8204E1D5C38F6E8E030 /* BSHResearchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C599B7830177E6F5B509F1D5 /* BSHResearchWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E0E4647EC4F7D9D96EEBDFB9 /* AlertsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21106F947DF58D75E026B73A /* AlertsView.swift */; };
+		E1B6EF8900B0C463690B1DED /* AdaptiveLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40FD4ADFFEE2CABA3FEE430 /* AdaptiveLayoutTests.swift */; };
+		E24F4864C450788988FC68C1 /* MacConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C02EDE9D932BED155D3318D /* MacConfig.swift */; };
 		E262BEEBFEDDA42F67D89047 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076D928CB475DBE91A8021A8 /* AppConfig.swift */; };
 		E40D9899C51FD70977BFEBAA /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615D216890050E6859675914 /* RootView.swift */; };
 		E49CCB4289516B81DA430E47 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A8D018F3B3EA35455F3F9A8 /* SettingsView.swift */; };
+		E578142F1FD3E410FC5EAB42 /* MacAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BC59041508B2715E172CCD /* MacAPIClient.swift */; };
 		F2A54837918DA6F5F66A9121 /* ConsoleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D57C896463B0B354F848C7 /* ConsoleViews.swift */; };
+		F3451F3A204A6071B26E6312 /* L10nTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAC623754EEEF95C0C19D318 /* L10nTests.swift */; };
+		F78E56BA497CDC56947AAD61 /* BSHWatchComplications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBC96B4D288C6E93A97402D /* BSHWatchComplications.swift */; };
+		FA074EBFAAB062C1CA06B3BB /* PositionsEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8E50635CC5BB34ABD58AF1 /* PositionsEditorView.swift */; };
+		FC1EA19D4C0C4EFFEBC76E70 /* ReportAnnotationCanvas.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4AB1C9482182295529EAEFB /* ReportAnnotationCanvas.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		695F8850B3EDAEC33BF7CC51 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 603D5CAAE15ACA33F1E127F6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1D8B14A10F19ABC683E91F94;
+			remoteInfo = BSHResearchWatchWidgets;
+		};
+		763335B0F31962C6786FF2AD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 603D5CAAE15ACA33F1E127F6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5370A7C783ECFD534B58C9C0;
+			remoteInfo = BSHResearchWatch;
+		};
 		A0E61CC34417C2DBCE56E8B2 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 603D5CAAE15ACA33F1E127F6 /* Project object */;
@@ -66,6 +127,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		7DD631EB2411F0B06B961605 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				DB9FEC95A8953D40411D066D /* BSHResearchWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		89098BCBE7CB71D0413D236B /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -77,53 +149,149 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A996B460EAFD5E8CDAA7ADB3 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				29529E517FB0FADE7756351A /* BSHResearchWatchWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		014B36498E780B6DA489A6F2 /* GenerateReportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerateReportSheet.swift; sourceTree = "<group>"; };
 		05313CA9D7B73D2754CE839A /* ResearchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchModels.swift; sourceTree = "<group>"; };
 		076D928CB475DBE91A8021A8 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		0BFB41BA6D24CD80996ADB54 /* BSHResearch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearch.entitlements; sourceTree = "<group>"; };
+		0EE3C1AC67D9B0F32914E6CC /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		11696DF32E556CEBE31ED61C /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		14D91E4E36A17C0238461FC2 /* DeskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskStore.swift; sourceTree = "<group>"; };
+		1BC07C02EE168302CD9B141A /* MacPaperDeskReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPaperDeskReader.swift; sourceTree = "<group>"; };
+		1C02EDE9D932BED155D3318D /* MacConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConfig.swift; sourceTree = "<group>"; };
+		1E28AD281E47530C914DB183 /* BSHResearchWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearchWatch.entitlements; sourceTree = "<group>"; };
 		21106F947DF58D75E026B73A /* AlertsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsView.swift; sourceTree = "<group>"; };
 		25D4D73F6CB2B3AC11F425CB /* CompactPageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactPageHeader.swift; sourceTree = "<group>"; };
 		268CF0D8CD662D0200D06372 /* DeskModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskModels.swift; sourceTree = "<group>"; };
+		2B2640396EFF89D5BB1B77AA /* VoiceAskSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAskSupportTests.swift; sourceTree = "<group>"; };
 		2BA4E1678BB8397B4EE795D9 /* BSHWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHWidgets.swift; sourceTree = "<group>"; };
 		2E6794228F400A2EABBFE689 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		2EA83BE5E7241BBEB7FCA2F0 /* MacIOSPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacIOSPages.swift; sourceTree = "<group>"; };
 		32058E6EA8FE8490673B37CF /* QuoteChartCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteChartCanvas.swift; sourceTree = "<group>"; };
 		344177AD4528799F2FC1EECD /* TokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
+		3785397A077E6363BECBCD6E /* MacRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRootView.swift; sourceTree = "<group>"; };
 		3878ADA92257F999D474AEB4 /* NewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewsView.swift; sourceTree = "<group>"; };
 		3C7C6EC37E01F28EC550231E /* CompanyResearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanyResearchView.swift; sourceTree = "<group>"; };
+		3E8328C822AE517B2CD635C6 /* BSHResearchMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearchMac.entitlements; sourceTree = "<group>"; };
+		3EBC96B4D288C6E93A97402D /* BSHWatchComplications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHWatchComplications.swift; sourceTree = "<group>"; };
+		3ED973D9F599FB9F64299441 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3F9D1C463DA63C92CD758CF7 /* AskMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskMark.swift; sourceTree = "<group>"; };
 		414F46B2F3261F6900061B30 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		4692BE31C7E03657A9FF1112 /* TraderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraderModels.swift; sourceTree = "<group>"; };
+		48EDA3B79E0F262273FCC6AF /* AppGroupStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupStore.swift; sourceTree = "<group>"; };
+		4BD2400F66E6BD3272450D48 /* BSHResearchMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHResearchMacApp.swift; sourceTree = "<group>"; };
+		4D8E50635CC5BB34ABD58AF1 /* PositionsEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionsEditorView.swift; sourceTree = "<group>"; };
+		4ED206ADB931A80DE19E6164 /* MemoPaperDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoPaperDocumentView.swift; sourceTree = "<group>"; };
 		566F2612B7C7E580762A1FC1 /* BSHResearch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BSHResearch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		56C41F62229F1D97D8F6C2D8 /* AdaptiveLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveLayout.swift; sourceTree = "<group>"; };
 		58B4B6BC5D280BA58747513D /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		58FC7B822AEB93A9378E3BAD /* ConsoleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleModels.swift; sourceTree = "<group>"; };
 		5EA9C58F915EEC74F0BC23D5 /* BSHResearchTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = BSHResearchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		60373DCF587C1E680967EAFF /* BSHResearchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHResearchApp.swift; sourceTree = "<group>"; };
+		60828A495176E99CFDC8B47D /* SparklineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparklineView.swift; sourceTree = "<group>"; };
 		615D216890050E6859675914 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		6268F004A8C4A2A774678AA3 /* BSHResearchWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHResearchWatchApp.swift; sourceTree = "<group>"; };
+		63E8D3113E3A259E153656EF /* WatchQuotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchQuotesStore.swift; sourceTree = "<group>"; };
+		6A6E708D5DBB3062195151B4 /* ChangeBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeBadge.swift; sourceTree = "<group>"; };
 		6C1AA3521C5D59E1EE5A3EA5 /* PulseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseView.swift; sourceTree = "<group>"; };
 		6DE0650E999063FF8F014DCA /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
+		701460CB107F77E2DB77F38B /* BSHResearchMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BSHResearchMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		71C3049F56DE02750CB747A0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7F60455E0F9114FD10C1AEC2 /* TraderCardsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraderCardsSection.swift; sourceTree = "<group>"; };
 		86BE894BEED6FE5E7AE765BC /* QuoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteModels.swift; sourceTree = "<group>"; };
 		8BF8AA313E4F698A11434B62 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		904A99E7B5337C8BA5F3E3D5 /* BSHResearchWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearchWidgets.entitlements; sourceTree = "<group>"; };
 		917366A13310685FE92CDE55 /* ReportDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportDetailView.swift; sourceTree = "<group>"; };
+		9202150635CB2DC806E8BF60 /* AskPersonaStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskPersonaStore.swift; sourceTree = "<group>"; };
 		940B768FB42B715411E84DFA /* SSEClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEClient.swift; sourceTree = "<group>"; };
 		9553387E265F7A1D910BD662 /* QuoteDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteDetailView.swift; sourceTree = "<group>"; };
+		97532D33F3B7F886867FD114 /* VoiceAskController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAskController.swift; sourceTree = "<group>"; };
+		97FC714A482FCC5566984AC9 /* CopilotModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotModels.swift; sourceTree = "<group>"; };
 		9A8D018F3B3EA35455F3F9A8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		9ACCD950976A076053A4551E /* WatchConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConfig.swift; sourceTree = "<group>"; };
 		A13C0FA2A87F5017ED39093F /* Stores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stores.swift; sourceTree = "<group>"; };
+		A1A7219FBE5389FE4CD822DD /* ReportAnnotationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportAnnotationStore.swift; sourceTree = "<group>"; };
 		A3256C2485B370DDB7B0F271 /* QuoteFormatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuoteFormatTests.swift; sourceTree = "<group>"; };
+		A4AB1C9482182295529EAEFB /* ReportAnnotationCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportAnnotationCanvas.swift; sourceTree = "<group>"; };
+		A4BC59041508B2715E172CCD /* MacAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAPIClient.swift; sourceTree = "<group>"; };
 		A71D1F7D972BF376A899FA6D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A8D2189FB3C9F40EDB41C689 /* BSHResearchWatchWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BSHResearchWatchWidgets.entitlements; sourceTree = "<group>"; };
+		AAC623754EEEF95C0C19D318 /* L10nTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10nTests.swift; sourceTree = "<group>"; };
 		AFA827F4F11E642A136665F1 /* QuickLookPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickLookPreview.swift; sourceTree = "<group>"; };
 		AFB1AEAEB3631503D4F7A435 /* HomeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeModels.swift; sourceTree = "<group>"; };
 		AFCD7BF84D51F036B116BC62 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B4001378A8472D7EA4E7605F /* BSHResearchWatchWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BSHResearchWatchWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B63EA08DF3486A620CDBF452 /* WatchAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchAPIClient.swift; sourceTree = "<group>"; };
+		BEED5BE2F498826C406C1003 /* AskAnswerText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskAnswerText.swift; sourceTree = "<group>"; };
+		C1D5FFB024D91A311B26FD59 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C2F3A80283B7F93DF09BDC57 /* MacAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacAppStore.swift; sourceTree = "<group>"; };
 		C599B7830177E6F5B509F1D5 /* BSHResearchWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BSHResearchWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		CD8FF1BFC209A416047AB4E2 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		CF71A4F38023FFBF7A95C64C /* ChartPrepareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPrepareTests.swift; sourceTree = "<group>"; };
 		D1E52FF3EDAFF78360D01460 /* MarketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketView.swift; sourceTree = "<group>"; };
+		D3C30BC82ECEDE667CEDB8A8 /* PDFKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = PDFKit.framework; path = System/Library/Frameworks/PDFKit.framework; sourceTree = SDKROOT; };
+		D66261E5A53125BAD75BC82C /* PulseECGIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseECGIcon.swift; sourceTree = "<group>"; };
+		D9F949D166D2974E2FE2E081 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DB5A66BF53540B554B6E9340 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DC003800189502CEEDA96A32 /* AskHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskHistoryStore.swift; sourceTree = "<group>"; };
+		DC38D76A608A00A8ECCAE939 /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
+		DCAD3275009E6446E737E121 /* MacMemoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMemoModels.swift; sourceTree = "<group>"; };
+		E40FD4ADFFEE2CABA3FEE430 /* AdaptiveLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveLayoutTests.swift; sourceTree = "<group>"; };
+		EA7EC36374251B360EBB9E28 /* BSHResearchWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BSHResearchWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EF88DF1533A8A6075B286615 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
+		F04BEDA697B05B37E32ACDEE /* QuickLookUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookUI.framework; path = System/Library/Frameworks/QuickLookUI.framework; sourceTree = SDKROOT; };
 		F1D57C896463B0B354F848C7 /* ConsoleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleViews.swift; sourceTree = "<group>"; };
+		F2881FD8CB6C80853A472694 /* CopilotSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopilotSheet.swift; sourceTree = "<group>"; };
+		F52F5FA8B64F845ED2467C96 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
+		FA93B6873CB36F0E79C69B07 /* WatchQuoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchQuoteModels.swift; sourceTree = "<group>"; };
 		FC570C3B338732BD5539A853 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		09CA165A0EB7790209750556 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BBDD7609B9DFE5BD95DE14A7 /* SwiftUI.framework in Frameworks */,
+				04F80D68A6C57DE6029FCC96 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C95246842895DA888528B234 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CF091DFDF3C230B1DB273FC9 /* SwiftUI.framework in Frameworks */,
+				9FB4BD75E89DC6ECA5A92478 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ED4B2C49430E591622270104 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00E5D8E31D74FF0E88CF7BEF /* SwiftUI.framework in Frameworks */,
+				0FE1EDDAEA0C3AF6176EDDF7 /* PDFKit.framework in Frameworks */,
+				1D53993424FF3283F9DE3E41 /* QuickLookUI.framework in Frameworks */,
+				B3D12B69477AC3A139CB3CB4 /* QuickLook.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		184F1B1770A8FA0137F1E430 /* Config */ = {
@@ -137,8 +305,11 @@
 		2190873BE58855E323E99AC7 /* BSHResearchTests */ = {
 			isa = PBXGroup;
 			children = (
+				E40FD4ADFFEE2CABA3FEE430 /* AdaptiveLayoutTests.swift */,
 				CF71A4F38023FFBF7A95C64C /* ChartPrepareTests.swift */,
+				AAC623754EEEF95C0C19D318 /* L10nTests.swift */,
 				A3256C2485B370DDB7B0F271 /* QuoteFormatTests.swift */,
+				2B2640396EFF89D5BB1B77AA /* VoiceAskSupportTests.swift */,
 			);
 			path = BSHResearchTests;
 			sourceTree = "<group>";
@@ -150,6 +321,7 @@
 				615D216890050E6859675914 /* RootView.swift */,
 				A51FA9FDAA2FE08062275333 /* Alerts */,
 				AD9610AD78309E591A9E5447 /* Console */,
+				25C8A1C590F3E2E66EAE7E5F /* Copilot */,
 				AA1E9F480A60D1BD18454885 /* Home */,
 				B04639848042C73A17B5E122 /* Market */,
 				73A905BC59525B8369952F55 /* News */,
@@ -161,12 +333,28 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		25C8A1C590F3E2E66EAE7E5F /* Copilot */ = {
+			isa = PBXGroup;
+			children = (
+				F2881FD8CB6C80853A472694 /* CopilotSheet.swift */,
+			);
+			path = Copilot;
+			sourceTree = "<group>";
+		};
 		359DE92E0852527D33818A9B /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				56C41F62229F1D97D8F6C2D8 /* AdaptiveLayout.swift */,
+				BEED5BE2F498826C406C1003 /* AskAnswerText.swift */,
+				3F9D1C463DA63C92CD758CF7 /* AskMark.swift */,
+				6A6E708D5DBB3062195151B4 /* ChangeBadge.swift */,
 				25D4D73F6CB2B3AC11F425CB /* CompactPageHeader.swift */,
+				4ED206ADB931A80DE19E6164 /* MemoPaperDocumentView.swift */,
+				D66261E5A53125BAD75BC82C /* PulseECGIcon.swift */,
 				AFA827F4F11E642A136665F1 /* QuickLookPreview.swift */,
+				A4AB1C9482182295529EAEFB /* ReportAnnotationCanvas.swift */,
 				EF88DF1533A8A6075B286615 /* ShareSheet.swift */,
+				60828A495176E99CFDC8B47D /* SparklineView.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -174,10 +362,27 @@
 		39A3C264ECD59556015A0792 /* BSHResearchWidgets */ = {
 			isa = PBXGroup;
 			children = (
+				904A99E7B5337C8BA5F3E3D5 /* BSHResearchWidgets.entitlements */,
 				2BA4E1678BB8397B4EE795D9 /* BSHWidgets.swift */,
 				A71D1F7D972BF376A899FA6D /* Info.plist */,
 			);
 			path = BSHResearchWidgets;
+			sourceTree = "<group>";
+		};
+		46ED6771FBFDC9546A22A145 /* BSHResearchWatch */ = {
+			isa = PBXGroup;
+			children = (
+				3ED973D9F599FB9F64299441 /* Assets.xcassets */,
+				1E28AD281E47530C914DB183 /* BSHResearchWatch.entitlements */,
+				6268F004A8C4A2A774678AA3 /* BSHResearchWatchApp.swift */,
+				D9F949D166D2974E2FE2E081 /* Info.plist */,
+				B63EA08DF3486A620CDBF452 /* WatchAPIClient.swift */,
+				9ACCD950976A076053A4551E /* WatchConfig.swift */,
+				FA93B6873CB36F0E79C69B07 /* WatchQuoteModels.swift */,
+				63E8D3113E3A259E153656EF /* WatchQuotesStore.swift */,
+				F52F5FA8B64F845ED2467C96 /* WatchRootView.swift */,
+			);
+			path = BSHResearchWatch;
 			sourceTree = "<group>";
 		};
 		5449387D888C9008576A2DFB /* Localization */ = {
@@ -188,10 +393,21 @@
 			path = Localization;
 			sourceTree = "<group>";
 		};
+		595A4F953967DA1D37E0CA48 /* BSHResearchWatchWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				A8D2189FB3C9F40EDB41C689 /* BSHResearchWatchWidgets.entitlements */,
+				3EBC96B4D288C6E93A97402D /* BSHWatchComplications.swift */,
+				71C3049F56DE02750CB747A0 /* Info.plist */,
+			);
+			path = BSHResearchWatchWidgets;
+			sourceTree = "<group>";
+		};
 		6886218E1AF8557DEE3946EA /* Networking */ = {
 			isa = PBXGroup;
 			children = (
 				414F46B2F3261F6900061B30 /* APIClient.swift */,
+				CD8FF1BFC209A416047AB4E2 /* AppDelegate.swift */,
 				940B768FB42B715411E84DFA /* SSEClient.swift */,
 				344177AD4528799F2FC1EECD /* TokenStore.swift */,
 			);
@@ -244,6 +460,7 @@
 		BD830F3A51B0272D1DBE2490 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				4D8E50635CC5BB34ABD58AF1 /* PositionsEditorView.swift */,
 				9A8D018F3B3EA35455F3F9A8 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -252,8 +469,13 @@
 		CBE7BE2050C7AC798D0F9902 /* State */ = {
 			isa = PBXGroup;
 			children = (
+				48EDA3B79E0F262273FCC6AF /* AppGroupStore.swift */,
+				DC003800189502CEEDA96A32 /* AskHistoryStore.swift */,
+				9202150635CB2DC806E8BF60 /* AskPersonaStore.swift */,
 				14D91E4E36A17C0238461FC2 /* DeskStore.swift */,
+				A1A7219FBE5389FE4CD822DD /* ReportAnnotationStore.swift */,
 				A13C0FA2A87F5017ED39093F /* Stores.swift */,
+				97532D33F3B7F886867FD114 /* VoiceAskController.swift */,
 			);
 			path = State;
 			sourceTree = "<group>";
@@ -281,7 +503,10 @@
 			isa = PBXGroup;
 			children = (
 				566F2612B7C7E580762A1FC1 /* BSHResearch.app */,
+				701460CB107F77E2DB77F38B /* BSHResearchMac.app */,
 				5EA9C58F915EEC74F0BC23D5 /* BSHResearchTests.xctest */,
+				EA7EC36374251B360EBB9E28 /* BSHResearchWatch.app */,
+				B4001378A8472D7EA4E7605F /* BSHResearchWatchWidgets.appex */,
 				C599B7830177E6F5B509F1D5 /* BSHResearchWidgets.appex */,
 			);
 			name = Products;
@@ -291,6 +516,7 @@
 			isa = PBXGroup;
 			children = (
 				AFCD7BF84D51F036B116BC62 /* Assets.xcassets */,
+				0BFB41BA6D24CD80996ADB54 /* BSHResearch.entitlements */,
 				60373DCF587C1E680967EAFF /* BSHResearchApp.swift */,
 				DB5A66BF53540B554B6E9340 /* Info.plist */,
 				184F1B1770A8FA0137F1E430 /* Config */,
@@ -307,6 +533,7 @@
 			isa = PBXGroup;
 			children = (
 				58FC7B822AEB93A9378E3BAD /* ConsoleModels.swift */,
+				97FC714A482FCC5566984AC9 /* CopilotModels.swift */,
 				268CF0D8CD662D0200D06372 /* DeskModels.swift */,
 				AFB1AEAEB3631503D4F7A435 /* HomeModels.swift */,
 				8BF8AA313E4F698A11434B62 /* Models.swift */,
@@ -321,15 +548,67 @@
 			isa = PBXGroup;
 			children = (
 				E0A946C982FC028D54DA664A /* BSHResearch */,
+				E6EEB1C07B1BA5841258C4E7 /* BSHResearchMac */,
 				2190873BE58855E323E99AC7 /* BSHResearchTests */,
+				46ED6771FBFDC9546A22A145 /* BSHResearchWatch */,
+				595A4F953967DA1D37E0CA48 /* BSHResearchWatchWidgets */,
 				39A3C264ECD59556015A0792 /* BSHResearchWidgets */,
+				F6E5C4701ED4257236D50281 /* Frameworks */,
 				DEC1117E59B9600CE95853F9 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		E6EEB1C07B1BA5841258C4E7 /* BSHResearchMac */ = {
+			isa = PBXGroup;
+			children = (
+				C1D5FFB024D91A311B26FD59 /* Assets.xcassets */,
+				3E8328C822AE517B2CD635C6 /* BSHResearchMac.entitlements */,
+				4BD2400F66E6BD3272450D48 /* BSHResearchMacApp.swift */,
+				0EE3C1AC67D9B0F32914E6CC /* Info.plist */,
+				A4BC59041508B2715E172CCD /* MacAPIClient.swift */,
+				C2F3A80283B7F93DF09BDC57 /* MacAppStore.swift */,
+				1C02EDE9D932BED155D3318D /* MacConfig.swift */,
+				2EA83BE5E7241BBEB7FCA2F0 /* MacIOSPages.swift */,
+				DCAD3275009E6446E737E121 /* MacMemoModels.swift */,
+				1BC07C02EE168302CD9B141A /* MacPaperDeskReader.swift */,
+				3785397A077E6363BECBCD6E /* MacRootView.swift */,
+			);
+			path = BSHResearchMac;
+			sourceTree = "<group>";
+		};
+		F6E5C4701ED4257236D50281 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				D3C30BC82ECEDE667CEDB8A8 /* PDFKit.framework */,
+				DC38D76A608A00A8ECCAE939 /* QuickLook.framework */,
+				F04BEDA697B05B37E32ACDEE /* QuickLookUI.framework */,
+				11696DF32E556CEBE31ED61C /* SwiftUI.framework */,
+				70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		1D8B14A10F19ABC683E91F94 /* BSHResearchWatchWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 195C2EFF76D9C4361D53D211 /* Build configuration list for PBXNativeTarget "BSHResearchWatchWidgets" */;
+			buildPhases = (
+				D2136E72905436294D6235DC /* Sources */,
+				C95246842895DA888528B234 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BSHResearchWatchWidgets;
+			packageProductDependencies = (
+			);
+			productName = BSHResearchWatchWidgets;
+			productReference = B4001378A8472D7EA4E7605F /* BSHResearchWatchWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		351183CDFF349CE4E893A1DB /* BSHResearchTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 9B1DB26B2270157AC2FAA7C0 /* Build configuration list for PBXNativeTarget "BSHResearchTests" */;
@@ -347,6 +626,46 @@
 			productName = BSHResearchTests;
 			productReference = 5EA9C58F915EEC74F0BC23D5 /* BSHResearchTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		5370A7C783ECFD534B58C9C0 /* BSHResearchWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A0038B69B8D23C1344157E6E /* Build configuration list for PBXNativeTarget "BSHResearchWatch" */;
+			buildPhases = (
+				E2BD80779E122064367CBA85 /* Sources */,
+				0077EA62CAA9102CA59B21B3 /* Resources */,
+				09CA165A0EB7790209750556 /* Frameworks */,
+				A996B460EAFD5E8CDAA7ADB3 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C62FA42B12CCAAA9B755227A /* PBXTargetDependency */,
+			);
+			name = BSHResearchWatch;
+			packageProductDependencies = (
+			);
+			productName = BSHResearchWatch;
+			productReference = EA7EC36374251B360EBB9E28 /* BSHResearchWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AD5AEF7CA446B92D83F74CD1 /* BSHResearchMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C44AD0CB7966AC3EF666F02A /* Build configuration list for PBXNativeTarget "BSHResearchMac" */;
+			buildPhases = (
+				C7836384A97DC22AE529D7CD /* Sources */,
+				AD4253300EB34660258865E5 /* Resources */,
+				ED4B2C49430E591622270104 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BSHResearchMac;
+			packageProductDependencies = (
+			);
+			productName = BSHResearchMac;
+			productReference = 701460CB107F77E2DB77F38B /* BSHResearchMac.app */;
+			productType = "com.apple.product-type.application";
 		};
 		CBA57C68A98EB019971FD426 /* BSHResearchWidgets */ = {
 			isa = PBXNativeTarget;
@@ -372,11 +691,13 @@
 				0F2F13F4E197D0189F377ADE /* Sources */,
 				B97D683E44186B4D0AF46202 /* Resources */,
 				89098BCBE7CB71D0413D236B /* Embed Foundation Extensions */,
+				7DD631EB2411F0B06B961605 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				DB9F4E6549AA2C413AC9E198 /* PBXTargetDependency */,
+				8957271DA8837CEA8EEE4F84 /* PBXTargetDependency */,
 			);
 			name = BSHResearch;
 			packageProductDependencies = (
@@ -394,7 +715,19 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
+					1D8B14A10F19ABC683E91F94 = {
+						DevelopmentTeam = 8CV4X23Y2T;
+						ProvisioningStyle = Automatic;
+					};
 					351183CDFF349CE4E893A1DB = {
+						DevelopmentTeam = 8CV4X23Y2T;
+						ProvisioningStyle = Automatic;
+					};
+					5370A7C783ECFD534B58C9C0 = {
+						DevelopmentTeam = 8CV4X23Y2T;
+						ProvisioningStyle = Automatic;
+					};
+					AD5AEF7CA446B92D83F74CD1 = {
 						DevelopmentTeam = 8CV4X23Y2T;
 						ProvisioningStyle = Automatic;
 					};
@@ -424,12 +757,31 @@
 			targets = (
 				F653D4FD11E76E8105D71D49 /* BSHResearch */,
 				CBA57C68A98EB019971FD426 /* BSHResearchWidgets */,
+				5370A7C783ECFD534B58C9C0 /* BSHResearchWatch */,
+				1D8B14A10F19ABC683E91F94 /* BSHResearchWatchWidgets */,
+				AD5AEF7CA446B92D83F74CD1 /* BSHResearchMac */,
 				351183CDFF349CE4E893A1DB /* BSHResearchTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		0077EA62CAA9102CA59B21B3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F64EE6F8D31A7C496E9643A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AD4253300EB34660258865E5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0BE3E8DDEF993CD0BB1205D /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B97D683E44186B4D0AF46202 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -446,13 +798,23 @@
 			buildActionMask = 2147483647;
 			files = (
 				D6125342CADF8A7700D8D3A0 /* APIClient.swift in Sources */,
+				A97BAFF5B406F244AA148296 /* AdaptiveLayout.swift in Sources */,
 				E0E4647EC4F7D9D96EEBDFB9 /* AlertsView.swift in Sources */,
 				E262BEEBFEDDA42F67D89047 /* AppConfig.swift in Sources */,
+				374E5076802D06782D3C0A0D /* AppDelegate.swift in Sources */,
+				DF5EF7A131BBD445A032E801 /* AppGroupStore.swift in Sources */,
+				27EAE9D4A7B82C38204196A9 /* AskAnswerText.swift in Sources */,
+				2F5AC3246F014CE197F9CB61 /* AskHistoryStore.swift in Sources */,
+				5383F3D0F3A57179F1AC4659 /* AskMark.swift in Sources */,
+				0E819C3D81E0875A8E0B4944 /* AskPersonaStore.swift in Sources */,
 				249BE13F0E1CBA9BBECCBA77 /* BSHResearchApp.swift in Sources */,
+				D89AF766760E3740856D8358 /* ChangeBadge.swift in Sources */,
 				A9473794C7EFB28FD2053969 /* CompactPageHeader.swift in Sources */,
 				9EB7640BDAD32349D204B423 /* CompanyResearchView.swift in Sources */,
 				2FDCBFD8034413A864E0B73B /* ConsoleModels.swift in Sources */,
 				F2A54837918DA6F5F66A9121 /* ConsoleViews.swift in Sources */,
+				0EE0A1D232371855ED3126D3 /* CopilotModels.swift in Sources */,
+				9CAD23F4D58D84716664E9D2 /* CopilotSheet.swift in Sources */,
 				050E38E4D22F35F61CB2CBD3 /* DeskModels.swift in Sources */,
 				287B8DF9165C4BDA380BEDB4 /* DeskStore.swift in Sources */,
 				172E5D5D75AD7C89F04CFB09 /* GenerateReportSheet.swift in Sources */,
@@ -461,13 +823,18 @@
 				78CFD68B954524AE51423D10 /* L10n.swift in Sources */,
 				CDB27768235E756E4DC017F0 /* LoginView.swift in Sources */,
 				C6A2CD27D5C99EC17B7A1EB5 /* MarketView.swift in Sources */,
+				7C7A8A136D2BBC573147EFCB /* MemoPaperDocumentView.swift in Sources */,
 				4AEF0601CD282CD51ABB361D /* Models.swift in Sources */,
 				105E11316876A199C20CF672 /* NewsView.swift in Sources */,
+				FA074EBFAAB062C1CA06B3BB /* PositionsEditorView.swift in Sources */,
+				3F0ABC171F2859FD4510BC30 /* PulseECGIcon.swift in Sources */,
 				846F7AE9E43FA120379500A2 /* PulseView.swift in Sources */,
 				CCFF18476473901F42BD85F6 /* QuickLookPreview.swift in Sources */,
 				278B6638E7BB48ED2E0EEA6E /* QuoteChartCanvas.swift in Sources */,
 				9E983E57F9D352811AB36C42 /* QuoteDetailView.swift in Sources */,
 				DEF7D3BA2589DC2B15322EC5 /* QuoteModels.swift in Sources */,
+				FC1EA19D4C0C4EFFEBC76E70 /* ReportAnnotationCanvas.swift in Sources */,
+				8456BF02FBB124E459438892 /* ReportAnnotationStore.swift in Sources */,
 				C6DC57E907713B3B77A7BE40 /* ReportDetailView.swift in Sources */,
 				20BD0D3168FB039F588A73CE /* ResearchModels.swift in Sources */,
 				E40D9899C51FD70977BFEBAA /* RootView.swift in Sources */,
@@ -475,10 +842,12 @@
 				4B087DF88857BA4536FCA1FE /* SearchView.swift in Sources */,
 				E49CCB4289516B81DA430E47 /* SettingsView.swift in Sources */,
 				40209C5C2D9C3CB45DCC5606 /* ShareSheet.swift in Sources */,
+				81F93012FB35AA2A36A3A312 /* SparklineView.swift in Sources */,
 				3175C589A20A0A5CA31E30D3 /* Stores.swift in Sources */,
 				AB61C94F72046809A0284472 /* TokenStore.swift in Sources */,
 				5890641482B63D309EEEF7DF /* TraderCardsSection.swift in Sources */,
 				A78F0D284C2337AC8220AD97 /* TraderModels.swift in Sources */,
+				2DCB12F4BBC9FCB67E34709F /* VoiceAskController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -486,8 +855,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E1B6EF8900B0C463690B1DED /* AdaptiveLayoutTests.swift in Sources */,
 				B514BF1DD40DC5036963CA3E /* ChartPrepareTests.swift in Sources */,
+				F3451F3A204A6071B26E6312 /* L10nTests.swift in Sources */,
 				D9D256FC7CA523AA3A39BB11 /* QuoteFormatTests.swift in Sources */,
+				A51D906902D43DAE535708FB /* VoiceAskSupportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -499,13 +871,59 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C7836384A97DC22AE529D7CD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0245BFF8D3F375A609BCF440 /* BSHResearchMacApp.swift in Sources */,
+				E578142F1FD3E410FC5EAB42 /* MacAPIClient.swift in Sources */,
+				90B0EBA109716F95B65C2D9C /* MacAppStore.swift in Sources */,
+				E24F4864C450788988FC68C1 /* MacConfig.swift in Sources */,
+				0C6DE43D28D658E26F1D3BF1 /* MacIOSPages.swift in Sources */,
+				C7BBB6034FD8096CD9540320 /* MacMemoModels.swift in Sources */,
+				9583B15577CE7206EF73BEDF /* MacPaperDeskReader.swift in Sources */,
+				9A43AFE2ADAB8D20C4580B26 /* MacRootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D2136E72905436294D6235DC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F78E56BA497CDC56947AAD61 /* BSHWatchComplications.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E2BD80779E122064367CBA85 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D2F691B4D48EF7659D93D964 /* BSHResearchWatchApp.swift in Sources */,
+				B2D8E603AFDDEA60007C15AA /* WatchAPIClient.swift in Sources */,
+				B2369B410AC0244E09DED4D8 /* WatchConfig.swift in Sources */,
+				4C107AB88398DCBE26DE5FE3 /* WatchQuoteModels.swift in Sources */,
+				3E9D59F1CCAFFEE499003FEC /* WatchQuotesStore.swift in Sources */,
+				3DABD1C3C93F8AAE344CCF1B /* WatchRootView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		8957271DA8837CEA8EEE4F84 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5370A7C783ECFD534B58C9C0 /* BSHResearchWatch */;
+			targetProxy = 763335B0F31962C6786FF2AD /* PBXContainerItemProxy */;
+		};
 		C5EB0BCB9988EC43A5638639 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = F653D4FD11E76E8105D71D49 /* BSHResearch */;
 			targetProxy = A0E61CC34417C2DBCE56E8B2 /* PBXContainerItemProxy */;
+		};
+		C62FA42B12CCAAA9B755227A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1D8B14A10F19ABC683E91F94 /* BSHResearchWatchWidgets */;
+			targetProxy = 695F8850B3EDAEC33BF7CC51 /* PBXContainerItemProxy */;
 		};
 		DB9F4E6549AA2C413AC9E198 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -515,9 +933,27 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		11CDF74BD5FE04F6E07053FE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BSHResearchWatch/BSHResearchWatch.entitlements;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BSHResearchWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilelharrrat.bshresearch.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
 		4BB7EF52471AA7A251B50AA4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BSHResearchWidgets/BSHResearchWidgets.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BSHResearchWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -532,6 +968,60 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
+		};
+		51CC49DDE48001561E149C01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BSHResearchMac/BSHResearchMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BSHResearchMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilelharrrat.bshresearch.mac;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		60C79F707F28489451502518 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BSHResearchMac/BSHResearchMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BSHResearchMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilelharrrat.bshresearch.mac;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		67E0485C39746E9CF83B973C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = BSHResearchWatchWidgets/BSHResearchWatchWidgets.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BSHResearchWatchWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilelharrrat.bshresearch.watchkitapp.widgets;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
 		};
 		724B60A0CFC80683F0A965BE /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -582,13 +1072,14 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.10;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
 		};
@@ -647,20 +1138,22 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.10;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
 		};
 		A9930338C8E9F2B9CB4DC16D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BSHResearchWidgets/BSHResearchWidgets.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BSHResearchWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -712,10 +1205,31 @@
 			};
 			name = Release;
 		};
+		CFC66BE45F7BE1F921D6CA49 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = BSHResearchWatchWidgets/BSHResearchWatchWidgets.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BSHResearchWatchWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilelharrrat.bshresearch.watchkitapp.widgets;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 		D78407A577C64C313391025F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BSHResearch/BSHResearch.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BSHResearch/Info.plist;
@@ -734,6 +1248,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BSHResearch/BSHResearch.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BSHResearch/Info.plist;
@@ -748,9 +1263,35 @@
 			};
 			name = Release;
 		};
+		FCF3536B5FC49B91F2DDF1E2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = BSHResearchWatch/BSHResearchWatch.entitlements;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BSHResearchWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bilelharrrat.bshresearch.watchkitapp;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		195C2EFF76D9C4361D53D211 /* Build configuration list for PBXNativeTarget "BSHResearchWatchWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				67E0485C39746E9CF83B973C /* Debug */,
+				CFC66BE45F7BE1F921D6CA49 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		1C50AC7F50C4B04EE02AECCD /* Build configuration list for PBXNativeTarget "BSHResearchWidgets" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -774,6 +1315,24 @@
 			buildConfigurations = (
 				ADA991B0CACC06528C228E10 /* Debug */,
 				AF0952F2C0217D7263A8985D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A0038B69B8D23C1344157E6E /* Build configuration list for PBXNativeTarget "BSHResearchWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				11CDF74BD5FE04F6E07053FE /* Debug */,
+				FCF3536B5FC49B91F2DDF1E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C44AD0CB7966AC3EF666F02A /* Build configuration list for PBXNativeTarget "BSHResearchMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				60C79F707F28489451502518 /* Debug */,
+				51CC49DDE48001561E149C01 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

@@ -100,7 +100,6 @@ struct ConsoleSessionsView: View {
         }
         .navigationTitle(language.t("console.title"))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
         .refreshable { await model.load() }
         .task { await model.load() }
         .navigationDestination(item: $opened) { session in
@@ -182,19 +181,38 @@ final class ConsoleTranscriptViewModel: ObservableObject {
             }
             let client = SSEClient()
             for try await event in await client.stream(path: streamPath) {
+                if event.event == "error" {
+                    if let data = event.data.data(using: .utf8),
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        error = (obj["error"] as? String) ?? "Ask failed"
+                    } else {
+                        error = "Ask failed"
+                    }
+                    break
+                }
                 guard let data = event.data.data(using: .utf8),
                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 else { continue }
                 let type = (obj["type"] as? String) ?? ""
-                if type == "delta" || type == "text" {
+                if type == "claude_action" {
+                    let action = (obj["action"] as? String) ?? ""
+                    if action == "thinking", let chunk = obj["text"] as? String {
+                        pendingText += chunk
+                    } else if action == "tool_use", pendingText.isEmpty {
+                        pendingText = "Using \((obj["tool"] as? String) ?? "tool")…"
+                    }
+                } else if type == "delta" || type == "text" {
                     if let chunk = obj["text"] as? String {
                         pendingText += chunk
                     }
                 } else if let message = obj["message"] as? String, type == "stage" {
                     if pendingText.isEmpty { pendingText = "· \(message)" }
                 } else if type == "done" {
+                    if let final = obj["text"] as? String, !final.isEmpty {
+                        pendingText = final
+                    }
                     break
-                } else if type == "error" {
+                } else if type == "error" || type == "cancelled" {
                     error = (obj["error"] as? String) ?? "Ask failed"
                     break
                 }
@@ -225,29 +243,35 @@ struct ConsoleTranscriptView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            List {
-                ForEach(model.turns) { turn in
-                    turnRow(turn).id(turn.id)
-                }
-                if model.streaming {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text(language.t("console.thinking"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if !model.pendingText.isEmpty {
-                            Text(model.pendingText).font(.body)
-                        }
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(model.turns) { turn in
+                        turnRow(turn).id(turn.id)
                     }
-                    .id("pending")
+                    if model.streaming {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if !model.pendingText.isEmpty {
+                                bubble(model.pendingText, isUser: false)
+                            }
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text(language.t("console.thinking"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.leading, 6)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id("pending")
+                    }
+                    if let err = model.error {
+                        Text(err).font(.caption).foregroundStyle(.red)
+                    }
                 }
-                if let err = model.error {
-                    Text(err).font(.caption).foregroundStyle(.red)
-                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
-            .listStyle(.plain)
+            .background(Color(.systemGroupedBackground))
             .onChange(of: model.turns.count) { _, _ in
                 if let last = model.turns.last {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -256,7 +280,6 @@ struct ConsoleTranscriptView: View {
         }
         .navigationTitle(session.title ?? language.t("console.title"))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             if !session.isArchived {
                 composer
@@ -303,18 +326,26 @@ struct ConsoleTranscriptView: View {
 
                 TextField(language.t("console.prompt"), text: $draft, axis: .vertical)
                     .lineLimit(1...4)
-                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color(.systemGray4), lineWidth: 1)
+                    )
 
                 Button {
                     let prompt = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !prompt.isEmpty else { return }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     draft = ""
                     let images = pickedImages
                     pickedImages = []
                     pickedItems = []
                     Task { await model.ask(prompt: prompt, images: images) }
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill").font(.title2)
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 28))
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .disabled(model.streaming || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -325,19 +356,32 @@ struct ConsoleTranscriptView: View {
 
     @ViewBuilder
     private func turnRow(_ turn: ConsoleTurn) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(turn.isUser ? language.t("console.you") : language.t("console.assistant"))
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(turn.isUser ? Color.accentColor : .secondary)
+        VStack(alignment: turn.isUser ? .trailing : .leading, spacing: 3) {
             if let text = turn.text, !text.isEmpty {
-                Text(text)
-                    .font(.body)
-                    .textSelection(.enabled)
+                bubble(text, isUser: turn.isUser)
             }
             if let err = turn.error {
-                Text(err).font(.caption).foregroundStyle(.red)
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 6)
             }
         }
-        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: turn.isUser ? .trailing : .leading)
+    }
+
+    /// Messages-style bubble: blue/white for you, gray/primary for the model.
+    private func bubble(_ text: String, isUser: Bool) -> some View {
+        Text(text)
+            .font(.body)
+            .textSelection(.enabled)
+            .foregroundStyle(isUser ? Color.white : Color.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(
+                isUser ? Color.accentColor : Color(.secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
+            .frame(maxWidth: 300, alignment: isUser ? .trailing : .leading)
     }
 }

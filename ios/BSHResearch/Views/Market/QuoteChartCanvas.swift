@@ -14,6 +14,8 @@ struct QuoteChartCanvas: View {
     let range: ChartRange
     var currency: String? = nil
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     @State private var scrubIndex: Int?
     @State private var rangeAnchor: Int?
     @State private var rangeEnd: Int?
@@ -46,17 +48,21 @@ struct QuoteChartCanvas: View {
         return Group {
             if prepared.rows.count < 2 {
                 ContentUnavailableView("No chart data", systemImage: "chart.xyaxis.line")
-                    .frame(height: 220)
+                    .frame(height: chartHeight)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
                     headerReadout(prepared)
+                        .frame(height: 38, alignment: .leading)
                     chart(prepared)
-                    hintRow
                 }
                 .onChange(of: points.count) { _, _ in clearInteraction() }
                 .onChange(of: range) { _, _ in clearInteraction() }
             }
         }
+    }
+
+    private var chartHeight: CGFloat {
+        sizeClass == .regular ? AdaptiveLayout.chartRegularHeight : AdaptiveLayout.chartCompactHeight
     }
 
     // MARK: - Prepared data
@@ -120,66 +126,49 @@ struct QuoteChartCanvas: View {
             let end = prepared.rows[hi].price
             let change = end - start
             let pct = start != 0 ? (change / start) * 100 : 0
-            let slice = prepared.rows[lo...hi]
             let up = change >= 0
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(QuoteRow.price(change, currency: currency))
-                        .font(.title3.monospacedDigit().weight(.bold))
-                        .foregroundStyle(up ? Color.green : Color.red)
-                    Text(String(format: "%+.2f%%", pct))
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(up ? Color.green : Color.red)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(format: "%+.2f (%+.2f%%)", change, pct))
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(up ? Color(.systemGreen) : Color(.systemRed))
                     Spacer(minLength: 0)
                 }
-                Text("\(stamp(prepared.rows[lo].date, prepared)) → \(stamp(prepared.rows[hi].date, prepared))")
-                    .font(.caption2)
+                Text("\(stamp(prepared.rows[lo].date, prepared)) – \(stamp(prepared.rows[hi].date, prepared))")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                Text("High \(QuoteRow.price(slice.map(\.price).max(), currency: currency))  ·  Low \(QuoteRow.price(slice.map(\.price).min(), currency: currency))")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
             }
         } else if let index = scrubIndex, prepared.rows.indices.contains(index) {
             let row = prepared.rows[index]
             let base = prepared.rows.first?.price
+            let delta = base.map { row.price - $0 }
             let pct = (base != nil && base != 0) ? ((row.price - base!) / base!) * 100 : nil
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(QuoteRow.price(row.price, currency: currency))
-                    .font(.title3.monospacedDigit().weight(.bold))
-                if let pct {
-                    Text(String(format: "%+.2f%%", pct))
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(pct >= 0 ? Color.green : Color.red)
+                    .font(.headline.monospacedDigit())
+                HStack(spacing: 6) {
+                    if let delta, let pct {
+                        Text(String(format: "%+.2f (%+.2f%%)", delta, pct))
+                            .font(.footnote.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(pct >= 0 ? Color(.systemGreen) : Color(.systemRed))
+                    }
+                    Text(stamp(row.date, prepared))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 0)
-                Text(stamp(row.date, prepared))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         } else {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(QuoteRow.price(prepared.rows.last?.price, currency: currency))
-                    .font(.title3.monospacedDigit().weight(.bold))
-                Spacer(minLength: 0)
-            }
+            // Idle: the screen header already shows the price; stay quiet.
+            EmptyView()
         }
-    }
-
-    private var hintRow: some View {
-        Text(scrubIndex == nil && rangeAnchor == nil
-             ? "Drag to scrub · hold, then drag, to measure"
-             : " ")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Chart
 
     private func chart(_ prepared: Prepared) -> some View {
-        let tone = prepared.isUp ? Color.green : Color.red
+        let tone = prepared.isUp ? Color(.systemGreen) : Color(.systemRed)
         let floor = prepared.domain.lowerBound
         return Chart {
             if let previousClose, range == .d1 {
@@ -215,43 +204,62 @@ struct QuoteChartCanvas: View {
             if let (lo, hi) = orderedRange(in: prepared) {
                 let a = prepared.rows[lo]
                 let b = prepared.rows[hi]
-                let rangeTone: Color = b.price >= a.price ? .green : .red
+                let rangeTone: Color = b.price >= a.price ? Color(.systemGreen) : Color(.systemRed)
                 RectangleMark(
                     xStart: .value("A", a.date),
                     xEnd: .value("B", b.date)
                 )
-                .foregroundStyle(rangeTone.opacity(0.12))
+                .foregroundStyle(rangeTone.opacity(0.1))
                 RuleMark(x: .value("A", a.date))
-                    .foregroundStyle(rangeTone.opacity(0.9))
+                    .foregroundStyle(Color(.systemGray2))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
                 RuleMark(x: .value("B", b.date))
-                    .foregroundStyle(rangeTone.opacity(0.9))
+                    .foregroundStyle(Color(.systemGray2))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
                 PointMark(x: .value("A", a.date), y: .value("P", a.price))
-                    .symbolSize(36)
+                    .symbolSize(90)
+                    .foregroundStyle(.background)
+                PointMark(x: .value("A", a.date), y: .value("P", a.price))
+                    .symbolSize(44)
                     .foregroundStyle(rangeTone)
                 PointMark(x: .value("B", b.date), y: .value("P", b.price))
-                    .symbolSize(36)
+                    .symbolSize(90)
+                    .foregroundStyle(.background)
+                PointMark(x: .value("B", b.date), y: .value("P", b.price))
+                    .symbolSize(44)
                     .foregroundStyle(rangeTone)
             } else if let index = scrubIndex, prepared.rows.indices.contains(index) {
                 let row = prepared.rows[index]
                 RuleMark(x: .value("Scrub", row.date))
-                    .foregroundStyle(Color.primary.opacity(0.3))
+                    .foregroundStyle(Color(.systemGray2))
                     .lineStyle(StrokeStyle(lineWidth: 1))
+                // Lollipop: white ring under a tinted dot, like Stocks.
                 PointMark(x: .value("Scrub", row.date), y: .value("Price", row.price))
-                    .symbolSize(60)
+                    .symbolSize(110)
+                    .foregroundStyle(.background)
+                PointMark(x: .value("Scrub", row.date), y: .value("Price", row.price))
+                    .symbolSize(54)
                     .foregroundStyle(tone)
             }
         }
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                 AxisValueLabel(format: range == .d1 ? .dateTime.hour() : .dateTime.month().day())
+                    .font(.caption2)
+                    .foregroundStyle(Color(.secondaryLabel))
             }
         }
         .chartYAxis {
-            AxisMarks(position: .trailing, values: .automatic(desiredCount: 4))
+            AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(Color(.systemGray5))
+                AxisValueLabel()
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Color(.secondaryLabel))
+            }
         }
         .chartYScale(domain: prepared.domain)
-        .frame(height: 250)
+        .frame(height: chartHeight)
         .chartOverlay { proxy in
             GeometryReader { geo in
                 Color.clear

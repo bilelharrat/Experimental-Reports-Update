@@ -19,6 +19,7 @@ from . import (
     evidence_matrix,
     memo_editor_store,
     memo_prep,
+    quote_workspace,
     research_store,
     storage,
     tracking_dashboard,
@@ -26,9 +27,12 @@ from . import (
 
 COPILOT_SESSION_KIND = "copilot_quick"
 COPILOT_SESSION_TITLE = "Co-Pilot Inspector"
+COPILOT_IOS_SESSION_KIND = "copilot_quick_ios"
+COPILOT_IOS_SESSION_TITLE = "Ask"
 COPILOT_DEEP_SESSION_KIND = "copilot_deep"
 COPILOT_DEEP_SESSION_TITLE = "Co-Pilot Console"
 INSPECTOR_SKILL = Path(__file__).parent / "skills" / "bsh_copilot_inspector.md"
+IOS_ASK_SKILL = Path(__file__).parent / "skills" / "bsh_copilot_ask_ios.md"
 _CONTEXT_CACHE: dict[str, tuple[float, dict]] = {}
 _CONTEXT_CACHE_TTL_SEC = 45
 
@@ -139,6 +143,10 @@ def _cache_key(company_id: str, client: dict[str, Any]) -> str:
 
 
 def needs_hydration(prompt: str, client: dict[str, Any]) -> bool:
+    # iPhone Ask should feel instant — skip the hydrate pass unless the
+    # analyst explicitly scoped documents.
+    if _is_ios_surface(client) and not client.get("document_ids"):
+        return False
     lower = str(prompt or "").lower()
     if client.get("document_ids"):
         return True
@@ -173,6 +181,81 @@ def needs_hydration(prompt: str, client: dict[str, Any]) -> bool:
     if selection.get("bullet_text") and "contradict" in lower:
         return True
     return False
+
+
+def _is_ios_surface(client: dict[str, Any] | None) -> bool:
+    surface = str((client or {}).get("surface") or "")
+    return surface.startswith("ios_")
+
+
+_MARKET_SURFACES = frozenset({"ios_market", "market", "quote", "radar"})
+_OPTIONS_PROMPT_HINT = re.compile(
+    r"\b(option|options|premium|premiums|call|calls|put|puts|strike|"
+    r"iv|implied\s*vol(?:atility)?|open\s*interest|\boi\b)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_market_surface(client: dict[str, Any] | None) -> bool:
+    surface = str((client or {}).get("surface") or "")
+    return surface in _MARKET_SURFACES or surface.endswith("_market")
+
+
+def _wants_options_context(prompt: str, client: dict[str, Any] | None) -> bool:
+    if _OPTIONS_PROMPT_HINT.search(prompt or ""):
+        return True
+    # Market/quote Ask: include a snapshot when chain data is already warm
+    # (quote detail just loaded workspace). Avoid a cold Nasdaq round-trip
+    # for unrelated "why is this moving?" questions.
+    return _is_market_surface(client)
+
+
+def _options_context_block(company_id: str, prompt: str, client: dict[str, Any]) -> str:
+    if not _wants_options_context(prompt, client):
+        return ""
+    company = storage.get_company(company_id) or {}
+    ticker = str(company.get("ticker") or "").strip()
+    if not ticker:
+        return ""
+    keywords = bool(_OPTIONS_PROMPT_HINT.search(prompt or ""))
+    try:
+        snap = quote_workspace.compact_options_snapshot(
+            ticker,
+            cache_only=not keywords,
+        )
+    except Exception:
+        return ""
+    return quote_workspace.format_options_snapshot_for_prompt(snap)
+
+
+_IOS_STYLE = (
+    "## Mobile Ask style (required)\n"
+    "iPhone sheet — tight and human. Lead with one sentence, then short bullets.\n"
+    "No JSON/code fences. Answer from context first; tools only for live "
+    "facts/filings (max 1–2 rounds). Under ~120 words unless asked for depth.\n"
+)
+
+
+def _prepare_runtime_prompt(company_id: str, prompt: str, client_context: dict[str, Any]) -> str:
+    options_block = _options_context_block(company_id, prompt, client_context)
+    if _is_ios_surface(client_context):
+        company = storage.get_company(company_id) or {}
+        name = company.get("name") or company_id
+        ticker = company.get("ticker") or ""
+        label = f"{name} ({ticker})" if ticker else str(name)
+        parts = [
+            _IOS_STYLE,
+            f"## Company\n{label}",
+        ]
+        if options_block:
+            parts.append(options_block)
+        parts.append(f"## Analyst question\n\n{prompt.strip()}")
+        return "\n\n".join(parts)
+    packet = assemble_context(company_id, client_context).get("packet") or {}
+    preamble = build_context_preamble(packet)
+    if options_block:
+        return f"{preamble}\n\n{options_block}\n\n---\n\n## Analyst question\n\n{prompt.strip()}"
+    return f"{preamble}\n\n---\n\n## Analyst question\n\n{prompt.strip()}"
 
 
 def scoped_research_file_ids(client: dict[str, Any]) -> list[str] | None:
@@ -805,11 +888,11 @@ def assemble_context(company_id: str, client: dict[str, Any] | None = None) -> d
     return result
 
 
-def find_quick_session(company_id: str) -> dict | None:
+def find_quick_session(company_id: str, *, session_kind: str = COPILOT_SESSION_KIND) -> dict | None:
     for meta in console_store.list_sessions(company_id):
         if (
             meta.get("status") == "active"
-            and meta.get("session_kind") == COPILOT_SESSION_KIND
+            and meta.get("session_kind") == session_kind
         ):
             return meta
     return None
@@ -829,18 +912,26 @@ def ensure_quick_session(
     output_language: str = "en",
     hydrate: bool = False,
     research_file_ids: list[str] | None = None,
+    include_background_docs: bool = True,
+    session_kind: str = COPILOT_SESSION_KIND,
+    title: str = COPILOT_SESSION_TITLE,
 ) -> dict:
-    existing = find_quick_session(company_id)
+    existing = find_quick_session(company_id, session_kind=session_kind)
     if existing is not None:
         return existing
+    skill = (
+        IOS_ASK_SKILL
+        if session_kind == COPILOT_IOS_SESSION_KIND and IOS_ASK_SKILL.exists()
+        else INSPECTOR_SKILL
+    )
     meta = console_session.create_session(
         company_id=company_id,
-        include_background_docs=True,
+        include_background_docs=include_background_docs,
         include_library_docs=False,
         output_language=output_language,
-        title=COPILOT_SESSION_TITLE,
-        session_kind=COPILOT_SESSION_KIND,
-        skill_path=INSPECTOR_SKILL,
+        title=title,
+        session_kind=session_kind,
+        skill_path=skill,
         research_file_ids=research_file_ids,
         skip_hydrate=not hydrate,
     )
@@ -887,12 +978,6 @@ def strip_research_task_block(text: str) -> str:
     return strip_structured_blocks(text)
 
 
-def _prepare_runtime_prompt(company_id: str, prompt: str, client_context: dict[str, Any]) -> str:
-    packet = assemble_context(company_id, client_context).get("packet") or {}
-    preamble = build_context_preamble(packet)
-    return f"{preamble}\n\n---\n\n## Analyst question\n\n{prompt.strip()}"
-
-
 def _maybe_hydrate_quick_session(
     *,
     company_id: str,
@@ -929,11 +1014,15 @@ def submit_quick_ask(
     client_context = client_context if isinstance(client_context, dict) else {}
     runtime_prompt = _prepare_runtime_prompt(company_id, prompt, client_context)
     hydrate_now = needs_hydration(prompt, client_context)
+    ios = _is_ios_surface(client_context)
     meta = ensure_quick_session(
         company_id,
         output_language=output_language,
         hydrate=hydrate_now,
         research_file_ids=scoped_research_file_ids(client_context),
+        include_background_docs=not ios,
+        session_kind=COPILOT_IOS_SESSION_KIND if ios else COPILOT_SESSION_KIND,
+        title=COPILOT_IOS_SESSION_TITLE if ios else COPILOT_SESSION_TITLE,
     )
     meta = _maybe_hydrate_quick_session(
         company_id=company_id,

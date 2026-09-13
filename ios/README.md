@@ -51,13 +51,79 @@ In Xcode: pick an iPhone simulator → Run (⌘R).
 No shared env token in the UI (operators can still paste one via a
 future debug screen if needed).
 
+## watchOS companion
+
+Wrist app + face complications (watchOS 10+):
+
+- **Watchlist** — App Group pins (`group.com.bilelharrrat.bshresearch`) or SPY/QQQ defaults
+- **Movers** — `/api/quotes/screeners` gainers/losers glance
+- **Settings** — API base URL (inherits phone Settings via App Group)
+- **Complications** — circular + rectangular quote/% change
+- Tap a ticker → `bshresearch://ticker/…` opens on the paired iPhone
+
+```sh
+cd ios
+xcodegen generate
+# Xcode → scheme BSHResearchWatch → Apple Watch Ultra / Series simulator → Run
+# Or embed: scheme BSHResearch (installs phone + watch together)
+open BSHResearch.xcodeproj
+```
+
+CLI build (after watchOS Simulator runtime is installed in Xcode → Settings → Platforms):
+
+```sh
+xcodebuild -scheme BSHResearchWatch \
+  -destination 'platform=watchOS Simulator,name=Apple Watch Ultra 3 (49mm)' \
+  -configuration Debug build
+xcrun simctl install booted \
+  ~/Library/Developer/Xcode/DerivedData/BSHResearch-*/Build/Products/Debug-watchsimulator/BSHResearchWatch.app
+```
+
+Physical watch: same team (`8CV4X23Y2T`), set LAN base URL on phone or watch Settings.
+
+## macOS memo desk
+
+Native SwiftUI Mac client (`BSHResearchMac`) — **research memos first** (Apple
+`NavigationSplitView`), same library as iPad + the website:
+
+- **Sidebar** — Companies or All memos
+- **Content** — company memo list
+- **Detail** — PDF memo reader (EN/ZH) + annotation overlay from iPad ink
+- **Settings** — API base URL + optional sign-in (⌘,)
+
+```sh
+cd ios
+xcodegen generate
+# Xcode → scheme BSHResearchMac → My Mac → Run
+xcodebuild -scheme BSHResearchMac -destination 'platform=macOS' -configuration Debug build
+open ~/Applications/BSH\ Research.app
+```
+
+Defaults to `http://127.0.0.1:8010`. Needs `./run.sh` for live data.
+
+### Signing (personal team)
+
+Team **Bilel Harrat** (`8CV4X23Y2T`) is a free Personal Team. In Xcode →
+Signing & Capabilities, select that team for every target.
+
+- **App Groups** (`group.com.bilelharrrat.bshresearch`) — kept; needed for Watch/widgets.
+- **Push Notifications** — stripped from entitlements (personal teams cannot
+  provision `aps-environment`). Remote push stays off until you join a paid
+  Apple Developer Program team, then re-add `aps-environment` to
+  `BSHResearch.entitlements` and the Push capability in Xcode.
+
+
 ## Layout
 
 ```
 ios/
-  project.yml              # XcodeGen spec
-  BSHResearch/             # App sources
-  BSHResearchTests/        # Unit tests
+  project.yml                 # XcodeGen spec
+  BSHResearch/                # iPhone/iPad app
+  BSHResearchWidgets/         # iOS WidgetKit
+  BSHResearchWatch/           # watchOS companion
+  BSHResearchWatchWidgets/    # Watch face complications
+  BSHResearchMac/             # macOS desk app
+  BSHResearchTests/           # Unit tests
   README.md
 ```
 

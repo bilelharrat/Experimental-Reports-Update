@@ -37,6 +37,11 @@ enum WidgetAPI {
     static let indexTickers = ["SPY", "QQQ", "DIA", "IWM"]
 
     static var baseURL: URL {
+        if let shared = UserDefaults(suiteName: "group.com.bilelharrrat.bshresearch")?
+            .string(forKey: "bsh.baseURL"),
+           let url = URL(string: shared), !shared.isEmpty {
+            return url
+        }
         if let plist = Bundle.main.object(forInfoDictionaryKey: "BSHBaseURL") as? String,
            let url = URL(string: plist), !plist.isEmpty {
             return url
@@ -95,12 +100,14 @@ enum WidgetAPI {
     static func saveCache(_ entry: (quotes: [WidgetQuote], movers: [WidgetQuote])) {
         let payload = ["quotes": entry.quotes, "movers": entry.movers]
         if let data = try? JSONEncoder().encode(payload) {
-            UserDefaults.standard.set(data, forKey: cacheKey)
+            let defaults = UserDefaults(suiteName: "group.com.bilelharrrat.bshresearch") ?? .standard
+            defaults.set(data, forKey: cacheKey)
         }
     }
 
     static func loadCache() -> (quotes: [WidgetQuote], movers: [WidgetQuote])? {
-        guard let data = UserDefaults.standard.data(forKey: cacheKey),
+        let defaults = UserDefaults(suiteName: "group.com.bilelharrrat.bshresearch") ?? .standard
+        guard let data = defaults.data(forKey: cacheKey),
               let payload = try? JSONDecoder().decode([String: [WidgetQuote]].self, from: data)
         else { return nil }
         return (payload["quotes"] ?? [], payload["movers"] ?? [])
@@ -130,7 +137,10 @@ struct QuotesProvider: TimelineProvider {
     }
 
     private func makeEntry() async -> QuotesEntry {
-        async let quotesTask = WidgetAPI.fetchQuotes(WidgetAPI.indexTickers)
+        let watch = (UserDefaults(suiteName: "group.com.bilelharrrat.bshresearch")?
+            .array(forKey: "bsh.marketPinnedTickers") as? [String]) ?? []
+        let tickers = watch.isEmpty ? WidgetAPI.indexTickers : Array(watch.prefix(4))
+        async let quotesTask = WidgetAPI.fetchQuotes(tickers)
         async let moversTask = WidgetAPI.fetchMovers(limit: 4)
         let (quotes, movers) = await (quotesTask, moversTask)
 
@@ -286,6 +296,7 @@ struct MarketsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "BSHMarketsWidget", provider: QuotesProvider()) { entry in
             MarketsWidgetView(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("BSH Markets")
         .description("Indexes and top movers from your research desk.")
@@ -293,9 +304,56 @@ struct MarketsWidget: Widget {
     }
 }
 
+struct MarketsLockScreenWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BSHMarketsLockScreen", provider: QuotesProvider()) { entry in
+            LockScreenMarketsView(entry: entry)
+                .containerBackground(.fill.tertiary, for: .widget)
+        }
+        .configurationDisplayName("BSH Watchlist")
+        .description("Lock Screen glance at your desk tape.")
+        .supportedFamilies([.accessoryRectangular, .accessoryInline, .accessoryCircular])
+    }
+}
+
+struct LockScreenMarketsView: View {
+    let entry: QuotesEntry
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        switch family {
+        case .accessoryInline:
+            let top = entry.quotes.first
+            Text("\(top?.ticker ?? "BSH") \(fmtPct(top?.pct))")
+        case .accessoryCircular:
+            VStack(spacing: 1) {
+                Text(entry.quotes.first?.ticker ?? "BSH")
+                    .font(.caption2.weight(.bold))
+                Text(fmtPct(entry.quotes.first?.pct))
+                    .font(.caption2.monospacedDigit())
+            }
+        default:
+            VStack(alignment: .leading, spacing: 2) {
+                Text("BSH")
+                    .font(.caption2.weight(.bold))
+                ForEach(entry.quotes.prefix(3)) { q in
+                    HStack {
+                        Text(q.ticker).font(.caption2.monospaced().weight(.semibold))
+                        Spacer(minLength: 4)
+                        Text(fmtPct(q.pct))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(tone(q.pct))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @main
 struct BSHWidgetsBundle: WidgetBundle {
     var body: some Widget {
         MarketsWidget()
+        MarketsLockScreenWidget()
     }
 }

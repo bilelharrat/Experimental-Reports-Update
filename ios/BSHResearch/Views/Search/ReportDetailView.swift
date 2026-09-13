@@ -103,31 +103,44 @@ final class ReportDetailViewModel: ObservableObject {
         }
     }
 
-    /// Download a memo DOCX (or PDF preview) and open it in Quick Look.
-    func openDocument(language code: String, preferPreview: Bool = false) async {
-        let path: String?
-        if preferPreview {
-            path = report?.previewUrls?[code]
-                ?? report?.downloadUrls?[code]
-        } else {
-            path = report?.downloadUrls?[code]
-        }
-        guard let path else { return }
+    /// Download a memo for deep reading. Prefers the rendered PDF when available
+    /// (paper-desk + Pencil); falls back to the DOCX for Quick Look.
+    func openDocument(language code: String, preferPreview: Bool = true) async {
+        let candidates: [String] = {
+            if preferPreview {
+                return [
+                    report?.previewUrls?[code],
+                    report?.downloadUrls?[code],
+                ].compactMap { $0 }
+            }
+            return [report?.downloadUrls?[code]].compactMap { $0 }
+        }()
+        guard !candidates.isEmpty else { return }
         downloading = true
         defer { downloading = false }
-        do {
-            let (data, name) = try await APIClient.shared.download(path)
-            let fileName: String
-            if let name, !name.isEmpty {
-                fileName = name
-            } else {
-                fileName = "\(reportId)-\(code).docx"
+        var lastError: Error?
+        for path in candidates {
+            do {
+                let (data, name) = try await APIClient.shared.download(path)
+                let fileName: String
+                if let name, !name.isEmpty {
+                    fileName = name
+                } else if path.contains("/preview") {
+                    fileName = "\(reportId)-\(code).pdf"
+                } else {
+                    fileName = "\(reportId)-\(code).docx"
+                }
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+                try data.write(to: url, options: .atomic)
+                previewURL = url
+                return
+            } catch {
+                lastError = error
             }
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-            try data.write(to: url, options: .atomic)
-            previewURL = url
-        } catch {
-            actionError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        if let lastError {
+            actionError = (lastError as? LocalizedError)?.errorDescription
+                ?? lastError.localizedDescription
         }
     }
 
@@ -228,6 +241,13 @@ struct ReportDetailView: View {
         _model = StateObject(wrappedValue: ReportDetailViewModel(reportId: reportId))
     }
 
+    private var previewBinding: Binding<IdentifiedURL?> {
+        Binding(
+            get: { model.previewURL.map { IdentifiedURL(url: $0) } },
+            set: { model.previewURL = $0?.url }
+        )
+    }
+
     var body: some View {
         List {
             if model.loading && model.report == nil {
@@ -256,9 +276,9 @@ struct ReportDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .readableContentWidth()
         .navigationTitle(language.t("research.report"))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
         .task {
             await model.start(preferredLang: language.language)
         }
@@ -269,27 +289,14 @@ struct ReportDetailView: View {
         )) { item in
             ShareSheet(items: [item.url])
         }
-        .sheet(item: Binding(
-            get: { model.previewURL.map { IdentifiedURL(url: $0) } },
-            set: { model.previewURL = $0?.url }
-        )) { item in
-            NavigationStack {
-                QuickLookPreview(url: item.url)
-                    .ignoresSafeArea()
-                    .navigationTitle(item.url.lastPathComponent)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button(language.t("common.done")) { model.previewURL = nil }
-                        }
-                        ToolbarItem(placement: .primaryAction) {
-                            ShareLink(item: item.url) {
-                                Image(systemName: "square.and.arrow.up")
-                            }
-                        }
-                    }
-            }
-        }
+        // iPad: full-screen paper desk. iPhone: large sheet is enough.
+        .modifier(MemoReaderPresenter(
+            item: previewBinding,
+            reportId: reportId,
+            companyId: model.report?.companyId,
+            companyName: model.report?.companyName,
+            onDismiss: { model.previewURL = nil }
+        ))
         .sheet(isPresented: Binding(
             get: { model.artifactText != nil },
             set: { if !$0 { model.artifactText = nil; model.artifactTitle = nil } }
@@ -327,13 +334,25 @@ struct ReportDetailView: View {
     @ViewBuilder
     private func statusSection(_ report: ReportDetail) -> some View {
         Section {
-            LabeledContent(language.t("research.report_type"), value: report.reportType ?? "—")
-            LabeledContent(language.t("research.audience"), value: report.audience ?? "—")
+            HStack(spacing: 12) {
+                MonogramAvatar(name: report.companyName ?? report.companyId ?? reportId, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(report.reportType ?? language.t("research.report"))
+                        .font(.headline)
+                    Text(report.audience ?? "—")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                StatusPill(text: statusText(report), color: statusTone(report))
+            }
+            .padding(.vertical, 2)
             if report.summary.isRunning {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(report.stage ?? report.status ?? "—")
                         .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
                     Spacer()
                     if let started = Self.parseDate(report.createdAt) {
                         // Live elapsed timer so long stages don't look frozen.
@@ -342,17 +361,20 @@ struct ReportDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-            } else {
-                LabeledContent(language.t("research.status"), value: report.stage ?? report.status ?? "—")
             }
             if report.progress != nil {
                 // Tick every second so the elapsed-time estimate keeps moving
                 // even when the server is still parked on a long Claude stage.
                 TimelineView(.periodic(from: .now, by: 1)) { _ in
                     let shown = Self.displayProgress(for: report)
-                    ProgressView(value: shown, total: 100) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ProgressView(value: shown, total: 100)
+                            .tint(statusTone(report))
                         Text("\(Int(shown.rounded()))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
+                    .padding(.vertical, 2)
                 }
             }
             if report.summary.isRunning {
@@ -371,6 +393,23 @@ struct ReportDetailView: View {
         } header: {
             Text(report.companyName ?? report.companyId ?? reportId)
         }
+    }
+
+    private func statusText(_ report: ReportDetail) -> String {
+        let raw = (report.status ?? "").lowercased()
+        if raw.hasPrefix("complete") { return "Complete" }
+        if raw.hasPrefix("failed") { return "Failed" }
+        if raw == "cancelled" { return "Cancelled" }
+        if report.summary.isRunning { return "Running" }
+        return report.status ?? "—"
+    }
+
+    private func statusTone(_ report: ReportDetail) -> Color {
+        let raw = (report.status ?? "").lowercased()
+        if raw.hasPrefix("complete") { return .green }
+        if raw.hasPrefix("failed") || raw == "cancelled" { return .red }
+        if report.summary.isRunning { return .orange }
+        return .secondary
     }
 
     private static func parseDate(_ raw: String?) -> Date? {
@@ -536,4 +575,40 @@ struct ReportDetailView: View {
 private struct IdentifiedURL: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
+}
+
+/// iPad gets an immersive full-screen paper desk; iPhone keeps a large sheet.
+private struct MemoReaderPresenter: ViewModifier {
+    @Binding var item: IdentifiedURL?
+    let reportId: String
+    var companyId: String?
+    var companyName: String?
+    var onDismiss: () -> Void
+
+    func body(content: Content) -> some View {
+        if AdaptiveLayout.isPad {
+            content
+                .fullScreenCover(item: $item) { preview in
+                    PaperDeskReader(
+                        url: preview.url,
+                        reportId: reportId,
+                        companyId: companyId,
+                        companyName: companyName,
+                        onDismiss: onDismiss
+                    )
+                }
+        } else {
+            content
+                .sheet(item: $item) { preview in
+                    PaperDeskReader(
+                        url: preview.url,
+                        reportId: reportId,
+                        companyId: companyId,
+                        companyName: companyName,
+                        onDismiss: onDismiss
+                    )
+                    .bshSheetChrome()
+                }
+        }
+    }
 }

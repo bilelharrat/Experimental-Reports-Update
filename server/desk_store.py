@@ -106,6 +106,27 @@ def alert_rules() -> list[dict]:
     return [row for row in rules if isinstance(row, dict)] if isinstance(rules, list) else []
 
 
+def pinned_tickers() -> list[str]:
+    """Watchlist tickers from the synced prefs blob."""
+    raw = load_prefs()["data"].get("bsh.marketPinnedTickers")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        ticker = str(item or "").strip().upper()
+        if ticker and ticker not in out:
+            out.append(ticker)
+    return out
+
+
+def book_lots() -> list[dict]:
+    """Position lots from the synced prefs blob (``bsh.bookLots``)."""
+    raw = load_prefs()["data"].get("bsh.bookLots")
+    if not isinstance(raw, list):
+        return []
+    return [row for row in raw if isinstance(row, dict)]
+
+
 # --- Alert events -----------------------------------------------------------
 
 

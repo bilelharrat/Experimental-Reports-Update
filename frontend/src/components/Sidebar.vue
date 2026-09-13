@@ -4,7 +4,6 @@ import { RouterLink } from "vue-router";
 import {
   ArrowUpDown,
   Check,
-  Flame,
   Gauge,
   Home,
   Newspaper,
@@ -16,6 +15,8 @@ import { companyStatusLine, sortCompanies } from "../companyLists.js";
 import { companyInitials } from "../formatters.js";
 import { useT } from "../i18n.js";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
+import PulseECGIcon from "./PulseECGIcon.vue";
+
 import {
   companySort,
   companyViews,
@@ -163,7 +164,7 @@ const collapseLabel = computed(() =>
           active-class=""
           :title="t('sidebar.markets_pulse')"
         >
-          <Flame class="h-[18px] w-[18px] shrink-0" />
+          <PulseECGIcon :size="18" />
           <span v-if="!sidebarCollapsed">{{ t("sidebar.markets_pulse") }}</span>
         </RouterLink>
 

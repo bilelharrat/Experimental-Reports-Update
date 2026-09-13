@@ -5053,6 +5053,23 @@ def _finalize_memo_from_package(
         claude_duration_ms=combined_result.get("duration_ms"),
         report_ready_at=_now_iso(),
     )
+    try:
+        from . import push_notify
+
+        company = storage.get_company(str(report.get("company_id") or "")) or {}
+        name = company.get("name") or report.get("company_id") or "Memo"
+        push_notify.notify(
+            "memo",
+            "Memo ready",
+            f"{name} — {final_stage}",
+            data={
+                "report_id": report_id,
+                "company_id": report.get("company_id"),
+                "deep_link": f"bshresearch://report/{report_id}",
+            },
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("memo push notify failed for %s", report_id)
     # ---- Artifacts tail: the report is complete and viewable above; a
     # parked artifacts agent (report-ready detach) is collected here, so
     # the rail shows "Done — finalizing artifacts" instead of holding the

@@ -107,6 +107,75 @@ struct AlertCheckResponse: Decodable {
     let errors: [String]?
 }
 
+// MARK: - Positions (web `bsh.bookLots`)
+
+struct BookLot: Codable, Identifiable, Equatable {
+    var id: String
+    var ticker: String
+    var shares: Double
+    var costBasis: Double
+}
+
+// MARK: - Desk digest / screener
+
+struct DeskDigestItem: Decodable, Identifiable {
+    let id: String
+    let kind: String?
+    let ticker: String?
+    let title: String?
+    let detail: String?
+    let href: String?
+}
+
+struct DeskDigestResponse: Decodable {
+    let generatedAt: String?
+    let since: String?
+    let items: [DeskDigestItem]?
+
+    enum CodingKeys: String, CodingKey {
+        case since, items
+        case generatedAt = "generated_at"
+    }
+}
+
+struct DeskScreenerItem: Decodable, Identifiable {
+    let id: String
+    let kind: String?
+    let ticker: String?
+    let companyId: String?
+    let title: String?
+    let detail: String?
+    let href: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, ticker, title, detail, href
+        case companyId = "company_id"
+    }
+}
+
+struct DeskScreenerResponse: Decodable {
+    let generatedAt: String?
+    let items: [DeskScreenerItem]?
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case generatedAt = "generated_at"
+    }
+}
+
+struct MarketCalendarEvent: Decodable, Identifiable {
+    var id: String { "\(ticker ?? "")-\(date ?? "")-\(kind ?? "")-\(label ?? "")" }
+    let date: String?
+    let ticker: String?
+    let kind: String?
+    let label: String?
+    let title: String?
+}
+
+struct MarketCalendarResponse: Decodable {
+    let events: [MarketCalendarEvent]?
+}
+
 // MARK: - Active jobs rail
 
 struct ActiveJob: Decodable, Identifiable {

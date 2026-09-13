@@ -2,9 +2,11 @@ import Foundation
 
 enum AppConfig {
     /// API origin. Override via Info.plist `BSHBaseURL` or UserDefaults `bsh.baseURL`.
-    /// Local default matches `./run.sh` (uvicorn on 8010). Production mounts under `/research`.
+    /// Local default matches `./run.sh` (uvicorn on 8010). For production / TestFlight
+    /// set `BSHBaseURL` to your public HTTPS host (see docs/DISTRIBUTION.md) or type it
+    /// in Settings so the phone works with your laptop off.
     static var baseURL: URL {
-        if let override = UserDefaults.standard.string(forKey: "bsh.baseURL"),
+        if let override = AppGroupStore.loadBaseURL(),
            let url = URL(string: override), !override.isEmpty {
             return url
         }

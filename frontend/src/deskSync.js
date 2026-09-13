@@ -33,6 +33,7 @@ export const DESK_KEYS = [
   "bsh.marketTickerNotes",
   "bsh.marketChartPrefs",
   "bsh.marketDeskLayout",
+  "bsh.newsDesk.expanded",
   "bsh.bookLots",
 ];
 

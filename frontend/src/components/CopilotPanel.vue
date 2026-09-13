@@ -101,6 +101,35 @@ const lastAssistant = computed(() =>
   [...localTurns.value].reverse().find((row) => row.role === "assistant"),
 );
 
+const emptySuggestions = computed(() => {
+  if (actions.value.length) return [];
+  return [
+    {
+      id: "evidence",
+      label: t("copilot.quick_evidence"),
+      prompt: t("copilot.prompt_evidence_gaps"),
+    },
+    {
+      id: "thesis",
+      label: t("copilot.quick_thesis"),
+      prompt: t("copilot.prompt_stress_thesis"),
+    },
+    {
+      id: "update",
+      label: t("copilot.quick_update"),
+      prompt: t("copilot.prompt_draft_update"),
+    },
+  ];
+});
+
+const showEmptyHero = computed(
+  () =>
+    Boolean(props.companyId) &&
+    mode.value === "quick" &&
+    localTurns.value.length === 0 &&
+    !pendingTurnId.value,
+);
+
 const structuredOutputs = computed(() =>
   lastAssistant.value ? parseStructuredOutputs(lastAssistant.value.text) : {},
 );
@@ -596,9 +625,29 @@ defineExpose({
           ref="transcriptEl"
           class="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-card bg-surface-muted/60 p-3"
         >
-          <p v-if="localTurns.length === 0" class="text-footnote text-ink-muted">
-            {{ t("copilot.task_prompt") }}
-          </p>
+          <div v-if="showEmptyHero" class="space-y-3 py-1">
+            <div>
+              <p class="text-callout font-medium text-ink-primary">
+                {{ t("copilot.empty_title") }}
+              </p>
+              <p class="mt-1 text-footnote leading-relaxed text-ink-muted">
+                {{ t("copilot.empty_body") }}
+              </p>
+            </div>
+            <div class="space-y-1.5">
+              <button
+                v-for="chip in emptySuggestions"
+                :key="chip.id"
+                type="button"
+                class="flex w-full items-start gap-2 rounded-subbox border border-subtle bg-surface px-3 py-2.5 text-left focus-ring hover:bg-fill-tertiary/60"
+                :disabled="sending"
+                @click="sendPrompt(chip.prompt)"
+              >
+                <span class="mt-0.5 text-caption1 text-ink-subtle" aria-hidden="true">↗</span>
+                <span class="text-footnote text-ink-primary">{{ chip.label }}</span>
+              </button>
+            </div>
+          </div>
           <div
             v-for="turn in localTurns"
             :key="turn.id"
@@ -606,7 +655,7 @@ defineExpose({
             :class="turn.role === 'user' ? 'text-ink-primary' : 'text-ink-secondary'"
           >
             <div class="mb-0.5 text-caption1 font-semibold uppercase tracking-wide text-ink-subtle">
-              {{ turn.role === "user" ? t("copilot.you") : t("copilot.title") }}
+              {{ turn.role === "user" ? t("copilot.you") : t("copilot.ask_short") }}
             </div>
             <div
               v-if="turn.role === 'assistant' && turn.id === lastAssistant?.id"
@@ -624,7 +673,7 @@ defineExpose({
           </div>
           <div v-if="pendingTurnId" class="text-footnote text-ink-secondary">
             <div class="mb-0.5 text-caption1 font-semibold uppercase tracking-wide text-ink-subtle">
-              {{ t("copilot.title") }}
+              {{ t("copilot.ask_short") }}
             </div>
             <div v-if="pendingText" class="copilot-md" v-html="renderMarkdown(pendingText)" />
             <div v-else class="flex items-center gap-2 text-caption1 text-ink-muted">

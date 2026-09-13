@@ -90,7 +90,10 @@ final class CompanyResearchViewModel: ObservableObject {
 struct CompanyResearchView: View {
     @StateObject private var model: CompanyResearchViewModel
     @EnvironmentObject private var language: LanguageStore
+    @EnvironmentObject private var askPersona: AskPersonaStore
+    @EnvironmentObject private var session: SessionStore
     @State private var openedReport: ReportNav?
+    @State private var showAsk = false
 
     init(companyId: String, seed: CompanyDetail? = nil) {
         _model = StateObject(wrappedValue: CompanyResearchViewModel(companyId: companyId, seed: seed))
@@ -131,20 +134,41 @@ struct CompanyResearchView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(model.company?.displayName(lang: language.language) ?? model.companyId)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if model.company != nil {
-                    Button {
-                        model.showGenerate = true
-                    } label: {
-                        Label(language.t("research.generate"), systemImage: "doc.badge.plus")
+                    HStack(spacing: 12) {
+                        Button {
+                            showAsk = true
+                        } label: {
+                            Label {
+                                Text(askPersona.investor.inviteTitle(lang: language.language))
+                            } icon: {
+                                AskMark(size: 24)
+                            }
+                        }
+                        Button {
+                            model.showGenerate = true
+                        } label: {
+                            Label(language.t("research.generate"), systemImage: "doc.badge.plus")
+                        }
+                        .disabled(!session.canWriteDesk)
+                        .opacity(session.canWriteDesk ? 1 : 0.4)
                     }
                 }
             }
         }
         .refreshable { await model.load() }
         .task { await model.load() }
+        .sheet(isPresented: $showAsk) {
+            if let company = model.company {
+                CopilotSheet(
+                    companyId: company.id,
+                    companyName: company.displayName(lang: language.language),
+                    surface: "ios_company"
+                )
+            }
+        }
         .sheet(isPresented: $model.showGenerate) {
             if let company = model.company {
                 GenerateReportSheet(company: company) { report in
@@ -167,9 +191,28 @@ struct CompanyResearchView: View {
 
     @ViewBuilder
     private func overviewSection(_ company: CompanyDetail) -> some View {
-        Section(language.t("research.overview")) {
-            LabeledContent(language.t("company.ticker"), value: company.ticker ?? "—")
-            LabeledContent(language.t("company.type"), value: company.companyType ?? company.status ?? "—")
+        Section {
+            HStack(spacing: 12) {
+                MonogramAvatar(name: company.displayName(lang: language.language), size: 52)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(company.displayName(lang: language.language))
+                        .font(.headline)
+                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        if let ticker = company.ticker, !ticker.isEmpty {
+                            Text(ticker)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color(.systemGray5), in: Capsule())
+                        }
+                        Text(company.companyType ?? company.status ?? "—")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
             if let sector = company.sector {
                 LabeledContent(language.t("company.sector"), value: sector)
             }
@@ -179,13 +222,12 @@ struct CompanyResearchView: View {
             let desc = company.displayDescription(lang: language.language)
             if !desc.isEmpty {
                 Text(desc)
-                    .font(.body)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+        } footer: {
             if company.isPublic {
                 Text(language.t("research.public_memo_note"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -235,30 +277,31 @@ struct CompanyResearchView: View {
     }
 
     private func reportRow(_ report: ReportSummary) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(report.reportType ?? language.t("research.report"))
-                .font(.body.weight(.medium))
-            HStack(spacing: 8) {
-                Text(report.statusLabel)
-                    .font(.caption)
-                    .foregroundStyle(statusColor(report))
-                if let progress = report.progress, report.isRunning {
-                    Text("\(progress)%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(report.reportType ?? language.t("research.report"))
+                    .font(.body.weight(.medium))
+                HStack(spacing: 8) {
+                    if let progress = report.progress, report.isRunning {
+                        Text("\(progress)%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    if let audience = report.audience {
+                        Text(audience)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                if let audience = report.audience {
-                    Text(audience)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if let err = report.error, !(report.status ?? "").hasPrefix("complete") {
+                    Text(err)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
                 }
             }
-            if let err = report.error, !(report.status ?? "").hasPrefix("complete") {
-                Text(err)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-            }
+            Spacer(minLength: 6)
+            StatusPill(text: report.statusLabel, color: statusColor(report))
         }
         .padding(.vertical, 2)
     }
@@ -310,11 +353,21 @@ struct CompanyResearchView: View {
     @ViewBuilder
     private func consoleSection(_ company: CompanyDetail) -> some View {
         Section {
+            Button {
+                showAsk = true
+            } label: {
+                CopilotInviteCard()
+            }
+            .buttonStyle(.borderless)
             NavigationLink {
                 ConsoleSessionsView(companyId: company.id)
             } label: {
-                Label(language.t("console.title"), systemImage: "bubble.left.and.text.bubble.right")
+                Label(language.t("copilot.open_console"), systemImage: "bubble.left.and.text.bubble.right")
             }
+        } header: {
+            Text(askPersona.investor.inviteTitle(lang: language.language))
+        } footer: {
+            Text(language.t("copilot.footer"))
         }
     }
 

@@ -89,6 +89,8 @@ struct WorkspaceSummary: Decodable {
     let marketCap: String?
     let dividend: String?
     let yield: String?
+    let exDividend: String?
+    let dividendPay: String?
 
     enum CodingKeys: String, CodingKey {
         case exchange, sector, industry, volume, dividend, yield
@@ -98,6 +100,8 @@ struct WorkspaceSummary: Decodable {
         case previousClose = "previous_close"
         case fiftyTwoWeek = "fifty_two_week"
         case marketCap = "market_cap"
+        case exDividend = "ex_dividend"
+        case dividendPay = "dividend_pay"
     }
 }
 

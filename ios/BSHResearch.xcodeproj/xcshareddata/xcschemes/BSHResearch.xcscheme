@@ -35,6 +35,20 @@
                ReferencedContainer = "container:BSHResearch.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "5370A7C783ECFD534B58C9C0"
+               BuildableName = "BSHResearchWatch.app"
+               BlueprintName = "BSHResearchWatch"
+               ReferencedContainer = "container:BSHResearch.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

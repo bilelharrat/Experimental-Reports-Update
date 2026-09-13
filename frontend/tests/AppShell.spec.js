@@ -12,6 +12,7 @@ vi.mock("../src/api.js", () => ({
     externalFeed: vi.fn(),
     listHormuz: vi.fn(),
     listCompanies: vi.fn(),
+    quotesNews: vi.fn().mockResolvedValue({ items: [] }),
     uploadFile: vi.fn(),
     uploadResearchFile: vi.fn(),
     deskPrefs: vi.fn().mockResolvedValue({ updated_at: null, data: {} }),
@@ -91,7 +92,7 @@ describe("App global shell", () => {
     expect(api.listReports).not.toHaveBeenCalled();
   });
 
-  it("shows Co-Pilot in the toolbar on Home", async () => {
+  it("shows Ask in the toolbar on Home", async () => {
     session.value = {
       token: "test-token",
       email: "elina.sun@bshfoundation.org",
@@ -102,8 +103,8 @@ describe("App global shell", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Home route");
-    expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("Co-Pilot");
+    expect(wrapper.find('[aria-label="Ask"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("Ask");
     expect(wrapper.find(".copilot-drag-handle").exists()).toBe(false);
     expect(wrapper.find(".copilot-drag-lens").exists()).toBe(false);
     expect(wrapper.find('[aria-label="Add"]').exists()).toBe(true);
@@ -120,7 +121,7 @@ describe("App global shell", () => {
     expect(wrapper.text()).not.toContain("Company files");
   });
 
-  it("renders authenticated chrome and opens the company co-pilot drawer", async () => {
+  it("renders authenticated chrome and opens the company Ask sheet", async () => {
     session.value = {
       token: "test-token",
       email: "elina.sun@bshfoundation.org",
@@ -132,8 +133,7 @@ describe("App global shell", () => {
 
     expect(wrapper.find("[data-testid='left-rail']").text()).toContain("Rail 1");
     expect(wrapper.text()).toContain("ZaiNar, Inc.");
-    expect(wrapper.find('[aria-label="Ask Co-Pilot"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("Co-Pilot");
+    expect(wrapper.find('[aria-label="Ask"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="Settings"]').exists()).toBe(false);
     expect(wrapper.find('[aria-label="Market Radar"]').exists()).toBe(false);
     expect(wrapper.find('[aria-label="Account"]').exists()).toBe(true);
@@ -146,10 +146,10 @@ describe("App global shell", () => {
     expect(wrapper.text()).not.toContain("Memo inputs");
     expect(wrapper.text()).not.toContain("Link");
 
-    const openButton = wrapper.find('[aria-label="Ask Co-Pilot"]');
+    const openButton = wrapper.find('[aria-label="Ask"]');
     await openButton.trigger("click");
 
-    expect(wrapper.text()).toContain("Co-Pilot");
+    expect(wrapper.text()).toContain("Ask");
     expect(wrapper.find("[data-testid='copilot-panel']").text()).toContain(
       "Copilot zainar-inc",
     );

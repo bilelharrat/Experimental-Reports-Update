@@ -13933,15 +13933,23 @@ _CONSOLE_LANGUAGE_NAMES = {
 }
 
 
-def _console_language_directive(language: str | None) -> str:
+def _console_language_directive(language: str | None, *, lean: bool = False) -> str:
     """Return the system-prompt block that pins all output to one
     language for the duration of the Console session. Empty when the
     caller doesn't specify a language (legacy behavior — Claude mirrors
     the user's input language per the skill prompt).
+
+    ``lean=True`` skips the long Chinese style guide — used for iOS/quick
+    Ask where every prompt token costs latency.
     """
     name = _CONSOLE_LANGUAGE_NAMES.get(language or "")
     if not name:
         return ""
+    if lean:
+        return (
+            "\n\n## Output language (session-wide)\n\n"
+            f"All replies MUST be written in {name}.\n"
+        )
     style = (
         f"\nWhen writing in Simplified Chinese, apply this style guide:\n"
         f"{INVESTMENT_RESEARCH_CHINESE_STYLE}\n"
@@ -13957,7 +13965,12 @@ def _console_language_directive(language: str | None) -> str:
     )
 
 
-def _console_skill_text(skill_path: Path, language: str | None = None) -> str:
+def _console_skill_text(
+    skill_path: Path,
+    language: str | None = None,
+    *,
+    lean_language_directive: bool = False,
+) -> str:
     """Read the bundled analyst persona and append the session's
     language directive (if any). Passed verbatim to
     ``--append-system-prompt`` on every hydrate / ask invocation.
@@ -13966,7 +13979,9 @@ def _console_skill_text(skill_path: Path, language: str | None = None) -> str:
         text = skill_path.read_text(encoding="utf-8")
     except OSError:
         text = ""
-    return text + _console_language_directive(language)
+    return text + _console_language_directive(
+        language, lean=lean_language_directive
+    )
 
 
 def run_console_hydrate(
@@ -14081,6 +14096,11 @@ def run_console_ask(
     grace_kill_s: float = _CONSOLE_KILL_GRACE_DEFAULT_S,
     wall_clock_cap_s: float = _CONSOLE_WALL_CLOCK_DEFAULT_S,
     bootstrap_session: bool = False,
+    model: str | None = None,
+    effort: str | None = None,
+    tools: str | None = None,
+    exclude_dynamic_system_prompt: bool = False,
+    lean_language_directive: bool = False,
 ) -> dict:
     """One user turn: spawn ``claude -p`` and stream the response.
 
@@ -14088,6 +14108,10 @@ def run_console_ask(
     ``bootstrap_session`` is true — used for Co-Pilot quick sessions that
     skipped hydrate — the first ask uses ``--session-id`` so Claude
     actually creates the session before later asks resume it.
+
+    Speed knobs (quick / iOS Ask): ``model``, ``effort``, ``tools`` (pass
+    ``""`` to disable all tools via ``--tools``), and lean system prompt
+    flags. Deep Console leaves these unset so behavior stays historical.
     """
     if not is_available():
         return {"ok": False, "error": "Claude CLI not available", "text": ""}
@@ -14107,6 +14131,11 @@ def run_console_ask(
         if bootstrap_session
         else ["--resume", claude_session_id]
     )
+    if tools is None:
+        tool_args = ["--allowedTools", "Read,WebSearch,WebFetch,Bash"]
+    else:
+        # ``--tools ""`` disables every built-in tool (no Read/Web round-trips).
+        tool_args = ["--tools", tools]
     cmd = [
         claude_path() or "claude",
         "-p", final_prompt,
@@ -14116,9 +14145,19 @@ def run_console_ask(
         "--add-dir", str(work_dir),
         "--permission-mode", "bypassPermissions",
         "--dangerously-skip-permissions",
-        "--allowedTools", "Read,WebSearch,WebFetch,Bash",
-        "--append-system-prompt", _console_skill_text(skill_path, output_language),
+        *tool_args,
+        "--append-system-prompt", _console_skill_text(
+            skill_path,
+            output_language,
+            lean_language_directive=lean_language_directive,
+        ),
     ]
+    if exclude_dynamic_system_prompt:
+        cmd.append("--exclude-dynamic-system-prompt-sections")
+    if model:
+        cmd.extend(["--model", model])
+    if effort:
+        cmd.extend(["--effort", effort])
 
     progress.emit(
         "job_init",

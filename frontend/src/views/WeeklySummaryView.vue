@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   CalendarClock,
   ExternalLink,
-  Flame,
   Loader2,
   RefreshCw,
   TrendingDown,
@@ -15,6 +14,7 @@ import {
 import { api } from "../api.js";
 import { indexQuoteCards } from "../homeDesk.js";
 import { lastPriceLabel, signedChange } from "../liveTicker.js";
+import PulseECGIcon from "../components/PulseECGIcon.vue";
 import {
   PULSE_INDEX_TICKERS,
   calendarWeekBuckets,
@@ -1301,7 +1301,7 @@ onBeforeUnmount(() => {
           v-else
           class="news-grouped px-6 py-8 text-center"
         >
-          <Flame class="mx-auto h-7 w-7 text-accent" />
+          <PulseECGIcon :size="28" class="mx-auto text-accent" />
           <h2 class="mt-3 font-display text-title3 text-ink-primary">{{ t("pulse.empty_title") }}</h2>
           <p class="mx-auto mt-2 max-w-xl text-callout text-ink-secondary">{{ t("pulse.empty_body") }}</p>
           <button

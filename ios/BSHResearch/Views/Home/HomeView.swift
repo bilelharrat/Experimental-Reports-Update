@@ -85,6 +85,12 @@ final class HomeDeskViewModel: ObservableObject {
         async let feedTask: [ExternalFeedDTO]? = {
             try? await APIClient.shared.get("external/feed")
         }()
+        async let liveNewsTask: LiveNewsResponse? = {
+            try? await APIClient.shared.get(
+                "quotes/news",
+                query: [URLQueryItem(name: "limit", value: "40")]
+            )
+        }()
 
         async let jobsTask: [ActiveJob]? = {
             try? await APIClient.shared.get("jobs/active")
@@ -94,6 +100,7 @@ final class HomeDeskViewModel: ObservableObject {
         }()
 
         let (quotesRes, pulseRes, companiesRes, feedRes) = await (quotesTask, pulseTask, companiesTask, feedTask)
+        let liveNewsRes = await liveNewsTask
         let (jobsRes, reportsRes) = await (jobsTask, reportsTask)
 
         if let quotesRes {
@@ -140,7 +147,13 @@ final class HomeDeskViewModel: ObservableObject {
 
         let feedNews = NewsAssembler.fromExternalFeed(feedRes ?? [])
         let companyNews = NewsAssembler.fromCompanies(companies)
-        news = NewsAssembler.merge(feed: feedNews, companyNews: companyNews, limit: 40)
+        let liveNews = NewsAssembler.fromLive(liveNewsRes?.items ?? [])
+        news = NewsAssembler.merge(
+            live: liveNews,
+            feed: feedNews,
+            companyNews: companyNews,
+            limit: 40
+        )
 
         if indexes.isEmpty && news.isEmpty && pulse == nil {
             error = "Could not load the home desk"
@@ -305,6 +318,8 @@ struct HomeView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .headerProminence(.increased)
+            .readableContentWidth(AdaptiveLayout.wideReadableMaxWidth)
             .compactRootChrome(
                 title: language.t("tab.home"),
                 searchText: $model.query,
@@ -315,6 +330,7 @@ struct HomeView: View {
                 } label: {
                     Image(systemName: "bell")
                         .font(.title3)
+                        .symbolRenderingMode(.hierarchical)
                 }
             }
             .sheet(isPresented: $showAlerts) {
@@ -351,11 +367,19 @@ struct HomeView: View {
 
     private func consumeDeepLink() {
         guard let link = router.pending else { return }
-        router.pending = nil
         switch link {
-        case .ticker(let t): path.append(TickerNav(ticker: t))
-        case .company(let id): path.append(CompanyNav(id: id))
-        case .report(let id): path.append(ReportNav(id: id))
+        case .ticker(let t):
+            router.pending = nil
+            path.append(TickerNav(ticker: t))
+        case .company(let id):
+            router.pending = nil
+            path.append(CompanyNav(id: id))
+        case .report(let id):
+            router.pending = nil
+            path.append(ReportNav(id: id))
+        case .tab:
+            // Tab switches are the root view's business, not Home's.
+            break
         }
     }
 
@@ -394,21 +418,18 @@ struct HomeView: View {
             Section {
                 ForEach(model.recentReports) { report in
                     NavigationLink(value: ReportNav(id: report.id)) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(report.companyName ?? report.companyId ?? report.id)
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
-                            HStack(spacing: 6) {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(report.companyName ?? report.companyId ?? report.id)
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
                                 Text(report.reportType ?? language.t("research.report"))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
-                                Text("·").font(.caption2).foregroundStyle(.tertiary)
-                                Text(report.statusLabel)
-                                    .font(.caption)
-                                    .foregroundStyle(reportStatusColor(report))
-                                    .lineLimit(1)
                             }
+                            Spacer(minLength: 6)
+                            StatusPill(text: report.statusLabel, color: reportStatusColor(report))
                         }
                     }
                 }
@@ -606,31 +627,41 @@ struct HomeView: View {
                 Text(language.t("market.empty")).foregroundStyle(.secondary)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 12) {
                         ForEach(model.indexes) { quote in
                             NavigationLink(value: TickerNav(ticker: quote.ticker)) {
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: 6) {
                                     Text(quote.ticker)
-                                        .font(.caption.monospaced().weight(.semibold))
+                                        .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(.secondary)
                                     Text(QuoteRow.price(quote.lastPrice, currency: quote.currency))
-                                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                                        .font(.headline.monospacedDigit())
                                         .foregroundStyle(.primary)
                                     Text(QuoteRow.pct(quote.changePct1d))
-                                        .font(.caption.monospacedDigit().weight(.semibold))
-                                        .foregroundStyle(QuoteRow.tone(quote.changePct1d))
+                                        .font(.footnote.monospacedDigit().weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(
+                                            QuoteRow.tone(quote.changePct1d) == .secondary
+                                                ? Color(.systemGray3)
+                                                : QuoteRow.tone(quote.changePct1d),
+                                            in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        )
                                 }
-                                .padding(10)
-                                .frame(width: 108, alignment: .leading)
+                                .padding(12)
+                                .frame(width: 124, alignment: .leading)
                                 .background(Color(.secondarySystemGroupedBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
                 }
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
     }
@@ -732,26 +763,84 @@ struct NewsRowView: View {
     let item: NewsItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(item.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(3)
-            HStack(spacing: 6) {
-                if let ticker = item.ticker, !ticker.isEmpty {
-                    Text(ticker).font(.caption.monospaced().weight(.semibold))
-                } else if let company = item.companyName {
-                    Text(company).font(.caption).lineLimit(1)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    let byline = item.ticker?.isEmpty == false ? item.ticker : item.companyName
+                    if let byline, !byline.isEmpty {
+                        Text(byline)
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(Color.accentColor)
+                            .lineLimit(1)
+                    }
+                    // The tape often attributes a company story to itself.
+                    if let source = item.source, !source.isEmpty, source != byline,
+                       source != item.companyName {
+                        Text(source)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
-                if let source = item.source, !source.isEmpty {
-                    Text(source).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(item.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+                if let summary = item.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(5)
                 }
-                Spacer()
                 if !item.whenLabel.isEmpty {
-                    Text(item.whenLabel).font(.caption2).foregroundStyle(.secondary)
+                    Text(item.whenLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
+            Spacer(minLength: 0)
+            NewsThumbnail(seed: item.title, category: item.category)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
+    }
+}
+
+/// Stand-in artwork: the feed has no images, so each story gets a stable
+/// tinted tile keyed off its headline.
+struct NewsThumbnail: View {
+    let seed: String
+    let category: String?
+
+    var body: some View {
+        let palette: [Color] = [.blue, .indigo, .purple, .teal, .orange, .pink, .mint]
+        let tone = palette[abs(seed.hashValue) % palette.count]
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [tone.opacity(0.9), tone.opacity(0.55)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 58, height: 58)
+            .overlay {
+                Image(systemName: symbol)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+    }
+
+    private var symbol: String {
+        switch (category ?? "").lowercased() {
+        case let c where c.contains("earning"): return "chart.bar.doc.horizontal"
+        case let c where c.contains("deal"), let c where c.contains("m&a"):
+            return "arrow.triangle.merge"
+        case let c where c.contains("product"): return "shippingbox"
+        case let c where c.contains("regulat"), let c where c.contains("legal"):
+            return "building.columns"
+        case let c where c.contains("partner"): return "person.2"
+        default: return "newspaper"
+        }
     }
 }

@@ -16,6 +16,9 @@ struct AuthMeResponse: Decodable {
     let email: String?
     let name: String?
     let authenticated: Bool?
+    let role: String?
+    let permissions: [String]?
+    let auth: String?
 }
 
 struct LoginBody: Encodable {
@@ -43,7 +46,7 @@ struct Company: Identifiable, Decodable, Hashable {
     }
 
     func displayName(lang: AppLanguage) -> String {
-        if lang == .zh, let nameZh, !nameZh.isEmpty { return nameZh }
+        if lang.prefersChineseContent, let nameZh, !nameZh.isEmpty { return nameZh }
         return name ?? id
     }
 }
@@ -143,10 +146,47 @@ struct MarketBrief: Decodable {
     let indices: [BriefQuoteRow]?
     let movers: BriefMovers?
     let note: BriefNote?
+    let watchlist: [BriefQuoteRow]?
+    let calendar: [BriefCalendarEvent]?
+    let alertsLastDay: [BriefAlert]?
 
     enum CodingKeys: String, CodingKey {
-        case date, indices, movers, note
+        case date, indices, movers, note, watchlist, calendar
         case generatedAt = "generated_at"
+        case alertsLastDay = "alerts_last_day"
+    }
+}
+
+struct BriefCalendarEvent: Decodable, Identifiable {
+    var id: String { "\(date ?? "")|\(ticker ?? "")|\(title ?? name ?? kind ?? "")" }
+    let date: String?
+    let time: String?
+    let ticker: String?
+    let kind: String?
+    let title: String?
+    let name: String?
+    let consensus: String?
+    let previous: String?
+    let actual: String?
+    let confirmed: Bool?
+
+    var label: String { title ?? name ?? kind ?? "—" }
+}
+
+struct BriefAlert: Decodable, Identifiable {
+    let id: String
+    let ticker: String?
+    let kind: String?
+    let message: String?
+    let firedAt: String?
+    let changePct1d: Double?
+    let lastPrice: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, ticker, kind, message
+        case firedAt = "fired_at"
+        case changePct1d = "change_pct_1d"
+        case lastPrice = "last_price"
     }
 }
 
@@ -175,15 +215,15 @@ struct BriefNote: Decodable {
     }
 
     func headline(lang: AppLanguage) -> String {
-        lang == .zh ? (headlineZh ?? headlineEn ?? "") : (headlineEn ?? headlineZh ?? "")
+        lang.prefersChineseContent ? (headlineZh ?? headlineEn ?? "") : (headlineEn ?? headlineZh ?? "")
     }
 
     func bullets(lang: AppLanguage) -> [String] {
-        lang == .zh ? (bulletsZh ?? bulletsEn ?? []) : (bulletsEn ?? bulletsZh ?? [])
+        lang.prefersChineseContent ? (bulletsZh ?? bulletsEn ?? []) : (bulletsEn ?? bulletsZh ?? [])
     }
 
     func sections(lang: AppLanguage) -> [BriefSection] {
-        lang == .zh ? (sectionsZh ?? sectionsEn ?? []) : (sectionsEn ?? sectionsZh ?? [])
+        lang.prefersChineseContent ? (sectionsZh ?? sectionsEn ?? []) : (sectionsEn ?? sectionsZh ?? [])
     }
 }
 

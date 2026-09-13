@@ -244,12 +244,12 @@ struct CompanyDetail: Decodable, Identifiable {
     }
 
     func displayName(lang: AppLanguage) -> String {
-        if lang == .zh, let nameZh, !nameZh.isEmpty { return nameZh }
+        if lang.prefersChineseContent, let nameZh, !nameZh.isEmpty { return nameZh }
         return name ?? id
     }
 
     func displayDescription(lang: AppLanguage) -> String {
-        if lang == .zh, let descriptionZh, !descriptionZh.isEmpty { return descriptionZh }
+        if lang.prefersChineseContent, let descriptionZh, !descriptionZh.isEmpty { return descriptionZh }
         return description ?? ""
     }
 }

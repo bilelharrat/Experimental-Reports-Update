@@ -228,6 +228,47 @@ export const api = {
       .join("&");
     return request(`/api/quotes?${qs}`, { timeoutMs: 12000 });
   },
+  quotesNews: ({ tickers = [], limit = 40 } = {}) => {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    for (const ticker of tickers || []) {
+      const symbol = String(ticker || "").trim();
+      if (symbol) params.append("ticker", symbol);
+    }
+    return request(`/api/quotes/news?${params}`, { timeoutMs: 15000 });
+  },
+  getNewsBrief: ({ title, company = null, lang = "en" } = {}) => {
+    const params = new URLSearchParams({
+      title: String(title || ""),
+      lang: String(lang || "en"),
+    });
+    if (company) params.set("company", String(company));
+    return request(`/api/news/brief?${params}`, { timeoutMs: 10000 });
+  },
+  postNewsBrief: (body) =>
+    request("/api/news/brief", {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+      timeoutMs: 120000,
+    }),
+  prewarmNewsBriefs: (body) =>
+    request("/api/news/brief/prewarm", {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+      timeoutMs: 15000,
+    }),
+  newsBriefStatuses: (body) =>
+    request("/api/news/brief/status", {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+      timeoutMs: 10000,
+    }),
+  registerDeviceToken: (body) =>
+    request("/api/device-tokens", {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+      timeoutMs: 8000,
+    }),
   quoteChart: (ticker, range = "1d") =>
     request(
       `/api/quotes/${encodeURIComponent(ticker)}/chart?range=${encodeURIComponent(range)}`,
@@ -308,6 +349,22 @@ export const api = {
   quotesDiagnostics: () => request("/api/diagnostics/quotes", { timeoutMs: 10000 }),
   listReports: () => request("/api/reports"),
   getReport: (id) => request(`/api/reports/${id}`),
+  getReportAnnotations: (id, { includeDrawing = false, includeOverlay = false } = {}) => {
+    const qs = new URLSearchParams();
+    qs.set("include_drawing", includeDrawing ? "true" : "false");
+    qs.set("include_overlay", includeOverlay ? "true" : "false");
+    return request(`/api/reports/${id}/annotations?${qs}`, { timeoutMs: 15000 });
+  },
+  putReportAnnotations: (id, body) =>
+    request(`/api/reports/${id}/annotations`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+      timeoutMs: 30000,
+    }),
+  deleteReportAnnotations: (id) =>
+    request(`/api/reports/${id}/annotations`, { method: "DELETE", timeoutMs: 10000 }),
+  reportAnnotationOverlayUrl: (id) =>
+    withApiToken(`/api/reports/${id}/annotations/overlay.png`),
   autocompleteCompanies: (q) =>
     request(`/api/companies/autocomplete?q=${encodeURIComponent(q)}`),
   deepSearchCompanies: (q, { refresh = false } = {}) =>

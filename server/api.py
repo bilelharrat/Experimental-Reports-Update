@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import (
     alert_engine,
     analytics_store,
+    annotation_store,
     auth_store,
     cache,
     browser_archive,
@@ -1249,6 +1250,23 @@ def get_live_quotes(
     return live_quotes.fetch_quotes(ticker)
 
 
+@router.get("/quotes/spark")
+def get_quote_sparklines(
+    ticker: list[str] = Query(default=[]),
+) -> dict:
+    """Batched 1-day close series for list-row sparklines (iOS/web)."""
+    return live_quotes.fetch_sparklines(ticker)
+
+
+@router.get("/quotes/news")
+def get_quote_news(
+    ticker: list[str] = Query(default=[]),
+    limit: int = Query(default=40, ge=1, le=80),
+) -> dict:
+    """Fresh Yahoo headlines for the News tape (newest first)."""
+    return live_quotes.fetch_news(ticker, limit=limit)
+
+
 @router.get("/quotes/search")
 def search_live_quotes(
     q: str = Query(default=""),
@@ -1481,6 +1499,152 @@ def post_market_brief_note(body: BriefNoteBody) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"Note generation failed: {exc}") from exc
+
+
+class NewsBriefBody(BaseModel):
+    title: str
+    summary: str | None = None
+    source: str | None = None
+    published_at: str | None = None
+    company: str | None = None
+    ticker: str | None = None
+    url: str | None = None
+    lang: str = "en"
+    refresh: bool = False
+
+
+class NewsBriefPrewarmItem(BaseModel):
+    title: str
+    summary: str | None = None
+    source: str | None = None
+    published_at: str | None = None
+    company: str | None = None
+    ticker: str | None = None
+    url: str | None = None
+
+
+class NewsBriefPrewarmBody(BaseModel):
+    items: list[NewsBriefPrewarmItem]
+    lang: str = "en"
+    limit: int = 16
+
+
+class NewsBriefStatusBody(BaseModel):
+    items: list[NewsBriefPrewarmItem]
+    lang: str = "en"
+
+
+class DeviceTokenBody(BaseModel):
+    token: str
+    platform: str = "ios"
+    topics: list[str] = ["memo", "brief", "ask", "alert", "mover"]
+
+
+@router.post("/device-tokens")
+def post_device_token(request: Request, body: DeviceTokenBody) -> dict:
+    """Register an APNs/FCM device token for memo/brief ready pushes."""
+    from server import push_notify
+
+    user = getattr(request.state, "session_email", None)
+    try:
+        return push_notify.register_token(
+            body.token,
+            platform=body.platform,
+            user=str(user) if user else None,
+            topics=body.topics,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/desk/digest")
+def get_desk_digest(
+    since: str | None = Query(default=None),
+    limit: int = Query(default=12, ge=1, le=40),
+) -> dict:
+    """What changed on the desk since ``since`` (movers, news, memos)."""
+    from server import desk_digest
+
+    return desk_digest.build_what_changed(since=since, limit=limit)
+
+
+@router.get("/desk/screener")
+def get_desk_screener(limit: int = Query(default=20, ge=1, le=40)) -> dict:
+    """Coverage hygiene screener for the mobile desk."""
+    from server import desk_digest
+
+    return desk_digest.build_desk_screener(limit=limit)
+
+@router.get("/news/brief")
+def get_news_brief(
+    title: str = Query(...),
+    company: str | None = Query(default=None),
+    lang: str = Query(default="en"),
+) -> dict:
+    """Cached expanded briefing for a headline, if one was generated."""
+    from server import news_brief
+
+    try:
+        cached = news_brief.load_brief(news_brief.brief_key(title, company), lang)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if cached is None:
+        raise HTTPException(status_code=404, detail="No briefing for that headline")
+    return cached
+
+
+@router.post("/news/brief")
+def post_news_brief(body: NewsBriefBody) -> dict:
+    """Expand a headline into a full desk briefing (web-grounded, cached)."""
+    from server import news_brief
+
+    try:
+        return news_brief.expand(
+            title=body.title,
+            summary=body.summary,
+            source=body.source,
+            published_at=body.published_at,
+            company=body.company,
+            ticker=body.ticker,
+            url=body.url,
+            lang=body.lang,
+            refresh=body.refresh,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Briefing failed: {exc}"
+        ) from exc
+
+
+@router.post("/news/brief/prewarm")
+def post_news_brief_prewarm(body: NewsBriefPrewarmBody) -> dict:
+    """Kick off parallel briefing generation for the top of the tape.
+
+    Returns immediately with a queue plan. Cached / in-flight / already-queued
+    headlines are skipped; the rest expand on a shared background worker pool
+    (default 8 concurrent Claude writes). Successive calls enqueue more work
+    onto the same pool instead of dropping it.
+    """
+    from server import news_brief
+
+    return news_brief.prewarm(
+        [item.model_dump() for item in body.items],
+        lang=body.lang,
+        limit=body.limit,
+    )
+
+
+@router.post("/news/brief/status")
+def post_news_brief_status(body: NewsBriefStatusBody) -> dict:
+    """Which of the given headlines already have a cached briefing."""
+    from server import news_brief
+
+    return news_brief.brief_statuses(
+        [item.model_dump() for item in body.items],
+        lang=body.lang,
+    )
 
 
 @router.get("/diagnostics/quotes")
@@ -3281,6 +3445,104 @@ def preview_memo(
         media_type="application/pdf",
         content_disposition_type="inline",
     )
+
+
+class ReportAnnotationBody(BaseModel):
+    """PKDrawing + optional PNG overlay for cross-device memo ink sync."""
+
+    drawing_pk_base64: str | None = None
+    overlay_png_base64: str | None = None
+    canvas_width: float | None = None
+    canvas_height: float | None = None
+    clear: bool = False
+
+
+def _annotation_account(request: Request) -> str:
+    return annotation_store.account_key(_caller_email(request))
+
+
+@router.get("/reports/{report_id}/annotations")
+def get_report_annotations(
+    request: Request,
+    report_id: str,
+    include_drawing: bool = Query(default=True),
+    include_overlay: bool = Query(default=False),
+) -> dict:
+    """Load account-scoped ink for a memo report (iOS PKDrawing + web overlay)."""
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    payload = annotation_store.get(
+        _annotation_account(request),
+        report_id,
+        include_drawing=include_drawing,
+        include_overlay_b64=include_overlay,
+    )
+    if payload.get("has_overlay"):
+        payload["overlay_url"] = f"/api/reports/{report_id}/annotations/overlay.png"
+    else:
+        payload["overlay_url"] = None
+    return payload
+
+
+@router.put("/reports/{report_id}/annotations")
+def put_report_annotations(
+    request: Request,
+    report_id: str,
+    body: ReportAnnotationBody,
+) -> dict:
+    """Autosave / replace memo ink for the caller's account (last-write-wins)."""
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        payload = annotation_store.save(
+            _annotation_account(request),
+            report_id,
+            drawing_pk_base64=body.drawing_pk_base64,
+            overlay_png_base64=body.overlay_png_base64,
+            canvas_width=body.canvas_width,
+            canvas_height=body.canvas_height,
+            clear=body.clear,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.get("has_overlay"):
+        payload["overlay_url"] = f"/api/reports/{report_id}/annotations/overlay.png"
+    else:
+        payload["overlay_url"] = None
+    return payload
+
+
+@router.get("/reports/{report_id}/annotations/overlay.png")
+def get_report_annotation_overlay(request: Request, report_id: str) -> FileResponse:
+    """Serve the PNG ink overlay for web memo preview."""
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    path = annotation_store.overlay_file(_annotation_account(request), report_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="No annotation overlay")
+    return FileResponse(
+        path=str(path),
+        media_type="image/png",
+        filename=f"{report_id}-annotations.png",
+        content_disposition_type="inline",
+    )
+
+
+@router.delete("/reports/{report_id}/annotations", status_code=204)
+def delete_report_annotations(request: Request, report_id: str) -> Response:
+    """Clear account-scoped ink for a memo report."""
+    report = storage.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    annotation_store.save(
+        _annotation_account(request),
+        report_id,
+        clear=True,
+    )
+    return Response(status_code=204)
 
 
 @router.post("/reports/{report_id}/cancel", status_code=200)
@@ -8993,9 +9255,16 @@ def _console_event_stream(progress_path: "Path"):
     import time
 
     async def event_stream():
-        deadline = time.monotonic() + 5.0
+        # Queued console asks may wait behind an in-flight turn; keep the
+        # SSE open with heartbeats until the progress file appears / grows.
+        deadline = time.monotonic() + 180.0
+        last_ping = 0.0
         while not progress_path.exists() and time.monotonic() < deadline:
-            await asyncio.sleep(0.1)
+            now = time.monotonic()
+            if now - last_ping >= 2.0:
+                yield 'data: {"type":"stage","message":"Queued…","status":"queued"}\n\n'
+                last_ping = now
+            await asyncio.sleep(0.2)
         if not progress_path.exists():
             yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
             return
@@ -9003,9 +9272,14 @@ def _console_event_stream(progress_path: "Path"):
         pos = 0
         idle_deadline = time.monotonic() + 600.0
         terminated = False
+        saw_event = False
         while time.monotonic() < idle_deadline and not terminated:
             try:
                 with progress_path.open("r", encoding="utf-8") as f:
+                    # If the worker truncated the file under us, rewind.
+                    size = progress_path.stat().st_size
+                    if pos > size:
+                        pos = 0
                     f.seek(pos)
                     chunk = f.read()
                     pos = f.tell()
@@ -9018,6 +9292,7 @@ def _console_event_stream(progress_path: "Path"):
                     line = line.strip()
                     if not line:
                         continue
+                    saw_event = True
                     yield f"data: {line}\n\n"
                     try:
                         entry = _json.loads(line)
@@ -9027,6 +9302,11 @@ def _console_event_stream(progress_path: "Path"):
                     except Exception:
                         pass
             else:
+                if not saw_event:
+                    now = time.monotonic()
+                    if now - last_ping >= 2.0:
+                        yield 'data: {"type":"stage","message":"Queued…","status":"queued"}\n\n'
+                        last_ping = now
                 await asyncio.sleep(0.15)
 
     return event_stream

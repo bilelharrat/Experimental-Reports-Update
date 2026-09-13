@@ -19,6 +19,7 @@ The two public concerns this module owns:
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import threading
 import time
@@ -37,6 +38,51 @@ SKILLS_DIR = Path(__file__).parent / "skills"
 PRIVATE_SKILL_PATH = SKILLS_DIR / "bsh_company_console.md"
 PUBLIC_SKILL_PATH = SKILLS_DIR / "bsh_company_console_public.md"
 SKILL_PATH = PRIVATE_SKILL_PATH  # back-compat alias; some call sites still import this
+IOS_ASK_SKILL_PATH = SKILLS_DIR / "bsh_copilot_ask_ios.md"
+
+# Session kinds that use the fast Ask profile (not Deep Console).
+_QUICK_ASK_KINDS = frozenset({"copilot_quick", "copilot_quick_ios"})
+
+
+def _env_strip(name: str, default: str) -> str:
+    value = (os.environ.get(name) or default).strip()
+    return value or default
+
+
+def quick_ask_cli_options(session_kind: str | None) -> dict[str, Any]:
+    """CLI overrides for Co-Pilot quick / iOS Ask. Deep Console returns {}.
+
+    Defaults favor quality-at-speed: sonnet + low effort. Tools-off is the
+    main latency lever (avoids Read/WebSearch round-trips); set
+    ``BSH_COPILOT_QUICK_MODEL=haiku`` to reclaim Haiku's cheaper/faster
+    TTFT. iOS disables tools entirely; web quick keeps Read so hydrated
+    dossier files still work.
+    """
+    kind = str(session_kind or "")
+    if kind not in _QUICK_ASK_KINDS:
+        return {}
+    model = _env_strip("BSH_COPILOT_QUICK_MODEL", "sonnet")
+    effort = _env_strip("BSH_COPILOT_QUICK_EFFORT", "low")
+    opts: dict[str, Any] = {
+        "model": model,
+        "effort": effort,
+        "exclude_dynamic_system_prompt": True,
+    }
+    if kind == "copilot_quick_ios":
+        # Unset → disable tools. Set to e.g. "Read" to re-enable.
+        if "BSH_COPILOT_IOS_TOOLS" in os.environ:
+            opts["tools"] = os.environ.get("BSH_COPILOT_IOS_TOOLS") or ""
+        else:
+            opts["tools"] = ""
+        opts["lean_language_directive"] = True
+        if IOS_ASK_SKILL_PATH.exists():
+            opts["skill_path"] = IOS_ASK_SKILL_PATH
+    else:
+        if "BSH_COPILOT_QUICK_TOOLS" in os.environ:
+            opts["tools"] = os.environ.get("BSH_COPILOT_QUICK_TOOLS") or ""
+        else:
+            opts["tools"] = "Read"
+    return opts
 
 
 def _resolve_skill_path(company_id: str) -> Path:
@@ -220,6 +266,9 @@ class _SessionDispatcher:
             not bool(meta.get("claude_session_ready"))
             and hydration in {"skipped", "error", ""}
         )
+        ask_opts = quick_ask_cli_options(meta.get("session_kind"))
+        if ask_opts.get("skill_path") is not None:
+            skill_path = ask_opts.pop("skill_path")
         try:
             outcome = claude_runner.run_console_ask(
                 claude_session_id=meta["claude_session_id"],
@@ -231,6 +280,7 @@ class _SessionDispatcher:
                 output_language=meta.get("output_language"),
                 cancel_event=cancel_event,
                 bootstrap_session=bootstrap_session,
+                **ask_opts,
             )
         finally:
             _unregister_cancel(self.company_id, self.session_id, turn_id)
@@ -275,6 +325,25 @@ class _SessionDispatcher:
                     claude_session_ready=True,
                 )
             self._maybe_auto_rename(prompt, outcome.get("text") or "")
+            try:
+                from . import push_notify
+
+                preview = (outcome.get("text") or "").strip().replace("\n", " ")
+                if len(preview) > 120:
+                    preview = preview[:117] + "…"
+                push_notify.notify(
+                    "ask",
+                    "Ask ready",
+                    preview or f"Reply for {self.company_id}",
+                    data={
+                        "company_id": self.company_id,
+                        "session_id": self.session_id,
+                        "turn_id": turn_id,
+                        "deep_link": f"bshresearch://company/{self.company_id}",
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("ask push notify failed for %s", self.company_id)
 
     def _maybe_auto_rename(self, user_prompt: str, assistant_text: str) -> None:
         meta = console_store.load_meta(self.company_id, self.session_id)
@@ -607,6 +676,13 @@ def submit_ask(
     if runtime_prompt and runtime_prompt != prompt:
         record["runtime_prompt"] = runtime_prompt
     console_store.append_turn(company_id, session_id, record)
+
+    # Touch the progress file immediately so SSE clients don't hit
+    # "No progress for this job" while this turn waits behind another ask.
+    # Leave it empty — the worker truncates and writes real events.
+    progress_path = console_store.ask_progress_path(company_id, session_id, turn_id)
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path.touch()
 
     d = _dispatcher(company_id, session_id)
     position = d.submit(turn_id, prompt, attachments, runtime_prompt)

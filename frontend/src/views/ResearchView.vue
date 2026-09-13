@@ -2912,6 +2912,7 @@ onUnmounted(stopPolling);
       :file="previewFile"
       :preview-url="previewPdfUrl"
       :download-url="previewDocxUrl"
+      :report-id="activeReport?.id || null"
       :previewable-kinds="['pdf']"
       @close="closeMemoPreview"
     />

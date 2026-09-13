@@ -23,6 +23,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "memo:export",
         "memo:edit",
         "tasks:action",
+        "desk:write",
     },
     "partner": {
         "settings:update",
@@ -30,19 +31,22 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "memo:export",
         "memo:edit",
         "tasks:action",
+        "desk:write",
     },
     "analyst": {
         "sources:edit",
         "memo:export",
         "memo:edit",
         "tasks:action",
+        "desk:write",
     },
     "research_ops": {
         "sources:edit",
         "memo:edit",
         "tasks:action",
+        "desk:write",
     },
-    "guest": {"memo:edit"},
+    "guest": set(),
     # The shared env token (BSH_RESEARCH_API_TOKEN) authenticates as this
     # role. Read-only: it can reach any non-permission-gated GET but none
     # of the state-changing actions above. It is NOT admin.

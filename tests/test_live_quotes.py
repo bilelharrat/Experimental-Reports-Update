@@ -18,6 +18,12 @@ CNBC_KO = {
                 "last": "88.67",
                 "change_pct": "-1.10%",
                 "last_time": "2026-08-31T16:10:00.000-0400",
+                "dividend": "2.12",
+                "dividendyield": "2.41%",
+                "pe": "26.55",
+                "eps": "3.34",
+                "beta": "0.59",
+                "mktcapView": "379.227B",
             }
         ]
     }
@@ -195,9 +201,19 @@ def test_fetch_quotes_uses_cnbc_and_caches(monkeypatch):
     assert first["quotes"]["KO"]["last_price"] == 88.67
     assert first["quotes"]["KO"]["change_pct_1d"] == pytest.approx(-1.10)
     assert first["quotes"]["KO"]["source"] == "cnbc"
+    assert first["quotes"]["KO"]["dividend"] == "$2.12"
+    assert first["quotes"]["KO"]["dividend_yield"] == pytest.approx(0.0241)
+    assert first["quotes"]["KO"]["pe_ratio"] == pytest.approx(26.55)
     assert first["missing"] == []
     assert second["quotes"]["KO"]["last_price"] == 88.67
     assert len(calls) == 1
+
+
+def test_cnbc_dividend_helpers():
+    assert live_quotes._normalize_yield("2.41%") == pytest.approx(0.0241)
+    assert live_quotes._normalize_yield(0.0241) == pytest.approx(0.0241)
+    assert live_quotes._format_dividend_amount("2.12") == "$2.12"
+    assert live_quotes._as_float("379.227B") == pytest.approx(379.227e9)
 
 
 def test_yahoo_fills_when_cnbc_is_down(monkeypatch):

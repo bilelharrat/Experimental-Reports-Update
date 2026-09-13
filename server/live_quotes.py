@@ -90,10 +90,36 @@ def _as_float(value: Any) -> float | None:
     raw = raw.replace("+", "")
     if not raw:
         return None
+    # CNBC market-cap views look like "379.227B".
+    mult = 1.0
+    if raw[-1:] in "KkMmBbTt":
+        mult = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}[raw[-1].upper()]
+        raw = raw[:-1]
     try:
-        return float(raw)
+        return float(raw) * mult
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_yield(value: Any) -> float | None:
+    """Return dividend yield as a 0–1 fraction when possible."""
+    number = _as_float(value)
+    if number is None:
+        return None
+    # CNBC / Nasdaq often send 2.41 meaning 2.41%; Yahoo sends 0.0241.
+    if number > 1.0:
+        return number / 100.0
+    return number
+
+
+def _format_dividend_amount(value: Any) -> str | None:
+    number = _as_float(value)
+    if number is None:
+        text = str(value or "").strip()
+        return text or None
+    if number <= 0:
+        return None
+    return f"${number:.2f}"
 
 
 def _parse_as_of(value: Any) -> str | None:
@@ -215,11 +241,22 @@ def _parse_cnbc(payload: dict) -> dict[str, dict]:
             ),
             volume=_as_float(row.get("volume")),
             market_cap=_as_float(row.get("mktcapView") or row.get("market_cap")),
+            pe_ratio=_as_float(row.get("pe") or row.get("fpe")),
+            eps=_as_float(row.get("eps") or row.get("feps")),
+            beta=_as_float(row.get("beta")),
+            # CNBC sends annual $ dividend + yield as "2.41%". Store yield as a
+            # fraction when possible so Yahoo/CNBC share one shape.
+            dividend=_format_dividend_amount(row.get("dividend")),
+            dividend_yield=_normalize_yield(row.get("dividendyield") or row.get("dividend_yield")),
             fifty_two_week_high=_as_float(
-                row.get("year_high_price") or row.get("yrhig"),
+                row.get("year_high_price")
+                or row.get("yrhig")
+                or row.get("yrhiprice"),
             ),
             fifty_two_week_low=_as_float(
-                row.get("year_low_price") or row.get("yrlow"),
+                row.get("year_low_price")
+                or row.get("yrlow")
+                or row.get("yrloprice"),
             ),
         )
         if ticker and parsed:
@@ -284,6 +321,208 @@ def _parse_spark(payload: dict) -> dict[str, dict]:
         if ticker and parsed:
             rows[ticker] = parsed
     return rows
+
+
+_SPARK_CACHE: dict[str, tuple[float, dict]] = {}
+_NEWS_CACHE: dict[str, tuple[float, list[dict]]] = {}
+SPARK_TTL_SECONDS = 300
+NEWS_TTL_SECONDS = 120
+SPARK_MAX_POINTS = 40
+NEWS_DEFAULT_TICKERS = ["SPY", "QQQ", "DIA", "IWM", "TLT", "GLD"]
+NEWS_MAX_TICKERS = 12
+NEWS_PER_TICKER = 6
+NEWS_PLAIN_UA = {"User-Agent": "Mozilla/5.0"}
+
+
+def fetch_sparklines(tickers: list[str] | None) -> dict:
+    """Batched 1-day mini close series for list-row sparklines.
+
+    One Yahoo spark call for all requested symbols; each series is
+    downsampled to at most ``SPARK_MAX_POINTS`` closes. Cached per ticker.
+    """
+    wanted = normalize_tickers(tickers)
+    sparks: dict[str, dict] = {}
+    now = time.monotonic()
+    missing: list[str] = []
+    with _CACHE_LOCK:
+        for ticker in wanted:
+            cached = _SPARK_CACHE.get(ticker)
+            if cached and cached[0] > now:
+                sparks[ticker] = cached[1]
+            else:
+                missing.append(ticker)
+
+    if missing:
+        try:
+            url = (
+                f"{YAHOO_SPARK_URL}?symbols={quote(','.join(missing), safe=',')}"
+                "&range=1d&interval=5m"
+            )
+            # Yahoo 429s the Chrome-impersonating UA on this endpoint
+            # (TLS fingerprint mismatch); a plain UA passes.
+            payload = _http_get_json(url, extra_headers={"User-Agent": "Mozilla/5.0"})
+            fetched = _parse_spark_series(payload)
+        except Exception as exc:
+            logger.warning("Yahoo sparkline fetch failed: %s", exc)
+            fetched = {}
+        expiry = time.monotonic() + SPARK_TTL_SECONDS
+        with _CACHE_LOCK:
+            for ticker, row in fetched.items():
+                _SPARK_CACHE[ticker] = (expiry, row)
+        sparks.update(fetched)
+
+    return {"generated_at": _iso(), "sparks": sparks}
+
+
+def _parse_spark_series(payload: dict) -> dict[str, dict]:
+    rows: dict[str, dict] = {}
+    spark = payload.get("spark")
+    if not isinstance(spark, dict):
+        return rows
+    for item in spark.get("result") or []:
+        if not isinstance(item, dict):
+            continue
+        ticker = str(item.get("symbol") or "").strip().upper()
+        responses = item.get("response") or []
+        first = responses[0] if responses and isinstance(responses[0], dict) else {}
+        meta = first.get("meta") if isinstance(first.get("meta"), dict) else {}
+        quotes = (first.get("indicators") or {}).get("quote") or []
+        closes_raw = quotes[0].get("close") if quotes and isinstance(quotes[0], dict) else []
+        closes = [c for c in (closes_raw or []) if isinstance(c, (int, float))]
+        if not ticker or len(closes) < 2:
+            continue
+        if len(closes) > SPARK_MAX_POINTS:
+            step = (len(closes) - 1) / (SPARK_MAX_POINTS - 1)
+            closes = [closes[round(i * step)] for i in range(SPARK_MAX_POINTS)]
+        rows[ticker] = {
+            "ticker": ticker,
+            "closes": [round(float(c), 4) for c in closes],
+            "previous_close": _as_float(
+                meta.get("chartPreviousClose")
+                if meta.get("chartPreviousClose") is not None
+                else meta.get("previousClose")
+            ),
+        }
+    return rows
+
+
+def fetch_news(
+    tickers: list[str] | None = None,
+    *,
+    limit: int = 40,
+    per_ticker: int = NEWS_PER_TICKER,
+) -> dict:
+    """Fresh Yahoo headlines for the desk tape.
+
+    Pulls recent stories for the requested symbols (falling back to the
+    major index ETFs). Cached per ticker for ``NEWS_TTL_SECONDS``. This is
+    what keeps the News tab current — company ``recent_news`` archives are
+    months stale and are no longer the primary source.
+    """
+    wanted = normalize_tickers(tickers)[:NEWS_MAX_TICKERS]
+    if not wanted:
+        wanted = list(NEWS_DEFAULT_TICKERS)
+    else:
+        # Always mix in a couple of market proxies so the tape isn't only
+        # one name when the caller asked for a single ticker.
+        for proxy in NEWS_DEFAULT_TICKERS[:3]:
+            if proxy not in wanted and len(wanted) < NEWS_MAX_TICKERS:
+                wanted.append(proxy)
+
+    now = time.monotonic()
+    rows: list[dict] = []
+    missing: list[str] = []
+    with _CACHE_LOCK:
+        for ticker in wanted:
+            cached = _NEWS_CACHE.get(ticker)
+            if cached and cached[0] > now:
+                rows.extend(cached[1])
+            else:
+                missing.append(ticker)
+
+    if missing:
+        fetched: dict[str, list[dict]] = {}
+
+        def _one(symbol: str) -> tuple[str, list[dict]]:
+            try:
+                url = (
+                    f"{YAHOO_SEARCH_URL}?q={quote(symbol, safe='')}"
+                    f"&newsCount={max(1, min(per_ticker, 10))}&quotesCount=0"
+                )
+                payload = _http_get_json(url, extra_headers=NEWS_PLAIN_UA)
+                return symbol, _parse_yahoo_news(payload, fallback_ticker=symbol)
+            except Exception as exc:
+                logger.warning("Yahoo news fetch failed for %s: %s", symbol, exc)
+                return symbol, []
+
+        with ThreadPoolExecutor(max_workers=min(6, len(missing))) as pool:
+            for symbol, stories in pool.map(_one, missing):
+                fetched[symbol] = stories
+        expiry = time.monotonic() + NEWS_TTL_SECONDS
+        with _CACHE_LOCK:
+            for symbol, stories in fetched.items():
+                _NEWS_CACHE[symbol] = (expiry, stories)
+                rows.extend(stories)
+
+    # Dedupe by uuid/url/title, newest first.
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for row in sorted(
+        rows,
+        key=lambda item: str(item.get("published_at") or ""),
+        reverse=True,
+    ):
+        key = str(row.get("id") or row.get("url") or row.get("title") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+        if len(unique) >= max(1, limit):
+            break
+
+    return {"generated_at": _iso(), "items": unique}
+
+
+def _parse_yahoo_news(payload: dict, *, fallback_ticker: str | None = None) -> list[dict]:
+    out: list[dict] = []
+    for item in payload.get("news") or []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        link = str(item.get("link") or "").strip()
+        uuid = str(item.get("uuid") or "").strip()
+        published = None
+        stamp = item.get("providerPublishTime")
+        if isinstance(stamp, (int, float)) and stamp > 0:
+            published = _iso(datetime.fromtimestamp(stamp, tz=timezone.utc))
+        related = [
+            str(t).strip().upper()
+            for t in (item.get("relatedTickers") or [])
+            if str(t).strip()
+        ]
+        ticker = related[0] if related else (fallback_ticker or None)
+        summary = str(item.get("summary") or item.get("publisher") or "").strip() or None
+        # Prefer a short publisher line as dek when Yahoo gives no summary.
+        if summary and summary == str(item.get("publisher") or "").strip():
+            summary = None
+        out.append(
+            {
+                "id": uuid or link or title,
+                "kind": "live_news",
+                "title": title,
+                "summary": summary,
+                "source": str(item.get("publisher") or "").strip() or None,
+                "url": link or None,
+                "published_at": published,
+                "captured_at": published,
+                "category": "markets",
+                "ticker": ticker,
+                "related_tickers": related,
+            }
+        )
+    return out
 
 
 def _parse_nasdaq(ticker: str, payload: dict) -> dict | None:
@@ -361,6 +600,8 @@ def clear_cache() -> None:
         _NEGATIVE.clear()
         _CHART_CACHE.clear()
         _SEARCH_CACHE.clear()
+        _NEWS_CACHE.clear()
+        _SPARK_CACHE.clear()
 
 
 def cache_stats() -> dict:
@@ -524,7 +765,12 @@ def _parse_yahoo_quote(payload: dict) -> dict:
         "pe_ratio": _as_float(row.get("trailingPE")),
         "eps": _as_float(row.get("epsTrailingTwelveMonths")),
         "beta": _as_float(row.get("beta")),
-        "dividend_yield": _as_float(row.get("dividendYield") or row.get("trailingAnnualDividendYield")),
+        "dividend_yield": _normalize_yield(
+            row.get("dividendYield") or row.get("trailingAnnualDividendYield")
+        ),
+        "dividend": _format_dividend_amount(
+            row.get("trailingAnnualDividendRate") or row.get("dividendRate")
+        ),
         "fifty_two_week_high": _as_float(row.get("fiftyTwoWeekHigh")),
         "fifty_two_week_low": _as_float(row.get("fiftyTwoWeekLow")),
         "as_of": as_of,
@@ -835,10 +1081,25 @@ def fetch_chart(ticker: str | None, span: str = "1d") -> dict:
                 chart = _merge_quote_stats(chart, stats)
         except Exception as exc:
             logger.warning("Yahoo quote stats fetch failed for %s: %s", symbol, exc)
+        # CNBC (or cache) often already has dividend/PE even when Yahoo 429s.
+        cached_quote = None
+        with _CACHE_LOCK:
+            hit = _CACHE.get(symbol)
+            if hit and hit[0] > time.monotonic():
+                cached_quote = hit[1]
+        if cached_quote:
+            chart = _merge_quote_stats(chart, cached_quote)
     except Exception as exc:
         logger.warning("Yahoo chart fetch failed for %s: %s", symbol, exc)
         chart = _fetch_nasdaq_chart(symbol, requested)
         interval = "1m" if requested == "1d" else "1d"
+        cached_quote = None
+        with _CACHE_LOCK:
+            hit = _CACHE.get(symbol)
+            if hit and hit[0] > time.monotonic():
+                cached_quote = hit[1]
+        if cached_quote and chart:
+            chart = _merge_quote_stats(chart, cached_quote)
 
     payload = {
         "generated_at": _iso(),

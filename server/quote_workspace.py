@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 WORKSPACE_TTL_SECONDS = 120
 SCREENER_TTL_SECONDS = 180
 PEERS_TTL_SECONDS = 120
+OPTIONS_SNAP_TTL_SECONDS = 60
 _WORKSPACE_CACHE: dict[str, tuple[float, dict]] = {}
 _SCREENER_CACHE: dict[str, tuple[float, dict]] = {}
 _PEERS_CACHE: dict[str, tuple[float, dict]] = {}
 _CALENDAR_CACHE: dict[str, tuple[float, dict]] = {}
+_OPTIONS_SNAP_CACHE: dict[str, tuple[float, dict]] = {}
 CALENDAR_TTL_SECONDS = 1800
 
 DEFAULT_PEER_FALLBACKS = ("AAPL", "MSFT", "GOOGL", "AMZN", "META", "AVGO", "TSM", "AMD")
@@ -34,6 +36,7 @@ def clear_cache() -> None:
         _SCREENER_CACHE.clear()
         _PEERS_CACHE.clear()
         _CALENDAR_CACHE.clear()
+        _OPTIONS_SNAP_CACHE.clear()
 
 
 def _get(url: str) -> dict:
@@ -328,6 +331,136 @@ def _parse_options(payload: dict, last: float | None) -> dict:
     return {"last_trade": data.get("lastTrade"), "rows": rows}
 
 
+def _trim_options_rows(rows: list[dict], last: float | None, *, max_rows: int) -> list[dict]:
+    if not rows:
+        return []
+    if last is not None:
+        ranked = sorted(rows, key=lambda row: abs(float(row.get("strike") or 0) - last))
+        keep = ranked[:max_rows]
+        return sorted(keep, key=lambda row: (str(row.get("expiry") or ""), float(row.get("strike") or 0)))
+    return rows[:max_rows]
+
+
+def _options_from_workspace_payload(payload: dict | None, *, max_rows: int) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    options = payload.get("options") if isinstance(payload.get("options"), dict) else None
+    if not options:
+        return None
+    rows = list(options.get("rows") or [])
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    last = live_quotes._as_float(summary.get("previous_close"))
+    if last is None:
+        last = live_quotes._as_float(str(options.get("last_trade") or "").replace("$", "").replace(",", ""))
+    trimmed = _trim_options_rows(rows, last, max_rows=max_rows)
+    return {
+        "ticker": payload.get("ticker"),
+        "last_trade": options.get("last_trade"),
+        "underlying_last": last,
+        "source": "nasdaq",
+        "implied_vol_available": False,
+        "rows": trimmed,
+    }
+
+
+def fetch_options_chain(symbol: str, last: float | None = None) -> dict:
+    """Fetch Nasdaq option-chain only (no full workspace)."""
+    raw = _try_assets(
+        symbol,
+        lambda asset: _get(
+            f"https://api.nasdaq.com/api/quote/{quote(symbol, safe='')}/option-chain?assetclass={asset}"
+        ),
+    )
+    return _parse_options(raw, last) if raw else {"last_trade": None, "rows": []}
+
+
+def compact_options_snapshot(
+    ticker: str | None,
+    *,
+    max_rows: int = 12,
+    cache_only: bool = False,
+) -> dict | None:
+    """Near-ATM call/put premiums for Ask — prefer warm workspace cache."""
+    wanted = live_quotes.normalize_tickers([ticker or ""])
+    if not wanted:
+        return None
+    symbol = wanted[0]
+    now = time.monotonic()
+    with live_quotes._CACHE_LOCK:
+        snap_cached = _OPTIONS_SNAP_CACHE.get(symbol)
+        if snap_cached and snap_cached[0] > now:
+            return snap_cached[1]
+        workspace_cached = _WORKSPACE_CACHE.get(symbol)
+        if workspace_cached and workspace_cached[0] > now:
+            from_ws = _options_from_workspace_payload(workspace_cached[1], max_rows=max_rows)
+            if from_ws is not None:
+                _OPTIONS_SNAP_CACHE[symbol] = (
+                    time.monotonic() + OPTIONS_SNAP_TTL_SECONDS,
+                    from_ws,
+                )
+                return from_ws
+
+    if cache_only:
+        return None
+
+    last: float | None = None
+    try:
+        live = live_quotes.fetch_quotes([symbol]).get("quotes", {}).get(symbol) or {}
+        last = live_quotes._as_float(live.get("last_price"))
+    except Exception:
+        last = None
+
+    try:
+        parsed = fetch_options_chain(symbol, last)
+    except Exception as exc:
+        logger.warning("options snapshot failed for %s: %s", symbol, exc)
+        return None
+
+    rows = _trim_options_rows(list(parsed.get("rows") or []), last, max_rows=max_rows)
+    snap = {
+        "ticker": symbol,
+        "last_trade": parsed.get("last_trade"),
+        "underlying_last": last,
+        "source": "nasdaq",
+        "implied_vol_available": False,
+        "rows": rows,
+    }
+    with live_quotes._CACHE_LOCK:
+        _OPTIONS_SNAP_CACHE[symbol] = (time.monotonic() + OPTIONS_SNAP_TTL_SECONDS, snap)
+    return snap
+
+
+def format_options_snapshot_for_prompt(snap: dict | None) -> str:
+    """Compact markdown block for Copilot/Ask runtime prompts."""
+    if not snap:
+        return ""
+    ticker = snap.get("ticker") or "?"
+    lines = [
+        f"## Options premiums ({ticker}, Nasdaq near-ATM)",
+        f"Underlying last: {snap.get('underlying_last') if snap.get('underlying_last') is not None else '—'}"
+        f" · chain last trade: {snap.get('last_trade') or '—'}",
+        "IV is not in this Nasdaq snapshot — use bid/ask/last premiums below.",
+        "expiry | strike | call bid/ask/last | put bid/ask/last | call vol/oi | put vol/oi",
+    ]
+    rows = snap.get("rows") or []
+    if not rows:
+        lines.append("(no option chain rows for this symbol)")
+        return "\n".join(lines)
+
+    def _ba_last(bid, ask, last) -> str:
+        return f"{bid or '—'}/{ask or '—'}/{last or '—'}"
+
+    for row in rows:
+        lines.append(
+            f"{row.get('expiry') or '—'} | {row.get('strike')} | "
+            f"{_ba_last(row.get('call_bid'), row.get('call_ask'), row.get('call_last'))} | "
+            f"{_ba_last(row.get('put_bid'), row.get('put_ask'), row.get('put_last'))} | "
+            f"{row.get('call_volume') or '—'}/{row.get('call_oi') or '—'} | "
+            f"{row.get('put_volume') or '—'}/{row.get('put_oi') or '—'}"
+        )
+    return "\n".join(lines)
+
+
 def _safe(fn, default):
     try:
         return fn()
@@ -449,6 +582,25 @@ def fetch_workspace(ticker: str | None) -> dict:
 
     last = live_quotes._as_float((parts.get("summary") or {}).get("previous_close"))
     parts["options"] = _safe(lambda: options(last), {"last_trade": None, "rows": []})
+
+    # Nasdaq summary often omits AnnualizedDividend/Yield now. Fill from the
+    # live quote cache (CNBC already carries both) so desk stats aren't blank.
+    summary = dict(parts.get("summary") or {})
+    try:
+        live = live_quotes.fetch_quotes([symbol]).get("quotes", {}).get(symbol) or {}
+    except Exception:
+        live = {}
+    if live:
+        if not summary.get("dividend") and live.get("dividend"):
+            summary["dividend"] = str(live["dividend"])
+        if not summary.get("yield") and live.get("dividend_yield") is not None:
+            dy = live_quotes._as_float(live.get("dividend_yield"))
+            if dy is not None:
+                pct = dy * 100 if dy <= 1 else dy
+                summary["yield"] = f"{pct:.2f}%"
+        if not summary.get("beta") and live.get("beta") is not None:
+            summary["beta"] = f"{live_quotes._as_float(live.get('beta')):.2f}"
+        parts["summary"] = summary
 
     payload = {
         "generated_at": live_quotes._iso(),

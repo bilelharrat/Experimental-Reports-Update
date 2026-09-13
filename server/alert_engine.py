@@ -104,6 +104,24 @@ def run_check() -> dict:
     quotes = payload.get("quotes") or {}
     fired = evaluate_rules(rules, quotes)
     recorded = desk_store.record_alert_events(fired)
+    if recorded:
+        try:
+            from . import push_notify
+
+            for event in recorded[:5]:
+                ticker = str(event.get("ticker") or "").upper()
+                message = str(event.get("message") or "Alert fired")
+                push_notify.notify(
+                    "alert",
+                    f"Alert · {ticker}" if ticker else "Desk alert",
+                    message,
+                    data={
+                        "ticker": ticker or None,
+                        "deep_link": f"bshresearch://ticker/{ticker}" if ticker else None,
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("alert push notify failed")
     return {
         "checked": len(rules),
         "fired": recorded,

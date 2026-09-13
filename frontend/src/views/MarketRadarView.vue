@@ -114,6 +114,7 @@ const openCopilot = inject("openCopilot", null);
 
 const news = inject("workspaceNews", ref([]));
 const research = inject("workspaceResearch", ref([]));
+const liveNews = inject("workspaceLiveNews", ref([]));
 const companies = inject("workspaceCompanies", ref([]));
 const loadingFeed = inject("workspaceLoading", ref(false));
 
@@ -502,10 +503,11 @@ const selected = computed(() => {
     volume: payload?.volume ?? quote?.volume ?? fromBoard?.volume ?? null,
     avgVolume: payload?.avg_volume ?? quote?.avg_volume ?? null,
     marketCap: payload?.market_cap ?? quote?.market_cap ?? null,
-    peRatio: payload?.pe_ratio ?? null,
-    eps: payload?.eps ?? null,
-    beta: payload?.beta ?? null,
-    dividendYield: payload?.dividend_yield ?? null,
+    peRatio: payload?.pe_ratio ?? quote?.pe_ratio ?? null,
+    eps: payload?.eps ?? quote?.eps ?? null,
+    beta: payload?.beta ?? quote?.beta ?? null,
+    dividendYield: payload?.dividend_yield ?? quote?.dividend_yield ?? null,
+    dividend: payload?.dividend ?? quote?.dividend ?? null,
     weekHigh: payload?.fifty_two_week_high ?? quote?.fifty_two_week_high ?? null,
     weekLow: payload?.fifty_two_week_low ?? quote?.fifty_two_week_low ?? null,
     asOf: payload?.as_of || fromBoard?.asOf || quote?.as_of || null,
@@ -516,6 +518,7 @@ const deskNews = computed(() =>
   assembleDeskNews({
     feed: [...(unref(news) || []), ...(unref(research) || [])],
     companies: companyList.value,
+    live: unref(liveNews) || [],
   }),
 );
 
@@ -836,7 +839,9 @@ const weekRangePct = computed(() => {
 const stats = computed(() => {
   const row = selected.value;
   if (!row) return [];
-  const earn = workspace.value?.earnings;
+    const earn = workspace.value?.earnings;
+  const summary = workspace.value?.summary || {};
+  const yieldFromSummary = summary.yield || null;
   return [
     { label: t("radar.stat_prev"), value: money(row.previousClose, row.currency) },
     { label: t("radar.stat_open"), value: money(row.open, row.currency) },
@@ -848,7 +853,21 @@ const stats = computed(() => {
     { label: t("radar.stat_pe"), value: number(row.peRatio) },
     { label: t("radar.stat_eps"), value: money(row.eps, row.currency) },
     { label: t("radar.stat_beta"), value: number(row.beta) },
-    { label: t("radar.stat_div"), value: percent(row.dividendYield) },
+    {
+      label: t("radar.stat_div_amt"),
+      value: summary.dividend || row.dividend || "—",
+    },
+    {
+      label: t("radar.stat_div"),
+      value:
+        row.dividendYield != null
+          ? percent(row.dividendYield)
+          : yieldFromSummary || "—",
+    },
+    {
+      label: t("radar.stat_exdiv"),
+      value: summary.ex_dividend || "—",
+    },
     { label: t("radar.stat_52w"), value: weekRangeLabel(row) },
     {
       label: t("radar.stat_next_earn"),
@@ -1747,6 +1766,25 @@ watch(
   },
 );
 
+function openAsk() {
+  if (!openCopilot) return;
+  const row = selected.value;
+  if (!row?.ticker) return;
+  openCopilot({
+    companyId: row.companyId || null,
+    context: {
+      surface: "market_desk",
+      tab: "quote",
+      selection: {
+        ticker: row.ticker,
+        name: row.name,
+        change: row.change,
+        company_id: row.companyId,
+      },
+    },
+  });
+}
+
 function askWhyMoving() {
   if (!openCopilot) return;
   const row = selected.value;
@@ -2258,14 +2296,24 @@ function asOfLabel(value) {
                   {{ t("radar.stale_quote", { n: selectedStaleness.ageMinutes }) }}
                 </span>
               </p>
-              <div v-if="selected.companyId" class="mt-1.5 flex flex-wrap items-center gap-2">
+              <div v-if="selected.companyId || openCopilot" class="mt-1.5 flex flex-wrap items-center gap-2">
+                <button
+                  v-if="openCopilot"
+                  type="button"
+                  class="btn-filled btn-sm focus-ring inline-flex items-center gap-1.5"
+                  @click="openAsk"
+                >
+                  {{ t("copilot.ask_short") }}
+                </button>
                 <RouterLink
+                  v-if="selected.companyId"
                   class="text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
                   :to="{ name: 'research', params: { companyId: selected.companyId } }"
                 >
                   {{ t("radar.open_company") }}
                 </RouterLink>
                 <RouterLink
+                  v-if="selected.companyId"
                   class="text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
                   :to="{ name: 'research', params: { companyId: selected.companyId }, query: { tab: 'console' } }"
                 >
@@ -2867,6 +2915,14 @@ function asOfLabel(value) {
               v-if="openCopilot"
               type="button"
               class="btn-filled focus-ring"
+              @click="openAsk"
+            >
+              {{ t("copilot.ask_short") }}
+            </button>
+            <button
+              v-if="openCopilot"
+              type="button"
+              class="btn-bordered focus-ring"
               @click="askWhyMoving"
             >
               {{ t("radar.why_moving") }}
@@ -3409,6 +3465,14 @@ function asOfLabel(value) {
               {{ t("radar.tape_label") }}
             </h2>
             <div class="flex items-center gap-2">
+              <button
+                v-if="openCopilot"
+                type="button"
+                class="text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
+                @click="openAsk"
+              >
+                {{ t("copilot.ask_short") }}
+              </button>
               <button
                 v-if="openCopilot"
                 type="button"

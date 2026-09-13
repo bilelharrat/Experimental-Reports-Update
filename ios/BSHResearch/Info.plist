@@ -40,6 +40,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connects to your BSH Research server on the local network.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Dictates questions for Ask Warren.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Records voice questions for Ask.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
