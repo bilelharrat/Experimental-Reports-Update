@@ -206,16 +206,10 @@ struct PaperDeskReader: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var drawing = PKDrawing()
-    @State private var pageDrawings: [Int: PKDrawing] = [:]
+    /// Ink state + persistence for this report. Canvases live in `MemoPaperDocumentView`.
+    @StateObject private var ink: PaperDeskInkController
     @State private var isAnnotating = false
     @State private var pencilOnly = AdaptiveLayout.isPad
-    @State private var canvasView: PKCanvasView?
-    @State private var replaceToken = 0
-    @State private var saveTask: Task<Void, Never>?
-    @State private var syncTask: Task<Void, Never>?
-    @State private var strokeCount = 0
-    @State private var suppressAutosave = false
     @State private var showAsk = false
     @State private var askPrompt: String?
     @State private var askSessionID = UUID()
@@ -224,6 +218,21 @@ struct PaperDeskReader: View {
     @State private var isConverting = false
     @State private var shareItems: [Any]?
     @State private var isPreparingShare = false
+
+    init(
+        url: URL,
+        reportId: String,
+        companyId: String? = nil,
+        companyName: String? = nil,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.url = url
+        self.reportId = reportId
+        self.companyId = companyId
+        self.companyName = companyName
+        self.onDismiss = onDismiss
+        _ink = StateObject(wrappedValue: PaperDeskInkController(reportId: reportId))
+    }
 
     private var supportsAnnotating: Bool {
         AdaptiveLayout.isPad || sizeClass == .regular
@@ -294,27 +303,18 @@ struct PaperDeskReader: View {
         .task {
             await prepareDocument()
         }
-        .onAppear {
-            loadAnnotations()
-        }
-        .onChange(of: strokeCount) { _, _ in
-            guard !suppressAutosave else { return }
-            scheduleSave()
-        }
         .onChange(of: isAnnotating) { _, annotating in
             if !annotating {
-                persistNow(pushRemote: true)
+                ink.flush()
             }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background || phase == .inactive {
-                persistNow(pushRemote: true)
+                ink.flush()
             }
         }
         .onDisappear {
-            persistNow(pushRemote: true)
-            saveTask?.cancel()
-            syncTask?.cancel()
+            ink.flush()
         }
     }
 
@@ -385,8 +385,10 @@ struct PaperDeskReader: View {
             }
             .overlay(alignment: .bottom) {
                 if resolvedURL?.pathExtension.lowercased() == "pdf" {
+                    // Keep the controls above a bottom-docked PencilKit tool picker.
                     floatingAnnotationControls
-                        .padding(.bottom, 16)
+                        .padding(.bottom, 16 + ink.toolPickerBottomInset)
+                        .animation(.snappy(duration: 0.25), value: ink.toolPickerBottomInset)
                 }
             }
     }
@@ -398,19 +400,12 @@ struct PaperDeskReader: View {
                 if activeURL.pathExtension.lowercased() == "pdf" {
                     MemoPaperDocumentView(
                         url: activeURL,
-                        drawing: $drawing,
-                        pageDrawings: $pageDrawings,
+                        controller: ink,
                         isAnnotating: isAnnotating,
                         showsToolPicker: isAnnotating && supportsAnnotating,
-                        canvasRef: $canvasView,
-                        replaceToken: replaceToken,
                         pencilOnly: pencilOnly,
                         askMenuTitle: askPersona.investor.inviteTitle(lang: language.language),
-                        onAskSelection: { text in openAsk(withSelection: text) },
-                        onPageDrawingsChanged: { updated in
-                            pageDrawings = updated
-                            strokeCount = updated.values.reduce(0) { $0 + $1.strokes.count }
-                        }
+                        onAskSelection: { text in openAsk(withSelection: text) }
                     )
                     .ignoresSafeArea()
                 } else {
@@ -447,9 +442,9 @@ struct PaperDeskReader: View {
                 toolButton(
                     systemName: "arrow.uturn.backward",
                     label: language.t("research.ink_undo"),
-                    disabled: strokeCount == 0
+                    disabled: ink.strokeCount == 0
                 ) {
-                    canvasView?.undoManager?.undo()
+                    ink.undo()
                 }
 
                 // Apple Pencil vs Finger Drawing Toggle
@@ -479,21 +474,10 @@ struct PaperDeskReader: View {
                 toolButton(
                     systemName: "trash",
                     label: language.t("research.ink_clear"),
-                    disabled: strokeCount == 0,
+                    disabled: ink.strokeCount == 0,
                     role: .destructive
                 ) {
-                    pageDrawings.removeAll()
-                    drawing = PKDrawing()
-                    strokeCount = 0
-                    replaceToken += 1
-                    ReportAnnotationStore.clear(reportId: reportId)
-                    Task {
-                        _ = await ReportAnnotationStore.push(
-                            PKDrawing(),
-                            reportId: reportId,
-                            canvasSize: currentCanvasSize()
-                        )
-                    }
+                    ink.clearAll()
                 }
             }
 
@@ -600,10 +584,10 @@ struct PaperDeskReader: View {
         guard let activeURL = resolvedURL else { return }
 
         // If there are annotations, bake them into the actual PDF for export
-        if strokeCount > 0, let doc = PDFDocument(url: activeURL) {
+        if ink.strokeCount > 0, let doc = PDFDocument(url: activeURL) {
             if let annotatedURL = ReportAnnotationStore.renderAnnotatedPDF(
                 document: doc,
-                pageDrawings: pageDrawings,
+                pageDrawings: ink.pageDrawings,
                 reportId: reportId
             ) {
                 shareItems = [annotatedURL]
@@ -617,7 +601,7 @@ struct PaperDeskReader: View {
     // MARK: - Dismiss / Ask
 
     private func closeReader() {
-        persistNow(pushRemote: true)
+        ink.flush()
         onDismiss()
         dismiss()
     }
@@ -654,67 +638,6 @@ struct PaperDeskReader: View {
         return "Explain / challenge this:\n\n\"\(clipped)\""
     }
 
-    // MARK: - Persistence & Sync
-
-    private func loadAnnotations() {
-        suppressAutosave = true
-        pageDrawings = ReportAnnotationStore.loadPageDrawings(reportId: reportId)
-        drawing = ReportAnnotationStore.load(reportId: reportId)
-        strokeCount = pageDrawings.values.reduce(0) { $0 + $1.strokes.count }
-        replaceToken += 1
-        suppressAutosave = false
-        syncTask?.cancel()
-        syncTask = Task { await pullRemoteIfNeeded() }
-    }
-
-    private func currentCanvasSize() -> CGSize? {
-        guard let canvasView else { return nil }
-        let size = canvasView.bounds.size
-        guard size.width > 1, size.height > 1 else { return nil }
-        return size
-    }
-
-    private func scheduleSave() {
-        saveTask?.cancel()
-        saveTask = Task {
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            guard !Task.isCancelled else { return }
-            persistNow(pushRemote: true)
-        }
-    }
-
-    private func persistNow(pushRemote: Bool) {
-        saveTask?.cancel()
-        ReportAnnotationStore.savePageDrawings(pageDrawings, reportId: reportId)
-
-        guard pushRemote else { return }
-        let snapshot = drawing
-        let size = currentCanvasSize()
-        Task {
-            _ = await ReportAnnotationStore.push(
-                snapshot,
-                reportId: reportId,
-                canvasSize: size
-            )
-        }
-    }
-
-    private func pullRemoteIfNeeded() async {
-        guard let remote = await ReportAnnotationStore.pullIfNewer(reportId: reportId) else {
-            return
-        }
-        await MainActor.run {
-            suppressAutosave = true
-            drawing = remote
-            // Refresh per-page drawings if local was empty
-            if pageDrawings.isEmpty && !remote.strokes.isEmpty {
-                pageDrawings = [0: remote]
-            }
-            strokeCount = pageDrawings.values.reduce(0) { $0 + $1.strokes.count }
-            replaceToken += 1
-            suppressAutosave = false
-        }
-    }
 }
 
 /// Back-compat alias used by older call sites / previews.

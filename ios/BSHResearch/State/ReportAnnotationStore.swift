@@ -108,34 +108,78 @@ enum ReportAnnotationStore {
 
             // Synthesize composite drawing for web/cloud sync
             let composite = compositeDrawing(from: pageDrawings, pageSizes: pageSizes)
-            let totalHeight: CGFloat = pageSizes.reduce(0) { $0 + $1.height } + CGFloat(max(0, pageSizes.count - 1)) * 28 + 120
-            let maxWidth: CGFloat = pageSizes.map(\.width).max() ?? 612
-            let compositeSize = CGSize(width: maxWidth, height: totalHeight)
-            save(composite, reportId: reportId, canvasSize: compositeSize)
+            save(composite, reportId: reportId, canvasSize: compositeCanvasSize(pageSizes: pageSizes))
         } catch {
             // Local ink is best effort
         }
     }
 
+    // MARK: Composite layout (pages stacked vertically — the coordinate space the web overlay uses)
+
+    private static let compositeGap: CGFloat = 28
+    private static let compositeTopPad: CGFloat = 36
+    private static let fallbackPageSize = CGSize(width: 612, height: 792)
+
+    /// Top y of each page in composite space, for `count` pages.
+    private static func compositePageTops(pageSizes: [CGSize], count: Int) -> [CGFloat] {
+        var tops: [CGFloat] = []
+        var y = compositeTopPad
+        for index in 0..<count {
+            tops.append(y)
+            let size = index < pageSizes.count ? pageSizes[index] : fallbackPageSize
+            y += size.height + compositeGap
+        }
+        return tops
+    }
+
+    /// Size of the composite canvas the web overlay is rendered against.
+    static func compositeCanvasSize(pageSizes: [CGSize]) -> CGSize {
+        let sizes = pageSizes.isEmpty ? [fallbackPageSize] : pageSizes
+        let totalHeight = sizes.reduce(0) { $0 + $1.height }
+            + CGFloat(max(0, sizes.count - 1)) * compositeGap
+            + compositeTopPad * 2
+        let maxWidth = sizes.map(\.width).max() ?? fallbackPageSize.width
+        return CGSize(width: maxWidth, height: totalHeight)
+    }
+
     /// Create a single vertically stacked PKDrawing from per-page drawings.
     static func compositeDrawing(from pageDrawings: [Int: PKDrawing], pageSizes: [CGSize]) -> PKDrawing {
         var composite = PKDrawing()
-        let gap: CGFloat = 28
-        let topPad: CGFloat = 36
-        var y: CGFloat = topPad
-
         let maxCount = max(pageSizes.count, (pageDrawings.keys.max() ?? -1) + 1)
+        let tops = compositePageTops(pageSizes: pageSizes, count: maxCount)
         for index in 0..<maxCount {
-            let pageSize = index < pageSizes.count ? pageSizes[index] : CGSize(width: 612, height: 792)
             if let drawing = pageDrawings[index], !drawing.strokes.isEmpty {
-                let transform = CGAffineTransform(translationX: 0, y: y)
+                let transform = CGAffineTransform(translationX: 0, y: tops[index])
                 var pageCopy = drawing
                 pageCopy.transform(using: transform)
                 composite = composite.appending(pageCopy)
             }
-            y += pageSize.height + gap
         }
         return composite
+    }
+
+    /// Inverse of `compositeDrawing`: assign each stroke back to the page whose band contains it.
+    /// Used when a cloud copy (composite space) has to be shown on page-anchored canvases.
+    static func splitComposite(_ composite: PKDrawing, pageSizes: [CGSize]) -> [Int: PKDrawing] {
+        guard !composite.strokes.isEmpty else { return [:] }
+        let sizes = pageSizes.isEmpty ? [fallbackPageSize] : pageSizes
+        let tops = compositePageTops(pageSizes: sizes, count: sizes.count)
+        var perPage: [Int: [PKStroke]] = [:]
+        for stroke in composite.strokes {
+            let midY = stroke.renderBounds.midY
+            var index = 0
+            for (i, top) in tops.enumerated() where midY >= top {
+                index = i
+            }
+            var moved = stroke
+            moved.transform = moved.transform.concatenating(CGAffineTransform(translationX: 0, y: -tops[index]))
+            perPage[index, default: []].append(moved)
+        }
+        var result: [Int: PKDrawing] = [:]
+        for (index, strokes) in perPage {
+            result[index] = PKDrawing(strokes: strokes)
+        }
+        return result
     }
 
     /// High-resolution PDF renderer that burns per-page Apple PencilKit drawings directly into PDF pages.
@@ -258,7 +302,11 @@ enum ReportAnnotationStore {
             guard ink.width > 1, ink.height > 1 else { return nil }
             bounds = ink.insetBy(dx: -24, dy: -24)
         }
-        let image = drawing.image(from: bounds, scale: 2.0)
+        // A whole-document composite can be thousands of points tall; keep the Metal
+        // render inside the 8192 px texture limit (simulator) and the PNG small.
+        let maxDimension = max(bounds.width, bounds.height)
+        let scale = min(2.0, max(0.25, 7_800 / maxDimension))
+        let image = drawing.image(from: bounds, scale: scale)
         return image.pngData()
     }
 

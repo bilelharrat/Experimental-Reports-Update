@@ -1,137 +1,259 @@
+import OSLog
 import PDFKit
 import PencilKit
 import SwiftUI
 import UIKit
 
+private let inkLog = Logger(subsystem: "com.bilelharrrat.bshresearch", category: "ink")
+
+// MARK: - Ink controller (state + persistence, owned by the SwiftUI reader)
+
+/// Owns the per-page ink for one open report and persists it off the main thread.
+///
+/// The PencilKit canvases inside `PaperDeskPDFHostView` are the live surface; this
+/// object is the source of truth the host reads when it (re)creates a page overlay,
+/// and the only place that talks to `ReportAnnotationStore`. All disk / network /
+/// PNG work runs on the `InkPersistence` actor so nothing heavy ever executes on the
+/// main thread while the user is writing.
+@MainActor
+final class PaperDeskInkController: ObservableObject {
+    let reportId: String
+
+    /// Total committed strokes across pages — drives Undo / Clear enablement.
+    @Published private(set) var strokeCount = 0
+    /// Height of the docked `PKToolPicker` overlapping the bottom of the reader (0 when floating/hidden).
+    @Published private(set) var toolPickerBottomInset: CGFloat = 0
+
+    private(set) var pageDrawings: [Int: PKDrawing] = [:]
+    private(set) var pageSizes: [CGSize] = []
+
+    weak var host: PaperDeskPDFHostView?
+
+    private let persistence = InkPersistence()
+    private var localSaveTask: Task<Void, Never>?
+    private var pushTask: Task<Void, Never>?
+    private var pullTask: Task<Void, Never>?
+
+    init(reportId: String) {
+        self.reportId = reportId
+        pageDrawings = ReportAnnotationStore.loadPageDrawings(reportId: reportId)
+        strokeCount = Self.count(pageDrawings)
+    }
+
+    // MARK: Host → controller
+
+    func documentDidLoad(pageSizes: [CGSize]) {
+        self.pageSizes = pageSizes
+        pullRemote()
+    }
+
+    func drawing(forPage index: Int) -> PKDrawing {
+        pageDrawings[index] ?? PKDrawing()
+    }
+
+    /// Called once per committed stroke / erase / undo. Cheap: updates state and arms timers.
+    func noteDrawingChanged(page index: Int, drawing: PKDrawing) {
+        pageDrawings[index] = drawing
+        strokeCount = Self.count(pageDrawings)
+        scheduleLocalSave(after: 1.0)
+        schedulePush(after: 4.0)
+    }
+
+    func setToolPickerBottomInset(_ inset: CGFloat) {
+        guard abs(toolPickerBottomInset - inset) > 0.5 else { return }
+        toolPickerBottomInset = inset
+    }
+
+    // MARK: Reader → controller
+
+    func undo() {
+        host?.undoLastStroke()
+    }
+
+    func clearAll() {
+        pageDrawings.removeAll()
+        strokeCount = 0
+        host?.clearAllCanvases()
+        localSaveTask?.cancel()
+        pushTask?.cancel()
+        let reportId = reportId
+        let persistence = persistence
+        Task.detached(priority: .utility) {
+            await persistence.clear(reportId: reportId)
+        }
+    }
+
+    /// Persist now (local + cloud). Safe to call often; work is serialized off-main.
+    func flush() {
+        localSaveTask?.cancel()
+        pushTask?.cancel()
+        let snapshot = pageDrawings
+        let sizes = pageSizes
+        let reportId = reportId
+        let persistence = persistence
+        Task.detached(priority: .utility) {
+            await persistence.saveLocal(snapshot, reportId: reportId, pageSizes: sizes)
+            await persistence.push(snapshot, reportId: reportId, pageSizes: sizes)
+        }
+    }
+
+    // MARK: Timers
+
+    private func scheduleLocalSave(after delay: TimeInterval) {
+        localSaveTask?.cancel()
+        localSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            let snapshot = self.pageDrawings
+            let sizes = self.pageSizes
+            let reportId = self.reportId
+            let persistence = self.persistence
+            Task.detached(priority: .utility) {
+                await persistence.saveLocal(snapshot, reportId: reportId, pageSizes: sizes)
+            }
+        }
+    }
+
+    private func schedulePush(after delay: TimeInterval) {
+        pushTask?.cancel()
+        pushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            // Never compete with a live stroke for the GPU — try again shortly.
+            if self.host?.strokeInFlight == true {
+                self.schedulePush(after: 2.0)
+                return
+            }
+            let snapshot = self.pageDrawings
+            let sizes = self.pageSizes
+            let reportId = self.reportId
+            let persistence = self.persistence
+            Task.detached(priority: .utility) {
+                await persistence.push(snapshot, reportId: reportId, pageSizes: sizes)
+            }
+        }
+    }
+
+    private func pullRemote() {
+        pullTask?.cancel()
+        let reportId = reportId
+        let sizes = pageSizes
+        let persistence = persistence
+        pullTask = Task { [weak self] in
+            guard let remote = await persistence.pull(reportId: reportId) else { return }
+            let split = ReportAnnotationStore.splitComposite(remote, pageSizes: sizes)
+            guard !Task.isCancelled, let self else { return }
+            self.pageDrawings = split
+            self.strokeCount = Self.count(split)
+            self.host?.applyPageDrawings(split)
+        }
+    }
+
+    private static func count(_ pages: [Int: PKDrawing]) -> Int {
+        pages.values.reduce(0) { $0 + $1.strokes.count }
+    }
+}
+
+/// Serializes every disk / network / image-render operation for the ink store.
+actor InkPersistence {
+    func saveLocal(_ pages: [Int: PKDrawing], reportId: String, pageSizes: [CGSize]) {
+        ReportAnnotationStore.savePageDrawings(pages, reportId: reportId, pageSizes: pageSizes)
+    }
+
+    func push(_ pages: [Int: PKDrawing], reportId: String, pageSizes: [CGSize]) async {
+        let composite = ReportAnnotationStore.compositeDrawing(from: pages, pageSizes: pageSizes)
+        let size = ReportAnnotationStore.compositeCanvasSize(pageSizes: pageSizes)
+        _ = await ReportAnnotationStore.push(composite, reportId: reportId, canvasSize: size)
+    }
+
+    func pull(reportId: String) async -> PKDrawing? {
+        await ReportAnnotationStore.pullIfNewer(reportId: reportId)
+    }
+
+    func clear(reportId: String) async {
+        ReportAnnotationStore.clear(reportId: reportId)
+        _ = await ReportAnnotationStore.push(PKDrawing(), reportId: reportId, canvasSize: nil)
+    }
+}
+
+// MARK: - SwiftUI wrapper
+
 /// Full-bleed native PDF reader with page-locked Apple Pencil & finger annotations via `PDFPageOverlayViewProvider`.
 ///
-/// Annotations are anchored directly to individual PDF pages in page coordinates.
-/// As the user scrolls or zooms the document, drawings move and scale with the page content.
-///
-/// Architecture highlights:
-/// - Real-time in-flight Metal ink rendering (120 FPS Promotion on iPad Pro).
-/// - PDFView scroll pan gestures and text selection gestures are configured with `allowedTouchTypes = [.direct]`
-///   so Apple Pencil touches bypass all scroll delays and flow directly to `PKCanvasView.drawingGestureRecognizer`.
-/// - Automatic responder promotion on touch hit-test ensures the canvas is always ready for live ink.
-/// - Independent per-page canvas instances maintain clean state without tool picker multi-canvas lockups.
+/// Live-ink rules (these are what keep PencilKit's in-flight stroke visible on iPad):
+/// - One `PKCanvasView` per page, hosted by PDFKit itself; `isInMarkupMode` routes Pencil to the
+///   overlays and fingers to scrolling. No gesture-recognizer surgery, no hit-test tricks.
+/// - Nothing touches the canvas hierarchy, first responder, tool, or PDF layout while a
+///   stroke is in flight (`strokeInFlight` gates every mutation and defers it to stroke end).
+/// - SwiftUI only ever receives a stroke *count*; drawings never round-trip through view state.
+/// - Persistence and the cloud PNG render run on a background actor, seconds after the last stroke.
 struct MemoPaperDocumentView: UIViewRepresentable {
     let url: URL
-    @Binding var drawing: PKDrawing
-    @Binding var pageDrawings: [Int: PKDrawing]
+    let controller: PaperDeskInkController
     var isAnnotating: Bool
     var showsToolPicker: Bool
-    var canvasRef: Binding<PKCanvasView?>
-    var replaceToken: Int
     var pencilOnly: Bool
     var askMenuTitle: String = "Ask Warren"
     var onAskSelection: ((String) -> Void)? = nil
-    var onPageDrawingsChanged: (([Int: PKDrawing]) -> Void)? = nil
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            drawing: $drawing,
-            pageDrawings: $pageDrawings,
-            canvasRef: canvasRef,
-            onAskSelection: onAskSelection,
-            onPageDrawingsChanged: onPageDrawingsChanged
-        )
-    }
 
     func makeUIView(context: Context) -> PaperDeskPDFHostView {
         let host = PaperDeskPDFHostView()
-        host.coordinator = context.coordinator
-        context.coordinator.host = host
+        host.controller = controller
+        controller.host = host
         host.askMenuTitle = askMenuTitle
-        host.load(url: url, pageDrawings: pageDrawings)
+        host.onAskSelection = onAskSelection
+        host.load(url: url)
         host.setAnnotating(isAnnotating, pencilOnly: pencilOnly, showsToolPicker: showsToolPicker)
         return host
     }
 
     func updateUIView(_ host: PaperDeskPDFHostView, context: Context) {
-        context.coordinator.host = host
-        context.coordinator.onAskSelection = onAskSelection
-        context.coordinator.onPageDrawingsChanged = onPageDrawingsChanged
         host.askMenuTitle = askMenuTitle
-
-        if host.currentURL != url || host.pdfView.document == nil {
-            host.load(url: url, pageDrawings: pageDrawings)
+        host.onAskSelection = onAskSelection
+        if host.currentURL != url {
+            host.load(url: url)
         }
-
-        if context.coordinator.appliedReplaceToken != replaceToken {
-            context.coordinator.appliedReplaceToken = replaceToken
-            host.applyPageDrawings(pageDrawings)
-        }
-
         host.setAnnotating(isAnnotating, pencilOnly: pencilOnly, showsToolPicker: showsToolPicker)
     }
 
-    static func dismantleUIView(_ host: PaperDeskPDFHostView, coordinator: Coordinator) {
+    static func dismantleUIView(_ host: PaperDeskPDFHostView, coordinator: ()) {
         host.teardown()
-        coordinator.host = nil
-    }
-
-    // MARK: - Coordinator
-
-    final class Coordinator: NSObject {
-        var drawing: Binding<PKDrawing>
-        var pageDrawings: Binding<[Int: PKDrawing]>
-        var canvasRef: Binding<PKCanvasView?>
-        var appliedReplaceToken = -1
-        weak var host: PaperDeskPDFHostView?
-        var onAskSelection: ((String) -> Void)?
-        var onPageDrawingsChanged: (([Int: PKDrawing]) -> Void)?
-
-        init(
-            drawing: Binding<PKDrawing>,
-            pageDrawings: Binding<[Int: PKDrawing]>,
-            canvasRef: Binding<PKCanvasView?>,
-            onAskSelection: ((String) -> Void)?,
-            onPageDrawingsChanged: (([Int: PKDrawing]) -> Void)?
-        ) {
-            self.drawing = drawing
-            self.pageDrawings = pageDrawings
-            self.canvasRef = canvasRef
-            self.onAskSelection = onAskSelection
-            self.onPageDrawingsChanged = onPageDrawingsChanged
-        }
     }
 }
 
-// MARK: - Dedicated Page Canvas View
+// MARK: - Page canvas
 
 final class PageCanvasView: PKCanvasView {
     override var canBecomeFirstResponder: Bool { true }
-
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let view = super.hitTest(point, with: event)
-        if view != nil && !isFirstResponder {
-            _ = becomeFirstResponder()
-        }
-        return view
-    }
 }
 
-// MARK: - Native PaperDeskPDFHostView
+// MARK: - Host view
 
 final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasViewDelegate, PKToolPickerObserver {
-    weak var coordinator: MemoPaperDocumentView.Coordinator?
+    weak var controller: PaperDeskInkController?
     var askMenuTitle: String = "Ask Warren"
+    var onAskSelection: ((String) -> Void)?
 
     let pdfView = PDFView()
     private let toolPicker = PKToolPicker()
-    private var activeTool: PKTool = PKInkingTool(.pen, color: .black, width: 3)
 
     private var canvasMap: [PDFPage: PageCanvasView] = [:]
-    private var pageDrawingsMap: [Int: PKDrawing] = [:]
+    /// Overlays PDFKit currently has on screen, in display order.
+    private var displayedCanvases: [PageCanvasView] = []
+    private weak var lastEditedCanvas: PageCanvasView?
+
     private var isAnnotating = false
     private var pencilOnly = true
     private var showsToolPicker = false
-    private var saveDebounceTimer: Timer?
     private(set) var currentURL: URL?
 
-    private(set) weak var activeCanvasView: PageCanvasView?
+    /// True from tool-down to tool-up. Every hierarchy / responder / layout mutation is gated on it.
+    private(set) var strokeInFlight = false
+    private var pendingConfig: (annotating: Bool, pencilOnly: Bool, picker: Bool)?
+    private var pendingResponderFix = false
+    private var pendingPageDrawings: [Int: PKDrawing]?
+    private var pendingClear = false
 
-    // Ask Warren callout button
     private let askCalloutButton: UIButton = {
         let btn = UIButton(type: .system)
         var config = UIButton.Configuration.filled()
@@ -155,24 +277,17 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        commonInit()
+        setup()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        commonInit()
-    }
-
-    private func commonInit() {
-        toolPicker.selectedTool = activeTool
-        toolPicker.addObserver(self)
         setup()
     }
 
     private func setup() {
         backgroundColor = UIColor(red: 0.89, green: 0.89, blue: 0.91, alpha: 1.0)
 
-        // Configure single continuous PDFView
         pdfView.translatesAutoresizingMaskIntoConstraints = false
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
@@ -182,13 +297,9 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
         pdfView.pageBreakMargins = UIEdgeInsets(top: 14, left: 0, bottom: 14, right: 0)
         pdfView.backgroundColor = UIColor(red: 0.89, green: 0.89, blue: 0.91, alpha: 1.0)
         pdfView.usePageViewController(false)
-        if #available(iOS 16.0, *) {
-            pdfView.isInMarkupMode = true
-        }
         pdfView.pageOverlayViewProvider = self
         addSubview(pdfView)
 
-        // Floating Ask Callout
         askCalloutButton.translatesAutoresizingMaskIntoConstraints = false
         askCalloutButton.addTarget(self, action: #selector(handleAskCalloutTapped), for: .touchUpInside)
         addSubview(askCalloutButton)
@@ -200,7 +311,8 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
             pdfView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
 
-        optimizeGesturesForDrawing()
+        toolPicker.selectedTool = PKInkingTool(.pen, color: .black, width: 3)
+        toolPicker.addObserver(self)
 
         NotificationCenter.default.addObserver(
             self,
@@ -210,118 +322,128 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
         )
     }
 
-    /// Eliminates all touch delivery delays and ensures Apple Pencil touches are never intercepted by PDFKit scroll/pan gestures.
-    func optimizeGesturesForDrawing() {
-        func configureView(_ v: UIView) {
-            if let sv = v as? UIScrollView {
-                sv.delaysContentTouches = false
-                sv.canCancelContentTouches = true
-            }
-
-            for g in v.gestureRecognizers ?? [] {
-                g.delaysTouchesBegan = false
-
-                if let pan = g as? UIPanGestureRecognizer {
-                    if pencilOnly {
-                        // CRITICAL: Restrict PDFView pan gesture to direct finger touches only!
-                        // Apple Pencil touches completely bypass the scroll gesture, eliminating any in-flight delay.
-                        pan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-                    } else {
-                        pan.allowedTouchTypes = [
-                            NSNumber(value: UITouch.TouchType.direct.rawValue),
-                            NSNumber(value: UITouch.TouchType.pencil.rawValue)
-                        ]
-                    }
-                } else if let longPress = g as? UILongPressGestureRecognizer {
-                    if isAnnotating {
-                        // Prevent text selection long-press from hijacking Apple Pencil while drawing
-                        longPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-                    }
-                }
-            }
-
-            for sub in v.subviews {
-                configureView(sub)
-            }
-        }
-
-        configureView(pdfView)
-    }
-
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        optimizeGesturesForDrawing()
-        if window != nil && isAnnotating && showsToolPicker {
-            activateToolPickerForActiveCanvas()
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.ensureToolPickerActive()
+            self?.reportToolPickerInset()
         }
     }
 
     func teardown() {
-        saveDebounceTimer?.invalidate()
-        saveDebounceTimer = nil
-        flushDrawingsNow()
-
         NotificationCenter.default.removeObserver(self)
         toolPicker.removeObserver(self)
-        if let target = activeCanvasView ?? canvasMap.values.first {
-            toolPicker.setVisible(false, forFirstResponder: target)
+        if let responder = displayedCanvases.first(where: { $0.isFirstResponder }) ?? canvasMap.values.first {
+            toolPicker.setVisible(false, forFirstResponder: responder)
+            if responder.isFirstResponder {
+                responder.resignFirstResponder()
+            }
         }
         for canvas in canvasMap.values {
             toolPicker.removeObserver(canvas)
             canvas.delegate = nil
         }
         canvasMap.removeAll()
+        displayedCanvases.removeAll()
     }
 
-    // MARK: - Document Loading & Drawing Application
+    // MARK: - Document loading
 
-    func load(url: URL, pageDrawings: [Int: PKDrawing]) {
-        self.currentURL = url
-        self.pageDrawingsMap = pageDrawings
+    func load(url: URL) {
+        currentURL = url
         guard let doc = PDFDocument(url: url) else { return }
-        pdfView.document = doc
 
-        if #available(iOS 16.0, *) {
-            pdfView.isInMarkupMode = isAnnotating
+        for canvas in canvasMap.values {
+            toolPicker.removeObserver(canvas)
+            canvas.delegate = nil
         }
-        optimizeGesturesForDrawing()
+        canvasMap.removeAll()
+        displayedCanvases.removeAll()
+        lastEditedCanvas = nil
+
+        pdfView.document = doc
+        pdfView.isInMarkupMode = isAnnotating
+
+        var sizes: [CGSize] = []
+        for i in 0..<doc.pageCount {
+            if let page = doc.page(at: i) {
+                sizes.append(page.bounds(for: .mediaBox).size)
+            }
+        }
+        controller?.documentDidLoad(pageSizes: sizes)
 
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
             self.pdfView.autoScales = true
-            self.optimizeGesturesForDrawing()
             if let firstPage = doc.page(at: 0) {
                 self.pdfView.go(to: firstPage)
             }
         }
     }
 
+    /// Replace on-screen ink with `drawings` (e.g. after a cloud pull). Deferred while a stroke is in flight.
     func applyPageDrawings(_ drawings: [Int: PKDrawing]) {
-        self.pageDrawingsMap = drawings
-        guard let doc = pdfView.document else { return }
-        for (page, canvas) in canvasMap {
-            let index = doc.index(for: page)
-            if index != NSNotFound {
-                let target = drawings[index] ?? PKDrawing()
-                if canvas.drawing != target {
-                    canvas.drawing = target
-                }
+        guard !strokeInFlight else {
+            pendingPageDrawings = drawings
+            return
+        }
+        for canvas in canvasMap.values {
+            let target = drawings[canvas.tag] ?? PKDrawing()
+            let current = canvas.drawing
+            if current.strokes.count != target.strokes.count || current.bounds != target.bounds {
+                canvas.drawing = target
             }
         }
     }
 
-    // MARK: - Annotation Mode & Tool Picker
+    func clearAllCanvases() {
+        guard !strokeInFlight else {
+            pendingClear = true
+            return
+        }
+        for canvas in canvasMap.values where !canvas.drawing.strokes.isEmpty {
+            canvas.drawing = PKDrawing()
+        }
+    }
+
+    func undoLastStroke() {
+        guard !strokeInFlight else { return }
+        guard let canvas = lastEditedCanvas ?? displayedCanvases.first(where: { !$0.drawing.strokes.isEmpty }) else {
+            return
+        }
+        if let undoManager = canvas.undoManager, undoManager.canUndo {
+            undoManager.undo()
+        } else {
+            var drawing = canvas.drawing
+            guard !drawing.strokes.isEmpty else { return }
+            drawing.strokes.removeLast()
+            canvas.drawing = drawing
+        }
+        controller?.noteDrawingChanged(page: canvas.tag, drawing: canvas.drawing)
+    }
+
+    // MARK: - Annotation mode & tool picker
 
     func setAnnotating(_ annotating: Bool, pencilOnly: Bool, showsToolPicker: Bool) {
+        let changed = self.isAnnotating != annotating
+            || self.pencilOnly != pencilOnly
+            || self.showsToolPicker != showsToolPicker
+        guard changed else {
+            ensureToolPickerActive()
+            return
+        }
+        guard !strokeInFlight else {
+            pendingConfig = (annotating, pencilOnly, showsToolPicker)
+            return
+        }
+
+        inkLog.info("setAnnotating \(annotating) pencilOnly=\(pencilOnly) picker=\(showsToolPicker)")
         self.isAnnotating = annotating
         self.pencilOnly = pencilOnly
         self.showsToolPicker = showsToolPicker
 
-        if #available(iOS 16.0, *) {
-            pdfView.isInMarkupMode = annotating
-        }
-        optimizeGesturesForDrawing()
-
+        pdfView.isInMarkupMode = annotating
         if annotating {
             hideAskCallout()
             pdfView.clearSelection()
@@ -330,38 +452,71 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
         for canvas in canvasMap.values {
             canvas.isUserInteractionEnabled = annotating
             canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
-            canvas.tool = activeTool
         }
 
-        let target = activeCanvasView ?? canvasMap.values.first
-        if annotating && showsToolPicker, let target = target {
-            toolPicker.setVisible(true, forFirstResponder: target)
-            _ = target.becomeFirstResponder()
-        } else if let target = target {
-            toolPicker.setVisible(false, forFirstResponder: target)
+        if annotating && showsToolPicker {
+            ensureToolPickerActive()
+        } else {
+            for canvas in canvasMap.values where canvas.isFirstResponder {
+                toolPicker.setVisible(false, forFirstResponder: canvas)
+                canvas.resignFirstResponder()
+            }
+            reportToolPickerInset()
         }
     }
 
-    private func activateToolPickerForActiveCanvas() {
-        guard isAnnotating && showsToolPicker,
-              let target = activeCanvasView ?? canvasMap.values.first else { return }
+    /// Show the tool picker for one on-screen canvas if none currently owns it. Cheap no-op otherwise.
+    private func ensureToolPickerActive() {
+        guard isAnnotating, showsToolPicker, window != nil, !strokeInFlight else { return }
+        if displayedCanvases.contains(where: { $0.isFirstResponder }) { return }
+        let target = pdfView.currentPage.flatMap { canvasMap[$0] }
+            ?? displayedCanvases.first
+            ?? canvasMap.values.first
+        guard let target else { return }
         toolPicker.setVisible(true, forFirstResponder: target)
         _ = target.becomeFirstResponder()
+        inkLog.info("tool picker activated for page \(target.tag)")
+    }
+
+    private func reportToolPickerInset() {
+        guard let controller else { return }
+        var inset: CGFloat = 0
+        if toolPicker.isVisible, bounds.height > 0 {
+            let obscured = toolPicker.frameObscured(in: self)
+            if !obscured.isNull, obscured.height > 0, obscured.width > bounds.width * 0.5 {
+                inset = max(0, bounds.maxY - obscured.minY)
+            }
+        }
+        controller.setToolPickerBottomInset(inset)
+    }
+
+    private func applyPendingMutations() {
+        if let config = pendingConfig {
+            pendingConfig = nil
+            setAnnotating(config.annotating, pencilOnly: config.pencilOnly, showsToolPicker: config.picker)
+        }
+        if pendingResponderFix {
+            pendingResponderFix = false
+            ensureToolPickerActive()
+        }
+        if pendingClear {
+            pendingClear = false
+            clearAllCanvases()
+        }
+        if let drawings = pendingPageDrawings {
+            pendingPageDrawings = nil
+            applyPageDrawings(drawings)
+        }
     }
 
     // MARK: - PKToolPickerObserver
 
-    func toolPickerSelectedToolDidChange(_ toolPicker: PKToolPicker) {
-        activeTool = toolPicker.selectedTool
-        for canvas in canvasMap.values {
-            canvas.tool = activeTool
-        }
+    func toolPickerFramesObscuredDidChange(_ toolPicker: PKToolPicker) {
+        reportToolPickerInset()
     }
 
-    func toolPickerIsRulerActiveDidChange(_ toolPicker: PKToolPicker) {
-        for canvas in canvasMap.values {
-            canvas.isRulerActive = toolPicker.isRulerActive
-        }
+    func toolPickerVisibilityDidChange(_ toolPicker: PKToolPicker) {
+        reportToolPickerInset()
     }
 
     // MARK: - PDFPageOverlayViewProvider
@@ -370,119 +525,82 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
         if let existing = canvasMap[page] {
             return existing
         }
-
         guard let doc = view.document else { return nil }
         let index = doc.index(for: page)
         guard index != NSNotFound else { return nil }
 
         let bounds = page.bounds(for: .mediaBox)
         let canvas = PageCanvasView(frame: CGRect(origin: .zero, size: bounds.size))
-        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         canvas.isScrollEnabled = false
-        canvas.bounces = false
-        canvas.delaysContentTouches = false
-        canvas.canCancelContentTouches = false
-        canvas.drawingGestureRecognizer.delaysTouchesBegan = false
         canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
         canvas.isUserInteractionEnabled = isAnnotating
-        canvas.tool = activeTool
-
-        if let existingDrawing = pageDrawingsMap[index] {
-            canvas.drawing = existingDrawing
-        }
-
-        canvas.delegate = self
+        canvas.tool = toolPicker.selectedTool
+        canvas.isRulerActive = toolPicker.isRulerActive
         canvas.tag = index
-        canvasMap[page] = canvas
-
-        if activeCanvasView == nil {
-            activeCanvasView = canvas
-            if isAnnotating && showsToolPicker {
-                toolPicker.setVisible(true, forFirstResponder: canvas)
-                _ = canvas.becomeFirstResponder()
+        canvas.delegate = self
+        if let controller {
+            let drawing = controller.drawing(forPage: index)
+            if !drawing.strokes.isEmpty {
+                canvas.drawing = drawing
             }
         }
-
+        toolPicker.addObserver(canvas)
+        canvasMap[page] = canvas
         return canvas
     }
 
     func pdfView(_ view: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
         guard let canvas = overlayView as? PageCanvasView else { return }
-        activeCanvasView = canvas
-        optimizeGesturesForDrawing()
-
-        if isAnnotating && showsToolPicker {
-            toolPicker.setVisible(true, forFirstResponder: canvas)
-            _ = canvas.becomeFirstResponder()
+        if !displayedCanvases.contains(where: { $0 === canvas }) {
+            displayedCanvases.append(canvas)
+        }
+        if strokeInFlight {
+            pendingResponderFix = true
+        } else {
+            ensureToolPickerActive()
         }
     }
 
     func pdfView(_ view: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
         guard let canvas = overlayView as? PageCanvasView else { return }
-        if activeCanvasView === canvas {
-            activeCanvasView = canvasMap.values.first(where: { $0 !== canvas })
-            if let next = activeCanvasView, isAnnotating && showsToolPicker {
-                toolPicker.setVisible(true, forFirstResponder: next)
-                _ = next.becomeFirstResponder()
-            }
+        displayedCanvases.removeAll { $0 === canvas }
+        guard canvas.isFirstResponder else { return }
+        // PDFKit is about to pull this view out of the window, which drops first responder
+        // and hides the tool picker — hand it to another visible page.
+        if strokeInFlight {
+            pendingResponderFix = true
+        } else if let next = displayedCanvases.first {
+            toolPicker.setVisible(true, forFirstResponder: next)
+            _ = next.becomeFirstResponder()
         }
     }
 
     // MARK: - PKCanvasViewDelegate
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
-        guard let pageCanvas = canvasView as? PageCanvasView else { return }
-        activeCanvasView = pageCanvas
-        if isAnnotating && showsToolPicker {
-            toolPicker.setVisible(true, forFirstResponder: pageCanvas)
-            _ = pageCanvas.becomeFirstResponder()
+        strokeInFlight = true
+        if let canvas = canvasView as? PageCanvasView {
+            lastEditedCanvas = canvas
         }
+        inkLog.debug("stroke begin page \(canvasView.tag) window=\(canvasView.window != nil) responder=\(canvasView.isFirstResponder)")
+    }
+
+    func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+        strokeInFlight = false
+        inkLog.debug("stroke end page \(canvasView.tag)")
+        applyPendingMutations()
     }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-        let index = canvasView.tag
-        guard index >= 0 else { return }
-
-        pageDrawingsMap[index] = canvasView.drawing
-        if let pageCanvas = canvasView as? PageCanvasView {
-            activeCanvasView = pageCanvas
+        if let canvas = canvasView as? PageCanvasView {
+            lastEditedCanvas = canvas
         }
-
-        // Debounce syncing to coordinator so the 120Hz drawing pipeline is never interrupted
-        scheduleSaveDebounce()
+        controller?.noteDrawingChanged(page: canvasView.tag, drawing: canvasView.drawing)
     }
 
-    private func scheduleSaveDebounce() {
-        saveDebounceTimer?.invalidate()
-        saveDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: false) { [weak self] _ in
-            self?.flushDrawingsNow()
-        }
-    }
-
-    private func flushDrawingsNow() {
-        saveDebounceTimer?.invalidate()
-        saveDebounceTimer = nil
-
-        guard let doc = pdfView.document else { return }
-        var pageSizes: [CGSize] = []
-        for i in 0..<doc.pageCount {
-            if let p = doc.page(at: i) {
-                pageSizes.append(p.bounds(for: .mediaBox).size)
-            }
-        }
-        let composite = ReportAnnotationStore.compositeDrawing(from: pageDrawingsMap, pageSizes: pageSizes)
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            self.coordinator?.pageDrawings.wrappedValue = self.pageDrawingsMap
-            self.coordinator?.drawing.wrappedValue = composite
-            self.coordinator?.onPageDrawingsChanged?(self.pageDrawingsMap)
-        }
-    }
-
-    // MARK: - Text Selection & Ask Warren Floating Callout
+    // MARK: - Text selection & Ask callout
 
     @objc private func handleSelectionChanged(_ notification: Notification) {
         guard !isAnnotating else {
@@ -540,6 +658,6 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
         guard let text = selectedText else { return }
         hideAskCallout()
         pdfView.clearSelection()
-        coordinator?.onAskSelection?(text)
+        onAskSelection?(text)
     }
 }
