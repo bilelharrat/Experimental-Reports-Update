@@ -208,9 +208,10 @@ watch(reportMode, (mode) => {
   }
 });
 
-// Quality: "best" (every agent on the default model), "balanced"
-// (research + translation on a cheaper model), or "economy" (everything
-// on a cheaper model). Applies to One-Click generation.
+// Quality: "best" (every agent on the default model at full effort),
+// "balanced" (research + translation on a cheaper model; writing on the
+// default model at medium effort), or "economy" (everything on a cheaper
+// model). Applies to One-Click generation.
 const QUALITY_KEY = "bsh.research.quality";
 function loadQuality() {
   try {

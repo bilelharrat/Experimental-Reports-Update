@@ -3967,9 +3967,17 @@ _MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
     "best": {},
     # Research, verification, and translation move to Sonnet; the
     # English writing wave (spine/sections/artifacts/repair) keeps the
-    # default model, so the prose the founder reads is unchanged.
+    # default model but at medium effort, so the prose the founder reads
+    # comes from the top model with a smaller thinking budget. The
+    # writing roles share one (model, effort) pair to keep the section
+    # wave's shared prompt cache intact.
     "balanced": {
         "ANALYSIS_PASS": ("sonnet", None),
+        "ENGLISH": (None, "medium"),
+        "SPINE": (None, "medium"),
+        "SECTION": (None, "medium"),
+        "ARTIFACTS": (None, "medium"),
+        "REPAIR": (None, "medium"),
         "SPINE_CHECK": ("sonnet", "medium"),
         "TRANSLATION": ("sonnet", "medium"),
     },
