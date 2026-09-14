@@ -636,6 +636,41 @@ actor MacAPIClient {
         try await request("companies/\(companyId)/evidence-matrix", method: "GET", timeout: 60)
     }
 
+    // MARK: - Deal CRM & people (company record only — nothing inferred)
+
+    func fetchDealPipeline(companyId: String) async throws -> MacDealPipeline {
+        try await request("companies/\(companyId)/deal-pipeline", method: "GET")
+    }
+
+    func updateDealPipeline(companyId: String, fields: [String: Any]) async throws -> MacDealPipeline {
+        let url = try apiURL("companies/\(companyId)/deal-pipeline")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.timeoutInterval = 30
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("macos", forHTTPHeaderField: "X-BSH-Client")
+        if let token = MacConfig.readToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: fields)
+        let (data, response) = try await session.data(for: req)
+        try Self.check(response: response, data: data)
+        do {
+            return try decoder.decode(MacDealPipeline.self, from: data)
+        } catch {
+            throw MacAPIError.decoding
+        }
+    }
+
+    func fetchFounderDossier(companyId: String) async throws -> MacFounderDossier {
+        try await request("companies/\(companyId)/founder-dossier", method: "GET")
+    }
+
+    func refreshFounderDossier(companyId: String) async throws -> MacFounderDossier {
+        try await request("companies/\(companyId)/founder-dossier/deep-search", method: "POST")
+    }
+
     // MARK: - Server-sent events
 
     /// Generic SSE tail. `path` may be an absolute API path ("/api/memos/…/stream")

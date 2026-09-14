@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 @main
 struct BSHResearchMacApp: App {
@@ -70,6 +71,11 @@ struct BSHResearchMacApp: App {
                     Task { await store.bootstrap() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                Button("Keyboard Shortcuts") {
+                    store.showShortcutSheet = true
+                }
+                .keyboardShortcut("/", modifiers: .command)
             }
 
             CommandMenu("Deal") {
@@ -94,6 +100,17 @@ struct BSHResearchMacApp: App {
                     }
                 }
                 .disabled(!store.canRunTasks || store.selectedCompany == nil)
+
+                Button("Intake Pitch Deck…") {
+                    let panel = NSOpenPanel()
+                    panel.allowsMultipleSelection = false
+                    panel.canChooseDirectories = false
+                    panel.allowedContentTypes = [.pdf, UTType("org.openxmlformats.presentationml.presentation"), UTType("org.openxmlformats.wordprocessingml.document")].compactMap { $0 }
+                    if panel.runModal() == .OK, let url = panel.url {
+                        store.ingestDeck(url: url)
+                    }
+                }
+                .disabled(!store.canEditSources)
 
                 Divider()
 

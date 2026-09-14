@@ -1,6 +1,6 @@
 import Foundation
 
-struct MacCompany: Identifiable, Hashable, Decodable {
+struct MacCompany: Identifiable, Hashable, Codable {
     let id: String
     let name: String?
     let ticker: String?
@@ -24,7 +24,119 @@ struct MacCompany: Identifiable, Hashable, Decodable {
     }
 }
 
-struct MacMemoFile: Decodable, Hashable {
+// MARK: - Founder Pedigree & Developer Traction Models (Harmonic/Ampersand Grade)
+
+struct MacFounderProfile: Identifiable, Hashable, Codable {
+    var id: String { name }
+    let name: String
+    let role: String
+    let bio: String?
+    let pedigreeTags: [String]
+    let education: String?
+    let pastCompanies: [String]
+    let priorExits: String?
+    let patentsOrPapersCount: Int?
+    let githubHandle: String?
+    let linkedinUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name, role, bio, education
+        case pedigreeTags = "pedigree_tags"
+        case pastCompanies = "past_companies"
+        case priorExits = "prior_exits"
+        case patentsOrPapersCount = "patents_papers_count"
+        case githubHandle = "github_handle"
+        case linkedinUrl = "linkedin_url"
+    }
+}
+
+struct MacDeveloperTraction: Hashable, Codable {
+    let repoUrl: String?
+    let stars: Int?
+    let starsGrowthWeekly: String?
+    let forks: Int?
+    let weeklyDownloads: String?
+    let commitCadence: String?
+    let inflectionSignal: String?
+
+    enum CodingKeys: String, CodingKey {
+        case stars, forks
+        case repoUrl = "repo_url"
+        case starsGrowthWeekly = "stars_growth_weekly"
+        case weeklyDownloads = "weekly_downloads"
+        case commitCadence = "commit_cadence"
+        case inflectionSignal = "inflection_signal"
+    }
+}
+
+struct MacTeamHeadcount: Hashable, Codable {
+    let employeeCountEstimate: String?
+    let engineeringPct: Int?
+    let gtmSalesPct: Int?
+    let operationsPct: Int?
+    let openRolesCount: Int?
+    let hiringVelocity: String?
+
+    enum CodingKeys: String, CodingKey {
+        case employeeCountEstimate = "employee_count_estimate"
+        case engineeringPct = "engineering_pct"
+        case gtmSalesPct = "gtm_sales_pct"
+        case operationsPct = "operations_pct"
+        case openRolesCount = "open_roles_count"
+        case hiringVelocity = "hiring_velocity"
+    }
+}
+
+struct MacFounderDossier: Hashable, Codable {
+    let companyId: String
+    let founders: [MacFounderProfile]
+    let advisorsAndBoard: [MacFounderProfile]?
+    let teamHeadcount: MacTeamHeadcount?
+    let developerTraction: MacDeveloperTraction?
+    let searchedAt: String?
+    let isDeepAudited: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case founders
+        case companyId = "company_id"
+        case advisorsAndBoard = "advisors_and_board"
+        case teamHeadcount = "team_headcount"
+        case developerTraction = "developer_traction"
+        case searchedAt = "searched_at"
+        case isDeepAudited = "is_deep_audited"
+    }
+}
+
+// MARK: - Deal Pipeline & Affinity-Grade CRM Models
+
+struct MacDealPipeline: Hashable, Codable {
+    let companyId: String
+    var stage: String
+    let stages: [String]
+    var dealLead: String?
+    var warmthScore: Int?
+    var introPath: String?
+    var daysInStage: Int
+    var lastTouchpoint: String?
+    var nextStep: String?
+    let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case stage, stages
+        case companyId = "company_id"
+        case dealLead = "deal_lead"
+        case warmthScore = "warmth_score"
+        case introPath = "intro_path"
+        case daysInStage = "days_in_stage"
+        case lastTouchpoint = "last_touchpoint"
+        case nextStep = "next_step"
+        case updatedAt = "updated_at"
+    }
+}
+
+
+
+struct MacMemoFile: Codable, Hashable {
     let language: String?
     let path: String?
     let pdfPath: String?
@@ -35,7 +147,7 @@ struct MacMemoFile: Decodable, Hashable {
     }
 }
 
-struct MacReport: Identifiable, Hashable, Decodable {
+struct MacReport: Identifiable, Hashable, Codable {
     let id: String
     let companyId: String?
     let companyName: String?

@@ -102,6 +102,13 @@ struct MacRootView: View {
             MacCommandPalette()
                 .environmentObject(store)
         }
+        .sheet(isPresented: $store.showShortcutSheet) {
+            MacShortcutOverlay()
+        }
+        .sheet(isPresented: $store.showDeckIntakeSheet) {
+            MacPitchDeckIntakeSheet(fileURL: store.droppedDeckURL)
+                .environmentObject(store)
+        }
     }
 
     // MARK: - Sidebar
@@ -272,12 +279,34 @@ struct MacRootView: View {
         .animation(.easeInOut(duration: 0.18), value: store.showBlotter)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                // Cache & sync status (local-first: desks paint from cache, then refresh)
+                if store.isOfflineMode {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.orange).frame(width: 6, height: 6)
+                        Text("Offline · cached").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                    }
+                    .help("The server is unreachable; showing the last cached data")
+                } else if let sync = store.lastSyncDate {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.green).frame(width: 6, height: 6)
+                        Text("Synced \(sync, style: .time)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    .help("Last successful sync; data is cached locally for instant launch")
+                }
+
                 Button {
                     store.openCommandPalette()
                 } label: {
                     Label("Command Line", systemImage: "terminal")
                 }
                 .help("Command line — type a company, ticker or NAME CODE (⌘K)")
+
+                Button {
+                    store.showShortcutSheet = true
+                } label: {
+                    Label("Shortcuts", systemImage: "questionmark.circle")
+                }
+                .help("Keyboard shortcuts (⌘/)")
 
                 Button {
                     store.requestNewReport()
