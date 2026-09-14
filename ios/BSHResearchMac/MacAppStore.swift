@@ -60,12 +60,55 @@ final class MacAppStore: ObservableObject {
     @Published var showBrowserPanel: Bool = false
     @Published var browserCurrentURL: URL = MacConfig.baseURL
 
+    // MARK: - Terminal Polish, Command Palette & Shortcuts
+    @Published var showCommandPalette: Bool = false
+    @Published var showShortcutSheet: Bool = false
+    @Published var showDeckIntakeSheet: Bool = false
+    @Published var droppedDeckURL: URL? = nil
+    @Published var isOfflineMode: Bool = false
+    @Published var lastSyncDate: Date? = nil
+    @Published var visitedCompanyTimestamps: [String: Date] = [:]
+    @Published var showOnlyModifiedCompanies: Bool = false
+
+    // MARK: - Founder Dossiers & Deep Search (Harmonic/Ampersand Grade)
+    @Published var founderDossiers: [String: MacFounderDossier] = [:]
+    @Published var deepSearchingFounders: Set<String> = []
+
+    // MARK: - Deal Pipeline & CRM (Affinity Grade)
+    @Published var dealPipelines: [String: MacDealPipeline] = [:]
+
     // MARK: - General Status
     @Published private(set) var loading = false
     @Published var error: String?
 
     private var tempFiles: [URL] = []
     private var copilotTask: Task<Void, Never>?
+
+    init() {
+        hydrateFromCache()
+    }
+
+    func hydrateFromCache() {
+        if let cos = MacDataCache.shared.loadCompanies(), !cos.isEmpty {
+            self.companies = cos
+            self.selectedCompany = cos.first
+        }
+        if let reps = MacDataCache.shared.loadReports(), !reps.isEmpty {
+            self.reports = reps
+            self.selectedReport = reps.first
+        }
+        if let qs = MacDataCache.shared.loadQuotes(), !qs.isEmpty {
+            self.watchlist = qs
+        }
+        if let ns = MacDataCache.shared.loadNews(), !ns.isEmpty {
+            self.news = ns
+        }
+        if let p = MacDataCache.shared.loadPulse() {
+            self.pulse = p
+        }
+        self.visitedCompanyTimestamps = MacDataCache.shared.loadBaselines()
+        self.lastSyncDate = MacDataCache.shared.lastSyncDate()
+    }
 
     // MARK: - Computed Properties
 
@@ -123,8 +166,13 @@ final class MacAppStore: ObservableObject {
             }
 
             preloadAllCompanyData()
+            MacDataCache.shared.saveCompanies(companies)
+            MacDataCache.shared.saveReports(reports)
+            lastSyncDate = Date()
+            isOfflineMode = false
         } catch {
             self.error = error.localizedDescription
+            self.isOfflineMode = true
         }
     }
 
@@ -266,6 +314,7 @@ final class MacAppStore: ObservableObject {
             if selectedTicker == nil, let first = watchlist.first?.ticker {
                 selectTicker(first)
             }
+            MacDataCache.shared.saveQuotes(watchlist)
         } catch {
             self.error = error.localizedDescription
         }
@@ -306,6 +355,7 @@ final class MacAppStore: ObservableObject {
         do {
             let tickers = companies.compactMap(\.ticker).prefix(12).map { $0 }
             news = try await MacAPIClient.shared.fetchNews(tickers: Array(tickers), limit: 50)
+            MacDataCache.shared.saveNews(news)
         } catch {
             self.error = error.localizedDescription
         }
@@ -314,9 +364,53 @@ final class MacAppStore: ObservableObject {
     func refreshPulse() async {
         do {
             pulse = try await MacAPIClient.shared.fetchPulse()
+            if let pulse {
+                MacDataCache.shared.savePulse(pulse)
+            }
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    // MARK: - "What Changed" Baseline Diffs
+
+    func markCompanyVisited(_ companyId: String) {
+        visitedCompanyTimestamps[companyId] = Date()
+        MacDataCache.shared.saveBaselines(visitedCompanyTimestamps)
+    }
+
+    func isCompanyModified(_ companyId: String) -> Bool {
+        guard let baseline = visitedCompanyTimestamps[companyId] else {
+            return true
+        }
+        let list = companyReportsCache[companyId] ?? reports.filter { $0.companyId == companyId }
+        for r in list {
+            if let dateStr = r.updatedAt ?? r.createdAt,
+               let d = ISO8601DateFormatter().date(from: dateStr),
+               d > baseline {
+                return true
+            }
+        }
+        return false
+    }
+
+    func isReportNew(_ report: MacReport) -> Bool {
+        guard let cid = report.companyId, let baseline = visitedCompanyTimestamps[cid] else {
+            return true
+        }
+        if let dateStr = report.updatedAt ?? report.createdAt,
+           let d = ISO8601DateFormatter().date(from: dateStr),
+           d > baseline {
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Pitch Deck Intake
+
+    func ingestDeck(url: URL) {
+        droppedDeckURL = url
+        showDeckIntakeSheet = true
     }
 
     // MARK: - Research Memos & Annotation Overlays
@@ -422,15 +516,116 @@ final class MacAppStore: ObservableObject {
 
     func selectCompany(_ company: MacCompany) {
         selectedCompany = company
+        markCompanyVisited(company.id)
         if let ticker = company.ticker, !ticker.isEmpty {
             selectTicker(ticker)
+        }
+        Task {
+            await fetchFounderDossier(for: company.id)
+            await fetchDealPipeline(for: company.id)
+        }
+    }
+
+    func fetchDealPipeline(for companyId: String) async {
+        guard let url = URL(string: "\(MacConfig.baseURL)/api/companies/\(companyId)/deal-pipeline") else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                let pipeline = try JSONDecoder().decode(MacDealPipeline.self, from: data)
+                await MainActor.run {
+                    self.dealPipelines[companyId] = pipeline
+                }
+            }
+        } catch {
+            print("Failed to fetch deal pipeline for \(companyId): \(error)")
+        }
+    }
+
+    func updateDealStage(companyId: String, newStage: String) async {
+        guard var current = dealPipelines[companyId] else { return }
+        current.stage = newStage
+        current.daysInStage = 1
+        await MainActor.run {
+            self.dealPipelines[companyId] = current
+        }
+
+        guard let url = URL(string: "\(MacConfig.baseURL)/api/companies/\(companyId)/deal-pipeline") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload: [String: Any] = ["stage": newStage, "days_in_stage": 1]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        req.httpBody = bodyData
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                let updated = try JSONDecoder().decode(MacDealPipeline.self, from: data)
+                await MainActor.run {
+                    self.dealPipelines[companyId] = updated
+                }
+            }
+        } catch {
+            print("Failed to put deal pipeline stage for \(companyId): \(error)")
+        }
+    }
+
+    func fetchFounderDossier(for companyId: String) async {
+        guard let url = URL(string: "\(MacConfig.baseURL)/api/companies/\(companyId)/founder-dossier") else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                let dossier = try JSONDecoder().decode(MacFounderDossier.self, from: data)
+                await MainActor.run {
+                    self.founderDossiers[companyId] = dossier
+                }
+            }
+        } catch {
+            print("Failed to fetch founder dossier for \(companyId): \(error)")
+        }
+    }
+
+    func deepSearchFounder(for companyId: String) async {
+        await MainActor.run {
+            _ = self.deepSearchingFounders.insert(companyId)
+        }
+
+        guard let url = URL(string: "\(MacConfig.baseURL)/api/companies/\(companyId)/founder-dossier/deep-search") else {
+            await MainActor.run {
+                _ = self.deepSearchingFounders.remove(companyId)
+            }
+            return
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                let dossier = try JSONDecoder().decode(MacFounderDossier.self, from: data)
+                await MainActor.run {
+                    self.founderDossiers[companyId] = dossier
+                    _ = self.deepSearchingFounders.remove(companyId)
+                }
+            } else {
+                await MainActor.run {
+                    _ = self.deepSearchingFounders.remove(companyId)
+                }
+            }
+        } catch {
+            print("Failed to deep search founder for \(companyId): \(error)")
+            await MainActor.run {
+                _ = self.deepSearchingFounders.remove(companyId)
+            }
         }
     }
 }
 
 // MARK: - News & Quotes Models
 
-struct MacNewsItem: Identifiable, Hashable {
+struct MacNewsItem: Identifiable, Hashable, Codable {
     let id: String
     let title: String
     let summary: String?
@@ -480,7 +675,7 @@ struct MacNewsItem: Identifiable, Hashable {
     }
 }
 
-struct MacQuote: Identifiable, Hashable {
+struct MacQuote: Identifiable, Hashable, Codable {
     var id: String { ticker }
     let ticker: String
     let last: Double?
@@ -500,12 +695,12 @@ struct MacQuote: Identifiable, Hashable {
     var isUp: Bool { (pct ?? 0) >= 0 }
 }
 
-struct MacPulseBrief: Decodable {
+struct MacPulseBrief: Codable {
     let date: String?
     let indices: [MacPulseQuote]?
     let note: MacPulseNote?
 
-    struct MacPulseQuote: Decodable, Identifiable {
+    struct MacPulseQuote: Codable, Identifiable {
         var id: String { ticker }
         let ticker: String
         let lastPrice: Double?
@@ -517,7 +712,7 @@ struct MacPulseBrief: Decodable {
         }
     }
 
-    struct MacPulseNote: Decodable {
+    struct MacPulseNote: Codable {
         let headlineEn: String?
         let headlineZh: String?
         let bulletsEn: [String]?

@@ -2797,6 +2797,32 @@ def get_company(company_id: str) -> CompanyOut:
     return CompanyOut(**_company_view(company))
 
 
+@router.get("/companies/{company_id}/founder-dossier")
+def get_company_founder_dossier(company_id: str) -> dict:
+    from . import founder_dossier
+    return founder_dossier.get_or_synthesize_founder_dossier(company_id)
+
+
+@router.post("/companies/{company_id}/founder-dossier/deep-search")
+def post_company_founder_deep_search(company_id: str) -> dict:
+    from . import founder_dossier
+    return founder_dossier.deep_search_founder_dossier(company_id)
+
+
+@router.get("/companies/{company_id}/deal-pipeline")
+def get_company_deal_pipeline(company_id: str) -> dict:
+    from . import deal_pipeline
+    return deal_pipeline.get_deal_pipeline(company_id)
+
+
+@router.put("/companies/{company_id}/deal-pipeline")
+def put_company_deal_pipeline(company_id: str, payload: dict) -> dict:
+    from . import deal_pipeline
+    return deal_pipeline.update_deal_pipeline(company_id, payload)
+
+
+
+
 @router.delete("/companies/{company_id}", status_code=204)
 def delete_company(request: Request, company_id: str) -> Response:
     _require_permission(request, "tasks:action")

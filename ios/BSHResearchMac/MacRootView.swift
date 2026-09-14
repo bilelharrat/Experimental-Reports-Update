@@ -131,6 +131,42 @@ struct MacRootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
+                    // Cache & Sync Status
+                    if store.isOfflineMode {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.orange).frame(width: 6, height: 6)
+                            Text("Offline Cache")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let sync = store.lastSyncDate {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.green).frame(width: 6, height: 6)
+                            Text("Synced \(sync, style: .time)")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        .help("Data hydrated and cached locally (sub-20ms startup)")
+                    }
+
+                    // Command Palette Spotlight Trigger
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            store.showCommandPalette = true
+                        }
+                    } label: {
+                        Label("Command Palette", systemImage: "command")
+                    }
+                    .help("Open Command Palette & Global Search (⌘K)")
+
+                    // Keyboard Shortcuts Sheet Trigger
+                    Button {
+                        store.showShortcutSheet = true
+                    } label: {
+                        Label("Shortcuts", systemImage: "questionmark.circle")
+                    }
+                    .help("Terminal Keyboard Shortcuts Cheat Sheet (?)")
+
                     // New Report Button
                     Button {
                         showNewReportSheet = true
@@ -198,7 +234,21 @@ struct MacRootView: View {
                     .padding()
             }
         }
-        // Keyboard shortcuts to jump between tabs
+        .sheet(isPresented: $store.showShortcutSheet) {
+            MacShortcutOverlay()
+        }
+        .sheet(isPresented: $store.showDeckIntakeSheet) {
+            MacPitchDeckIntakeSheet(fileURL: store.droppedDeckURL)
+                .environmentObject(store)
+        }
+        .overlay {
+            if store.showCommandPalette {
+                MacCommandPalette(isPresented: $store.showCommandPalette)
+                    .environmentObject(store)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        // Keyboard shortcuts to jump between tabs & trigger overlays
         .background {
             Group {
                 Button("") { store.selectedTab = .home }.keyboardShortcut("1", modifiers: .command)
@@ -208,6 +258,14 @@ struct MacRootView: View {
                 Button("") { store.selectedTab = .news }.keyboardShortcut("5", modifiers: .command)
                 Button("") { store.selectedTab = .pulse }.keyboardShortcut("6", modifiers: .command)
                 Button("") { store.selectedTab = .copilot }.keyboardShortcut("7", modifiers: .command)
+                Button("") {
+                    withAnimation(.easeInOut(duration: 0.12)) {
+                        store.showCommandPalette.toggle()
+                    }
+                }.keyboardShortcut("k", modifiers: .command)
+                Button("") {
+                    store.showShortcutSheet.toggle()
+                }.keyboardShortcut("?", modifiers: [])
             }
             .opacity(0)
         }
