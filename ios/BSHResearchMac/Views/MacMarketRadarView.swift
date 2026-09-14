@@ -135,7 +135,7 @@ struct MacMarketRadarView: View {
                                     .buttonStyle(.plain)
                                     .help("Pin to desk")
 
-                                    if let name = store.selectedChart?.name ?? store.selectedWorkspace?.summary?.name {
+                                    if let name = store.selectedChart?.name ?? store.selectedWorkspace?.profile?.name {
                                         Text(name)
                                             .font(.headline)
                                             .foregroundStyle(.secondary)
@@ -163,11 +163,21 @@ struct MacMarketRadarView: View {
                                 .help("Open quote workspace on Web")
 
                                 Button {
-                                    store.sendCopilotMessage(prompt: "Provide an investment breakdown for \(ticker).")
+                                    store.openSignalLog(seedTicker: ticker)
+                                } label: {
+                                    Label("Log signal", systemImage: "flag")
+                                }
+                                .buttonStyle(.bordered)
+                                .help("Log a bullish / bearish call on \(ticker) — scored against live prices (⌘L)")
+
+                                Button {
+                                    let company = store.companies.first { $0.ticker?.uppercased() == ticker.uppercased() }
+                                    store.askWarren("Provide an investment breakdown for \(ticker).", context: .market(ticker: ticker), company: company)
                                 } label: {
                                     Label("Ask Warren", systemImage: "bubble.left.and.bubble.right.fill")
                                 }
                                 .buttonStyle(.borderedProminent)
+                                .disabled(!store.canRunTasks)
                             }
                         }
                         .padding()
@@ -220,13 +230,17 @@ struct MacMarketRadarView: View {
                                 Text("Key Financial Statistics")
                                     .font(.headline)
 
+                                let dividendText = [sum.dividend, sum.yield].compactMap { $0 }.joined(separator: " · ")
                                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                                    StatBox(label: "Market Cap", value: formatLargeNumber(sum.marketCap))
-                                    StatBox(label: "P/E Ratio", value: sum.peRatio != nil ? String(format: "%.1fx", sum.peRatio!) : "—")
-                                    StatBox(label: "Volume", value: sum.volume != nil ? formatLargeNumber(sum.volume) : "—")
-                                    StatBox(label: "52-Week High", value: sum.high52w != nil ? String(format: "$%.2f", sum.high52w!) : "—")
-                                    StatBox(label: "52-Week Low", value: sum.low52w != nil ? String(format: "$%.2f", sum.low52w!) : "—")
-                                    StatBox(label: "Current Price", value: sum.price != nil ? String(format: "$%.2f", sum.price!) : "—")
+                                    StatBox(label: "Market Cap", value: sum.marketCap ?? "—")
+                                    StatBox(label: "Previous Close", value: sum.previousClose ?? "—")
+                                    StatBox(label: "Day Range", value: sum.dayRange ?? "—")
+                                    StatBox(label: "52-Week Range", value: sum.fiftyTwoWeek ?? "—")
+                                    StatBox(label: "Volume", value: sum.volume ?? "—")
+                                    StatBox(label: "Avg Volume", value: sum.avgVolume ?? "—")
+                                    StatBox(label: "1-Yr Target", value: sum.oneYearTarget ?? "—")
+                                    StatBox(label: "Beta", value: sum.beta ?? "—")
+                                    StatBox(label: "Dividend / Yield", value: dividendText.isEmpty ? "—" : dividendText)
                                 }
                             }
                             .padding()
@@ -269,7 +283,10 @@ struct MacMarketRadarView: View {
                                     .padding(.vertical, 8)
                             } else {
                                 ForEach(matchingLots) { lot in
-                                    let curPrice = store.selectedWorkspace?.summary?.price ?? store.selectedChart?.points?.last?.close ?? lot.costBasis
+                                    let curPrice = store.selectedChart?.points?.last?.close
+                                        ?? store.watchlist.first(where: { $0.ticker == ticker })?.last
+                                        ?? store.selectedWorkspace?.summary?.previousCloseValue
+                                        ?? lot.costBasis
                                     let gain = lot.unrealizedGain(currentPrice: curPrice)
                                     let gainPct = lot.gainPct(currentPrice: curPrice)
 

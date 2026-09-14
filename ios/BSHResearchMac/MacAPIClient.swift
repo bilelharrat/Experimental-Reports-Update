@@ -3,17 +3,21 @@ import Foundation
 enum MacAPIError: Error, LocalizedError {
     case invalidURL
     case unauthorized
+    case forbidden(String)
     case http(Int, String)
     case decoding
     case transport(String)
+    case stream(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "Bad API URL"
         case .unauthorized: return "Signed out — sign in again"
+        case .forbidden(let detail): return detail.isEmpty ? "Permission denied" : detail
         case .http(let code, let detail): return detail.isEmpty ? "HTTP \(code)" : detail
         case .decoding: return "Bad response"
         case .transport(let msg): return msg
+        case .stream(let msg): return msg
         }
     }
 }
@@ -34,15 +38,22 @@ actor MacAPIClient {
         self.session = session
     }
 
-    func login(email: String, password: String) async throws -> String {
+    // MARK: - Auth
+
+    func login(email: String, password: String) async throws -> MacAuthTokenResponse {
         struct Body: Encodable { let email: String; let password: String }
-        let res: MacAuthTokenResponse = try await request(
-            "auth/token",
-            method: "POST",
-            body: Body(email: email, password: password)
-        )
-        return res.token
+        return try await request("auth/token", method: "POST", body: Body(email: email, password: password))
     }
+
+    func me() async throws -> MacSession {
+        try await request("auth/me", method: "GET")
+    }
+
+    func logout() async throws {
+        try await requestVoid("auth/logout", method: "POST")
+    }
+
+    // MARK: - Companies & reports
 
     func listCompanies() async throws -> [MacCompany] {
         try await request("companies", method: "GET")
@@ -60,6 +71,22 @@ actor MacAPIClient {
         try await request("reports/\(id)", method: "GET")
     }
 
+    func cancelReport(id: String) async throws -> MacReport {
+        try await request("reports/\(id)/cancel", method: "POST")
+    }
+
+    func resumeReport(id: String) async throws -> MacReport {
+        try await request("reports/\(id)/resume", method: "POST")
+    }
+
+    func dismissReport(id: String) async throws -> MacReport {
+        try await request("reports/\(id)/dismiss", method: "POST")
+    }
+
+    func deleteReport(id: String) async throws {
+        try await requestVoid("reports/\(id)", method: "DELETE")
+    }
+
     func fetchPDF(pathOrURL: String) async throws -> Data {
         try await download(pathOrURL: pathOrURL)
     }
@@ -71,6 +98,57 @@ actor MacAPIClient {
     func getCompany(id: String) async throws -> MacCompany {
         try await request("companies/\(id)", method: "GET")
     }
+
+    /// Promote an autocomplete / deep-search hit to a tracked company.
+    func selectCompany(_ match: MacCompanyMatch) async throws -> MacCompany {
+        try await request("companies/select", method: "POST", body: match)
+    }
+
+    // MARK: - Search
+
+    func searchAutocomplete(query: String, limit: Int = 8) async throws -> [MacAutocompleteHit] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return [] }
+        return try await request(
+            "companies/autocomplete",
+            method: "GET",
+            query: [URLQueryItem(name: "q", value: q), URLQueryItem(name: "limit", value: String(limit))]
+        )
+    }
+
+    func searchSymbols(query: String) async throws -> [MacSymbolMatch] {
+        struct Payload: Decodable { let matches: [MacSymbolMatch]? }
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return [] }
+        let payload: Payload = try await request(
+            "quotes/search",
+            method: "GET",
+            query: [URLQueryItem(name: "q", value: q)]
+        )
+        return (payload.matches ?? []).filter { !$0.symbol.isEmpty }
+    }
+
+    /// Kick off a Claude deep search; cached queries return matches inline.
+    func startDeepSearch(query: String, refresh: Bool = false) async throws -> MacDeepSearchStart {
+        try await request(
+            "companies/search/start",
+            method: "POST",
+            query: [URLQueryItem(name: "q", value: query), URLQueryItem(name: "refresh", value: refresh ? "true" : "false")]
+        )
+    }
+
+    /// Cached / finished deep-search results for a query (the job writes to the same cache).
+    func fetchDeepSearchResults(query: String) async throws -> [MacCompanyMatch] {
+        struct Payload: Decodable { let matches: [MacCompanyMatch]? }
+        let payload: Payload = try await request(
+            "companies/search",
+            method: "GET",
+            query: [URLQueryItem(name: "q", value: query)]
+        )
+        return payload.matches ?? []
+    }
+
+    // MARK: - Quotes, news, pulse
 
     func fetchQuotes(tickers: [String]) async throws -> [MacQuote] {
         let unique = Array(Set(tickers.map { $0.uppercased() })).sorted()
@@ -218,20 +296,6 @@ actor MacAPIClient {
         return try await request("news/brief", method: "POST", body: req)
     }
 
-    func searchAutocomplete(query: String, limit: Int = 8) async throws -> [MacAutocompleteHit] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return [] }
-        return try await request(
-            "companies/autocomplete",
-            method: "GET",
-            query: [URLQueryItem(name: "q", value: q), URLQueryItem(name: "limit", value: String(limit))]
-        )
-    }
-
-    func fetchActiveJobs() async throws -> [MacActiveJob] {
-        try await request("jobs/active", method: "GET")
-    }
-
     func fetchMarketPulsePayload() async throws -> MacMarketPulsePayload {
         try await request("research-pages/market-pulse", method: "GET")
     }
@@ -239,6 +303,32 @@ actor MacAPIClient {
     func fetchPulse() async throws -> MacPulseBrief {
         try await request("market-brief", method: "GET")
     }
+
+    // MARK: - Jobs & alerts
+
+    func fetchActiveJobs() async throws -> [MacActiveJob] {
+        try await request("jobs/active", method: "GET")
+    }
+
+    func fetchJobHistory(limit: Int = 30) async throws -> [MacJobHistoryRow] {
+        try await request("jobs/history", method: "GET", query: [URLQueryItem(name: "limit", value: String(limit))])
+    }
+
+    func fetchAlertEvents(limit: Int = 100) async throws -> [MacAlertEvent] {
+        struct Payload: Decodable { let events: [MacAlertEvent]? }
+        let payload: Payload = try await request(
+            "alerts/events",
+            method: "GET",
+            query: [URLQueryItem(name: "limit", value: String(limit))]
+        )
+        return payload.events ?? []
+    }
+
+    func runAlertCheck() async throws -> MacAlertCheckResult {
+        try await request("alerts/check", method: "POST")
+    }
+
+    // MARK: - Annotations
 
     func fetchAnnotations(reportId: String) async throws -> MacAnnotationPayload {
         try await request(
@@ -260,7 +350,7 @@ actor MacAPIClient {
         return nil
     }
 
-    // MARK: - Market Chart & Workspace
+    // MARK: - Market chart & workspace
 
     func fetchChart(ticker: String, range: MacChartRange = .d1) async throws -> MacChartPayload {
         try await request(
@@ -274,7 +364,7 @@ actor MacAPIClient {
         try await request("quotes/\(ticker.uppercased())/workspace", method: "GET")
     }
 
-    // MARK: - Desk Preferences (Synced with Web & iPad)
+    // MARK: - Desk preferences (one blob shared with web & iPad — never overwrite other keys)
 
     struct DeskPrefsResult {
         let watchlist: [String]
@@ -282,24 +372,20 @@ actor MacAPIClient {
         let rules: [MacAlertRule]
     }
 
-    func fetchDeskPrefs() async throws -> DeskPrefsResult {
-        let url = try apiURL("desk/prefs")
-        var req = URLRequest(url: url)
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = MacConfig.readToken() {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        let (data, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            return DeskPrefsResult(watchlist: ["SPY", "QQQ", "DIA", "IWM"], lots: [], rules: [])
-        }
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let blob = root["data"] as? [String: Any] else {
-            return DeskPrefsResult(watchlist: ["SPY", "QQQ", "DIA", "IWM"], lots: [], rules: [])
-        }
+    static let defaultWatchlist = ["SPY", "QQQ", "DIA", "IWM"]
 
-        let watchlist = (blob["bsh.marketPinnedTickers"] as? [String]) ?? ["SPY", "QQQ", "DIA", "IWM"]
-        
+    private func fetchDeskPrefsBlob() async throws -> [String: Any] {
+        let data = try await rawData("desk/prefs", method: "GET")
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw MacAPIError.decoding
+        }
+        return (root["data"] as? [String: Any]) ?? [:]
+    }
+
+    func fetchDeskPrefs() async throws -> DeskPrefsResult {
+        let blob = try await fetchDeskPrefsBlob()
+        let watchlist = (blob["bsh.marketPinnedTickers"] as? [String]) ?? Self.defaultWatchlist
+
         var lots: [MacBookLot] = []
         if let rawLots = blob["bsh.bookLots"] as? [[String: Any]] {
             for item in rawLots {
@@ -329,7 +415,11 @@ actor MacAPIClient {
         return DeskPrefsResult(watchlist: watchlist, lots: lots, rules: rules)
     }
 
+    /// Read-modify-write: only the three keys the Mac owns change; everything the
+    /// web desk stores in the same blob survives.
     func saveDeskPrefs(watchlist: [String], lots: [MacBookLot], rules: [MacAlertRule]) async throws {
+        var blob = (try? await fetchDeskPrefsBlob()) ?? [:]
+
         var rawLots: [[String: Any]] = []
         for l in lots {
             rawLots.append([
@@ -354,28 +444,25 @@ actor MacAPIClient {
             ])
         }
 
-        let blob: [String: Any] = [
-            "bsh.marketPinnedTickers": watchlist,
-            "bsh.bookLots": rawLots,
-            "bsh.marketAlertRules": rawRules,
-        ]
+        blob["bsh.marketPinnedTickers"] = watchlist
+        blob["bsh.bookLots"] = rawLots
+        blob["bsh.marketAlertRules"] = rawRules
 
         let url = try apiURL("desk/prefs")
         var req = URLRequest(url: url)
         req.httpMethod = "PUT"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("macos", forHTTPHeaderField: "X-BSH-Client")
         if let token = MacConfig.readToken() {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let payload: [String: Any] = ["data": blob]
         req.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        let (_, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw MacAPIError.http((response as? HTTPURLResponse)?.statusCode ?? -1, "Failed to save desk preferences")
-        }
+        let (data, response) = try await session.data(for: req)
+        try Self.check(response: response, data: data)
     }
 
-    // MARK: - Report Options & Generation
+    // MARK: - Report options & generation
 
     struct MacReportOptionItem: Decodable, Identifiable {
         var id: String { code }
@@ -417,91 +504,179 @@ actor MacAPIClient {
         )
     }
 
-    // MARK: - Copilot AI Stream
+    // MARK: - Pipeline: tracking rollup, watchlist, sync
 
-    func askCopilotStream(
-        companyId: String,
-        prompt: String,
-        persona: MacCopilotPersona
-    ) -> AsyncThrowingStream<String, Error> {
+    func fetchTrackingRollup(companyIds: [String]) async throws -> MacRollup {
+        let ids = Array(companyIds.prefix(60))
+        guard !ids.isEmpty else {
+            let empty = "{\"companies\":[],\"attention\":[]}".data(using: .utf8)!
+            return try decoder.decode(MacRollup.self, from: empty)
+        }
+        return try await request(
+            "tracking/rollup",
+            method: "GET",
+            query: ids.map { URLQueryItem(name: "company_id", value: $0) }
+        )
+    }
+
+    func fetchTrackingWatchlist() async throws -> [String] {
+        struct Payload: Decodable { let companyIds: [String]?; enum CodingKeys: String, CodingKey { case companyIds = "company_ids" } }
+        let payload: Payload = try await request("tracking/watchlist", method: "GET")
+        return payload.companyIds ?? []
+    }
+
+    func saveTrackingWatchlist(_ companyIds: [String]) async throws -> [String] {
+        struct Body: Encodable { let companyIds: [String]; enum CodingKeys: String, CodingKey { case companyIds = "company_ids" } }
+        struct Payload: Decodable { let companyIds: [String]?; enum CodingKeys: String, CodingKey { case companyIds = "company_ids" } }
+        let payload: Payload = try await request("tracking/watchlist", method: "PUT", body: Body(companyIds: companyIds))
+        return payload.companyIds ?? companyIds
+    }
+
+    /// Synchronous on the server (Claude news search per company) — long timeout.
+    func syncAllTracking(companyIds: [String]?) async throws -> Int {
+        struct Body: Encodable {
+            let companyIds: [String]?
+            let markAuto = true
+            let execute = false
+            enum CodingKeys: String, CodingKey {
+                case companyIds = "company_ids"
+                case markAuto = "mark_auto"
+                case execute
+            }
+        }
+        struct Payload: Decodable { let createdTotal: Int?; enum CodingKeys: String, CodingKey { case createdTotal = "created_total" } }
+        let payload: Payload = try await request(
+            "tracking/sync-all",
+            method: "POST",
+            body: Body(companyIds: companyIds),
+            timeout: 600
+        )
+        return payload.createdTotal ?? 0
+    }
+
+    func fetchTrackingUpdates(companyId: String, limit: Int = 50) async throws -> MacTrackingUpdates {
+        try await request(
+            "companies/\(companyId)/tracking-updates",
+            method: "GET",
+            query: [URLQueryItem(name: "limit", value: String(limit))]
+        )
+    }
+
+    func syncTrackingUpdates(companyId: String) async throws -> MacTrackingUpdates {
+        struct Body: Encodable {
+            let markAuto = true
+            let execute = false
+            let refreshNews = true
+            enum CodingKeys: String, CodingKey {
+                case markAuto = "mark_auto"
+                case execute
+                case refreshNews = "refresh_news"
+            }
+        }
+        return try await request(
+            "companies/\(companyId)/tracking-updates/sync",
+            method: "POST",
+            body: Body(),
+            timeout: 300
+        )
+    }
+
+    func executeAutoRun(companyId: String, autoRunId: String) async throws -> MacAutoRunExecuteResult {
+        struct Body: Encodable {
+            let acknowledgeReview = true
+            enum CodingKeys: String, CodingKey { case acknowledgeReview = "acknowledge_review" }
+        }
+        return try await request(
+            "companies/\(companyId)/tracking-updates/auto-runs/\(autoRunId)/execute",
+            method: "POST",
+            body: Body(),
+            timeout: 120
+        )
+    }
+
+    // MARK: - Decisions
+
+    func fetchDecisions(companyId: String) async throws -> [MacDecision] {
+        struct Payload: Decodable { let items: [MacDecision]? }
+        let payload: Payload = try await request("companies/\(companyId)/decisions", method: "GET")
+        return payload.items ?? []
+    }
+
+    func createDecision(companyId: String, body: MacDecisionCreate) async throws -> MacDecision {
+        try await request("companies/\(companyId)/decisions", method: "POST", body: body)
+    }
+
+    func deleteDecision(companyId: String, decisionId: String) async throws {
+        try await requestVoid("companies/\(companyId)/decisions/\(decisionId)", method: "DELETE")
+    }
+
+    // MARK: - Memo analysis (IC prep) & evidence
+
+    func fetchMemoAnalysis(companyId: String) async throws -> MacMemoAnalysis {
+        try await request("companies/\(companyId)/memo-analysis", method: "GET", timeout: 60)
+    }
+
+    func runMemoTool(companyId: String, tool: String) async throws -> MacMemoAnalysis {
+        try await request("companies/\(companyId)/memo-analysis/tools/\(tool)/run", method: "POST", timeout: 120)
+    }
+
+    func patchReadinessReviews(companyId: String, items: [MacReadinessReviewPatch.Item]) async throws -> MacMemoAnalysis {
+        try await request(
+            "companies/\(companyId)/memo-analysis/artifacts/readiness_reviews",
+            method: "PATCH",
+            body: MacReadinessReviewPatch(items: items)
+        )
+    }
+
+    func approveMemoAnalysis(companyId: String) async throws -> MacMemoAnalysis {
+        try await request("companies/\(companyId)/memo-analysis/approve", method: "POST")
+    }
+
+    func fetchEvidenceMatrix(companyId: String) async throws -> MacEvidenceMatrix {
+        try await request("companies/\(companyId)/evidence-matrix", method: "GET", timeout: 60)
+    }
+
+    // MARK: - Server-sent events
+
+    /// Generic SSE tail. `path` may be an absolute API path ("/api/memos/…/stream")
+    /// or relative to the API root.
+    nonisolated func streamEvents(path: String) -> AsyncThrowingStream<MacSSEEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let fullPrompt = persona.promptPrefix + prompt
-                    struct AskBody: Encodable {
-                        let prompt: String
-                        let mode: String
-                        let outputLanguage: String
-                        enum CodingKeys: String, CodingKey {
-                            case prompt, mode
-                            case outputLanguage = "output_language"
-                        }
-                    }
-                    struct AskResponse: Decodable {
-                        let streamUrl: String?
-                        let turnId: String?
-                        let sessionId: String?
-                        enum CodingKeys: String, CodingKey {
-                            case streamUrl = "stream_url"
-                            case turnId = "turn_id"
-                            case sessionId = "session_id"
-                        }
-                    }
-
-                    let res: AskResponse = try await self.request(
-                        "companies/\(companyId)/copilot/ask",
-                        method: "POST",
-                        body: AskBody(prompt: fullPrompt, mode: "quick", outputLanguage: "en")
-                    )
-
-                    guard let streamPath = res.streamUrl, !streamPath.isEmpty else {
-                        continuation.yield("No response stream available.")
-                        continuation.finish()
-                        return
-                    }
-
-                    let streamURL: URL
-                    let trimmed = streamPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                    if trimmed.hasPrefix("api/") {
-                        streamURL = MacConfig.baseURL.appendingPathComponent(trimmed)
-                    } else {
-                        streamURL = MacConfig.apiRoot.appendingPathComponent(trimmed)
-                    }
-
-                    var streamReq = URLRequest(url: streamURL)
-                    streamReq.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    let url = try Self.streamURL(for: path)
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 60 * 60
+                    req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    req.setValue("macos", forHTTPHeaderField: "X-BSH-Client")
                     if let token = MacConfig.readToken() {
-                        streamReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     }
-
-                    let (bytes, response) = try await self.session.bytes(for: streamReq)
+                    let (bytes, response) = try await URLSession.shared.bytes(for: req)
                     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                        continuation.finish(throwing: MacAPIError.http(http.statusCode, "Stream HTTP error"))
-                        return
+                        throw MacAPIError.http(http.statusCode, "Stream HTTP \(http.statusCode)")
                     }
-
+                    var eventName: String?
+                    var dataLines: [String] = []
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
-                        if line.hasPrefix("data:") {
-                            let raw = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                            guard let data = raw.data(using: .utf8),
-                                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                            else { continue }
-
-                            let type = (obj["type"] as? String) ?? ""
-                            if type == "delta" || type == "text" {
-                                if let chunk = obj["text"] as? String {
-                                    continuation.yield(chunk)
-                                }
-                            } else if type == "claude_action" {
-                                if let action = obj["action"] as? String, action == "thinking",
-                                   let chunk = obj["text"] as? String {
-                                    continuation.yield(chunk)
-                                }
-                            } else if type == "done" {
-                                break
+                        if line.hasPrefix(":") { continue }
+                        if line.isEmpty {
+                            if !dataLines.isEmpty {
+                                continuation.yield(MacSSEEvent(event: eventName, data: dataLines.joined(separator: "\n")))
                             }
+                            eventName = nil
+                            dataLines = []
+                            continue
                         }
+                        if line.hasPrefix("event:") {
+                            eventName = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                        } else if line.hasPrefix("data:") {
+                            dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
+                        }
+                    }
+                    if !dataLines.isEmpty {
+                        continuation.yield(MacSSEEvent(event: eventName, data: dataLines.joined(separator: "\n")))
                     }
                     continuation.finish()
                 } catch {
@@ -512,18 +687,290 @@ actor MacAPIClient {
         }
     }
 
+    private static func streamURL(for path: String) throws -> URL {
+        if path.hasPrefix("http") {
+            guard let url = URL(string: path) else { throw MacAPIError.invalidURL }
+            return url
+        }
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if trimmed.hasPrefix("api/") {
+            var components = URLComponents(url: MacConfig.baseURL, resolvingAgainstBaseURL: false)!
+            components.path = "/" + trimmed
+            guard let url = components.url else { throw MacAPIError.invalidURL }
+            return url
+        }
+        return MacConfig.apiRoot.appendingPathComponent(trimmed)
+    }
+
+    // MARK: - Copilot (context-aware Ask)
+
+    func fetchCopilotContext(companyId: String, context: MacCopilotContext) async throws -> MacCopilotContextInfo {
+        try await request("companies/\(companyId)/copilot/context", method: "POST", body: context)
+    }
+
+    /// Quick or deep Ask. The console stream has no token deltas: assistant text arrives as
+    /// `claude_action/thinking` blocks and the canonical reply on the terminal `done` event.
+    func askCopilotStream(
+        companyId: String,
+        prompt: String,
+        persona: MacCopilotPersona,
+        context: MacCopilotContext,
+        mode: String = "quick"
+    ) -> AsyncThrowingStream<MacCopilotChunk, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let fullPrompt = persona.promptPrefix + prompt
+                    struct AskBody: Encodable {
+                        let prompt: String
+                        let mode: String
+                        let outputLanguage: String
+                        let context: MacCopilotContext
+                        enum CodingKeys: String, CodingKey {
+                            case prompt, mode, context
+                            case outputLanguage = "output_language"
+                        }
+                    }
+                    struct AskResponse: Decodable {
+                        let streamUrl: String?
+                        enum CodingKeys: String, CodingKey { case streamUrl = "stream_url" }
+                    }
+
+                    let res: AskResponse = try await self.request(
+                        "companies/\(companyId)/copilot/ask",
+                        method: "POST",
+                        body: AskBody(prompt: fullPrompt, mode: mode, outputLanguage: "en", context: context)
+                    )
+                    guard let streamPath = res.streamUrl, !streamPath.isEmpty else {
+                        throw MacAPIError.stream("No response stream available.")
+                    }
+                    try await self.pumpConsoleStream(path: streamPath, into: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Shared reader for copilot and console turn streams.
+    nonisolated func pumpConsoleStream(
+        path: String,
+        into continuation: AsyncThrowingStream<MacCopilotChunk, Error>.Continuation
+    ) async throws {
+        for try await event in streamEvents(path: path) {
+            try Task.checkCancellation()
+            if event.event == "error" {
+                throw MacAPIError.stream(event.json?["error"] as? String ?? "Stream error")
+            }
+            guard let obj = event.json else { continue }
+            let type = (obj["type"] as? String) ?? ""
+            switch type {
+            case "claude_action":
+                let action = (obj["action"] as? String) ?? ""
+                if action == "thinking", let text = obj["text"] as? String, !text.isEmpty {
+                    continuation.yield(.partial(text))
+                } else if action == "tool_use", let tool = obj["tool"] as? String {
+                    continuation.yield(.tool("Using \(tool)…"))
+                } else if action == "interrupted" {
+                    throw MacAPIError.stream("Interrupted: \((obj["reason"] as? String) ?? "unknown")")
+                }
+            case "done":
+                continuation.yield(.final((obj["text"] as? String) ?? ""))
+                return
+            case "error":
+                throw MacAPIError.stream((obj["error"] as? String) ?? (obj["message"] as? String) ?? "Assistant error")
+            case "cancelled":
+                throw MacAPIError.stream("Cancelled")
+            default:
+                break
+            }
+        }
+    }
+
+    // MARK: - Attention queue
+
+    func fetchDeskScreener(limit: Int = 20) async throws -> [MacScreenerItem] {
+        struct Payload: Decodable { let items: [MacScreenerItem]? }
+        let payload: Payload = try await request("desk/screener", method: "GET", query: [URLQueryItem(name: "limit", value: String(limit))])
+        return payload.items ?? []
+    }
+
+    func fetchDeskDigest(since: Date?, limit: Int = 20) async throws -> [MacDigestItem] {
+        struct Payload: Decodable { let items: [MacDigestItem]? }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let since {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime]
+            query.append(URLQueryItem(name: "since", value: f.string(from: since)))
+        }
+        let payload: Payload = try await request("desk/digest", method: "GET", query: query)
+        return payload.items ?? []
+    }
+
+    func fetchIntakeUnresolved() async throws -> [MacIntakeItem] {
+        try await request("intake/unresolved", method: "GET")
+    }
+
+    // MARK: - Signal ledger
+
+    func fetchSignals() async throws -> [MacSignal] {
+        struct Payload: Decodable { let entries: [MacSignal]? }
+        let payload: Payload = try await request("signals/ledger", method: "GET", query: [URLQueryItem(name: "score", value: "true")], timeout: 45)
+        return payload.entries ?? []
+    }
+
+    func logSignal(ticker: String, direction: String, label: String, priceAtSignal: Double?) async throws -> MacSignal {
+        struct Body: Encodable {
+            let ticker: String
+            let direction: String
+            let label: String
+            let source = "macos"
+            let priceAtSignal: Double?
+            enum CodingKeys: String, CodingKey {
+                case ticker, direction, label, source
+                case priceAtSignal = "price_at_signal"
+            }
+        }
+        struct Payload: Decodable { let entry: MacSignal }
+        let payload: Payload = try await request(
+            "signals/ledger",
+            method: "POST",
+            body: Body(ticker: ticker.uppercased(), direction: direction, label: label, priceAtSignal: priceAtSignal)
+        )
+        return payload.entry
+    }
+
+    func deleteSignal(id: String) async throws {
+        try await requestVoid("signals/ledger/\(id)", method: "DELETE")
+    }
+
+    // MARK: - Console sessions
+
+    func listConsoleSessions(companyId: String) async throws -> [MacConsoleSession] {
+        try await request("companies/\(companyId)/console/sessions", method: "GET")
+    }
+
+    func createConsoleSession(companyId: String, includeBackgroundDocs: Bool, includeLibraryDocs: Bool, outputLanguage: String) async throws -> MacConsoleSession {
+        struct Body: Encodable {
+            let includeBackgroundDocs: Bool
+            let includeLibraryDocs: Bool
+            let outputLanguage: String
+            enum CodingKeys: String, CodingKey {
+                case includeBackgroundDocs = "include_background_docs"
+                case includeLibraryDocs = "include_library_docs"
+                case outputLanguage = "output_language"
+            }
+        }
+        return try await request(
+            "companies/\(companyId)/console/sessions",
+            method: "POST",
+            body: Body(includeBackgroundDocs: includeBackgroundDocs, includeLibraryDocs: includeLibraryDocs, outputLanguage: outputLanguage),
+            timeout: 60
+        )
+    }
+
+    func fetchConsoleTurns(companyId: String, sessionId: String) async throws -> [MacConsoleTurn] {
+        try await request("companies/\(companyId)/console/sessions/\(sessionId)/turns", method: "GET")
+    }
+
+    /// `multipart/form-data` — `prompt` field plus repeatable `images` files (PDF/DOC/DOCX allowed too).
+    func askConsole(companyId: String, sessionId: String, prompt: String, attachments: [URL]) async throws -> MacConsoleAskResult {
+        let boundary = "bsh-\(UUID().uuidString)"
+        var body = Data()
+        func append(_ s: String) { body.append(s.data(using: .utf8)!) }
+        append("--\(boundary)\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n\(prompt)\r\n")
+        for url in attachments {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let mime = Self.mimeType(for: url)
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"images\"; filename=\"\(url.lastPathComponent)\"\r\nContent-Type: \(mime)\r\n\r\n")
+            body.append(data)
+            append("\r\n")
+        }
+        append("--\(boundary)--\r\n")
+
+        let url = try apiURL("companies/\(companyId)/console/sessions/\(sessionId)/ask")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 120
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("macos", forHTTPHeaderField: "X-BSH-Client")
+        if let token = MacConfig.readToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        req.httpBody = body
+        let (data, response) = try await session.data(for: req)
+        try Self.check(response: response, data: data)
+        do {
+            return try decoder.decode(MacConsoleAskResult.self, from: data)
+        } catch {
+            throw MacAPIError.decoding
+        }
+    }
+
+    private static func mimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "webp": return "image/webp"
+        case "pdf": return "application/pdf"
+        case "doc": return "application/msword"
+        case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        default: return "application/octet-stream"
+        }
+    }
+
+    func cancelConsoleTurn(companyId: String, sessionId: String, turnId: String) async throws {
+        try await requestVoid("companies/\(companyId)/console/sessions/\(sessionId)/ask/\(turnId)/cancel", method: "POST")
+    }
+
+    func archiveConsoleSession(companyId: String, sessionId: String) async throws -> MacConsoleSession {
+        try await request("companies/\(companyId)/console/sessions/\(sessionId)/archive", method: "POST")
+    }
+
+    func deleteConsoleSession(companyId: String, sessionId: String) async throws {
+        try await requestVoid("companies/\(companyId)/console/sessions/\(sessionId)", method: "DELETE")
+    }
+
     // MARK: - HTTP
 
     private func request<T: Decodable>(
         _ path: String,
         method: String,
         query: [URLQueryItem] = [],
-        body: (any Encodable)? = nil
+        body: (any Encodable)? = nil,
+        timeout: TimeInterval = 30
     ) async throws -> T {
+        let data = try await rawData(path, method: method, query: query, body: body, timeout: timeout)
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw MacAPIError.decoding
+        }
+    }
+
+    private func requestVoid(
+        _ path: String,
+        method: String,
+        query: [URLQueryItem] = [],
+        body: (any Encodable)? = nil
+    ) async throws {
+        _ = try await rawData(path, method: method, query: query, body: body)
+    }
+
+    private func rawData(
+        _ path: String,
+        method: String,
+        query: [URLQueryItem] = [],
+        body: (any Encodable)? = nil,
+        timeout: TimeInterval = 30
+    ) async throws -> Data {
         let url = try apiURL(path, query: query)
         var req = URLRequest(url: url)
         req.httpMethod = method
-        req.timeoutInterval = 30
+        req.timeoutInterval = timeout
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("macos", forHTTPHeaderField: "X-BSH-Client")
         if let token = MacConfig.readToken() {
@@ -541,22 +988,8 @@ actor MacAPIClient {
         } catch {
             throw MacAPIError.transport(error.localizedDescription)
         }
-
-        guard let http = response as? HTTPURLResponse else {
-            throw MacAPIError.http(-1, "No HTTP response")
-        }
-        if http.statusCode == 401 {
-            MacConfig.clearToken()
-            throw MacAPIError.unauthorized
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw MacAPIError.http(http.statusCode, Self.detail(from: data, status: http.statusCode))
-        }
-        do {
-            return try decoder.decode(T.self, from: data)
-        } catch {
-            throw MacAPIError.decoding
-        }
+        try Self.check(response: response, data: data)
+        return data
     }
 
     private func downloadBinary(_ pathOrURL: String) async throws -> Data {
@@ -574,17 +1007,23 @@ actor MacAPIClient {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let (data, response) = try await session.data(for: req)
+        try Self.check(response: response, data: data)
+        return data
+    }
+
+    private static func check(response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else {
             throw MacAPIError.http(-1, "No HTTP response")
         }
         if http.statusCode == 401 {
-            MacConfig.clearToken()
             throw MacAPIError.unauthorized
         }
-        guard (200..<300).contains(http.statusCode) else {
-            throw MacAPIError.http(http.statusCode, Self.detail(from: data, status: http.statusCode))
+        if http.statusCode == 403 {
+            throw MacAPIError.forbidden(detail(from: data, status: 403))
         }
-        return data
+        guard (200..<300).contains(http.statusCode) else {
+            throw MacAPIError.http(http.statusCode, detail(from: data, status: http.statusCode))
+        }
     }
 
     private func apiURL(_ path: String, query: [URLQueryItem] = []) throws -> URL {

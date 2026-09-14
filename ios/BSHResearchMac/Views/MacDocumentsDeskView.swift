@@ -304,9 +304,9 @@ struct MacDocumentsDeskView: View {
 
             // Ask Warren About This Memo
             Button {
-                let prompt = "I am reviewing the investment memo for \(report.companyName ?? report.companyId ?? "this company") (\(report.displayTitle)). What are your primary reflections on the return on invested capital (ROIC), durable competitive advantages, and conservative valuation assumptions?"
-                store.sendCopilotMessage(prompt: prompt)
-                store.selectedTab = .copilot
+                let prompt = "I am reviewing this investment memo (\(report.displayTitle)). What are your primary reflections on the return on invested capital (ROIC), durable competitive advantages, and conservative valuation assumptions?"
+                let company = store.companies.first { $0.id == report.companyId }
+                store.askWarren(prompt, context: .memo(reportId: report.id, page: nil, selectionText: nil), company: company)
             } label: {
                 Label("Ask Warren", systemImage: "sparkles")
             }

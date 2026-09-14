@@ -4,6 +4,7 @@ struct MacCopilotView: View {
     @EnvironmentObject private var store: MacAppStore
 
     @State private var inputPrompt = ""
+    @State private var mode = "quick"
     @FocusState private var isInputFocused: Bool
 
     private let suggestions = [
@@ -14,6 +15,39 @@ struct MacCopilotView: View {
     ]
 
     var body: some View {
+        VStack(spacing: 0) {
+            modeBar
+            Divider()
+            if mode == "sessions", let company = store.selectedCompany {
+                MacConsoleView(company: company)
+            } else {
+                quickChat
+            }
+        }
+    }
+
+    private var modeBar: some View {
+        HStack(spacing: 12) {
+            Picker("", selection: $mode) {
+                Label("Quick Ask", systemImage: "bolt").tag("quick")
+                Label("Sessions", systemImage: "terminal").tag("sessions")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 220)
+            Text(mode == "quick"
+                 ? "Context-aware answers about what's on screen."
+                 : "Persistent per-company sessions with staged documents and attachments.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var quickChat: some View {
         VStack(spacing: 0) {
             // Top Toolbar: Persona & Context Selector
             HStack(spacing: 12) {
@@ -53,6 +87,12 @@ struct MacCopilotView: View {
 
                 Spacer()
 
+                Toggle(isOn: $store.copilotDeepMode) {
+                    Label("Deep", systemImage: "brain")
+                }
+                .toggleStyle(.checkbox)
+                .help("Deep mode stages the company's research files and runs as a background job in the blotter")
+
                 if !store.copilotMessages.isEmpty {
                     Button {
                         store.copilotMessages.removeAll()
@@ -68,6 +108,62 @@ struct MacCopilotView: View {
             .background(.ultraThinMaterial)
 
             Divider()
+
+            // Context strip: what's on screen + the server's suggested actions + source chips
+            if let chip = store.copilotContext.chipLabel {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Label(chip, systemImage: "scope")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        if let label = store.copilotContextInfo?.label, !label.isEmpty {
+                            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Button { store.clearCopilotContext() } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("Drop the on-screen context")
+                    }
+                    if let actions = store.copilotContextInfo?.actions, !actions.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(actions) { action in
+                                    Button(action.label) { store.sendCopilotMessage(prompt: action.prompt) }
+                                        .controlSize(.small)
+                                        .disabled(store.copilotStreaming || !store.canRunTasks)
+                                }
+                            }
+                        }
+                    }
+                    if let prov = store.copilotContextInfo?.provenance, !prov.sources.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(prov.sources) { source in
+                                    Label(source.filename ?? source.locator ?? "source", systemImage: "doc.text")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 6).padding(.vertical, 3)
+                                        .background(Color.secondary.opacity(0.1), in: Capsule())
+                                        .help(source.excerpt ?? "")
+                                }
+                                ForEach(prov.contradictions) { source in
+                                    Label(source.filename ?? "contradiction", systemImage: "exclamationmark.bubble")
+                                        .font(.caption2)
+                                        .foregroundStyle(Color.red)
+                                        .padding(.horizontal, 6).padding(.vertical, 3)
+                                        .background(Color.red.opacity(0.1), in: Capsule())
+                                        .help(source.excerpt ?? "")
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color(nsColor: .controlBackgroundColor))
+                Divider()
+            }
 
             // Chat Messages Scroll
             ScrollViewReader { proxy in
@@ -169,14 +265,14 @@ struct MacCopilotView: View {
                 )
 
                 HStack {
-                    Text("Perspective: \(store.copilotPersona.displayName)")
+                    Text("Perspective: \(store.copilotPersona.displayName)\(store.copilotDeepMode ? " · deep" : "")")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Spacer()
                     if store.copilotStreaming {
                         HStack(spacing: 4) {
                             ProgressView().controlSize(.mini)
-                            Text("Analyzing live disclosures…")
+                            Text(store.copilotCurrentThinking ?? "Thinking…")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -213,6 +309,11 @@ struct CopilotBubbleView: View {
             }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
+                if message.role == .user, let ctx = message.contextLabel {
+                    Label(ctx, systemImage: "scope")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 if message.role == .assistant && message.text.isEmpty {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)

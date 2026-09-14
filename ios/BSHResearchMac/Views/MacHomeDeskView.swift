@@ -136,10 +136,20 @@ struct MacHomeDeskView: View {
             }
 
             if autocompleteHits.isEmpty && !searching {
-                Text("No matching companies found for '\(searchQuery)'")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
+                HStack(spacing: 12) {
+                    Text("No matching companies found for '\(searchQuery)'")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        store.openCommandPalette(seed: searchQuery)
+                    } label: {
+                        Label("Deep Search with Claude…", systemImage: "sparkle.magnifyingglass")
+                    }
+                    .controlSize(.small)
+                    .disabled(!store.canRunTasks)
+                    .help(store.canRunTasks ? "Find the company with Claude and add it to the pipeline (⌘K)" : "Sign in to run searches")
+                }
+                .padding(.vertical, 8)
             } else {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     ForEach(autocompleteHits) { hit in
@@ -237,11 +247,14 @@ struct MacHomeDeskView: View {
                                 .foregroundStyle(Color.accentColor)
                         }
 
-                        Button("View") {
-                            store.openReportInViewer(report)
+                        Button("Follow") {
+                            store.showBlotter = true
+                            store.blotterTab = .jobs
+                            store.selectedJobId = report.id
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .help("Follow this run in the Jobs blotter")
                     }
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
@@ -287,9 +300,11 @@ struct MacHomeDeskView: View {
     // MARK: - Posture & Regime Section
 
     private var postureAndRegimeSection: some View {
-        let posture = store.marketPulsePayload?.sections?.marketRegime?.posture ?? "Neutral"
-        let topSignal = store.marketPulsePayload?.summary?.topSignal ?? "Fed rate trajectory and earnings revisions drive market dispersion."
-        let adRatio = store.marketPulsePayload?.sections?.marketRegime?.breadth?.advanceDeclineRatio
+        let regime = store.marketPulsePayload?.sections?.marketRegime
+        let posture = (regime?.posture ?? "neutral").capitalized
+        let rawSignal = store.marketPulsePayload?.summary?.topSignal ?? ""
+        let topSignal = rawSignal.isEmpty ? "Source-backed signal pending." : rawSignal
+        let breadth = regime?.breadth
 
         return HStack(spacing: 16) {
             // Posture Badge
@@ -324,14 +339,14 @@ struct MacHomeDeskView: View {
 
             Spacer()
 
-            if let ad = adRatio {
+            if let breadth, breadth.total > 0 {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("BREADTH A/D")
+                    Text("SIGNAL BREADTH")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.secondary)
-                    Text(String(format: "%.2f", ad))
+                    Text("\(breadth.positiveSignals ?? 0) up · \(breadth.negativeSignals ?? 0) down · \(breadth.neutralSignals ?? 0) flat")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(ad >= 1.0 ? Color.green : Color.orange)
+                        .foregroundStyle((breadth.positiveSignals ?? 0) >= (breadth.negativeSignals ?? 0) ? Color.green : Color.orange)
                 }
                 .padding(.trailing, 8)
             }

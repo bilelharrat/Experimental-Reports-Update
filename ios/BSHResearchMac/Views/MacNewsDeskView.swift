@@ -467,14 +467,30 @@ struct MacNewsDeskView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button {
-                let prompt = "Please evaluate this news event from a value investing perspective: '\(item.title)'. Company/Ticker: \(item.companyName ?? item.ticker ?? "Market"). What does this tell us about the competitive moat and long-term earnings power?"
-                store.sendCopilotMessage(prompt: prompt)
-                store.selectedTab = .copilot
-            } label: {
-                Label("Ask Warren About This Story", systemImage: "sparkles")
+            HStack(spacing: 8) {
+                Button {
+                    let prompt = "Evaluate this news event from a value investing perspective. What does it tell us about the competitive moat and long-term earnings power?"
+                    let company = store.companies.first { c in
+                        (item.ticker != nil && c.ticker?.uppercased() == item.ticker?.uppercased())
+                            || (item.companyName != nil && c.name == item.companyName)
+                    }
+                    store.askWarren(prompt, context: .news(item: item), company: company)
+                } label: {
+                    Label("Ask Warren About This Story", systemImage: "sparkles")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!store.canRunTasks)
+
+                if let ticker = item.ticker, !ticker.isEmpty {
+                    Button {
+                        store.openSignalLog(seedTicker: ticker)
+                    } label: {
+                        Label("Log signal", systemImage: "flag")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Log a bullish / bearish call on \(ticker) from this story (⌘L)")
+                }
             }
-            .buttonStyle(.bordered)
         }
         .padding(.top, 8)
     }

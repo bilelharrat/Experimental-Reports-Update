@@ -5,7 +5,6 @@ struct MacResearchDeskView: View {
 
     @State private var searchText = ""
     @State private var selectedSector: String = "All"
-    @State private var showNewReportSheet = false
 
     private var sectors: [String] {
         let set = Set(store.companies.compactMap { $0.sector }.filter { !$0.isEmpty })
@@ -35,22 +34,6 @@ struct MacResearchDeskView: View {
                 .layoutPriority(1)
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search companies or tickers…")
-        .sheet(isPresented: $showNewReportSheet) {
-            sheetContent
-        }
-    }
-
-    @ViewBuilder
-    private var sheetContent: some View {
-        if let company = store.selectedCompany {
-            MacGenerateReportSheet(company: company) { newReport in
-                showNewReportSheet = false
-                store.openReportInViewer(newReport)
-            }
-            .environmentObject(store)
-        } else {
-            EmptyView()
-        }
     }
 
     private var directoryPane: some View {
@@ -91,7 +74,7 @@ struct MacResearchDeskView: View {
     private var detailPane: some View {
         if let company = store.selectedCompany {
             CompanyDossierView(company: company, onNewReport: {
-                showNewReportSheet = true
+                store.requestNewReport(for: company)
             })
         } else {
             ContentUnavailableView(
@@ -212,8 +195,37 @@ struct CompanyDossierView: View {
                             Label("New Memo", systemImage: "plus.doc.fill")
                         }
                         .buttonStyle(.borderedProminent)
-                        .keyboardShortcut("n", modifiers: .command)
-                        .help("Generate an investment memo (⌘N)")
+                        .disabled(!store.canRunTasks)
+                        .help(store.canRunTasks ? "Generate an investment memo (⌘N)" : "Sign in with an analyst or partner role to run memos")
+
+                        Button {
+                            store.requestDecision(for: company)
+                        } label: {
+                            Label("Decision", systemImage: "checkmark.seal")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!store.canRunTasks)
+                        .help("Record Invest / Pass / Watch (⌘D)")
+
+                        if let report = companyReports.first(where: \.canOpen) {
+                            Button {
+                                store.openICReview(report: report)
+                            } label: {
+                                Label("IC Review", systemImage: "rectangle.split.2x1")
+                            }
+                            .buttonStyle(.bordered)
+                            .help("Memo beside thesis, risks, evidence and the decision form (⌘⇧O)")
+                        }
+
+                        Button {
+                            Task { await store.toggleFollow(company.id) }
+                        } label: {
+                            Image(systemName: store.isFollowed(company.id) ? "star.fill" : "star")
+                                .foregroundStyle(store.isFollowed(company.id) ? Color.yellow : Color.secondary)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!store.canRunTasks)
+                        .help(store.isFollowed(company.id) ? "Followed on the Pipeline board" : "Follow on the Pipeline board")
 
                         Button {
                             let url = MacConfig.webCompanyURL(id: company.id)
@@ -281,6 +293,27 @@ struct CompanyDossierView: View {
                 }
                 .padding()
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                // Decision record (⌘D) with tracking retrospectives
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("Decision Record", systemImage: "checkmark.seal")
+                            .font(.headline)
+                        Spacer()
+                        Text(store.stage(for: company.id).rawValue)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    MacDecisionTimeline(companyId: company.id)
+                }
+                .padding()
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                // IC Prep: readiness gates, risk cards, tool runs, approval
+                MacICPrepView(company: company)
+
+                // Thesis claims vs evidence and tracked news
+                MacThesisTrackerView(company: company)
             }
             .padding(20)
         }
@@ -325,17 +358,33 @@ struct MemoRowView: View {
 
             if report.canOpen {
                 Button {
-                    store.openReportInViewer(report)
+                    store.openReportWindow(report)
                 } label: {
                     Label("Read Memo", systemImage: "book.pages")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .help("Open in Document Viewer Desk")
+                .help("Open in its own memo window")
+            } else if !report.isComplete && !report.isFailed {
+                Button {
+                    store.showBlotter = true
+                    store.blotterTab = .jobs
+                    store.selectedJobId = report.id
+                } label: {
+                    Label("Follow run", systemImage: "waveform.path.ecg")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Follow this run in the Jobs blotter")
             }
 
             Button {
-                let url = MacConfig.webReportURL(id: report.id)
+                let url: URL
+                if let cid = report.companyId {
+                    url = MacConfig.webCompanyMemoURL(companyId: cid, reportId: report.id)
+                } else {
+                    url = MacConfig.webReportURL(id: report.id)
+                }
                 MacConfig.openInBrowser(url)
             } label: {
                 Image(systemName: "safari")
@@ -380,19 +429,23 @@ struct MacGenerateReportSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    // Defaults mirror server REPORT_TYPES / AUDIENCES; replaced by GET /api/options on appear.
+    @State private var availableTypes = [
+        "Investment Report (Auto)",
+        "Investment Memo (Late-Stage)",
+        "Buffett Investment Memo",
+        "Background",
+        "Financial Analysis",
+        "Market Analysis",
+    ]
+    @State private var availableAudiences = ["LP", "Assistant", "Partner", "Internal"]
+    @State private var availableLanguages: [(code: String, label: String)] = [("en", "English"), ("zh", "中文")]
     @State private var reportType = "Investment Report (Auto)"
-    @State private var audience = "Institutional"
+    @State private var audience = "Internal"
     @State private var language = "en"
     @State private var submitting = false
+    @State private var loadingOptions = true
     @State private var error: String?
-
-    let availableTypes = [
-        "Investment Report (Auto)",
-        "Buffett Memo",
-        "Earnings Analysis",
-        "Competitor Deep Dive",
-        "Quick Note"
-    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -427,16 +480,19 @@ struct MacGenerateReportSheet: View {
                             Text(type).tag(type)
                         }
                     }
+                    .disabled(loadingOptions)
 
                     Picker("Audience", selection: $audience) {
-                        Text("Institutional").tag("Institutional")
-                        Text("Internal").tag("Internal")
-                        Text("Retail").tag("Retail")
+                        ForEach(availableAudiences, id: \.self) { item in
+                            Text(item).tag(item)
+                        }
                     }
+                    .disabled(loadingOptions)
 
                     Picker("Language", selection: $language) {
-                        Text("English").tag("en")
-                        Text("Chinese (中文)").tag("zh")
+                        ForEach(availableLanguages, id: \.code) { item in
+                            Text(item.label).tag(item.code)
+                        }
                     }
                 }
 
@@ -453,17 +509,38 @@ struct MacGenerateReportSheet: View {
 
             HStack {
                 Spacer()
-                Button("Start Pipeline") {
+                Button(submitting ? "Starting…" : "Start Pipeline") {
                     Task { await submit() }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(submitting)
+                .disabled(submitting || loadingOptions)
                 .keyboardShortcut(.defaultAction)
             }
             .padding()
             .background(.ultraThinMaterial)
         }
         .frame(width: 480, height: 420)
+        .task { await loadOptions() }
+    }
+
+    /// The server rejects report types it doesn't know — always offer its own list.
+    private func loadOptions() async {
+        defer { loadingOptions = false }
+        guard let options = try? await MacAPIClient.shared.fetchReportOptions() else { return }
+        if !options.reportTypes.isEmpty {
+            availableTypes = options.reportTypes
+            if !availableTypes.contains(reportType) { reportType = availableTypes[0] }
+        }
+        if !options.audiences.isEmpty {
+            availableAudiences = options.audiences
+            if !availableAudiences.contains(audience) {
+                audience = availableAudiences.contains("Internal") ? "Internal" : availableAudiences[0]
+            }
+        }
+        if !options.languages.isEmpty {
+            availableLanguages = options.languages.map { ($0.code, $0.label ?? $0.code.uppercased()) }
+            if !availableLanguages.contains(where: { $0.code == language }) { language = availableLanguages[0].code }
+        }
     }
 
     private func submit() async {
