@@ -34,7 +34,7 @@ from typing import Any
 
 import yaml
 
-from . import job_progress, memo_structure
+from . import job_progress, memo_prompts, memo_structure
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
 
@@ -2593,6 +2593,9 @@ MEMO_FAST_PASS_SCHEMA: dict[str, Any] = {
                     "source_class": {"type": "string"},
                     "detail": {"type": "string"},
                     "as_of": {"type": ["string", "null"]},
+                    # The page URL for web-retrieved evidence, so the memo
+                    # can link the reader to it (null for files/private).
+                    "url": {"type": ["string", "null"]},
                 },
                 "required": ["source", "source_class", "detail", "as_of"],
             },
@@ -2669,7 +2672,7 @@ MEMO_FAST_BILINGUAL_PACKAGE_SCHEMA: dict[str, Any] = {
 }
 
 # Canonical section ids, in package order — derived from the structure
-# registry (server/memo_structure.py + skills/structures/), the single
+# registry (server/memo_structure.py + skills/memo/structures/), the single
 # source of truth for report structure.
 MEMO_PACKAGE_SECTION_IDS: tuple[str, ...] = memo_structure.LATE.section_ids
 
@@ -2711,6 +2714,99 @@ def _spine_scenario_object_schema() -> dict[str, Any]:
             for key in ("bear", "base", "bull")
         },
         "required": ["bear", "base", "bull"],
+    }
+
+
+def _spine_calculations_schema() -> dict[str, Any]:
+    """Numbered calculation notes behind every derived number: inputs
+    (each with its source id, another note, or "assumption"), the
+    arithmetic with the numbers in it, the result, and its meaning.
+    Sections cite them inline as [C#]; the docx renders an appendix."""
+    return {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 12,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "id": {"type": "string", "pattern": "^C[1-9][0-9]?$"},
+                "label": {"type": "string", "maxLength": 80},
+                "inputs": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "name": {"type": "string", "maxLength": 60},
+                            "value": {"type": "string", "maxLength": 40},
+                            "ref": {"type": "string", "maxLength": 24},
+                        },
+                        "required": ["name", "value", "ref"],
+                    },
+                },
+                "formula": {"type": "string", "maxLength": 200},
+                "result": {"type": "string", "maxLength": 60},
+                "meaning": {"type": "string", "maxLength": 220},
+            },
+            "required": ["id", "label", "inputs", "formula", "result", "meaning"],
+        },
+    }
+
+
+def _spine_highlights_schema() -> dict[str, Any]:
+    """Exactly three investment highlights, each filed under a scorecard
+    dimension: a plain verdict headline plus 2-3 evidence sentences. The
+    executive summary repeats them verbatim (pin-echo gate)."""
+    return {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "dimension": {
+                    "type": "string",
+                    "enum": list(memo_structure.SCORECARD_DIMENSION_KEYS),
+                },
+                "headline": {"type": "string", "maxLength": 200},
+                "evidence": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 3,
+                    "items": {"type": "string", "maxLength": 260},
+                },
+            },
+            "required": ["dimension", "headline", "evidence"],
+        },
+    }
+
+
+def _spine_risks_schema_v2() -> dict[str, Any]:
+    """The v1 risk item plus `area` (which aspect the risk concentrates
+    on) and `impact` (what it costs the investment, in plain words with
+    the one number that sizes it); likelihood becomes required."""
+    base = MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"]["shared_facts"][
+        "properties"
+    ]["risks"]
+    item = base["items"]
+    return {
+        **base,
+        "items": {
+            **item,
+            "properties": {
+                **item["properties"],
+                "area": {
+                    "type": "string",
+                    "enum": list(memo_structure.RISK_AREA_KEYS),
+                },
+                "impact": {"type": "string", "maxLength": 160},
+            },
+            "required": ["summary", "rating", "likelihood", "area", "impact"],
+        },
     }
 
 
@@ -2812,6 +2908,9 @@ def memo_fast_english_spine_schema(
                     "required": ["valuation", "basis"],
                 },
                 "scenarios": _spine_scenario_object_schema(),
+                "highlights": _spine_highlights_schema(),
+                "risks": _spine_risks_schema_v2(),
+                "calculations": _spine_calculations_schema(),
             },
             "required": [
                 "recommendation_sentence",
@@ -2823,6 +2922,8 @@ def memo_fast_english_spine_schema(
                 "scorecard",
                 "fair_value_range",
                 "entry",
+                "highlights",
+                "calculations",
             ],
         }
     return {
@@ -3057,7 +3158,11 @@ these keys, all non-empty:
   "third-party market data", "BSH primary diligence", "public filings", ...);
 - `treatment`: {"en": "...", "zh": ""} — one sentence on how the memo
   weighs and uses this source;
-- `as_of`: the data vintage as an ISO date string.
+- `as_of`: the data vintage as an ISO date string;
+- `url` (optional): the page URL for a source retrieved from the web —
+  the analysis artifacts record it; the memo renders the title as a link.
+  Omit it (never invent one) for files, filings held privately, or
+  interviews.
 
 Do NOT reuse the analysis-pass evidence vocabulary (`source`,
 `source_class`, `label`, `detail`) for package sources — the renderer
@@ -3087,319 +3192,9 @@ Before returning, re-check every callout block for a non-empty `title` and
 every bullets block for a non-empty `items` list.
 """
 
-HUMAN_EXEC_MEMO_VOICE_CONTRACT = """\
-## Human Executive Memo Voice Contract
-
-This is a final-writing override. It supersedes any older skill instruction
-that asks for inline source markers, bracketed source traces, scaffolded
-taxonomy labels, or prompt-visible headings in final prose. Preserve the full
-diligence standard from the skill, but the finished English memo is an
-exec-ready LP-facing sell-side investment memo, not a generated research
-report, buyer-side diligence memo, or BSH internal allocation note.
-
-Final memo prose must:
-- write like a senior investor explaining the investment case under uncertainty;
-- convert evidence into judgment;
-- avoid process language, methodology narration, task labels, and validation
-  scaffolding in the body;
-- make statements directly. Do not write about the memo as an object, do not
-  narrate what the memo/document/section/analysis does, and do not use
-  writer-process language;
-- write in the LP co-invest register: a partner briefing LPs. Use the firm as
-  a proper noun for mandate statements ("BSH invests in..." for the category
-  the firm backs). State the instrument as deal English ("The SPV is a $10M
-  SAFE with a 15% discount at a $3.0B pre"). Name people, contracts, and
-  proof. State risks as facts ("A SAFE is not equity"; "$3.0B is high");
-- the memo's conclusion is a RECOMMENDATION, not a done deal: no decision
-  exists when this memo is written. State the call as "Recommendation: BSH
-  commits $X to <target> at <terms>." or "Recommendation: pass on <target>
-  — <reason>." or "Recommendation: watch <target> — <trigger>." Never
-  write "BSH is committing", "BSH is investing in <this deal>", or "BSH is
-  not committing capital" as if the decision were made. The ONLY decided
-  language allowed is the pinned decision-history sentence ("BSH made the
-  decision to ... on ... because ..."), which records a real past human
-  decision;
-- first person ("we", "our") is allowed sparingly for diligence and the
-  firm's own check ("Additional BSH diligence...", "Our role beyond capital").
-  Do not stamp every paragraph with "we believe" / "we recommend";
-- never use the stock phrases "we are being offered", "we are participating
-  through", or "we recommend participating". Those read as generated copy;
-- never use detached IC jargon for the investment call;
-- state uncertainty directly instead of explaining why certainty is
-  unavailable;
-- avoid template-visible language, symmetrical model phrasing, and repetitive
-  paragraph openings;
-- keep analytical artifacts private unless a fact or conclusion belongs in
-  the memo;
-- name the proof in Sections I-V: people, contracts, publications, dates.
-  Do not write "company-reported", "source class", or "model treatment" in
-  the body. Detailed source IDs and source classes belong only in the
-  Sources, Source Classes, and Fact Reference Index;
-- write facts, then the implication. One claim per sentence. End the
-  sentence. Do not glue clauses with "so valuation support is strongest
-  where", "rather than treating", or "the investment case uses";
-- if a metric is not disclosed, say so in ordinary English and, if it
-  matters, add the risk in a second sentence: "Revenue is not disclosed.
-  $3.0B is high relative to disclosed commercial proof." A table cell that
-  says only "Not disclosed" is unfinished; put the implication in that cell
-  or the note cell. Do not force model / proxy / sensitivity vocabulary;
-- em dashes are allowed. Prefer short sentences. Do not pad with
-  colon-semicolon machinery just to avoid a dash;
-- express data vintage with absolute dates only: "figures are as of March
-  2026", "no disclosure since the January launch window". NEVER anchor
-  staleness to the memo itself: phrases like "at the memo date", "as of
-  this writing", "four months old at the memo date", or any other
-  "the memo ..." construction are banned memo-self-reference and will fail
-  the quality gate. If staleness matters, state the as-of date and the
-  implication.
-
-Sell-side investment memo posture:
-- Open from the sponsor thesis, not from a tombstone. Start with why we care
-  about the category, why the timing matters, why this company is shaping the
-  layer or market that matters, and why the opportunity fits BSH's mandate.
-  Then explain the technical proof, commercial proof, and SPV/round mechanics.
-- Write in a Wisdom/BSH co-invest register: mandate first, then the company,
-  then the instrument and the firm's own check. Use "BSH invests in..." for
-  category statements and state the transaction as the recommendation:
-  "Recommendation: BSH commits $X, leaving $Y for co-investors." Do not
-  describe the recommendation as a slogan.
-- Do not write as if BSH is negotiating control terms in a private-equity
-  process or exposing its internal intended position to LPs.
-- Do not default to "small/minimum" allocation because revenue, ARR, gross
-  margin, lead investor, or detailed SAFE side terms are undisclosed. For
-  early-growth or Series A/A2 deep-tech rounds, those gaps are normal unless
-  the supplied source package says otherwise. Calibrate expectations to the
-  stage, round, sponsor channel, scarcity of allocation, and strength of the
-  syndicate.
-- If the round is oversubscribed, has top-tier participation, or the available
-  economics are attractive versus what others are receiving, reflect that as
-  positive evidence for scarcity and urgency. Do not default to a minimum
-  participation recommendation unless the facts show conviction is genuinely
-  low.
-- Treat SPV/SAFE economics as deal mechanics to explain plainly, not as a
-  thesis-breaking risk by default. State the economics, valuation support, and
-  sensitivity to the final instrument terms without turning the memo into a
-  checklist.
-- The finished investment memo is an offer memo, not an internal approval note.
-  Do not use closing-checklist language, expected-bar labels, funding-gate
-  language, or next-step checklists in final prose. Convert those ideas into
-  investment thesis, risk factors, valuation
-  sensitivities, and deal-mechanics disclosure.
-- Do not use funding-gate or checklist phrasing that tells the reader to
-  confirm, require, or wait for process items before funding or signing.
-  Convert each item into a fact and a risk: "The $500M+ figure blends signed
-  contracts and MOUs. A material share remains MOUs."
-- Do not use confirmation-section headings, expected-bar headings, investment
-  condition headings, revisit-condition headings, or next-step checklist
-  headings in the finished memo. Those are internal workflow labels. Fold the
-  same substance into the investment thesis, risk factors, valuation
-  sensitivity, or deal-mechanics disclosure.
-- Do not start final memo sentences, bullets, or table cells with imperative
-  evidence-request verbs. That is internal-note/checklist voice. State the
-  fact, then the risk, in ordinary English.
-- Do not speculate about sponsor, company, investor, or counterparty
-  capability to share, provide, produce, or confirm information. State the
-  disclosed fact and the risk.
-- Do not narrate the sponsor memo or source process in final prose. Avoid
-  "memo language was", "the sponsor implies", "the sponsor frames", and
-  "the sponsor itself flags". State the fact or risk directly.
-- Do not use source-process narration as a substitute for investment judgment.
-  Do not narrate what a sponsor note, registry, source packet, or memo artifact
-  says. Write the fact in plain form: "The $500M+ figure blends signed
-  contracts and MOUs."
-- Do not write passive availability language about future process access or
-  ease of confirmation. Those are guesses about process, not investment
-  judgments.
-- Use ordinary legal English. "A SAFE is not equity and has no LP voting."
-  "Annual K-1 issued by the SPV administrator." "Accredited investors only."
-  Do not dump a rights checklist, and do not paraphrase those facts into
-  "limited direct governance and reporting" machinery.
-- Do not use buyer-side underwriting vocabulary in final prose or tables.
-  Do not replace it with the next template: "we give credit to", "our base
-  case credits", "the investment case rests on", "the investment case uses",
-  or "X is a valuation-support factor." State the fact or the risk.
-- Do not use writer-process framing such as "we frame it as", "we frame the
-  market", or "the framework". State the conclusion directly.
-- Do not write imperative diligence commands such as "Require X before
-  underwriting". Write the implication: "X is not in the disclosed terms."
-  or "X remains the principal risk."
-- Do not use casual sponsor verbs or exposure-seeking idioms for mandate-level
-  statements. Write "BSH invests in..." for the mandate and "Recommendation:
-  BSH commits..." for the action. Prefer physical language over framework
-  metaphors when the source supports it ("no cameras, no biometrics, no
-  battery on workers"), not "is compelling because" or a prescribed
-  "control layer for" slogan.
-- Do not overload the opening paragraph with sponsor mission, technical claim,
-  investor roster, and founder resume in one block. Open with sponsor thesis
-  and company relevance, then move technical proof, backers, and team pedigree
-  into the next paragraph or Company Overview.
-- Do not use uniqueness claims such as "only scaled platform" unless the source
-  package independently supports both uniqueness and scale. Use precise
-  capability claims instead.
-- Do not use protected or sensitive founder demographic traits, BSH founder
-  background preferences, or thesis-fit exception labels as investment
-  rationale, investment risk, recommendation logic, source treatment, or final
-  memo disclosure. Team discussion belongs in operating history, domain
-  expertise, technical authorship, recruiting strength, governance, and
-  company-building evidence.
-
-Concrete positive writing patterns:
-- Opening: "BSH invests in physical-world infrastructure that makes people
-  safer, healthier, and more capable. ZaiNar locates people and assets from
-  the network itself: no cameras, no biometric capture, no battery-powered
-  devices on workers."
-- Transaction: "The vehicle is a $10,000,000 SAFE with a 15% discount at a
-  $3.0B estimated pre-money. Recommendation: BSH commits $3,000,000, leaving
-  $7,000,000 for co-investors. Effective entry after the discount is about
-  $2.55B."
-- Proof: "Commercial pull is $500M+ in signed contracts and MOUs in six
-  months, $36M of DoD work, and named partners including Microsoft, Nvidia,
-  and SoftBank. Steve Jurvetson sits on the board."
-- Scan bullets: bold noun lead-ins, then one fact. "Founded: 2016, San
-  Francisco. SAFE risk. A SAFE is not equity and has no LP voting.
-  Concentration. A material share of the $500M+ figure remains MOUs."
-- Risk: "A SAFE is not equity and has no LP voting. $3.0B is high relative
-  to disclosed revenue. A material share of the $500M+ figure remains MOUs.
-  Carrier cycles run 18 to 36 months."
-- Evidence gap: "Revenue is not disclosed. $3.0B is high relative to
-  disclosed commercial proof."
-- Diligence: "Additional BSH diligence independently corroborated the
-  technology and the founding team."
-
-Rejected language categories:
-- stock participation slogans ("we are being offered", "we are participating
-  through", "we recommend participating");
-- detached IC jargon for recommendation and opportunity;
-- memo/document/process narration;
-- analysis-process narration;
-- passive sponsor/counterparty capability speculation;
-- legal-rights checklist dumps in operating tables;
-- uncertainty apologies instead of a direct fact and risk;
-- treatment-speak ("the investment case uses", "our base case credits",
-  "we give credit to", "source class", "model treatment", "valuation-support
-  factor");
-- source-class scaffolding in the body ("company-reported" as a label,
-  "available evidence does not document").
-
-Final memo body and operating tables must not contain:
-- bracketed source tokens or file references such as `[S1]`, `[WV]`,
-  `[WV SPV memo]`, `[companies.yaml]`, `[internal]`, or similar;
-- internal artifact names such as `companies.yaml`, `memo_packet`,
-  `source_trace`, `claim_register`, `research_tasks`, `reviewer_prompts`, or
-  analysis file names;
-- source-process narration about what a memo artifact, registry, source packet,
-  sponsor note, or reviewer prompt says;
-- scaffold headings or labels from analytical worksheets, evidence-state
-  tables, closing checklists, expected-bar lists, investment-condition lists,
-  revisit-condition lists, or internal question lists;
-- founder demographic preference language, thesis-fit exception labels, or
-  internal mandate exceptions as investment rationale or risk factors;
-- cute or fuzzy finance metaphors, no-rights legal shorthand, overclaimed
-  scarcity phrases, or shorthand that obscures the economic point;
-- deal-legal checklist dumps such as `MFN`, `down-round protection`,
-  `named lead`, `named institutional lead` without saying what they mean;
-  ordinary legal English is fine: "no LP voting", "annual K-1",
-  "accredited investors only";
-- passive counterparty-capability or availability speculation;
-- detached recommendation-label headings; state the recommendation directly
-  in a sentence;
-- internal question-list labels, confirmation labels, expected-bar labels, or
-  internal-audience suffixes;
-- internal IC, buyer-side diligence, bank/debt, control-investor, or
-  deal-legal checklist shorthand. This is an LP-facing, exec-ready sell-side
-  investment memo, not a BSH internal allocation note. Write every deal
-  mechanic, governance point, and recommendation as plain narrative prose.
-  Say what the instrument is, what the recommendation commits, and what the
-  risks are. Do not use process labels, confirmation labels, small-check
-  reflexes, or treatment-speak;
-- BSH internal participation-sizing language or internal recommendation
-  instructions;
-- meta-language about the memo/document/analysis/framework/section, including
-  writer-process phrasing.
-
-Memo spine requirement:
-- core_bet: what has to be true for investors to make money;
-- entry_tension: what the valuation or instrument already assumes;
-- current_proof: what is proven today, named (people, contracts, dates);
-- unproven_but_modelable: what is missing, stated as a fact and a risk;
-- risk_sensitivity: what can break the case;
-- action: the recommended commitment or pass, in sentence form, opening
-  with "Recommendation: ".
-
-The opening, Investment View, risk section, scenario section, and final
-Investment Decision / Closing View must use the same spine. The first two
-body paragraphs must state company, transaction, valuation / entry terms,
-central price/proof tension, and the firm's check. The substantive
-ending must state the recommendation (commit or pass), the named risks,
-and what moves the number, before any sources or
-disclosures. Do not include BSH internal participation sizing in the
-LP-facing memo.
-
-Positive examples for early-commercial infrastructure deals:
-- "ZaiNar locates people and assets from the network itself. The A2
-  prices real IP, technical depth, and early commercial pull before the
-  revenue curve is fully visible."
-- "Signed contracts and MOUs totaling $500M+ in six months, plus $36M of
-  DoD work. Microsoft, Nvidia, and SoftBank are named partners. Steve
-  Jurvetson sits on the board."
-- "Pipeline is not contracted revenue. A material share of the $500M+
-  figure remains MOUs."
-- "The SPV is a $10M SAFE with a 15% discount. A SAFE is not equity and
-  has no LP voting."
-- "If the round is meaningfully oversubscribed and BSH has differentiated
-  access, reflect scarcity in the terms and the timing, not by defaulting
-  to a minimum check."
-
-Banned phrase / rewrite guidance:
-
-| Avoid | Prefer |
-|---|---|
-| The investment case is not that... | This is not a conventional SaaS case. |
-| Detached recommendation framing | Recommendation: BSH commits $X... / Recommendation: pass on... |
-| Detached opportunity framing | The SPV is a $10M SAFE... / Investors can subscribe up to $Y |
-| Detached base-case framing | Named proof. Then the risk. |
-| we give credit to / our base case credits / the investment case rests on | State the fact. Drop the formula. |
-| the investment case uses / valuation-support factor | State the fact and the risk. |
-| Key risk centers on... | Bold noun label, then one sentence: "SAFE risk. A SAFE is not equity." |
-| Memo/document/process narration | Remove the frame; make the investment statement. |
-| Analysis-process narration | State the conclusion directly. |
-| Uncertainty apology | "Revenue is not disclosed. $3.0B is high relative to disclosed revenue." |
-| Detached decision label | Investment Decision / Recommendation: BSH commits... |
-| Question-form closing checklist | State the deal economics or the risk. |
-| Sponsor capability speculation | State the disclosed fact and the risk. |
-| Passive availability language | Remove the process guess; state the risk. |
-| Funding-gate checklist phrase | State the fact or the risk. |
-| Imperative evidence-request phrase | State the deal fact or the risk. |
-| Closing checklist headings | Remove the section; fold the substance into recommendation, risk, or deal mechanics. |
-| Signing-process checklist phrase | State the deal fact directly. |
-| Open-item process phrase | State what is disclosed, not disclosed, and why it matters. |
-| Sponsor-process narration | State the investment fact or risk directly. |
-| Source-process narration / source class / model treatment | Name the person, contract, or publication. Put classes in the index. |
-| Diligence threshold or next-step checklist labels | Fold into recommendation, risk, or deal-mechanics prose. |
-| No voting or information rights (checklist dump) | A SAFE is not equity and has no LP voting. |
-| underwrite / underwriting | rely on / the case / drop the verb |
-| We frame it as... | State the conclusion directly without writer-process narration. |
-| Require X before underwriting | X is not in the disclosed terms. / X remains the principal risk. |
-| Internal question-list labels | Remove; use thesis, risk, or deal mechanics. |
-| we are being offered / we recommend participating / we are participating through | Firm-as-subject deal English; never reuse these slogans |
-| is compelling because | What the company does, in physical terms. |
-| Unresolved inquiry framing | Risk factors / deal-mechanics disclosure |
-| Missing proof | Named gap, then the risk. |
-| Recommendation labels | Recommendation: BSH commits... / Recommendation: pass on... |
-| Decision discipline | named risks |
-| False precision | State the evidence range without over-modeling it. |
-| not treated as ARR | not revenue-recognized |
-| commercial momentum is material, but... | The pipeline is large but not contractually binding. |
-| The principal risk is that... | SAFE risk. Concentration. Illiquidity. |
-| Soft-instrument metaphor | SPV interest whose economics depend on SAFE conversion. |
-| Hard-IP metaphor | patent estate and technical approach that still need claim-scope review. |
-| Moat-compression shorthand | upside shifts from product margin to patent leverage and deployment relationships. |
-
-Before DOCX generation, run a final prose QA pass. Remove banned phrases,
-meta language, methodology leakage, over-explained risks, template-visible
-structure, and unnatural model voice. The output must read like an experienced
-investor making a call under uncertainty.
-"""
+# Editorial prompt — edit skills/memo/voice_contract.md (zh twin under
+# skills/memo/zh/), never this line.
+HUMAN_EXEC_MEMO_VOICE_CONTRACT = memo_prompts.load_prompt("voice_contract.md")
 
 MEMO_CONTENT_PARITY_CONTRACT = """\
 ## Memo Content Parity Contract
@@ -3520,81 +3315,14 @@ value.
 # fact" to a complete verdict sentence. Selected per structure by
 # memo_risk_register_contract(); the v1 contract above stays byte-frozen
 # for the default pipeline.
-MEMO_RISK_REGISTER_CONTRACT_V2 = """\
-## Risk Register Format Contract (hard requirement — validated before rendering)
-
-The risk section presents risks as PER-RISK CARDS, not one wide risk
-table. Structure, in order:
-
-1. One short intro paragraph naming where the risk really concentrates —
-   which single risk carries the thesis.
-2. 4-6 risk cards. Each card is exactly two consecutive blocks:
-   - a `heading` block (level 3) whose text is
-     `{"en": "Risk N: <verdict sentence>", "zh": "风险 N：<结论句>"}`.
-     The sentence is a COMPLETE PREDICATION with a finite verb that
-     states the judgment — "Risk 1: The entry price already assumes
-     success — ordinary execution earns nothing." Never a topic label
-     ("Entry price"), never a naked statistic. Use the pinned risk
-     summaries verbatim: the spine writes them in this form.
-   - a `table` block with `component: "risk_register"`,
-     `"layout": "key_value"`, `"headers": []`, and EXACTLY these six
-     two-cell rows (label cell first, content cell second):
-       1. `Risk Type` / `风险类型` — a 1-4 word category. Not a sentence.
-       2. `Why it matters` / `为什么重要` — fact → failure mode →
-          economic consequence, with the consequence arithmetic in-line
-          when it is quantifiable ("at ~42x, ARR must double before the
-          price merely matches peers"). Do not leave the consequence
-          implied.
-       3. `What we watch` / `跟踪信号` — 1-2 observable leading
-          indicators, named and dated where possible. A signal, never an
-          instruction to confirm or obtain something.
-       4. `Mitigation` / `缓释措施` — the real mechanism that reduces
-          this risk: a company action underway, a deal-structure term,
-          or position sizing. When none exists, write exactly
-          "No structural mitigation exists. <consequence>" — honesty
-          over invention.
-       5. `Likelihood` / `可能性` — `"High|Medium|Low: <short reason>"`
-          (Chinese `"高|中|低：<简短理由>"`), grounded in evidence.
-       6. `Risk Rating` / `风险评分` — `"N/10: <short reason>"`,
-          impact-weighted importance to the case (Likelihood carries
-          probability). 9-10 could break the case alone; 7-8 pushes the
-          outcome well below the current path; 5-6 meaningful but
-          monitorable; 3-4 limited; 1-2 minor.
-3. Order the cards by Risk Rating, highest first. Use 4-6 cards selected
-   from the evidence; omit irrelevant categories instead of filling a
-   quota.
-4. Keep the disconfirming-evidence treatment and the downside scenario
-   as separate blocks after the cards, connected to the highest-rated
-   risk.
-
-The section's fixed numbered subsection headings (the subsection
-scaffold below) wrap this structure: the intro paragraph sits under
-subsection 1, all cards under the "Risk cards" subsection, and the
-disconfirming evidence and downside/verdict passages under their own
-subsections. Card headings stay level 3 beneath the level-2 subsection
-headings.
-
-Card prose style: short declarative sentences; concrete nouns and
-numbers over abstractions; never "furthermore", "moreover", "notably",
-"it is important to note", or symmetrical templated phrasing.
-"""
+# Editorial prompt — edit skills/memo/risk_card_v2.md (zh twin under
+# skills/memo/zh/), never this line.
+MEMO_RISK_REGISTER_CONTRACT_V2 = memo_prompts.load_prompt("risk_card_v2.md")
 
 
-MEMO_RISK_REGISTER_CONTRACT_COMPACT = """\
-## Risk Register Format Contract (compact — validated before rendering)
-
-The compact risk section presents the pinned risks as BULLETS, not
-cards and not a table. One bullet per pinned risk, ordered by rating
-highest first, using EXACTLY the pinned risk list:
-
-- Each bullet: the pinned summary VERBATIM (it is already a complete
-  verdict sentence with a finite verb), then " — N/10." with the
-  pinned rating, then ONE clause naming the real mitigation (a company
-  action underway, a deal-structure term, or position sizing) or
-  exactly "No structural mitigation exists."
-- Never a topic label, never a rewritten summary, never a risk the pin
-  sheet does not carry, never a table.
-"""
+# Editorial prompt — edit skills/memo/risk_card_compact.md (zh twin under
+# skills/memo/zh/), never this line.
+MEMO_RISK_REGISTER_CONTRACT_COMPACT = memo_prompts.load_prompt("risk_card_compact.md")
 
 
 def memo_risk_register_contract(structure=None) -> str:
@@ -4239,9 +3967,17 @@ _MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
     "best": {},
     # Research, verification, and translation move to Sonnet; the
     # English writing wave (spine/sections/artifacts/repair) keeps the
-    # default model, so the prose the founder reads is unchanged.
+    # default model but at medium effort, so the prose the founder reads
+    # comes from the top model with a smaller thinking budget. The
+    # writing roles share one (model, effort) pair to keep the section
+    # wave's shared prompt cache intact.
     "balanced": {
         "ANALYSIS_PASS": ("sonnet", None),
+        "ENGLISH": (None, "medium"),
+        "SPINE": (None, "medium"),
+        "SECTION": (None, "medium"),
+        "ARTIFACTS": (None, "medium"),
+        "REPAIR": (None, "medium"),
         "SPINE_CHECK": ("sonnet", "medium"),
         "TRANSLATION": ("sonnet", "medium"),
     },
@@ -4344,6 +4080,7 @@ def _run_memo_local_json_artifact(
     model: str | None = None,
     effort: str | None = None,
     append_system_prompt: str | None = None,
+    tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
     if not is_available():
         return None, (
@@ -4387,6 +4124,7 @@ def _run_memo_local_json_artifact(
             model=model,
             effort=effort,
             append_system_prompt=append_system_prompt,
+            tools=tools,
         )
     finally:
         limiter.release()
@@ -4407,6 +4145,7 @@ def _run_memo_local_json_artifact_inner(
     model: str | None = None,
     effort: str | None = None,
     append_system_prompt: str | None = None,
+    tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
     run_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -4432,6 +4171,11 @@ def _run_memo_local_json_artifact_inner(
         cmd.extend(["--model", model])
     if effort:
         cmd.extend(["--effort", effort])
+    if tools is not None:
+        # `--allowedTools` is an allow-list and cannot REMOVE tools under
+        # bypassPermissions; `--tools ""` is the only way to run a
+        # tool-free call (the company-type classifier).
+        cmd.extend(["--tools", tools])
     if append_system_prompt:
         # Shared context appended to the system prompt lands on the CLI's
         # system-prompt cache breakpoint, so concurrent subprocesses with the
@@ -4667,6 +4411,98 @@ only. Never present them as the memo's own conclusion.
 """
 
 
+MEMO_COMPANY_TYPE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "type": {
+            "type": "string",
+            "enum": list(memo_structure.COMPANY_TYPE_KEYS),
+        },
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "rationale": {"type": "string", "maxLength": 200},
+    },
+    "required": ["type", "confidence", "rationale"],
+}
+
+
+def run_memo_company_type_classifier(
+    *,
+    run_dir: Path,
+    company: dict,
+    progress=None,
+    timeout_sec: int = 120,
+) -> dict | None:
+    """Phase 1 fallback: one tool-free Sonnet call that files the company
+    under one of the fund's company types from its registry text. Used
+    only when the registry carries no `vertical`. Returns
+    ``{type, source: "classifier", confidence, rationale}`` or None on
+    any failure — the caller falls back to ``other`` and the run goes
+    on."""
+    fields = {}
+    for key in ("name", "industry", "sector", "description", "positioning"):
+        value = company.get(key) if isinstance(company, dict) else None
+        if value:
+            fields[key] = value
+    products = company.get("products") if isinstance(company, dict) else None
+    if isinstance(products, list) and products:
+        fields["products"] = products[:6]
+    type_lines = "\n".join(
+        f"- `{key}`: {memo_structure.COMPANY_TYPE_LABELS[key]['en']}"
+        for key in memo_structure.COMPANY_TYPE_KEYS
+    )
+    prompt = f"""\
+Classify this company into EXACTLY ONE of the fund's company types, from
+the registry text below only (no research, no tools).
+
+Types:
+{type_lines}
+
+Guidance: a lab whose product is a frontier model is `ai_foundation_model`;
+chips, inference clouds, data platforms, training data and orchestration
+are `ai_infra`; products built on models for a vertical or workflow are
+`ai_application`; generative-video models, tools and short-drama studios
+are `ai_video_short_drama`; humanoids, manipulation, warehouse robots and
+robot foundation models are `robotics`; anything else is `other`.
+
+Registry entry:
+```json
+{json.dumps(fields, ensure_ascii=False, indent=2)}
+```
+
+Return only the JSON object matching the attached schema: `type`,
+`confidence` (0-1), and a one-sentence `rationale`.
+"""
+    data, _error = _run_memo_local_json_artifact(
+        prompt=prompt,
+        schema=MEMO_COMPANY_TYPE_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Classifying company type",
+        timeout_label="company type classifier",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=90,
+        allowed_tools="",
+        tools="",
+        model="sonnet",
+    )
+    if not isinstance(data, dict):
+        return None
+    company_type = str(data.get("type") or "").strip()
+    if company_type not in memo_structure.COMPANY_TYPE_KEYS:
+        return None
+    try:
+        confidence = round(float(data.get("confidence") or 0.0), 2)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return {
+        "type": company_type,
+        "source": "classifier",
+        "confidence": confidence,
+        "rationale": str(data.get("rationale") or "")[:200],
+    }
+
+
 def run_memo_fast_analysis_pass(
     *,
     run_dir: Path,
@@ -4685,8 +4521,20 @@ def run_memo_fast_analysis_pass(
     warnings: list[str] | None = None,
     progress=None,
     timeout_sec: int = 900,
+    type_focus: str | None = None,
+    type_label: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    """Run one narrow memo-analysis pass as its own Claude subprocess."""
+    """Run one narrow memo-analysis pass as its own Claude subprocess.
+
+    ``type_focus`` is the company-type research addendum for this pass
+    (skills/memo/types/<type>.md ``research_focus``); passes share no
+    prompt cache, so it rides the per-pass prompt at no cost."""
+    type_block = (
+        f"\nCompany-type research focus ({type_label or 'this company type'}):\n"
+        f"{type_focus.strip()}\n"
+        if type_focus and type_focus.strip()
+        else ""
+    )
     registry_entry = _extract_company_registry_entry_yaml(
         companies_yaml_path,
         company_slug,
@@ -4734,9 +4582,12 @@ Warnings:
 
 Focus for this pass:
 {focus}
-
+{type_block}
 Rules:
 - Do not write files. Return only the JSON object matching the attached schema.
+- For every `supporting_evidence` item retrieved from the web, set `url` to
+  the page it came from (null for files, private documents or interviews).
+  The memo links readers to it, so never invent or guess a URL.
 - Hard output budget (schema-enforced — exceeding any limit rejects the
   whole response): at most 8 `key_findings`, 8 `supporting_evidence`,
   6 `disconfirming_evidence`, 5 `remaining_evidence_limits`,
@@ -4972,6 +4823,94 @@ def _memo_english_units_dir(run_dir: Path) -> Path:
     return run_dir / "logs" / _MEMO_ENGLISH_UNITS_DIRNAME
 
 
+def _dimension_label(dimension: str) -> str:
+    return memo_structure.SCORECARD_DIMENSION_LABELS.get(
+        dimension, {"en": dimension}
+    )["en"]
+
+
+def _render_case_summary_lines(
+    shared_facts: dict, dimensions: dict, weights: dict
+) -> list[str]:
+    """The deterministic "case rests on ..." sentence and the pinned
+    highlights, rendered right after the scorecard so the executive
+    summary opens its highlights subsection from one shared text.
+    Strong dimensions are the pinned highlight dimensions in pinned
+    order (falling back to the top three score-to-weight ratios); weak
+    points are the two lowest ratios."""
+    ratios: list[tuple[float, str, int, int]] = []
+    for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
+        entry = dimensions.get(dimension)
+        weight = weights.get(dimension)
+        if not isinstance(entry, dict) or not isinstance(weight, int):
+            continue
+        score = entry.get("score")
+        if isinstance(score, int) and weight > 0:
+            ratios.append((score / weight, dimension, score, weight))
+    if len(ratios) < 5:
+        return []
+    by_key = {dimension: (score, weight) for _r, dimension, score, weight in ratios}
+    highlights = shared_facts.get("highlights")
+    strong: list[str] = []
+    if isinstance(highlights, list):
+        for item in highlights:
+            if isinstance(item, dict) and item.get("dimension") in by_key:
+                strong.append(str(item["dimension"]))
+    if not strong:
+        strong = [
+            dimension
+            for _r, dimension, _s, _w in sorted(
+                ratios,
+                key=lambda r: (
+                    -r[0],
+                    memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1]),
+                ),
+            )[:3]
+        ]
+    weak = [
+        dimension
+        for _r, dimension, _s, _w in sorted(
+            ratios,
+            key=lambda r: (r[0], memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1])),
+        )
+        if dimension not in strong
+    ][:2]
+
+    def _cell(dimension: str) -> str:
+        score, weight = by_key[dimension]
+        return f"{_dimension_label(dimension)} ({score}/{weight})"
+
+    strong_text = ", ".join(_cell(d) for d in strong[:-1])
+    if len(strong) > 1:
+        strong_text = f"{strong_text} and {_cell(strong[-1])}"
+    else:
+        strong_text = _cell(strong[0])
+    weak_text = " and ".join(_cell(d) for d in weak)
+    lines = [
+        "Case summary (the executive summary's Investment highlights "
+        "subsection OPENS with this sentence, with the company's name in "
+        "place of 'The case'): \"The case rests on "
+        f"{strong_text}; the weak points are {weak_text}.\""
+    ]
+    if isinstance(highlights, list) and highlights:
+        lines.append(
+            "Investment highlights (exactly these three, in this order. "
+            "The executive summary's highlight bullets open with each "
+            "headline VERBATIM and then give the evidence sentences; the "
+            "decision section's 'what is demonstrated' list repeats the "
+            "headlines):"
+        )
+        for index, item in enumerate(highlights, start=1):
+            if not isinstance(item, dict):
+                continue
+            dimension = str(item.get("dimension") or "")
+            cell = _cell(dimension) if dimension in by_key else dimension
+            lines.append(f"{index}. [{cell}] {item.get('headline')}")
+            for evidence in item.get("evidence") or []:
+                lines.append(f"   - {evidence}")
+    return lines
+
+
 def _render_shared_facts_block(
     shared_facts: dict,
     structure: memo_structure.MemoStructure | None = None,
@@ -5016,6 +4955,9 @@ def _render_shared_facts_block(
                     f"{entry_value.get('score')} of "
                     f"{weights.get(dimension)} — {entry_value.get('why')}"
                 )
+            lines.extend(
+                _render_case_summary_lines(shared_facts, dimensions, weights)
+            )
     fair_value = shared_facts.get("fair_value_range")
     if isinstance(fair_value, dict) and fair_value.get("low"):
         lines.append(
@@ -5072,15 +5014,58 @@ def _render_shared_facts_block(
                 lines.append(f"- {key}: {value}")
     risks = shared_facts.get("risks")
     if isinstance(risks, list) and risks:
-        lines.append("Risk list (ordered by rating, highest first):")
+        has_areas = any(
+            isinstance(r, dict) and r.get("area") and r.get("impact")
+            for r in risks
+        )
+        if has_areas:
+            lines.append(
+                "Risk list (ordered by rating, highest first; each line is "
+                "[area] verdict — Impact: consequence — rating (likelihood). "
+                "The executive summary's Key risks bullets and the risk "
+                "section's cards repeat the verdict and the Impact text "
+                "VERBATIM):"
+            )
+        else:
+            lines.append("Risk list (ordered by rating, highest first):")
         for index, risk in enumerate(risks, start=1):
             if not isinstance(risk, dict):
                 continue
             likelihood = str(risk.get("likelihood") or "").strip()
             likelihood_note = f" ({likelihood})" if likelihood else ""
+            area = str(risk.get("area") or "").strip()
+            impact = str(risk.get("impact") or "").strip()
+            if area and impact:
+                area_label = memo_structure.RISK_AREA_LABELS.get(
+                    area, {"en": area}
+                )["en"]
+                lines.append(
+                    f"{index}. [{area_label}] {risk.get('summary')} — "
+                    f"Impact: {impact} — {risk.get('rating')}{likelihood_note}"
+                )
+                continue
             lines.append(
                 f"{index}. {risk.get('summary')} — "
                 f"{risk.get('rating')}{likelihood_note}"
+            )
+    calculations = shared_facts.get("calculations")
+    if isinstance(calculations, list) and calculations:
+        lines.append(
+            "Calculation notes (cite the id in square brackets — [C2] — "
+            "wherever the result appears in prose or a table cell; the "
+            "renderer links it to the Calculation notes appendix):"
+        )
+        for note in calculations:
+            if not isinstance(note, dict):
+                continue
+            inputs = "; ".join(
+                f"{i.get('name')} = {i.get('value')} [{i.get('ref')}]"
+                for i in note.get("inputs") or []
+                if isinstance(i, dict)
+            )
+            lines.append(
+                f"- {note.get('id')} {note.get('label')}: {note.get('formula')} "
+                f"→ {note.get('result')} (inputs: {inputs}) — {note.get('meaning')}"
             )
     source_topics = shared_facts.get("source_topics")
     if isinstance(source_topics, dict) and source_topics:
@@ -5094,143 +5079,9 @@ def _render_shared_facts_block(
 # v1 context stays byte-identical). Rides --append-system-prompt so every
 # worker reads one cached copy. The per-section data contracts live in the
 # structure profile; these are the run-wide rules they all assume.
-MEMO_STRUCTURE_V2_ADDENDUM = """\
-
-## Data honesty (structure v2 — these rules override any instinct to fill gaps)
-- Never invent, extrapolate, or "estimate" a number that no source states.
-  A missing datum is stated as missing, in place, every time.
-- Missing table cell: write exactly "Not disclosed — <implication, 15 words
-  max>" (Chinese: "未披露——<含义>"). The implication says what the gap means
-  for the analysis, not that data is unavailable.
-- Missing datum in prose: one sentence states the gap, the next states what
-  follows from it. Never skip a contracted passage because its data is thin.
-- Chart slots render as real `chart` blocks (rules below) built ONLY from
-  numbers the tables or pins already state. When the series is not
-  disclosed, no chart: keep the slot and write: "Chart omitted —
-  <series> is not disclosed. <nearest disclosed anchor, or 'No disclosed
-  anchor exists.'> <what the gap means for the thesis>."
-- A table with most rows undisclosed keeps its full fixed structure; add
-  one sentence naming the disclosure gap itself as evidence about the
-  company.
-- Fund-specific mechanics we cannot know are placeholders, verbatim:
-  "Proposed amount: [TO BE DETERMINED BY IC]", "Allocation: [TO BE
-  DETERMINED BY IC]", "Strategy: [重仓 / 跟投 / 卡位 — IC to select]".
-- Absence of disclosure is itself information about the company; read it.
-
-## Inputs are closed (structure v2)
-- Your inputs are this run's folder, its research folder and studio
-  packet, and the registry entry above — nothing else on disk.
-- Never read this application's source code (server/, frontend/,
-  tests/) to infer schemas or field meanings. The JSON schema you were
-  given is the complete, authoritative output contract; if a field is
-  not in it, do not produce it.
-- Never open another company's or another run's folders under
-  data/memos/. A prior memo is not evidence, not a template, and not a
-  schema example — copying its shape or facts contaminates this memo.
-
-## Section navigation (structure v2)
-- Every section is organized under the fixed numbered subsections its
-  contract declares, in order. Emit each as a `heading` block, level 2,
-  with BOTH languages filled exactly as the contract lists them:
-  {"type": "heading", "level": 2, "text": {"en": "1. <en title>",
-  "zh": "1. <zh title>"}}. Numbering restarts at 1 in each section and
-  is arabic ("1.") in BOTH languages — never roman ("i.") and never
-  Chinese numerals ("一、"); those prefixes are dropped by the renderer.
-- Every other block belongs under one of the declared subsections; no
-  content precedes subsection 1's heading.
-- The heading does the orienting: never open a passage by announcing
-  what it is about ("This section examines...", "Turning to the
-  market..."). Under its heading, the passage starts with the verdict.
-- The executive summary contains NO tables. It says the point: what the
-  company is, what the deal is, why invest, what could kill it, and the
-  recommendation — every number interpreted in its own sentence. The
-  snapshot tables live in the overview section the contract routes them
-  to.
-
-## Charts (structure v2)
-Where a section contract names a chart slot, emit a `chart` block:
-{"type": "chart",
- "chart_type": "bar" | "grouped_bar" | "hbar" | "line" | "pie",
- "title": {"en": ..., "zh": ""}, "unit": {"en": "US$B", "zh": ""},
- "reading": {"en": "Higher is better", "zh": ""},
- "caption": {"en": <one interpretation sentence>, "zh": ""},
- "series": [{"label": "<plain EN string>",
-             "points": [{"x": "<label>", "y": <plain number>}, ...]}],
- "source_ids": ["S1", ...]}
-- The contract's chart type is a SUGGESTION: use whichever supported
-  type explains the point best (hbar suits long names; line suits a
-  trajectory; pie suits a composition summing to a whole).
-- `reading` is REQUIRED: one short phrase telling the reader how to
-  read the chart — "Higher is better", "Lower is better", "Bars below
-  1.0x lose money", "Shares of total revenue". When the natural
-  reading has an exception, say it there ("Higher is better — the
-  2027 bar is a company forecast").
-- Numbers only from the section's tables or the pinned fact sheet —
-  a chart never introduces a number the text does not carry.
-- `y` is a PLAIN NUMBER in the stated `unit` ("$1.1T" with unit US$B is
-  y: 1100). No strings, no ranges; convert carefully.
-- Series labels and x labels are plain English/neutral strings — they
-  render inside the image, which is shared by both language documents.
-  `title`, `reading`, `caption`, and `unit` are bilingual objects like
-  all block text.
-- 1-4 series; every series shares the same x categories in the same
-  order; `bar`, `hbar`, and `pie` take exactly one series; at least
-  two data points — a single number is prose, not a chart.
-- The caption interprets, never restates: what the shape or gap means
-  for the thesis.
-- A chart slot whose series is not disclosed emits NO chart block —
-  write the chart-omitted fallback line from the data-honesty rules.
-  Never a chart with invented or placeholder numbers.
-
-## Explanatory register (structure v2)
-- Headings state the verdict, not the topic: "Revenue forecasting remains
-  unreliable", never "Revenue forecast".
-- Answer first: every named verdict passage ("The ceiling question",
-  "Healthier or hungrier", "Widening or narrowing", ...) OPENS with its
-  one-line answer in plain words a reader can quote, then argues it, then
-  restates it. A reader who stops after the first sentence must still
-  have the verdict.
-- Every table is followed by a reading that OPENS with what the numbers
-  MEAN — good, bad, or mixed for this investment, and why — before any
-  numbers repeat. A passage that walks through the data without saying
-  which way it cuts is unfinished, however accurate.
-- Bullets open with the claim, not the topic: the words before the first
-  period carry the direction ("The price sits below every disclosed
-  peer — 13.8x vs a 21x median."), never a naked label ("Price.",
-  "市场规模。").
-- No orphan numbers: every figure is interpreted in the same or the next
-  sentence; a paragraph may not end on an uninterpreted figure.
-- After presenting evidence, weigh it explicitly: "The pipeline is valuable
-  evidence of demand. It is not revenue."
-- Where a number implies a consequence, do the arithmetic in-line:
-  "After note conversion, a $10B outcome produces less than a 2x gross
-  return before later dilution."
-- Short subject-verb-object sentences, one idea per paragraph, verdict
-  first. Ban: "positions the company", "underscores", "highlights",
-  "robust", "significant traction", "leverage" as a verb.
-- Ambiguous evidence is argued both ways in its own passage, then
-  weighed: the honest bull reading, the honest bear reading, and which
-  one the evidence favors.
-
-Worked examples (match the Prefer register, never the Avoid one):
-- Avoid: "Risk 1: Entry price. $1.0B+ on ~$24M ARR is ~42x against a
-  ~12x comp median."
-  Prefer: "Risk 1: The entry price already assumes success — ordinary
-  execution earns nothing. At $1.0B+ on ~$24M ARR the round is priced
-  at ~42x, three and a half times the ~12x comp median. ARR must
-  roughly double before the price merely matches peers, so flawless
-  execution holds value flat, and any multiple compression comes out
-  of principal first."
-- Avoid: "NRR: 118%. CAC payback: 19 months."
-  Prefer: "NRR of 118% means the installed base grows on its own — a
-  real asset. The 19-month CAC payback works against it: each new
-  customer ties up cash for over a year and a half, so growth is
-  rationed by the balance sheet, not by demand."
-- Avoid: "The company has a strong pipeline of $40M."
-  Prefer: "The company reports a $40M pipeline. The pipeline is
-  valuable evidence of demand. It is not revenue, and at the company's
-  own 25% historical conversion it supports roughly $10M of bookings."
-"""
+# Editorial prompt — edit skills/memo/structure_addendum.md (zh twin under
+# skills/memo/zh/), never this line.
+MEMO_STRUCTURE_V2_ADDENDUM = memo_prompts.load_prompt("structure_addendum.md")
 
 
 def _memo_english_common_context(
@@ -5279,6 +5130,13 @@ def _memo_english_common_context(
     v2_addendum = (
         MEMO_STRUCTURE_V2_ADDENDUM if structure.scorecard_weights() else ""
     )
+    # The company-type lens (skills/memo/types/<type>.md body) rides the
+    # same cached block, once per run, v2-family only — v1 context stays
+    # byte-identical and a run without a type appends nothing.
+    if v2_addendum:
+        type_lens = memo_structure.company_type_lens(structure)
+        if type_lens:
+            v2_addendum = f"{v2_addendum}\n\n{type_lens}"
     return f"""\
 This is the fast-path synthesis for a BSH LP-facing sell-side investment
 memo about {company_name}. {source_mode}
@@ -5424,8 +5282,17 @@ against the stragglers when they land.
             f"{name} {low}-{high}"
             for name, low, high in memo_structure.VERDICT_BANDS
         )
+        type_profile = memo_structure.load_company_type(structure.company_type)
+        type_line = (
+            f"   - This run's company type is {type_profile.label['en']} "
+            "(the executive summary's company-profile sentence names it; "
+            "the company-type lens in your instructions says where the "
+            "case usually lives for this type).\n"
+            if type_profile is not None
+            else ""
+        )
         v2_pins_block = f"""\
-   - `stage`: "{structure.pin_stage}" — this run's classified report stage.
+{type_line}   - `stage`: "{structure.pin_stage}" — this run's classified report stage.
    - `verdict`: the tier your evidence supports (Strong Buy / Buy /
      Watch / Pass). It must agree with the recommendation sentence's
      stance and sit in the scorecard band: {band_list}.
@@ -5439,8 +5306,44 @@ against the stragglers when they land.
      `holding_period`.
    - `scenarios` here are OBJECTS per bear/base/bull: `narrative` (one
      line), `exit_year`, `exit_revenue`, `exit_multiple`, `exit_value`,
-     `moic` ("N.Nx"), `irr` ("NN%"). Base MOIC must be consistent with
+     `moic` ("N.Nx"), `irr` ("NN%"). When a MOIC sits
+     within 0.05x of the return floor it is judged against, write it to
+     two decimals ("1.49x", not "1.5x") so a miss never rounds onto the
+     floor and every section states the same side of it. Base MOIC must be consistent with
      exit_value against the entry valuation after reasonable dilution.
+   - `highlights`: EXACTLY three. Pick the three scorecard dimensions
+     with the highest score-to-max ratio (each at least 60% of its max —
+     a weak dimension is never a highlight; a deterministic gate checks
+     this and rejects duplicates). Per item: `dimension` (the scorecard
+     key), `headline` (ONE plain verdict sentence a reader can quote,
+     at most one number, written for someone who has never seen the
+     company: "Anthropic leads enterprise adoption rather than chasing
+     it."), `evidence` (2-3 sentences, one fact each, with its number
+     and where that number comes from — a named source, or our own
+     calculation cited with its [C#] id; never the words "the memo").
+     Plain text only: no asterisks or other markdown. The executive summary repeats the
+     headline and evidence verbatim.
+   - each risk ALSO carries `area` — which aspect it concentrates on:
+     market / technology / competition / commercialization /
+     concentration / team_governance_regulatory / valuation_exit — and
+     `impact`: what it costs the investment in plain words with the ONE
+     number that sizes it ("the base case returns 0.9x — a loss even if
+     the plan is delivered"). The `summary` is one plain sentence with
+     at most one number; the arithmetic chain that supports it belongs
+     in the risk section's card, never in the summary.
+   - `calculations`: every derived number the memo relies on, as a
+     numbered note (`id` "C1", "C2", ...): `label`, `inputs` (name,
+     value, `ref` = the source id "S3" it comes from, another note
+     "C1", or "assumption"), `formula` (the arithmetic WITH the numbers
+     in it: "13 × $200B = $2.6T; $2.6T ÷ $1.75T = 1.5x"), `result`, and
+     `meaning` (what the result says, in plain words). Required notes:
+     the bear, base and bull exit values with their MOIC and IRR, the
+     fair-value range, the entry multiple, and the adopted market size.
+     Sections cite a note as [C2] wherever its result appears; a
+     deterministic gate checks that every scenario MOIC and both
+     fair-value bounds have a note whose formula or result shows them.
+   - Package `sources`: add `url` for every source the analysis
+     artifacts retrieved from the web (they record it); never invent one.
 """
     prompt = f"""\
 You are drafting the SHARED SPINE of the English source package. {worker_count} section
@@ -7891,6 +7794,9 @@ def run_memo_fast_english_package_parallel(
     package.setdefault("schema_version", 1)
     package["structure"] = structure.meta()
     package["sections"] = sections
+    calculations = _package_calculations(spine_result.get("shared_facts"))
+    if calculations:
+        package["calculations"] = calculations
     cost = (
         _to_float(spine_result.get("claude_cost_usd"))
         + _to_float((artifacts_result or {}).get("claude_cost_usd"))
@@ -7961,8 +7867,12 @@ Chinese style:
 - Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
   source-trace labels, memo-package labels, reviewer-prompt labels,
   decision-question labels, `硬 IP 墙`, or `软性工具`.
+- Inline citation tokens `[S3]`, `[C2]`, `[S3, C2]` are ids, not words:
+  keep every one exactly as written, in the same place in the sentence.
+  A translation that drops, adds or renumbers one is rejected.
 - Use these fixed translations for risk-card row labels: Risk Type →
-  风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
+  风险类型; Verdict → 一句话结论; Impact → 影响有多大; Why it matters →
+  为什么重要; What we watch → 跟踪信号; Mitigation → 缓释措施;
   Likelihood → 可能性; Risk Rating → 风险评分. A card heading
   "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
   High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
@@ -8426,8 +8336,12 @@ Chinese style:
 - Avoid prompt-scaffold terms such as `上行状态`, `现态`, `关键现实检查`,
   source-trace labels, memo-package labels, reviewer-prompt labels,
   decision-question labels, `硬 IP 墙`, or `软性工具`.
+- Inline citation tokens `[S3]`, `[C2]`, `[S3, C2]` are ids, not words:
+  keep every one exactly as written, in the same place in the sentence.
+  A translation that drops, adds or renumbers one is rejected.
 - Use these fixed translations for risk-card row labels: Risk Type →
-  风险类型; Why it matters → 为什么重要; What we watch → 跟踪信号;
+  风险类型; Verdict → 一句话结论; Impact → 影响有多大; Why it matters →
+  为什么重要; What we watch → 跟踪信号; Mitigation → 缓释措施;
   Likelihood → 可能性; Risk Rating → 风险评分. A card heading
   "Risk N: <summary>" becomes "风险 N：<一句话概括>". Likelihood values
   High/Medium/Low become 高/中/低 (e.g. `高：<简短理由>`). Keep the
@@ -8655,6 +8569,46 @@ def _run_bilingual_unit_compact(
     return unit, None
 
 
+_CITATION_TOKEN_RE = re.compile(r"\[((?:[SC]\d+)(?:\s*,\s*[SC]\d+)*)\]")
+
+
+def _citation_ids(text: Any) -> list[str]:
+    ids: list[str] = []
+    for group in _CITATION_TOKEN_RE.findall(str(text or "")):
+        ids.extend(part.strip() for part in group.split(","))
+    return ids
+
+
+def _package_calculations(shared_facts: Any) -> list[dict]:
+    """The spine's pinned calculation notes as package entries: label and
+    meaning become {en, zh} slots so the translation pass fills them;
+    ids, inputs, formula and result stay as written."""
+    notes = shared_facts.get("calculations") if isinstance(shared_facts, dict) else None
+    out: list[dict] = []
+    for note in notes or []:
+        if not isinstance(note, dict) or not str(note.get("id") or "").strip():
+            continue
+        out.append(
+            {
+                "id": str(note["id"]).strip(),
+                "label": {"en": str(note.get("label") or ""), "zh": ""},
+                "inputs": [
+                    {
+                        "name": str(i.get("name") or ""),
+                        "value": str(i.get("value") or ""),
+                        "ref": str(i.get("ref") or ""),
+                    }
+                    for i in note.get("inputs") or []
+                    if isinstance(i, dict)
+                ],
+                "formula": str(note.get("formula") or ""),
+                "result": str(note.get("result") or ""),
+                "meaning": {"en": str(note.get("meaning") or ""), "zh": ""},
+            }
+        )
+    return out
+
+
 def _adopt_zh_translations(source: Any, translated: Any) -> None:
     """Copy ONLY ``zh`` strings from ``translated`` into ``source`` in place.
 
@@ -8670,6 +8624,10 @@ def _adopt_zh_translations(source: Any, translated: Any) -> None:
                 str(translated.get("zh") or "").strip()
                 and translated.get("en") == source.get("en")
                 and not str(source.get("zh") or "").strip()
+                # Citation ids are links: a zh string that lost, gained
+                # or renumbered one stays blank and goes to the chaser.
+                and sorted(_citation_ids(translated["zh"]))
+                == sorted(_citation_ids(source.get("en")))
             ):
                 source["zh"] = translated["zh"]
         for key, value in source.items():
@@ -11610,8 +11568,16 @@ def run_structured_prompt(
     timeout_sec: int = 180,
     progress=None,
     cancel_event: threading.Event | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
     """Run a one-shot `claude -p` call and parse a strict-JSON response.
+
+    ``model`` / ``effort`` pin the call (``None`` keeps the CLI default);
+    ``tools=""`` removes every tool via ``--tools ""``, which also drops the
+    tool definitions from the prompt. With all three unset the argv is
+    unchanged for existing callers.
 
     Use this for any text-in / structured-JSON-out task that doesn't need
     tools (translation, text summarization, classification). Returns
@@ -11657,6 +11623,12 @@ def run_structured_prompt(
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
+    if model:
+        cmd.extend(["--model", model])
+    if effort:
+        cmd.extend(["--effort", effort])
+    if tools is not None:
+        cmd.extend(["--tools", tools])
     if progress:
         progress.emit(
             "stage",

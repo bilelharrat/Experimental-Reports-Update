@@ -245,11 +245,21 @@ export const api = {
     if (company) params.set("company", String(company));
     return request(`/api/news/brief?${params}`, { timeoutMs: 10000 });
   },
+  // refresh:false never calls Claude (cached AI brief or a basic brief);
+  // refresh:true is the warned rewrite, which may queue behind a refresh.
   postNewsBrief: (body) =>
     request("/api/news/brief", {
       method: "POST",
       body: JSON.stringify(body || {}),
-      timeoutMs: 120000,
+      timeoutMs: 300000,
+    }),
+  newsBriefRefreshStatus: () =>
+    request("/api/news/brief/refresh", { timeoutMs: 10000 }),
+  startNewsBriefRefresh: (body) =>
+    request("/api/news/brief/refresh", {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+      timeoutMs: 15000,
     }),
   prewarmNewsBriefs: (body) =>
     request("/api/news/brief/prewarm", {

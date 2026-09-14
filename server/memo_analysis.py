@@ -49,9 +49,10 @@ from . import (
     memo_chinese_parity,
     memo_docx_renderer,
     memo_pin_check,
+    memo_prep,
+    memo_prompts,
     memo_quality_lint,
     memo_structure,
-    memo_prep,
     product_store,
     research_store,
     serena_analysis,
@@ -424,150 +425,11 @@ class _FastMemoPassResult:
         return isinstance(self.data, dict) and not self.error
 
 
-_FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = (
-    _FastMemoPassSpec(
-        pass_id="arithmetic_denominators",
-        label="Arithmetic / pressure tests",
-        artifact_filename="pressure_tests.md",
-        focus=(
-            "Pressure-test valuation, contract values, SAFE/SPV economics, "
-            "revenue recognition, ARR/revenue proxies, unit arithmetic, and "
-            "what the disclosed numbers imply. Build ranges instead of false "
-            "precision."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="time_base",
-        label="Time-base integrity",
-        artifact_filename="time_base_checks.md",
-        focus=(
-            "Date-tag every valuation, round, contract, pipeline, ARR/revenue, "
-            "funding, and customer metric. Separate contemporaneous, stale-mark, "
-            "forward, and trailing claims."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="growth_bridge",
-        label="Growth bridge",
-        artifact_filename="growth_bridge.md",
-        focus=(
-            "Bridge disclosed commercial activity into modeled revenue or value: "
-            "binding contracts, cancellable contracts, MOUs, LOIs, pipeline, "
-            "conversion ranges, implementation capacity, and recognition timing."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="valuation_comps",
-        label="Valuation comparables",
-        artifact_filename="valuation_comps.md",
-        focus=(
-            "Build the comparables set with growth-adjusted multiples, "
-            "collect precedent transactions, judge which of the three "
-            "methods (comps / precedents / DCF-earnings-power) can be run "
-            "on the disclosures and why the others cannot, and derive an "
-            "implied fair-value range with the arithmetic shown. Translate "
-            "the entry price into what growth and margin it already pays "
-            "for."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="exit_paths",
-        label="Exit paths",
-        artifact_filename="exit_paths.md",
-        focus=(
-            "Map the realistic exits: IPO readiness and timing evidence, "
-            "M&A with named plausible acquirers and the strategic or "
-            "antitrust constraint on each, secondary-market depth for this "
-            "name, dated catalysts over the next 12-36 months, and the "
-            "exit-year/multiple scaffolding a scenario table needs "
-            "(bear/base/bull exit valuations with dilution assumptions)."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="replacement_coexistence",
-        label="Replacement vs coexistence",
-        artifact_filename="replacement_vs_coexistence.md",
-        focus=(
-            "Determine whether the company replaces incumbents, coexists as an "
-            "additive layer, licenses through incumbents, or depends on standards "
-            "and ecosystem adoption."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="competitive_rights",
-        label="Competitive compression",
-        artifact_filename="competitive_notes.md",
-        focus=(
-            "Assess competitive compression, IP/patent durability, rights or "
-            "standards leverage, defensibility, alternative technical approaches, "
-            "and what could reduce pricing power."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="alternative_explanations",
-        label="Alternative explanations",
-        artifact_filename="disconfirming_evidence.md",
-        focus=(
-            "Generate the strongest non-bullish interpretations of the facts. "
-            "Identify disconfirming evidence, downside sensitivity, and the "
-            "specific risk or valuation sensitivities that would change the "
-            "decision."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="market_sizing",
-        label="Market sizing / TAM",
-        artifact_filename="market_sizing.md",
-        focus=(
-            "Size the market the company actually competes in: TAM/SAM/SOM "
-            "with the derivation method for each, the market definition and "
-            "value-chain position, growth drivers with a supporting datum "
-            "per driver, the policy/regulatory regimes that constrain or "
-            "subsidize the business, and where the ceiling sits ($20B / "
-            "$100B / $500B enterprise-value bands). Flag every number the "
-            "company self-reports versus independent sizing."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="team_governance",
-        label="Team & governance",
-        artifact_filename="team_governance.md",
-        focus=(
-            "Assess leadership track records, key-person dependence, board "
-            "composition and independence, ownership and voting control, "
-            "ESOP, protective provisions, missing officers (CFO especially), "
-            "audit history, related-party exposure, and public-company "
-            "readiness. State facts with dates; separate verified history "
-            "from company-claimed bios."
-        ),
-    ),
-    # Dispatch order is execution order: the pool runs the first
-    # max-workers specs immediately and queues the rest, so the two
-    # tail passes always finish last. Keep every pass in
-    # MEMO_SPINE_PIN_FEEDING_PASSES inside the immediate window (the
-    # speculative spine holds its launch for them) and park the most
-    # section-local color passes in the queue — their late arrival is
-    # what the delta check is FOR, and it reads them as additive.
-    _FastMemoPassSpec(
-        pass_id="deployment_behavior",
-        label="Adoption ladder",
-        artifact_filename="adoption_ladder.md",
-        focus=(
-            "Assess deployment depth and adoption maturity by product/use case. "
-            "Separate announced, pilot, named production, repeatable production, "
-            "renewal/upsell, and broad deployment evidence."
-        ),
-    ),
-    _FastMemoPassSpec(
-        pass_id="gtm_operating_burden",
-        label="Distribution / GTM",
-        artifact_filename="distribution_notes.md",
-        focus=(
-            "Assess distribution model, customer acquisition path, sales cycle, "
-            "implementation burden, budget owner, channel leverage, carrier or "
-            "enterprise access, and GTM strain."
-        ),
-    ),
+# Editorial prompts — the pass ids, labels, artifacts and focus texts
+# live in skills/memo/passes.md (zh twin under skills/memo/zh/); the
+# file order is the dispatch order.
+_FAST_MEMO_PASSES: tuple[_FastMemoPassSpec, ...] = tuple(
+    memo_prompts.load_passes(_FastMemoPassSpec)
 )
 
 
@@ -2804,10 +2666,21 @@ def _run_fast_memo_pass(
     lessons_path: Path | None,
     scope_check: dict | None,
     warnings: list[str],
+    structure: memo_structure.MemoStructure | None = None,
 ) -> _FastMemoPassResult:
     started_at = _now_iso()
     started_monotonic = time.monotonic()
     sub_progress = _ThreadProgress(stream, spec.label)
+    type_focus = (
+        memo_structure.company_type_research_focus(structure, spec.pass_id)
+        if structure is not None
+        else ""
+    )
+    type_profile = (
+        memo_structure.load_company_type(structure.company_type)
+        if structure is not None
+        else None
+    )
     sub_progress.emit(
         "thread_started",
         title=spec.label,
@@ -2839,6 +2712,8 @@ def _run_fast_memo_pass(
             scope_check=scope_check,
             warnings=warnings,
             progress=sub_progress,
+            type_focus=type_focus or None,
+            type_label=type_profile.label["en"] if type_profile else None,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("fast memo pass crashed: %s", spec.pass_id)
@@ -2896,6 +2771,7 @@ def _run_fast_phase2(
     scope_check: dict | None,
     warnings: list[str],
     speculator=None,
+    structure: memo_structure.MemoStructure | None = None,
 ) -> tuple[list[_FastMemoPassResult] | None, float, int]:
     """Phase 2: the parallel analysis passes (12 of them).
 
@@ -2965,6 +2841,7 @@ def _run_fast_phase2(
                 lessons_path=lessons_path,
                 scope_check=scope_check,
                 warnings=warnings,
+                structure=structure,
             ): spec
             for spec in _FAST_MEMO_PASSES
         }
@@ -3025,6 +2902,51 @@ def _run_fast_phase2(
     return pass_results, cost_usd, worker_duration_ms
 
 
+def _resolve_company_type(
+    report_id: str,
+    report: dict,
+    run_dir: Path,
+    stream: job_progress.ProgressLog,
+) -> dict | None:
+    """Phase 1 company type: the registry-sourced value prep persisted,
+    else one tool-free classifier call. A classifier failure files the
+    company under `other` and never blocks the run. Publishes the result
+    to the report (UI card) and the stream either way."""
+    existing = report.get("company_type")
+    if (
+        isinstance(existing, dict)
+        and existing.get("type") in memo_structure.COMPANY_TYPE_KEYS
+    ):
+        return existing
+    company = storage.get_company(str(report.get("company_id") or "")) or {}
+    info: dict | None = None
+    try:
+        info = claude_runner.run_memo_company_type_classifier(
+            run_dir=run_dir, company=company, progress=stream
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("company type classifier crashed")
+    if not info:
+        info = {"type": "other", "source": "classifier_failed"}
+    try:
+        storage.update_report(report_id, company_type=info)
+    except Exception:  # noqa: BLE001
+        logger.warning("company-type publish failed", exc_info=True)
+    label = memo_structure.COMPANY_TYPE_LABELS.get(info["type"], {}).get(
+        "en", info["type"]
+    )
+    stream.emit(
+        "stage",
+        stage="company_type",
+        message=f"Company type: {label} ({info.get('source')})",
+        thread=claude_runner._MEMO_PHASE1_THREAD,
+        company_type=info["type"],
+        source=info.get("source"),
+        confidence=info.get("confidence"),
+    )
+    return info
+
+
 def _run_fast_memo_pipeline(
     *,
     report_id: str,
@@ -3056,6 +2978,9 @@ def _run_fast_memo_pipeline(
         else "late"
     )
     structure_mode = str(report.get("structure_mode") or "full")
+    # Provisional (type-less) structure for the starting event; the Phase
+    # 1 thread classifies the company type below and re-resolves it with
+    # the type's lens and weight overlay.
     structure = memo_structure.active_structure(
         structure_stage, structure_mode
     )
@@ -3107,6 +3032,14 @@ def _run_fast_memo_pipeline(
             thread=claude_runner._MEMO_PHASE1_THREAD,
             chars=len(fact_ledger),
             path=str(research_dir / claude_runner.MEMO_FACT_LEDGER_FILENAME),
+        )
+    company_type_info = _resolve_company_type(report_id, report, run_dir, stream)
+    company_type = (
+        str(company_type_info.get("type") or "") if company_type_info else ""
+    )
+    if company_type:
+        structure = memo_structure.active_structure(
+            structure_stage, structure_mode, company_type
         )
     stream.emit("thread_finished", thread=claude_runner._MEMO_PHASE1_THREAD)
 
@@ -3177,6 +3110,7 @@ def _run_fast_memo_pipeline(
             scope_check=scope_check,
             warnings=warnings,
             speculator=speculator,
+            structure=structure,
         )
         cost_usd += phase2_cost_usd
         worker_duration_ms += phase2_duration_ms
@@ -5517,8 +5451,15 @@ def _resume(report_id: str) -> None:
             if isinstance(stage_info, dict)
             else "late"
         )
+        resume_type_info = report.get("company_type")
         resume_structure = memo_structure.active_structure(
-            resume_stage, str(report.get("structure_mode") or "full")
+            resume_stage,
+            str(report.get("structure_mode") or "full"),
+            (
+                str(resume_type_info.get("type") or "") or None
+                if isinstance(resume_type_info, dict)
+                else None
+            ),
         )
         if resume_structure.scorecard_weights():
             message = (

@@ -95,7 +95,7 @@ subsections:
   zh: 投资结论与建议
 ```
 
-400-500 words. NO tables. Content per subsection:
+450-600 words. NO tables. Content per subsection:
 
 1. Company profile: one plain-language sentence on what the company
    does and for whom, one on sector/geography, one placing it on the
@@ -103,12 +103,20 @@ subsections:
 2. The round: round, instrument, size, price, implied stake, and what
    the price already assumes — the entry multiple interpreted in the
    same breath. 2-3 sentences.
-3. Investment highlights: exactly 3 bullets — the thesis trio (market
-   big enough / top-1-3 or not / price leaves a return or not), each
-   OPENING with a short claim that carries the direction, then its
-   strongest number. Never a naked topic label ("Price.").
-4. Key risks: ≤3 bullets quoting the highest-rated pinned risk
-   summaries verbatim with their N/10 ratings.
+3. Investment highlights: OPEN with the pinned case-summary sentence
+   from the shared fact sheet, the company's name in place of "The
+   case" — which dimensions carry the case and which are weak, with
+   scores. Then ONE `bullets` block, `"component":
+   "investment_highlights"`, EXACTLY three items in pinned order: the
+   pinned headline VERBATIM (plain text, no asterisks or markdown; the
+   renderer bolds it), then the pinned evidence
+   sentences, each number introduced by what it measures and where it
+   comes from (a named source, or "our own estimate" with its
+   inputs). Never a naked topic label ("Price."), never a new number.
+4. Key risks: ONE `bullets` block, `"component": "key_risks"`, EXACTLY
+   three items — the three highest-rated pinned risks in pinned
+   order, each "<Area label> — <pinned summary verbatim>. Impact:
+   <pinned impact verbatim>. (N/10, <likelihood> likelihood)".
 5. Recommendation: a verdict callout — the pinned recommendation
    sentence verbatim, entry, fair-value range, base-case MOIC·IRR,
    holding period, and the fund placeholders verbatim. With a pinned
@@ -207,8 +215,13 @@ subsections:
 1. Why this matters now: the investment thesis in 2-3 verdict-lead
    bullets — what market this opens, why the timing is now, why this
    company — each with its hardest number.
-2. Market & ceiling: TAM/SAM/SOM in ONE bullet each (size, year,
-   basis — or the missing-data sentence), then the ceiling answer
+2. Market & ceiling: first ONE bullet per external estimate the
+   research found (house or company, what it counts, value, year —
+   never fewer than three when they exist, never dropped for
+   disagreeing), then TAM/SAM/SOM in ONE bullet each (size, year, and
+   the estimate or our own inputs it rests on — or the
+   missing-data sentence), opening with the range the memo adopts and
+   why that definition fits this company, then the ceiling answer
    first: does this market cap the company nearer $20B, $100B, or
    $500B, and the one assumption that moves it. One sentence on the
    policy/regulatory regime (or "No regulatory regime materially

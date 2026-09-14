@@ -64,6 +64,7 @@ class _TextBlock:
 
 
 _BRACKET_RE = re.compile(r"\[[^\[\]\n]{1,100}\]")
+_CITATION_TOKEN_RE = re.compile(r"\[(?:[SC]\d+)(?:\s*,\s*[SC]\d+)*\]")
 _SOURCE_ID_RE = re.compile(r"s\d+(?:\s*[,;]\s*s\d+)*", re.IGNORECASE)
 _SOURCE_BRACKET_KEYWORDS = (
     "wv",
@@ -521,9 +522,16 @@ def _lint_blocks(
     structure = structure or memo_structure.LATE
     risk_section_key = structure.numbered_lint_key("risk")
     findings: list[MemoLintFinding] = []
+    # Structure-v2 memos cite sources and calculation notes inline as
+    # [S3] / [C2] (rendered as links); v1 memos keep ids in the index.
+    citations_allowed = bool(structure.scorecard_weights())
     for block in blocks:
         if not block.allowed_trace_section:
             for match in _BRACKET_RE.finditer(block.text):
+                if citations_allowed and _CITATION_TOKEN_RE.fullmatch(
+                    match.group(0)
+                ):
+                    continue
                 if _source_like_bracket(match.group(0)):
                     findings.append(
                         _finding(

@@ -208,9 +208,10 @@ watch(reportMode, (mode) => {
   }
 });
 
-// Quality: "best" (every agent on the default model), "balanced"
-// (research + translation on a cheaper model), or "economy" (everything
-// on a cheaper model). Applies to One-Click generation.
+// Quality: "best" (every agent on the default model at full effort),
+// "balanced" (research + translation on a cheaper model; writing on the
+// default model at medium effort), or "economy" (everything on a cheaper
+// model). Applies to One-Click generation.
 const QUALITY_KEY = "bsh.research.quality";
 function loadQuality() {
   try {
@@ -2147,6 +2148,23 @@ onUnmounted(stopPolling);
         >
           {{ tr("research.retry") }}
         </button>
+      </div>
+
+      <!-- Company type: classified in Phase 1 (registry `vertical` or the
+           tool-free classifier); it steers research focus, the analysis
+           lens and the scorecard weights for this run. -->
+      <div
+        v-if="isMemo && activeReport.company_type?.type"
+        class="mt-4 rounded-lg border border-subtle bg-surface-muted p-4 text-sm text-ink-primary"
+      >
+        <span class="font-semibold">
+          {{ tr("research.company_type_label") }}
+        </span>
+        <span class="ml-2">
+          {{
+            tr("research.company_type_" + activeReport.company_type.type)
+          }}
+        </span>
       </div>
 
       <!-- Company stage: the run's evidence-confirmed stage, pinned by
