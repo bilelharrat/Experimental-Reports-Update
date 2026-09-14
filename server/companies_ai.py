@@ -271,8 +271,13 @@ def deep_search(
     force_refresh: bool = False,
     progress=None,
     only_company_id: str | None = None,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> dict:
     """Run a deep search and persist any new matches into local storage.
+
+    ``model`` / ``effort`` pin the Claude search (the news tracker uses
+    Sonnet at medium effort); unset keeps the CLI default.
 
     Cached results live forever (no TTL) — `force_refresh=True` re-queries
     and overwrites the cache. The response always includes `cached_at` (ISO
@@ -325,6 +330,8 @@ def deep_search(
         system_prompt=SYSTEM_PROMPT,
         max_results=MAX_RESULTS,
         progress=progress,
+        model=model,
+        effort=effort,
     )
 
     if raw is None:

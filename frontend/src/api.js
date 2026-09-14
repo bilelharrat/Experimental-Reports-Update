@@ -208,6 +208,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // Background sync schedule and the global auto-apply switch.
+  getTrackingSettings: () => request("/api/tracking/settings"),
+  putTrackingSettings: (body) =>
+    request("/api/tracking/settings", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   // Tracking dashboard: the follow list is browser-local, so the ids ride
   // along as query params rather than the server keeping a watchlist.
   trackingRollup: (companyIds = []) => {

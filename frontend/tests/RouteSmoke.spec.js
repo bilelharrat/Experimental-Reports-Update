@@ -70,6 +70,8 @@ vi.mock("../src/api.js", () => ({
     listTrackingUpdates: vi.fn(),
     syncTrackingUpdates: vi.fn(),
     executeTrackingAutoRun: vi.fn(),
+    getTrackingSettings: vi.fn(),
+    putTrackingSettings: vi.fn(),
     decisionRecords: {
       list: vi.fn(),
       add: vi.fn(),
@@ -365,6 +367,8 @@ describe("route smoke tests", () => {
       executed: false,
       reason: "no_recommended_auto_run",
     });
+    api.getTrackingSettings.mockResolvedValue({ auto_apply: false, interval_hours: 12 });
+    api.putTrackingSettings.mockResolvedValue({ auto_apply: true, interval_hours: 12 });
     api.decisionRecords.list.mockResolvedValue(emptyDecisionRecords());
     api.decisionRecords.add.mockResolvedValue({ id: "decision-1" });
     api.decisionRecords.remove.mockResolvedValue(null);
@@ -517,6 +521,30 @@ describe("route smoke tests", () => {
       { acknowledge_review: false },
     );
     expect(wrapper.text()).toContain("Another job is already running");
+  });
+
+  it("keeps auto-apply off until the user confirms turning it on", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const wrapper = await mountRoute("/research/generalist?tab=news");
+
+    expect(wrapper.text()).toContain(
+      "News is checked every 12 hours. Recommended runs wait for Run now.",
+    );
+    const toggle = () =>
+      wrapper.findAll("button").find((b) => b.text().startsWith("Auto-apply:"));
+    expect(toggle().text()).toBe("Auto-apply: Off");
+
+    await toggle().trigger("click");
+    await flushPromises();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(api.putTrackingSettings).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    await toggle().trigger("click");
+    await flushPromises();
+    expect(api.putTrackingSettings).toHaveBeenCalledWith({ auto_apply: true });
+    expect(toggle().text()).toBe("Auto-apply: On");
+    confirm.mockRestore();
   });
 
   it("offers a reviewed-cards confirmation when Run now is blocked", async () => {

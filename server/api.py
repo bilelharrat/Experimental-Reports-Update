@@ -2921,6 +2921,26 @@ def sync_all_tracking_updates(
     )
 
 
+class TrackingSettingsBody(BaseModel):
+    auto_apply: bool
+
+
+@router.get("/tracking/settings")
+def get_tracking_settings() -> dict:
+    """Background sync schedule, models, and the auto-apply switch."""
+    return tracking_updates.get_settings()
+
+
+@router.put("/tracking/settings")
+def put_tracking_settings(request: Request, body: TrackingSettingsBody) -> dict:
+    """Turn auto-apply on or off for every tracked company (off by default:
+    recommended runs wait for Run now)."""
+    _require_permission(request, "tasks:action")
+    return tracking_updates.set_auto_apply(
+        body.auto_apply, updated_by=_caller_email(request)
+    )
+
+
 @router.get("/companies/{company_id}/tracking-updates")
 def get_company_tracking_updates(company_id: str, limit: int = 50) -> dict:
     if storage.get_company(company_id) is None:

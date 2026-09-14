@@ -1,12 +1,19 @@
 """Tracked-company news updates — ingest, dedupe, impact, auto-run labels.
 
 Pipeline:
-1. Ingest news for a company (from the existing news feed).
+1. Refresh a company's news with a Claude web search (Sonnet, medium
+   effort) and ingest the feed.
 2. Fingerprint + dedupe so old items are not re-processed.
-3. Classify impact (low / medium / high).
-4. Record recommended / executed auto actions (investigate / report).
-5. Optionally launch Deep Investigate (medium) or full report (high).
+3. Judge impact (low / medium / high) with one Opus 5 call at medium
+   effort per company; keyword rules are the fallback.
+4. Record recommended auto actions (investigate / report).
+5. Launch them only when the user clicks Run now, or when auto-apply is
+   on (off by default; a toggle in the company's News tab).
 6. Surface labels for Overview / Memo Studio when an auto-run applied.
+
+The background loop syncs the watchlist every 12 hours by default (owner,
+2026-09-14: a 15-minute loop with auto-execute on could start a full
+report after every headline).
 
 The server watchlist (`settings/tracking_watchlist.json`) mirrors the
 browser follow list so a background daemon can sync starred companies.
@@ -19,7 +26,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +55,53 @@ IMPACT_HIGH = "high"
 ACTION_NONE = "none"
 ACTION_INVESTIGATE = "deep_investigate"
 ACTION_REPORT = "full_report"
+
+SYNC_INTERVAL_SECONDS_DEFAULT = 12 * 3600
+# How often the loop wakes to check whether a sync is due.
+SYNC_CHECK_SECONDS = 600
+NEWS_MODEL_DEFAULT = "sonnet"
+NEWS_EFFORT_DEFAULT = "medium"
+IMPACT_MODEL_DEFAULT = "claude-opus-5"
+IMPACT_EFFORT_DEFAULT = "medium"
+# One impact call judges at most this many new items; the rest use keywords.
+IMPACT_MAX_ITEMS = 25
+
+
+def _env_text(name: str, default: str) -> str:
+    return str(os.environ.get(name) or "").strip() or default
+
+
+def news_model() -> str:
+    """Model for the tracker's news search (``BSH_TRACKING_NEWS_MODEL``)."""
+    return _env_text("BSH_TRACKING_NEWS_MODEL", NEWS_MODEL_DEFAULT)
+
+
+def news_effort() -> str:
+    return _env_text("BSH_TRACKING_NEWS_EFFORT", NEWS_EFFORT_DEFAULT)
+
+
+def impact_model() -> str:
+    """Model that judges news impact and reassesses recorded decisions
+    (``BSH_TRACKING_IMPACT_MODEL``)."""
+    return _env_text("BSH_TRACKING_IMPACT_MODEL", IMPACT_MODEL_DEFAULT)
+
+
+def impact_effort() -> str:
+    return _env_text("BSH_TRACKING_IMPACT_EFFORT", IMPACT_EFFORT_DEFAULT)
+
+
+def _impact_ai_enabled() -> bool:
+    return os.environ.get("BSH_TRACKING_IMPACT_AI", "1") == "1"
+
+
+def sync_interval_seconds() -> float:
+    """Seconds between background syncs (default 12 hours, floor 60s)."""
+    raw = str(os.environ.get("BSH_TRACKING_SYNC_INTERVAL_SECONDS") or "").strip()
+    try:
+        value = float(raw) if raw else float(SYNC_INTERVAL_SECONDS_DEFAULT)
+    except ValueError:
+        value = float(SYNC_INTERVAL_SECONDS_DEFAULT)
+    return max(60.0, value)
 
 _HIGH_TERMS = (
     "acquire",
@@ -631,10 +685,13 @@ def refresh_company_news(company_id: str) -> dict:
     try:
         from . import companies_ai
 
+        # The tracker's search runs on Sonnet at medium effort.
         result = companies_ai.deep_search(
             query,
             force_refresh=True,
             only_company_id=company_id,
+            model=news_model(),
+            effort=news_effort(),
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("tracking news refresh failed for %s", company_id)
@@ -696,8 +753,123 @@ def sync_all_tracked(
     }
 
 
+def _settings_path() -> Path:
+    return storage.DATA_DIR / "settings" / "tracking_settings.json"
+
+
+def _sync_state_path() -> Path:
+    return storage.DATA_DIR / "settings" / "tracking_sync_state.json"
+
+
+def _read_json_file(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_json_file(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def auto_apply_enabled() -> bool:
+    """Whether the background sync launches recommended runs on its own.
+
+    The toggle in the News tab decides. Until someone sets it,
+    ``BSH_TRACKING_AUTO_EXECUTE`` supplies the default, which is off."""
+    stored = _read_json_file(_settings_path()).get("auto_apply")
+    if isinstance(stored, bool):
+        return stored
+    return os.environ.get("BSH_TRACKING_AUTO_EXECUTE", "0") == "1"
+
+
+def set_auto_apply(enabled: bool, *, updated_by: str | None = None) -> dict:
+    with _LOCK:
+        _write_json_file(
+            _settings_path(),
+            {
+                "auto_apply": bool(enabled),
+                "updated_at": _now(),
+                "updated_by": updated_by,
+            },
+        )
+    return get_settings()
+
+
+def last_sync_at() -> datetime | None:
+    raw = str(_read_json_file(_sync_state_path()).get("last_sync_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _mark_synced(at: datetime | None = None) -> None:
+    moment = at or datetime.now(timezone.utc)
+    _write_json_file(_sync_state_path(), {"last_sync_at": moment.isoformat()})
+
+
+def seconds_until_sync_due() -> float:
+    """Zero or less when the background sync is due; a server that never
+    synced is due at once. The clock is persisted, so restarts don't reset it."""
+    last = last_sync_at()
+    if last is None:
+        return 0.0
+    due = last + timedelta(seconds=sync_interval_seconds())
+    return (due - datetime.now(timezone.utc)).total_seconds()
+
+
+def get_settings() -> dict:
+    """Schedule, models and the auto-apply switch, for the News tab."""
+    stored = _read_json_file(_settings_path())
+    last = last_sync_at()
+    interval = sync_interval_seconds()
+    next_at = last + timedelta(seconds=interval) if last else None
+    return {
+        "auto_apply": auto_apply_enabled(),
+        "auto_apply_updated_at": stored.get("updated_at"),
+        "auto_apply_updated_by": stored.get("updated_by"),
+        "auto_sync": os.environ.get("BSH_TRACKING_AUTO_SYNC", "1") == "1",
+        "interval_hours": round(interval / 3600, 2),
+        "last_sync_at": last.isoformat() if last else None,
+        "next_sync_at": next_at.isoformat() if next_at else None,
+        "news_model": news_model(),
+        "news_effort": news_effort(),
+        "impact_model": impact_model(),
+        "impact_effort": impact_effort(),
+    }
+
+
+def run_scheduled_sync() -> dict:
+    """One background round over the watchlist. Recommended runs launch only
+    when auto-apply is on. Starting the round restarts the clock."""
+    _mark_synced()
+    summary = sync_all_tracked(mark_auto=True, execute=auto_apply_enabled())
+    if (
+        summary.get("created_total")
+        or summary.get("executed_total")
+        or summary.get("refreshed_total")
+    ):
+        logger.info(
+            "Tracking sync: companies=%s refreshed=%s created=%s executed=%s",
+            summary.get("company_count"),
+            summary.get("refreshed_total"),
+            summary.get("created_total"),
+            summary.get("executed_total"),
+        )
+    return summary
+
+
 def start_tracking_sync_loop() -> None:
-    """Periodically sync + optionally execute auto-runs for the watchlist."""
+    """Sync the watchlist every ``BSH_TRACKING_SYNC_INTERVAL_SECONDS``
+    (12 hours by default). ``BSH_TRACKING_AUTO_SYNC=0`` turns it off."""
     enabled = os.environ.get("BSH_TRACKING_AUTO_SYNC", "1") == "1"
     if not enabled:
         return
@@ -706,28 +878,17 @@ def start_tracking_sync_loop() -> None:
         if _SYNC_THREAD_STARTED:
             return
         _SYNC_THREAD_STARTED = True
-    interval = float(os.environ.get("BSH_TRACKING_SYNC_INTERVAL_SECONDS", "900"))
-    execute = os.environ.get("BSH_TRACKING_AUTO_EXECUTE", "1") == "1"
 
     def _loop() -> None:
         while True:
-            time.sleep(max(60.0, interval))
-            try:
-                summary = sync_all_tracked(mark_auto=True, execute=execute)
-                if (
-                    summary.get("created_total")
-                    or summary.get("executed_total")
-                    or summary.get("refreshed_total")
-                ):
-                    logger.info(
-                        "Tracking sync: companies=%s refreshed=%s created=%s executed=%s",
-                        summary.get("company_count"),
-                        summary.get("refreshed_total"),
-                        summary.get("created_total"),
-                        summary.get("executed_total"),
-                    )
-            except Exception:  # noqa: BLE001
-                logger.exception("background tracking sync failed")
+            wait = seconds_until_sync_due()
+            if wait <= 0:
+                try:
+                    run_scheduled_sync()
+                except Exception:  # noqa: BLE001
+                    logger.exception("background tracking sync failed")
+                wait = float(SYNC_CHECK_SECONDS)
+            time.sleep(max(30.0, min(float(SYNC_CHECK_SECONDS), wait)))
 
     threading.Thread(target=_loop, name="tracking-sync", daemon=True).start()
 
@@ -833,6 +994,9 @@ def _assess_decisions_from_news(company_id: str, new_items: list[dict]) -> None:
             schema=_DECISION_RETRO_SCHEMA,
             name="decision_retrospective",
             timeout_sec=180,
+            model=impact_model(),
+            effort=impact_effort(),
+            tools="",
         )
         if error or not isinstance(data, dict):
             logger.warning(
@@ -862,6 +1026,117 @@ def _assess_decisions_from_news(company_id: str, new_items: list[dict]) -> None:
         logger.exception("decision retrospective crashed for %s", company_id)
 
 
+_IMPACT_SYSTEM_PROMPT = """\
+You judge whether new news items matter to an investment case in ONE
+company. For each item, decide its impact on the company's valuation,
+competitive position, financing, leadership or risk:
+- high: likely changes the investment view or the memo's numbers, such as
+  a financing round or valuation mark, M&A, an IPO filing, a major
+  customer won or lost, a lawsuit or regulatory action with teeth, a top
+  leadership change, or results far from expectations.
+- medium: worth recording and may refine the memo, such as a notable
+  product launch, a partnership with real revenue, a senior hire, or
+  guidance that confirms the plan.
+- low: does not change the view, such as routine announcements,
+  conference appearances, opinion pieces, rehashes of old news, or items
+  about a different company with a similar name.
+Judge the substance, not the keywords. Give a one-sentence reason for
+each item and reference it by its id. Assess every item given, and only
+those."""
+
+_IMPACT_SCHEMA: dict = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "items": {
+            "type": "array",
+            "maxItems": IMPACT_MAX_ITEMS,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "impact": {
+                        "type": "string",
+                        "enum": [IMPACT_LOW, IMPACT_MEDIUM, IMPACT_HIGH],
+                    },
+                    "reason": {"type": "string", "maxLength": 300},
+                },
+                "required": ["id", "impact", "reason"],
+            },
+        },
+    },
+    "required": ["items"],
+}
+
+
+def assess_news_impact(company: dict, rows: list[dict]) -> dict[str, dict]:
+    """Opus judges which new items matter: one tool-free call per company.
+
+    ``rows`` carry ``id`` (the fingerprint). Returns ``{id: {impact,
+    reason}}``. Empty when the judgment is off, Claude is unavailable or the
+    call fails; keyword rules then decide. Never called while the tracking
+    ``_LOCK`` is held, since the call takes a while.
+    """
+    if not rows or not _impact_ai_enabled():
+        return {}
+    company_id = str(company.get("id") or "")
+    try:
+        from . import claude_runner
+
+        if not claude_runner.is_available():
+            return {}
+        judged = rows[:IMPACT_MAX_ITEMS]
+        lines = [f"Company: {company.get('name') or company_id}"]
+        if company.get("ticker"):
+            lines.append(f"Ticker: {company['ticker']}")
+        for label, key in (("Industry", "industry"), ("What it does", "description")):
+            value = str(company.get(key) or "").strip()
+            if value:
+                lines.append(f"{label}: {value[:400]}")
+        user_prompt = (
+            "\n".join(lines)
+            + "\n\nNew news items:\n"
+            + json.dumps(judged, ensure_ascii=False, indent=2)
+        )
+        data, error = claude_runner.run_structured_prompt(
+            system_prompt=_IMPACT_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            schema=_IMPACT_SCHEMA,
+            name="tracking_impact",
+            timeout_sec=300,
+            model=impact_model(),
+            effort=impact_effort(),
+            tools="",
+        )
+        if error or not isinstance(data, dict):
+            logger.warning("tracking impact judgment failed for %s: %s", company_id, error)
+            return {}
+        valid = {str(row.get("id")) for row in judged}
+        verdicts: dict[str, dict] = {}
+        for item in data.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "")
+            impact = str(item.get("impact") or "").strip().lower()
+            if item_id in valid and impact in {IMPACT_LOW, IMPACT_MEDIUM, IMPACT_HIGH}:
+                verdicts[item_id] = {
+                    "impact": impact,
+                    "reason": str(item.get("reason") or "").strip()[:300],
+                }
+        return verdicts
+    except Exception:  # noqa: BLE001
+        logger.exception("tracking impact judgment crashed for %s", company_id)
+        return {}
+
+
+def _known_fingerprints(payload: dict) -> set[str]:
+    return {
+        str(item.get("fingerprint") or item.get("id"))
+        for item in (payload.get("items") or [])
+    }
+
+
 def sync_from_news_feed(
     company_id: str,
     *,
@@ -871,29 +1146,55 @@ def sync_from_news_feed(
     refresh_news: bool = False,
 ) -> dict:
     """Optionally refresh company news, then ingest into the updates store."""
-    if storage.get_company(company_id) is None:
+    company = storage.get_company(company_id)
+    if company is None:
         raise ValueError("company_not_found")
     news_refresh = None
     if refresh_news:
         news_refresh = refresh_company_news(company_id)
     feed = context_store.company_news(company_id, lang=lang)
     rows = list(feed.get("rows") or [])
+
+    # Find the new rows under the lock, then judge them outside it.
+    with _LOCK:
+        seen = _known_fingerprints(_load(company_id))
+    candidates: list[tuple[str, dict]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        fp = fingerprint(row)
+        if fp in seen:
+            continue
+        seen.add(fp)
+        candidates.append((fp, row))
+    verdicts = assess_news_impact(
+        company,
+        [
+            {
+                "id": fp,
+                "title": row.get("title") or row.get("headline"),
+                "summary": row.get("summary"),
+                "published_at": row.get("published_at") or row.get("date"),
+                "source": row.get("source")
+                or (row.get("provenance") or {}).get("origin"),
+                "category": row.get("category"),
+            }
+            for fp, row in candidates
+        ],
+    )
+
     created = 0
     with _LOCK:
         payload = _load(company_id)
-        known = {
-            str(item.get("fingerprint") or item.get("id"))
-            for item in (payload.get("items") or [])
-        }
+        # Re-read: a concurrent sync may have stored some of these meanwhile.
+        known = _known_fingerprints(payload)
         items = list(payload.get("items") or [])
         new_medium_or_high: list[dict] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            fp = fingerprint(row)
+        for fp, row in candidates:
             if fp in known:
                 continue
-            impact = classify_impact(row)
+            verdict = verdicts.get(fp)
+            impact = verdict["impact"] if verdict else classify_impact(row)
             action = recommended_action(impact)
             entry = {
                 "id": fp,
@@ -905,9 +1206,12 @@ def sync_from_news_feed(
                 "category": row.get("category"),
                 "tags": list(row.get("tags") or []),
                 "impact": impact,
+                "impact_source": "ai" if verdict else "keywords",
+                "impact_reason": verdict["reason"] if verdict else None,
                 "recommended_action": action,
                 "captured_at": _now(),
-                "source": row.get("source") or row.get("provenance", {}).get("origin"),
+                "source": row.get("source")
+                or (row.get("provenance") or {}).get("origin"),
             }
             items.append(entry)
             known.add(fp)

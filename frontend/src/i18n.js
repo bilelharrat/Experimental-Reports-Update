@@ -312,6 +312,15 @@ const messages = {
     "research.updates_follow_hint":
       "Follow this company to receive automatic tracked-news updates.",
     "research.updates_run_now": "Run now",
+    "research.updates_auto_apply_off": "Auto-apply: Off",
+    "research.updates_auto_apply_on": "Auto-apply: On",
+    "research.updates_auto_apply_confirm":
+      "Turn on auto-apply for every tracked company? Important news will then start Deep Investigate or a full report on its own. A full report costs about $20-35 in tokens.",
+    "research.updates_auto_apply_failed": "Could not change auto-apply.",
+    "research.updates_schedule_manual":
+      "News is checked every {hours} hours. Recommended runs wait for Run now.",
+    "research.updates_schedule_auto":
+      "News is checked every {hours} hours. Auto-apply starts recommended runs on its own.",
     "research.updates_last_synced": "Last synced",
     "research.updates_view_report": "View report",
     "research.updates_empty":
@@ -2394,6 +2403,13 @@ const messages = {
     "research.auto_update_banner": "自动更新",
     "research.updates_follow_hint": "关注该公司即可自动接收跟踪新闻更新。",
     "research.updates_run_now": "立即执行",
+    "research.updates_auto_apply_off": "自动执行：关",
+    "research.updates_auto_apply_on": "自动执行：开",
+    "research.updates_auto_apply_confirm":
+      "要为所有跟踪公司开启自动执行吗？开启后，重要新闻会自动启动深度调查或完整报告。一份完整报告约消耗 $20-35 的 token。",
+    "research.updates_auto_apply_failed": "无法更改自动执行设置。",
+    "research.updates_schedule_manual": "每 {hours} 小时检查一次新闻。建议的任务需点击「立即执行」才会运行。",
+    "research.updates_schedule_auto": "每 {hours} 小时检查一次新闻。自动执行会自行启动建议的任务。",
     "research.updates_last_synced": "上次同步",
     "research.updates_view_report": "查看报告",
     "research.updates_empty": "暂无跟踪更新。点击同步以抓取最新新闻。",

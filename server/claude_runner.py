@@ -1673,6 +1673,8 @@ def run_company_search(
     max_results: int = 6,
     timeout_sec: int = 600,
     progress=None,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> tuple[list[dict] | None, str | None]:
     """Run a deep company search by spawning `claude -p` with WebSearch and
     WebFetch enabled. Returns ``(matches, error)`` mirroring the OpenAI
@@ -1724,6 +1726,12 @@ def run_company_search(
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
+    # The tracker pins its news search (Sonnet, medium); interactive
+    # company searches leave both unset and keep the CLI default.
+    if model:
+        cmd += ["--model", model]
+    if effort:
+        cmd += ["--effort", effort]
 
     if not use_stream:
         # Single-shot path — no progress, no streaming.
