@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server import (
+    decisions_store,
     evidence_matrix,
     serena_analysis,
     storage,
@@ -376,3 +377,48 @@ def test_endpoint_returns_an_empty_rollup_without_ids(seeded, no_evidence):
 def test_duplicate_ids_are_collapsed(seeded, no_evidence):
     rollup = _rollup(COMPANY_ID, COMPANY_ID, COMPANY_ID)
     assert len(rollup["companies"]) == 1
+
+
+def test_lifecycle_stage_starts_at_sourcing_with_no_work(seeded, no_evidence):
+    row = _row(_rollup(COMPANY_ID), COMPANY_ID)
+
+    assert row["lifecycle_stage"] == "sourcing"
+    assert row["latest_decision"] is None
+
+
+def test_lifecycle_stage_follows_the_memo_run(seeded, no_evidence):
+    storage.create_report_record(
+        company_id=COMPANY_ID,
+        company_name="Generalist, Inc.",
+        report_type="Investment Memo (Late-Stage)",
+        kind="investment_memo_latestage",
+        status="analyzing",
+        created_at=_iso(0),
+        updated_at=_iso(0),
+    )
+    assert _row(_rollup(COMPANY_ID), COMPANY_ID)["lifecycle_stage"] == "diligence"
+
+    storage.create_report_record(
+        company_id=COMPANY_ID,
+        company_name="Generalist, Inc.",
+        report_type="Investment Memo (Late-Stage)",
+        kind="investment_memo_latestage",
+        status="complete",
+        created_at=_iso(0),
+        updated_at=_iso(0),
+    )
+    assert _row(_rollup(COMPANY_ID), COMPANY_ID)["lifecycle_stage"] == "ic"
+
+
+def test_lifecycle_stage_prefers_the_standing_decision(seeded, no_evidence):
+    decisions_store.add_decision(
+        COMPANY_ID,
+        verdict="invest",
+        explanation="Category leader with proof.",
+        created_by="tests",
+    )
+    row = _row(_rollup(COMPANY_ID), COMPANY_ID)
+
+    assert row["lifecycle_stage"] == "portfolio"
+    assert row["latest_decision"]["verdict"] == "invest"
+    assert row["latest_decision"]["id"].startswith("decision-")

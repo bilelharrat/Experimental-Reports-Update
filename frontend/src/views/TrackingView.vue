@@ -622,6 +622,13 @@ function signedMoneyUsd(value) {
                     {{ card.company.name }}
                   </h2>
                   <p class="mt-0.5 truncate text-caption1 text-ink-muted">
+                    <span
+                      v-if="card.row?.lifecycle_stage"
+                      class="mr-1.5 rounded-pill bg-fill-tertiary px-1.5 py-0.5 text-caption2 font-semibold text-ink-secondary"
+                      :title="t('tracking.stage_' + card.row.lifecycle_stage)"
+                    >
+                      {{ t("tracking.stage_" + card.row.lifecycle_stage) }}
+                    </span>
                     <span v-if="card.company.ticker" class="mono-data text-ink-secondary">
                       {{ card.company.ticker }}
                     </span>

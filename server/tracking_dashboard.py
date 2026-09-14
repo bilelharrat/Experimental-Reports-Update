@@ -17,6 +17,7 @@ from typing import Any
 
 from . import (
     context_store,
+    decisions_store,
     evidence_matrix,
     evidence_store,
     serena_analysis,
@@ -53,6 +54,19 @@ RUNNING_REPORT_STATUSES = {
 
 RESEARCHED_RISK_STATUSES = {"researched"}
 REVIEW_RISK_STATUSES = {"needs_review"}
+
+# Deal lifecycle, in pipeline order. Derived once here so the web board and
+# the native Mac board never disagree about where a company sits.
+LIFECYCLE_STAGES = (
+    "sourcing",
+    "screening",
+    "diligence",
+    "ic",
+    "portfolio",
+    "watch",
+    "passed",
+)
+DECISION_STAGES = {"invest": "portfolio", "pass": "passed", "watch": "watch"}
 
 
 def _now() -> datetime:
@@ -432,6 +446,51 @@ def _bucket(attention: list[dict], memo: dict) -> str:
     return "not_started"
 
 
+def _latest_decision(company_id: str) -> dict | None:
+    """Newest decision on the record, trimmed to what a board row needs."""
+    try:
+        items = decisions_store.list_decisions(company_id).get("items") or []
+    except Exception:  # noqa: BLE001 - a corrupt decisions file must not sink the rollup
+        return None
+    if not items:
+        return None
+    row = items[0]
+    return {
+        "id": row.get("id"),
+        "verdict": row.get("verdict"),
+        "decided_at": row.get("decided_at") or row.get("created_at"),
+        "report_id": row.get("report_id"),
+    }
+
+
+def _lifecycle_stage(
+    memo: dict,
+    documents: dict,
+    session: dict | None,
+    decision: dict | None,
+) -> str:
+    """Where the company sits in the deal lifecycle.
+
+    A standing decision wins (Invest → portfolio, Pass → passed, Watch →
+    watch). Otherwise the memo state decides: running → diligence, complete
+    → ic, no memo yet → screening once any research or analysis exists,
+    else sourcing.
+    """
+    verdict = str((decision or {}).get("verdict") or "").lower()
+    if verdict in DECISION_STAGES:
+        return DECISION_STAGES[verdict]
+    status = memo.get("latest_status") or ""
+    if status in RUNNING_REPORT_STATUSES:
+        return "diligence"
+    if status.startswith("complete"):
+        return "ic"
+    if (memo.get("total") or 0) == 0:
+        if (documents.get("total") or 0) > 0 or session:
+            return "screening"
+        return "sourcing"
+    return "diligence"
+
+
 def _company_rollup(company: dict, reports: list[dict], now: datetime) -> dict:
     company_id = str(company.get("id") or "")
 
@@ -489,6 +548,8 @@ def _company_rollup(company: dict, reports: list[dict], now: datetime) -> dict:
     )
     next_action = _next_action(attention, memo, company_id)
     bucket = _bucket(attention, memo)
+    decision = _latest_decision(company_id)
+    lifecycle_stage = _lifecycle_stage(memo, documents, session_summary, decision)
 
     return {
         "id": company_id,
@@ -508,6 +569,8 @@ def _company_rollup(company: dict, reports: list[dict], now: datetime) -> dict:
         "bucket": bucket,
         "next_action": next_action,
         "attention": attention,
+        "lifecycle_stage": lifecycle_stage,
+        "latest_decision": decision,
     }
 
 
