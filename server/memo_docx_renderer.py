@@ -1828,13 +1828,34 @@ def _add_paragraph(
 # rendered bold, the way the fund's own LP deck sets its highlights.
 _BOLD_LEAD_COMPONENTS = frozenset({"investment_highlights", "key_risks"})
 _LEAD_SENTENCE_RE = re.compile(r"^(.+?(?:[.!?](?=\s)|[。！？]))(.*)$", re.DOTALL)
+# The docx has no markdown. Writers told a headline "is rendered bold"
+# sometimes wrap it in "**...**" themselves (live compact run,
+# 2026-09-14: the asterisks printed literally in both languages).
+_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_MD_BOLD_LEAD_RE = re.compile(r"^\s*\*\*(.+?)\*\*(.*)$", re.DOTALL)
+
+
+def strip_markdown_bold(text: str) -> str:
+    """Drop markdown bold markers ("**Acme leads.**" -> "Acme leads.")."""
+    if "**" not in text:
+        return text
+    return _MD_BOLD_RE.sub(r"\1", text).replace("**", "")
 
 
 def split_lead_sentence(text: str) -> tuple[str, str]:
     """Split ``text`` into (lead sentence, remainder). The lead ends at
     the first sentence-final mark followed by whitespace (so "$1.5T" and
     "vs." inside a sentence do not split it) or at a CJK full stop. A
-    single sentence with no remainder is entirely the lead."""
+    single sentence with no remainder is entirely the lead. A lead the
+    writer wrapped in markdown bold is taken as written, markers dropped."""
+    marked = _MD_BOLD_LEAD_RE.match(text)
+    if marked:
+        lead = marked.group(1).strip()
+        rest = strip_markdown_bold(marked.group(2))
+        if rest[:1].isalnum() and lead.endswith((".", "!", "?")):
+            rest = f" {rest}"
+        return lead, rest
+    text = strip_markdown_bold(text)
     match = _LEAD_SENTENCE_RE.match(text)
     if match:
         return match.group(1), match.group(2)
@@ -2100,7 +2121,7 @@ def _add_run(
     color: str = BLACK,
     locale: str = "en",
 ) -> Any:
-    text = str(text or "")
+    text = strip_markdown_bold(str(text or ""))
     if "[" not in text or not _CITATION_RE.search(text):
         run = paragraph.add_run(text)
         _style_run(run, size=size, bold=bold, color=color, locale=locale)

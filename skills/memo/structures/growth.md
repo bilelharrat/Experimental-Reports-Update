@@ -86,9 +86,10 @@ in the Company & Team section). Content per subsection:
    and which are weak, with their scores. Then ONE `bullets` block
    with `"component": "investment_highlights"` and EXACTLY three
    items, one per pinned highlight, in pinned order: the pinned
-   headline VERBATIM (rendered bold), then the pinned evidence
+   headline VERBATIM (plain text, no asterisks or markdown; the
+   renderer bolds it), then the pinned evidence
    sentences. Every number is introduced by what it measures and where
-   it comes from — a named source, or "the memo's own estimate" with
+   it comes from — a named source, or "our own estimate" with
    its inputs — before the reader meets the figure. Never a naked
    topic label ("Price.", "Market size."), never a new number.
 4. Key risks: ONE `bullets` block with `"component": "key_risks"` and

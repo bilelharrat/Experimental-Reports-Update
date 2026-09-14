@@ -166,9 +166,10 @@ through a case: nothing is assumed known, every step is shown.
   a 15% annual return over three years". Every comparison names the
   rule it is judged against: "1.44x is below the 1.5x floor we require
   for a late-stage position, which is why the verdict is Watch".
-- Every external number names who produced it and what it counts; the
-  memo's own estimates say so ("the memo's own estimate, built from
-  X and Y") and never pass as a market fact.
+- Every external number names who produced it and what it counts; our
+  own estimates say so ("our estimate, built from X and Y") and never
+  pass as a market fact. Never write "the memo" or "this memo" in the
+  body: the reader is holding it. Say "we" or "our".
 - Never jump from a fact to a conclusion with the middle step missing.
   If the reader would have to ask "why does that follow?", the
   sentence that answers it is missing.

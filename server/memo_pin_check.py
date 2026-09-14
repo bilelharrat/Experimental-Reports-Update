@@ -115,8 +115,18 @@ class PinCheckResult:
         ]
 
 
+# Inline provenance tokens ("[S3]", "[C2, S4]") may sit anywhere in a v2
+# package, including inside a pinned sentence's final period ("...buyer
+# is feasible [S15]."). A cited echo is still an echo: strip the tokens
+# (and the space before them) from both the section text and the pin
+# before matching. A live compact run lost a repair round when all nine
+# cited scorecard why-lines "failed" exact matching (2026-09-14).
+_CITATION_TOKEN_RE = re.compile(r"\s*\[[SC]\d+(?:\s*,\s*[SC]\d+)*\]")
+
+
 def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text)).strip().casefold()
+    text = _CITATION_TOKEN_RE.sub("", str(text))
+    return re.sub(r"\s+", " ", text).strip().casefold()
 
 
 def _squash(text: str) -> str:

@@ -95,11 +95,12 @@ Company Overview section). Content per subsection:
    means. Then ONE `bullets` block with `"component":
    "investment_highlights"` and EXACTLY three items, one per pinned
    highlight, in pinned order. Each item opens with the pinned
-   headline VERBATIM (it is rendered bold — the reader gets the
-   judgment before the first period), then the pinned evidence
+   headline VERBATIM (plain text, no asterisks or markdown; the
+   renderer bolds it, so the reader gets the judgment before the first
+   period), then the pinned evidence
    sentences. An evidence sentence that carries a number says what the
-   number measures and where it comes from — a named source, or "the
-   memo's own estimate" with its inputs — before the reader meets the
+   number measures and where it comes from — a named source, or "our
+   own estimate" with its inputs — before the reader meets the
    figure; never "a $450-675B market" without saying who sized it and
    how. No highlight rests on a derived number whose derivation is not
    named. Nothing here is new: the headlines and the evidence are the

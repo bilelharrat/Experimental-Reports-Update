@@ -108,8 +108,9 @@ Content per subsection:
    their scores (at this stage the team and the market usually carry
    it). Then ONE `bullets` block with `"component":
    "investment_highlights"` and EXACTLY three items, one per pinned
-   highlight, in pinned order: the pinned headline VERBATIM (rendered
-   bold), then the pinned evidence sentences, every number introduced
+   highlight, in pinned order: the pinned headline VERBATIM (plain
+   text, no asterisks or markdown; the renderer bolds it), then the
+   pinned evidence sentences, every number introduced
    by what it measures and where it comes from before the reader meets
    the figure. Never a naked topic label ("Team.", "Market."), never
    a new number.

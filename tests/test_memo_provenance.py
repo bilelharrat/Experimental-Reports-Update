@@ -14,6 +14,21 @@ from server import claude_runner, memo_docx_renderer, memo_pin_check, memo_quali
 V2 = memo_structure.load_structure("late", 2)
 
 
+def test_pin_echo_matching_ignores_citation_tokens():
+    """Live compact run 2026-09-14: the writer cited each scorecard
+    why-line inside its final period ("...buyer is feasible [S15, S44].")
+    and all nine exact-match pins "failed", costing a repair round."""
+    haystack = "Exit certainty \n 2 / 3 \n Draft S-1 filed; no M&A buyer is feasible [S15, S44]."
+    norm = memo_pin_check._norm(haystack)
+    squashed = memo_pin_check._squash(haystack)
+    assert memo_pin_check._contains(norm, squashed, "Draft S-1 filed; no M&A buyer is feasible.")
+    # A pin that itself carries a token matches a differently cited echo.
+    assert memo_pin_check._contains(norm, squashed, "no M&A buyer is feasible [C3].")
+    assert not memo_pin_check._contains(norm, squashed, "an M&A buyer is feasible.")
+    # Token digits never count as numbers in the echo.
+    assert not memo_pin_check._contains(norm, squashed, "15")
+
+
 def test_citation_ids_parse_single_and_grouped_tokens():
     assert memo_docx_renderer.citation_ids("Revenue is $65B [S3]. Base 1.5x [C2, S4].") == [
         "S3",

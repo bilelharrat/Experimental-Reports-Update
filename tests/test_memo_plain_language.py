@@ -113,6 +113,10 @@ def test_spine_prompt_describes_highlights_area_and_impact(tmp_path, monkeypatch
     assert "at least 60% of its max" in prompt
     assert "each risk ALSO carries `area`" in prompt
     assert "`impact`: what it costs the investment" in prompt
+    # A MOIC just under the floor must not round onto it (live run
+    # 2026-09-14: "returns 1.5x, the floor" vs "1.49x, under the floor").
+    assert "within 0.05x of the return floor" in prompt
+    assert 'never the words "the memo"' in prompt
 
 
 def test_split_lead_sentence():
@@ -130,6 +134,53 @@ def test_split_lead_sentence():
     assert split("Only one sentence here.") == ("Only one sentence here.", "")
     assert split("市场足够大。证据一。") == ("市场足够大。", "证据一。")
     assert split("no terminal punctuation") == ("no terminal punctuation", "")
+
+
+def test_split_lead_sentence_takes_a_markdown_bold_lead_as_written():
+    """Live compact run 2026-09-14: writers wrapped the pinned headline
+    in "**...**" and the asterisks printed literally in both languages."""
+    split = memo_docx_renderer.split_lead_sentence
+    assert split("**Acme leads its category.** It holds 40% of spend [S1].") == (
+        "Acme leads its category.",
+        " It holds 40% of spend [S1].",
+    )
+    assert split("**Acme leads its category.**It holds 40%.") == (
+        "Acme leads its category.",
+        " It holds 40%.",
+    )
+    assert split("**市场足够大。**证据一。") == ("市场足够大。", "证据一。")
+    assert split("A **stray** marker ends here. Rest.") == (
+        "A stray marker ends here.",
+        " Rest.",
+    )
+
+
+def test_add_run_never_prints_markdown_asterisks():
+    from docx import Document
+
+    paragraph = Document().add_paragraph()
+    memo_docx_renderer._add_run(paragraph, "A **bold** word, cited [S1].", locale="en")
+    assert "**" not in paragraph.text
+    plain = Document().add_paragraph()
+    memo_docx_renderer._add_run(plain, "**Only markers**", locale="en")
+    assert plain.text == "Only markers"
+
+
+@pytest.mark.parametrize("name", sorted(PROFILES))
+def test_exec_contract_forbids_markdown_and_memo_self_reference(name):
+    """The lint bans "the memo" in body prose, so the contract must not
+    suggest "the memo's own estimate"; and "rendered bold" invited
+    markdown asterisks."""
+    structure = PROFILES[name]
+    spec = " ".join(
+        structure.section_specs()[structure.section_for_role("exec").id].split()
+    )
+    assert "no asterisks or markdown" in spec
+    assert "rendered bold" not in spec
+    assert "the memo's own" not in spec
+    addendum = claude_runner.MEMO_STRUCTURE_V2_ADDENDUM
+    assert "the memo's own" not in " ".join(addendum.split())
+    assert 'Never write "the memo"' in addendum
 
 
 def test_highlight_and_risk_bullets_render_bold_lead(tmp_path):

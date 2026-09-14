@@ -5306,7 +5306,10 @@ against the stragglers when they land.
      `holding_period`.
    - `scenarios` here are OBJECTS per bear/base/bull: `narrative` (one
      line), `exit_year`, `exit_revenue`, `exit_multiple`, `exit_value`,
-     `moic` ("N.Nx"), `irr` ("NN%"). Base MOIC must be consistent with
+     `moic` ("N.Nx"), `irr` ("NN%"). When a MOIC sits
+     within 0.05x of the return floor it is judged against, write it to
+     two decimals ("1.49x", not "1.5x") so a miss never rounds onto the
+     floor and every section states the same side of it. Base MOIC must be consistent with
      exit_value against the entry valuation after reasonable dilution.
    - `highlights`: EXACTLY three. Pick the three scorecard dimensions
      with the highest score-to-max ratio (each at least 60% of its max —
@@ -5316,8 +5319,9 @@ against the stragglers when they land.
      at most one number, written for someone who has never seen the
      company: "Anthropic leads enterprise adoption rather than chasing
      it."), `evidence` (2-3 sentences, one fact each, with its number
-     and where that number comes from — a named source or the memo's
-     own calculation stated as such). The executive summary repeats the
+     and where that number comes from — a named source, or our own
+     calculation cited with its [C#] id; never the words "the memo").
+     Plain text only: no asterisks or other markdown. The executive summary repeats the
      headline and evidence verbatim.
    - each risk ALSO carries `area` — which aspect it concentrates on:
      market / technology / competition / commercialization /

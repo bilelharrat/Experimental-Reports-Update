@@ -108,9 +108,10 @@ subsections:
    case" — which dimensions carry the case and which are weak, with
    scores. Then ONE `bullets` block, `"component":
    "investment_highlights"`, EXACTLY three items in pinned order: the
-   pinned headline VERBATIM (rendered bold), then the pinned evidence
+   pinned headline VERBATIM (plain text, no asterisks or markdown; the
+   renderer bolds it), then the pinned evidence
    sentences, each number introduced by what it measures and where it
-   comes from (a named source, or "the memo's own estimate" with its
+   comes from (a named source, or "our own estimate" with its
    inputs). Never a naked topic label ("Price."), never a new number.
 4. Key risks: ONE `bullets` block, `"component": "key_risks"`, EXACTLY
    three items — the three highest-rated pinned risks in pinned
@@ -218,7 +219,7 @@ subsections:
    research found (house or company, what it counts, value, year —
    never fewer than three when they exist, never dropped for
    disagreeing), then TAM/SAM/SOM in ONE bullet each (size, year, and
-   the estimate or the memo's own inputs it rests on — or the
+   the estimate or our own inputs it rests on — or the
    missing-data sentence), opening with the range the memo adopts and
    why that definition fits this company, then the ceiling answer
    first: does this market cap the company nearer $20B, $100B, or
