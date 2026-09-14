@@ -29,8 +29,41 @@ vi.mock("../src/api.js", () => ({
       sources: [],
     }),
     newsBriefStatuses: vi.fn().mockResolvedValue({ ready: 0, items: [] }),
+    newsBriefRefreshStatus: vi.fn().mockResolvedValue({
+      running: false,
+      interval_hours: 6,
+      next_refresh_at: null,
+    }),
+    startNewsBriefRefresh: vi.fn().mockResolvedValue({
+      started: true,
+      running: false,
+      interval_hours: 6,
+    }),
   },
 }));
+
+function mountDesk() {
+  return mount(NewsDeskView, {
+    global: {
+      provide: {
+        workspaceCompanies: [],
+        workspaceNews: [
+          {
+            id: "macro-1",
+            kind: "news",
+            title: "Fed holds rates as inflation cools",
+            captured_at: "2026-09-02",
+            summary: "Policy stay.",
+          },
+        ],
+        workspaceLoading: false,
+      },
+      stubs: {
+        RouterLink: { props: ["to"], template: "<a><slot /></a>" },
+      },
+    },
+  });
+}
 
 describe("NewsDeskView", () => {
   beforeEach(() => {
@@ -113,5 +146,49 @@ describe("NewsDeskView", () => {
     await following.trigger("click");
     expect(wrapper.text()).toContain("NVIDIA launches new chip");
     expect(wrapper.text()).not.toContain("Fed holds rates as inflation cools");
+  });
+
+  it("opening stories never asks for an AI write", async () => {
+    const wrapper = mountDesk();
+    await flushPromises();
+
+    expect(api.prewarmNewsBriefs).toHaveBeenCalled();
+    expect(api.postNewsBrief).toHaveBeenCalled();
+    for (const [body] of api.postNewsBrief.mock.calls) {
+      expect(body.refresh).toBe(false);
+    }
+    expect(api.startNewsBriefRefresh).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("AI briefs refresh every 6 hours");
+    wrapper.unmount();
+  });
+
+  it("warns before an AI refresh or rewrite and stops when cancelled", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const wrapper = mountDesk();
+    await flushPromises();
+    const refreshAll = wrapper
+      .findAll("button")
+      .find((el) => el.text() === "Refresh AI briefs now");
+    const rewrite = wrapper
+      .findAll("button")
+      .find((el) => el.text() === "Regenerate briefing");
+
+    await refreshAll.trigger("click");
+    await rewrite.trigger("click");
+    await flushPromises();
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm.mock.calls[0][0]).toContain("uses tokens");
+    expect(api.startNewsBriefRefresh).not.toHaveBeenCalled();
+    expect(api.postNewsBrief.mock.calls.some(([body]) => body.refresh)).toBe(false);
+
+    confirm.mockReturnValue(true);
+    await refreshAll.trigger("click");
+    await flushPromises();
+    expect(api.startNewsBriefRefresh).toHaveBeenCalledTimes(1);
+    const [body] = api.startNewsBriefRefresh.mock.calls[0];
+    expect(body.items[0].title).toBe("Fed holds rates as inflation cools");
+
+    confirm.mockRestore();
+    wrapper.unmount();
   });
 });

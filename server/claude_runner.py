@@ -11568,8 +11568,16 @@ def run_structured_prompt(
     timeout_sec: int = 180,
     progress=None,
     cancel_event: threading.Event | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
     """Run a one-shot `claude -p` call and parse a strict-JSON response.
+
+    ``model`` / ``effort`` pin the call (``None`` keeps the CLI default);
+    ``tools=""`` removes every tool via ``--tools ""``, which also drops the
+    tool definitions from the prompt. With all three unset the argv is
+    unchanged for existing callers.
 
     Use this for any text-in / structured-JSON-out task that doesn't need
     tools (translation, text summarization, classification). Returns
@@ -11615,6 +11623,12 @@ def run_structured_prompt(
         "--no-session-persistence",
         "--exclude-dynamic-system-prompt-sections",
     ]
+    if model:
+        cmd.extend(["--model", model])
+    if effort:
+        cmd.extend(["--effort", effort])
+    if tools is not None:
+        cmd.extend(["--tools", tools])
     if progress:
         progress.emit(
             "stage",

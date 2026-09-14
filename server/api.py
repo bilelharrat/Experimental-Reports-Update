@@ -1548,6 +1548,11 @@ class NewsBriefStatusBody(BaseModel):
     lang: str = "en"
 
 
+class NewsBriefRefreshBody(BaseModel):
+    items: list[NewsBriefPrewarmItem] = []
+    limit: int | None = None
+
+
 class DeviceTokenBody(BaseModel):
     token: str
     platform: str = "ios"
@@ -1609,7 +1614,12 @@ def get_news_brief(
 
 @router.post("/news/brief")
 def post_news_brief(body: NewsBriefBody) -> dict:
-    """Expand a headline into a full desk briefing (web-grounded, cached)."""
+    """The briefing for a headline.
+
+    ``refresh=false`` never calls Claude: the cached AI briefing, else a
+    basic briefing pulled from the article without AI. ``refresh=true`` is
+    the user's warned rewrite: one Sonnet call writes English and Chinese.
+    """
     from server import news_brief
 
     try:
@@ -1634,18 +1644,40 @@ def post_news_brief(body: NewsBriefBody) -> dict:
 
 @router.post("/news/brief/prewarm")
 def post_news_brief_prewarm(body: NewsBriefPrewarmBody) -> dict:
-    """Kick off parallel briefing generation for the top of the tape.
+    """Record the headlines a client is showing. Never calls Claude.
 
-    Returns immediately with a queue plan. Cached / in-flight / already-queued
-    headlines are skipped; the rest expand on a shared background worker pool
-    (default 8 concurrent Claude writes). Successive calls enqueue more work
-    onto the same pool instead of dropping it.
+    The scheduled refresh (every BSH_NEWS_BRIEF_REFRESH_HOURS, default 6)
+    writes AI briefings for this recorded top of the tape.
     """
     from server import news_brief
 
     return news_brief.prewarm(
         [item.model_dump() for item in body.items],
         lang=body.lang,
+        limit=body.limit,
+    )
+
+
+@router.get("/news/brief/refresh")
+def get_news_brief_refresh() -> dict:
+    """AI briefing schedule and progress: model, next run, done of total."""
+    from server import news_brief
+
+    return news_brief.refresh_status()
+
+
+@router.post("/news/brief/refresh")
+def post_news_brief_refresh(body: NewsBriefRefreshBody) -> dict:
+    """Start the AI briefing refresh now (the News page warns first).
+
+    One worker writes the missing briefings for the given top headlines,
+    one headline at a time, both languages per call. Returns at once.
+    """
+    from server import news_brief
+
+    return news_brief.start_refresh(
+        items=[item.model_dump() for item in body.items],
+        reason="manual",
         limit=body.limit,
     )
 
