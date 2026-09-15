@@ -23,6 +23,7 @@ a module lock; write volume is tiny (one analyst).
 from __future__ import annotations
 
 import json
+import math
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -82,10 +83,86 @@ def load_prefs() -> dict:
     }
 
 
+ALERT_RULE_KINDS = ("pct", "earnings", "volume", "price", "sma_cross")
+ALERT_RULE_DIRECTIONS = ("above", "below")
+
+
+def _is_finite_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
+def _validate_book_lots(lots: Any) -> None:
+    if not isinstance(lots, list):
+        raise ValueError("bsh.bookLots must be a list")
+    for index, lot in enumerate(lots):
+        where = f"bsh.bookLots[{index}]"
+        if not isinstance(lot, dict):
+            raise ValueError(f"{where} must be an object")
+        if "shares" not in lot and "qty" not in lot:
+            raise ValueError(f"{where} needs shares")
+        if "cost" not in lot and "costBasis" not in lot:
+            raise ValueError(f"{where} needs cost")
+        for field in ("shares", "qty", "cost", "costBasis"):
+            if field in lot and not (_is_finite_number(lot[field]) and lot[field] >= 0):
+                raise ValueError(f"{where}.{field} must be a finite number >= 0")
+
+
+def _validate_alert_rules(rules: Any) -> None:
+    if not isinstance(rules, list):
+        raise ValueError("bsh.marketAlertRules must be a list")
+    for index, rule in enumerate(rules):
+        where = f"bsh.marketAlertRules[{index}]"
+        if not isinstance(rule, dict):
+            raise ValueError(f"{where} must be an object")
+        kind = rule.get("kind")
+        if not isinstance(kind, str) or kind.strip().lower() not in ALERT_RULE_KINDS:
+            raise ValueError(f"{where}.kind must be one of {', '.join(ALERT_RULE_KINDS)}")
+        if not _is_finite_number(rule.get("threshold")):
+            raise ValueError(f"{where}.threshold must be a finite number")
+        direction = rule.get("direction")
+        if direction is not None and (
+            not isinstance(direction, str)
+            or direction.strip().lower() not in ALERT_RULE_DIRECTIONS
+        ):
+            raise ValueError(f"{where}.direction must be one of {', '.join(ALERT_RULE_DIRECTIONS)}")
+
+
+def _validate_pinned_tickers(tickers: Any) -> None:
+    from .live_quotes import TICKER_RE
+
+    if not isinstance(tickers, list):
+        raise ValueError("bsh.marketPinnedTickers must be a list")
+    for index, ticker in enumerate(tickers):
+        if not isinstance(ticker, str) or not TICKER_RE.match(ticker):
+            raise ValueError(
+                f"bsh.marketPinnedTickers[{index}] must be an upper-case ticker symbol "
+                "(letters, digits, '.' or '-')"
+            )
+
+
+_VALIDATED_PREF_KEYS = {
+    "bsh.bookLots": _validate_book_lots,
+    "bsh.marketAlertRules": _validate_alert_rules,
+    "bsh.marketPinnedTickers": _validate_pinned_tickers,
+}
+
+
 def save_prefs(data: dict) -> dict:
-    """Persist the desk prefs blob. The frontend owns the key shape."""
+    """Persist the desk prefs blob.
+
+    The frontend owns the key shape; the keys the server itself reads
+    (book lots, alert rules, pinned tickers) are validated, every other key
+    is stored untouched. Raises ``ValueError`` naming the offending entry.
+    """
     if not isinstance(data, dict):
         raise ValueError("prefs payload must be an object")
+    for key, validate in _VALIDATED_PREF_KEYS.items():
+        if key in data:
+            validate(data[key])
     encoded = json.dumps(data, ensure_ascii=False)
     if len(encoded.encode("utf-8")) > MAX_PREFS_BYTES:
         raise ValueError("prefs payload too large")
@@ -193,8 +270,9 @@ def list_signals() -> list[dict]:
 def record_signal(entry: dict) -> dict:
     """Record one signal call (ticker, direction, label, price at signal).
 
-    Duplicate ticker+label pairs recorded on the same UTC day are rejected
-    so a re-render doesn't double-book the same call.
+    A duplicate (same ticker, direction and label on the same UTC day) is not
+    re-recorded; the existing row comes back with ``deduplicated`` True so the
+    caller can say so instead of reporting a fresh entry.
     """
     ticker = str(entry.get("ticker") or "").strip().upper()
     if not ticker:
@@ -229,12 +307,13 @@ def record_signal(entry: dict) -> dict:
             if (
                 str(existing.get("ticker")) == ticker
                 and str(existing.get("label") or "") == label
+                and str(existing.get("direction") or "watch") == direction
                 and str(existing.get("recorded_at") or "")[:10] == day
             ):
-                return existing
+                return dict(existing, deduplicated=True)
         rows.append(row)
         _write_json(SIGNALS_FILE, rows[-MAX_SIGNALS:])
-    return row
+    return dict(row, deduplicated=False)
 
 
 def delete_signal(signal_id: str) -> bool:

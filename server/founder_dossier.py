@@ -23,10 +23,6 @@ logger = logging.getLogger(__name__)
 BOARD_ROLE_WORDS = ("board", "advisor", "investor", "director", "observer", "chair")
 
 
-def _dossier_path(company_id: str) -> Path:
-    return storage.DATA_DIR / "founder_dossiers" / f"{company_id}.json"
-
-
 def _text(value: Any, *, limit: int = 600) -> str | None:
     text = " ".join(str(value or "").split())
     return text[:limit] or None
@@ -151,20 +147,9 @@ def build_founder_dossier(company_id: str) -> dict:
     }
 
 
-def _cache(company_id: str, dossier: dict) -> None:
-    path = _dossier_path(company_id)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to cache founder dossier for %s: %s", company_id, exc)
-
-
 def get_or_synthesize_founder_dossier(company_id: str) -> dict:
-    """Return the dossier for the company (rebuilt from the record on every call)."""
-    dossier = build_founder_dossier(company_id)
-    _cache(company_id, dossier)
-    return dossier
+    """Return the dossier for the company (rebuilt from the record on every call; never written to disk)."""
+    return build_founder_dossier(company_id)
 
 
 def deep_search_founder_dossier(company_id: str) -> dict:

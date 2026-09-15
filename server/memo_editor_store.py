@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from . import analytics_store, serena_analysis, storage
+from . import analytics_store, company_paths, serena_analysis, storage
 
 SCHEMA_VERSION = 1
 EDITOR_ROOT = storage.DATA_DIR / "memo_editor"
@@ -93,7 +93,7 @@ def _safe_id(value: str) -> str:
 
 
 def _company_dir(company_id: str) -> Path:
-    return EDITOR_ROOT / _safe_id(company_id)
+    return EDITOR_ROOT / company_paths.storage_key(company_id)
 
 
 def state_path(company_id: str) -> Path:
@@ -117,11 +117,7 @@ def _read_yaml(path: Path, default: Any) -> Any:
 
 
 def _write_yaml(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-    tmp.replace(path)
+    storage._write_yaml(path, data)
 
 
 def _write_version_snapshot(company_id: str, state: dict, event: str) -> None:

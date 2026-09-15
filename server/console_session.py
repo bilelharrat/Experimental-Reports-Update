@@ -691,6 +691,11 @@ def submit_ask(
 
 def archive_session(*, company_id: str, session_id: str) -> dict | None:
     """Mark archived and kick off a background summarize."""
+    existing = console_store.load_meta(company_id, session_id)
+    if existing is None:
+        return None
+    if existing.get("status") == "archived":
+        return existing
     meta = console_store.archive_session(company_id, session_id)
     if meta is None:
         return None

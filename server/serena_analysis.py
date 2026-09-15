@@ -27,7 +27,7 @@ from typing import Any
 
 import yaml
 
-from . import claude_runner, job_progress, research_eval, research_store, run_ledger, storage
+from . import claude_runner, company_paths, job_progress, research_eval, research_store, run_ledger, storage
 from .risk_workbench import (
     DISPOSITIONS,
     FRAMINGS,
@@ -222,7 +222,7 @@ def _safe_id(value: str) -> str:
 
 
 def _company_dir(company_id: str) -> Path:
-    return ANALYSIS_ROOT / _safe_id(company_id)
+    return ANALYSIS_ROOT / company_paths.storage_key(company_id)
 
 
 def session_dir(company_id: str, session_id: str) -> Path:
@@ -599,11 +599,7 @@ def _read_json(path: Path, default: Any) -> Any:
 
 
 def _write_yaml(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-    tmp.replace(path)
+    storage._write_yaml(path, data)
 
 
 def _write_json(path: Path, data: Any) -> None:

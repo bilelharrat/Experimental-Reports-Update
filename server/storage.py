@@ -6,7 +6,10 @@ the data directory so a human can inspect/edit them without running the app.
 from __future__ import annotations
 
 import copy
+import logging
+import os
 import re
+import tempfile
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -55,20 +58,64 @@ def _ensure_dirs() -> None:
     THREADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+_SAFE_LOADER = yaml.CSafeLoader if yaml.__with_libyaml__ else yaml.SafeLoader
+
+
 def _read_yaml(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
     with path.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+        data = yaml.load(f, Loader=_SAFE_LOADER)
     return data if data is not None else default
+
+
+logger = logging.getLogger(__name__)
+
+_WRITE_LOCK = threading.RLock()
+
+
+def _read_yaml_lenient(path: Path, default: Any) -> Any:
+    """Like ``_read_yaml`` but an unparseable file yields ``default``."""
+    try:
+        return _read_yaml(path, default)
+    except yaml.YAMLError as exc:
+        logger.warning("%s is not valid YAML (%s); using defaults until it is repaired", path, exc)
+        return default
+
+
+def _quarantine_unparseable(path: Path) -> Path | None:
+    """Move a YAML file aside when it cannot be parsed, so a writer never
+    silently replaces someone's data with defaults. Returns the new path."""
+    if not path.exists():
+        return None
+    try:
+        _read_yaml(path, None)
+    except yaml.YAMLError as exc:
+        aside = path.with_name(f"{path.name}.corrupt-{int(datetime.now(timezone.utc).timestamp())}")
+        os.replace(path, aside)
+        logger.warning("%s is not valid YAML (%s); moved aside to %s before writing a fresh file", path, exc, aside)
+        return aside
+    return None
 
 
 def _write_yaml(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
-    tmp.replace(path)
+    with _WRITE_LOCK:
+        fd, tmp_name = tempfile.mkstemp(
+            dir=path.parent, prefix=path.name + ".", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_name, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
 
 def _has_value(value: Any) -> bool:
@@ -718,46 +765,81 @@ def _report_path(report_id: str) -> Path:
 
 
 # Per-file parse cache for reports: {path: ((mtime_ns, size), parsed_dict)}.
-# list_reports re-globs every call (cheap — dir stat), but only re-parses the
-# report files whose (mtime_ns, size) changed, so the common "nothing changed"
-# poll costs a directory scan instead of parsing every report YAML.
+# Every read re-globs the reports dir and stats each file (cheap); only files
+# whose (mtime_ns, size) changed are re-parsed, and the newest-first list and
+# its per-company index are rebuilt only when that stat map or the dir changes.
 _reports_cache: dict[str, tuple[tuple[int, int], dict]] = {}
+_reports_index: dict[str, Any] = {"dir": None, "stats": None, "ordered": [], "by_company": {}, "version": 0}
+
+
+def _reports_index_locked() -> dict[str, Any]:
+    """Shared reports index; caller holds ``_LOCK`` and copies what it hands out."""
+    _ensure_dirs()
+    stats: dict[str, tuple[int, int]] = {}
+    for p in REPORTS_DIR.glob("*.yaml"):
+        try:
+            st = p.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        stats[str(p)] = (st.st_mtime_ns, st.st_size)
+    reports_dir = str(REPORTS_DIR)
+    index = _reports_index
+    if index["dir"] == reports_dir and index["stats"] == stats:
+        return index
+    out: list[dict] = []
+    for path_key, stat_key in stats.items():
+        cached = _reports_cache.get(path_key)
+        if cached is not None and cached[0] == stat_key:
+            out.append(cached[1])
+            continue
+        data = _read_yaml(Path(path_key), None)
+        if isinstance(data, dict):
+            _reports_cache[path_key] = (stat_key, data)
+            out.append(data)
+        else:
+            _reports_cache.pop(path_key, None)
+    for stale in [k for k in _reports_cache if k not in stats]:
+        _reports_cache.pop(stale, None)
+    out.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
+    by_company: dict[str, list[dict]] = {}
+    for report in out:
+        company_id = report.get("company_id")
+        if isinstance(company_id, str):
+            by_company.setdefault(company_id, []).append(report)
+    index.update(dir=reports_dir, stats=stats, ordered=out, by_company=by_company, version=index["version"] + 1)
+    return index
 
 
 def list_reports() -> list[dict]:
     """All reports, newest first. Used for the sidebar."""
     with _LOCK:
-        _ensure_dirs()
-        out: list[dict] = []
-        seen: set[str] = set()
-        for p in REPORTS_DIR.glob("*.yaml"):
-            path_key = str(p)
-            seen.add(path_key)
-            try:
-                st = p.stat()
-            except (FileNotFoundError, NotADirectoryError):
-                continue
-            stat_key = (st.st_mtime_ns, st.st_size)
-            cached = _reports_cache.get(path_key)
-            if cached is not None and cached[0] == stat_key:
-                out.append(cached[1])
-                continue
-            data = _read_yaml(p, None)
-            if isinstance(data, dict):
-                _reports_cache[path_key] = (stat_key, data)
-                out.append(data)
-            else:
-                _reports_cache.pop(path_key, None)
-        # Drop cache entries for deleted report files.
-        for stale in [k for k in _reports_cache if k not in seen]:
-            _reports_cache.pop(stale, None)
-        out.sort(key=lambda r: str(r.get("created_at", "")), reverse=True)
-        return copy.deepcopy(out)
+        return copy.deepcopy(_reports_index_locked()["ordered"])
+
+
+def list_reports_for(company_id: str) -> list[dict]:
+    """One company's reports, newest first, as independent copies."""
+    with _LOCK:
+        return copy.deepcopy(_reports_index_locked()["by_company"].get(company_id, []))
+
+
+def reports_by_company() -> dict[str, list[dict]]:
+    """Every company's reports by company id, newest first, as independent copies."""
+    with _LOCK:
+        return copy.deepcopy(_reports_index_locked()["by_company"])
+
+
+def reports_version() -> int:
+    """A number that changes whenever a report file is added, changed or removed, or the reports dir moves."""
+    with _LOCK:
+        return _reports_index_locked()["version"]
 
 
 def get_report(report_id: str) -> dict | None:
     with _LOCK:
-        data = _read_yaml(_report_path(report_id), None)
+        try:
+            data = _read_yaml(_report_path(report_id), None)
+        except OSError:  # e.g. an id longer than the filesystem allows
+            return None
         return data if isinstance(data, dict) else None
 
 

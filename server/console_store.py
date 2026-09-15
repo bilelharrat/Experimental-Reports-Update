@@ -73,12 +73,15 @@ DEFAULT_OUTPUT_LANGUAGE = "en"
 
 CONSOLES_ROOT = DATA_DIR / "consoles"
 
-# Session and turn ids are UUID4 hex (32 chars). Company ids are slugs of
-# the form ``[a-z0-9_-]+`` produced by the rest of the codebase. Both
-# regexes reject any path-traversal characters before joining into a
-# filesystem path.
+# Session and turn ids are UUID4 hex (32 chars). Company ids are whatever
+# ``storage`` issues: a lowercased ticker (``brk.b``) or a slug that keeps
+# any Unicode letter or digit (``ceinet-data-co-ltd-中经网数据有限公司``).
+# ``_validate_company_id`` accepts exactly that shape as a single safe path
+# segment; the directory key stays identical to the id so existing
+# ``data/consoles/<id>`` folders keep working.
 _HEX_ID_RE = re.compile(r"^[a-f0-9]{12,64}$")
-_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
+_COMPANY_ID_MAX_CHARS = 128
+_COMPANY_ID_MAX_BYTES = 255
 _SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
 # One process-wide lock for index-style mutations. Turn writes use the same
@@ -98,9 +101,19 @@ def _validate_id(value: str, *, kind: str = "id") -> str:
 
 
 def _validate_company_id(value: str) -> str:
-    if not isinstance(value, str) or not _SLUG_RE.match(value.lower()):
+    if not isinstance(value, str):
         raise ValueError(f"Invalid company_id: {value!r}")
-    return value.lower()
+    v = value.lower()
+    ok = (
+        0 < len(v) <= _COMPANY_ID_MAX_CHARS
+        and len(v.encode("utf-8")) <= _COMPANY_ID_MAX_BYTES
+        and v[0].isalnum()
+        and all(ch.isalnum() or ch in "-_." for ch in v)
+        and ".." not in v
+    )
+    if not ok:
+        raise ValueError(f"Invalid company_id: {value!r}")
+    return v
 
 
 def _validate_sha256(value: str) -> str:

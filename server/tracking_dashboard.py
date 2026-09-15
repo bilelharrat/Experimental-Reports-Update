@@ -22,6 +22,7 @@ from . import (
     evidence_store,
     serena_analysis,
     storage,
+    thesis_store,
 )
 
 # Guardrail on fan-out: each company costs five store reads, so an
@@ -491,7 +492,7 @@ def _lifecycle_stage(
     return "diligence"
 
 
-def _company_rollup(company: dict, reports: list[dict], now: datetime) -> dict:
+def _company_rollup(company: dict, reports: list[dict], now: datetime, thesis: dict | None = None) -> dict:
     company_id = str(company.get("id") or "")
 
     try:
@@ -550,6 +551,10 @@ def _company_rollup(company: dict, reports: list[dict], now: datetime) -> dict:
     bucket = _bucket(attention, memo)
     decision = _latest_decision(company_id)
     lifecycle_stage = _lifecycle_stage(memo, documents, session_summary, decision)
+    try:
+        thesis_fit = thesis_store.score_company(company, thesis=thesis)
+    except Exception:  # noqa: BLE001 - a bad thesis file must not sink the rollup
+        thesis_fit = None
 
     return {
         "id": company_id,
@@ -571,6 +576,7 @@ def _company_rollup(company: dict, reports: list[dict], now: datetime) -> dict:
         "attention": attention,
         "lifecycle_stage": lifecycle_stage,
         "latest_decision": decision,
+        "thesis_fit": thesis_fit,
     }
 
 
@@ -599,6 +605,7 @@ def build_rollup(company_ids: list[str]) -> dict:
     browser storage and can outlive a deleted company, and one stale entry
     should not blank the whole dashboard.
     """
+    thesis = thesis_store.get_thesis()
     now = _now()
 
     requested: list[str] = []
@@ -622,7 +629,7 @@ def build_rollup(company_ids: list[str]) -> dict:
             resolved.append(company)
 
     reports = storage.list_reports()
-    rows = [_company_rollup(company, reports, now) for company in resolved]
+    rows = [_company_rollup(company, reports, now, thesis) for company in resolved]
 
     # Worst-first, then most recently touched, so the top of the dashboard
     # is always the company that needs the analyst today.

@@ -2964,13 +2964,14 @@ def test_recover_leaves_run_with_live_worker_alone(memo_env, monkeypatch):
     assert storage.get_report(report["id"])["status"] == "analyzing"
 
 
-def test_atexit_hook_fails_active_runs(memo_env):
+def test_shutdown_hook_fails_active_runs(memo_env):
     report, run_dir = _make_memo_report(memo_env)
     memo_analysis._register_active_run(report["id"])
     try:
-        memo_analysis._fail_active_runs_at_exit()
+        memo_analysis.halt_active_runs_for_shutdown()
     finally:
         memo_analysis._unregister_active_run(report["id"])
+        memo_analysis._clear_run_halt(report["id"])
 
     updated = storage.get_report(report["id"])
     assert updated["status"] == "failed_during_analysis"

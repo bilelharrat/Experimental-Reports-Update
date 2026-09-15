@@ -49,6 +49,25 @@ logger = logging.getLogger(__name__)
 _LIVE_CLAUDE_PROCS: "weakref.WeakSet[subprocess.Popen]" = weakref.WeakSet()
 _LIVE_CLAUDE_PROCS_LOCK = threading.Lock()
 
+# Set once the server starts shutting down: no claude subprocess may be
+# spawned after that, so the shutdown reap cannot be outrun by workers that
+# are still unwinding (a pass pool starting its next pass, a retry loop).
+_SHUTTING_DOWN = threading.Event()
+
+SERVER_SHUTTING_DOWN_ERROR = "server is shutting down"
+
+
+class ClaudeShutdownError(RuntimeError):
+    """A claude subprocess was requested after server shutdown began."""
+
+
+def begin_shutdown() -> None:
+    _SHUTTING_DOWN.set()
+
+
+def shutting_down() -> bool:
+    return _SHUTTING_DOWN.is_set()
+
 
 def _popen_claude(*args, **kwargs) -> subprocess.Popen:
     """subprocess.Popen + registration in the live-process registry.
@@ -56,13 +75,127 @@ def _popen_claude(*args, **kwargs) -> subprocess.Popen:
     Every claude CLI spawn in this module must go through this helper so
     `terminate_live_claude_procs` can reap it at shutdown. The spawn cwd
     is remembered on the proc: memo spawns all use ``cwd=run_dir``, which
-    lets ``terminate_claude_procs_under`` reap one run's whole fleet.
+    lets ``terminate_claude_procs_under`` reap one run's whole fleet. Memo
+    run dirs also get the pid appended to ``logs/claude_pids.jsonl`` so a
+    later server process can still reap that fleet.
+
+    Raises ``ClaudeShutdownError`` once shutdown has begun; a process that
+    raced the shutdown flag is terminated before the error is raised.
     """
+    if _SHUTTING_DOWN.is_set():
+        raise ClaudeShutdownError(SERVER_SHUTTING_DOWN_ERROR)
     proc = subprocess.Popen(*args, **kwargs)
-    proc._bsh_spawn_cwd = str(kwargs.get("cwd") or "")  # type: ignore[attr-defined]
+    spawn_cwd = str(kwargs.get("cwd") or "")
+    proc._bsh_spawn_cwd = spawn_cwd  # type: ignore[attr-defined]
     with _LIVE_CLAUDE_PROCS_LOCK:
         _LIVE_CLAUDE_PROCS.add(proc)
+    if _SHUTTING_DOWN.is_set():
+        _terminate_process_group(proc, grace_s=1.0)
+        raise ClaudeShutdownError(SERVER_SHUTTING_DOWN_ERROR)
+    if spawn_cwd:
+        _record_run_pid(spawn_cwd, proc.pid)
     return proc
+
+
+def _run_pid_file(run_dir: str) -> Path:
+    return Path(run_dir) / "logs" / "claude_pids.jsonl"
+
+
+def _record_run_pid(run_dir: str, pid: int) -> None:
+    """Append a spawned pid next to a memo run's ``logs/stream.jsonl``."""
+    pid_file = _run_pid_file(run_dir)
+    if not (pid_file.parent / "stream.jsonl").exists():
+        return
+    try:
+        with pid_file.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"pid": pid, "started_at": time.time()}) + "\n")
+    except OSError:
+        logger.warning("could not record claude pid %s under %s", pid, run_dir, exc_info=True)
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _is_recorded_claude_process(pid: int, started_at: float) -> bool:
+    """True when ``pid`` is still the claude process recorded at ``started_at``.
+
+    The start-time match keeps a recycled pid from being mistaken for the
+    recorded process.
+    """
+    if not _pid_alive(pid):
+        return False
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "lstart=,command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if len(out) < 24:
+        return False
+    try:
+        started = time.mktime(
+            time.strptime(" ".join(out[:24].split()), "%a %b %d %H:%M:%S %Y")
+        )
+    except ValueError:
+        return False
+    return abs(started - started_at) <= 5 and "claude" in out[24:]
+
+
+def _terminate_pid_group(pid: int, *, grace_s: float = 2.0) -> None:
+    """Terminate a process group this process holds no Popen handle for."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pid, sig)
+        except ProcessLookupError:
+            return
+        except OSError:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                return
+        deadline = time.monotonic() + grace_s
+        while time.monotonic() < deadline:
+            if not _pid_alive(pid):
+                return
+            time.sleep(0.1)
+
+
+def _terminate_recorded_run_pids(run_dir: str, *, skip: set[int]) -> int:
+    """Reap claude processes recorded in a run's pid file that this
+    process's registry does not track (e.g. left behind by an earlier
+    server process). Returns the number of processes terminated."""
+    pid_file = _run_pid_file(run_dir)
+    try:
+        lines = pid_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    targets: list[int] = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            pid = int(row["pid"])
+            started_at = float(row["started_at"])
+        except (ValueError, KeyError, TypeError):
+            continue
+        if pid in skip or pid in targets:
+            continue
+        if _is_recorded_claude_process(pid, started_at):
+            targets.append(pid)
+    for pid in targets:
+        _terminate_pid_group(pid)
+    return len(targets)
 
 
 def terminate_live_claude_procs() -> int:
@@ -91,6 +224,10 @@ atexit.register(terminate_live_claude_procs)
 # phases / on retries (the run-dir marker checked at the single runner
 # funnel, `_run_memo_local_json_artifact`).
 _CANCELLED_RUN_DIRS: set[str] = set()
+# Run dirs whose Claude calls hit a provider usage/rate limit: every later
+# call in the same run would fail the same way, so the funnel answers with
+# the recorded limit message instead of spawning another subprocess.
+_PROVIDER_LIMITED_RUN_DIRS: dict[str, str] = {}
 
 MEMO_RUN_CANCELLED_ERROR = "cancelled by user"
 
@@ -112,12 +249,36 @@ def run_dir_cancelled(run_dir) -> bool:
         return str(run_dir) in _CANCELLED_RUN_DIRS
 
 
+def run_dir_provider_limit(run_dir) -> str | None:
+    if run_dir is None:
+        return None
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        return _PROVIDER_LIMITED_RUN_DIRS.get(str(run_dir))
+
+
+def reset_run_dir_state(run_dir: str) -> None:
+    """Forget a run dir's cancel marker and recorded provider limit."""
+    with _LIVE_CLAUDE_PROCS_LOCK:
+        _CANCELLED_RUN_DIRS.discard(str(run_dir))
+        _PROVIDER_LIMITED_RUN_DIRS.pop(str(run_dir), None)
+
+
+def _memo_run_halt_error(run_dir) -> str | None:
+    """Why a memo run must not spawn another subprocess, or None."""
+    if run_dir_cancelled(run_dir):
+        return MEMO_RUN_CANCELLED_ERROR
+    if _SHUTTING_DOWN.is_set():
+        return SERVER_SHUTTING_DOWN_ERROR
+    return run_dir_provider_limit(run_dir)
+
+
 def terminate_claude_procs_under(run_dir: str) -> int:
-    """Terminate every live claude subprocess spawned with this cwd.
+    """Terminate every claude subprocess spawned with this cwd.
 
     One memo run's passes, spine, sections, artifacts and translation all
-    spawn with ``cwd=run_dir``, so this reaps exactly that run's fleet.
-    Returns the number of processes terminated.
+    spawn with ``cwd=run_dir``, so this reaps exactly that run's fleet:
+    the processes this server registered, plus any recorded in the run's
+    pid file by an earlier server process. Returns the number terminated.
     """
     prefix = str(run_dir)
     if not prefix:
@@ -125,13 +286,18 @@ def terminate_claude_procs_under(run_dir: str) -> int:
     with _LIVE_CLAUDE_PROCS_LOCK:
         procs = list(_LIVE_CLAUDE_PROCS)
     killed = 0
+    registered: set[int] = set()
     for proc in procs:
-        if proc.poll() is not None:
-            continue
         if getattr(proc, "_bsh_spawn_cwd", "") != prefix:
+            continue
+        pid = getattr(proc, "pid", None)
+        if isinstance(pid, int):
+            registered.add(pid)
+        if proc.poll() is not None:
             continue
         killed += 1
         _terminate_process_group(proc, grace_s=2.0)
+    killed += _terminate_recorded_run_pids(prefix, skip=registered)
     if killed:
         logger.info("cancel: terminated %d claude subprocess(es) under %s", killed, prefix)
     return killed
@@ -4350,18 +4516,22 @@ def _run_memo_local_json_artifact(
             "Claude Code (`claude`) not on PATH. Install it with "
             "`npm install -g @anthropic-ai/claude-code` and authenticate."
         )
-    # Cancelled runs must not spawn replacements: this single funnel covers
-    # every pipeline wrapper, retry loop, repair pass and thread pool.
-    if run_dir_cancelled(run_dir):
-        return None, MEMO_RUN_CANCELLED_ERROR
+    # Cancelled, shutting-down and provider-limited runs must not spawn
+    # replacements: this single funnel covers every pipeline wrapper, retry
+    # loop, repair pass and thread pool.
+    halt_error = _memo_run_halt_error(run_dir)
+    if halt_error:
+        return None, halt_error
 
     limiter = _memo_run_limiter(run_dir)
     queued_emitted = False
     while not limiter.acquire(timeout=1):
-        # Re-check cancellation while queued so a cancel drains the queue
-        # instead of launching replacements the moment permits free up.
-        if run_dir_cancelled(run_dir):
-            return None, MEMO_RUN_CANCELLED_ERROR
+        # Re-check while queued so a cancel (or a limit hit by a sibling
+        # call) drains the queue instead of launching replacements the
+        # moment permits free up.
+        halt_error = _memo_run_halt_error(run_dir)
+        if halt_error:
+            return None, halt_error
         if not queued_emitted and progress is not None:
             queued_emitted = True
             progress.emit(
@@ -4373,7 +4543,10 @@ def _run_memo_local_json_artifact(
                 ),
             )
     try:
-        return _run_memo_local_json_artifact_inner(
+        halt_error = _memo_run_halt_error(run_dir)
+        if halt_error:
+            return None, halt_error
+        data, error = _run_memo_local_json_artifact_inner(
             prompt=prompt,
             schema=schema,
             run_dir=run_dir,
@@ -4388,6 +4561,10 @@ def _run_memo_local_json_artifact(
             effort=effort,
             append_system_prompt=append_system_prompt,
         )
+        if data is None and provider_limit_reason(error):
+            with _LIVE_CLAUDE_PROCS_LOCK:
+                _PROVIDER_LIMITED_RUN_DIRS.setdefault(str(run_dir), str(error))
+        return data, error
     finally:
         limiter.release()
 
@@ -11706,25 +11883,29 @@ def run_structured_prompt(
         if not final_text:
             return None, "claude returned empty result"
     else:
+        # Spawn through the registry (own session) so a server shutdown
+        # reaps it instead of leaving an orphaned CLI run burning tokens.
         try:
-            proc = subprocess.run(
+            proc = _popen_claude(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout_sec,
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired:
-            return None, f"claude timed out after {timeout_sec}s ({name})"
         except FileNotFoundError as exc:
             return None, f"Failed to launch claude: {exc}"
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout_sec)
+        except subprocess.TimeoutExpired:
+            _terminate_process_group(proc, grace_s=1.0)
+            return None, f"claude timed out after {timeout_sec}s ({name})"
 
         if proc.returncode != 0:
-            return None, _claude_exit_error(
-                proc.returncode, proc.stderr, proc.stdout
-            )
+            return None, _claude_exit_error(proc.returncode, stderr, stdout)
 
         try:
-            envelope = json.loads(proc.stdout or "{}")
+            envelope = json.loads(stdout or "{}")
         except json.JSONDecodeError as exc:
             return None, f"claude returned non-JSON envelope: {exc}"
 
@@ -14688,7 +14869,7 @@ def _consume_stream(
     result_event = handle.result_event
     if result_event is not None and interrupt_reason is None:
         subtype = result_event.get("subtype") or "error"
-        ok = subtype == "success"
+        ok = subtype == "success" and not result_event.get("is_error")
         outcome = {
             "ok": ok,
             "subtype": subtype,

@@ -48,6 +48,7 @@ import mimetypes  # noqa: E402
 from . import (  # noqa: E402
     claude_runner,
     companies_ai_public,
+    company_paths,
     companies_autocomplete,
     console_session,
     local_generation,
@@ -92,6 +93,35 @@ ASSETS_DIR = DIST_DIR / "assets"
 app = FastAPI(title="bsh-research-center", root_path="/research")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
+
+@app.middleware("http")
+async def _audit_mutations(request, call_next):
+    """Append every mutating /api call (who, what, status) to the firm audit trail."""
+    response = await call_next(request)
+    try:
+        path = request.url.path
+        if (
+            request.method in {"POST", "PUT", "PATCH", "DELETE"}
+            and "/api/" in path
+            and "/auth/" not in path
+            and "/stream" not in path
+            and "/copilot" not in path
+            and "/console" not in path
+        ):
+            from server import firm
+
+            firm.record_audit(
+                actor=getattr(request.state, "session_email", None),
+                auth_kind=getattr(request.state, "auth_kind", None),
+                action=firm.describe_action(request.method, path),
+                path=path,
+                status=response.status_code,
+                company_id=firm.company_from_path(path),
+            )
+    except Exception:  # noqa: BLE001 — auditing must never break a request
+        pass
+    return response
+
 # Serve the SPA's built assets via a regular route (not StaticFiles
 # mount). The mount path interacts awkwardly with root_path: when nginx
 # strips the prefix before forwarding, scope["root_path"] is still set
@@ -121,26 +151,10 @@ app.include_router(auth_router)
 app.include_router(api_router)
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    try:
-        summary = local_generation.generate_local_runtime_state()
-        logger.info(
-            "Local runtime state ready: companies=%s materialized=%s stock_trackers=%s.",
-            summary.get("company_count"),
-            summary.get("company_records_materialized"),
-            summary.get("stock_research_tracker_count"),
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("Local runtime state generation failed")
-    if claude_runner.is_available():
-        logger.info("Claude Code CLI available — analysis paths enabled.")
-    else:
-        logger.warning(
-            "Claude Code (`claude`) not on PATH — analysis paths will "
-            "return errors. Install with "
-            "`npm install -g @anthropic-ai/claude-code` and authenticate."
-        )
+def _run_startup_recovery() -> None:
+    """Restart recovery sweeps. They walk every report and job log, so the
+    startup hook runs them on a background thread instead of making the
+    first requests wait for them."""
     # Synthesize error turns for any Console session that lost an in-flight
     # subprocess across the restart. Cheap, idempotent — see §7 of
     # docs/console-feature.md.
@@ -183,6 +197,31 @@ def _startup() -> None:
         start_stale_job_recovery()
     except Exception:  # noqa: BLE001
         logger.exception("Stale-job recovery startup failed")
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    try:
+        summary = local_generation.generate_local_runtime_state()
+        logger.info(
+            "Local runtime state ready: companies=%s materialized=%s stock_trackers=%s.",
+            summary.get("company_count"),
+            summary.get("company_records_materialized"),
+            summary.get("stock_research_tracker_count"),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Local runtime state generation failed")
+    if claude_runner.is_available():
+        logger.info("Claude Code CLI available — analysis paths enabled.")
+    else:
+        logger.warning(
+            "Claude Code (`claude`) not on PATH — analysis paths will "
+            "return errors. Install with "
+            "`npm install -g @anthropic-ai/claude-code` and authenticate."
+        )
+    threading.Thread(
+        target=_run_startup_recovery, name="startup-recovery", daemon=True
+    ).start()
     try:
         from . import tracking_updates
 
@@ -217,16 +256,34 @@ def _startup() -> None:
             )
     except Exception:  # noqa: BLE001
         logger.exception("trader_snapshot migration failed")
+    # Per-company data used to live under an ASCII-stripped directory name
+    # ("brk.b" -> "brkb"); move it under the id's storage key once.
+    try:
+        moved = company_paths.migrate_legacy_dirs()
+        if moved:
+            logger.warning(
+                "Moved %d legacy per-company director(ies)/file(s) to their storage keys.", len(moved)
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("Legacy company directory migration failed")
     _start_translation_backfill()
 
 
 @app.on_event("shutdown")
 def _shutdown() -> None:
-    # Reap every live claude CLI subprocess group. They run detached
-    # (start_new_session=True) so nothing else kills them when uvicorn
-    # exits — without this a dev restart leaves orphaned CLI runs burning
-    # tokens with no consumer. Also registered via atexit as a backstop
-    # for non-graceful exits.
+    _TRANSLATION_STOP.set()
+    # Order matters: refuse new claude spawns, record in-flight memo runs
+    # as interrupted by the shutdown (resume-eligible) while their workers
+    # are still blocked, then reap every live claude CLI subprocess group.
+    # They run detached (start_new_session=True) so nothing else kills them
+    # when uvicorn exits — without this a dev restart leaves orphaned CLI
+    # runs burning tokens with no consumer. Also registered via atexit as a
+    # backstop for non-graceful exits.
+    claude_runner.begin_shutdown()
+    try:
+        memo_analysis.halt_active_runs_for_shutdown()
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to mark in-flight memo runs interrupted")
     try:
         claude_runner.terminate_live_claude_procs()
     except Exception:  # noqa: BLE001
@@ -276,7 +333,7 @@ def _run_translation_backfill_once() -> None:
     pending = [c for c in companies if _needs_translation(c)]
     if not pending:
         return
-    logger.info(
+    logger.warning(
         "Translation backfill: %d company record(s) to translate.",
         len(pending),
     )
@@ -285,6 +342,9 @@ def _run_translation_backfill_once() -> None:
         cid = c.get("id")
         if not cid:
             continue
+        if _TRANSLATION_STOP.is_set():
+            paused = True
+            break
         try:
             result = translate_company(c)
             err = result.get("error")
@@ -326,14 +386,29 @@ def _run_translation_backfill_once() -> None:
         logger.info("Translation backfill: complete.")
 
 
+_TRANSLATION_STOP = threading.Event()
+
+
+def _translation_backfill_enabled() -> bool:
+    raw = (os.environ.get("BSH_COMPANY_TRANSLATION_BACKFILL") or "1").strip().lower()
+    return raw not in ("", "0", "false", "no", "off")
+
+
 def _start_translation_backfill() -> None:
     """Backfill missing company translations without blocking startup.
 
-    If Claude reports a quota / rate-limit failure, pause the backfill and
-    leave the remaining records untouched so a later restart can retry them.
+    On by default; ``BSH_COMPANY_TRANSLATION_BACKFILL=0`` turns it off
+    because every run spawns Claude CLI work (deck intake and AI search do
+    not translate inline, so switching it off leaves those companies
+    untranslated). If Claude reports a quota / rate-limit failure,
+    pause the backfill and leave the remaining records untouched so a later
+    restart can retry them.
     """
+    if not _translation_backfill_enabled():
+        return
     if not claude_runner.is_available():
         return
+    _TRANSLATION_STOP.clear()
 
     threading.Thread(
         target=_run_translation_backfill_once,

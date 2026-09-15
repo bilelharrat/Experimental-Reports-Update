@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from server import storage
+from server import company_paths
 
 VERDICTS = ("invest", "pass", "watch")
 RETRO_VERDICTS = ("still_right", "questionable", "looks_wrong")
@@ -35,10 +35,7 @@ def _now() -> str:
 
 
 def _company_dir(company_id: str) -> Path:
-    safe_id = re.sub(r"[^a-z0-9_-]", "", str(company_id or "").lower())
-    if not safe_id:
-        raise ValueError("Invalid company id")
-    return storage.DATA_DIR / "companies" / safe_id
+    return company_paths.company_dir(company_id)
 
 
 def _decisions_path(company_id: str) -> Path:

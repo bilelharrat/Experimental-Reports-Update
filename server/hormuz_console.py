@@ -28,8 +28,8 @@ from . import (
 
 logger = logging.getLogger(__name__)
 
-# Console id slot (path segment only). Must satisfy console_store's slug
-# rule (^[a-z0-9][a-z0-9_-]{0,127}$) — "hormuz" does.
+# Console id slot (path segment only). Must be a single safe path segment
+# that console_store accepts (any lowercased id storage issues) — "hormuz" is.
 HORMUZ_ID = "hormuz"
 
 SKILL_PATH = Path(__file__).parent / "skills" / "bsh_hormuz_console.md"

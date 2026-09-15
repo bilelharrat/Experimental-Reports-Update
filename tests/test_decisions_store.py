@@ -55,9 +55,11 @@ def test_validation(company):
             created_by="b",
         )
     with pytest.raises(ValueError):
-        decisions_store._company_dir("###")  # nothing survives sanitization
-    # Traversal characters are stripped, never traversed.
-    assert decisions_store._company_dir("../../etc").name == "etc"
+        decisions_store._company_dir("###")  # no alphanumeric character at all
+    # Traversal characters never reach the path: the id is slugged and hashed into one directory name.
+    traversal = decisions_store._company_dir("../../etc")
+    assert traversal.parent == storage.DATA_DIR / "companies"
+    assert traversal.name.startswith("etc.") and "/" not in traversal.name
 
 
 def test_backdating_and_sort_order(company):

@@ -31,6 +31,7 @@ from typing import Any
 
 import yaml
 
+from . import company_paths
 from .storage import DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -55,10 +56,7 @@ def _now() -> str:
 
 
 def _company_dir(company_id: str) -> Path:
-    safe_id = re.sub(r"[^a-z0-9_-]", "", company_id.lower())
-    if not safe_id:
-        raise ValueError("Invalid company id")
-    return UPLOADS_ROOT / safe_id
+    return UPLOADS_ROOT / company_paths.storage_key(company_id)
 
 
 def _index_path(company_id: str) -> Path:

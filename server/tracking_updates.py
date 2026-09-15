@@ -39,7 +39,8 @@ RUNNING_REPORT_STATUSES = {
     "running",
 }
 
-WATCHLIST_PATH = storage.DATA_DIR / "settings" / "tracking_watchlist.json"
+def watchlist_path() -> Path:
+    return storage.DATA_DIR / "settings" / "tracking_watchlist.json"
 
 IMPACT_LOW = "low"
 IMPACT_MEDIUM = "medium"
@@ -261,10 +262,10 @@ def _auto_run_label(action: str, titles: list[str]) -> str:
 
 def get_watchlist() -> list[str]:
     with _LOCK:
-        if not WATCHLIST_PATH.exists():
+        if not watchlist_path().exists():
             return []
         try:
-            payload = json.loads(WATCHLIST_PATH.read_text(encoding="utf-8"))
+            payload = json.loads(watchlist_path().read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return []
         ids = payload.get("company_ids") if isinstance(payload, dict) else payload
@@ -296,8 +297,8 @@ def sync_watchlist(company_ids: list[str]) -> dict:
         "company_ids": normalized,
     }
     with _LOCK:
-        WATCHLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-        WATCHLIST_PATH.write_text(
+        watchlist_path().parent.mkdir(parents=True, exist_ok=True)
+        watchlist_path().write_text(
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
@@ -308,10 +309,11 @@ def remove_from_watchlist(company_id: str) -> None:
     cid = str(company_id or "").strip()
     if not cid:
         return
-    current = get_watchlist()
-    if cid not in current:
-        return
-    sync_watchlist([row for row in current if row != cid])
+    with _LOCK:
+        current = get_watchlist()
+        if cid not in current:
+            return
+        sync_watchlist([row for row in current if row != cid])
 
 
 def company_awaiting_studio(company_id: str) -> bool:

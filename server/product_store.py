@@ -5,7 +5,6 @@ import copy
 import re
 import threading
 from datetime import datetime, timezone
-from typing import Any
 
 import yaml
 
@@ -93,12 +92,7 @@ def _read_yaml(default: dict) -> dict:
 
 
 def _write_yaml(payload: dict) -> None:
-    path = storage.DATA_DIR / "settings" / "preferences.yaml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(payload, f, sort_keys=False, allow_unicode=True)
-    tmp.replace(path)
+    storage._write_yaml(storage.DATA_DIR / "settings" / "preferences.yaml", payload)
 
 
 def role_for_email(email: str | None, *, shared_auth: bool = False) -> str:

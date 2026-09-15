@@ -97,3 +97,28 @@ def _admin_request():
         cookies={},
         headers={},
     )
+
+
+def test_get_companies_search_cache_miss_requires_tasks_permission(monkeypatch):
+    from fastapi import HTTPException
+    from types import SimpleNamespace
+
+    from server import api, cache, claude_runner
+
+    monkeypatch.setattr(cache, "get", lambda *_a, **_k: None)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("deep search must not run for a read-only caller")
+
+    monkeypatch.setattr(claude_runner, "run_company_search", _boom)
+    service_request = SimpleNamespace(
+        state=SimpleNamespace(auth_kind="shared_token", session_email=None),
+        cookies={},
+        headers={},
+    )
+    try:
+        api.companies_search(request=service_request, q="acme robotics")
+    except HTTPException as exc:
+        assert exc.status_code == 403
+    else:
+        raise AssertionError("expected 403 for the service role")

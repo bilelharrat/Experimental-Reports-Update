@@ -61,6 +61,50 @@ from . import (
 logger = logging.getLogger(__name__)
 
 
+# Report ids whose run was halted from outside its worker (cancelled by the
+# user, interrupted by server shutdown). The halting call writes the terminal
+# state itself; the worker thread that unwinds afterwards must not overwrite
+# it, so its report writes, stream events and tracking finalize are dropped
+# until the report is started again (``_with_run_slot``).
+_HALTED_RUNS: set[str] = set()
+_HALTED_RUNS_LOCK = threading.Lock()
+
+
+def _halt_run(report_id: str) -> None:
+    with _HALTED_RUNS_LOCK:
+        _HALTED_RUNS.add(report_id)
+
+
+def _clear_run_halt(report_id: str) -> None:
+    with _HALTED_RUNS_LOCK:
+        _HALTED_RUNS.discard(report_id)
+
+
+def _run_halted(report_id: str) -> bool:
+    with _HALTED_RUNS_LOCK:
+        return report_id in _HALTED_RUNS
+
+
+def _update_report(report_id: str, **fields: Any) -> dict | None:
+    """``storage.update_report`` for memo workers: a no-op once the run is halted."""
+    if _run_halted(report_id):
+        return storage.get_report(report_id)
+    return storage.update_report(report_id, **fields)
+
+
+class _RunStream(job_progress.ProgressLog):
+    """A memo run's stream as its worker writes it: silent once the run is halted."""
+
+    def __init__(self, report_id: str, path: Path, *, truncate: bool = True):
+        super().__init__(path, truncate=truncate)
+        self._report_id = report_id
+
+    def emit(self, type_: str, **fields: Any) -> None:
+        if _run_halted(self._report_id):
+            return
+        super().emit(type_, **fields)
+
+
 def _sync_tracking_auto_run(
     report: dict | None,
     *,
@@ -68,6 +112,17 @@ def _sync_tracking_auto_run(
     error: str | None = None,
 ) -> None:
     """Finalize a tracking auto-run when a memo job ends (success or failure)."""
+    if isinstance(report, dict) and _run_halted(str(report.get("id") or "").strip()):
+        return
+    _complete_tracking_auto_run(report, success=success, error=error)
+
+
+def _complete_tracking_auto_run(
+    report: dict | None,
+    *,
+    success: bool,
+    error: str | None = None,
+) -> None:
     if not isinstance(report, dict):
         return
     report_id = str(report.get("id") or "").strip()
@@ -201,7 +256,7 @@ def _creeping_report_progress(
                 patch: dict[str, Any] = {"progress": target}
                 if stage:
                     patch["stage"] = stage
-                storage.update_report(report_id, **patch)
+                _update_report(report_id, **patch)
             except Exception:  # noqa: BLE001 — never kill the memo for UI polish
                 logger.exception(
                     "creeping progress tick failed for %s", report_id
@@ -1914,7 +1969,7 @@ def _block_generated_renderer_scripts(
         timing["status"] = "failed"
         timing["error"] = msg
         timing["generated_renderer_scripts"] = rel_paths
-    storage.update_report(
+    _update_report(
         report_id,
         status="failed_during_analysis",
         stage="Generated renderer script blocked",
@@ -2007,7 +2062,7 @@ def _render_memo_pdf_previews(
     still expose whatever rendered memo artifacts exist.
     """
     if progress is not None:
-        storage.update_report(
+        _update_report(
             report_id,
             stage="Rendering memo PDF previews",
             progress=progress,
@@ -2076,7 +2131,7 @@ def _render_memo_pdf_previews(
         timing["skipped_existing_count"] = skipped_existing_count
         timing["failed_count"] = failed_count
 
-    storage.update_report(report_id, memo_files=updated_memo_files)
+    _update_report(report_id, memo_files=updated_memo_files)
     return updated_memo_files
 
 
@@ -2178,7 +2233,7 @@ def _render_internal_pdf_previews(
         timing["converted_count"] = converted_count
         timing["skipped_existing_count"] = skipped_existing_count
         timing["failed_count"] = failed_count
-    storage.update_report(report_id, internal_memo_files=updated_internal_files)
+    _update_report(report_id, internal_memo_files=updated_internal_files)
     return updated_internal_files
 
 
@@ -2218,7 +2273,7 @@ def _render_memo_outputs(
             recovered=recovered,
         )
         return False
-    storage.update_report(
+    _update_report(
         report_id,
         stage="Rendering memo DOCX",
         progress=85,
@@ -2328,7 +2383,7 @@ def _run_chinese_parity_gate(
     aggregates the warning into a ``complete_with_warnings`` terminal state,
     and resume keeps working to regenerate toward a clean memo.
     """
-    storage.update_report(
+    _update_report(
         report_id,
         stage="Running Chinese memo parity gate",
         progress=88,
@@ -2386,7 +2441,7 @@ def _run_chinese_parity_gate(
     if failure_payload:
         stream.emit("stage", **failure_payload)
 
-    storage.update_report(report_id, memo_chinese_parity=parity_payload)
+    _update_report(report_id, memo_chinese_parity=parity_payload)
     return parity_payload, failure_message
 
 
@@ -2458,7 +2513,7 @@ def _run_internal_diligence_memo(
 
         timing["markdown_path"] = memo_prep._rel(md_path)
         timing["docx_path"] = memo_prep._rel(docx_path)
-        storage.update_report(
+        _update_report(
             report_id,
             stage="Writing internal diligence memo",
             progress=92,
@@ -2494,7 +2549,7 @@ def _run_internal_diligence_memo(
             )
             return None
 
-        storage.update_report(
+        _update_report(
             report_id,
             stage="Rendering internal diligence memo DOCX",
             progress=94,
@@ -2534,7 +2589,7 @@ def _run_internal_diligence_memo(
                 "path": memo_prep._rel(docx_path),
             }
         ]
-        storage.update_report(report_id, internal_memo_files=internal_files)
+        _update_report(report_id, internal_memo_files=internal_files)
         return internal_result
 
 
@@ -2545,7 +2600,7 @@ def _fail_internal_memo(
     result: dict,
     message: str,
 ) -> None:
-    storage.update_report(
+    _update_report(
         report_id,
         status="failed_during_analysis",
         stage="Internal diligence memo failed",
@@ -2883,6 +2938,21 @@ def _run_fast_memo_pass(
 _ALL_FAST_PASSES_FAILED_MESSAGE = "All fast memo analysis passes failed."
 
 
+def _fast_passes_failure_message(pass_results: list[_FastMemoPassResult]) -> str:
+    """The all-passes-failed message, naming the first pass error."""
+    for result in pass_results:
+        detail = str(result.error or "").strip()
+        if detail and detail != claude_runner.MEMO_RUN_CANCELLED_ERROR:
+            return f"All fast memo analysis passes failed: {detail}"
+    return _ALL_FAST_PASSES_FAILED_MESSAGE
+
+
+def _recorded_fast_phase2_failure(report_id: str) -> str:
+    """The failure message ``_run_fast_phase2`` recorded on the report."""
+    report = storage.get_report(report_id) or {}
+    return str(report.get("failure_detail") or _ALL_FAST_PASSES_FAILED_MESSAGE)
+
+
 def _run_fast_phase2(
     *,
     report_id: str,
@@ -3011,8 +3081,8 @@ def _run_fast_phase2(
         worker_duration_ms=worker_duration_ms,
     )
     if not any(result.ok for result in pass_results):
-        message = _ALL_FAST_PASSES_FAILED_MESSAGE
-        storage.update_report(
+        message = _fast_passes_failure_message(pass_results)
+        _update_report(
             report_id,
             status="failed_during_analysis",
             stage="Fast memo analysis failed",
@@ -3188,7 +3258,7 @@ def _run_fast_memo_pipeline(
                 zh_chaser.shutdown()
             return {
                 "ok": False,
-                "error": _ALL_FAST_PASSES_FAILED_MESSAGE,
+                "error": _recorded_fast_phase2_failure(report_id),
                 "cost_usd": cost_usd,
             }
 
@@ -3250,7 +3320,7 @@ def _company_stage_spine_hook(report_id: str, stream):
             return
         fired["done"] = True
         try:
-            storage.update_report(
+            _update_report(
                 report_id,
                 company_stage={"stage": stage, "source": "memo_spine"},
             )
@@ -4098,7 +4168,7 @@ def _fail_renderer_contract(
     contract: dict | None = None,
     recovered: bool = False,
 ) -> None:
-    storage.update_report(
+    _update_report(
         report_id,
         status="failed_during_analysis",
         stage="Renderer contract failed",
@@ -4221,7 +4291,7 @@ def _recover_done_memo_report(
         encoding="utf-8",
     )
 
-    storage.update_report(
+    _update_report(
         report_id,
         status="complete",
         stage="Memo ready",
@@ -4285,7 +4355,7 @@ def _demote_orphaned_report(report: dict, run_dir: Path) -> bool:
     if _memo_worker_alive(report_id):
         return False
     message = "orphaned by server restart"
-    storage.update_report(
+    _update_report(
         report_id,
         status="failed_during_analysis",
         stage="Analysis orphaned",
@@ -4399,7 +4469,7 @@ def recover_stale_reports() -> int:
             recovered=True,
         )
         lint_payload = lint_result.to_dict()
-        storage.update_report(report["id"], memo_quality_lint=lint_payload)
+        _update_report(report["id"], memo_quality_lint=lint_payload)
         if lint_result.has_blocking_findings:
             msg = (
                 "Memo quality gate found "
@@ -4417,7 +4487,7 @@ def recover_stale_reports() -> int:
                 lint_report=memo_prep._rel(lint_path),
                 findings=lint_payload["findings"][:10],
             )
-        storage.update_report(
+        _update_report(
             report["id"],
             status=(
                 "complete_with_warnings" if recovery_warnings else "complete"
@@ -4496,7 +4566,7 @@ def _announce_run_queued(report_id: str) -> None:
         report = storage.get_report(report_id)
         if not report:
             return
-        storage.update_report(
+        _update_report(
             report_id, status="queued", stage="Waiting for a run slot"
         )
         run_dir = _resolve_run_dir(report)
@@ -4516,7 +4586,8 @@ def _announce_run_queued(report_id: str) -> None:
 
 
 def acquire_run_slot(report_id: str, *, reserved: bool) -> bool:
-    """Block until this run may proceed. False = cancelled while queued."""
+    """Block until this run may proceed. False = cancelled while queued or
+    the server is shutting down."""
     queued_announced = False
     with _SLOT_COND:
         _SLOT_CANCELLED.discard(report_id)  # a fresh start overrides old cancels
@@ -4527,6 +4598,8 @@ def acquire_run_slot(report_id: str, *, reserved: bool) -> bool:
             while True:
                 if report_id in _SLOT_CANCELLED:
                     _SLOT_CANCELLED.discard(report_id)
+                    return False
+                if claude_runner.shutting_down():
                     return False
                 _sweep_leaked_slots_locked()
                 if _slot_eligible_locked(ticket, reserved):
@@ -4542,7 +4615,7 @@ def acquire_run_slot(report_id: str, *, reserved: bool) -> bool:
             _SLOT_WAITERS.remove(entry)
     if queued_announced:
         try:
-            storage.update_report(
+            _update_report(
                 report_id, status="analyzing", stage="Run slot acquired"
             )
         except Exception:  # noqa: BLE001
@@ -4621,12 +4694,13 @@ def _with_run_slot(report_id: str, worker) -> None:
     """Slot + cancel bookkeeping around one memo worker body."""
     report = storage.get_report(report_id)
     run_dir = _resolve_run_dir(report or {})
+    _clear_run_halt(report_id)
     if run_dir is not None:
-        claude_runner.clear_run_dir_cancelled(str(run_dir))
+        claude_runner.reset_run_dir_state(str(run_dir))
     reserved = bool((report or {}).get("trigger") == "tracking_auto_run")
     if not acquire_run_slot(report_id, reserved=reserved):
-        # Cancelled while queued; cancel_run already wrote the terminal
-        # status and stream event.
+        # Cancelled while queued or shutting down; cancel_run / the shutdown
+        # hook already wrote the terminal status and stream event.
         return
     try:
         worker()
@@ -4634,21 +4708,25 @@ def _with_run_slot(report_id: str, worker) -> None:
         release_run_slot(report_id)
         _abandon_pending_artifacts(report_id)
         if run_dir is not None:
-            claude_runner.clear_run_dir_cancelled(str(run_dir))
+            claude_runner.reset_run_dir_state(str(run_dir))
 
 
 def cancel_run(report_id: str) -> None:
     """Cancel a queued or in-flight memo run.
 
-    Kills the run's live claude subprocesses (matched by spawn cwd), blocks
+    Kills the run's claude subprocesses (matched by spawn cwd, plus the
+    run's pid file for processes an earlier server left behind), blocks
     respawns via the run-dir marker, writes the terminal report status and
     stream event, and finalizes any tracking auto-run. The worker thread
-    then unwinds on its own as its in-flight calls return cancelled.
+    then unwinds on its own as its in-flight calls return cancelled; the
+    run is halted first so nothing it writes while unwinding replaces the
+    cancelled state.
     """
     report = storage.get_report(report_id)
     if not report:
         raise ValueError("report_not_found")
     message = "Cancelled by user"
+    _halt_run(report_id)
     cancel_queued_run_slot(report_id)
     run_dir = _resolve_run_dir(report)
     if run_dir is not None:
@@ -4676,7 +4754,7 @@ def cancel_run(report_id: str) -> None:
             memo_prep.stream_path(run_dir), truncate=False
         )
         stream.emit("error", error=message, phase="cancelled")
-    _sync_tracking_auto_run(report, success=False, error=message)
+    _complete_tracking_auto_run(report, success=False, error=message)
 
 
 # Report ids with a live in-process worker. Used by the shutdown hook to
@@ -4697,14 +4775,17 @@ def _unregister_active_run(report_id: str) -> None:
 
 
 @atexit.register
-def _fail_active_runs_at_exit() -> None:
-    """Write a terminal error for in-flight memo runs on interpreter exit.
+def halt_active_runs_for_shutdown() -> None:
+    """Write a terminal error for in-flight memo runs when the server stops.
 
-    The workers are daemon threads, so a clean shutdown (Ctrl-C, --reload,
-    SIGTERM via uvicorn's handler → normal exit) kills them silently. This
-    hook makes the interruption visible and resume-eligible immediately
-    instead of waiting for the 30-minute orphan sweep. A SIGKILL skips
-    atexit entirely — that path is covered by ``_demote_orphaned_report``.
+    Called from the server's shutdown hook before the claude subprocesses
+    are reaped (atexit stays as a backstop). The workers are daemon
+    threads, so a clean shutdown (Ctrl-C, --reload, SIGTERM via uvicorn's
+    handler) kills them silently. This makes the interruption visible and
+    resume-eligible immediately instead of waiting for the 30-minute orphan
+    sweep; each run is halted first so the failures its worker records
+    while unwinding cannot replace ``failure_phase="shutdown"``. A SIGKILL
+    skips all of this — that path is covered by ``_demote_orphaned_report``.
     """
     with _ACTIVE_RUNS_LOCK:
         active = list(_ACTIVE_RUNS)
@@ -4714,6 +4795,7 @@ def _fail_active_runs_at_exit() -> None:
             status = str((report or {}).get("status") or "")
             if not report or status.startswith("failed") or status == "complete":
                 continue
+            _halt_run(report_id)
             message = "interrupted by server shutdown"
             storage.update_report(
                 report_id,
@@ -4793,7 +4875,7 @@ def _investigate_safe(report_id: str) -> None:
         logger.exception("memo studio investigation crashed")
         report = storage.get_report(report_id)
         if report:
-            storage.update_report(
+            _update_report(
                 report_id,
                 status="failed_during_analysis",
                 stage="Investigation crashed",
@@ -4807,7 +4889,7 @@ def _investigate_safe(report_id: str) -> None:
             )
         run_dir = _resolve_run_dir(report or {})
         if run_dir and run_dir.exists():
-            stream = job_progress.ProgressLog(
+            stream = _RunStream(report_id, 
                 memo_prep.stream_path(run_dir), truncate=False
             )
             stream.emit(
@@ -4825,7 +4907,7 @@ def _generate_safe(report_id: str) -> None:
         logger.exception("memo studio generation crashed")
         report = storage.get_report(report_id)
         if report:
-            storage.update_report(
+            _update_report(
                 report_id,
                 status="failed_during_analysis",
                 stage="Studio generation crashed",
@@ -4836,7 +4918,7 @@ def _generate_safe(report_id: str) -> None:
             )
         run_dir = _resolve_run_dir(report or {})
         if run_dir and run_dir.exists():
-            stream = job_progress.ProgressLog(
+            stream = _RunStream(report_id, 
                 memo_prep.stream_path(run_dir), truncate=False
             )
             stream.emit(
@@ -4855,7 +4937,7 @@ def _run_safe(report_id: str) -> None:
         logger.exception("memo analysis crashed")
         report = storage.get_report(report_id)
         if report:
-            storage.update_report(
+            _update_report(
                 report_id,
                 status="failed_during_analysis",
                 stage="Analysis crashed",
@@ -4867,7 +4949,7 @@ def _run_safe(report_id: str) -> None:
             )
         run_dir = _resolve_run_dir(report or {})
         if run_dir and run_dir.exists():
-            stream = job_progress.ProgressLog(
+            stream = _RunStream(report_id, 
                 memo_prep.stream_path(run_dir), truncate=False
             )
             stream.emit("error", error="Analysis worker crashed; see server log.")
@@ -4883,7 +4965,7 @@ def _resume_safe(report_id: str) -> None:
         logger.exception("memo resume crashed")
         report = storage.get_report(report_id)
         if report:
-            storage.update_report(
+            _update_report(
                 report_id,
                 status="failed_during_analysis",
                 stage="Resume crashed",
@@ -4897,7 +4979,7 @@ def _resume_safe(report_id: str) -> None:
             )
         run_dir = _resolve_run_dir(report or {})
         if run_dir and run_dir.exists():
-            stream = job_progress.ProgressLog(
+            stream = _RunStream(report_id, 
                 memo_prep.stream_path(run_dir), truncate=False
             )
             stream.emit("error", error="Resume worker crashed; see server log.")
@@ -5043,7 +5125,7 @@ def _finalize_memo_from_package(
         recovered=recovered,
     ):
         return False
-    storage.update_report(
+    _update_report(
         report_id,
         renderer_contract=_renderer_contract_diagnostics(
             run_dir=run_dir,
@@ -5065,7 +5147,7 @@ def _finalize_memo_from_package(
             + "; ".join(missing)
             + ". Check the renderer logs and run folder's stream.jsonl."
         )
-        storage.update_report(
+        _update_report(
             report_id,
             status="failed_during_analysis",
             stage="Renderer completed but outputs missing",
@@ -5107,7 +5189,7 @@ def _finalize_memo_from_package(
     if parity_warning:
         quality_warnings.append(parity_warning)
 
-    storage.update_report(
+    _update_report(
         report_id,
         stage="Running memo quality gate",
         progress=90,
@@ -5147,7 +5229,7 @@ def _finalize_memo_from_package(
         if recovered:
             payload["recovered"] = True
         stream.emit("stage", **payload)
-    storage.update_report(report_id, memo_quality_lint=lint_result.to_dict())
+    _update_report(report_id, memo_quality_lint=lint_result.to_dict())
     stream.emit("thread_finished", thread=claude_runner.MEMO_PHASE5_THREAD)
 
     stream.emit(
@@ -5178,7 +5260,7 @@ def _finalize_memo_from_package(
         internal_generated = True
 
         if _memo_pdf_previews_enabled():
-            storage.update_report(
+            _update_report(
                 report_id,
                 stage="Rendering PDF previews",
                 progress=96,
@@ -5217,7 +5299,7 @@ def _finalize_memo_from_package(
     final_stage = (
         "Memo ready (quality warnings)" if quality_warnings else "Memo ready"
     )
-    storage.update_report(
+    _update_report(
         report_id,
         status=final_status,
         stage=final_stage,
@@ -5301,7 +5383,7 @@ def _finalize_memo_from_package(
             cost_usd=tail_cost or None,
             error=str(join_error)[:500] if join_error else None,
         )
-    storage.update_report(
+    _update_report(
         report_id,
         run_finished_at=_now_iso(),
         claude_cost_usd=combined_result.get("cost_usd"),
@@ -5373,7 +5455,7 @@ def _resume(report_id: str) -> None:
     )
 
     _archive_stream_for_resume(run_dir)
-    stream = job_progress.ProgressLog(memo_prep.stream_path(run_dir), truncate=True)
+    stream = _RunStream(report_id, memo_prep.stream_path(run_dir), truncate=True)
     company_name = str(report.get("company_name") or report.get("company_id"))
     company_slug = str(report.get("company_id"))
     run_id = str(report.get("run_id") or "")
@@ -5389,7 +5471,7 @@ def _resume(report_id: str) -> None:
         run_id=run_id,
         resumed=True,
     )
-    storage.update_report(
+    _update_report(
         report_id,
         status="analyzing",
         stage="Resuming memo from existing artifacts",
@@ -5405,7 +5487,7 @@ def _resume(report_id: str) -> None:
                 "Previous memo failed the DOCX quality gate, but no analysis "
                 "artifacts are available to regenerate the memo package."
             )
-            storage.update_report(
+            _update_report(
                 report_id,
                 status="failed_during_analysis",
                 stage="Memo resume failed",
@@ -5433,7 +5515,7 @@ def _resume(report_id: str) -> None:
             ),
             recovered=True,
         )
-        storage.update_report(
+        _update_report(
             report_id,
             stage="Regenerating memo package after quality gate failure",
             progress=65,
@@ -5464,7 +5546,7 @@ def _resume(report_id: str) -> None:
                     "no analysis artifacts are available to regenerate it: "
                     f"{package_error}"
                 )
-                storage.update_report(
+                _update_report(
                     report_id,
                     status="failed_during_analysis",
                     stage="Memo resume failed",
@@ -5486,7 +5568,7 @@ def _resume(report_id: str) -> None:
                 validation_error=package_error,
                 recovered=True,
             )
-            storage.update_report(
+            _update_report(
                 report_id,
                 stage="Regenerating invalid memo package from existing artifacts",
                 progress=65,
@@ -5527,7 +5609,7 @@ def _resume(report_id: str) -> None:
                 "report structure, and the resume agent only writes the "
                 "legacy structure. Run a fresh report instead."
             )
-            storage.update_report(
+            _update_report(
                 report_id,
                 status="failed_during_analysis",
                 stage="Memo resume failed",
@@ -5747,7 +5829,7 @@ def _resume(report_id: str) -> None:
                 recovered=True,
             ):
                 return
-        storage.update_report(
+        _update_report(
             report_id,
             status="failed_during_analysis",
             stage="Memo resume failed",
@@ -5779,7 +5861,7 @@ def _run(report_id: str) -> None:
     if run_dir is None or not run_dir.exists():
         raise RuntimeError(f"Run folder missing for report {report_id}")
 
-    stream = job_progress.ProgressLog(
+    stream = _RunStream(report_id, 
         memo_prep.stream_path(run_dir), truncate=False
     )
 
@@ -5825,7 +5907,7 @@ def _run(report_id: str) -> None:
         if fast_pipeline_enabled
         else "Running BSH investment memo skill (Serena's version)"
     )
-    storage.update_report(
+    _update_report(
         report_id,
         status="analyzing",
         stage=analyzing_stage,
@@ -5938,7 +6020,7 @@ def _run(report_id: str) -> None:
                 salvaged = True
             else:
                 return
-        storage.update_report(
+        _update_report(
             report_id,
             status="failed_during_analysis",
             stage=(
@@ -6079,7 +6161,7 @@ def _investigate(report_id: str) -> None:
     claude_runner.register_memo_run_quality(
         run_dir, str(report.get("model_quality") or "best")
     )
-    stream = job_progress.ProgressLog(
+    stream = _RunStream(report_id, 
         memo_prep.stream_path(run_dir), truncate=False
     )
     company_name = str(report.get("company_name") or report.get("company_id"))
@@ -6115,7 +6197,7 @@ def _investigate(report_id: str) -> None:
         company_id=company_slug,
         run_id=run_id,
     )
-    storage.update_report(
+    _update_report(
         report_id,
         status="analyzing",
         stage="Deep investigation — running analysis passes",
@@ -6172,22 +6254,21 @@ def _investigate(report_id: str) -> None:
     if pass_results is None:
         # _run_fast_phase2 already recorded the failure and emitted the
         # stream error.
+        failure = _recorded_fast_phase2_failure(report_id)
         _emit_phase_timing(
             stream,
             phase="memo_studio_investigation",
             status="failed",
             started_at=started_at,
             started_monotonic=started_monotonic,
-            error=_ALL_FAST_PASSES_FAILED_MESSAGE,
+            error=failure,
             cost_usd=round(cost_usd, 6),
         )
-        _sync_tracking_auto_run(
-            report, success=False, error=_ALL_FAST_PASSES_FAILED_MESSAGE
-        )
+        _sync_tracking_auto_run(report, success=False, error=failure)
         return
     failed_ids = [r.spec.pass_id for r in pass_results if not r.ok]
 
-    storage.update_report(
+    _update_report(
         report_id,
         stage="Deep investigation — pinning the studio spine",
         progress=45,
@@ -6239,7 +6320,7 @@ def _investigate(report_id: str) -> None:
     worker_duration_ms += spine_progress.duration_ms
     if spine_payload is None:
         message = f"Studio spine failed: {spine_error}"
-        storage.update_report(
+        _update_report(
             report_id,
             status="failed_during_analysis",
             stage="Studio spine failed",
@@ -6293,7 +6374,7 @@ def _investigate(report_id: str) -> None:
     except Exception as exc:  # noqa: BLE001
         logger.exception("studio card seeding failed")
         message = f"Studio card seeding failed: {exc}"
-        storage.update_report(
+        _update_report(
             report_id,
             status="failed_during_analysis",
             stage="Studio card seeding failed",
@@ -6307,7 +6388,7 @@ def _investigate(report_id: str) -> None:
         return
 
     total_cost = round(cost_usd, 6)
-    storage.update_report(
+    _update_report(
         report_id,
         status="awaiting_studio",
         stage="Investigation complete — review the studio cards",
@@ -6387,7 +6468,7 @@ def _generate_from_studio(report_id: str) -> None:
             english_package_path, label="en.studio_regenerate"
         )
 
-    stream = job_progress.ProgressLog(
+    stream = _RunStream(report_id, 
         memo_prep.stream_path(run_dir), truncate=True
     )
     generation = report.get("studio_generate") or {}
@@ -6453,7 +6534,7 @@ def _generate_from_studio(report_id: str) -> None:
     )
     if not result.get("ok"):
         message = result.get("error") or "Studio memo generation failed"
-        storage.update_report(
+        _update_report(
             report_id,
             status="failed_during_analysis",
             stage="Studio memo generation failed",

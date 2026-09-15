@@ -634,6 +634,16 @@ def _caller_role(request: Request) -> str:
     return product_store.role_for_email(None, shared_auth=True)
 
 
+def _company_not_found(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=404, detail="Company not found")
+
+
+def _require_company(company_id: str) -> None:
+    """404 for ids that are not companies, so per-company routes never invent records for them."""
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+
 def _require_permission(request: Request, permission: str) -> None:
     role = _caller_role(request)
     if not product_store.has_permission(role, permission):
@@ -1353,6 +1363,17 @@ def get_quote_chart(
         return live_quotes.fetch_chart(ticker, range)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except live_quotes.ChartUnavailableError as exc:
+        if exc.rate_limited:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Chart provider rate-limited for {ticker}; retry shortly ({exc})",
+                headers={"Retry-After": "60"},
+            ) from exc
+        raise HTTPException(
+            status_code=502,
+            detail=f"Chart providers unavailable for {ticker}: {exc}",
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=502,
@@ -1386,8 +1407,9 @@ def get_desk_prefs() -> dict:
 
 
 @router.put("/desk/prefs")
-def put_desk_prefs(body: DeskPrefsBody) -> dict:
+def put_desk_prefs(request: Request, body: DeskPrefsBody) -> dict:
     """Replace the desk prefs blob (frontend owns the key shape)."""
+    _require_permission(request, "desk:write")
     try:
         return desk_store.save_prefs(body.data)
     except ValueError as exc:
@@ -1404,8 +1426,9 @@ def get_alert_events(
 
 
 @router.post("/alerts/events")
-def post_alert_events(body: AlertEventsBody) -> dict:
+def post_alert_events(request: Request, body: AlertEventsBody) -> dict:
     """Record browser-fired alerts so history survives reloads/devices."""
+    _require_permission(request, "desk:write")
     recorded = desk_store.record_alert_events(body.events)
     return {"recorded": recorded}
 
@@ -1434,8 +1457,9 @@ def get_signal_ledger(score: bool = Query(default=True)) -> dict:
 
 
 @router.post("/signals/ledger")
-def post_signal_ledger(body: SignalLedgerBody) -> dict:
+def post_signal_ledger(request: Request, body: SignalLedgerBody) -> dict:
     """Record one signal call; price defaults to the live last print."""
+    _require_permission(request, "desk:write")
     price = body.price_at_signal
     if price is None:
         try:
@@ -1455,11 +1479,13 @@ def post_signal_ledger(body: SignalLedgerBody) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"entry": entry}
+    deduplicated = bool(entry.pop("deduplicated", False))
+    return {"entry": entry, "deduplicated": deduplicated}
 
 
 @router.delete("/signals/ledger/{signal_id}")
-def delete_signal_ledger(signal_id: str) -> dict:
+def delete_signal_ledger(request: Request, signal_id: str) -> dict:
+    _require_permission(request, "desk:write")
     if not desk_store.delete_signal(signal_id):
         raise HTTPException(status_code=404, detail="Unknown signal id")
     return {"ok": True}
@@ -1600,8 +1626,9 @@ def get_news_brief(
 
 
 @router.post("/news/brief")
-def post_news_brief(body: NewsBriefBody) -> dict:
+def post_news_brief(request: Request, body: NewsBriefBody) -> dict:
     """Expand a headline into a full desk briefing (web-grounded, cached)."""
+    _require_permission(request, "tasks:action")
     from server import news_brief
 
     try:
@@ -1809,14 +1836,17 @@ def companies_autocomplete_endpoint(q: str = "", limit: int = 8) -> list[dict]:
 
 
 @router.get("/companies/search")
-def companies_search(q: str = "", refresh: bool = False) -> dict:
+def companies_search(request: Request, q: str = "", refresh: bool = False) -> dict:
     """Deep search — Claude Code (primary) or OpenAI (fallback).
 
     Synchronous. Cached results return instantly. Pass `refresh=true` to
     re-query and overwrite. For a live progress feed during the
     underlying LLM call, use POST /companies/search/start instead.
     """
-    analytics_store.record_event("search_started", query=(q or "").strip(), refresh=refresh)
+    query = (q or "").strip()
+    if query and (refresh or cache.get("companies_ai", query.lower()) is None):
+        _require_permission(request, "tasks:action")
+    analytics_store.record_event("search_started", query=query, refresh=refresh)
     return companies_ai.deep_search(q, force_refresh=refresh)
 
 
@@ -1842,7 +1872,9 @@ def _search_progress_path(job_id: str):
 def _run_search_job(job_id: str, query: str, refresh: bool) -> None:
     """Background worker for a deep-search job. Streams progress events
     into the JSONL file and emits a terminal `done` event with the matches
-    payload (or `error` on failure)."""
+    payload, or `error` when the search did not run to completion (Claude
+    unavailable, failed or timed out: source "fallback"); the error event
+    carries the reason and the local-registry matches."""
     progress = job_progress.ProgressLog(_search_progress_path(job_id))
     progress.emit(
         "job_init",
@@ -1857,13 +1889,23 @@ def _run_search_job(job_id: str, query: str, refresh: bool) -> None:
         result = companies_ai.deep_search(
             query, force_refresh=refresh, progress=progress
         )
-        progress.emit(
-            "done",
-            source=result.get("source"),
-            matches=result.get("matches") or [],
-            cached_at=result.get("cached_at"),
-            reason=result.get("reason"),
-        )
+        if result.get("source") == "fallback":
+            reason = result.get("reason") or "Company search failed"
+            progress.emit(
+                "error",
+                error=reason,
+                reason=reason,
+                source="fallback",
+                matches=result.get("matches") or [],
+            )
+        else:
+            progress.emit(
+                "done",
+                source=result.get("source"),
+                matches=result.get("matches") or [],
+                cached_at=result.get("cached_at"),
+                reason=result.get("reason"),
+            )
     except Exception as exc:  # noqa: BLE001
         progress.emit(
             "error", error=f"Search crashed: {type(exc).__name__}: {exc}"
@@ -2683,9 +2725,9 @@ def companies_select(request: Request, payload: SelectMatch) -> dict:
 def _ensure_company_translation(company_id: str | None, *, force: bool = False) -> None:
     """Translate a company synchronously and persist the result.
 
-    No-op if a translation already exists (unless `force=True`). Note:
-    company-record translation is currently disabled — see
-    ``server/company_translate.py``.
+    No-op if a translation already exists (unless `force=True`). The
+    startup backfill in ``server/main.py`` is opt-in
+    (``BSH_COMPANY_TRANSLATION_BACKFILL``); this inline path always runs.
     """
     if not company_id:
         return
@@ -2800,18 +2842,27 @@ def get_company(company_id: str) -> CompanyOut:
 @router.get("/companies/{company_id}/founder-dossier")
 def get_company_founder_dossier(company_id: str) -> dict:
     from . import founder_dossier
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
     return founder_dossier.get_or_synthesize_founder_dossier(company_id)
 
 
 @router.post("/companies/{company_id}/founder-dossier/deep-search")
-def post_company_founder_deep_search(company_id: str) -> dict:
+def post_company_founder_deep_search(request: Request, company_id: str) -> dict:
+    _require_permission(request, "tasks:action")
     from . import founder_dossier
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
     return founder_dossier.deep_search_founder_dossier(company_id)
 
 
 @router.get("/companies/{company_id}/deal-pipeline")
 def get_company_deal_pipeline(company_id: str) -> dict:
     from . import deal_pipeline
+    try:
+        deal_pipeline.require_company(company_id)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Company not found") from exc
     return deal_pipeline.get_deal_pipeline(company_id)
 
 
@@ -2820,11 +2871,679 @@ def put_company_deal_pipeline(request: Request, company_id: str, payload: dict) 
     from . import deal_pipeline
     _require_permission(request, "desk:write")
     try:
+        deal_pipeline.require_company(company_id)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="Company not found") from exc
+    try:
         return deal_pipeline.update_deal_pipeline(company_id, payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+
+
+# ---- Unified profile, filings/earnings watch, signal watch, numbers lint ----
+
+
+@router.get("/companies/{company_id}/profile")
+def get_company_profile(company_id: str, quote: bool = True) -> dict:
+    from . import company_profile
+    try:
+        profile = company_profile.build_profile(company_id, include_quote=quote)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+    if not profile.get("found"):
+        raise HTTPException(status_code=404, detail="Company not found")
+    return profile
+
+
+@router.get("/filings-watch")
+def get_filings_watch(refresh: bool = False) -> dict:
+    from . import filings_watch
+    return filings_watch.get(refresh=refresh)
+
+
+@router.get("/signal-watch")
+def get_signal_watch() -> dict:
+    from . import signal_watch
+    return signal_watch.moves()
+
+
+@router.post("/signal-watch/snapshot")
+def post_signal_snapshot(request: Request) -> dict:
+    from . import signal_watch
+    _require_permission(request, "desk:write")
+    return signal_watch.snapshot(taken_by=_caller_email(request))
+
+
+@router.put("/signal-watch/settings")
+def put_signal_watch_settings(request: Request, payload: dict) -> dict:
+    from . import signal_watch
+    _require_permission(request, "settings:update")
+    try:
+        return signal_watch.save_settings(payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/memo-number-lint")
+def get_memo_number_lint(company_id: str) -> dict:
+    from . import numbers_lint
+    return numbers_lint.lint(company_id)
+
+
+# ---- Firm layer: search, comments & mentions, chat, audit, transcripts, signal score ----
+
+
+@router.get("/firm/search")
+def get_firm_search(q: str = "", kinds: str = "", company_id: str | None = None, limit: int = 30) -> dict:
+    from . import firm_search
+    kind_list = [k.strip() for k in kinds.split(",") if k.strip()] or None
+    return firm_search.search(q, kinds=kind_list, company_id=company_id, limit=max(1, min(limit, 100)))
+
+
+@router.get("/companies/{company_id}/comments")
+def get_company_comments(company_id: str, target_kind: str | None = None, target_ref: str | None = None, open_only: bool = False) -> dict:
+    from . import firm
+    _require_company(company_id)
+    try:
+        return firm.list_comments(company_id, target_kind=target_kind, target_ref=target_ref, include_resolved=not open_only)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+@router.post("/companies/{company_id}/comments")
+def post_company_comment(request: Request, company_id: str, payload: dict) -> dict:
+    from . import firm, firm_search
+    _require_permission(request, "memo:edit")
+    _require_company(company_id)
+    payload = payload or {}
+    try:
+        item = firm.add_comment(company_id, text=str(payload.get("text") or ""), author=_caller_email(request), target=payload.get("target"), parent_id=payload.get("parent_id"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    firm_search.invalidate()
+    return item
+
+
+@router.post("/companies/{company_id}/comments/{comment_id}/resolve")
+def post_resolve_comment(request: Request, company_id: str, comment_id: str, payload: dict | None = None) -> dict:
+    from . import firm
+    _require_permission(request, "memo:edit")
+    resolved = (payload or {}).get("resolved", True)
+    item = firm.resolve_comment(company_id, comment_id, by=_caller_email(request), resolved=bool(resolved))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return item
+
+
+@router.delete("/companies/{company_id}/comments/{comment_id}")
+def delete_company_comment(request: Request, company_id: str, comment_id: str) -> dict:
+    from . import firm
+    _require_permission(request, "memo:edit")
+    if not firm.delete_comment(company_id, comment_id):
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return firm.list_comments(company_id)
+
+
+@router.get("/me/mentions")
+def get_my_mentions(request: Request, days: int = 30) -> dict:
+    from . import firm
+    return firm.mentions_for(
+        _caller_email(request),
+        days=max(1, min(days, 365)),
+        auth_kind=getattr(request.state, "auth_kind", None),
+    )
+
+
+@router.get("/chat/channels")
+def get_chat_channels() -> dict:
+    from . import firm
+    return {"items": firm.list_channels(), "handles": sorted(firm.known_handles())}
+
+
+@router.get("/chat/{channel}")
+def get_chat_messages(channel: str, since: str | None = None, limit: int = 200) -> dict:
+    from . import firm
+    try:
+        return firm.read_messages(channel, since=since, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/chat/{channel}")
+def post_chat_message(request: Request, channel: str, payload: dict) -> dict:
+    from . import firm, firm_search
+    _require_permission(request, "memo:edit")
+    payload = payload or {}
+    try:
+        msg = firm.post_message(channel, text=str(payload.get("text") or ""), author=_caller_email(request), company_id=payload.get("company_id"), report_id=payload.get("report_id"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    firm_search.invalidate()
+    return msg
+
+
+@router.get("/audit")
+def get_audit(request: Request, company_id: str | None = None, actor: str | None = None, limit: int = 200) -> dict:
+    from . import firm
+    return firm.list_audit(company_id=company_id, actor=actor, limit=limit)
+
+
+@router.get("/transcripts")
+def get_transcripts(company_id: str | None = None, kind: str | None = None, q: str = "", limit: int = 100) -> dict:
+    from . import transcripts
+    return transcripts.list_transcripts(company_id=company_id, kind=kind, q=q, limit=max(1, min(limit, 500)))
+
+
+@router.post("/transcripts")
+def post_transcript(request: Request, payload: dict) -> dict:
+    from . import firm_search, transcripts
+    _require_permission(request, "sources:edit")
+    payload = payload or {}
+    try:
+        item = transcripts.add_transcript(
+            title=str(payload.get("title") or ""), text=str(payload.get("text") or ""), kind=str(payload.get("kind") or "expert_call"),
+            company_id=payload.get("company_id"), call_date=payload.get("call_date"), participants=payload.get("participants"),
+            tags=payload.get("tags"), created_by=_caller_email(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    firm_search.invalidate()
+    return item
+
+
+@router.post("/transcripts/upload")
+async def post_transcript_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    kind: str = Form("expert_call"),
+    company_id: str = Form(""),
+    call_date: str = Form(""),
+    participants: str = Form(""),
+    tags: str = Form(""),
+) -> dict:
+    from . import firm_search, transcripts
+    _require_permission(request, "sources:edit")
+    raw = await file.read()
+    name = file.filename or "transcript.txt"
+    lower = name.lower()
+    if lower.endswith(".docx"):
+        import io as _io
+
+        from docx import Document as _Document
+
+        try:
+            text = "\n".join(p.text for p in _Document(_io.BytesIO(raw)).paragraphs)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Could not read the .docx file - it may be damaged or not a "
+                    "Word .docx document. Re-save it as .docx, or upload .txt or .pdf."
+                ),
+            ) from exc
+    elif lower.endswith(".pdf"):
+        from . import deck_summary
+
+        import tempfile as _tempfile
+
+        with _tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
+            tmp.write(raw)
+            tmp.flush()
+            slides = deck_summary.extract_slides(Path(tmp.name), "pdf")
+        text = "\n".join(getattr(s, "text", "") or "" for s in slides)
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    try:
+        item = transcripts.add_transcript(
+            title=title or Path(name).stem, text=text, kind=kind or "expert_call", company_id=company_id or None,
+            call_date=call_date or None, participants=participants, tags=tags, created_by=_caller_email(request), source_filename=name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    firm_search.invalidate()
+    return item
+
+
+@router.get("/transcripts/{transcript_id}")
+def get_transcript(transcript_id: str) -> dict:
+    from . import transcripts
+    try:
+        item = transcripts.get_transcript(transcript_id)
+    except (ValueError, OSError):
+        item = None
+    if item is None:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    return item
+
+
+@router.delete("/transcripts/{transcript_id}")
+def delete_transcript(request: Request, transcript_id: str) -> dict:
+    from . import firm_search, transcripts
+    _require_permission(request, "documents:delete")
+    try:
+        removed = transcripts.delete_transcript(transcript_id)
+    except (ValueError, OSError):
+        removed = False
+    if not removed:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    firm_search.invalidate()
+    return {"ok": True}
+
+
+@router.post("/transcripts/{transcript_id}/highlights")
+def post_transcript_highlight(request: Request, transcript_id: str, payload: dict) -> dict:
+    from . import firm_search, transcripts
+    _require_permission(request, "memo:edit")
+    payload = payload or {}
+    try:
+        item = transcripts.add_highlight(transcript_id, text=str(payload.get("text") or ""), note=str(payload.get("note") or ""), created_by=_caller_email(request))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    firm_search.invalidate()
+    return item
+
+
+@router.delete("/transcripts/{transcript_id}/highlights/{highlight_id}")
+def delete_transcript_highlight(request: Request, transcript_id: str, highlight_id: str) -> dict:
+    from . import transcripts
+    _require_permission(request, "memo:edit")
+    item = transcripts.remove_highlight(transcript_id, highlight_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    return item
+
+
+@router.get("/companies/{company_id}/signal-score")
+def get_signal_score(company_id: str) -> dict:
+    from . import signal_score
+    _require_company(company_id)
+    try:
+        return signal_score.compute(company_id)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+# ---- IC room: reference calls, meetings & votes, comparables, red-team memo ----
+
+
+@router.get("/companies/{company_id}/reference-calls")
+def get_reference_calls(company_id: str) -> dict:
+    from . import ic_room
+    _require_company(company_id)
+    try:
+        return ic_room.list_reference_calls(company_id)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+@router.post("/companies/{company_id}/reference-calls")
+def post_reference_call(request: Request, company_id: str, payload: dict) -> dict:
+    from . import ic_room
+    _require_permission(request, "desk:write")
+    _require_company(company_id)
+    try:
+        return ic_room.add_reference_call(company_id, payload or {}, created_by=_caller_email(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/companies/{company_id}/reference-calls/{item_id}")
+def delete_reference_call(request: Request, company_id: str, item_id: str) -> dict:
+    from . import ic_room
+    _require_permission(request, "desk:write")
+    _require_company(company_id)
+    try:
+        if not ic_room.remove_reference_call(company_id, item_id):
+            raise HTTPException(status_code=404, detail="Reference call not found")
+        return ic_room.list_reference_calls(company_id)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+@router.get("/companies/{company_id}/ic/meetings")
+def get_ic_meetings(company_id: str) -> dict:
+    from . import ic_room
+    _require_company(company_id)
+    try:
+        return ic_room.list_meetings(company_id)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+@router.post("/companies/{company_id}/ic/meetings")
+def post_ic_meeting(request: Request, company_id: str, payload: dict | None = None) -> dict:
+    from . import ic_room
+    _require_permission(request, "memo:edit")
+    _require_company(company_id)
+    payload = payload or {}
+    try:
+        return ic_room.open_meeting(
+            company_id,
+            title=str(payload.get("title") or ""),
+            scheduled_at=payload.get("scheduled_at"),
+            report_id=payload.get("report_id"),
+            created_by=_caller_email(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/ic/meetings/{meeting_id}/votes")
+def post_ic_vote(request: Request, company_id: str, meeting_id: str, payload: dict) -> dict:
+    from . import ic_room
+    _require_permission(request, "memo:edit")
+    payload = payload or {}
+    email = (_caller_email(request) or "").strip()
+    requested = str(payload.get("member") or "").strip()
+    if email:
+        own = {email.lower(), product_store.display_name(email).strip().lower()}
+        if not requested or requested.lower() in own:
+            member = email
+        elif _caller_role(request) == "admin":
+            member = requested
+        else:
+            raise HTTPException(
+                status_code=403,
+                detail="Only admins can record a vote for another member",
+            )
+    else:
+        member = requested or (os.environ.get("BSH_ANON_DEV_NAME") or "").strip() or "Local dev"
+    try:
+        return ic_room.cast_vote(
+            company_id, meeting_id,
+            member=member,
+            vote=str(payload.get("vote") or ""),
+            conviction=payload.get("conviction"),
+            note=str(payload.get("note") or ""),
+            member_name=product_store.display_name(member) if email and member == email else member,
+            recorded_by=email or "anon-dev",
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/companies/{company_id}/ic/meetings/{meeting_id}/close")
+def post_ic_close(request: Request, company_id: str, meeting_id: str, payload: dict | None = None) -> dict:
+    from . import ic_room
+    _require_permission(request, "memo:edit")
+    payload = payload or {}
+    try:
+        return ic_room.close_meeting(
+            company_id, meeting_id,
+            record_decision=bool(payload.get("record_decision")),
+            explanation=str(payload.get("explanation") or ""),
+            closed_by=_caller_email(request),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/ic/comparables")
+def get_ic_comparables(company_id: str, limit: int = 6) -> dict:
+    from . import ic_room
+    _require_company(company_id)
+    try:
+        return ic_room.comparable_decisions(company_id, limit=max(1, min(limit, 20)))
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+@router.get("/companies/{company_id}/ic/red-team")
+def get_red_team(company_id: str) -> dict:
+    from . import red_team
+    _require_company(company_id)
+    try:
+        return red_team.load_result(company_id)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+@router.post("/companies/{company_id}/ic/red-team")
+def post_red_team(request: Request, company_id: str) -> dict:
+    from . import red_team
+    _require_permission(request, "tasks:action")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    with _job_start_lock(f"red_team:{company_id}"):
+        return red_team.start(company_id, requested_by=_caller_email(request))
+
+
+@router.get("/companies/{company_id}/ic/red-team/stream")
+async def stream_red_team_progress(company_id: str) -> "StreamingResponse":
+    from . import red_team
+    return _tail_progress_stream(red_team.progress_path(company_id))
+
+
+# ---- Private portfolio: positions, founder updates, KPIs, marks, reserves, tear sheets ----
+
+
+@router.get("/portfolio")
+def get_portfolio_dashboard() -> dict:
+    from . import portfolio
+    try:
+        return portfolio.dashboard()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/portfolio/reserves")
+def get_portfolio_reserves() -> dict:
+    from . import portfolio
+    return portfolio.reserves_plan()
+
+
+@router.put("/portfolio/reserves")
+def put_portfolio_reserves(request: Request, payload: dict) -> dict:
+    from . import portfolio
+    _require_permission(request, "desk:write")
+    try:
+        return portfolio.save_reserves_settings(payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/portfolio/{company_id}")
+def get_portfolio_company(company_id: str) -> dict:
+    from . import portfolio
+    _require_company(company_id)
+    try:
+        return portfolio.get_portfolio(company_id)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
+
+
+@router.put("/portfolio/{company_id}/position")
+def put_portfolio_position(request: Request, company_id: str, payload: dict) -> dict:
+    from . import portfolio
+    _require_permission(request, "desk:write")
+    _require_company(company_id)
+    try:
+        return portfolio.update_position(company_id, payload or {}, updated_by=_caller_email(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/portfolio/{company_id}/kpis")
+def post_portfolio_kpi(request: Request, company_id: str, payload: dict) -> dict:
+    from . import portfolio
+    _require_permission(request, "desk:write")
+    _require_company(company_id)
+    try:
+        return portfolio.add_kpi(company_id, payload or {}, created_by=_caller_email(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/portfolio/{company_id}/updates")
+def post_portfolio_update(request: Request, company_id: str, payload: dict) -> dict:
+    from . import portfolio
+    _require_permission(request, "desk:write")
+    _require_company(company_id)
+    payload = payload or {}
+    try:
+        return portfolio.add_update(
+            company_id,
+            text=str(payload.get("text") or ""),
+            as_of=payload.get("as_of"),
+            source=str(payload.get("source") or "email"),
+            subject=str(payload.get("subject") or ""),
+            created_by=_caller_email(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/portfolio/{company_id}/marks")
+def post_portfolio_mark(request: Request, company_id: str, payload: dict) -> dict:
+    from . import portfolio
+    _require_permission(request, "desk:write")
+    _require_company(company_id)
+    payload = payload or {}
+    try:
+        return portfolio.add_mark(
+            company_id,
+            value_usd=payload.get("value_usd"),
+            basis=str(payload.get("basis") or ""),
+            as_of=payload.get("as_of"),
+            note=str(payload.get("note") or ""),
+            created_by=_caller_email(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/portfolio/{company_id}/{kind}/{item_id}")
+def delete_portfolio_item(request: Request, company_id: str, kind: str, item_id: str) -> dict:
+    from . import portfolio
+    _require_permission(request, "desk:write")
+    _require_company(company_id)
+    try:
+        removed = portfolio.remove_item(company_id, kind, item_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return portfolio.get_portfolio(company_id)
+
+
+@router.get("/portfolio/{company_id}/tear-sheet.docx")
+def get_portfolio_tear_sheet(company_id: str) -> Response:
+    from . import portfolio
+    _require_company(company_id)
+    data = portfolio.tear_sheet_docx(company_id)
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "", company_id) or "company"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe}-tear-sheet.docx"'},
+    )
+
+
+# ---- Thesis, intake, comps, cap model (institutional modules, record-backed) ----
+
+
+@router.get("/thesis")
+def get_thesis() -> dict:
+    from . import thesis_store
+    return thesis_store.get_thesis()
+
+
+@router.put("/thesis")
+def put_thesis(request: Request, payload: dict) -> dict:
+    from . import thesis_store
+    _require_permission(request, "settings:update")
+    return thesis_store.save_thesis(payload or {})
+
+
+@router.post("/thesis/score")
+def post_thesis_score(payload: dict) -> dict:
+    """Score a company (by id) or an ad-hoc description against the thesis."""
+    from . import thesis_store
+    company_id = str((payload or {}).get("company_id") or "").strip()
+    company = storage.get_company(company_id) if company_id else None
+    if company_id and company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    candidate = dict(company or {})
+    for key in ("name", "description", "sector", "industry", "stage", "hq", "raise_musd"):
+        if (payload or {}).get(key) not in (None, ""):
+            candidate[key] = payload[key]
+    return thesis_store.score_company(candidate, extra_text=str((payload or {}).get("text") or ""))
+
+
+@router.post("/intake/decks", status_code=201)
+async def post_intake_deck(
+    request: Request,
+    file: UploadFile = File(...),
+    company_id: str | None = Form(None),
+    company_name: str | None = Form(None),
+) -> dict:
+    """File a pitch deck: store it, extract the obvious facts with page refs, score the thesis."""
+    from . import intake_decks
+    _require_permission(request, "sources:edit")
+    data = await _read_upload_bounded(file, max_bytes=files_store.MAX_FILE_BYTES)
+    try:
+        return intake_decks.ingest(
+            filename=file.filename or "deck",
+            content_type=file.content_type,
+            data=data,
+            company_id=company_id,
+            company_name=company_name,
+            created_by=_caller_email(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/companies/{company_id}/comps")
+def get_company_comps(company_id: str, refresh: bool = False) -> dict:
+    from . import comps
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return comps.build_comps(company_id, refresh=refresh)
+
+
+@router.put("/companies/{company_id}/comps/peers")
+def put_company_comps_peers(request: Request, company_id: str, payload: dict) -> dict:
+    from . import comps
+    _require_permission(request, "desk:write")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    tickers = (payload or {}).get("tickers") or []
+    if not isinstance(tickers, list):
+        raise HTTPException(status_code=400, detail="tickers must be a list")
+    saved = comps.save_peers(company_id, [str(t) for t in tickers])
+    return {"company_id": company_id, "tickers": saved}
+
+
+@router.get("/companies/{company_id}/cap-model")
+def get_company_cap_model(company_id: str) -> dict:
+    from . import cap_model
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return cap_model.get_model(company_id)
+
+
+@router.put("/companies/{company_id}/cap-model")
+def put_company_cap_model(request: Request, company_id: str, payload: dict) -> dict:
+    from . import cap_model
+    _require_permission(request, "desk:write")
+    if storage.get_company(company_id) is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    try:
+        return cap_model.update_model(company_id, payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except cap_model.CapModelUnreadable as exc:
+        raise HTTPException(status_code=409, detail="cap model file unreadable; not overwritten") from exc
 
 
 @router.delete("/companies/{company_id}", status_code=204)
@@ -2841,7 +3560,7 @@ def delete_company(request: Request, company_id: str) -> Response:
 
 @router.get("/tracking/watchlist")
 def get_tracking_watchlist() -> dict:
-    path = tracking_updates.WATCHLIST_PATH
+    path = tracking_updates.watchlist_path()
     updated_at = None
     if path.exists():
         updated_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
@@ -2905,7 +3624,10 @@ def get_company_decisions(company_id: str) -> dict:
     retrospectives (appended over time by the tracking sync)."""
     if storage.get_company(company_id) is None:
         raise HTTPException(status_code=404, detail="Company not found")
-    return decisions_store.list_decisions(company_id)
+    try:
+        return decisions_store.list_decisions(company_id)
+    except ValueError as exc:
+        raise _company_not_found(exc) from exc
 
 
 @router.post("/companies/{company_id}/decisions", status_code=201)
@@ -3074,9 +3796,28 @@ def translate_company_endpoint(request: Request, company_id: str) -> CompanyOut:
     return CompanyOut(**_company_view(refreshed))
 
 
+_REPORT_LIST_HEAVY_FIELDS = (
+    "renderer_contract",
+    "memo_files",
+    "memo_chinese_parity",
+    "memo_quality_lint",
+)
+
+
 @router.get("/reports")
-def get_reports() -> list[ReportSummary]:
-    return [ReportSummary(**_report_summary(r)) for r in storage.list_reports()]
+def get_reports(lite: bool = False) -> list[ReportSummary]:
+    """Every report's summary row.
+
+    ``lite=1`` blanks the per-report contract / lint / parity blobs and the
+    memo file list (null / empty); download and preview URLs stay, and the
+    full fields remain on ``GET /reports/{id}``.
+    """
+    summaries = [_report_summary(r) for r in storage.list_reports()]
+    if lite:
+        for summary in summaries:
+            for field in _REPORT_LIST_HEAVY_FIELDS:
+                summary.pop(field, None)
+    return [ReportSummary(**summary) for summary in summaries]
 
 
 @router.get("/reports/{report_id}")
@@ -5645,6 +6386,56 @@ def _scan_progress_state(path: "Path") -> dict:
     return job_progress.scan_progress_state(path)
 
 
+def _tail_progress_stream(progress_path: "Path") -> "StreamingResponse":
+    """SSE replay+tail of a JSONL progress file until a terminal event (shared by small jobs)."""
+    import asyncio
+    import json as _json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    async def event_stream():
+        deadline = time.monotonic() + 5.0
+        while not progress_path.exists() and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if not progress_path.exists():
+            yield "event: error\ndata: {\"error\":\"No progress for this job\"}\n\n"
+            return
+        pos = 0
+        idle_deadline = time.monotonic() + 900.0
+        terminated = False
+        while time.monotonic() < idle_deadline and not terminated:
+            try:
+                with progress_path.open("r", encoding="utf-8") as f:
+                    f.seek(pos)
+                    chunk = f.read()
+                    pos = f.tell()
+            except Exception:
+                await asyncio.sleep(0.2)
+                continue
+            if chunk:
+                idle_deadline = time.monotonic() + 900.0
+                for line in chunk.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    yield f"data: {line}\n\n"
+                    try:
+                        if _json.loads(line).get("type") in job_progress.ProgressLog.TERMINAL_TYPES:
+                            terminated = True
+                            break
+                    except Exception:
+                        pass
+            else:
+                await asyncio.sleep(0.15)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 def _progress_idle_seconds(state: dict) -> float | None:
     return job_progress.progress_idle_seconds(state)
 
@@ -5769,6 +6560,9 @@ def _run_summary_job(company_id: str, file_id: str, speed: str = "auto") -> None
         )
 
 
+SUMMARY_FILE_KINDS = ("pdf", "pptx", "ppt")
+
+
 @router.post("/companies/{company_id}/files/{file_id}/summary")
 def post_file_summary(
     request: Request,
@@ -5791,6 +6585,13 @@ def post_file_summary(
     found = files_store.get_file(company_id, file_id)
     if found is None:
         raise HTTPException(status_code=404, detail="File not found")
+    record = found[0]
+    if record.get("kind") not in SUMMARY_FILE_KINDS:
+        file_type = Path(str(record.get("filename") or "")).suffix.lower() or str(record.get("kind") or "this")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Summaries support PDF, PPTX and PPT files only; {file_type} files can't be summarized.",
+        )
     if speed not in ("auto", "granular", "fast"):
         raise HTTPException(status_code=400, detail="Invalid speed")
 
@@ -9054,10 +9855,11 @@ def _serialize_console_meta(meta: dict) -> dict:
 
 @router.get("/companies/{company_id}/console/sessions")
 def list_console_sessions(company_id: str) -> list[dict]:
-    return [
-        _serialize_console_meta(m)
-        for m in console_store.list_sessions(company_id, include_copilot=False)
-    ]
+    try:
+        metas = console_store.list_sessions(company_id, include_copilot=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return [_serialize_console_meta(m) for m in metas]
 
 
 # Rough heuristics for the cost-estimate endpoint. Tokens-per-byte for
@@ -9192,7 +9994,10 @@ def create_hormuz_console_session(request: Request, body: _ConsoleCreateBody | N
 
 @router.get("/companies/{company_id}/console/sessions/{sid}")
 def get_console_session(company_id: str, sid: str) -> dict:
-    meta = console_store.load_meta(company_id, sid)
+    try:
+        meta = console_store.load_meta(company_id, sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if meta is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return _serialize_console_meta(meta)
@@ -9200,9 +10005,12 @@ def get_console_session(company_id: str, sid: str) -> dict:
 
 @router.get("/companies/{company_id}/console/sessions/{sid}/turns")
 def get_console_turns(company_id: str, sid: str) -> list[dict]:
-    if not console_store.session_exists(company_id, sid):
-        raise HTTPException(status_code=404, detail="Session not found")
-    return console_store.read_turns(company_id, sid)
+    try:
+        if not console_store.session_exists(company_id, sid):
+            raise HTTPException(status_code=404, detail="Session not found")
+        return console_store.read_turns(company_id, sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/companies/{company_id}/console/sessions/{sid}/ask")
@@ -9467,8 +10275,12 @@ def get_console_attachment(
 @router.post(
     "/companies/{company_id}/console/sessions/{sid}/archive"
 )
-def archive_console_session(company_id: str, sid: str) -> dict:
-    meta = console_session.archive_session(company_id=company_id, session_id=sid)
+def archive_console_session(request: Request, company_id: str, sid: str) -> dict:
+    _require_permission(request, "tasks:action")
+    try:
+        meta = console_session.archive_session(company_id=company_id, session_id=sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if meta is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return _serialize_console_meta(meta)
@@ -9479,7 +10291,10 @@ def archive_console_session(company_id: str, sid: str) -> dict:
 )
 def delete_console_session(company_id: str, sid: str, request: Request) -> Response:
     _require_permission(request, "documents:delete")
-    ok = console_store.hard_delete_session(company_id, sid)
+    try:
+        ok = console_store.hard_delete_session(company_id, sid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
     return Response(status_code=204)

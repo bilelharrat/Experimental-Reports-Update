@@ -8,17 +8,22 @@ from server import main as server_main
 
 
 def test_structured_prompt_error_includes_stdout(monkeypatch):
-    class Completed:
+    class Proc:
         returncode = 1
-        stderr = ""
-        stdout = "You've hit your session limit · resets 2am (America/Los_Angeles)"
+        pid = 4242
 
-    def fake_run(*args, **kwargs):
-        return Completed()
+        def communicate(self, timeout=None):
+            return "You've hit your session limit · resets 2am (America/Los_Angeles)", ""
+
+        def poll(self):
+            return self.returncode
+
+    def fake_popen(*args, **kwargs):
+        return Proc()
 
     monkeypatch.setattr(claude_runner, "is_available", lambda: True)
     monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
-    monkeypatch.setattr(claude_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_runner, "_popen_claude", fake_popen)
 
     data, err = claude_runner.run_structured_prompt(
         system_prompt="Return JSON.",
@@ -34,24 +39,29 @@ def test_structured_prompt_error_includes_stdout(monkeypatch):
 
 
 def test_structured_prompt_error_extracts_json_stdout(monkeypatch):
-    class Completed:
+    class Proc:
         returncode = 1
-        stderr = ""
-        stdout = json.dumps({
-            "result": (
-                "You've hit your session limit · resets 2am "
-                "(America/Los_Angeles)"
-            ),
-            "stop_reason": "stop_sequence",
-            "session_id": "mock-session",
-        })
+        pid = 4242
 
-    def fake_run(*args, **kwargs):
-        return Completed()
+        def communicate(self, timeout=None):
+            return json.dumps({
+                "result": (
+                    "You've hit your session limit · resets 2am "
+                    "(America/Los_Angeles)"
+                ),
+                "stop_reason": "stop_sequence",
+                "session_id": "mock-session",
+            }), ""
+
+        def poll(self):
+            return self.returncode
+
+    def fake_popen(*args, **kwargs):
+        return Proc()
 
     monkeypatch.setattr(claude_runner, "is_available", lambda: True)
     monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
-    monkeypatch.setattr(claude_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_runner, "_popen_claude", fake_popen)
 
     data, err = claude_runner.run_structured_prompt(
         system_prompt="Return JSON.",

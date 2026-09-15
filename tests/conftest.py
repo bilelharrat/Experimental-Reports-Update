@@ -2,9 +2,56 @@
 from __future__ import annotations
 
 import os
+import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
+
+_LIVE_DATA_DIR = os.path.realpath(Path(__file__).resolve().parent.parent / "data")
+_WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
+
+
+def _in_live_data_dir(path) -> bool:
+    if path is None or isinstance(path, int):
+        return False
+    try:
+        raw = os.fsdecode(path)
+    except TypeError:
+        return False
+    if "data" not in raw:
+        return False
+    real = os.path.realpath(raw)
+    return real == _LIVE_DATA_DIR or real.startswith(_LIVE_DATA_DIR + os.sep)
+
+
+def _guard_live_data_dir(event, args):
+    """Fail any write, rename, delete or new directory under the live ``data/``
+    directory: a store path that escaped ``_isolate_data_dir`` raises here
+    instead of silently touching real data."""
+    if event == "open":
+        path, mode, flags = args
+        writes = (isinstance(mode, str) and any(c in mode for c in "wax+")) or (
+            isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
+        )
+        targets = (path,) if writes else ()
+    elif event in {"os.rename", "os.replace", "shutil.move"}:
+        targets = args[:2]
+    elif event == "shutil.copyfile":
+        targets = args[1:2]
+    elif event in {"os.remove", "os.rmdir", "shutil.rmtree"}:
+        targets = args[:1]
+    elif event == "os.mkdir":
+        targets = tuple(p for p in args[:1] if _in_live_data_dir(p) and not os.path.exists(os.fsdecode(p)))
+    else:
+        return
+    for target in targets:
+        if _in_live_data_dir(target):
+            raise PermissionError(f"test touched the live data directory: {os.fsdecode(target)}")
+
+
+sys.addaudithook(_guard_live_data_dir)
 
 
 @pytest.fixture(autouse=True)
@@ -81,6 +128,46 @@ def _isolate_data_dir(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(market_brief, "BRIEFS_ROOT", data_root / "market_briefs")
     monkeypatch.setattr(news_brief, "BRIEFS_ROOT", data_root / "news_briefs")
+
+
+def _is_test_fake_thread(thread: threading.Thread) -> bool:
+    """Threads a test body starts itself (fake process pipes, drips) never
+    touch data paths and may block until the process exits."""
+    module = getattr(getattr(thread, "_target", None), "__module__", "") or ""
+    return module == "conftest" or module.startswith(("test_", "tests."))
+
+
+@pytest.fixture(autouse=True)
+def _join_test_threads(_isolate_data_dir):
+    """Let background work a test started finish while its data dirs are
+    still redirected. Job workers (console hydrate, stock aggregates) run on
+    daemon threads; one that outlives its test writes into the live ``data/``
+    after the monkeypatches are undone. Console session dispatchers idle on
+    their queue for minutes, so those are waited on until their turns are
+    done instead of joined.
+    """
+    from server import console_session
+
+    before = set(threading.enumerate())
+    with console_session._DISPATCHERS_LOCK:
+        known = set(console_session._DISPATCHERS)
+    yield
+    deadline = time.monotonic() + 5.0
+    with console_session._DISPATCHERS_LOCK:
+        dispatchers = [d for key, d in console_session._DISPATCHERS.items() if key not in known]
+    for dispatcher in dispatchers:
+        while dispatcher.pending_ids and time.monotonic() < deadline:
+            time.sleep(0.01)
+    idle_workers = {dispatcher.thread for dispatcher in dispatchers}
+    for thread in threading.enumerate():
+        if thread in before or thread in idle_workers or not thread.is_alive():
+            continue
+        if _is_test_fake_thread(thread):
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        thread.join(remaining)
 
 
 @pytest.fixture(autouse=True)

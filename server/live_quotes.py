@@ -101,15 +101,37 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
-def _normalize_yield(value: Any) -> float | None:
-    """Return dividend yield as a 0–1 fraction when possible."""
+def _normalize_yield(value: Any, *, percent: bool = False) -> float | None:
+    """Return dividend yield as a 0–1 fraction when possible.
+
+    ``percent=True`` (or a string carrying a ``%`` sign) means the input is
+    expressed in percent and is always divided by 100. Bare numbers are
+    treated as a fraction unless they are clearly a percent (> 1).
+    """
     number = _as_float(value)
     if number is None:
         return None
-    # CNBC / Nasdaq often send 2.41 meaning 2.41%; Yahoo sends 0.0241.
+    if percent or (isinstance(value, str) and "%" in value):
+        return number / 100.0
     if number > 1.0:
         return number / 100.0
     return number
+
+
+def _reconcile_yield(
+    dividend_yield: float | None, rate: float | None, price: float | None
+) -> float | None:
+    """Prefer the yield implied by rate / price when the provider value is off by
+    a unit factor (percent vs fraction)."""
+    if rate is None or price in (None, 0) or rate <= 0 or price <= 0:
+        return dividend_yield
+    implied = rate / price
+    if dividend_yield is None or dividend_yield <= 0:
+        return implied
+    ratio = dividend_yield / implied
+    if 0.5 <= ratio <= 2.0:
+        return dividend_yield
+    return implied
 
 
 def _format_dividend_amount(value: Any) -> str | None:
@@ -247,7 +269,13 @@ def _parse_cnbc(payload: dict) -> dict[str, dict]:
             # CNBC sends annual $ dividend + yield as "2.41%". Store yield as a
             # fraction when possible so Yahoo/CNBC share one shape.
             dividend=_format_dividend_amount(row.get("dividend")),
-            dividend_yield=_normalize_yield(row.get("dividendyield") or row.get("dividend_yield")),
+            dividend_yield=_reconcile_yield(
+                _normalize_yield(
+                    row.get("dividendyield") or row.get("dividend_yield"), percent=True
+                ),
+                _as_float(row.get("dividend")),
+                _as_float(row.get("last")),
+            ),
             fifty_two_week_high=_as_float(
                 row.get("year_high_price")
                 or row.get("yrhig")
@@ -765,8 +793,14 @@ def _parse_yahoo_quote(payload: dict) -> dict:
         "pe_ratio": _as_float(row.get("trailingPE")),
         "eps": _as_float(row.get("epsTrailingTwelveMonths")),
         "beta": _as_float(row.get("beta")),
-        "dividend_yield": _normalize_yield(
-            row.get("dividendYield") or row.get("trailingAnnualDividendYield")
+        "dividend_yield": _reconcile_yield(
+            (
+                _normalize_yield(row.get("trailingAnnualDividendYield"))
+                if row.get("trailingAnnualDividendYield") not in (None, "", 0)
+                else _normalize_yield(row.get("dividendYield"), percent=True)
+            ),
+            _as_float(row.get("trailingAnnualDividendRate") or row.get("dividendRate")),
+            last,
         ),
         "dividend": _format_dividend_amount(
             row.get("trailingAnnualDividendRate") or row.get("dividendRate")
@@ -1051,6 +1085,14 @@ def _fetch_nasdaq_chart(symbol: str, span: str) -> dict:
     raise last_error or ValueError(f"nasdaq chart unavailable for {symbol}")
 
 
+class ChartUnavailableError(RuntimeError):
+    """Every chart provider failed for a syntactically valid request."""
+
+    def __init__(self, message: str, *, rate_limited: bool = False) -> None:
+        super().__init__(message)
+        self.rate_limited = rate_limited
+
+
 def fetch_chart(ticker: str | None, span: str = "1d") -> dict:
     """OHLC series plus quote statistics for one ticker."""
     wanted = normalize_tickers([ticker or ""])
@@ -1089,9 +1131,15 @@ def fetch_chart(ticker: str | None, span: str = "1d") -> dict:
                 cached_quote = hit[1]
         if cached_quote:
             chart = _merge_quote_stats(chart, cached_quote)
-    except Exception as exc:
-        logger.warning("Yahoo chart fetch failed for %s: %s", symbol, exc)
-        chart = _fetch_nasdaq_chart(symbol, requested)
+    except Exception as yahoo_exc:
+        logger.warning("Yahoo chart fetch failed for %s: %s", symbol, yahoo_exc)
+        try:
+            chart = _fetch_nasdaq_chart(symbol, requested)
+        except Exception as nasdaq_exc:
+            raise ChartUnavailableError(
+                f"yahoo: {yahoo_exc}; nasdaq: {nasdaq_exc}",
+                rate_limited="429" in str(yahoo_exc),
+            ) from nasdaq_exc
         interval = "1m" if requested == "1d" else "1d"
         cached_quote = None
         with _CACHE_LOCK:

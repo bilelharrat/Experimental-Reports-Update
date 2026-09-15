@@ -94,7 +94,13 @@ def evaluate_rules(rules: list[dict], quotes: dict[str, dict]) -> list[dict]:
 
 def run_check() -> dict:
     """Evaluate stored rules against live quotes; record fresh fires."""
-    rules = desk_store.alert_rules()
+    rules = [
+        rule
+        for rule in desk_store.alert_rules()
+        if isinstance(rule, dict)
+        and rule.get("enabled") is not False
+        and str(rule.get("kind") or "").strip().lower() in SERVER_KINDS
+    ]
     tickers = sorted(
         {str(rule.get("ticker") or "").strip().upper() for rule in rules if rule.get("ticker")}
     )
