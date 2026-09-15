@@ -121,7 +121,7 @@ test("empty Signals page preserves the research page frame", async ({ page }) =>
   await mockApi(page);
   await page.goto("/research/research-pages/market-pulse");
 
-  await expect(page.getByRole("heading", { name: "Signals" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Signals", exact: true })).toBeVisible();
   await expect(page.getByText("Missing latest Stock Research weekly aggregate.").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Market Regime" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Theme Heat Map" })).toBeVisible();

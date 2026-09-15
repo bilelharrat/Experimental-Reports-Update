@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { AlertCircle, Loader2, LogIn } from "lucide-vue-next";
-import brandLogoUrl from "../assets/berkeley-summit-house.svg";
+import BrandMark from "../components/BrandMark.vue";
 import { signIn } from "../auth.js";
 import { useT } from "../i18n.js";
 import { postAuthPath } from "../state.js";
@@ -41,72 +41,75 @@ async function onSubmit() {
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center bg-canvas px-4">
-    <form
-      @submit.prevent="onSubmit"
-      class="w-full max-w-[360px] space-y-6 rounded-glass bg-surface p-8 shadow-sheet"
-    >
-      <div>
-        <img
-          :src="brandLogoUrl"
-          alt="Berkeley Summit House"
-          class="h-auto w-[140px] max-w-full"
-        />
-        <div class="mt-4 min-w-0">
-          <h1 class="font-display text-title2 text-ink-primary">
-            {{ t("auth.title") }}
-          </h1>
-          <p class="mt-1 text-callout text-ink-muted">{{ t("auth.subtitle") }}</p>
+  <main class="canvas-wash login-stage relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-12">
+    <!-- The summit, very large and very faint, rising behind the sign-in sheet. -->
+    <div class="login-summit" aria-hidden="true">
+      <BrandMark :size="1100" />
+    </div>
+
+    <div class="relative z-10 flex w-full max-w-[380px] flex-col items-center">
+      <span class="brand-tile login-tile">
+        <BrandMark :size="38" />
+      </span>
+      <h1 class="mt-5 text-center font-display text-title1 text-ink-primary">
+        {{ t("auth.title") }}
+      </h1>
+      <p class="mt-1 text-center text-callout text-ink-muted">{{ t("auth.subtitle") }}</p>
+
+      <form
+        @submit.prevent="onSubmit"
+        class="glass-panel sheet-panel relative mt-7 w-full space-y-4 rounded-[22px] p-6"
+      >
+        <label class="block">
+          <span class="text-footnote font-medium text-ink-secondary">
+            {{ t("auth.identity") }}
+          </span>
+          <input
+            v-model="email"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+            :disabled="submitting"
+            class="field mt-1.5 block !py-2.5 text-callout"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-footnote font-medium text-ink-secondary">
+            {{ t("auth.password") }}
+          </span>
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            :disabled="submitting"
+            class="field mt-1.5 block !py-2.5 text-callout"
+          />
+        </label>
+
+        <div
+          v-if="errorMessage"
+          class="banner-danger flex items-start gap-2 !text-footnote"
+        >
+          <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{{ errorMessage }}</span>
         </div>
-      </div>
 
-      <label class="block">
-        <span class="text-footnote font-medium text-ink-muted">
-          {{ t("auth.identity") }}
-        </span>
-        <input
-          v-model="email"
-          type="text"
-          autocomplete="username"
-          autocapitalize="none"
-          spellcheck="false"
-          required
-          :disabled="submitting"
-          class="field mt-1.5 block py-2.5 text-callout focus-ring"
-        />
-      </label>
+        <button
+          type="submit"
+          :disabled="submitting || !email.trim() || !password"
+          class="btn-filled focus-ring !mt-5 w-full !py-2.5 !text-callout"
+        >
+          <Loader2 v-if="submitting" class="h-4 w-4 animate-spin" />
+          <LogIn v-else class="h-4 w-4" />
+          <span>{{ submitting ? t("auth.signing_in") : t("auth.sign_in") }}</span>
+        </button>
+      </form>
 
-      <label class="block">
-        <span class="text-footnote font-medium text-ink-muted">
-          {{ t("auth.password") }}
-        </span>
-        <input
-          v-model="password"
-          type="password"
-          autocomplete="current-password"
-          required
-          :disabled="submitting"
-          class="field mt-1.5 block py-2.5 text-callout focus-ring"
-        />
-      </label>
-
-      <div
-        v-if="errorMessage"
-        class="flex items-start gap-2 rounded-subbox bg-danger-soft px-3 py-2 text-footnote text-danger-ink"
-      >
-        <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{{ errorMessage }}</span>
-      </div>
-
-      <button
-        type="submit"
-        :disabled="submitting || !email.trim() || !password"
-        class="btn-filled focus-ring w-full disabled:cursor-not-allowed"
-      >
-        <Loader2 v-if="submitting" class="h-4 w-4 animate-spin" />
-        <LogIn v-else class="h-4 w-4" />
-        <span>{{ submitting ? t("auth.signing_in") : t("auth.sign_in") }}</span>
-      </button>
-    </form>
+      <p class="mt-6 text-caption1 text-ink-subtle">Berkeley Summit House</p>
+    </div>
   </main>
 </template>

@@ -1,7 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { Search } from "lucide-vue-next";
+import { Command, CornerDownLeft, Search } from "lucide-vue-next";
+import Monogram from "./Monogram.vue";
 import { parseMarketCommand, routeForMarketCommand, suggestMarketCommands } from "../marketCommands.js";
 import { useT } from "../i18n.js";
 
@@ -88,7 +89,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
   >
     <div class="yf-cmd-panel">
       <div class="yf-cmd-input-wrap">
-        <Search class="h-4 w-4 shrink-0 text-ink-muted" />
+        <Search class="h-5 w-5 shrink-0 text-ink-muted" />
         <input
           ref="inputRef"
           v-model="query"
@@ -113,14 +114,24 @@ onUnmounted(() => window.removeEventListener("keydown", onKeydown));
           @mouseenter="active = index"
           @click="run(row)"
         >
-          <span class="min-w-0">
-            <span class="block truncate font-display text-headline text-ink-primary">
+          <Monogram
+            v-if="row.companyId"
+            :company="{ id: row.companyId, name: row.subtitle || row.title, ticker: row.ticker }"
+            :size="30"
+            tinted
+          />
+          <span v-else class="yf-cmd-glyph">
+            <Command class="h-4 w-4" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-callout font-semibold text-ink-primary">
               {{ row.title }}
             </span>
             <span class="block truncate text-caption1 text-ink-muted">
               {{ row.subtitle }}
             </span>
           </span>
+          <CornerDownLeft v-if="index === active" class="h-4 w-4 shrink-0 text-ink-muted" />
         </button>
       </div>
       <p class="yf-cmd-hint">{{ t("cmd.hint") }}</p>

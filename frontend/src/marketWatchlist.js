@@ -5,6 +5,8 @@ import { scheduleDeskSync } from "./deskSync.js";
 const PINNED_KEY = "bsh.marketPinnedTickers";
 const RULES_KEY = "bsh.marketAlertRules";
 const HP_KEY = "bsh.marketHpCompare";
+/** Same symbol rule the server applies to quotes and to saved desk prefs. */
+export const TICKER_RE = /^[A-Z0-9][A-Z0-9.-]{0,15}$/;
 
 function readPinned() {
   try {
@@ -12,7 +14,7 @@ function readPinned() {
     if (!Array.isArray(raw)) return [];
     return raw
       .map((ticker) => String(ticker || "").trim().toUpperCase())
-      .filter(Boolean);
+      .filter((ticker) => TICKER_RE.test(ticker));
   } catch {
     return [];
   }
@@ -33,7 +35,7 @@ export function loadPinnedTickers() {
 
 export function togglePinnedTicker(ticker) {
   const symbol = String(ticker || "").trim().toUpperCase();
-  if (!symbol) return readPinned();
+  if (!TICKER_RE.test(symbol)) return readPinned();
   const next = new Set(readPinned());
   if (next.has(symbol)) next.delete(symbol);
   else next.add(symbol);

@@ -9,7 +9,6 @@ import {
   Download,
   Eye,
   FileCheck,
-  FileSpreadsheet,
   FileText,
   Filter,
   Loader2,
@@ -21,10 +20,14 @@ import { api, withApiToken } from "../api.js";
 import { useT } from "../i18n.js";
 import DocumentViewerWindow from "../components/DocumentViewerWindow.vue";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer.vue";
+import Monogram from "../components/Monogram.vue";
+import { useLargeTitle } from "../chrome.js";
 
 const t = useT();
 const route = useRoute();
 const router = useRouter();
+const pageTitleEl = ref(null);
+useLargeTitle(pageTitleEl);
 
 // Optional workspaceCompanies injected from App.vue
 const workspaceCompanies = inject("workspaceCompanies", ref([]));
@@ -256,57 +259,46 @@ onMounted(loadReports);
 </script>
 
 <template>
-  <div class="flex h-[calc(100vh-3.25rem)] w-full flex-col overflow-hidden bg-canvas">
-    <!-- Sleek Compact Header / Filter Toolbar (Single Row) -->
-    <header class="flex flex-wrap items-center justify-between gap-2.5 border-b border-subtle bg-surface px-4 py-2 shrink-0">
-      <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2">
-          <FileSpreadsheet class="h-4 w-4 text-accent" />
-          <h1 class="font-display text-sm font-bold tracking-tight text-ink-primary">
-            {{ t("reports.title") }}
-          </h1>
-        </div>
-        <span class="inline-flex items-center gap-1 rounded-full bg-surface-muted px-2.5 py-0.5 text-[11px] font-medium text-ink-secondary border border-subtle">
+  <div class="flex h-[calc(100vh-52px)] w-full flex-col gap-3 overflow-hidden px-3 pb-3 md:px-5 md:pb-5">
+    <header class="flex shrink-0 flex-wrap items-end justify-between gap-x-4 gap-y-3 px-1 pt-1">
+      <div class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 ref="pageTitleEl" class="font-display text-title1 text-ink-primary">
+          {{ t("reports.title") }}
+        </h1>
+        <span class="text-footnote text-ink-muted tabular">
           {{ t("reports.total_count", { count: stats.total }) }}
         </span>
         <span
           v-if="stats.running > 0"
-          class="inline-flex items-center gap-1 rounded-full bg-info-soft px-2 py-0.5 text-[11px] font-medium text-info-ink"
+          class="chip bg-info-soft text-info-ink"
         >
           <Loader2 class="h-3 w-3 animate-spin" />
           {{ stats.running }} {{ t("reports.status_running") }}
         </span>
       </div>
 
-      <!-- Controls & Filters Bar -->
       <div class="flex flex-wrap items-center gap-2">
-        <!-- Search input -->
-        <div class="relative w-44 sm:w-56 lg:w-64">
-          <Search class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-muted" />
+        <div class="relative w-48 sm:w-60">
+          <Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-muted" />
           <input
             v-model="searchQuery"
             type="text"
             :placeholder="t('reports.search_placeholder')"
-            class="h-7 w-full rounded border border-subtle bg-surface py-1 pl-8 pr-2.5 text-xs text-ink-primary placeholder:text-ink-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            class="news-search-field !py-[5px] !text-footnote"
           />
         </div>
 
-        <!-- Company Filter -->
-        <select
-          v-model="selectedCompany"
-          class="h-7 rounded border border-subtle bg-surface py-1 pl-2 pr-6 text-xs text-ink-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-        >
+        <select v-model="selectedCompany" class="field field-sm w-auto max-w-[12rem]">
           <option value="all">{{ t("reports.filter_company") }}</option>
           <option v-for="c in companyOptions" :key="c.id" :value="c.id">
             {{ c.name }}
           </option>
         </select>
 
-        <!-- Kind Filter -->
         <select
           v-if="kindOptions.length > 1"
           v-model="selectedKind"
-          class="h-7 rounded border border-subtle bg-surface py-1 pl-2 pr-6 text-xs text-ink-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          class="field field-sm w-auto max-w-[12rem]"
         >
           <option value="all">{{ t("reports.filter_kind") }}</option>
           <option v-for="k in kindOptions" :key="k.id" :value="k.id">
@@ -314,11 +306,7 @@ onMounted(loadReports);
           </option>
         </select>
 
-        <!-- Status Filter -->
-        <select
-          v-model="selectedStatus"
-          class="h-7 rounded border border-subtle bg-surface py-1 pl-2 pr-6 text-xs text-ink-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-        >
+        <select v-model="selectedStatus" class="field field-sm w-auto">
           <option value="all">{{ t("reports.filter_status") }}</option>
           <option value="complete">{{ t("reports.status_complete") }}</option>
           <option value="running">{{ t("reports.status_running") }}</option>
@@ -326,24 +314,19 @@ onMounted(loadReports);
           <option value="failed">{{ t("reports.status_failed") }}</option>
         </select>
 
-        <!-- Refresh Button -->
         <button
           type="button"
-          class="inline-flex h-7 items-center gap-1 rounded border border-subtle bg-surface px-2.5 text-xs font-medium text-ink-primary hover:bg-surface-muted focus-ring"
+          class="btn-bordered btn-sm focus-ring"
           :disabled="loading"
           @click="loadReports"
         >
-          <RefreshCw class="h-3 w-3" :class="{ 'animate-spin': loading }" />
+          <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
           <span class="hidden sm:inline">{{ t("pulse.refresh") }}</span>
         </button>
       </div>
     </header>
 
-    <!-- Error Banner -->
-    <div
-      v-if="error"
-      class="flex items-center gap-3 border-b border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger shrink-0"
-    >
+    <div v-if="error" class="banner-danger flex shrink-0 items-center gap-3 !text-footnote">
       <AlertCircle class="h-4 w-4 shrink-0" />
       <div class="flex-1">{{ error }}</div>
       <button
@@ -355,153 +338,149 @@ onMounted(loadReports);
       </button>
     </div>
 
-    <!-- Main Edge-to-Edge Master-Detail Workspace -->
-    <div class="flex flex-1 overflow-hidden w-full min-h-0">
-      <!-- Master List (Left Pane) -->
-      <aside class="w-80 lg:w-96 xl:w-[380px] shrink-0 border-r border-subtle flex flex-col bg-surface overflow-hidden">
-        <div class="flex items-center justify-between border-b border-subtle/50 px-3 py-1.5 text-[11px] text-ink-muted bg-surface-muted/30 shrink-0">
-          <span class="font-medium">
+    <!-- Master-detail: two floating panes on the canvas, like the Mac Documents desk. -->
+    <div class="flex min-h-0 w-full flex-1 gap-3">
+      <aside class="desk-card flex w-80 shrink-0 flex-col overflow-hidden lg:w-[22rem]">
+        <div class="flex shrink-0 items-center justify-between px-4 pb-1.5 pt-3">
+          <span class="text-footnote font-semibold text-ink-muted">
             {{ t("reports.total_count", { count: filteredReports.length }) }}
           </span>
         </div>
 
-        <!-- Loading State -->
         <div
           v-if="loading"
-          class="flex flex-1 flex-col items-center justify-center p-6 text-center text-xs text-ink-muted"
+          class="flex flex-1 flex-col items-center justify-center p-6 text-center text-footnote text-ink-muted"
         >
-          <Loader2 class="h-5 w-5 animate-spin text-accent mb-2" />
+          <Loader2 class="mb-2 h-5 w-5 animate-spin text-accent" />
           <p>{{ t("documents.viewer_loading") }}</p>
         </div>
 
-        <!-- Empty State -->
         <div
           v-else-if="!filteredReports.length"
           class="flex flex-1 flex-col items-center justify-center p-6 text-center text-ink-muted"
         >
-          <FileText class="h-7 w-7 text-ink-subtle mb-1.5" />
-          <div class="text-xs font-semibold text-ink-primary">{{ t("reports.empty_title") }}</div>
-          <p class="mt-1 text-[11px] text-ink-muted max-w-xs">{{ t("reports.empty_desc") }}</p>
+          <span class="mb-2 grid h-11 w-11 place-items-center rounded-[12px] bg-ink-primary/[0.05]">
+            <FileText class="h-5 w-5 text-ink-subtle" />
+          </span>
+          <div class="text-callout font-semibold text-ink-primary">{{ t("reports.empty_title") }}</div>
+          <p class="mt-1 max-w-xs text-footnote text-ink-muted">{{ t("reports.empty_desc") }}</p>
         </div>
 
-        <!-- Scrollable Report Cards List -->
-        <div v-else class="flex-1 overflow-y-auto divide-y divide-subtle/50 p-1.5 space-y-1">
+        <div v-else class="flex-1 space-y-0.5 overflow-y-auto px-1.5 pb-1.5">
           <article
             v-for="r in filteredReports"
             :key="r.id"
-            class="group relative rounded-md border transition-all cursor-pointer p-2.5 text-left"
-            :class="
-              r.id === selectedReportId
-                ? 'border-accent bg-accent-soft/30 shadow-xs ring-1 ring-accent'
-                : 'border-transparent bg-surface hover:border-subtle hover:bg-surface-muted/60'
-            "
+            class="doc-row"
+            :data-selected="r.id === selectedReportId ? 'true' : 'false'"
             @click="selectReport(r)"
           >
-            <!-- Top line: Company Name + Status badge -->
-            <div class="flex items-center justify-between gap-1.5 text-xs">
-              <span class="truncate font-semibold uppercase tracking-wider text-accent text-[11px]">
-                {{ r.company_name || r.company_id }}
-              </span>
-
-              <!-- Status Badge -->
-              <span
-                v-if="normalizeStatus(r.status) === 'complete'"
-                class="inline-flex shrink-0 items-center gap-1 rounded bg-success-soft px-1.5 py-0.5 text-[10px] font-medium text-success-ink"
-              >
-                <CheckCircle2 class="h-2.5 w-2.5" />
-                {{ t("reports.status_complete") }}
-              </span>
-              <span
-                v-else-if="normalizeStatus(r.status) === 'running'"
-                class="inline-flex shrink-0 items-center gap-1 rounded bg-info-soft px-1.5 py-0.5 text-[10px] font-medium text-info-ink"
-              >
-                <Loader2 class="h-2.5 w-2.5 animate-spin" />
-                {{ t("reports.status_running") }}
-              </span>
-              <span
-                v-else-if="normalizeStatus(r.status) === 'needs_attention'"
-                class="inline-flex shrink-0 items-center gap-1 rounded bg-warning-soft px-1.5 py-0.5 text-[10px] font-medium text-warning-ink"
-              >
-                <AlertCircle class="h-2.5 w-2.5" />
-                {{ t("reports.status_needs_attention") }}
-              </span>
-              <span
-                v-else
-                class="inline-flex shrink-0 items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-danger"
-              >
-                {{ t("reports.status_failed") }}
-              </span>
-            </div>
-
-            <!-- Second line: Report Title & Date -->
-            <div class="mt-1 flex items-baseline justify-between gap-2">
-              <h3 class="truncate text-xs font-medium text-ink-primary" :title="r.title || reportKindLabel(r.kind || r.report_type)">
-                {{ r.title || reportKindLabel(r.kind || r.report_type) }}
-              </h3>
-              <span class="shrink-0 text-[10px] text-ink-muted">
-                {{ fmtDate(r.created_at) }}
-              </span>
-            </div>
-
-            <!-- Third line: Language Chips, Quality Lint, Quick Actions -->
-            <div class="mt-1.5 flex items-center justify-between gap-2 text-[10px]">
-              <div class="flex items-center gap-1">
-                <span
-                  v-for="lang in Object.keys(r.download_urls || {})"
-                  :key="lang"
-                  class="rounded bg-surface-muted px-1 py-0.2 font-mono text-[9px] uppercase font-semibold text-ink-secondary border border-subtle"
-                >
-                  {{ lang }}
+            <Monogram
+              :company="{ id: r.company_id, name: r.company_name || r.company_id }"
+              :size="34"
+              tinted
+              class="mt-0.5"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="truncate text-callout font-semibold text-ink-primary">
+                  {{ r.company_name || r.company_id }}
                 </span>
-                <span
-                  v-if="r.memo_quality_lint?.overall_score != null"
-                  class="inline-flex items-center gap-0.5 rounded bg-surface px-1 py-0.2 text-[9px] font-mono border border-subtle text-accent"
-                  :title="`Quality Score: ${r.memo_quality_lint.overall_score}`"
-                >
-                  <Sparkles class="h-2 w-2" />
-                  {{ r.memo_quality_lint.overall_score }}
+                <span class="shrink-0 text-caption1 text-ink-muted tabular">
+                  {{ fmtDate(r.created_at) }}
                 </span>
               </div>
 
-              <div class="flex items-center gap-1.5">
-                <RouterLink
-                  v-if="r.company_id"
-                  :to="{ name: 'research', params: { companyId: r.company_id }, query: { tab: 'memo', report: r.id } }"
-                  class="text-ink-muted hover:text-ink-primary hover:underline"
-                  @click.stop
+              <div class="mt-0.5 flex items-center justify-between gap-2">
+                <h3 class="truncate text-footnote text-ink-secondary" :title="r.title || reportKindLabel(r.kind || r.report_type)">
+                  {{ r.title || reportKindLabel(r.kind || r.report_type) }}
+                </h3>
+                <span
+                  v-if="normalizeStatus(r.status) === 'complete'"
+                  class="chip shrink-0 bg-success-soft text-success-ink"
                 >
-                  {{ t("reports.open_report") }}
-                </RouterLink>
+                  <CheckCircle2 class="h-3 w-3" />
+                  {{ t("reports.status_complete") }}
+                </span>
+                <span
+                  v-else-if="normalizeStatus(r.status) === 'running'"
+                  class="chip shrink-0 bg-info-soft text-info-ink"
+                >
+                  <Loader2 class="h-3 w-3 animate-spin" />
+                  {{ t("reports.status_running") }}
+                </span>
+                <span
+                  v-else-if="normalizeStatus(r.status) === 'needs_attention'"
+                  class="chip shrink-0 bg-warning-soft text-warning-ink"
+                >
+                  <AlertCircle class="h-3 w-3" />
+                  {{ t("reports.status_needs_attention") }}
+                </span>
+                <span
+                  v-else
+                  class="chip shrink-0 bg-danger-soft text-danger-ink"
+                >
+                  {{ t("reports.status_failed") }}
+                </span>
+              </div>
 
-                <a
-                  v-if="r.download_urls?.en"
-                  :href="withApiToken(r.download_urls.en)"
-                  class="inline-flex items-center gap-0.5 rounded border border-subtle px-1 text-[9px] text-ink-muted hover:text-ink-primary hover:bg-surface-muted"
-                  :title="t('research.download_en')"
-                  @click.stop
-                >
-                  <Download class="h-2.5 w-2.5" />
-                  <span>EN</span>
-                </a>
+              <div class="mt-1.5 flex items-center justify-between gap-2 text-caption1">
+                <div class="flex items-center gap-1">
+                  <span
+                    v-for="lang in Object.keys(r.download_urls || {})"
+                    :key="lang"
+                    class="rounded-[5px] bg-ink-primary/[0.06] px-1.5 py-px text-caption2 font-semibold uppercase text-ink-secondary"
+                  >
+                    {{ lang }}
+                  </span>
+                  <span
+                    v-if="r.memo_quality_lint?.overall_score != null"
+                    class="inline-flex items-center gap-0.5 rounded-[5px] bg-accent/10 px-1.5 py-px text-caption2 font-semibold text-accent-ink tabular"
+                    :title="`Quality Score: ${r.memo_quality_lint.overall_score}`"
+                  >
+                    <Sparkles class="h-2.5 w-2.5" />
+                    {{ r.memo_quality_lint.overall_score }}
+                  </span>
+                </div>
 
-                <a
-                  v-if="r.download_urls?.zh"
-                  :href="withApiToken(r.download_urls.zh)"
-                  class="inline-flex items-center gap-0.5 rounded border border-subtle px-1 text-[9px] text-ink-muted hover:text-ink-primary hover:bg-surface-muted"
-                  :title="t('research.download_zh')"
-                  @click.stop
-                >
-                  <Download class="h-2.5 w-2.5" />
-                  <span>ZH</span>
-                </a>
+                <div class="flex items-center gap-2">
+                  <RouterLink
+                    v-if="r.company_id"
+                    :to="{ name: 'research', params: { companyId: r.company_id }, query: { tab: 'memo', report: r.id } }"
+                    class="font-medium text-accent-ink hover:underline"
+                    @click.stop
+                  >
+                    {{ t("reports.open_report") }}
+                  </RouterLink>
+
+                  <a
+                    v-if="r.download_urls?.en"
+                    :href="withApiToken(r.download_urls.en)"
+                    class="inline-flex items-center gap-0.5 rounded-[5px] px-1 text-ink-muted hover:bg-ink-primary/[0.06] hover:text-ink-primary"
+                    :title="t('research.download_en')"
+                    @click.stop
+                  >
+                    <Download class="h-3 w-3" />
+                    <span>EN</span>
+                  </a>
+
+                  <a
+                    v-if="r.download_urls?.zh"
+                    :href="withApiToken(r.download_urls.zh)"
+                    class="inline-flex items-center gap-0.5 rounded-[5px] px-1 text-ink-muted hover:bg-ink-primary/[0.06] hover:text-ink-primary"
+                    :title="t('research.download_zh')"
+                    @click.stop
+                  >
+                    <Download class="h-3 w-3" />
+                    <span>ZH</span>
+                  </a>
+                </div>
               </div>
             </div>
           </article>
         </div>
       </aside>
 
-      <!-- Detail Document Viewer Window (Right Pane - Edge-to-Edge) -->
-      <section class="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-surface-muted/20">
+      <section class="desk-card flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <DocumentViewerWindow
           :title="activeReport?.title || (activeReport ? `${activeReport.company_name || activeReport.company_id} — ${reportKindLabel(activeReport.kind || activeReport.report_type)}` : '')"
           :company-name="activeReport?.company_name || activeReport?.company_id || ''"

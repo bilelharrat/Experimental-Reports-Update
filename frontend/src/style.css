@@ -2,135 +2,164 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ---------------------------------------------------------------------------
-   BSH Research Center — design tokens.
+/* ===========================================================================
+   BSH Research Center — Summit Glass.
 
-   The visual language follows the Apple Human Interface Guidelines, using the
-   macOS/iPadOS idiom: a translucent source-list sidebar, a vibrant toolbar,
-   grouped content on a recessed canvas, and the system color palette.
+   The web sibling of the Mac terminal (ios/BSHResearchMac/Views/MacDesign.swift
+   and MacGlassStyles.swift). Content sits on calm white cards drawn with
+   hairlines, not shadows; Liquid Glass is reserved for chrome — the floating
+   sidebar and inspector, toolbar capsules, menus, sheets, and the levitating
+   selection pill. What is ours alone: a canvas lit from above ("summit
+   light"), selection that glides between rows instead of blinking, and
+   floating side panels that frame the page.
 
    Colors are RGB triplets (no rgb() wrapper) so Tailwind can apply
-   <alpha-value>; see tailwind.config.cjs.
---------------------------------------------------------------------------- */
+   <alpha-value>; see tailwind.config.cjs. Class names predate this pass and
+   are kept so every view inherits the language without template churn.
+=========================================================================== */
 
 :root {
   color-scheme: light;
+  accent-color: rgb(var(--color-accent));
 
-  /* Backgrounds: Apple's grouped-background model — a recessed canvas with
-     white content surfaces sitting on top of it. */
-  --color-canvas: 242 242 247; /* systemGroupedBackground */
+  /* Canvas and surfaces: a quiet neutral that white cards lift off of. */
+  --color-canvas: 244 244 246;
   --color-surface: 255 255 255;
-  --color-surface-muted: 239 239 244;
+  --color-surface-muted: 248 248 250;
   --color-surface-raised: 255 255 255;
 
-  /* Separators. */
-  --color-border-subtle: 210 210 215;
-  --color-border-strong: 198 198 200; /* opaqueSeparator */
+  /* Hairlines. Apple draws separators as faint ink, never solid gray. */
+  --color-border-subtle: 228 228 233;
+  --color-border-strong: 208 208 214;
 
-  /* Label hierarchy. Apple specifies these as black at decreasing opacities;
-     resolved to solids so the tokens stay composable. */
-  --color-text-primary: 0 0 0;            /* label */
-  --color-text-secondary: 99 99 102;      /* secondaryLabel, resolved */
-  --color-text-muted: 142 142 147;        /* systemGray / tertiaryLabel */
-  --color-text-subtle: 174 174 178;       /* systemGray2 */
+  /* Label hierarchy on white. Primary is Apple's near-black, not #000. */
+  --color-text-primary: 29 29 31;
+  --color-text-secondary: 88 88 94;
+  --color-text-muted: 122 122 128;
+  --color-text-subtle: 162 162 168;
 
-  /* Fill hierarchy — resolved systemFill values on a white grouped surface. */
-  --color-fill: 227 227 232;
-  --color-fill-secondary: 232 232 237;
-  --color-fill-tertiary: 238 238 241;
+  /* Fills for tiles, tracks, and hover states. */
+  --color-fill: 229 229 234;
+  --color-fill-secondary: 235 235 239;
+  --color-fill-tertiary: 242 242 245;
 
-  /* Tint: sky blue with a Tiffany lightness — more blue, less cyan. */
-  --color-accent: 56 168 232;             /* #38A8E8 */
-  --color-accent-hover: 32 140 208;
-  --color-accent-soft: 224 242 252;
-  --color-accent-ink: 16 112 168;
+  /* Summit blue: the brand sky hue, deep enough to carry white text.
+     The original sky survives as the glow used for halos and light. */
+  --color-accent: 11 135 214;
+  --color-accent-hover: 6 118 192;
+  --color-accent-soft: 229 243 253;
+  --color-accent-ink: 4 104 174;
+  --color-accent-glow: 56 168 232;
 
-  /* Semantic colors from the Apple system palette (light). */
-  --color-success: 52 199 89;             /* systemGreen */
-  --color-success-soft: 230 247 233;
-  --color-success-ink: 36 138 61;
-  --color-warning: 255 149 0;             /* systemOrange */
+  /* Semantic colors: the Apple system palette, deepened a step where the
+     color carries small numbers on white. */
+  --color-success: 36 164 78;
+  --color-success-soft: 230 246 235;
+  --color-success-ink: 22 128 58;
+  --color-warning: 255 149 0;
   --color-warning-soft: 255 243 224;
-  --color-warning-ink: 201 82 0;
-  --color-danger: 255 59 48;              /* systemRed */
-  --color-danger-soft: 255 234 232;
-  --color-danger-ink: 215 0 21;
-  /* Info / progress — indigo, so accent blue stays for selection & links. */
-  --color-info: 88 86 214;                /* systemIndigo */
-  --color-info-soft: 236 235 252;
-  --color-info-ink: 54 52 163;
-  /* Soft attention — yellow “heads up,” not orange caution. */
-  --color-notice: 255 204 0;              /* systemYellow */
-  --color-notice-soft: 255 249 230;
-  --color-notice-ink: 161 110 0;
-  /* Categorical accents for badges / charts — not chrome. */
-  --color-teal: 48 176 199;               /* systemTeal */
-  --color-teal-soft: 224 246 250;
-  --color-teal-ink: 14 110 128;
-  --color-purple: 175 82 222;             /* systemPurple */
-  --color-purple-soft: 246 236 252;
-  --color-purple-ink: 128 48 168;
+  --color-warning-ink: 190 86 0;
+  --color-danger: 240 56 46;
+  --color-danger-soft: 254 236 234;
+  --color-danger-ink: 200 30 30;
+  --color-info: 88 86 214;
+  --color-info-soft: 237 236 252;
+  --color-info-ink: 60 58 170;
+  --color-notice: 255 196 0;
+  --color-notice-soft: 255 248 225;
+  --color-notice-ink: 150 104 0;
+  --color-teal: 40 168 192;
+  --color-teal-soft: 226 245 249;
+  --color-teal-ink: 12 108 126;
+  --color-purple: 175 82 222;
+  --color-purple-soft: 245 236 252;
+  --color-purple-ink: 124 46 164;
 
-  /* Materials: translucency + blur is the defining characteristic of Apple
-     chrome. Applied to the sidebar, toolbar, cards, and sheets. */
-  --material-bar: rgba(249, 249, 251, 0.5);
-  --material-sidebar: rgba(246, 246, 249, 0.5);
-  --material-menu: rgba(252, 252, 254, 0.72);
-  --material-blur: saturate(160%) blur(28px);
-  --glass-card: rgba(255, 255, 255, 0.48);
-  --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.9);
-  --scrim: rgba(0, 0, 0, 0.28);
+  /* Liquid Glass. Fill + blur + saturation, a specular rim on the top edge,
+     a hairline so glass still reads over white, and a soft lift. */
+  --glass-fill: rgba(250, 250, 252, 0.68);
+  --glass-fill-strong: rgba(253, 253, 254, 0.84);
+  --glass-pill: rgba(255, 255, 255, 0.9);
+  --glass-blur: blur(26px) saturate(185%);
+  --glass-blur-soft: blur(14px) saturate(170%);
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 0 0 0.5px rgba(255, 255, 255, 0.55);
+  --glass-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  --glass-shadow: 0 1px 1px rgba(0, 0, 0, 0.03), 0 12px 32px -8px rgba(0, 0, 0, 0.14);
+  --pill-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.07), 0 0.5px 1px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.12);
+  --scrim: rgba(18, 18, 24, 0.22);
 
-  /* Elevation. Apple keeps resting shadows nearly invisible and reserves real
-     depth for presented surfaces. */
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.05);
-  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
-  --shadow-sheet: 0 24px 64px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.08);
+  /* Legacy material names, now glass. */
+  --material-bar: rgba(244, 244, 246, 0.82);
+  --material-sidebar: var(--glass-fill);
+  --material-menu: rgba(250, 250, 252, 0.8);
+  --material-blur: var(--glass-blur);
+  --glass-card: rgb(var(--color-surface));
 
-  /* Motion. The spring curve overshoots slightly — Apple's levitation
-     settle, used only on transforms. */
+  /* Elevation. Resting cards get a hairline and almost no shadow; real depth
+     is reserved for presented surfaces. */
+  --shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.075), 0 1px 2px rgba(0, 0, 0, 0.035);
+  --shadow-hover: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 8px 22px -6px rgba(0, 0, 0, 0.14);
+  --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 32px 80px -16px rgba(0, 0, 0, 0.3), 0 8px 20px -10px rgba(0, 0, 0, 0.12);
+  --shadow-control: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 1px 1.5px rgba(0, 0, 0, 0.06);
+
+  /* Motion. Springs are generated from SwiftUI-style response/damping
+     pairs (see the @supports block); the cubic curves are fallbacks. */
   --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
   --ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring: cubic-bezier(0.3, 1.25, 0.6, 1);
+  --ease-spring-lift: cubic-bezier(0.34, 1.56, 0.64, 1);
   --duration-fast: 150ms;
   --duration-base: 240ms;
+  --duration-spring: 520ms;
 
   --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "Segoe UI", Roboto, sans-serif;
+    "PingFang SC", "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, monospace;
 
-  /* Legacy aliases — leftover one-off references (checkboxes, old CSS). */
+  /* Legacy aliases for one-off references. */
   --tiffany: rgb(56, 168, 232);
-  --tiffany-dark: rgb(32, 140, 208);
-  --coral: rgb(255, 59, 48);
+  --tiffany-dark: rgb(11, 135, 214);
+  --coral: rgb(240, 56, 46);
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    /* .spring(response: 0.32, dampingFraction: 0.78) — gliders and thumbs. */
+    --ease-spring: linear(0, 0.012 1.6%, 0.055 3.6%, 0.141 6.1%, 0.268 9.2%, 0.42 12.7%, 0.578 16.6%,
+      0.724 20.8%, 0.843 25.4%, 0.929 30.4%, 0.983 35.7%, 1.01 41.3%, 1.019 47.1%, 1.018 53.3%,
+      1.013 59.8%, 1.008 66.5%, 1.004 73.5%, 1.001 80.8%, 1);
+    /* .spring(response: 0.42, dampingFraction: 0.62) — the levitation lift. */
+    --ease-spring-lift: linear(0, 0.015 1.6%, 0.07 3.6%, 0.18 6.1%, 0.341 9.2%, 0.533 12.7%, 0.726 16.6%,
+      0.89 20.8%, 1.006 25.4%, 1.068 30.4%, 1.083 35.7%, 1.069 41.3%, 1.042 47.1%, 1.017 53.3%,
+      1.001 59.8%, 0.994 66.5%, 0.993 73.5%, 0.996 80.8%, 0.999 92.1%, 1);
+  }
 }
 
 .dark {
   color-scheme: dark;
 
-  --color-canvas: 0 0 0;
-  --color-surface: 28 28 30;
-  --color-surface-muted: 44 44 46;
-  --color-surface-raised: 44 44 46;
+  --color-canvas: 17 17 19;
+  --color-surface: 28 28 31;
+  --color-surface-muted: 34 34 37;
+  --color-surface-raised: 40 40 44;
 
-  --color-border-subtle: 56 56 58;
-  --color-border-strong: 72 72 74;
+  --color-border-subtle: 52 52 57;
+  --color-border-strong: 70 70 76;
 
-  --color-text-primary: 255 255 255;
-  --color-text-secondary: 158 158 164;
-  --color-text-muted: 134 134 139;
-  --color-text-subtle: 99 99 102;
+  --color-text-primary: 245 245 247;
+  --color-text-secondary: 178 178 184;
+  --color-text-muted: 140 140 147;
+  --color-text-subtle: 102 102 108;
 
-  --color-fill: 58 58 60;
-  --color-fill-secondary: 56 56 58;
-  --color-fill-tertiary: 44 44 46;
+  --color-fill: 56 56 61;
+  --color-fill-secondary: 48 48 53;
+  --color-fill-tertiary: 40 40 44;
 
-  /* Apple brightens tints in dark mode so they hold contrast on black. */
-  --color-accent: 56 168 232;
-  --color-accent-hover: 32 140 208;
-  --color-accent-soft: 12 40 64;
-  --color-accent-ink: 56 168 232;
+  --color-accent: 38 150 234;
+  --color-accent-hover: 64 166 240;
+  --color-accent-soft: 15 44 68;
+  --color-accent-ink: 112 190 248;
+  --color-accent-glow: 64 176 240;
 
   --color-success: 48 209 88;
   --color-success-soft: 16 51 28;
@@ -141,10 +170,10 @@
   --color-danger: 255 69 58;
   --color-danger-soft: 59 21 19;
   --color-danger-ink: 255 179 174;
-  --color-info: 94 92 230;                /* systemIndigo (dark) */
+  --color-info: 94 92 230;
   --color-info-soft: 28 28 64;
   --color-info-ink: 170 168 255;
-  --color-notice: 255 214 10;             /* systemYellow (dark) */
+  --color-notice: 255 214 10;
   --color-notice-soft: 58 48 8;
   --color-notice-ink: 255 230 140;
   --color-teal: 64 200 224;
@@ -154,22 +183,32 @@
   --color-purple-soft: 48 24 64;
   --color-purple-ink: 220 170 255;
 
-  --material-bar: rgba(30, 30, 32, 0.5);
-  --material-sidebar: rgba(24, 24, 26, 0.5);
-  --material-menu: rgba(44, 44, 46, 0.78);
-  --glass-card: rgba(44, 44, 46, 0.42);
-  --glass-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.1);
+  --glass-fill: rgba(34, 34, 38, 0.64);
+  --glass-fill-strong: rgba(40, 40, 44, 0.86);
+  --glass-pill: rgba(255, 255, 255, 0.13);
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+  --glass-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.65);
+  --glass-shadow: 0 1px 1px rgba(0, 0, 0, 0.3), 0 14px 38px -8px rgba(0, 0, 0, 0.62);
+  --pill-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 0.5px 1px rgba(0, 0, 0, 0.4), 0 4px 12px -2px rgba(0, 0, 0, 0.55);
   --scrim: rgba(0, 0, 0, 0.5);
 
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.5);
-  --shadow-sheet: 0 24px 64px rgba(0, 0, 0, 0.6);
-  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --material-bar: rgba(17, 17, 19, 0.8);
+  --material-menu: rgba(40, 40, 44, 0.82);
+
+  --shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.075), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 10px 26px -6px rgba(0, 0, 0, 0.65);
+  --shadow-sheet: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 32px 80px -16px rgba(0, 0, 0, 0.72);
+  --shadow-control: 0 0 0 0.5px rgba(255, 255, 255, 0.13), 0 1px 1.5px rgba(0, 0, 0, 0.5);
 }
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
 
 html {
   background-color: rgb(var(--color-canvas));
   color: rgb(var(--color-text-primary));
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -182,30 +221,40 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Ambient wash under the glass: an extremely subtle wallpaper-like gradient so
-   the blurred materials have light to refract. Fixed so glass "moves over" it
-   when scrolling, exactly like iOS. */
-.canvas-wash {
-  background-image:
-    radial-gradient(52rem 36rem at 12% -6%, rgba(125, 170, 225, 0.4), transparent 60%),
-    radial-gradient(46rem 32rem at 88% 2%, rgba(196, 165, 220, 0.32), transparent 58%),
-    radial-gradient(40rem 30rem at 30% 55%, rgba(150, 200, 235, 0.24), transparent 60%),
-    radial-gradient(58rem 42rem at 78% 108%, rgba(235, 190, 160, 0.3), transparent 62%);
-  background-attachment: fixed;
+::selection {
+  background-color: rgb(var(--color-accent-glow) / 0.28);
 }
 
-.dark .canvas-wash {
-  background-image:
-    radial-gradient(52rem 36rem at 12% -6%, rgba(58, 86, 138, 0.5), transparent 60%),
-    radial-gradient(46rem 32rem at 88% 2%, rgba(96, 66, 128, 0.38), transparent 58%),
-    radial-gradient(40rem 30rem at 30% 55%, rgba(44, 88, 120, 0.3), transparent 60%),
-    radial-gradient(58rem 42rem at 78% 108%, rgba(120, 74, 52, 0.32), transparent 62%);
+/* Summit light: the canvas is lit from above — a sky glow over the sidebar
+   corner, a faint violet across the top right. Painted on a fixed layer so
+   glass slides over it while scrolling without repainting the gradient. */
+.canvas-wash {
+  position: relative;
+  isolation: isolate;
+}
+
+.canvas-wash::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(62rem 30rem at 6% -9rem, rgb(var(--color-accent-glow) / 0.17), transparent 70%),
+    radial-gradient(50rem 26rem at 96% -8rem, rgb(170 150 238 / 0.11), transparent 70%),
+    radial-gradient(70rem 40rem at 55% 118%, rgb(var(--color-accent-glow) / 0.05), transparent 70%);
+}
+
+.dark .canvas-wash::before {
+  background:
+    radial-gradient(62rem 30rem at 6% -9rem, rgb(var(--color-accent-glow) / 0.16), transparent 70%),
+    radial-gradient(50rem 26rem at 96% -8rem, rgb(130 106 230 / 0.12), transparent 70%);
 }
 
 h1,
 h2,
 h3 {
-  letter-spacing: -0.021em;
+  letter-spacing: -0.02em;
 }
 
 /* Apple sets numerals in tabular figures wherever values align in columns. */
@@ -230,7 +279,7 @@ table,
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: rgb(var(--color-text-subtle) / 0.45);
+  background-color: rgb(var(--color-text-subtle) / 0.4);
   border: 3px solid transparent;
   border-radius: 99px;
   background-clip: content-box;
@@ -241,360 +290,342 @@ table,
 }
 
 /* ---------------------------------------------------------------------------
-   Materials
---------------------------------------------------------------------------- */
-
-/* Materials separate with light, not lines: a soft shadow instead of a
-   hairline where glass meets glass. */
-.material-bar {
-  background-color: var(--material-bar);
-  backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
-  box-shadow: 0 1px 16px rgba(0, 0, 0, 0.06);
-}
-
-.dark .material-bar {
-  box-shadow: 0 1px 16px rgba(0, 0, 0, 0.55);
-}
-
-.material-sidebar {
-  background-color: var(--material-sidebar);
-  backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
-}
-
-.material-menu {
-  background-color: var(--material-menu);
-  backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
-}
-
-/* Fallback: without backdrop-filter, translucency turns to mud. Go opaque. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .material-bar,
-  .material-sidebar,
-  .material-menu,
-  .material-glass {
-    background-color: rgb(var(--color-surface));
-  }
-}
-
-/* Home search module: one glass plate, field + actions, like Spotlight. */
-.material-glass {
-  background-color: rgba(255, 255, 255, 0.46);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
-  box-shadow:
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.45),
-    0 10px 32px rgba(0, 0, 0, 0.06);
-  transition: background-color var(--duration-base) var(--ease-standard),
-    box-shadow var(--duration-base) var(--ease-standard);
-}
-
-/* Spotlight bloom: the plate brightens and deepens when it's listening. */
-.material-glass:focus-within {
-  background-color: rgba(255, 255, 255, 0.64);
-  box-shadow:
-    inset 0 0.5px 0 rgba(255, 255, 255, 1),
-    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55),
-    0 18px 48px rgba(0, 0, 0, 0.1);
-}
-
-.dark .material-glass {
-  background-color: rgba(44, 44, 46, 0.42);
-  box-shadow:
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.14),
-    0 0 0 0.5px rgba(255, 255, 255, 0.08),
-    0 10px 32px rgba(0, 0, 0, 0.4);
-}
-
-.dark .material-glass:focus-within {
-  background-color: rgba(58, 58, 60, 0.56);
-  box-shadow:
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.2),
-    0 0 0 0.5px rgba(255, 255, 255, 0.12),
-    0 18px 48px rgba(0, 0, 0, 0.55);
-}
-
-.home-hero-glow {
-  pointer-events: none;
-  position: absolute;
-  left: 50%;
-  top: 0;
-  z-index: 0;
-  height: 24rem;
-  width: min(44rem, 100%);
-  transform: translateX(-50%);
-  background: radial-gradient(
-    ellipse 75% 58% at 50% 36%,
-    rgba(255, 255, 255, 0.7),
-    rgba(255, 255, 255, 0.18) 40%,
-    transparent 72%
-  );
-}
-
-.dark .home-hero-glow {
-  display: none;
-}
-
-.home-title {
-  display: flex;
-  justify-content: center;
-  margin: 0;
-}
-
-/* The letters themselves are frost — silver glass fill, not ink. */
-.home-title-stack {
-  position: relative;
-  display: inline-block;
-}
-
-.home-title-stack::before {
-  content: "";
-  position: absolute;
-  inset: -0.18em -0.4em;
-  z-index: -1;
-  border-radius: 999px;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.38) 0%,
-    rgba(255, 255, 255, 0.1) 100%
-  );
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    0 0 0 0.5px rgba(255, 255, 255, 0.45);
-}
-
-.home-title-depth,
-.home-title-fill {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    sans-serif;
-  font-size: 2.125rem;
-  line-height: 1.12;
-  font-weight: 700;
-  letter-spacing: -0.028em;
-  -webkit-font-smoothing: antialiased;
-}
-
-.home-title-depth {
-  position: absolute;
-  left: 0;
-  top: 0;
-  color: rgba(0, 0, 0, 0.28);
-  transform: translate(0.4px, 1.2px);
-  user-select: none;
-  pointer-events: none;
-}
-
-.home-title-fill {
-  position: relative;
-  color: rgba(161, 161, 166, 0.96);
-  background-image: linear-gradient(
-    185deg,
-    #c8c8cd 0%,
-    rgba(178, 178, 182, 0.94) 36%,
-    rgba(159, 159, 163, 0.92) 62%,
-    #bcbcc1 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.14);
-  filter:
-    drop-shadow(0 0.5px 0 rgba(255, 255, 255, 0.9))
-    drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.16));
-}
-
-.dark .home-title-stack::before {
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
-}
-
-.dark .home-title-depth {
-  display: none;
-}
-
-.dark .home-title-fill {
-  color: rgba(255, 255, 255, 0.88);
-  background-image: linear-gradient(
-    185deg,
-    rgba(255, 255, 255, 0.92) 0%,
-    rgba(220, 220, 224, 0.78) 50%,
-    rgba(255, 255, 255, 0.86) 100%
-  );
-  -webkit-text-stroke: 0;
-  filter: none;
-}
-
-/* Sidebar brand mark — same frost type as .home-title, compact size. */
-.brand-mark {
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-}
-
-.brand-mark-depth,
-.brand-mark-fill {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
-    sans-serif;
-  font-size: 13px;
-  line-height: 1.15;
-  font-weight: 700;
-  letter-spacing: -0.028em;
-  white-space: nowrap;
-  -webkit-font-smoothing: antialiased;
-}
-
-.brand-mark-depth {
-  position: absolute;
-  left: 0;
-  top: 0;
-  color: rgba(0, 0, 0, 0.28);
-  transform: translate(0.3px, 0.8px);
-  user-select: none;
-  pointer-events: none;
-}
-
-.brand-mark-fill {
-  position: relative;
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(113, 113, 116, 0.96);
-  background-image: linear-gradient(
-    185deg,
-    #8c8c8f 0%,
-    rgba(125, 125, 127, 0.94) 36%,
-    rgba(111, 111, 114, 0.92) 62%,
-    #848487 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.18);
-  filter:
-    drop-shadow(0 0.5px 0 rgba(255, 255, 255, 0.75))
-    drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.2));
-}
-
-.dark .brand-mark-depth {
-  display: none;
-}
-
-.dark .brand-mark-fill {
-  color: rgba(255, 255, 255, 0.88);
-  background-image: linear-gradient(
-    185deg,
-    rgba(255, 255, 255, 0.92) 0%,
-    rgba(220, 220, 224, 0.78) 50%,
-    rgba(255, 255, 255, 0.86) 100%
-  );
-  -webkit-text-stroke: 0;
-  filter: none;
-}
-
-.home-search-field {
-  @apply w-full bg-transparent py-3.5 pl-12 pr-12 text-[17px] font-normal text-ink-primary placeholder:text-ink-muted;
-  letter-spacing: -0.022em;
-}
-
-.home-search-field:focus {
-  outline: none;
-}
-
-.home-action {
-  @apply flex items-center justify-center gap-1.5 rounded-subbox px-2 py-2 text-[12px] font-medium text-ink-secondary;
-  letter-spacing: -0.01em;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-base) var(--ease-spring),
-    box-shadow var(--duration-base) var(--ease-standard);
-}
-
-.home-action:hover {
-  background-color: rgb(var(--color-surface) / 0.95);
-  color: rgb(var(--color-text-primary));
-  transform: translateY(-1.5px);
-  box-shadow:
-    0 6px 16px rgba(0, 0, 0, 0.12),
-    0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.home-action:active {
-  transform: translateY(0) scale(0.98);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
-.home-action[data-selected="true"] {
-  background-color: rgb(var(--color-accent) / 0.14);
-  color: rgb(var(--color-accent-ink));
-  transform: translateY(-1.5px);
-  box-shadow:
-    0 6px 16px rgb(var(--color-accent) / 0.26),
-    0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.home-action[data-selected="true"]:hover {
-  background-color: rgb(var(--color-accent) / 0.22);
-  color: rgb(var(--color-accent-ink));
-  transform: translateY(-2.5px);
-  box-shadow:
-    0 9px 22px rgb(var(--color-accent) / 0.3),
-    0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-/* Hairline separators. Apple's dividers are sub-pixel on retina displays. */
-.hairline-b {
-  box-shadow: inset 0 -1px 0 rgb(var(--color-border-subtle) / 0.7);
-}
-
-.hairline-t {
-  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle) / 0.7);
-}
-
-.hairline-r {
-  box-shadow: inset -1px 0 0 rgb(var(--color-border-subtle) / 0.7);
-}
-
-.hairline-l {
-  box-shadow: inset 1px 0 0 rgb(var(--color-border-subtle) / 0.7);
-}
-
-/* ---------------------------------------------------------------------------
    Typography helpers
 --------------------------------------------------------------------------- */
 
-/* Apple does not shout in all-caps section headers; sidebar and group headers
-   are small, semibold, and sentence-cased. Kept under the original class name
-   so the ~35 existing call sites inherit the new treatment. */
-.vogue-label {
+/* Section label: small, semibold, sentence-cased — never shouting caps.
+   Kept under its original name for the existing call sites. */
+.vogue-label,
+.section-label {
   @apply text-footnote font-semibold text-ink-muted;
   letter-spacing: -0.003em;
   text-transform: none;
 }
 
+/* Numbers are SF Pro with tabular figures, like the Mac's monospacedDigit(),
+   not a terminal face. */
 .mono-data {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.01em;
+}
+
+.kbd {
+  @apply inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-[5px] px-1 text-caption1 font-medium text-ink-muted;
+  font-family: var(--font-sans);
+  background-color: rgb(var(--color-surface));
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.14), 0 1px 0 rgb(0 0 0 / 0.08);
+}
+
+.dark .kbd {
+  background-color: rgb(255 255 255 / 0.08);
+  box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.14);
+}
+
+/* ---------------------------------------------------------------------------
+   Glass materials
+--------------------------------------------------------------------------- */
+
+/* Chrome glass is painted on ::before, never on the host. An element with
+   backdrop-filter becomes a backdrop root, and anything nested inside it
+   (a menu under a toolbar capsule, a popover in the sidebar) could then only
+   blur its parent, not the page. Hosts must be positioned: relative, sticky,
+   fixed or absolute. */
+.glass-panel,
+.glass-capsule {
+  isolation: isolate;
+}
+
+.glass-panel::before,
+.glass-capsule::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Floating chrome panels: the sidebar and the Ask inspector. */
+.glass-panel::before {
+  background-color: var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-edge), var(--glass-shadow);
+}
+
+.material-sidebar,
+.rail-gradient {
+  background-color: var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-edge), var(--glass-shadow);
+}
+
+/* A toolbar group: several controls sharing one capsule of glass. */
+.glass-capsule {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+}
+
+.glass-capsule::before {
+  background-color: var(--glass-fill-strong);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
+  box-shadow:
+    var(--glass-rim),
+    var(--glass-edge),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 6px 16px -6px rgba(0, 0, 0, 0.12);
+}
+
+/* Toolbar search: a capsule well with the ⌘K key cap tucked inside. */
+.toolbar-search {
+  @apply h-9 w-full rounded-full border-0 pl-8 pr-12 text-[13px] text-ink-primary placeholder:text-ink-muted;
+  letter-spacing: -0.006em;
+  background-color: var(--glass-fill-strong);
+  box-shadow:
+    var(--glass-rim),
+    var(--glass-edge),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 6px 16px -6px rgba(0, 0, 0, 0.1);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.toolbar-search:focus {
+  outline: none;
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.8), 0 0 0 3.5px rgb(var(--color-accent-glow) / 0.3);
+}
+
+.toolbar-search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.glass-capsule-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 7px 2px;
+  background-color: rgb(var(--color-text-primary) / 0.1);
+}
+
+/* The levitating selection surface, ported from GlassPillSurface: bright
+   fill, a specular rim, a contact shadow and a soft drop shadow. */
+.glass-pill {
+  background-color: var(--glass-pill);
+  backdrop-filter: blur(10px) saturate(180%);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  box-shadow: var(--glass-rim), var(--pill-shadow);
+}
+
+/* Menus and popovers. */
+.material-menu {
+  background-color: var(--material-menu);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-edge), var(--shadow-sheet);
+}
+
+/* The toolbar. Transparent over the lit canvas at rest; once content slides
+   underneath it becomes a glass bar with a hairline (the scroll-edge effect).
+   Painted on ::before for the same backdrop-root reason as .glass-panel. */
+.material-bar {
+  isolation: isolate;
+}
+
+.material-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  background-color: var(--material-bar);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: 0 0.5px 0 rgb(var(--color-text-primary) / 0.1);
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.material-bar[data-scrolled="true"]::before {
+  opacity: 1;
+}
+
+/* Spotlight plate: the Home search field and its suggestions. */
+.material-glass {
+  background-color: rgba(255, 255, 255, 0.72);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow:
+    var(--glass-rim),
+    0 0 0 0.5px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 16px 40px -12px rgba(0, 0, 0, 0.14);
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+/* Spotlight bloom: the plate brightens and the accent halo wakes when it's
+   listening. */
+.material-glass:focus-within {
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    var(--glass-rim),
+    0 0 0 0.5px rgb(var(--color-accent) / 0.45),
+    0 0 0 4px rgb(var(--color-accent-glow) / 0.16),
+    0 22px 56px -14px rgba(0, 0, 0, 0.2);
+}
+
+.dark .material-glass {
+  background-color: rgba(40, 40, 44, 0.62);
+  box-shadow:
+    var(--glass-rim),
+    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 16px 40px -12px rgba(0, 0, 0, 0.6);
+}
+
+.dark .material-glass:focus-within {
+  background-color: rgba(48, 48, 52, 0.78);
+  box-shadow:
+    var(--glass-rim),
+    0 0 0 0.5px rgb(var(--color-accent) / 0.55),
+    0 0 0 4px rgb(var(--color-accent-glow) / 0.18),
+    0 22px 56px -14px rgba(0, 0, 0, 0.7);
+}
+
+/* Without backdrop-filter, translucency turns to mud. Go opaque. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel::before,
+  .glass-capsule::before,
+  .material-bar::before,
+  .material-sidebar,
+  .rail-gradient,
+  .material-menu,
+  .material-glass,
+  .toolbar-menu,
+  .glass-pill {
+    background-color: rgb(var(--color-surface));
+  }
+}
+
+/* Vibrancy: secondary ink on glass is translucent primary ink, so labels
+   pick up the light behind them instead of sitting flat. */
+.glass-panel .text-ink-secondary,
+.rail-gradient .text-ink-secondary {
+  color: rgb(var(--color-text-primary) / 0.66);
+}
+
+.glass-panel .text-ink-muted,
+.rail-gradient .text-ink-muted {
+  color: rgb(var(--color-text-primary) / 0.5);
+}
+
+.glass-panel .text-ink-subtle,
+.rail-gradient .text-ink-subtle {
+  color: rgb(var(--color-text-primary) / 0.36);
+}
+
+/* Hairline separators. Sub-pixel on retina displays. */
+.hairline-b {
+  box-shadow: inset 0 -1px 0 rgb(var(--color-border-subtle));
+}
+
+.hairline-t {
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle));
+}
+
+.hairline-r {
+  box-shadow: inset -1px 0 0 rgb(var(--color-border-subtle));
+}
+
+.hairline-l {
+  box-shadow: inset 1px 0 0 rgb(var(--color-border-subtle));
+}
+
+/* ---------------------------------------------------------------------------
+   Motion primitives
+--------------------------------------------------------------------------- */
+
+/* Springs up into the air on selection, then holds still. */
+@keyframes glass-levitate {
+  from {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* FLIP glide for segmented thumbs and tab underlines: glassMotion.js sets the
+   offset from the previous selection, then the new one springs home. */
+@keyframes glass-glide {
+  from {
+    transform: translateX(var(--glide-dx, 0px)) scaleX(var(--glide-sx, 1));
+  }
+  to {
+    transform: translateX(0) scaleX(1);
+  }
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.72); }
+}
+
+.live-pulse {
+  animation: live-pulse 1.7s var(--ease-standard) infinite;
 }
 
 /* ---------------------------------------------------------------------------
    Controls
 --------------------------------------------------------------------------- */
 
-/* Apple's focus ring: a soft accent halo rather than a hard outline. */
+/* Apple's focus ring: a soft accent halo hugging the control, no gap. */
 .focus-ring {
-  @apply focus:outline-none focus-visible:ring-[3px] focus-visible:ring-accent/45 focus-visible:ring-offset-1 focus-visible:ring-offset-canvas;
+  @apply focus:outline-none focus-visible:ring-[3px] focus-visible:ring-accent-glow/50;
   transition: box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 /* Controls compress slightly on press — Apple's primary tactile affordance. */
 .pill-button {
   @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-callout font-medium;
-  transition: background-color var(--duration-fast) var(--ease-standard),
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
     transform var(--duration-fast) var(--ease-standard),
     box-shadow var(--duration-fast) var(--ease-standard);
 }
@@ -603,17 +634,32 @@ table,
   transform: scale(0.97);
 }
 
-/* Progress fills use a baby-blue tint of the system accent so they match
-   the orb / accent-soft chips instead of the stronger filled-button blue. */
 .progress-fill {
-  background-color: color-mix(in srgb, rgb(var(--color-accent)) 62%, white);
+  background-color: rgb(var(--color-accent-glow));
 }
 
-/* Button hierarchy, mirroring Apple's filled / tinted / bordered / plain. */
+/* Buttons are capsules, as in Liquid Glass: filled, tinted, glass
+   (bordered), and plain. */
+.btn-filled,
+.btn-tinted,
+.btn-bordered,
+.btn-plain {
+  @apply inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-pill px-3.5 py-[6px] text-[13px] font-medium leading-5 disabled:cursor-not-allowed disabled:opacity-40;
+  letter-spacing: -0.006em;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring);
+}
+
 .btn-filled {
-  @apply inline-flex items-center justify-center gap-2 rounded-subbox bg-accent px-4 py-2 text-callout font-medium text-white disabled:opacity-40;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+  @apply text-white;
+  background-color: rgb(var(--color-accent));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 0 0 0.5px rgb(var(--color-accent-hover) / 0.6),
+    0 1px 2px rgb(var(--color-accent) / 0.3);
 }
 
 .btn-filled:hover:not(:disabled) {
@@ -621,143 +667,307 @@ table,
 }
 
 .btn-tinted {
-  @apply inline-flex items-center justify-center gap-2 rounded-subbox bg-accent-soft px-4 py-2 text-callout font-medium text-accent-ink disabled:opacity-40;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+  background-color: rgb(var(--color-accent) / 0.12);
+  color: rgb(var(--color-accent-ink));
 }
 
+.btn-tinted:hover:not(:disabled) {
+  background-color: rgb(var(--color-accent) / 0.18);
+}
+
+/* The glass button — the default secondary action everywhere. No live blur:
+   there can be dozens on a page and backdrop-filter is costly to scroll, so
+   the glass is a bright fill with a specular top edge instead. */
 .btn-bordered {
-  @apply inline-flex items-center justify-center gap-2 rounded-subbox border border-subtle px-4 py-2 text-callout font-medium text-ink-primary disabled:opacity-40;
-  background-color: rgb(var(--color-surface) / 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: var(--glass-edge), var(--shadow-control);
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+  @apply text-ink-primary;
+  background-color: rgb(var(--color-surface) / 0.9);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    0 0 0 0.5px rgb(0 0 0 / 0.12),
+    0 1px 2px rgb(0 0 0 / 0.05);
 }
 
 .btn-bordered:hover:not(:disabled) {
-  background-color: rgb(var(--color-fill-tertiary));
+  background-color: rgb(var(--color-surface));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.8),
+    0 0 0 0.5px rgb(0 0 0 / 0.16),
+    0 2px 6px -1px rgb(0 0 0 / 0.1);
+}
+
+.dark .btn-bordered {
+  background-color: rgb(255 255 255 / 0.07);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 0 0 0.5px rgb(255 255 255 / 0.13),
+    0 1px 2px rgb(0 0 0 / 0.4);
+}
+
+.dark .btn-bordered:hover:not(:disabled) {
+  background-color: rgb(255 255 255 / 0.12);
 }
 
 .btn-plain {
-  @apply inline-flex items-center justify-center gap-2 rounded-subbox px-3 py-2 text-callout font-medium text-accent-ink disabled:opacity-40;
-  transition: background-color var(--duration-fast) var(--ease-standard);
+  color: rgb(var(--color-accent-ink));
 }
 
 .btn-plain:hover:not(:disabled) {
-  background-color: rgb(var(--color-fill-tertiary));
+  background-color: rgb(var(--color-accent) / 0.08);
 }
 
 .btn-filled:active:not(:disabled),
 .btn-tinted:active:not(:disabled),
-.btn-bordered:active:not(:disabled) {
-  transform: scale(0.97);
+.btn-bordered:active:not(:disabled),
+.btn-plain:active:not(:disabled) {
+  transform: scale(0.965);
+  transition-duration: 80ms;
 }
 
 .btn-sm {
-  padding: 0.375rem 0.75rem;
+  padding: 0.25rem 0.7rem;
   font-size: 0.75rem;
-  line-height: 1rem;
+  line-height: 1.125rem;
+  gap: 0.3rem;
 }
 
 .icon-btn {
-  @apply inline-flex h-8 w-8 items-center justify-center rounded-subbox text-ink-muted;
-  transition: background-color var(--duration-fast) var(--ease-standard),
+  @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+    transform var(--duration-base) var(--ease-spring);
 }
 
-.icon-btn:hover {
-  background-color: rgb(var(--color-fill-tertiary));
+.icon-btn:hover:not(:disabled) {
+  background-color: rgb(var(--color-text-primary) / 0.06);
   color: rgb(var(--color-text-primary));
 }
 
-.icon-btn:active {
-  transform: scale(0.94);
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.9);
+  transition-duration: 80ms;
 }
 
-.icon-btn[aria-pressed="true"] {
-  background-color: rgb(var(--color-fill-tertiary));
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.icon-btn[aria-pressed="true"],
+.icon-btn[aria-expanded="true"] {
+  background-color: rgb(var(--color-text-primary) / 0.08);
   color: rgb(var(--color-text-primary));
 }
 
+/* Toolbar Ask Warren: his portrait plus the label, in its own capsule. */
 .copilot-toolbar-btn {
-  @apply inline-flex h-8 w-auto shrink-0 items-center gap-1.5 rounded-subbox px-2.5 text-ink-muted;
-  transition: background-color var(--duration-fast) var(--ease-standard),
+  @apply inline-flex h-8 w-auto shrink-0 items-center gap-1.5 rounded-full pl-1.5 pr-3 text-[13px] font-medium text-ink-primary;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-fast) var(--ease-standard);
+    transform var(--duration-base) var(--ease-spring);
 }
 
 .copilot-toolbar-btn:hover {
-  background-color: rgb(var(--color-fill-tertiary));
-  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-text-primary) / 0.06);
 }
 
 .copilot-toolbar-btn:active {
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 .copilot-toolbar-btn[aria-pressed="true"] {
-  background-color: rgb(var(--color-fill-tertiary));
-  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-accent) / 0.12);
+  color: rgb(var(--color-accent-ink));
 }
 
-/* iPadOS grouped field: translucent fill, not a heavy outlined box. */
+/* macOS text field: white well, hairline, accent halo on focus. */
+/* Width sits in :where() so width utilities on a field (w-auto, w-40) win. */
+:where(.field) {
+  width: 100%;
+}
+
 .field {
-  @apply w-full rounded-subbox border-0 px-3 py-[7px] text-callout text-ink-primary placeholder:text-ink-subtle focus-ring;
-  background-color: rgb(var(--color-fill-tertiary) / 0.65);
-  box-shadow: inset 0 0 0 1px rgb(var(--color-border-subtle) / 0.85);
+  @apply rounded-[9px] border-0 px-3 py-[7px] text-callout text-ink-primary placeholder:text-ink-subtle focus-ring;
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.11), 0 1px 0.5px rgb(0 0 0 / 0.02);
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.field:hover:not(:disabled):not(:focus) {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.18);
+}
+
+.field:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.8), 0 0 0 3.5px rgb(var(--color-accent-glow) / 0.3);
+}
+
+.field:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dark .field {
+  background-color: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+
+.dark .field:focus {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.85), 0 0 0 3.5px rgb(var(--color-accent-glow) / 0.3);
 }
 
 .field-sm {
-  @apply px-2.5 py-1.5 text-footnote;
+  @apply rounded-[8px] px-2.5 py-1.5 text-footnote;
+}
+
+/* Pop-up buttons get the macOS double chevron instead of the browser arrow. */
+select.field,
+select.field-sm {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.9rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='none' stroke='%23808086' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5l3-3 3 3M2 9l3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 9px 13px;
+}
+
+.dark select.field,
+.dark select.field-sm {
+  background-color: rgb(255 255 255 / 0.05);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='none' stroke='%239a9aa2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5l3-3 3 3M2 9l3 3 3-3'/%3E%3C/svg%3E");
 }
 
 /* Compact status / category pill. */
 .chip {
-  @apply inline-flex items-center rounded-pill px-2 py-0.5 text-caption1 font-semibold;
+  @apply inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-caption1 font-semibold;
+  letter-spacing: 0;
 }
 
-/* Grouped surface on the recessed canvas — frosted glass, like iOS panels. */
-.group-card {
+/* Status dot + label, e.g. "● Synced 10:42". */
+.status-dot {
+  @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full;
+}
+
+/* ---------------------------------------------------------------------------
+   Surfaces
+--------------------------------------------------------------------------- */
+
+/* Content card: white, hairline, no blur — the Mac's appleGlassCard. */
+.group-card,
+.desk-card,
+.glass-card {
   @apply rounded-card;
-  background-color: var(--glass-card);
-  backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
-  box-shadow:
-    var(--glass-edge),
-    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.4),
-    0 8px 24px rgba(0, 0, 0, 0.05);
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow);
 }
 
-.dark .group-card {
-  box-shadow:
-    var(--glass-edge),
-    0 0 0 0.5px rgba(255, 255, 255, 0.06),
-    0 8px 24px rgba(0, 0, 0, 0.45);
+.glass-card {
+  transition:
+    box-shadow var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring);
 }
 
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .group-card {
-    background-color: rgb(var(--color-surface));
-  }
+.glass-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.desk-card-header {
+  @apply flex items-center gap-2.5;
+}
+
+.desk-card-title {
+  @apply text-headline font-semibold text-ink-primary;
+}
+
+.desk-card-subtitle {
+  @apply text-footnote text-ink-muted;
+}
+
+/* Quaternary tile: label / value / detail. */
+.stat-tile {
+  @apply rounded-[10px] px-3 py-2.5;
+  background-color: rgb(var(--color-text-primary) / 0.04);
+}
+
+.dark .stat-tile {
+  background-color: rgb(255 255 255 / 0.05);
+}
+
+.stat-tile-label {
+  @apply truncate text-caption1 font-medium text-ink-muted;
+}
+
+.stat-tile-value {
+  @apply mt-0.5 truncate text-title3 font-semibold text-ink-primary;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.012em;
+}
+
+/* Company monogram: a squircle of initials. Neutral by default (sidebar),
+   tinted by a stable hash in content lists (see Monogram.vue). */
+.monogram {
+  @apply grid shrink-0 select-none place-items-center font-semibold uppercase;
+  width: var(--mono-size, 28px);
+  height: var(--mono-size, 28px);
+  border-radius: calc(var(--mono-size, 28px) * 0.28);
+  font-size: calc(var(--mono-size, 28px) * 0.37);
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: rgb(var(--color-text-secondary));
+  background: linear-gradient(180deg, rgb(var(--color-text-primary) / 0.05), rgb(var(--color-text-primary) / 0.09));
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-text-primary) / 0.1), inset 0 1px 0 rgb(255 255 255 / 0.5);
+}
+
+.dark .monogram {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.06));
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.12), inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+
+.monogram[data-tint] {
+  color: #fff;
+  background: linear-gradient(145deg, rgb(var(--mono-tint)), rgb(var(--mono-tint) / 0.72));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+  text-shadow: 0 0.5px 1px rgb(0 0 0 / 0.18);
+}
+
+.monogram[data-tint="0"] { --mono-tint: 10 132 255; }
+.monogram[data-tint="1"] { --mono-tint: 88 86 214; }
+.monogram[data-tint="2"] { --mono-tint: 175 82 222; }
+.monogram[data-tint="3"] { --mono-tint: 255 45 85; }
+.monogram[data-tint="4"] { --mono-tint: 255 69 58; }
+.monogram[data-tint="5"] { --mono-tint: 255 149 0; }
+.monogram[data-tint="6"] { --mono-tint: 48 176 199; }
+.monogram[data-tint="7"] { --mono-tint: 50 173 230; }
+.monogram[data-tint="8"] { --mono-tint: 0 199 190; }
+.monogram[data-tint="9"] { --mono-tint: 52 199 89; }
+
+.banner-warning,
+.banner-notice,
+.banner-info,
+.banner-danger {
+  @apply rounded-[10px] px-3 py-2 text-callout;
 }
 
 .banner-warning {
-  @apply rounded-subbox bg-warning-soft px-3 py-2 text-callout text-warning-ink;
+  @apply bg-warning-soft text-warning-ink;
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-warning) / 0.3);
 }
 
 .banner-notice {
-  @apply rounded-subbox bg-notice-soft px-3 py-2 text-callout text-notice-ink;
+  @apply bg-notice-soft text-notice-ink;
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-notice) / 0.35);
 }
 
 .banner-info {
-  @apply rounded-subbox bg-info-soft px-3 py-2 text-callout text-info-ink;
+  @apply bg-info-soft text-info-ink;
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-info) / 0.25);
 }
 
 .banner-danger {
-  @apply rounded-subbox bg-danger-soft px-3 py-2 text-callout text-danger-ink;
+  @apply bg-danger-soft text-danger-ink;
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-danger) / 0.25);
 }
 
 /* Inset grouped table: hairline rows, sentence-case headers. */
@@ -766,7 +976,7 @@ table,
 }
 
 .inset-table thead {
-  background-color: rgb(var(--color-fill-tertiary));
+  background-color: rgb(var(--color-surface-muted));
   color: rgb(var(--color-text-muted));
   font-size: 0.75rem;
   font-weight: 600;
@@ -779,35 +989,77 @@ table,
 }
 
 .inset-table tbody tr {
-  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle) / 0.65);
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle));
+  transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 .inset-table tbody tr:hover {
-  background-color: rgb(var(--color-fill-tertiary) / 0.55);
+  background-color: rgb(var(--color-text-primary) / 0.025);
 }
 
-/* Segmented control: recessed glass track with a raised, sliding thumb. */
+/* ---------------------------------------------------------------------------
+   Selection: segmented control, tabs, source list
+--------------------------------------------------------------------------- */
+
+/* Glass segmented control: a soft track with a levitating glass thumb that
+   glides to the chosen segment (GlassSegmentedPicker on the Mac). */
 .segmented {
-  @apply inline-flex items-center gap-0.5 rounded-pill p-0.5;
-  background-color: rgb(var(--color-fill) / 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: inset 0 0.5px 1px rgba(0, 0, 0, 0.06);
+  @apply inline-flex items-center gap-0.5 rounded-pill p-[3px];
+  position: relative;
+  isolation: isolate;
+  background-color: rgb(var(--color-text-primary) / 0.06);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-text-primary) / 0.07);
+}
+
+.dark .segmented {
+  background-color: rgb(255 255 255 / 0.07);
 }
 
 .segmented-item {
-  @apply rounded-pill px-3 py-1 text-footnote font-medium text-ink-secondary;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+  @apply relative inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-pill px-3 py-[3px] text-footnote font-medium;
+  z-index: 0;
+  color: rgb(var(--color-text-primary) / 0.72);
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.segmented-item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0;
+  transform-origin: left center;
+  background-color: var(--glass-pill);
+  box-shadow: var(--glass-rim), var(--pill-shadow);
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.segmented-item:hover:not(:disabled):not([aria-selected="true"]):not([data-selected="true"]):not([aria-checked="true"]) {
+  color: rgb(var(--color-text-primary));
+  background-color: rgb(var(--color-text-primary) / 0.05);
 }
 
 .segmented-item[aria-selected="true"],
 .segmented-item[data-selected="true"],
+.segmented-item[aria-checked="true"],
 .segmented-item.router-link-active,
 .segmented-item.router-link-exact-active {
-  background-color: rgb(var(--color-surface));
   color: rgb(var(--color-text-primary));
-  box-shadow: var(--shadow-control);
+}
+
+.segmented-item[aria-selected="true"]::before,
+.segmented-item[data-selected="true"]::before,
+.segmented-item[aria-checked="true"]::before,
+.segmented-item.router-link-active::before,
+.segmented-item.router-link-exact-active::before {
+  opacity: 1;
+}
+
+.segmented-item[data-glide="true"]::before {
+  animation: glass-glide var(--duration-spring) var(--ease-spring);
 }
 
 .segmented-item-muted,
@@ -816,37 +1068,103 @@ table,
   cursor: not-allowed;
   opacity: 1;
   background-color: transparent;
-  box-shadow: none;
 }
 
 .segmented-item-muted:hover,
 .segmented-item:disabled:hover {
   color: rgb(var(--color-text-subtle));
+  background-color: transparent;
 }
 
-/* Source-list rows (sidebar). macOS marks selection with a filled rounded
-   rectangle, not a color change alone. */
+/* Underline tabs (App Store style): the accent bar glides between tabs. */
+.workspace-tab {
+  position: relative;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.workspace-tab::after {
+  content: "";
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 99px;
+  background: transparent;
+  transform-origin: left center;
+}
+
+.workspace-tab[aria-selected="true"]::after {
+  background: rgb(var(--color-accent));
+}
+
+.workspace-tab[data-glide="true"]::after {
+  animation: glass-glide var(--duration-spring) var(--ease-spring);
+}
+
+/* Source-list rows (sidebar). Selection is the glass pill; hover is a whisper
+   of ink. Rows sit above the gliding pill. */
 .source-row {
-  @apply flex items-center gap-2.5 rounded-subbox px-2 py-[5px] text-callout text-ink-secondary;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard),
-    transform var(--duration-base) var(--ease-spring),
-    box-shadow var(--duration-base) var(--ease-standard);
+  @apply relative flex items-center gap-2.5 rounded-[10px] px-2.5 py-[6px] text-[13px] font-medium text-ink-secondary;
+  z-index: 1;
+  letter-spacing: -0.006em;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 }
 
-/* Rows physically lift off the rail on hover — a floating glass chip. */
 .source-row:hover {
-  background-color: rgb(var(--color-surface) / 0.9);
+  background-color: rgb(var(--color-text-primary) / 0.045);
   color: rgb(var(--color-text-primary));
-  transform: translateY(-1.5px);
-  box-shadow:
-    0 6px 16px rgba(0, 0, 0, 0.14),
-    0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .source-row:active {
-  transform: translateY(0);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background-color: rgb(var(--color-text-primary) / 0.07);
+}
+
+.source-row.router-link-active,
+.source-row.router-link-exact-active {
+  color: rgb(var(--color-text-primary));
+  background-color: var(--glass-pill);
+  box-shadow: var(--glass-rim), var(--pill-shadow);
+  animation: glass-levitate 0.42s var(--ease-spring-lift);
+}
+
+.source-row.router-link-active .source-row-icon,
+.source-row.router-link-exact-active .source-row-icon {
+  color: rgb(var(--color-accent));
+}
+
+/* When the gliding pill is live, rows stay clear and the pill paints. */
+[data-glider="on"] .source-row.router-link-active,
+[data-glider="on"] .source-row.router-link-exact-active {
+  background-color: transparent;
+  box-shadow: none;
+  animation: none;
+}
+
+.nav-glider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 0;
+  height: var(--glider-h, 34px);
+  border-radius: 10px;
+  pointer-events: none;
+  transform: translate3d(0, var(--glider-y, 0px), 0);
+  transition:
+    transform var(--duration-spring) var(--ease-spring),
+    height var(--duration-spring) var(--ease-spring),
+    opacity 180ms var(--ease-standard);
+}
+
+.nav-glider[data-instant="true"] {
+  transition: opacity 180ms var(--ease-standard);
+}
+
+.nav-glider[data-visible="false"] {
+  opacity: 0;
 }
 
 /* Icon rail: center the glyph and drop row padding that assumes a label. */
@@ -861,99 +1179,128 @@ aside[data-collapsed="true"] .company-rail-link,
 aside[data-collapsed="true"] .company-rail-link:hover,
 aside[data-collapsed="true"] .company-rail-link:active,
 aside[data-collapsed="true"] .company-rail-link.router-link-active,
-aside[data-collapsed="true"] .company-rail-link.router-link-exact-active,
-aside[data-collapsed="true"] .company-rail-link.router-link-active:hover,
-aside[data-collapsed="true"] .company-rail-link.router-link-exact-active:hover {
+aside[data-collapsed="true"] .company-rail-link.router-link-exact-active {
   background-color: transparent;
   box-shadow: none;
-  transform: none;
-  color: inherit;
-  font-weight: inherit;
+  animation: none;
   padding-top: 0.2rem;
   padding-bottom: 0.2rem;
 }
 
 .company-rail-mark {
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  place-items: center;
-  border-radius: 0.7rem;
-  background: rgb(var(--color-fill-tertiary));
-  color: rgb(var(--color-text-secondary));
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  box-shadow: inset 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.85);
+  @apply monogram;
+  --mono-size: 30px;
+  transition:
+    box-shadow var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring);
 }
 
 aside[data-collapsed="true"] .company-rail-link:hover .company-rail-mark {
-  background: rgb(var(--color-fill));
   color: rgb(var(--color-text-primary));
+  transform: scale(1.06);
 }
 
 aside[data-collapsed="true"] .company-rail-link.router-link-active .company-rail-mark,
 aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .company-rail-mark {
-  background: rgb(var(--color-fill));
   color: rgb(var(--color-text-primary));
-  box-shadow: inset 0 0 0 1px rgb(var(--color-border-strong) / 0.9);
+  box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.5);
 }
 
-/* Exact-active (not the inclusive `router-link-active`) so the Home row at "/"
-   doesn't read as selected on every route. Vue Router ignores query strings
-   here, which keeps a company selected as its tabs change. */
-/* The selected row levitates permanently — a floating glass chip resting
-   above the rail. */
-.source-row.router-link-active,
-.source-row.router-link-exact-active {
-  background-color: rgb(var(--color-accent) / 0.14);
-  color: rgb(var(--color-accent-ink));
-  font-weight: 600;
-  transform: translateY(-1.5px);
+/* ---------------------------------------------------------------------------
+   Sidebar
+--------------------------------------------------------------------------- */
+
+/* The app tile: the summit mark on a small slab of glass, like a Dock icon. */
+.brand-tile {
+  @apply grid h-8 w-8 shrink-0 place-items-center rounded-[9px] text-ink-primary;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.95), rgb(236 238 242 / 0.9));
   box-shadow:
-    0 6px 16px rgb(var(--color-accent) / 0.28),
-    0 1px 3px rgba(0, 0, 0, 0.08);
+    inset 0 1px 0 rgb(255 255 255),
+    0 0 0 0.5px rgb(0 0 0 / 0.1),
+    0 1px 2px rgb(0 0 0 / 0.08),
+    0 4px 10px -4px rgb(var(--color-accent-glow) / 0.35);
 }
 
-/* Hovering the selected row lifts it a touch higher. */
-.source-row.router-link-active:hover,
-.source-row.router-link-exact-active:hover {
-  background-color: rgb(var(--color-accent) / 0.22);
-  color: rgb(var(--color-accent-ink));
-  transform: translateY(-2.5px);
+.dark .brand-tile {
+  background: linear-gradient(180deg, rgb(72 72 78), rgb(46 46 51));
   box-shadow:
-    0 9px 22px rgb(var(--color-accent) / 0.34),
-    0 1px 3px rgba(0, 0, 0, 0.08);
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    0 0 0 0.5px rgb(0 0 0 / 0.6),
+    0 4px 12px -4px rgb(var(--color-accent-glow) / 0.3);
 }
+
+.sidebar-filter {
+  @apply h-7 w-full rounded-[8px] border-0 pl-8 pr-2 text-footnote text-ink-primary placeholder:text-ink-subtle;
+  background-color: rgb(var(--color-text-primary) / 0.055);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.sidebar-filter:focus {
+  outline: none;
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.8), 0 0 0 3px rgb(var(--color-accent-glow) / 0.28);
+}
+
+.sidebar-filter::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Who is signed in: avatar, name, detail — the Mac account footer. */
+.account-row {
+  @apply flex w-full items-center gap-2.5 rounded-[11px] px-2 py-1.5;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.account-row:hover,
+.account-row[aria-expanded="true"] {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+.toolbar-menu.account-menu {
+  top: auto;
+  right: auto;
+  bottom: calc(100% - 0.25rem);
+  left: 0.5rem;
+  min-width: 13rem;
+  transform-origin: bottom left;
+}
+
+.toolbar-menu.account-menu[data-rail="true"] {
+  bottom: 0.5rem;
+  left: calc(100% + 0.5rem);
+}
+
+/* Over content (below xl) the Ask sheet needs a near-solid ground to read on;
+   docked beside the page it can be true glass. */
+@media (max-width: 1279px) {
+  .copilot-sheet::before {
+    background-color: rgb(var(--color-surface) / 0.96);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Menus
+--------------------------------------------------------------------------- */
 
 .toolbar-menu {
   position: absolute;
   right: 0;
-  top: calc(100% + 0.35rem);
+  top: calc(100% + 0.4rem);
   z-index: 50;
   min-width: 15.5rem;
   overflow: hidden;
-  border-radius: 10px;
-  padding: 0.25rem 0;
+  border-radius: 13px;
+  padding: 5px;
   background-color: var(--material-menu);
-  backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
-  box-shadow: var(--shadow-sheet);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-edge), var(--shadow-sheet);
   /* Menus bloom from their anchor, like NSMenu. */
   transform-origin: top right;
-  animation: menu-in 0.14s var(--ease-emphasized);
-}
-
-@keyframes menu-in {
-  from {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  animation: menu-in 0.16s var(--ease-emphasized);
 }
 
 .toolbar-menu-item {
@@ -961,111 +1308,274 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
   width: 100%;
   align-items: center;
   gap: 0.625rem;
-  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  padding: 0.4rem 0.625rem;
   text-align: left;
   font-size: 0.8125rem;
   line-height: 1.25rem;
   color: rgb(var(--color-text-primary));
 }
 
-.toolbar-menu-item:hover,
-.toolbar-menu-item:focus-visible {
-  background-color: rgb(var(--color-fill-tertiary));
-}
-
-/* Toolbar tabs: Apple underlines the selected item with the accent tint. */
-.workspace-tab {
+/* A separator above an item, drawn inside the menu's padding. */
+.toolbar-menu-item.hairline-t {
   position: relative;
-  transition: color var(--duration-fast) var(--ease-standard);
+  margin-top: 5px;
+  box-shadow: none;
 }
 
-.workspace-tab::after {
-  background: transparent;
-  border-radius: 99px;
-  bottom: -1px;
+.toolbar-menu-item.hairline-t::before {
   content: "";
-  height: 2px;
-  left: 0;
   position: absolute;
-  right: 0;
-  transition: background-color var(--duration-base) var(--ease-standard);
+  left: 0.625rem;
+  right: 0.625rem;
+  top: -3px;
+  height: 1px;
+  background: rgb(var(--color-text-primary) / 0.1);
 }
 
-.workspace-tab[aria-selected="true"]::after {
-  background: rgb(var(--color-accent));
+/* macOS menus highlight with the accent and white ink. */
+.toolbar-menu-item:hover:not(:disabled),
+.toolbar-menu-item:focus-visible {
+  outline: none;
+  background-color: rgb(var(--color-accent));
+  color: #fff;
+}
+
+.toolbar-menu-item:hover:not(:disabled) :is(svg, [class*="text-ink"], [class*="text-accent"], [class*="text-danger"]),
+.toolbar-menu-item:focus-visible :is(svg, [class*="text-ink"], [class*="text-accent"], [class*="text-danger"]) {
+  color: rgb(255 255 255 / 0.88);
+}
+
+.toolbar-menu-item:disabled {
+  opacity: 0.45;
 }
 
 /* Switch/checkbox in the system style. */
 .memo-checkbox {
   appearance: none;
   background: rgb(var(--color-surface));
-  border: 1.5px solid rgb(var(--color-border-strong));
-  border-radius: 6px;
+  border: 0;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.22), 0 1px 1px rgb(0 0 0 / 0.04);
   display: grid;
-  height: 20px;
+  height: 18px;
   place-content: center;
-  width: 20px;
-  transition: background-color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard);
+  width: 18px;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
 }
 
 .memo-checkbox::before {
   color: white;
   content: "✓";
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring-lift);
 }
 
 .memo-checkbox:checked {
   background: rgb(var(--color-accent));
-  border-color: rgb(var(--color-accent));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 0 0 0.5px rgb(var(--color-accent-hover));
 }
 
 .memo-checkbox:checked::before {
   opacity: 1;
+  transform: scale(1);
+}
+
+.dark .memo-checkbox {
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.22);
+}
+
+.dark .memo-checkbox:checked {
+  background: rgb(var(--color-accent));
+}
+
+/* ---------------------------------------------------------------------------
+   Page anatomy
+--------------------------------------------------------------------------- */
+
+/* Standard content column for a desk (MacDS.page). */
+.page {
+  @apply mx-auto w-full max-w-[1240px] px-5 pb-12 pt-4 md:px-8;
+}
+
+.page-wide {
+  @apply w-full px-5 pb-12 pt-4 md:px-8;
+}
+
+/* Large title at the top of a desk; the toolbar shows the small title once
+   this scrolls away. */
+.page-header {
+  @apply mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3;
+}
+
+.page-title {
+  @apply font-display text-large-title text-ink-primary;
+}
+
+.page-subtitle {
+  @apply mt-1 max-w-2xl text-callout text-ink-muted;
+}
+
+.toolbar-title {
+  transition:
+    opacity 200ms var(--ease-standard),
+    transform 260ms var(--ease-emphasized);
+}
+
+.toolbar-title[data-hidden="true"] {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Home — search first, Spotlight-style
+--------------------------------------------------------------------------- */
+
+/* A pool of light behind the title, as if the page were lit from above. */
+.home-hero-glow {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  top: -3rem;
+  z-index: 0;
+  height: 30rem;
+  width: min(56rem, 100%);
+  transform: translateX(-50%);
+  background:
+    radial-gradient(ellipse 60% 48% at 50% 40%, rgb(255 255 255 / 0.85), transparent 72%),
+    radial-gradient(ellipse 52% 40% at 50% 58%, rgb(var(--color-accent-glow) / 0.1), transparent 70%);
+}
+
+.dark .home-hero-glow {
+  background: radial-gradient(ellipse 52% 40% at 50% 50%, rgb(var(--color-accent-glow) / 0.1), transparent 70%);
+}
+
+/* Dateline, in the accent — Apple News sets its date the same way. */
+.home-eyebrow {
+  @apply relative text-[13px] font-semibold text-accent-ink;
+  letter-spacing: -0.003em;
+}
+
+/* The title catches the light: ink that fades a touch toward its base. */
+.home-hero-title {
+  @apply relative mt-1.5 font-display text-ink-primary;
+  font-size: clamp(2.25rem, 4.4vw, 3.125rem);
+  line-height: 1.04;
+  font-weight: 700;
+  letter-spacing: -0.036em;
+  background-image: linear-gradient(180deg, rgb(var(--color-text-primary)) 38%, rgb(var(--color-text-primary) / 0.66));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.home-search-plate {
+  @apply rounded-[24px] p-1.5;
+}
+
+.home-search-field {
+  @apply h-[3.25rem] w-full rounded-[18px] border-0 bg-transparent pl-12 pr-16 text-[18px] font-normal text-ink-primary placeholder:text-ink-subtle;
+  letter-spacing: -0.022em;
+}
+
+.home-search-field:focus {
+  outline: none;
+}
+
+.home-search-field::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.home-search-submit {
+  @apply absolute right-2 grid h-10 w-10 place-items-center rounded-full text-ink-subtle;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring-lift),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.home-search-submit[data-ready="true"] {
+  background-color: rgb(var(--color-accent));
+  color: #fff;
+  transform: scale(1);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 4px 12px -2px rgb(var(--color-accent) / 0.5);
+}
+
+.home-search-submit[data-ready="true"]:hover {
+  background-color: rgb(var(--color-accent-hover));
+}
+
+.home-search-submit:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.home-intake {
+  @apply grid grid-cols-3 gap-1 pt-1;
+  box-shadow: inset 0 1px 0 rgb(var(--color-text-primary) / 0.06);
+  margin: 0 0.25rem;
+  padding-top: 0.375rem;
+}
+
+.home-action {
+  @apply flex h-9 items-center justify-center gap-2 rounded-[14px] text-[13px] font-medium text-ink-secondary;
+  letter-spacing: -0.006em;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.home-action:hover {
+  background-color: rgb(var(--color-text-primary) / 0.045);
+  color: rgb(var(--color-text-primary));
+}
+
+.home-action[data-tone="link"] svg {
+  color: rgb(var(--color-accent));
+}
+
+.home-action[data-tone="file"] svg {
+  color: rgb(var(--color-info));
+}
+
+.home-action[data-tone="note"] svg {
+  color: rgb(var(--color-warning));
+}
+
+.home-action[data-selected="true"] {
+  color: rgb(var(--color-text-primary));
+  background-color: var(--glass-pill);
+  box-shadow: var(--glass-rim), var(--pill-shadow);
+  animation: glass-levitate 0.42s var(--ease-spring-lift);
+}
+
+.home-suggestion {
+  @apply flex w-full items-center gap-3 rounded-[12px] px-2.5 py-2 text-left;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.home-suggestion:hover {
+  background-color: rgb(var(--color-accent) / 0.08);
 }
 
 /* ---------------------------------------------------------------------------
    Decorative
 --------------------------------------------------------------------------- */
 
-/* The sidebar is a material now rather than a brand gradient, matching the
-   Finder/Mail source list. Kept as a class for the existing call site. */
-.rail-gradient {
-  background-color: var(--material-sidebar);
-  backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
-  box-shadow: 1px 0 18px rgba(0, 0, 0, 0.05);
-}
-
-.dark .rail-gradient {
-  box-shadow: 1px 0 18px rgba(0, 0, 0, 0.5);
-}
-
-/* Vibrancy: secondary ink on materials is translucent primary ink, so the
-   labels pick up the glass behind them instead of sitting flat. */
-.rail-gradient .text-ink-secondary {
-  color: rgb(var(--color-text-primary) / 0.6);
-}
-
-.rail-gradient .text-ink-muted {
-  color: rgb(var(--color-text-primary) / 0.45);
-}
-
-.rail-gradient .text-ink-subtle {
-  color: rgb(var(--color-text-primary) / 0.32);
-}
-
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .rail-gradient {
-    background-color: rgb(var(--color-surface-muted));
-  }
-}
-
 .position-highlight {
-  background: linear-gradient(transparent 62%, rgb(var(--color-accent-soft)) 62%);
+  background: linear-gradient(transparent 60%, rgb(var(--color-accent-glow) / 0.22) 60%);
   font-weight: 600;
 }
 
@@ -1076,41 +1586,30 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
   text-underline-offset: 3px;
 }
 
-@keyframes live-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.35; transform: scale(0.72); }
-}
-
-.live-pulse {
-  animation: live-pulse 1.7s var(--ease-standard) infinite;
-}
-
-/* Presented sheets (modals). Apple scales them in slightly rather than
-   sliding them from the bottom, matching macOS dialogs. */
+/* Presented sheets (modals). The world behind defocuses, the sheet rises. */
 .sheet-scrim {
   background: var(--scrim);
-  /* Apple defocuses the world behind a sheet rather than just dimming it. */
-  backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  backdrop-filter: blur(6px) saturate(115%);
+  -webkit-backdrop-filter: blur(6px) saturate(115%);
   animation: fade-in 0.2s var(--ease-standard);
 }
 
 .sheet-panel {
-  animation: sheet-in 0.32s var(--ease-emphasized);
+  animation: sheet-rise 0.34s var(--ease-emphasized);
   box-shadow: var(--shadow-sheet);
 }
 
-/* Lucide draws at 2px; SF Symbols at these sizes are nearer 1.5. Thinner
-   strokes make the chrome quieter. */
+/* Lucide draws at 2px; SF Symbols at these sizes read nearer 1.75. */
 .lucide {
-  stroke-width: 1.5;
+  stroke-width: 1.75;
 }
 
-/* Route changes cross-fade with a whisper of scale — content flows,
-   it doesn't page. */
+/* Route changes cross-fade with a whisper of lift — content flows, it
+   doesn't page. */
 .view-fade-enter-active {
-  transition: opacity 0.18s var(--ease-standard),
-    transform 0.18s var(--ease-standard);
+  transition:
+    opacity 0.2s var(--ease-standard),
+    transform 0.28s var(--ease-emphasized);
 }
 
 .view-fade-leave-active {
@@ -1119,7 +1618,7 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
 
 .view-fade-enter-from {
   opacity: 0;
-  transform: scale(0.995);
+  transform: translateY(6px);
 }
 
 .view-fade-leave-to {
@@ -1137,11 +1636,15 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
 }
 
 .copilot-drawer-enter-active {
-  transition: transform 0.28s var(--ease-standard), opacity 0.22s var(--ease-standard);
+  transition:
+    transform 0.36s var(--ease-emphasized),
+    opacity 0.22s var(--ease-standard);
 }
 
 .copilot-drawer-leave-active {
-  transition: transform 0.2s var(--ease-standard), opacity 0.16s var(--ease-standard);
+  transition:
+    transform 0.22s var(--ease-standard),
+    opacity 0.16s var(--ease-standard);
 }
 
 .copilot-drawer-enter-from,
@@ -1153,8 +1656,21 @@ aside[data-collapsed="true"] .company-rail-link.router-link-exact-active .compan
 @media (min-width: 1280px) {
   .copilot-drawer-enter-from,
   .copilot-drawer-leave-to {
-    transform: translateX(12px);
+    transform: translateX(18px) scale(0.985);
   }
+}
+
+.drawer-slide-enter-active {
+  transition: transform 0.34s var(--ease-emphasized);
+}
+
+.drawer-slide-leave-active {
+  transition: transform 0.22s var(--ease-standard);
+}
+
+.drawer-slide-enter-from,
+.drawer-slide-leave-to {
+  transform: translateX(-104%);
 }
 
 /* Apple treats reduced motion as a hard requirement, not a nicety. */
@@ -1200,6 +1716,9 @@ ol.md-list {
 ul.md-list {
   list-style: disc;
 }
+ul.md-list > li::marker {
+  color: rgb(var(--color-text-muted));
+}
 .md-h {
   font-weight: 600;
   margin: 0.85rem 0 0.35rem;
@@ -1222,15 +1741,19 @@ ul.md-list {
 }
 .md-code {
   font-family: var(--font-mono);
-  font-size: 0.875em;
-  background-color: rgb(var(--color-fill-tertiary));
+  font-size: 0.85em;
+  background-color: rgb(var(--color-text-primary) / 0.06);
   padding: 0.1em 0.35em;
-  border-radius: 0.25rem;
+  border-radius: 0.3rem;
 }
 .md-link {
   color: rgb(var(--color-accent-ink));
   text-decoration: underline;
+  text-decoration-color: rgb(var(--color-accent) / 0.35);
   text-underline-offset: 2px;
+}
+.md-link:hover {
+  text-decoration-color: rgb(var(--color-accent));
 }
 .md-hr {
   border: 0;
@@ -1243,7 +1766,7 @@ ul.md-list {
   color: rgb(var(--color-accent-ink));
   background-color: rgb(var(--color-accent) / 0.1);
   padding: 0.1em 0.35em;
-  border-radius: 0.25rem;
+  border-radius: 0.3rem;
 }
 .md-math-block {
   display: block;
@@ -1254,10 +1777,12 @@ ul.md-list {
   white-space: pre-wrap;
 }
 
-/* Co-Pilot drag-and-tell drop targets */
+/* ---------------------------------------------------------------------------
+   Co-Pilot drag-and-tell drop targets
+--------------------------------------------------------------------------- */
 .copilot-drop-zone {
   position: relative;
-  border-radius: 0.5rem;
+  border-radius: 0.625rem;
   transition:
     box-shadow 0.15s ease,
     background-color 0.15s ease;
@@ -1265,15 +1790,18 @@ ul.md-list {
 
 .copilot-drop-zone-block {
   display: block;
+  /* Block zones tile edge to edge inside cards; rounded corners would notch
+     the hairlines between them. */
+  border-radius: 0;
 }
 
 .copilot-drop-zone-ready {
-  outline: 1px dashed rgb(var(--color-accent) / 0.18);
+  outline: 1px dashed rgb(var(--color-accent) / 0.2);
   outline-offset: 2px;
 }
 
 .copilot-drop-zone-hover {
-  background-color: rgb(var(--color-accent) / 0.08);
+  background-color: rgb(var(--color-accent) / 0.07);
   box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.35);
 }
 
@@ -1286,14 +1814,27 @@ ul.md-list {
   height: 1.5rem;
   align-items: center;
   gap: 0.25rem;
-  padding: 0 0.45rem;
+  padding: 0 0.5rem;
   border-radius: 999px;
-  border: 1px solid rgb(var(--color-accent) / 0.35);
-  background: rgb(var(--color-surface) / 0.95);
+  background: var(--glass-fill-strong);
+  backdrop-filter: var(--glass-blur-soft);
+  -webkit-backdrop-filter: var(--glass-blur-soft);
+  box-shadow: var(--glass-rim), 0 0 0 0.5px rgb(var(--color-accent) / 0.35);
   color: rgb(var(--color-accent-ink));
-  opacity: 0.9;
+  /* Revealed on hover or focus, so a page of metrics isn't a page of pills. */
+  opacity: 0;
+  transform: scale(0.94);
   pointer-events: auto;
-  transition: opacity 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform var(--duration-base) var(--ease-spring);
+}
+
+@media (hover: none) {
+  .copilot-drop-inspect {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .copilot-drop-inspect-label {
@@ -1304,9 +1845,11 @@ ul.md-list {
 }
 
 .copilot-drop-zone:hover .copilot-drop-inspect,
+.copilot-drop-zone:focus-within .copilot-drop-inspect,
 .copilot-drop-zone-hover .copilot-drop-inspect,
 .copilot-drop-zone-ready .copilot-drop-inspect {
   opacity: 1;
+  transform: none;
 }
 
 .copilot-drag-lens {
@@ -1317,16 +1860,15 @@ ul.md-list {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.55rem 0.8rem;
+  padding: 0.55rem 0.85rem;
   border-radius: 999px;
-  border: 1px solid rgb(var(--color-accent) / 0.35);
-  background: rgb(var(--color-surface) / 0.96);
+  background: var(--glass-fill-strong);
   color: rgb(var(--color-accent-ink));
-  box-shadow: var(--shadow-sheet);
+  box-shadow: var(--glass-rim), var(--glass-edge), var(--glass-shadow);
   cursor: grab;
   user-select: none;
-  backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 
 .copilot-drag-lens:active {
@@ -1346,7 +1888,7 @@ ul.md-list {
 }
 
 body[data-copilot-dragging="true"] .copilot-drop-zone {
-  outline: 1px dashed rgb(var(--color-accent) / 0.22);
+  outline: 1px dashed rgb(var(--color-accent) / 0.24);
   outline-offset: 2px;
 }
 
@@ -1354,9 +1896,11 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   opacity: 1;
 }
 
-/* News — Apple News / Stocks: large title, inset groups, no card chrome. */
+/* ---------------------------------------------------------------------------
+   News desk — Apple News: large title, white groups, gradient leads.
+--------------------------------------------------------------------------- */
 .news-page {
-  @apply mx-auto max-w-6xl px-5 py-6 md:px-8 md:py-8;
+  @apply mx-auto max-w-6xl px-5 pb-12 pt-4 md:px-8;
 }
 
 .news-page[data-expanded="true"] {
@@ -1369,8 +1913,9 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 
 .news-grouped {
   background-color: rgb(var(--color-surface));
-  border-radius: 12px;
-  box-shadow: 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
 .news-hero-title {
@@ -1383,15 +1928,15 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 
 @media (min-width: 768px) {
   .news-hero-title {
-    font-size: 2.125rem;
-    line-height: 2.5rem;
-    letter-spacing: -0.028em;
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+    letter-spacing: -0.026em;
   }
 }
 
 /* iOS NewsLeadCard / NewsThumbnail system palette */
 :root {
-  --news-blue: 0 122 255;
+  --news-blue: 10 132 255;
   --news-indigo: 88 86 214;
   --news-purple: 175 82 222;
   --news-teal: 48 176 199;
@@ -1412,8 +1957,8 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 
 .news-lead {
   background-color: rgb(var(--color-surface));
-  border-radius: 16px;
-  box-shadow: 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -1422,11 +1967,9 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   display: flex;
   align-items: flex-end;
   min-height: 10.5rem;
-  background: linear-gradient(
-    135deg,
-    rgb(var(--news-tone) / 0.85),
-    rgb(var(--news-tone) / 0.45)
-  );
+  background:
+    radial-gradient(40rem 14rem at 0% 0%, rgb(255 255 255 / 0.22), transparent 60%),
+    linear-gradient(135deg, rgb(var(--news-tone) / 0.95), rgb(var(--news-tone) / 0.6));
 }
 
 .news-lead-banner[data-tone="blue"] { --news-tone: var(--news-blue); }
@@ -1452,27 +1995,31 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   align-items: center;
   width: fit-content;
   border-radius: 999px;
-  padding: 0.18rem 0.45rem;
+  padding: 0.18rem 0.5rem;
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: white;
-  background: rgb(255 255 255 / 0.22);
+  background: rgb(255 255 255 / 0.2);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 0 0 0.5px rgb(255 255 255 / 0.25);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .news-lead-title {
   font-family: theme("fontFamily.display");
   font-size: 1.25rem;
-  line-height: 1.45rem;
+  line-height: 1.5rem;
   font-weight: 700;
   color: white;
   letter-spacing: -0.02em;
+  text-shadow: 0 1px 12px rgb(0 0 0 / 0.12);
 }
 
 .news-magazine-row {
   @apply flex w-full items-start gap-3 px-4 py-3.5 text-left;
-  box-shadow: inset 0 0.5px 0 rgb(var(--color-border-subtle) / 0.7);
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle));
+  transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 .news-magazine-row:first-child {
@@ -1481,7 +2028,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 
 .news-magazine-row:hover,
 .news-magazine-row[aria-selected="true"] {
-  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+  background-color: rgb(var(--color-text-primary) / 0.03);
 }
 
 .news-thumb {
@@ -1490,12 +2037,13 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   width: 3.625rem;
   height: 3.625rem;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: linear-gradient(
-    135deg,
-    rgb(var(--news-tone) / 0.9),
-    rgb(var(--news-tone) / 0.55)
+    145deg,
+    rgb(var(--news-tone) / 0.92),
+    rgb(var(--news-tone) / 0.58)
   );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25);
 }
 
 .news-thumb[data-tone="blue"] { --news-tone: var(--news-blue); }
@@ -1507,11 +2055,10 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 .news-thumb[data-tone="mint"] { --news-tone: var(--news-mint); }
 
 .news-brief-kicker {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgb(var(--color-text-secondary));
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: -0.003em;
+  color: rgb(var(--color-text-muted));
 }
 
 .news-brief-body {
@@ -1531,7 +2078,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .news-brief-dot {
-  margin-top: 0.45rem;
+  margin-top: 0.5rem;
   width: 0.3125rem;
   height: 0.3125rem;
   border-radius: 999px;
@@ -1543,9 +2090,9 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  border-radius: 14px;
-  padding: 1rem;
-  background: rgb(var(--color-fill-tertiary));
+  border-radius: 12px;
+  padding: 0.875rem 1rem;
+  background: rgb(var(--color-text-primary) / 0.04);
   color: rgb(var(--color-text-secondary));
   font-size: 0.9375rem;
 }
@@ -1566,7 +2113,17 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .news-search-field {
-  @apply w-full rounded-pill border-0 bg-fill-tertiary py-2 pl-9 pr-3 text-callout text-ink-primary;
+  @apply w-full rounded-pill border-0 py-[7px] pl-9 pr-3 text-callout text-ink-primary;
+  background-color: rgb(var(--color-text-primary) / 0.055);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.news-search-field:focus {
+  outline: none;
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.8), 0 0 0 3.5px rgb(var(--color-accent-glow) / 0.3);
 }
 
 .news-search-field::placeholder {
@@ -1575,7 +2132,8 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 
 .news-story-row {
   @apply flex w-full items-center gap-3 px-4 py-3 text-left;
-  box-shadow: inset 0 0.5px 0 rgb(var(--color-border-subtle) / 0.7);
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle));
+  transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 .news-story-row:first-child {
@@ -1583,7 +2141,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .news-story-row:hover {
-  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+  background-color: rgb(var(--color-text-primary) / 0.03);
 }
 
 .news-follow-row {
@@ -1592,17 +2150,20 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .news-follow-chip {
-  @apply flex w-[4.25rem] shrink-0 flex-col items-center gap-1.5 rounded-subbox py-1;
+  @apply flex w-[4.25rem] shrink-0 flex-col items-center gap-1.5 rounded-[10px] py-1;
 }
 
 .news-follow-avatar {
-  @apply grid h-12 w-12 place-items-center rounded-full bg-fill text-footnote font-semibold text-ink-primary;
-  box-shadow: inset 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.7);
+  @apply grid h-12 w-12 place-items-center rounded-full text-footnote font-semibold text-ink-primary;
+  background: linear-gradient(180deg, rgb(var(--color-text-primary) / 0.05), rgb(var(--color-text-primary) / 0.1));
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-text-primary) / 0.1), inset 0 1px 0 rgb(255 255 255 / 0.5);
 }
 
-/* Markets board — Yahoo Finance–style summary + movers table. */
+/* ---------------------------------------------------------------------------
+   Market desk — Stocks-style summary, charts, and tables.
+--------------------------------------------------------------------------- */
 .yf-page {
-  @apply w-full px-5 py-6 md:px-8 md:py-8;
+  @apply w-full px-5 pb-12 pt-4 md:px-8;
 }
 
 .yf-search {
@@ -1614,23 +2175,34 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .yf-search-input {
-  @apply w-full rounded-pill border-0 bg-fill py-2.5 pl-9 pr-4 text-callout text-ink-primary;
-  box-shadow: 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
+  @apply w-full rounded-pill border-0 py-2 pl-9 pr-4 text-callout text-ink-primary;
+  background-color: rgb(var(--color-text-primary) / 0.055);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.yf-search-input:focus {
+  outline: none;
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.8), 0 0 0 3.5px rgb(var(--color-accent-glow) / 0.3);
 }
 
 .yf-search-menu {
-  @apply absolute z-20 mt-1.5 w-full overflow-hidden rounded-[12px] bg-surface py-1;
-  box-shadow:
-    0 8px 28px rgb(0 0 0 / 0.12),
-    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
+  @apply absolute z-20 mt-1.5 w-full overflow-hidden rounded-[13px] p-[5px];
+  background-color: var(--material-menu);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-edge), var(--shadow-sheet);
+  animation: menu-in 0.16s var(--ease-emphasized);
 }
 
 .yf-search-item {
-  @apply flex w-full items-center justify-between gap-3 px-3 py-2 text-left;
+  @apply flex w-full items-center justify-between gap-3 rounded-[8px] px-2.5 py-2 text-left;
 }
 
 .yf-search-item:hover {
-  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+  background-color: rgb(var(--color-accent) / 0.1);
 }
 
 .yf-index-scroller {
@@ -1647,14 +2219,20 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .yf-index-card {
-  @apply rounded-[12px] bg-surface px-4 py-3 text-left;
-  box-shadow: 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.55);
-  transition: background-color var(--duration-fast) var(--ease-standard);
+  @apply rounded-[14px] px-4 py-3 text-left;
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow);
+  transition:
+    box-shadow var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring);
 }
 
-.yf-index-card:hover,
+.yf-index-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
 .yf-index-card[data-selected="true"] {
-  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+  box-shadow: 0 0 0 1.5px rgb(var(--color-accent)), 0 6px 18px -8px rgb(var(--color-accent) / 0.45);
 }
 
 .yf-range {
@@ -1663,26 +2241,36 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 
 .yf-range-item {
   @apply rounded-pill px-2.5 py-1 text-caption1 font-semibold text-ink-muted;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
 }
 
-.yf-range-item:hover,
+.yf-range-item:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+  color: rgb(var(--color-text-primary));
+}
+
 .yf-range-item[data-selected="true"] {
-  background-color: rgb(var(--color-fill-tertiary));
+  background-color: var(--glass-pill);
+  box-shadow: var(--glass-rim), var(--pill-shadow);
   color: rgb(var(--color-text-primary));
 }
 
 .yf-range-bar {
-  @apply relative h-1.5 overflow-visible rounded-full bg-fill;
+  @apply relative h-1.5 overflow-visible rounded-full;
+  background-color: rgb(var(--color-text-primary) / 0.08);
 }
 
 .yf-range-bar-fill {
   position: absolute;
   top: 50%;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
   border-radius: 999px;
-  background: rgb(var(--color-text-primary));
+  background: rgb(var(--color-surface));
+  box-shadow: 0 0 0 1.5px rgb(var(--color-text-primary)), 0 1px 3px rgb(0 0 0 / 0.2);
   transform: translateY(-50%);
 }
 
@@ -1691,7 +2279,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .yf-stat dt {
-  @apply text-caption1 text-ink-muted;
+  @apply text-caption1 font-medium text-ink-muted;
 }
 
 .yf-stat dd {
@@ -1747,7 +2335,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .yf-fin-table tbody tr[data-section="true"] th {
-  @apply pt-3 font-semibold uppercase tracking-[0.04em] text-ink-muted;
+  @apply pt-3 font-semibold text-ink-muted;
 }
 
 .yf-chart-tip {
@@ -1790,12 +2378,13 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .yf-table-head {
-  @apply grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] gap-3 px-4 pb-2 pt-3 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted;
+  @apply grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] gap-3 px-4 pb-2 pt-3 text-caption1 font-semibold text-ink-muted;
 }
 
 .yf-table-row {
   @apply grid w-full grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] items-center gap-3 px-4 py-3 text-left;
-  box-shadow: inset 0 0.5px 0 rgb(var(--color-border-subtle) / 0.7);
+  box-shadow: inset 0 1px 0 rgb(var(--color-border-subtle));
+  transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 .yf-table-head-wide,
@@ -1803,9 +2392,12 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 0.7fr) minmax(0, 0.7fr);
 }
 
-.yf-table-row:hover,
+.yf-table-row:hover {
+  background-color: rgb(var(--color-text-primary) / 0.03);
+}
+
 .yf-table-row[data-selected="true"] {
-  background-color: rgb(var(--color-fill-tertiary) / 0.65);
+  background-color: rgb(var(--color-accent) / 0.08);
 }
 
 .yf-screener-filters {
@@ -1818,9 +2410,10 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 
 .yf-screener-field select,
 .yf-screener-field input {
-  @apply rounded-md px-2 py-1.5 text-callout text-ink-primary;
-  border: 0.5px solid rgb(var(--color-border-subtle));
-  background: rgb(var(--color-fill-secondary));
+  @apply rounded-[8px] px-2 py-1.5 text-callout text-ink-primary;
+  border: 0;
+  background: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.11);
 }
 
 .yf-screener-field-wide {
@@ -1851,10 +2444,8 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .yf-heat-name {
-  font-size: 0.68rem;
+  font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
   color: rgb(var(--color-text-secondary));
 }
 
@@ -1878,7 +2469,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   width: 220px;
   height: 220px;
   border-radius: 12px;
-  background: rgb(var(--color-fill-secondary));
+  background: rgb(var(--color-text-primary) / 0.035);
 }
 
 .yf-rrg-label {
@@ -1925,7 +2516,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   gap: 0.75rem 1.25rem;
   padding: 0.65rem 0.85rem;
   border-radius: 12px;
-  background: rgb(var(--color-fill-secondary));
+  background: rgb(var(--color-text-primary) / 0.04);
   font-size: 0.78rem;
 }
 
@@ -1939,16 +2530,14 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   min-height: 88px;
   padding: 0.45rem;
   border-radius: 10px;
-  background: rgb(var(--color-fill-secondary));
+  background: rgb(var(--color-text-primary) / 0.04);
 }
 
 .yf-week-day-label {
   display: block;
   margin-bottom: 0.35rem;
-  font-size: 0.65rem;
+  font-size: 0.6875rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: rgb(var(--color-text-muted));
 }
 
@@ -1961,7 +2550,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 .yf-ladder-cell {
   padding: 0.4rem 0.5rem;
   border-radius: 8px;
-  background: rgb(var(--color-fill-secondary));
+  background: rgb(var(--color-text-primary) / 0.04);
 }
 
 .yf-gap {
@@ -1972,7 +2561,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
 }
 
 .yf-kb-hint {
-  font-size: 0.68rem;
+  font-size: 0.6875rem;
   color: rgb(var(--color-text-muted));
 }
 
@@ -2014,7 +2603,7 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   width: 70%;
   max-width: 14px;
   min-height: 2px;
-  border-radius: 2px 2px 0 0;
+  border-radius: 3px 3px 0 0;
   background: rgb(var(--color-danger) / 0.75);
 }
 
@@ -2037,46 +2626,82 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   border-radius: 12px;
 }
 
+/* Command line — Spotlight: a glass plate floating high over a defocused
+   world. */
 .yf-cmd-backdrop {
-  @apply fixed inset-0 z-[80] flex items-start justify-center bg-black/35 px-4 pt-[12vh];
+  @apply fixed inset-0 z-[80] flex items-start justify-center px-4 pt-[14vh];
+}
+
+/* The defocused world lives on ::before so the panel's own glass can blur it. */
+.yf-cmd-backdrop::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--scrim);
+  backdrop-filter: blur(4px) saturate(110%);
+  -webkit-backdrop-filter: blur(4px) saturate(110%);
+  animation: fade-in 0.16s var(--ease-standard);
 }
 
 .yf-cmd-panel {
-  @apply w-full max-w-xl overflow-hidden rounded-[14px] bg-surface shadow-lg;
+  @apply w-full max-w-[640px] overflow-hidden rounded-[20px];
+  background-color: var(--glass-fill-strong);
+  backdrop-filter: blur(40px) saturate(190%);
+  -webkit-backdrop-filter: blur(40px) saturate(190%);
   box-shadow:
-    0 0 0 0.5px rgb(var(--color-border-subtle) / 0.7),
-    0 24px 64px rgb(0 0 0 / 0.28);
+    var(--glass-rim),
+    var(--glass-edge),
+    0 40px 100px -20px rgb(0 0 0 / 0.4),
+    0 10px 30px -12px rgb(0 0 0 / 0.2);
+  animation: sheet-rise 0.28s var(--ease-emphasized);
 }
 
 .yf-cmd-input-wrap {
-  @apply flex items-center gap-2 border-b px-3 py-3;
-  border-color: rgb(var(--color-border-subtle) / 0.7);
+  @apply flex items-center gap-3 px-4 py-3.5;
+  box-shadow: inset 0 -1px 0 rgb(var(--color-text-primary) / 0.08);
 }
 
 .yf-cmd-input {
-  @apply min-w-0 flex-1 border-0 bg-transparent text-headline text-ink-primary outline-none;
+  @apply min-w-0 flex-1 border-0 bg-transparent text-[20px] font-normal text-ink-primary outline-none;
+  letter-spacing: -0.02em;
+}
+
+.yf-cmd-input:focus-visible {
+  box-shadow: none;
+}
+
+.yf-cmd-input::placeholder {
+  color: rgb(var(--color-text-subtle));
 }
 
 .yf-cmd-kbd {
-  @apply rounded-md px-1.5 py-0.5 text-caption1 uppercase text-ink-muted;
-  box-shadow: inset 0 0 0 0.5px rgb(var(--color-border-subtle) / 0.85);
+  @apply kbd;
 }
 
 .yf-cmd-list {
-  @apply max-h-[22rem] overflow-y-auto py-1;
+  @apply max-h-[24rem] overflow-y-auto p-1.5;
 }
 
 .yf-cmd-item {
-  @apply flex w-full items-center px-3 py-2.5 text-left;
+  @apply flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2 text-left;
 }
 
 .yf-cmd-item[data-active="true"] {
-  background: rgb(var(--color-fill-tertiary) / 0.8);
+  background-color: rgb(var(--color-accent));
+}
+
+.yf-cmd-item[data-active="true"] :is(.text-ink-primary, .text-ink-secondary, svg) {
+  color: #fff;
+}
+
+.yf-cmd-item[data-active="true"] .text-ink-muted {
+  color: rgb(255 255 255 / 0.78);
 }
 
 .yf-cmd-hint {
-  @apply border-t px-3 py-2 text-caption1 text-ink-muted;
-  border-color: rgb(var(--color-border-subtle) / 0.7);
+  @apply px-4 py-2.5 text-caption1 text-ink-muted;
+  box-shadow: inset 0 1px 0 rgb(var(--color-text-primary) / 0.08);
 }
 
 .yf-spark {
@@ -2090,3 +2715,638 @@ body[data-copilot-dragging="true"] .copilot-drop-inspect {
   @apply sticky left-0 bg-surface;
 }
 
+/* ---------------------------------------------------------------------------
+   Quotes
+--------------------------------------------------------------------------- */
+
+/* Day change in a soft pill, like the Mac benchmark tiles. */
+.price-pill {
+  @apply inline-flex items-center rounded-[6px] px-1.5 py-0.5 text-caption1 font-semibold;
+  font-variant-numeric: tabular-nums;
+  background-color: rgb(var(--color-danger) / 0.12);
+  color: rgb(var(--color-danger-ink));
+}
+
+.price-pill[data-up="true"] {
+  background-color: rgb(var(--color-success) / 0.13);
+  color: rgb(var(--color-success-ink));
+}
+
+/* Live tape: one hairline strip; the track fades out at its trailing edge. */
+.ticker-tape {
+  @apply flex items-center overflow-hidden rounded-[14px] py-1.5 pl-2.5;
+  background-color: rgb(var(--color-surface) / 0.8);
+  box-shadow: var(--shadow);
+}
+
+.ticker-tape-track {
+  @apply flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pr-6;
+  scrollbar-width: none;
+  box-shadow: inset 1px 0 0 rgb(var(--color-text-primary) / 0.08);
+  padding-left: 0.375rem;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+}
+
+.ticker-tape-track::-webkit-scrollbar {
+  display: none;
+}
+
+.ticker-tape-item {
+  @apply flex shrink-0 items-baseline gap-1.5 rounded-[8px] px-2 py-1 text-left;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.ticker-tape-item:hover {
+  background-color: rgb(var(--color-text-primary) / 0.045);
+}
+
+/* ---------------------------------------------------------------------------
+   Company workspace
+--------------------------------------------------------------------------- */
+
+.company-head {
+  @apply pt-2;
+}
+
+/* Editorial positioning line under the company header. */
+.company-positioning {
+  @apply mt-4 max-w-3xl text-[15px] leading-relaxed text-ink-secondary sm:pl-[4.5rem];
+  letter-spacing: -0.01em;
+}
+
+/* Live quote beside the company name. */
+.quote-chip {
+  @apply inline-flex items-center gap-2 rounded-full py-1 pl-2.5 pr-1;
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow);
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.quote-chip:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+/* Keyboard help sheet on the Market desk. */
+.yf-kb-help {
+  @apply fixed inset-0 z-[70] flex items-start justify-center px-4 pt-[16vh];
+  background: var(--scrim);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fade-in 0.16s var(--ease-standard);
+}
+
+.yf-kb-help-card {
+  @apply w-full max-w-md rounded-[18px] p-5;
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow-sheet);
+  animation: sheet-rise 0.28s var(--ease-emphasized);
+}
+
+/* A range item that is really a pop-up menu keeps the pill, gains a chevron. */
+select.yf-range-item {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14' fill='none' stroke='%23808086' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 5l3-3 3 3M2 9l3 3 3-3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 8px 11px;
+  background-color: transparent;
+}
+
+select.yf-range-item:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+}
+
+/* Document list row (Reports, Documents): monogram, company, title, status. */
+.doc-row {
+  @apply flex w-full cursor-pointer items-start gap-3 rounded-[12px] px-2.5 py-2.5 text-left;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.doc-row:hover {
+  background-color: rgb(var(--color-text-primary) / 0.035);
+}
+
+.doc-row[data-selected="true"] {
+  background-color: rgb(var(--color-accent) / 0.09);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.22);
+}
+
+/* ---------------------------------------------------------------------------
+   Sign in
+--------------------------------------------------------------------------- */
+
+.login-tile {
+  @apply h-[72px] w-[72px] rounded-[18px];
+}
+
+.login-summit {
+  pointer-events: none;
+  position: absolute;
+  left: 50%;
+  bottom: -9rem;
+  transform: translateX(-50%);
+  color: rgb(var(--color-text-primary) / 0.04);
+  /* The peaks dissolve into the light as they rise. */
+  -webkit-mask-image: linear-gradient(to top, #000 35%, transparent 95%);
+  mask-image: linear-gradient(to top, #000 35%, transparent 95%);
+}
+
+.dark .login-summit {
+  color: rgb(255 255 255 / 0.03);
+}
+
+/* macOS switch: a capsule track and a knob that springs across. */
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  background-color: rgb(var(--color-text-primary) / 0.16);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-text-primary) / 0.08);
+  transition: background-color var(--duration-base) var(--ease-standard);
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 2px 5px rgb(0 0 0 / 0.2);
+  transition: transform var(--duration-spring) var(--ease-spring);
+}
+
+.switch:checked {
+  background-color: rgb(var(--color-accent));
+}
+
+.switch:checked::before {
+  transform: translateX(16px);
+}
+
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dark .switch {
+  background-color: rgb(255 255 255 / 0.18);
+}
+
+.dark .switch:checked {
+  background-color: rgb(var(--color-accent));
+}
+
+/* ---------------------------------------------------------------------------
+   Market desk details that previously had no styles of their own
+--------------------------------------------------------------------------- */
+
+.btn-primary {
+  @apply btn-filled;
+}
+
+.btn-outline {
+  @apply btn-bordered;
+}
+
+.yf-chart-tools-grouped {
+  @apply items-center gap-x-5 gap-y-2;
+}
+
+.yf-chart-tool-group {
+  @apply inline-flex flex-wrap items-center gap-1;
+}
+
+.yf-chart-tool-label {
+  @apply mr-1 text-caption1 font-semibold text-ink-muted;
+}
+
+.yf-table-head-eqs,
+.yf-table-row-eqs {
+  grid-template-columns: minmax(0, 1.5fr) repeat(5, minmax(0, 0.7fr));
+}
+
+.yf-heat-leader {
+  @apply text-caption1 text-ink-secondary;
+}
+
+.yf-rrg-trail {
+  stroke: rgb(var(--color-accent) / 0.35);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.yf-week-event {
+  @apply rounded-[6px] px-1 py-0.5 text-ink-secondary;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.yf-week-event:hover {
+  background-color: rgb(var(--color-accent) / 0.1);
+  color: rgb(var(--color-text-primary));
+}
+
+/* Transient confirmation, floating low and centered like a HUD. */
+.yf-toast {
+  @apply fixed bottom-6 left-1/2 z-[90] -translate-x-1/2 rounded-full px-4 py-2 text-footnote font-medium text-ink-primary;
+  background-color: var(--glass-fill-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-edge), var(--glass-shadow);
+  animation: sheet-rise 0.3s var(--ease-emphasized);
+}
+
+.yf-cmd-glyph {
+  @apply grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] text-ink-secondary;
+  background-color: rgb(var(--color-text-primary) / 0.06);
+}
+
+.yf-cmd-item[data-active="true"] .yf-cmd-glyph {
+  background-color: rgb(255 255 255 / 0.2);
+  color: #fff;
+}
+
+/* ---------------------------------------------------------------------------
+   Popovers: task history and the live jobs HUD
+--------------------------------------------------------------------------- */
+
+/* Popovers float over content, so their glass is denser than the sidebar's. */
+.glass-popover::before {
+  background-color: var(--glass-fill-strong);
+}
+
+.job-row {
+  @apply flex w-full items-start gap-2.5 rounded-[12px] px-2.5 py-2.5 text-left;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.job-row:hover {
+  background-color: rgb(var(--color-text-primary) / 0.045);
+}
+
+.job-row-icon {
+  @apply mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-[7px] text-ink-secondary;
+  background-color: rgb(var(--color-text-primary) / 0.06);
+}
+
+/* ---------------------------------------------------------------------------
+   Ask
+--------------------------------------------------------------------------- */
+
+.ask-transcript {
+  @apply px-0.5 py-2;
+}
+
+/* The analyst's question: a tinted bubble, as in Messages. */
+.ask-bubble {
+  @apply max-w-full whitespace-pre-wrap break-words rounded-[16px] rounded-br-[5px] px-3 py-2 text-subheadline text-ink-primary;
+  line-height: 1.5;
+  background-color: rgb(var(--color-accent) / 0.11);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-accent) / 0.16);
+}
+
+.ask-suggestion {
+  @apply flex w-full items-center gap-2.5 rounded-[12px] px-3 py-2.5 text-left;
+  background-color: rgb(var(--color-surface) / 0.85);
+  box-shadow: var(--shadow);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.ask-suggestion:hover:not(:disabled) {
+  background-color: rgb(var(--color-surface));
+  box-shadow: var(--shadow-hover);
+}
+
+.ask-chip {
+  @apply rounded-pill px-2.5 py-1 text-caption1 font-medium text-ink-secondary;
+  background-color: rgb(var(--color-surface) / 0.85);
+  box-shadow: var(--shadow);
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.ask-chip:hover:not(:disabled) {
+  color: rgb(var(--color-text-primary));
+  box-shadow: var(--shadow-hover);
+}
+
+/* Composer: one rounded well holding the text and a send button that lights
+   up once there is something to send. */
+.ask-composer {
+  @apply flex items-end gap-2 rounded-[20px] py-1.5 pl-3.5 pr-1.5;
+  background-color: rgb(var(--color-surface));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-text-primary) / 0.1), 0 1px 2px rgb(0 0 0 / 0.04);
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.ask-composer:focus-within {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / 0.75), 0 0 0 3.5px rgb(var(--color-accent-glow) / 0.25);
+}
+
+.dark .ask-composer {
+  background-color: rgb(255 255 255 / 0.06);
+}
+
+.ask-composer-input {
+  @apply max-h-40 min-h-[2.25rem] flex-1 resize-none border-0 bg-transparent py-2 text-subheadline text-ink-primary placeholder:text-ink-subtle;
+  line-height: 1.35;
+}
+
+.ask-composer-input:focus {
+  outline: none;
+}
+
+.ask-send {
+  @apply grid h-8 w-8 shrink-0 place-items-center rounded-full text-ink-subtle;
+  background-color: rgb(var(--color-text-primary) / 0.06);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-base) var(--ease-spring-lift);
+}
+
+.ask-send[data-ready="true"] {
+  background-color: rgb(var(--color-accent));
+  color: #fff;
+}
+
+.ask-send:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+/* While Warren answers, the send button becomes Stop. */
+.ask-send[data-stop="true"] {
+  background-color: rgb(var(--color-text-primary));
+  color: rgb(var(--color-surface));
+}
+
+.ask-send[data-stop="true"]:disabled {
+  opacity: 0.45;
+}
+
+.ask-suggestion[data-tone="warning"] {
+  box-shadow: inset 0 0 0 1px rgb(var(--color-warning) / 0.4), var(--shadow);
+}
+
+.ask-chip[data-tone="warning"] {
+  color: rgb(var(--color-warning-ink));
+  box-shadow: inset 0 0 0 1px rgb(var(--color-warning) / 0.4), var(--shadow);
+}
+
+/* ---------------------------------------------------------------------------
+   Warren: the Ask persona, as on iPhone (portrait, "Buffetting…")
+--------------------------------------------------------------------------- */
+
+.warren-mark {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--warren-size, 28px);
+  height: var(--warren-size, 28px);
+  border-radius: 9999px;
+}
+
+.warren-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  user-select: none;
+  /* A hairline keeps the cream disc crisp on white and on glass. */
+  box-shadow: 0 0 0 0.5px rgb(var(--color-text-primary) / 0.14), 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+/* Busy: a ring of sky light breathes around the portrait. */
+.warren-mark::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 1.5px rgb(var(--color-accent-glow) / 0.9),
+    0 0 12px rgb(var(--color-accent-glow) / 0.45);
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.warren-mark[data-busy="true"]::after {
+  opacity: 1;
+  animation: warren-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes warren-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.97);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+.warren-hero {
+  @apply flex flex-col items-center px-3 pt-4 text-center;
+}
+
+/* "About Acme ⌄" under the Ask title: the company Warren is studying. */
+.warren-about {
+  @apply inline-flex max-w-full items-center gap-1 rounded-[7px] px-1.5 py-0.5 text-footnote;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.warren-about:hover,
+.warren-about[aria-expanded="true"] {
+  background-color: rgb(var(--color-text-primary) / 0.06);
+}
+
+.toolbar-menu.warren-about-menu {
+  left: 0;
+  right: auto;
+  min-width: 16.5rem;
+  max-width: min(20rem, calc(100vw - 2rem));
+  max-height: min(24rem, 60vh);
+  overflow-y: auto;
+  transform-origin: top left;
+}
+
+.warren-menu-label {
+  @apply px-2.5 pb-1 pt-2 text-caption1 font-medium text-ink-muted;
+}
+
+/* Answers read at 13px: roomier than chrome text, tighter than a page. */
+.warren-md {
+  @apply text-subheadline text-ink-primary;
+  line-height: 1.55;
+}
+
+.warren-md .md-h1,
+.warren-md .md-h2 {
+  font-size: 0.9375rem;
+}
+
+.warren-md .md-h3,
+.warren-md .md-h4,
+.warren-md .md-h5,
+.warren-md .md-h6 {
+  font-size: 0.875rem;
+}
+
+.warren-md .md-p {
+  margin: 0.45rem 0;
+}
+
+.warren-md .md-list {
+  padding-left: 1.15rem;
+}
+
+/* Copy / Ask again sit quietly under an answer until it's pointed at. */
+.warren-answer-actions {
+  @apply -ml-1.5 mt-1.5 flex items-center gap-0.5;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.warren-answer:hover .warren-answer-actions,
+.warren-answer:focus-within .warren-answer-actions,
+.warren-answer[data-latest="true"] .warren-answer-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .warren-answer-actions {
+    opacity: 1;
+  }
+}
+
+.warren-action {
+  @apply inline-flex items-center gap-1 rounded-[7px] px-1.5 py-1 text-caption1 font-medium text-ink-muted;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.warren-action:hover {
+  background-color: rgb(var(--color-text-primary) / 0.06);
+  color: rgb(var(--color-text-primary));
+}
+
+/* "Buffetting…": a slow sheen passes over the words while Warren works.
+   Reduced motion leaves it still and muted. */
+.warren-status {
+  @apply text-caption1 font-medium;
+  color: rgb(var(--color-text-muted));
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--color-text-muted)) 0%,
+    rgb(var(--color-text-muted)) 38%,
+    rgb(var(--color-text-primary)) 50%,
+    rgb(var(--color-text-muted)) 62%,
+    rgb(var(--color-text-muted)) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: warren-sheen 2.2s linear infinite;
+}
+
+@keyframes warren-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+.warren-error {
+  @apply flex items-start gap-2 rounded-[12px] px-3 py-2.5 text-footnote leading-relaxed text-ink-primary;
+  background-color: rgb(var(--color-warning) / 0.1);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-warning) / 0.3);
+}
+
+.warren-card {
+  @apply rounded-[12px] p-3;
+  background-color: rgb(var(--color-surface) / 0.9);
+  box-shadow: var(--shadow);
+}
+
+.warren-card[data-tone="warning"] {
+  background-color: rgb(var(--color-warning) / 0.08);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--color-warning) / 0.3);
+}
+
+.warren-cite {
+  @apply inline-flex max-w-full items-center gap-1 rounded-pill px-2 py-0.5 text-caption1 font-medium text-accent-ink;
+  background-color: rgb(var(--color-accent) / 0.08);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.warren-cite:hover {
+  background-color: rgb(var(--color-accent) / 0.15);
+}
+
+/* What Warren can see: the tab or the memo point handed to him. */
+.warren-context {
+  @apply inline-flex min-w-0 max-w-full items-center gap-1 rounded-pill py-0.5 pl-2 pr-2 text-caption1 font-medium text-accent-ink;
+  background-color: rgb(var(--color-accent) / 0.1);
+}
+
+.warren-context-clear {
+  @apply -mr-1 grid h-4 w-4 shrink-0 place-items-center rounded-full;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.warren-context-clear:hover {
+  background-color: rgb(var(--color-accent) / 0.18);
+}
+
+/* Toolbar sync status: a dot and a time, like the Mac's "● Synced 10:42 PM". */
+.sync-status {
+  @apply inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-caption1 font-medium text-ink-muted;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.sync-status:hover {
+  background-color: rgb(var(--color-text-primary) / 0.05);
+  color: rgb(var(--color-text-primary));
+}
+
+.sync-status .status-dot {
+  background-color: rgb(var(--color-text-subtle));
+}
+
+.sync-status[data-state="ok"] .status-dot {
+  background-color: rgb(var(--color-success));
+  box-shadow: 0 0 0 3px rgb(var(--color-success) / 0.16);
+}
+
+.sync-status[data-state="error"] {
+  color: rgb(var(--color-danger-ink));
+}
+
+.sync-status[data-state="error"] .status-dot {
+  background-color: rgb(var(--color-danger));
+  box-shadow: 0 0 0 3px rgb(var(--color-danger) / 0.16);
+}

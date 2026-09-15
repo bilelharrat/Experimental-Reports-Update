@@ -6,22 +6,27 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/app-icon.png" />
     <title>BSH Research Center</title>
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f2f7" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000" />
-    <!-- Appearance is resolved before first paint so the light default is
-         applied immediately. Mirrors the logic in src/appearance.js. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f6" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111113" />
+    <!-- Appearance is resolved before first paint so there is no flash.
+         Follows the system unless Settings chose Light or Dark. Mirrors
+         the logic in src/appearance.js. -->
     <script>
       (function () {
+        var dark = false;
         try {
           var saved = localStorage.getItem("bsh.research.appearance");
-          var dark =
-            saved === "dark" ||
-            (saved === "auto" &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches);
-          if (dark) document.documentElement.classList.add("dark");
+          var system = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          dark = saved === "dark" || (saved !== "light" && system);
         } catch (e) {
-          /* private mode / storage disabled — fall back to light */
+          /* private mode / storage disabled — follow the system if we can */
+          try {
+            dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (err) {
+            dark = false;
+          }
         }
+        if (dark) document.documentElement.classList.add("dark");
       })();
     </script>
   </head>

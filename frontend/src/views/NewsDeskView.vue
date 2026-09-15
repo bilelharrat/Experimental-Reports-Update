@@ -4,7 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 import { companyViews, trackedCompanyIds } from "../state.js";
 import { buildTickerTape, displayTicker, publicTickers } from "../liveTicker.js";
 import { useLiveQuotes } from "../useLiveQuotes.js";
-import { useT } from "../i18n.js";
+import { currentLanguage, useT } from "../i18n.js";
+import { useLargeTitle } from "../chrome.js";
 import HomeMarketPanel from "../components/HomeMarketPanel.vue";
 import HomeNewsDesk from "../components/HomeNewsDesk.vue";
 import LiveTickerTape from "../components/LiveTickerTape.vue";
@@ -31,6 +32,21 @@ const emit = defineEmits(["open-copilot"]);
 const t = useT();
 const route = useRoute();
 const router = useRouter();
+const pageTitleEl = ref(null);
+useLargeTitle(pageTitleEl);
+
+// Apple News sets the date above its title.
+const todayLabel = computed(() => {
+  try {
+    return new Date().toLocaleDateString(currentLanguage.value === "zh" ? "zh-CN" : "en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return "";
+  }
+});
 
 const companies = inject("workspaceCompanies", ref([]));
 const companyList = computed(() => unref(companies) || []);
@@ -140,7 +156,8 @@ function openNews(row) {
 <template>
   <div class="news-page" :data-expanded="deskExpanded ? 'true' : 'false'">
     <header class="news-page-header">
-      <h1 class="font-display text-large-title text-ink-primary">
+      <p class="home-eyebrow">{{ todayLabel }}</p>
+      <h1 ref="pageTitleEl" class="page-title mt-0.5">
         {{ t("nav.news") }}
       </h1>
     </header>

@@ -13,6 +13,8 @@ import {
 } from "../deskSync.js";
 import { accountInitials } from "../formatters.js";
 import { useT } from "../i18n.js";
+import Monogram from "../components/Monogram.vue";
+import PageHeader from "../components/PageHeader.vue";
 import { appLanguage, setAppLanguage } from "../state.js";
 
 const t = useT();
@@ -207,12 +209,8 @@ async function importDeskState(event) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-8 py-10">
-    <header class="mb-6">
-      <h1 class="font-display text-title3 text-ink-primary">
-        {{ t("settings.title") }}
-      </h1>
-    </header>
+  <div class="mx-auto w-full max-w-5xl px-5 pb-12 pt-4 md:px-8">
+    <PageHeader :title="t('settings.title')" />
 
     <div v-if="loading" class="rounded-card bg-surface p-5 text-callout text-ink-muted">
       {{ t("settings.loading") }}
@@ -224,9 +222,13 @@ async function importDeskState(event) {
     <div v-else class="space-y-4">
       <section class="group-card p-5">
         <div class="flex items-start gap-4">
-          <div class="grid h-11 w-11 place-items-center rounded-subbox bg-fill-tertiary text-callout font-semibold tracking-tight text-ink-secondary">
-            {{ accountInitials(account.name || account.email) }}
-          </div>
+          <Monogram
+            :name="account.name || account.email || ''"
+            :initials="accountInitials(account.name || account.email)"
+            :size="52"
+            tinted
+            round
+          />
           <div class="min-w-0 flex-1">
             <h2 class="font-display text-title3 text-ink-primary">
               {{ t("settings.profile") }}
@@ -321,7 +323,7 @@ async function importDeskState(event) {
             type="checkbox"
             :checked="prefs.compact_density"
             :disabled="saving === 'compact_density'"
-            class="memo-checkbox focus-ring"
+            class="switch focus-ring"
             @change="patchPreference('compact_density', $event.target.checked)"
           />
         </label>
@@ -364,7 +366,7 @@ async function importDeskState(event) {
               type="checkbox"
               :checked="prefs.weekly_summary"
               :disabled="saving === 'weekly_summary'"
-              class="memo-checkbox focus-ring"
+              class="switch focus-ring"
               @change="patchPreference('weekly_summary', $event.target.checked)"
             />
           </label>
@@ -374,7 +376,7 @@ async function importDeskState(event) {
               type="checkbox"
               :checked="prefs.stock_auto_refresh"
               :disabled="saving === 'stock_auto_refresh'"
-              class="memo-checkbox focus-ring"
+              class="switch focus-ring"
               @change="patchPreference('stock_auto_refresh', $event.target.checked)"
             />
           </label>
@@ -384,7 +386,7 @@ async function importDeskState(event) {
               type="checkbox"
               :checked="prefs.agent_alerts"
               :disabled="saving === 'agent_alerts'"
-              class="memo-checkbox focus-ring"
+              class="switch focus-ring"
               @change="patchPreference('agent_alerts', $event.target.checked)"
             />
           </label>

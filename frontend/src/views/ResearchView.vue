@@ -27,6 +27,9 @@ import { appLanguage, trackedCompanyIds } from "../state.js";
 import { useLiveQuotes } from "../useLiveQuotes.js";
 import CompanyDetail from "../components/CompanyDetail.vue";
 import CompanyFollowButton from "../components/CompanyFollowButton.vue";
+import Monogram from "../components/Monogram.vue";
+import WarrenMark from "../components/WarrenMark.vue";
+import { useLargeTitle } from "../chrome.js";
 import CopilotDropZone from "../components/CopilotDropZone.vue";
 import FilePreviewModal from "../components/FilePreviewModal.vue";
 import MemoAnalysisDashboard from "../components/MemoAnalysisDashboard.vue";
@@ -97,6 +100,8 @@ const emit = defineEmits(["reports-changed", "open-copilot"]);
 
 const route = useRoute();
 const router = useRouter();
+const companyTitleEl = ref(null);
+useLargeTitle(companyTitleEl);
 
 const company = ref(null);
 const companyError = ref(null);
@@ -1666,64 +1671,69 @@ onUnmounted(stopPolling);
 </script>
 
 <template>
-  <div class="w-full space-y-6 px-5 py-5 md:px-8 md:py-6">
-    <header v-if="company" class="flex items-start justify-between gap-4">
-      <div class="min-w-0">
-        <div class="flex flex-wrap items-center gap-2">
-          <h1 class="font-display text-title2 text-ink-primary">{{ company.name }}</h1>
-          <CompanyFollowButton :company-id="company.id" size="md" />
-          <template v-if="companyTicker">
-            <RouterLink
-              class="inline-flex items-baseline gap-2 rounded-subbox bg-fill-tertiary/70 px-2.5 py-1 focus-ring"
-              :to="{ name: 'market-radar', query: { ticker: companyTicker } }"
-              data-testid="company-live-quote"
-            >
-              <span class="font-mono text-caption1 text-ink-muted">{{ companyTicker }}</span>
-              <span v-if="companyQuoteLabel" class="mono-data text-callout tabular text-ink-primary">
-                {{ companyQuoteLabel }}
-              </span>
-              <span
-                v-if="companyQuoteChange != null"
-                class="text-caption1 font-semibold tabular"
-                :class="companyQuoteChange >= 0 ? 'text-success' : 'text-danger'"
+  <div class="page-wide space-y-6">
+    <header v-if="company" class="company-head">
+      <div class="flex items-start gap-4">
+        <Monogram :company="company" :size="56" tinted class="mt-1 max-sm:hidden" />
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <h1 ref="companyTitleEl" class="font-display text-title1 text-ink-primary">{{ company.name }}</h1>
+            <CompanyFollowButton :company-id="company.id" size="md" />
+            <template v-if="companyTicker">
+              <RouterLink
+                class="quote-chip focus-ring"
+                :to="{ name: 'market-radar', query: { ticker: companyTicker } }"
+                data-testid="company-live-quote"
               >
-                {{ signedChange(companyQuoteChange) }}
-              </span>
-              <span v-else class="text-caption1 text-ink-subtle">{{ tr("tracking.quote_pending") }}</span>
-            </RouterLink>
-          </template>
-        </div>
-        <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            v-if="company.latest_funding?.round"
-            class="text-footnote font-medium text-ink-muted"
-          >
-            {{ fundingRoundLabel(company.latest_funding.round) }}
-          </span>
-          <span
-            v-if="translatedCompanyField('industry') || translatedCompanyField('sector')"
-            class="text-footnote text-ink-muted"
-          >
-            {{ translatedCompanyField("industry") || translatedCompanyField("sector") }}
-          </span>
-          <a
-            v-if="companyWebsiteHref"
-            :href="companyWebsiteHref"
-            target="_blank"
-            rel="noopener"
-            class="inline-flex items-center gap-1 rounded text-footnote font-medium text-accent-ink hover:text-ink-primary focus-ring"
-          >
-            <ExternalLink class="h-3 w-3" />
-            {{ company.website.replace(/^https?:\/\//, "") }}
-          </a>
-        </div>
-        <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption1 text-ink-subtle">
-          <span v-if="company.founded_year">{{ tr("company.founded") }} {{ company.founded_year }}</span>
-          <span v-if="translatedCompanyField('hq')">{{ translatedCompanyField("hq") }}</span>
-          <span v-if="translatedCompanyField('employee_band')">
-            {{ translatedCompanyField("employee_band") }} {{ tr("company.employees") }}
-          </span>
-          <span v-if="company.latest_funding" class="mono-data">
+                <span class="text-caption1 font-semibold tracking-wide text-ink-secondary">{{ companyTicker }}</span>
+                <span v-if="companyQuoteLabel" class="mono-data text-callout font-medium text-ink-primary">
+                  {{ companyQuoteLabel }}
+                </span>
+                <span
+                  v-if="companyQuoteChange != null"
+                  class="price-pill"
+                  :data-up="companyQuoteChange >= 0 ? 'true' : 'false'"
+                >
+                  {{ signedChange(companyQuoteChange) }}
+                </span>
+                <span v-else class="text-caption1 text-ink-subtle">{{ tr("tracking.quote_pending") }}</span>
+              </RouterLink>
+            </template>
+          </div>
+          <div class="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <span
+              v-if="company.latest_funding?.round"
+              class="chip bg-accent/10 text-accent-ink"
+            >
+              {{ fundingRoundLabel(company.latest_funding.round) }}
+            </span>
+            <span
+              v-if="translatedCompanyField('industry') || translatedCompanyField('sector')"
+              class="text-footnote text-ink-secondary"
+            >
+              {{ translatedCompanyField("industry") || translatedCompanyField("sector") }}
+            </span>
+            <a
+              v-if="companyWebsiteHref"
+              :href="companyWebsiteHref"
+              target="_blank"
+              rel="noopener"
+              class="inline-flex items-center gap-1 rounded-[6px] text-footnote font-medium text-accent-ink hover:underline focus-ring"
+            >
+              {{ company.website.replace(/^https?:\/\//, "") }}
+              <ExternalLink class="h-3 w-3" />
+            </a>
+          </div>
+          <div class="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-caption1 text-ink-muted">
+            <span v-if="company.founded_year">{{ tr("company.founded") }} {{ company.founded_year }}</span>
+            <span v-if="company.founded_year && translatedCompanyField('hq')" aria-hidden="true">·</span>
+            <span v-if="translatedCompanyField('hq')">{{ translatedCompanyField("hq") }}</span>
+            <span v-if="translatedCompanyField('employee_band') && (company.founded_year || translatedCompanyField('hq'))" aria-hidden="true">·</span>
+            <span v-if="translatedCompanyField('employee_band')">
+              {{ translatedCompanyField("employee_band") }} {{ tr("company.employees") }}
+            </span>
+          </div>
+          <div v-if="company.latest_funding" class="mono-data mt-1 text-caption1 text-ink-muted">
             {{ tr("company.last_round") }}
             {{
               isPendingValue(company.latest_funding.amount_usd)
@@ -1739,38 +1749,40 @@ onUnmounted(stopPolling);
             <template v-if="company.total_funding_usd">
               · {{ tr("company.total_raised") }} {{ fundingAmount(company.total_funding_usd) }}
             </template>
-          </span>
+          </div>
+          <p v-if="refreshCompanyError" class="mt-2 text-caption1 text-danger">{{ refreshCompanyError }}</p>
         </div>
-        <p v-if="refreshCompanyError" class="mt-2 text-caption1 text-danger">{{ refreshCompanyError }}</p>
-        <p class="mt-3 max-w-3xl text-callout leading-relaxed text-ink-secondary">
-          <template v-if="companyPositioning">
-            <strong class="font-semibold text-ink-primary">{{ company.name }}</strong>
-            {{ tr("research.positioning_is_a") }}
-            <span class="position-highlight">{{ companyPositioning.category }}</span>
-            {{ tr("research.positioning_for") }} {{ companyPositioning.customers }}
-            {{ tr("research.positioning_who") }} {{ companyPositioning.need }},
-            {{ tr("research.positioning_that") }}
-            <span class="position-underline">{{ companyPositioning.benefit }}</span>.
-            {{ tr("research.positioning_unlike") }} {{ companyPositioning.alternative }},
-            {{ tr("research.positioning_it") }} {{ companyPositioning.differentiator }}.
-          </template>
-          <template v-else>
-            <span class="position-highlight">{{ companyPositioningFallback.lead }}</span>
-            {{ companyPositioningFallback.body }}
-          </template>
-        </p>
+        <button
+          type="button"
+          @click="refreshCompanyRecord"
+          :disabled="refreshingCompany"
+          class="btn-bordered btn-sm shrink-0"
+          :aria-label="refreshingCompany ? tr('company.refreshing') : tr('company.refresh')"
+          :title="refreshingCompany ? tr('company.refreshing') : tr('company.refresh')"
+        >
+          <Loader2 v-if="refreshingCompany" class="h-3.5 w-3.5 animate-spin" />
+          <RefreshCw v-else class="h-3.5 w-3.5" />
+          <span class="hidden md:inline">{{ refreshingCompany ? tr("company.refreshing") : tr("company.refresh") }}</span>
+        </button>
       </div>
-      <button
-        type="button"
-        @click="refreshCompanyRecord"
-        :disabled="refreshingCompany"
-        class="icon-btn shrink-0"
-        :aria-label="refreshingCompany ? tr('company.refreshing') : tr('company.refresh')"
-        :title="refreshingCompany ? tr('company.refreshing') : tr('company.refresh')"
-      >
-        <Loader2 v-if="refreshingCompany" class="h-4 w-4 animate-spin" />
-        <RefreshCw v-else class="h-4 w-4" />
-      </button>
+      <!-- The positioning line frames the Overview; working tabs get the room back. -->
+      <p v-if="activeTab === 'overview'" class="company-positioning">
+        <template v-if="companyPositioning">
+          <strong class="font-semibold text-ink-primary">{{ company.name }}</strong>
+          {{ tr("research.positioning_is_a") }}
+          <span class="position-highlight">{{ companyPositioning.category }}</span>
+          {{ tr("research.positioning_for") }} {{ companyPositioning.customers }}
+          {{ tr("research.positioning_who") }} {{ companyPositioning.need }},
+          {{ tr("research.positioning_that") }}
+          <span class="position-underline">{{ companyPositioning.benefit }}</span>.
+          {{ tr("research.positioning_unlike") }} {{ companyPositioning.alternative }},
+          {{ tr("research.positioning_it") }} {{ companyPositioning.differentiator }}.
+        </template>
+        <template v-else>
+          <span class="position-highlight">{{ companyPositioningFallback.lead }}</span>
+          {{ companyPositioningFallback.body }}
+        </template>
+      </p>
     </header>
 
     <div
@@ -1795,7 +1807,7 @@ onUnmounted(stopPolling);
     <!-- Flat company strip: Overview · Files · Report -->
     <div v-if="company" class="space-y-2">
       <div
-        class="hairline-b flex max-w-full flex-wrap items-center gap-x-1 gap-y-2 pb-px"
+        class="hairline-b flex max-w-full items-center gap-x-1 overflow-x-auto pb-px [scrollbar-width:none]"
         role="tablist"
       >
         <button
@@ -1803,7 +1815,7 @@ onUnmounted(stopPolling);
           :key="tab.id"
           type="button"
           @click="switchTab(tab.id)"
-          :class="[ 'workspace-tab px-3 py-2 text-xs font-medium focus-ring sm:px-4 sm:text-sm', activeTab === tab.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary', ]"
+          :class="[ 'workspace-tab shrink-0 rounded-t-[8px] px-3 py-2.5 text-[13px] font-medium focus-ring sm:px-3.5 sm:text-callout', activeTab === tab.id ? 'text-ink-primary' : 'text-ink-muted hover:text-ink-primary', ]"
           role="tab"
           :aria-selected="activeTab === tab.id"
         >
@@ -1851,9 +1863,10 @@ onUnmounted(stopPolling);
       </div>
       <button
         type="button"
-        class="btn-bordered btn-sm focus-ring"
+        class="btn-bordered btn-sm focus-ring !pl-1"
         @click="openAskInCopilot"
       >
+        <WarrenMark :size="18" />
         {{ tr("research.ask_copilot_open") }}
       </button>
       </div>

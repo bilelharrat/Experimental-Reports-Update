@@ -141,92 +141,82 @@ function open(row) {
   <Teleport to="body">
     <aside
       :class="[
-        'fixed top-14 z-30 w-80 max-w-[88vw] flex flex-col gap-2 transition-[right] duration-200 ease-out',
-        props.copilotOpen ? 'max-xl:hidden xl:right-[26rem]' : 'right-4',
+        'fixed top-[60px] z-30 flex w-[22rem] max-w-[92vw] flex-col transition-[right] duration-200 ease-out',
+        props.copilotOpen ? 'max-xl:hidden xl:right-[26rem]' : 'right-3',
       ]"
+      :aria-label="t('jobs.history_title')"
     >
-      <header
-        class="flex items-center gap-2 px-3 py-2 rounded-card border border-subtle bg-surface shadow-card"
-      >
-        <History class="h-4 w-4 shrink-0 text-ink-muted" />
-        <span class="vogue-label text-ink-secondary">
-          {{ t("jobs.history_title") }}
-        </span>
-        <span class="flex-1"></span>
-        <button
-          type="button"
-          class="text-ink-muted hover:text-ink-primary focus-ring rounded"
-          :aria-label="t('jobs.collapse')"
-          @click="$emit('close')"
-        >
-          <X class="h-3.5 w-3.5" />
-        </button>
-      </header>
-
-      <div
-        v-if="loadFailed"
-        class="rounded-card border border-subtle bg-surface px-3 py-3 text-xs text-danger shadow-card"
-      >
-        {{ t("jobs.history_failed") }}
-      </div>
-      <div
-        v-else-if="!loading && rows.length === 0"
-        class="rounded-card border border-subtle bg-surface px-3 py-3 text-xs text-ink-muted shadow-card"
-      >
-        {{ t("jobs.history_empty") }}
-      </div>
-
-      <ul
-        v-if="rows.length"
-        class="max-h-[min(30rem,calc(100vh-7.5rem))] space-y-2 overflow-y-auto overscroll-contain pr-0.5"
-      >
-        <li
-          v-for="row in rows"
-          :key="row.id"
-          class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
-        >
+      <div class="glass-panel glass-popover relative flex max-h-[min(34rem,calc(100vh-5rem))] flex-col rounded-[18px]">
+        <header class="flex shrink-0 items-center gap-2 px-4 pb-2 pt-3">
+          <History class="h-4 w-4 shrink-0 text-ink-muted" />
+          <span class="text-callout font-semibold text-ink-primary">
+            {{ t("jobs.history_title") }}
+          </span>
+          <span class="flex-1"></span>
           <button
             type="button"
-            class="w-full text-left p-3 hover:bg-surface-muted focus-ring"
-            :title="t('jobs.open_transcript')"
-            @click="open(row)"
+            class="icon-btn !h-7 !w-7"
+            :aria-label="t('jobs.collapse')"
+            :title="t('jobs.collapse')"
+            @click="$emit('close')"
           >
-            <div class="flex items-start gap-2">
-              <component
-                :is="kindIcon(row.kind)"
-                class="h-3.5 w-3.5 text-ink-muted mt-0.5 shrink-0"
-              />
-              <div class="flex-1 min-w-0">
+            <X class="h-3.5 w-3.5" />
+          </button>
+        </header>
+
+        <div
+          v-if="loadFailed"
+          class="px-4 pb-4 text-footnote text-danger"
+        >
+          {{ t("jobs.history_failed") }}
+        </div>
+        <div
+          v-else-if="!loading && rows.length === 0"
+          class="px-4 pb-4 text-footnote text-ink-muted"
+        >
+          {{ t("jobs.history_empty") }}
+        </div>
+
+        <ul
+          v-if="rows.length"
+          class="min-h-0 space-y-0.5 overflow-y-auto overscroll-contain px-2 pb-2"
+        >
+          <li v-for="row in rows" :key="row.id">
+            <button
+              type="button"
+              class="job-row focus-ring"
+              :title="t('jobs.open_transcript')"
+              @click="open(row)"
+            >
+              <span class="job-row-icon">
+                <component :is="kindIcon(row.kind)" class="h-3.5 w-3.5" />
+              </span>
+              <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <div class="text-sm font-medium text-ink-primary truncate flex-1">
+                  <div class="min-w-0 flex-1 truncate text-footnote font-semibold text-ink-primary">
                     {{ row.title || kindLabel(row.kind) }}
                   </div>
                   <span
-                    class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase shrink-0"
+                    class="chip shrink-0"
                     :class="
                       outcome(row) === 'done'
                         ? 'bg-success-soft text-success-ink'
                         : outcome(row) === 'cancelled'
-                          ? 'bg-fill-tertiary text-ink-muted'
-                          : 'bg-danger/10 text-danger'
+                          ? 'bg-ink-primary/[0.06] text-ink-muted'
+                          : 'bg-danger-soft text-danger-ink'
                     "
                   >
-                    <CheckCircle2
-                      v-if="outcome(row) === 'done'"
-                      class="h-3 w-3"
-                    />
+                    <CheckCircle2 v-if="outcome(row) === 'done'" class="h-3 w-3" />
                     <XCircle v-else class="h-3 w-3" />
                     {{ outcomeLabel(row) }}
                   </span>
                 </div>
-                <div class="text-xs text-ink-muted truncate">
-                  <span class="font-mono uppercase text-[10px]">{{
-                    kindLabel(row.kind)
-                  }}</span>
+                <div class="truncate text-caption1 text-ink-muted">
+                  <span>{{ kindLabel(row.kind) }}</span>
                   <span v-if="row.subtitle"> · {{ row.subtitle }}</span>
                 </div>
                 <div
-                  class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-ink-muted font-mono"
+                  class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption1 text-ink-subtle tabular"
                 >
                   <span v-if="timingLine(row)">{{ timingLine(row) }}</span>
                   <span v-if="row.claude_cost_usd != null">
@@ -238,15 +228,15 @@ function open(row) {
                 </div>
                 <div
                   v-if="outcome(row) === 'failed' && row.error"
-                  class="mt-1 text-[11px] text-danger line-clamp-2"
+                  class="mt-1 line-clamp-2 text-caption1 text-danger"
                 >
                   {{ row.error }}
                 </div>
               </div>
-            </div>
-          </button>
-        </li>
-      </ul>
+            </button>
+          </li>
+        </ul>
+      </div>
     </aside>
 
     <JobLogModal v-if="openJob" :job="openJob" @close="openJob = null" />

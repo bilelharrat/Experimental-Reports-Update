@@ -10,6 +10,7 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import AiMark from "./AiMark.vue";
+import Monogram from "./Monogram.vue";
 import { formatCompactNumber, formatIsoDate, isPendingValue } from "../formatters.js";
 import { useT } from "../i18n.js";
 
@@ -70,22 +71,24 @@ const earningsLine = computed(() => {
   <button
     type="button"
     @click="emit('select', company)"
-    class="w-full text-left p-5 rounded-card bg-surface hover:bg-fill-tertiary shadow-card focus-ring transition flex items-start gap-4"
+    class="glass-card focus-ring flex w-full items-start gap-3.5 p-4 text-left"
   >
+    <Monogram v-if="company.name" :company="company" :size="44" tinted />
     <div
-      class="h-11 w-11 rounded-subbox bg-fill-tertiary grid place-items-center shrink-0 overflow-hidden"
+      v-else
+      class="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-[12px] bg-ink-primary/[0.05]"
     >
       <Building2 class="h-5 w-5 text-ink-muted" />
     </div>
 
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2 flex-wrap">
-        <div class="font-display font-semibold text-ink-primary text-base">
+        <div class="font-display text-headline text-ink-primary">
           {{ company.name }}
         </div>
         <span
           v-if="company.ticker"
-          class="text-xs font-mono px-1.5 py-0.5 rounded bg-accent-soft text-accent-ink"
+          class="chip bg-accent/10 text-accent-ink tabular"
         >
           {{ company.ticker }}<span v-if="company.exchange" class="opacity-70"> · {{ company.exchange }}</span>
         </span>
@@ -103,7 +106,7 @@ const earningsLine = computed(() => {
 
       <div
         v-if="company.highlight_2026"
-        class="mt-3 flex items-start gap-2 text-sm rounded-lg bg-accent-soft/40 border border-accent-soft px-3 py-2"
+        class="mt-3 flex items-start gap-2 rounded-[10px] bg-accent/[0.06] px-3 py-2 text-sm ring-1 ring-inset ring-accent/15"
       >
         <AiMark class="h-3.5 w-3.5 mt-0.5 shrink-0" />
         <div class="min-w-0 flex-1">
@@ -143,7 +146,7 @@ const earningsLine = computed(() => {
         v-if="company.id"
         @click="refresh"
         :title="`Re-run AI search for ${company.name}`"
-        class="text-ink-muted hover:text-accent p-1 rounded focus-ring cursor-pointer"
+        class="icon-btn !h-7 !w-7 cursor-pointer focus-ring"
       >
         <Loader2 v-if="refreshing" class="h-3.5 w-3.5 animate-spin" />
         <RefreshCw v-else class="h-3.5 w-3.5" />

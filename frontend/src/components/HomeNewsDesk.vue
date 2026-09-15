@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import WarrenMark from "./WarrenMark.vue";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import {
@@ -482,7 +483,8 @@ const briefSources = computed(() =>
           >
             {{ selected.companies[0].name }}
           </button>
-          <button type="button" class="btn-bordered focus-ring" @click="askCopilot">
+          <button type="button" class="btn-bordered focus-ring !pl-1.5" @click="askCopilot">
+            <WarrenMark :size="20" />
             {{ t("home.desk_ask_copilot") }}
           </button>
           <button
@@ -584,7 +586,7 @@ const briefSources = computed(() =>
     </div>
 
     <div v-if="rest.length" class="mt-5">
-      <h3 class="mb-2 px-1 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+      <h3 class="mb-2 px-1 text-footnote font-semibold text-ink-muted">
         {{ t("news.latest") }}
       </h3>
       <div

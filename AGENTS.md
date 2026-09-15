@@ -24,7 +24,8 @@ default; never run them casually.
 
 Architecture orientation (which module owns what, memo pipeline stages,
 what "Serena" and "Hormuz" are) lives in `docs/architecture.md`. Env vars
-are documented in `.env.example`.
+are documented in `.env.example`. The web UI's design language (tokens, glass
+materials, controls, page anatomy) is in `docs/web-design-language.md`.
 
 ## Branching
 

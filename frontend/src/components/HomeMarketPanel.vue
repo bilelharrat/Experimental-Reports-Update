@@ -79,7 +79,7 @@ function moverPrice(row) {
 
     <div v-else class="space-y-3">
       <div class="news-grouped px-4 py-3">
-        <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+        <div class="text-footnote font-semibold text-ink-muted">
           {{ postureLabel }}
         </div>
         <p class="mt-1 text-footnote text-ink-secondary">
@@ -97,7 +97,7 @@ function moverPrice(row) {
       </div>
 
       <div class="news-grouped overflow-hidden">
-        <div class="px-4 pb-1 pt-3 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+        <div class="px-4 pb-1 pt-3 text-footnote font-semibold text-ink-muted">
           {{ t("home.desk_movers") }}
         </div>
         <p v-if="movers.length === 0" class="px-4 pb-4 pt-2 text-callout text-ink-muted">
@@ -127,7 +127,7 @@ function moverPrice(row) {
       </div>
 
       <div v-if="signals.length" class="news-grouped overflow-hidden">
-        <div class="px-4 pb-1 pt-3 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+        <div class="px-4 pb-1 pt-3 text-footnote font-semibold text-ink-muted">
           {{ t("home.desk_signals") }}
         </div>
         <div

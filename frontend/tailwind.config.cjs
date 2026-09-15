@@ -1,8 +1,9 @@
 /**
  * Tailwind config for bsh-research-center.
  *
- * Design language follows the Apple Human Interface Guidelines (macOS/iPadOS
- * idiom: source-list sidebar + translucent toolbar).
+ * Design language: "Summit Glass" — the web sibling of the Mac terminal.
+ * Apple Human Interface Guidelines, macOS idiom: a floating glass source list,
+ * glass toolbar capsules, calm white cards with hairlines for content.
  *
  * Colors are defined as CSS variables in src/style.css (light + .dark) so
  * utilities like bg-surface and text-ink-primary respond to the theme.
@@ -13,13 +14,14 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        // The system stack resolves to SF Pro on Apple platforms, which is
-        // what the HIG type scale below is metrically designed around.
+        // The system stack resolves to SF Pro on Apple platforms (PingFang for
+        // Chinese), which is what the HIG type scale below is designed around.
         display: [
           "-apple-system",
           "BlinkMacSystemFont",
           "SF Pro Display",
           "ui-sans-serif",
+          "PingFang SC",
           "Segoe UI",
           "Roboto",
           "Helvetica Neue",
@@ -30,6 +32,7 @@ module.exports = {
           "-apple-system",
           "BlinkMacSystemFont",
           "SF Pro Text",
+          "PingFang SC",
           "Segoe UI",
           "Roboto",
           "Helvetica Neue",
@@ -47,10 +50,11 @@ module.exports = {
       },
       // Apple's named text styles. SF tightens tracking as size grows and
       // opens it up at caption sizes; these pairs reproduce that optically.
+      // The large title is the macOS desk title, a step below iOS's 34pt.
       fontSize: {
-        "large-title": ["2.125rem", { lineHeight: "2.5rem", letterSpacing: "-0.028em", fontWeight: "700" }],
+        "large-title": ["1.875rem", { lineHeight: "2.25rem", letterSpacing: "-0.026em", fontWeight: "700" }],
         title1: ["1.75rem", { lineHeight: "2.125rem", letterSpacing: "-0.024em", fontWeight: "700" }],
-        title2: ["1.375rem", { lineHeight: "1.75rem", letterSpacing: "-0.020em", fontWeight: "600" }],
+        title2: ["1.375rem", { lineHeight: "1.75rem", letterSpacing: "-0.020em", fontWeight: "650" }],
         title3: ["1.125rem", { lineHeight: "1.5rem", letterSpacing: "-0.014em", fontWeight: "600" }],
         headline: ["0.9375rem", { lineHeight: "1.25rem", letterSpacing: "-0.010em", fontWeight: "600" }],
         callout: ["0.875rem", { lineHeight: "1.25rem", letterSpacing: "-0.006em" }],
@@ -70,8 +74,7 @@ module.exports = {
         "ink-secondary": "rgb(var(--color-text-secondary) / <alpha-value>)",
         "ink-muted": "rgb(var(--color-text-muted) / <alpha-value>)",
         "ink-subtle": "rgb(var(--color-text-subtle) / <alpha-value>)",
-        // Apple's fill hierarchy: translucent grays for control backgrounds
-        // that sit correctly on any underlying surface or material.
+        // Apple's fill hierarchy: grays for control backgrounds and tiles.
         fill: {
           DEFAULT: "rgb(var(--color-fill) / <alpha-value>)",
           secondary: "rgb(var(--color-fill-secondary) / <alpha-value>)",
@@ -82,6 +85,8 @@ module.exports = {
           hover: "rgb(var(--color-accent-hover) / <alpha-value>)",
           soft: "rgb(var(--color-accent-soft) / <alpha-value>)",
           ink: "rgb(var(--color-accent-ink) / <alpha-value>)",
+          // The original brand sky: halos, focus rings, selection light.
+          glow: "rgb(var(--color-accent-glow) / <alpha-value>)",
         },
         success: {
           DEFAULT: "rgb(var(--color-success) / <alpha-value>)",
@@ -119,17 +124,17 @@ module.exports = {
           ink: "rgb(var(--color-purple-ink) / <alpha-value>)",
         },
       },
-      // Apple's concentric corner radii. Values stay conservative because CSS
-      // rounds circularly rather than with SF Symbols' continuous curvature —
-      // oversized radii read as "bubbly" instead of "squircle".
+      // Concentric corner radii, matched to the Mac (card 12, tile 8) one step
+      // rounder for the web's larger type. CSS rounds circularly rather than
+      // with continuous curvature, so values stay modest.
       borderRadius: {
         chip: "6px",
-        subbox: "10px",
-        row: "12px",
-        card: "16px",
-        glass: "20px",
-        sheet: "12px",
-        pill: "99px",
+        subbox: "9px",
+        row: "11px",
+        card: "14px",
+        glass: "18px",
+        sheet: "16px",
+        pill: "999px",
       },
       boxShadow: {
         card: "var(--shadow)",
@@ -138,17 +143,18 @@ module.exports = {
         control: "var(--shadow-control)",
       },
       backdropBlur: {
-        material: "20px",
+        material: "26px",
       },
       transitionTimingFunction: {
-        // Apple's default animation curve, plus the overshoot used for
-        // presentation (sheets, popovers).
+        // Apple's default animation curve, the presentation curve, and the
+        // spring used for gliding selection.
         standard: "cubic-bezier(0.25, 0.1, 0.25, 1)",
         emphasized: "cubic-bezier(0.32, 0.72, 0, 1)",
+        spring: "var(--ease-spring)",
       },
       keyframes: {
         "sheet-in": {
-          from: { opacity: "0", transform: "scale(0.96) translateY(8px)" },
+          from: { opacity: "0", transform: "scale(0.97) translateY(10px)" },
           to: { opacity: "1", transform: "scale(1) translateY(0)" },
         },
         "fade-in": {
@@ -157,7 +163,7 @@ module.exports = {
         },
       },
       animation: {
-        "sheet-in": "sheet-in 0.32s cubic-bezier(0.32, 0.72, 0, 1)",
+        "sheet-in": "sheet-in 0.34s cubic-bezier(0.32, 0.72, 0, 1)",
         "fade-in": "fade-in 0.2s cubic-bezier(0.25, 0.1, 0.25, 1)",
       },
     },

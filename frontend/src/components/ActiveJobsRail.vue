@@ -417,211 +417,210 @@ const visible = computed(() => jobs.value.length > 0);
     <aside
       v-if="visible"
       :class="[
-        'fixed top-14 z-20 w-80 max-w-[88vw] flex flex-col gap-2 transition-[right] duration-200 ease-out',
-        props.copilotOpen ? 'max-xl:hidden xl:right-[26rem]' : 'right-4',
+        'fixed top-[60px] z-20 w-[22rem] max-w-[92vw] flex flex-col transition-[right] duration-200 ease-out',
+        props.copilotOpen ? 'max-xl:hidden xl:right-[26rem]' : 'right-3',
       ]"
     >
-      <header
-        class="flex items-center gap-2 px-3 py-2 rounded-card border border-info/25 bg-info-soft/70 shadow-card"
-      >
-        <AiMark class="h-5 w-5 shrink-0" />
-        <span class="vogue-label text-info-ink">
-          {{ t("jobs.rail_title") }} · {{ jobs.length }}
-        </span>
-        <span class="flex-1"></span>
-        <button
-          type="button"
-          @click="collapsed = !collapsed"
-          class="text-ink-muted hover:text-ink-primary text-xs focus-ring rounded inline-flex items-center"
-          :title="collapsed ? t('jobs.expand') : t('jobs.collapse')"
-        >
-          <ChevronRight v-if="collapsed" class="h-3.5 w-3.5" />
-          <ChevronDown v-else class="h-3.5 w-3.5" />
-        </button>
-      </header>
+      <div class="glass-panel glass-popover relative flex max-h-[min(32rem,calc(100vh-5rem))] flex-col rounded-[18px]">
+        <header class="flex shrink-0 items-center gap-2 px-3.5 py-2.5">
+          <AiMark class="h-5 w-5 shrink-0" />
+          <span class="text-footnote font-semibold text-ink-primary">
+            {{ t("jobs.rail_title") }}
+          </span>
+          <span class="chip bg-info-soft text-info-ink tabular">{{ jobs.length }}</span>
+          <span class="flex-1"></span>
+          <button
+            type="button"
+            @click="collapsed = !collapsed"
+            class="icon-btn !h-7 !w-7"
+            :title="collapsed ? t('jobs.expand') : t('jobs.collapse')"
+            :aria-label="collapsed ? t('jobs.expand') : t('jobs.collapse')"
+          >
+            <ChevronDown
+              class="h-3.5 w-3.5 transition-transform duration-200"
+              :class="collapsed ? '-rotate-90' : ''"
+            />
+          </button>
+        </header>
 
-      <ul
-        v-if="!collapsed"
-        class="max-h-[min(28rem,calc(100vh-7.5rem))] space-y-2 overflow-y-auto overscroll-contain pr-0.5"
-      >
-        <li
-          v-for="j in jobs"
-          :key="jobKey(j)"
-          class="bg-surface border border-subtle rounded-card shadow-card overflow-hidden"
+        <ul
+          v-if="!collapsed"
+          class="min-h-0 space-y-1.5 overflow-y-auto overscroll-contain px-2 pb-2"
         >
-          <button
-            type="button"
-            @click="open(j)"
-            class="w-full text-left p-3 hover:bg-surface-muted focus-ring group"
-            :title="t('jobs.open_transcript')"
+          <li
+            v-for="j in jobs"
+            :key="jobKey(j)"
+            class="overflow-hidden rounded-[13px] bg-surface/80 shadow-card"
           >
-            <div class="flex items-start gap-2">
-              <component
-                :is="kindIcon(j.kind)"
-                class="h-3.5 w-3.5 text-info mt-0.5 shrink-0"
-              />
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-1.5">
-                  <div class="text-sm font-medium text-ink-primary truncate flex-1">
-                    {{ j.title }}
-                  </div>
-                  <MousePointerClick
-                    class="h-3 w-3 text-ink-subtle group-hover:text-accent shrink-0"
-                  />
-                </div>
-                <div class="text-xs text-ink-muted truncate">
-                  <span class="font-mono uppercase text-[10px]">{{
-                    kindLabel(j.kind)
-                  }}</span>
-                  <span v-if="j.subtitle" class="text-ink-muted">
-                    · {{ j.subtitle }}
-                  </span>
-                </div>
-                <div
-                  v-if="j.report_ready"
-                  class="mt-1 text-xs inline-flex flex-wrap items-center gap-1.5"
-                >
-                  <span
-                    class="inline-flex items-center gap-1 rounded-full bg-success-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase text-success-ink"
-                  >
-                    <CheckCircle2 class="h-3 w-3 shrink-0" />
-                    {{ t("jobs.done") }}
-                  </span>
-                  <span class="text-ink-secondary">{{
-                    t("jobs.finalizing_artifacts")
-                  }}</span>
-                </div>
-                <div
-                  v-else-if="j.latest_stage"
-                  class="mt-1 text-xs text-ink-secondary line-clamp-2 inline-flex items-center gap-1"
-                >
-                  <Loader2 class="h-3 w-3 animate-spin shrink-0 text-info" />
-                  <span>{{ j.latest_stage }}</span>
-                </div>
-                <!-- Latest Claude action — gives the rail a live "stdout"
-                     feel without making the user open the modal. -->
-                <div
-                  v-if="actionLine(j.latest_action)"
-                  class="mt-1 text-[11px] text-ink-muted line-clamp-2 inline-flex items-start gap-1 font-mono"
-                >
-                  <component
-                    v-if="actionIcon(j.latest_action)"
-                    :is="actionIcon(j.latest_action)"
-                    class="h-3 w-3 mt-px shrink-0 opacity-70"
-                  />
-                  <span>{{ actionLine(j.latest_action) }}</span>
-                </div>
-                <div
-                  v-if="pct(j) != null"
-                  class="mt-1.5 h-1 w-full rounded-full bg-surface-muted overflow-hidden"
-                >
-                  <div
-                    class="progress-fill h-full transition-all"
-                    :style="{ width: pct(j) + '%' }"
-                  ></div>
-                </div>
-                <div
-                  class="mt-1 flex items-center gap-2 text-[10px] text-ink-muted font-mono"
-                >
-                  <span v-if="progressText(j)">{{ progressText(j) }}</span>
-                  <span v-if="j.tool_count">
-                    {{ toolCallText(j.tool_count) }}
-                  </span>
-                  <span v-if="j.claude_cost_usd != null">
-                    ${{ Number(j.claude_cost_usd).toFixed(4) }}
-                  </span>
-                  <span v-if="jobElapsedText(j)" class="tabular-nums">
-                    {{ jobElapsedText(j) }}
-                  </span>
-                  <span v-if="j.last_event_at" class="ml-auto">
-                    {{ t("jobs.age_ago", { age: fmtAge(j.last_event_at) }) }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </button>
-          <button
-            v-if="jobFailed(j) && j.company_id && openCopilot"
-            type="button"
-            class="w-full border-t border-subtle px-3 py-2 text-left text-caption1 font-medium text-accent hover:bg-surface-muted focus-ring"
-            @click.stop="diagnoseJob(j)"
-          >
-            {{ t("copilot.action_diagnose_job") }}
-          </button>
-          <button
-            v-if="cancelCall(j) && !jobFailed(j) && !j.report_ready"
-            type="button"
-            class="w-full border-t border-subtle px-3 py-2 text-left text-caption1 font-medium focus-ring"
-            :class="
-              cancelArmedKey === jobKey(j)
-                ? 'text-danger hover:bg-danger/10'
-                : 'text-ink-muted hover:bg-surface-muted'
-            "
-            :disabled="cancellingKey === jobKey(j)"
-            @click.stop="requestCancel(j)"
-          >
-            {{ cancelLabel(j) }}
-          </button>
-          <div v-if="hasThreads(j)" class="border-t border-subtle bg-canvas/60">
             <button
               type="button"
-              @click.stop="toggleThreads(j)"
-              class="w-full px-3 py-1.5 flex items-center gap-2 text-left text-[11px] text-ink-muted hover:bg-surface-muted focus-ring"
-              :title="threadsExpanded(j) ? t('jobs.collapse') : t('jobs.expand')"
+              @click="open(j)"
+              class="group w-full p-3 text-left transition-colors hover:bg-ink-primary/[0.025] focus-ring"
+              :title="t('jobs.open_transcript')"
             >
-              <ChevronDown v-if="threadsExpanded(j)" class="h-3 w-3 shrink-0" />
-              <ChevronRight v-else class="h-3 w-3 shrink-0" />
-              <span class="font-mono">{{
-                t("jobs.parallel_flows")
-              }}</span>
-              <span class="ml-auto font-mono">
-                {{ progressText(j) || `${j.threads.length}` }}
-              </span>
-            </button>
-            <ul
-              v-if="threadsExpanded(j)"
-              class="px-2 pb-2 space-y-1"
-              :aria-label="t('jobs.parallel_flows')"
-            >
-              <li
-                v-for="thread in sortedThreads(j)"
-                :key="thread.name"
-                class="rounded border border-subtle bg-surface px-2 py-1.5"
-              >
-                <div class="flex items-center gap-1.5 min-w-0">
-                  <component
-                    :is="threadIcon(thread)"
-                    class="h-3 w-3 shrink-0"
-                    :class="{ 'text-success-ink': thread.status === 'done', 'text-danger': thread.status === 'failed', 'text-info animate-spin': thread.status === 'running', 'text-ink-muted': thread.status === 'not_started', }"
-                  />
-                  <span class="truncate text-[11px] font-medium text-ink-primary">
-                    {{ thread.name }}
-                  </span>
-                </div>
-                <div
-                  class="mt-0.5 flex items-center gap-2 pl-4 text-[10px] text-ink-muted font-mono"
-                >
-                  <span v-if="threadEventText(thread)">{{
-                    threadEventText(thread)
-                  }}</span>
-                  <span v-if="fmtThreadElapsed(thread)" class="tabular-nums">
-                    {{ threadElapsedText(thread) }}
-                  </span>
-                  <span v-if="fmtThreadEstimate(thread)" class="tabular-nums">
-                    {{ fmtThreadEstimate(thread) }}
-                  </span>
-                  <span
-                    v-if="thread.latest_action && actionLine(thread.latest_action)"
-                    class="truncate"
+              <div class="flex items-start gap-2.5">
+                <span class="job-row-icon !bg-info-soft !text-info-ink">
+                  <component :is="kindIcon(j.kind)" class="h-3.5 w-3.5" />
+                </span>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5">
+                    <div class="min-w-0 flex-1 truncate text-footnote font-semibold text-ink-primary">
+                      {{ j.title }}
+                    </div>
+                    <MousePointerClick
+                      class="h-3 w-3 shrink-0 text-ink-subtle group-hover:text-accent"
+                    />
+                  </div>
+                  <div class="truncate text-caption1 text-ink-muted">
+                    <span>{{ kindLabel(j.kind) }}</span>
+                    <span v-if="j.subtitle"> · {{ j.subtitle }}</span>
+                  </div>
+                  <div
+                    v-if="j.report_ready"
+                    class="mt-1.5 inline-flex flex-wrap items-center gap-1.5 text-caption1"
                   >
-                    {{ actionLine(thread.latest_action) }}
-                  </span>
+                    <span class="chip bg-success-soft text-success-ink">
+                      <CheckCircle2 class="h-3 w-3 shrink-0" />
+                      {{ t("jobs.done") }}
+                    </span>
+                    <span class="text-ink-secondary">{{
+                      t("jobs.finalizing_artifacts")
+                    }}</span>
+                  </div>
+                  <div
+                    v-else-if="j.latest_stage"
+                    class="mt-1.5 inline-flex items-center gap-1 text-caption1 text-ink-secondary line-clamp-2"
+                  >
+                    <Loader2 class="h-3 w-3 shrink-0 animate-spin text-info" />
+                    <span>{{ j.latest_stage }}</span>
+                  </div>
+                  <!-- Latest Claude action — gives the rail a live "stdout"
+                       feel without making the user open the modal. -->
+                  <div
+                    v-if="actionLine(j.latest_action)"
+                    class="mt-1 inline-flex items-start gap-1 font-mono text-[11px] text-ink-muted line-clamp-2"
+                  >
+                    <component
+                      v-if="actionIcon(j.latest_action)"
+                      :is="actionIcon(j.latest_action)"
+                      class="mt-px h-3 w-3 shrink-0 opacity-70"
+                    />
+                    <span>{{ actionLine(j.latest_action) }}</span>
+                  </div>
+                  <div
+                    v-if="pct(j) != null"
+                    class="mt-2 h-1 w-full overflow-hidden rounded-full bg-ink-primary/[0.08]"
+                  >
+                    <div
+                      class="progress-fill h-full rounded-full transition-all"
+                      :style="{ width: pct(j) + '%' }"
+                    ></div>
+                  </div>
+                  <div
+                    class="mt-1.5 flex items-center gap-2 text-caption2 text-ink-muted tabular"
+                  >
+                    <span v-if="progressText(j)">{{ progressText(j) }}</span>
+                    <span v-if="j.tool_count">
+                      {{ toolCallText(j.tool_count) }}
+                    </span>
+                    <span v-if="j.claude_cost_usd != null">
+                      ${{ Number(j.claude_cost_usd).toFixed(4) }}
+                    </span>
+                    <span v-if="jobElapsedText(j)">
+                      {{ jobElapsedText(j) }}
+                    </span>
+                    <span v-if="j.last_event_at" class="ml-auto">
+                      {{ t("jobs.age_ago", { age: fmtAge(j.last_event_at) }) }}
+                    </span>
+                  </div>
                 </div>
-              </li>
-            </ul>
-          </div>
-        </li>
-      </ul>
+              </div>
+            </button>
+            <button
+              v-if="jobFailed(j) && j.company_id && openCopilot"
+              type="button"
+              class="hairline-t w-full px-3 py-2 text-left text-caption1 font-medium text-accent-ink transition-colors hover:bg-accent/[0.06] focus-ring"
+              @click.stop="diagnoseJob(j)"
+            >
+              {{ t("copilot.action_diagnose_job") }}
+            </button>
+            <button
+              v-if="cancelCall(j) && !jobFailed(j) && !j.report_ready"
+              type="button"
+              class="hairline-t w-full px-3 py-2 text-left text-caption1 font-medium transition-colors focus-ring"
+              :class="
+                cancelArmedKey === jobKey(j)
+                  ? 'text-danger hover:bg-danger/10'
+                  : 'text-ink-muted hover:bg-ink-primary/[0.04]'
+              "
+              :disabled="cancellingKey === jobKey(j)"
+              @click.stop="requestCancel(j)"
+            >
+              {{ cancelLabel(j) }}
+            </button>
+            <div v-if="hasThreads(j)" class="hairline-t bg-ink-primary/[0.02]">
+              <button
+                type="button"
+                @click.stop="toggleThreads(j)"
+                class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-caption1 text-ink-muted transition-colors hover:bg-ink-primary/[0.04] focus-ring"
+                :title="threadsExpanded(j) ? t('jobs.collapse') : t('jobs.expand')"
+              >
+                <ChevronDown
+                  class="h-3 w-3 shrink-0 transition-transform duration-200"
+                  :class="threadsExpanded(j) ? '' : '-rotate-90'"
+                />
+                <span class="font-medium">{{
+                  t("jobs.parallel_flows")
+                }}</span>
+                <span class="ml-auto tabular">
+                  {{ progressText(j) || `${j.threads.length}` }}
+                </span>
+              </button>
+              <ul
+                v-if="threadsExpanded(j)"
+                class="space-y-1 px-2 pb-2"
+                :aria-label="t('jobs.parallel_flows')"
+              >
+                <li
+                  v-for="thread in sortedThreads(j)"
+                  :key="thread.name"
+                  class="rounded-[9px] bg-surface px-2 py-1.5 shadow-card"
+                >
+                  <div class="flex min-w-0 items-center gap-1.5">
+                    <component
+                      :is="threadIcon(thread)"
+                      class="h-3 w-3 shrink-0"
+                      :class="{ 'text-success-ink': thread.status === 'done', 'text-danger': thread.status === 'failed', 'text-info animate-spin': thread.status === 'running', 'text-ink-muted': thread.status === 'not_started', }"
+                    />
+                    <span class="truncate text-[11px] font-medium text-ink-primary">
+                      {{ thread.name }}
+                    </span>
+                  </div>
+                  <div
+                    class="mt-0.5 flex items-center gap-2 pl-4 text-[10px] text-ink-muted tabular"
+                  >
+                    <span v-if="threadEventText(thread)">{{
+                      threadEventText(thread)
+                    }}</span>
+                    <span v-if="fmtThreadElapsed(thread)">
+                      {{ threadElapsedText(thread) }}
+                    </span>
+                    <span v-if="fmtThreadEstimate(thread)">
+                      {{ fmtThreadEstimate(thread) }}
+                    </span>
+                    <span
+                      v-if="thread.latest_action && actionLine(thread.latest_action)"
+                      class="truncate"
+                    >
+                      {{ actionLine(thread.latest_action) }}
+                    </span>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+        </ul>
+      </div>
     </aside>
 
     <JobLogModal v-if="openJob" :job="openJob" @close="close" />

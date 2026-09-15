@@ -1,25 +1,27 @@
 <script setup>
-import { computed, inject, nextTick, onBeforeUnmount, ref, unref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   Search,
   Loader2,
   ArrowRight,
-  Building2,
   Globe,
   Download,
   Brain,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   Link as LinkIcon,
   Upload,
   ScrollText,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import AiMark from "../components/AiMark.vue";
-import { useT } from "../i18n.js";
-import { buildTickerTape, displayTicker, publicTickers } from "../liveTicker.js";
+import Monogram from "../components/Monogram.vue";
+import { useLargeTitle } from "../chrome.js";
+import { currentLanguage, useT } from "../i18n.js";
+import { buildTickerTape, displayTicker, homeTapeTickers, publicTickers } from "../liveTicker.js";
+import { loadPinnedTickers } from "../marketWatchlist.js";
+import { DESK_SYNC_EVENT } from "../deskSync.js";
 import { companyViews, trackedCompanyIds } from "../state.js";
 import { useLiveQuotes } from "../useLiveQuotes.js";
 import CompanyBoardCard from "../components/CompanyBoardCard.vue";
@@ -32,6 +34,27 @@ import AddHormuzResearchTool from "../components/AddHormuzResearchTool.vue";
 const t = useT();
 
 const router = useRouter();
+const heroTitle = ref(null);
+useLargeTitle(heroTitle);
+
+// Apple News-style dateline above the title.
+const todayLabel = computed(() => {
+  try {
+    return new Date().toLocaleDateString(currentLanguage.value === "zh" ? "zh-CN" : "en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return "";
+  }
+});
+
+function suggestionInitials(s) {
+  const ticker = String(s?.ticker || "").trim();
+  if (/^[A-Za-z]{1,5}$/.test(ticker)) return ticker.slice(0, 2).toUpperCase();
+  return "";
+}
 const route = useRoute();
 const query = ref("");
 
@@ -109,15 +132,31 @@ const showTrackedCompanies = computed(
 );
 const recentExpanded = ref(true);
 const trackedExpanded = ref(true);
+// The live tape under search. It waits for the workspace list so it doesn't
+// flash benchmarks and then swap to the book's own tickers.
 const showHomeTape = computed(
-  () => !searching.value && !searchResults.value && companyList.value.length > 0,
+  () =>
+    !searching.value &&
+    !searchResults.value &&
+    !(loadingCompanies.value && companyList.value.length === 0),
 );
+// Market watchlist pins stand in when the workspace has no public names;
+// they can arrive from the server after mount, so re-read on desk sync.
+const pinnedTickers = ref(loadPinnedTickers());
+function refreshPinnedTickers() {
+  pinnedTickers.value = loadPinnedTickers();
+}
+onMounted(() => window.addEventListener(DESK_SYNC_EVENT, refreshPinnedTickers));
+onBeforeUnmount(() => window.removeEventListener(DESK_SYNC_EVENT, refreshPinnedTickers));
+const tapeFromCompanies = computed(() => publicTickers(companyList.value).length > 0);
 const homeTickers = computed(() =>
-  showHomeTape.value ? publicTickers(companyList.value) : [],
+  showHomeTape.value ? homeTapeTickers(companyList.value, pinnedTickers.value) : [],
 );
 const { quotes: liveQuotes } = useLiveQuotes(homeTickers);
 const tickerTape = computed(() =>
-  showHomeTape.value ? buildTickerTape(companyList.value, liveQuotes.value) : [],
+  showHomeTape.value
+    ? buildTickerTape(companyList.value, liveQuotes.value, homeTickers.value)
+    : [],
 );
 
 function quoteFor(company) {
@@ -127,6 +166,16 @@ function quoteFor(company) {
 
 function openCompany(company) {
   router.push({ name: "research", params: { companyId: company.id } });
+}
+
+// Tape rows for workspace companies open the company; watchlist and
+// benchmark rows open the quote on the Market desk.
+function openTapeItem(item) {
+  if (item?.id) {
+    openCompany(item);
+    return;
+  }
+  if (item?.ticker) router.push({ name: "market-radar", query: { ticker: item.ticker } });
 }
 
 // Live progress feed during a Claude Code / OpenAI search
@@ -253,7 +302,16 @@ function handleProgressEvent(entry) {
     searching.value = false;
     closeProgressStream();
   } else if (entry.type === "error") {
-    error.value = "search_failed";
+    if (Array.isArray(entry.matches)) {
+      searchResults.value = {
+        source: entry.source,
+        matches: entry.matches,
+        cached_at: entry.cached_at,
+        reason: entry.reason || entry.error,
+      };
+    } else {
+      error.value = "search_failed";
+    }
     searching.value = false;
     closeProgressStream();
   }
@@ -412,28 +470,24 @@ function onBlur() {
 </script>
 
 <template>
-  <div class="relative mx-auto max-w-5xl px-6 py-10 md:px-8">
+  <div class="relative mx-auto w-full max-w-5xl px-5 pb-16 md:px-8">
     <div class="home-hero-glow" aria-hidden="true" />
-    <section class="relative mx-auto max-w-xl pb-6 pt-10 text-center md:pt-16">
-      <h1 class="home-title">
-        <span class="home-title-stack">
-          <span class="home-title-depth" aria-hidden="true">{{ t("home.title") }}</span>
-          <span class="home-title-fill">{{ t("home.title") }}</span>
-        </span>
-      </h1>
-      <p class="mx-auto mt-2 max-w-sm text-[15px] font-normal leading-snug text-ink-muted">
+    <section class="relative mx-auto max-w-2xl pb-8 pt-10 text-center md:pt-20">
+      <p class="home-eyebrow">{{ todayLabel }}</p>
+      <h1 ref="heroTitle" class="home-hero-title">{{ t("home.title") }}</h1>
+      <p class="mx-auto mt-3 max-w-md text-balance text-[15px] leading-snug text-ink-muted">
         {{ t("home.subtitle") }}
       </p>
     </section>
 
-    <div class="relative mx-auto w-full max-w-3xl">
+    <div class="relative z-10 mx-auto w-full max-w-3xl">
       <form
         @submit.prevent="runDeepSearch"
-        class="material-glass overflow-hidden rounded-glass"
+        class="material-glass home-search-plate"
       >
-        <div class="relative">
+        <div class="relative flex items-center">
           <Search
-            class="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-ink-muted"
+            class="pointer-events-none absolute left-[1.125rem] h-5 w-5 text-ink-muted"
           />
           <input
             v-model="query"
@@ -447,19 +501,21 @@ function onBlur() {
           <button
             type="submit"
             :disabled="!query.trim() || searching"
-            class="focus-ring absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-accent-ink transition hover:bg-accent-soft disabled:text-ink-subtle"
+            class="home-search-submit focus-ring"
+            :data-ready="query.trim() && !searching ? 'true' : 'false'"
             :aria-label="searching ? t('home.searching') : t('home.search')"
             :title="searching ? t('home.searching') : t('home.search')"
           >
-            <Loader2 v-if="searching" class="h-4 w-4 animate-spin" />
-            <ArrowRight v-else class="h-4 w-4" />
+            <Loader2 v-if="searching" class="h-[18px] w-[18px] animate-spin" />
+            <ArrowRight v-else class="h-[18px] w-[18px]" />
           </button>
         </div>
 
-        <div class="grid grid-cols-3 gap-0.5 px-0.5 pb-0.5" role="toolbar" :aria-label="t('toolbar.add')">
+        <div class="home-intake" role="toolbar" :aria-label="t('toolbar.add')">
           <button
             type="button"
             class="home-action focus-ring"
+            data-tone="link"
             :data-selected="linkOpen ? 'true' : 'false'"
             :aria-pressed="linkOpen"
             @click="setIntake('link')"
@@ -470,6 +526,7 @@ function onBlur() {
           <button
             type="button"
             class="home-action focus-ring"
+            data-tone="file"
             :data-selected="uploadOpen ? 'true' : 'false'"
             :aria-pressed="uploadOpen"
             @click="setIntake('upload')"
@@ -480,6 +537,7 @@ function onBlur() {
           <button
             type="button"
             class="home-action focus-ring"
+            data-tone="note"
             :data-selected="noteOpen ? 'true' : 'false'"
             :aria-pressed="noteOpen"
             @click="setIntake('note')"
@@ -492,11 +550,11 @@ function onBlur() {
 
       <div
         v-if="showSuggestions && (suggestions.length || autocompleting)"
-        class="material-glass absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-card"
+        class="material-menu absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-[18px] p-1.5"
       >
         <div
           v-if="autocompleting && suggestions.length === 0"
-          class="px-4 py-3 text-sm text-ink-muted flex items-center gap-2"
+          class="flex items-center gap-2 px-3 py-2.5 text-callout text-ink-muted"
         >
           <Loader2 class="h-4 w-4 animate-spin" />
           {{ t("home.autocomplete_loading") }}
@@ -506,47 +564,45 @@ function onBlur() {
           :key="(s.id || '') + (s.ticker || '') + s.name"
           type="button"
           @mousedown.prevent="pickSuggestion(s)"
-          class="w-full text-left px-4 py-2.5 hover:bg-fill-tertiary/80 focus-ring flex items-center gap-3 hairline-b last:shadow-none"
+          class="home-suggestion focus-ring"
         >
-          <Building2 class="h-4 w-4 text-ink-muted shrink-0" />
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-medium text-ink-primary truncate">
+          <Monogram :name="s.name" :initials="suggestionInitials(s)" :size="32" tinted />
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-callout font-medium text-ink-primary">
               {{ s.name }}
             </div>
-            <div class="text-xs text-ink-muted truncate">
-              <span v-if="s.ticker" class="font-mono">{{ s.ticker }}</span>
+            <div class="truncate text-footnote text-ink-muted">
+              <span v-if="s.ticker" class="font-semibold tabular">{{ s.ticker }}</span>
               <span v-if="s.exchange"> · {{ s.exchange }}</span>
               <span v-if="s.category || s.sector"> · {{ s.category || s.sector }}</span>
-              <span
-                v-if="s.source === 'local'"
-                class="ml-2 px-1 py-0.5 rounded bg-notice-soft text-notice-ink"
-                >{{ t("home.tag_tracked") }}</span
-              >
-              <span
-                v-else-if="s.source === 'researched'"
-                class="ml-2 px-1 py-0.5 rounded bg-success-soft text-success-ink"
-                :title="t('home.tag_researched_tooltip')"
-                >{{ t("home.tag_researched") }}</span
-              >
             </div>
           </div>
-          <ArrowRight class="h-3.5 w-3.5 text-ink-muted shrink-0" />
+          <span
+            v-if="s.source === 'local'"
+            class="chip bg-notice-soft text-notice-ink"
+          >{{ t("home.tag_tracked") }}</span>
+          <span
+            v-else-if="s.source === 'researched'"
+            class="chip bg-success-soft text-success-ink"
+            :title="t('home.tag_researched_tooltip')"
+          >{{ t("home.tag_researched") }}</span>
+          <ArrowRight class="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
         </button>
       </div>
     </div>
 
     <LiveTickerTape
       v-if="showHomeTape"
-      class="mx-auto mt-3 w-full max-w-3xl"
+      class="relative mx-auto mt-4 w-full max-w-3xl"
       :items="tickerTape"
-      link-to-tracking
-      @select="openCompany"
+      :link-to-tracking="tapeFromCompanies"
+      @select="openTapeItem"
     />
 
     <div
       v-if="linkOpen || uploadOpen || noteOpen"
       ref="quickAddEl"
-      class="mx-auto mt-4 w-full max-w-3xl"
+      class="mx-auto mt-4 w-full max-w-3xl scroll-mt-20"
     >
       <div class="grid gap-3">
         <SubmitLinkTool v-model:expanded="linkOpen" />
@@ -555,27 +611,29 @@ function onBlur() {
       </div>
     </div>
 
-    <div v-if="error" class="mt-4 text-sm text-danger">{{ errorMessage }}</div>
+    <div v-if="error" class="banner-danger mx-auto mt-4 w-full max-w-3xl">{{ errorMessage }}</div>
 
-    <section v-if="showRecentCompanies" class="mt-12 space-y-4">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <h2 class="font-display text-title3 text-ink-primary">
+    <section v-if="showRecentCompanies" class="mt-14">
+      <div class="mb-3.5 flex items-end justify-between gap-3">
+        <div class="min-w-0">
+          <h2 class="text-title3 text-ink-primary">
             {{ t("home.recent_companies") }}
           </h2>
-          <p class="mt-1 max-w-xl text-footnote text-ink-muted">
+          <p class="mt-0.5 max-w-xl text-footnote text-ink-muted">
             {{ t("home.recent_hint") }}
           </p>
         </div>
         <button
           type="button"
-          class="btn-bordered btn-sm focus-ring shrink-0"
+          class="btn-plain btn-sm focus-ring shrink-0"
           :aria-expanded="recentExpanded"
           @click="recentExpanded = !recentExpanded"
         >
-          <ChevronDown v-if="recentExpanded" class="h-3.5 w-3.5" />
-          <ChevronRight v-else class="h-3.5 w-3.5" />
           {{ recentExpanded ? t("sidebar.show_less") : t("home.show_more") }}
+          <ChevronDown
+            class="h-3.5 w-3.5 transition-transform duration-200"
+            :class="recentExpanded ? 'rotate-180' : ''"
+          />
         </button>
       </div>
       <template v-if="recentExpanded">
@@ -594,25 +652,27 @@ function onBlur() {
       </template>
     </section>
 
-    <section v-if="showTrackedCompanies" class="mt-10 space-y-4">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <h2 class="font-display text-title3 text-ink-primary">
+    <section v-if="showTrackedCompanies" class="mt-12">
+      <div class="mb-3.5 flex items-end justify-between gap-3">
+        <div class="min-w-0">
+          <h2 class="text-title3 text-ink-primary">
             {{ t("home.tracked_companies") }}
           </h2>
-          <p class="mt-1 max-w-xl text-footnote text-ink-muted">
+          <p class="mt-0.5 max-w-xl text-footnote text-ink-muted">
             {{ t("home.tracked_hint") }}
           </p>
         </div>
         <button
           type="button"
-          class="btn-bordered btn-sm focus-ring shrink-0"
+          class="btn-plain btn-sm focus-ring shrink-0"
           :aria-expanded="trackedExpanded"
           @click="trackedExpanded = !trackedExpanded"
         >
-          <ChevronDown v-if="trackedExpanded" class="h-3.5 w-3.5" />
-          <ChevronRight v-else class="h-3.5 w-3.5" />
           {{ trackedExpanded ? t("sidebar.show_less") : t("home.show_more") }}
+          <ChevronDown
+            class="h-3.5 w-3.5 transition-transform duration-200"
+            :class="trackedExpanded ? 'rotate-180' : ''"
+          />
         </button>
       </div>
       <div
@@ -631,66 +691,69 @@ function onBlur() {
 
     <div
       v-if="searching"
-      class="mt-10 rounded-card bg-surface shadow-card overflow-hidden"
+      class="desk-card mx-auto mt-10 w-full max-w-3xl overflow-hidden"
     >
       <button
         type="button"
         @click="toggleProgressExpanded"
-        class="w-full px-4 py-3 border-b border-subtle bg-surface-muted flex items-center gap-2 focus-ring text-left hover:bg-surface"
+        class="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-ink-primary/[0.025] focus-ring"
         :aria-expanded="progressExpanded"
       >
-        <Loader2 class="h-4 w-4 animate-spin text-accent shrink-0" />
-        <span class="text-sm font-medium text-ink-primary">
-          {{ currentStage?.message || t("home.starting_search") }}
+        <span class="relative grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent/10">
+          <Loader2 class="h-4 w-4 animate-spin text-accent" />
         </span>
-        <span
-          v-if="lastProgressEvent && !progressExpanded"
-          class="text-xs text-ink-muted truncate min-w-0 flex-1 font-mono"
-          :class="{ 'text-danger': lastProgressEvent.is_error }"
-        >
-          · {{ actionLabel(lastProgressEvent) }}
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-callout font-medium text-ink-primary">
+            {{ currentStage?.message || t("home.starting_search") }}
+          </span>
+          <span
+            v-if="lastProgressEvent && !progressExpanded"
+            class="block truncate text-footnote text-ink-muted"
+            :class="{ 'text-danger': lastProgressEvent.is_error }"
+          >
+            {{ actionLabel(lastProgressEvent) }}
+          </span>
         </span>
         <span
           v-if="currentStage?.stage"
-          class="ml-auto text-caption1 text-ink-muted font-mono shrink-0"
+          class="chip shrink-0 bg-ink-primary/[0.06] text-ink-muted"
         >
           {{ currentStage.stage }}
         </span>
         <ChevronDown
-          v-if="progressExpanded"
-          class="h-4 w-4 text-ink-muted shrink-0"
+          class="h-4 w-4 shrink-0 text-ink-muted transition-transform duration-200"
+          :class="progressExpanded ? 'rotate-180' : ''"
         />
-        <ChevronRight v-else class="h-4 w-4 text-ink-muted shrink-0" />
       </button>
       <div
         v-show="progressExpanded"
         ref="progressFeedRef"
-        class="max-h-72 overflow-y-auto px-3 py-2 space-y-1 font-mono text-[12px] leading-snug bg-canvas"
+        class="hairline-t max-h-72 space-y-0.5 overflow-y-auto bg-ink-primary/[0.02] px-3 py-2 font-mono text-[12px] leading-snug"
       >
         <div
           v-if="progressEvents.length === 0"
-          class="px-2 py-1 text-ink-muted italic"
+          class="px-2 py-1 italic text-ink-muted"
         >
           {{ t("home.waiting_for_claude") }}
         </div>
         <div
           v-for="(entry, i) in progressEvents"
           :key="i"
-          class="flex items-start gap-2 px-2 py-1 rounded"
-          :class="{ 'bg-accent-soft/30': entry.type === 'stage', 'text-danger': entry.is_error, }"
+          class="flex items-start gap-2 rounded-[6px] px-2 py-1"
+          :class="{ 'bg-accent/[0.07]': entry.type === 'stage', 'text-danger': entry.is_error, }"
         >
           <component
             v-if="actionIcon(entry)"
             :is="actionIcon(entry)"
-            class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted"
+            class="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-muted"
           />
           <AiMark
             v-else-if="entry.type === 'stage'"
-            class="h-3.5 w-3.5 mt-0.5 shrink-0"
+            class="mt-0.5 h-3.5 w-3.5 shrink-0"
           />
           <span
             v-else
-            class="h-3.5 w-3.5 mt-0.5 shrink-0 text-ink-muted text-center"
+            class="mt-0.5 h-3.5 w-3.5 shrink-0 text-center text-ink-muted"
             >·</span
           >
           <div class="min-w-0 flex-1 break-words text-ink-secondary">
@@ -700,9 +763,9 @@ function onBlur() {
       </div>
     </div>
 
-    <div v-else-if="searchResults" class="mt-10 space-y-3">
-      <div class="flex items-center justify-between gap-3 flex-wrap">
-        <h2 class="font-display text-title3 text-ink-primary">
+    <div v-else-if="searchResults" class="mx-auto mt-10 w-full max-w-3xl space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 class="text-title3 text-ink-primary">
           {{
             hasResults
               ? t("home.results_for", { query })
@@ -710,7 +773,7 @@ function onBlur() {
           }}
         </h2>
         <div class="flex items-center gap-3">
-          <span class="text-xs text-ink-muted flex items-center gap-1.5">
+          <span class="flex items-center gap-1.5 text-footnote text-ink-muted">
             <span>
               {{
                 searchResults.source === "claude_code"

@@ -198,7 +198,7 @@ function number(value) {
       <div v-else-if="tab === 'financials'" class="space-y-5">
         <div v-if="faLines.length" class="space-y-2">
           <div class="flex items-center justify-between gap-2">
-            <h3 class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="text-footnote font-semibold text-ink-muted">
               {{ t("radar.fa_lite_label") }}
             </h3>
             <span class="text-caption1 text-ink-muted">{{ t("radar.fa_yoy") }}</span>
@@ -220,7 +220,7 @@ function number(value) {
           </dl>
         </div>
         <div v-for="sheet in sheets" :key="sheet.key">
-          <h3 class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <h3 class="mb-2 text-footnote font-semibold text-ink-muted">
             {{ sheet.title }}
           </h3>
           <p v-if="!sheet.table?.rows?.length" class="text-callout text-ink-muted">
@@ -319,7 +319,7 @@ function number(value) {
         </p>
         <div v-if="ownSummary.buyers.length || ownSummary.sellers.length" class="grid gap-3 sm:grid-cols-2">
           <div>
-            <h3 class="mb-1 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="mb-1 text-footnote font-semibold text-ink-muted">
               {{ t("radar.own_buyers") }}
             </h3>
             <ul class="space-y-1 text-footnote text-ink-primary">
@@ -330,7 +330,7 @@ function number(value) {
             </ul>
           </div>
           <div>
-            <h3 class="mb-1 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="mb-1 text-footnote font-semibold text-ink-muted">
               {{ t("radar.own_sellers") }}
             </h3>
             <ul class="space-y-1 text-footnote text-ink-primary">
@@ -387,7 +387,7 @@ function number(value) {
           class="rounded-md bg-surface-secondary px-3 py-2"
           data-testid="expected-move"
         >
-          <span class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <span class="text-footnote font-semibold text-ink-muted">
             {{ t("radar.opt_expected_move") }}
           </span>
           <span class="ml-2 mono-data text-callout font-semibold tabular text-ink-primary">
@@ -398,7 +398,7 @@ function number(value) {
           </span>
           <span
             v-if="nextEarningsInMoveWindow"
-            class="ml-2 rounded-pill bg-notice/15 px-1.5 py-0.5 text-caption2 font-semibold uppercase text-notice"
+            class="ml-2 rounded-pill bg-notice/15 px-1.5 py-0.5 text-caption2 font-semibold text-notice"
           >
             {{ t("radar.opt_earnings_inside") }}
           </span>

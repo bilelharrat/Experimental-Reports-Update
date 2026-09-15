@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import Sidebar from "../src/components/Sidebar.vue";
+import { session } from "../src/auth.js";
 import {
   companyViews,
   setCompanySort,
@@ -153,6 +154,48 @@ describe("Sidebar", () => {
     expect(wrapper.find("aside").attributes("data-collapsed")).toBe("false");
     expect(wrapper.text()).toContain("Acme Inc.");
     expect(wrapper.text()).toContain("Pulse");
+  });
+
+  it("shows the account in the footer with Settings and Sign out behind it", async () => {
+    session.value = {
+      token: "test-token",
+      email: "elina.sun@bshfoundation.org",
+      expires_at: "2999-01-01T00:00:00Z",
+    };
+    try {
+      const wrapper = mountSidebar();
+      const account = wrapper.get('button[aria-label="Account"]');
+
+      expect(account.text()).toContain("ES");
+      expect(account.text()).toContain("elina.sun@bshfoundation.org");
+      expect(wrapper.text()).not.toContain("Settings");
+
+      await account.trigger("click");
+
+      expect(wrapper.text()).toContain("Settings");
+      expect(wrapper.text()).toContain("Sign out");
+    } finally {
+      session.value = null;
+    }
+  });
+
+  it("filters a long company list", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      id: `co-${i}`,
+      name: i === 7 ? "Zeta Robotics" : `Company ${i}`,
+      company_type: "private",
+      status: "private",
+      industry: "AI",
+    }));
+    const wrapper = mount(Sidebar, {
+      props: { loading: false, companies: many },
+      global: { stubs: { RouterLink: RouterLinkStub } },
+    });
+
+    await wrapper.get('input[aria-label="Filter companies"]').setValue("zeta");
+
+    expect(wrapper.text()).toContain("Zeta Robotics");
+    expect(wrapper.text()).not.toContain("Company 3");
   });
 
   it("shows the full company list in the rail", async () => {

@@ -72,8 +72,26 @@ export function quoteStaleness(asOf, { now = Date.now(), staleMinutes = 20 } = {
   return { ageMinutes, stale: ageMinutes >= staleMinutes };
 }
 
-export function buildTickerTape(companies = [], quotes = {}) {
-  return publicTickers(companies).map((ticker) => {
+/** Broad-market ETFs the Home tape falls back to when nothing else is live. */
+export const TAPE_BENCHMARK_TICKERS = ["SPY", "QQQ", "DIA", "IWM", "GLD", "TLT"];
+
+/**
+ * Tickers for the Home tape: the workspace's public companies when it has
+ * any; otherwise the Market watchlist pins followed by broad-market
+ * benchmarks, so a book of private companies (or a stray pin) still gets a
+ * useful live tape.
+ */
+export function homeTapeTickers(companies = [], pinned = []) {
+  const fromCompanies = publicTickers(companies);
+  if (fromCompanies.length) return fromCompanies;
+  const pins = (pinned || [])
+    .map((ticker) => String(ticker || "").trim().toUpperCase())
+    .filter(Boolean);
+  return [...new Set([...pins, ...TAPE_BENCHMARK_TICKERS])];
+}
+
+export function buildTickerTape(companies = [], quotes = {}, tickers = publicTickers(companies)) {
+  return tickers.map((ticker) => {
     const company = companies.find(
       (row) => String(row.ticker || "").trim().toUpperCase() === ticker,
     );

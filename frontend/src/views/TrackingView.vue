@@ -39,6 +39,8 @@ import { trackingActionLabel } from "../trackingLabels.js";
 import { useLiveQuotes } from "../useLiveQuotes.js";
 import { useTrackingRollup } from "../useTrackingRollup.js";
 import CompanyFollowButton from "../components/CompanyFollowButton.vue";
+import Monogram from "../components/Monogram.vue";
+import PageHeader from "../components/PageHeader.vue";
 import LiveTickerTape from "../components/LiveTickerTape.vue";
 import TrackingAttentionStrip from "../components/TrackingAttentionStrip.vue";
 import { bookConcentration, bookPnl, loadBookLots, removeBookLot, upsertBookLot } from "../marketBook.js";
@@ -421,18 +423,9 @@ function signedMoneyUsd(value) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-7xl px-6 py-8 md:px-8">
-    <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <div class="vogue-label">{{ t("sidebar.tracking") }}</div>
-        <h1 class="mt-1 font-display text-title2 text-ink-primary">
-          {{ t("tracking.title") }}
-        </h1>
-        <p class="mt-1 max-w-2xl text-footnote text-ink-muted">
-          {{ t("tracking.subtitle") }}
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
+  <div class="page">
+    <PageHeader :title="t('tracking.title')" :subtitle="t('tracking.subtitle')">
+      <template #actions>
         <div v-if="trackedIds.length" class="segmented">
           <button
             type="button"
@@ -476,8 +469,8 @@ function signedMoneyUsd(value) {
           <RefreshCw v-else class="h-3.5 w-3.5" />
           {{ t("tracking.refresh") }}
         </button>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <p v-if="syncAllError" class="mb-3 text-caption1 text-danger">{{ syncAllError }}</p>
 
@@ -488,7 +481,7 @@ function signedMoneyUsd(value) {
     >
       <div class="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             {{ t("tracking.book_pnl_label") }}
           </div>
           <p v-if="bookLens.avgBeta != null" class="mt-1 text-footnote text-ink-secondary">
@@ -613,10 +606,12 @@ function signedMoneyUsd(value) {
             </div>
             <button
               type="button"
-              class="min-w-0 flex-1 text-left focus-ring rounded-subbox"
+              class="flex min-w-0 flex-1 flex-col items-stretch text-left focus-ring rounded-subbox"
               @click="openCompany(card.company)"
             >
-              <div class="flex items-start justify-between gap-3 pr-8">
+              <div class="flex w-full items-start justify-between gap-3 pr-8">
+                <div class="flex min-w-0 items-start gap-3">
+                <Monogram :company="card.company" :size="36" tinted class="mt-0.5" />
                 <div class="min-w-0">
                   <h2 class="truncate font-display text-headline text-ink-primary">
                     {{ card.company.name }}
@@ -635,6 +630,7 @@ function signedMoneyUsd(value) {
                     <span v-if="card.company.ticker && card.status"> · </span>
                     {{ card.status }}
                   </p>
+                </div>
                 </div>
                 <div v-if="card.price" class="shrink-0 text-right">
                   <p

@@ -4,6 +4,7 @@ import { useT } from "../i18n.js";
 import { companyStatusLine } from "../companyLists.js";
 import { displayTicker, lastPriceLabel, signedChange } from "../liveTicker.js";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
+import Monogram from "./Monogram.vue";
 
 const props = defineProps({
   company: { type: Object, required: true },
@@ -35,32 +36,37 @@ const priceUp = computed(() => dayMove.value != null && dayMove.value >= 0);
   <div class="group relative">
     <button
       type="button"
-      class="glass-card focus-ring flex min-h-[7.5rem] w-full flex-col items-start rounded-glass p-4 text-left transition hover:-translate-y-0.5"
+      class="glass-card focus-ring flex min-h-[7.5rem] w-full flex-col rounded-card p-4 text-left active:scale-[0.99]"
       @click="emit('select', company)"
     >
-      <span class="flex w-full min-w-0 items-start justify-between gap-3 pr-8">
-        <span class="min-w-0">
+      <span class="flex w-full min-w-0 items-start gap-3 pr-7">
+        <Monogram :company="company" :size="36" tinted />
+        <span class="min-w-0 flex-1">
           <span class="block truncate text-callout font-semibold text-ink-primary">{{
             company.name
           }}</span>
-          <span class="mt-1 line-clamp-3 text-footnote leading-snug text-ink-muted">
+          <span class="mt-0.5 line-clamp-2 text-footnote leading-snug text-ink-muted">
             {{ status || t("companies.status_pending") }}
           </span>
         </span>
-        <span v-if="lastPrice || dayMove != null" class="shrink-0 text-right">
-          <span v-if="ticker" class="block font-mono text-caption1 text-ink-muted">{{
-            ticker
-          }}</span>
-          <span v-if="lastPrice" class="block mono-data text-callout text-ink-primary">{{
-            lastPrice
-          }}</span>
-          <span
-            v-if="dayMove != null"
-            class="block mono-data text-caption1 font-semibold"
-            :class="priceUp ? 'text-success' : 'text-danger'"
-          >
-            {{ signedChange(dayMove) }}
-          </span>
+      </span>
+      <span
+        v-if="ticker || lastPrice || dayMove != null"
+        class="mt-auto flex w-full items-center gap-2 pt-3"
+      >
+        <span v-if="ticker" class="text-caption1 font-semibold tracking-wide text-ink-secondary">{{
+          ticker
+        }}</span>
+        <span class="flex-1" />
+        <span v-if="lastPrice" class="mono-data text-callout font-medium text-ink-primary">{{
+          lastPrice
+        }}</span>
+        <span
+          v-if="dayMove != null"
+          class="price-pill"
+          :data-up="priceUp ? 'true' : 'false'"
+        >
+          {{ signedChange(dayMove) }}
         </span>
       </span>
     </button>

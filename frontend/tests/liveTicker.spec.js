@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { displayTicker, quoteStaleness } from "../src/liveTicker.js";
+import {
+  buildTickerTape,
+  displayTicker,
+  homeTapeTickers,
+  quoteStaleness,
+  TAPE_BENCHMARK_TICKERS,
+} from "../src/liveTicker.js";
 
 describe("displayTicker", () => {
   const book = [
@@ -47,5 +53,33 @@ describe("quoteStaleness", () => {
     });
     expect(quoteStaleness("2026-09-09T15:30:00Z", { now, staleMinutes: 20 }).stale).toBe(true);
     expect(quoteStaleness(null, { now })).toBeNull();
+  });
+});
+
+describe("homeTapeTickers", () => {
+  const privateOnly = [{ id: "zainar-inc", name: "ZaiNar, Inc.", company_type: "private" }];
+
+  it("prefers public workspace companies", () => {
+    const book = [...privateOnly, { id: "nvda", name: "NVIDIA", ticker: "nvda", company_type: "public" }];
+    expect(homeTapeTickers(book, ["AMD"])).toEqual(["NVDA"]);
+  });
+
+  it("leads with Market watchlist pins, then benchmarks, when the book has no public names", () => {
+    expect(homeTapeTickers(privateOnly, ["amd", "AMD", "brk.b", "spy"])).toEqual([
+      "AMD",
+      "BRK.B",
+      ...TAPE_BENCHMARK_TICKERS,
+    ]);
+  });
+
+  it("falls back to benchmarks when there are no pins either", () => {
+    expect(homeTapeTickers(privateOnly, [])).toEqual(TAPE_BENCHMARK_TICKERS);
+    expect(homeTapeTickers([], undefined)).toEqual(TAPE_BENCHMARK_TICKERS);
+  });
+
+  it("builds tape rows for tickers without a workspace company", () => {
+    const rows = buildTickerTape(privateOnly, { SPY: { last_price: 761.2, change_pct_1d: -0.4 } }, ["SPY"]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ ticker: "SPY", name: "SPY", companyId: undefined, lastPrice: "$761.2", day: -0.4, up: false });
   });
 });

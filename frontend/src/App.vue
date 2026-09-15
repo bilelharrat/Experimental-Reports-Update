@@ -2,19 +2,23 @@
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch, nextTick } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
+  Command,
   History,
   Loader2,
   Link as LinkIcon,
-  LogOut,
+  PanelLeft,
   PanelRightClose,
   Plus,
   ScrollText,
   Search,
+  SquarePen,
   UploadCloud,
 } from "lucide-vue-next";
 import { api } from "./api.js";
-import { useT } from "./i18n.js";
-import AiMark from "./components/AiMark.vue";
+import { currentLanguage, useT } from "./i18n.js";
+import Monogram from "./components/Monogram.vue";
+import WarrenMark from "./components/WarrenMark.vue";
+import CopilotCompanyPicker from "./components/CopilotCompanyPicker.vue";
 import Sidebar from "./components/Sidebar.vue";
 import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import TaskHistoryPanel from "./components/TaskHistoryPanel.vue";
@@ -26,14 +30,18 @@ import {
   routeForMarketCommand,
 } from "./marketCommands.js";
 import {
+  clearCopilotFocus,
   copilotPendingPrompt,
   copilotCompanyOverride,
+  copilotDraftPrompt,
   copilotDragTell,
   mergeCopilotContext,
   syncCopilotFromRoute,
 } from "./copilotContext.js";
 import { hydrateTrackingWatchlist } from "./trackingWatchlist.js";
 import { initDeskSync } from "./deskSync.js";
+import { autoObserveLargeTitle, largeTitleVisible } from "./chrome.js";
+import { installGlassMotion } from "./glassMotion.js";
 import {
   activeSummaryTarget,
   closeSummary,
@@ -42,7 +50,7 @@ import {
   recordCompanyView,
   setLastCompanyId,
 } from "./state.js";
-import { isAuthenticated, sessionEmail, sessionInitials, sessionName, signOut } from "./auth.js";
+import { isAuthenticated } from "./auth.js";
 
 const news = ref([]);
 const externalResearch = ref([]);
@@ -50,22 +58,32 @@ const companies = ref([]);
 const liveNews = ref([]);
 const loading = ref(true);
 const error = ref(null);
+// Last successful company refresh, shown in the toolbar like the Mac's
+// "Synced 10:42 PM".
+const lastSyncAt = ref(null);
 const route = useRoute();
 const router = useRouter();
 const copilotOpen = ref(false);
 const historyOpen = ref(false);
 const copilotReady = ref(false);
 const copilotPanelRef = ref(null);
+// Reported by the panel: Warren answering, a chat on screen, quick or deep.
+const copilotState = ref({ busy: false, hasTurns: false, mode: "quick" });
 const headerRef = ref(null);
 const addMenuOpen = ref(false);
-const accountMenuOpen = ref(false);
 const jumpQuery = ref("");
 const jumpOpen = ref(false);
 const commandOpen = ref(false);
-const signingOut = ref(false);
 const addFileInput = ref(null);
 const addUploading = ref(false);
 const addUploadError = ref("");
+// Below lg the sidebar is a drawer; the toolbar's sidebar button opens it.
+const mobileNavOpen = ref(false);
+// Once content slides under the toolbar it turns to glass (scroll edge).
+const scrolled = ref(false);
+// The routed view's wrapper, searched for a large title after navigation.
+const viewRef = ref(null);
+let autoTitleTimer = null;
 const t = useT();
 
 const FILE_ACCEPT =
@@ -108,7 +126,10 @@ async function refreshAll() {
         (it) => it.kind === "external_research",
       );
     }
-    if (c.status === "fulfilled") companies.value = c.value;
+    if (c.status === "fulfilled") {
+      companies.value = c.value;
+      lastSyncAt.value = new Date();
+    }
     if (live.status === "fulfilled") {
       liveNews.value = live.value?.items || [];
     }
@@ -161,6 +182,7 @@ function stopPolling() {
   liveNews.value = [];
   loading.value = true;
   error.value = null;
+  lastSyncAt.value = null;
 }
 
 watch(
@@ -197,7 +219,6 @@ const jumpHits = computed(() => {
 
 function closeChromeMenus() {
   addMenuOpen.value = false;
-  accountMenuOpen.value = false;
   jumpOpen.value = false;
   commandOpen.value = false;
 }
@@ -215,16 +236,14 @@ function toggleAddMenu() {
   if (!next) addUploadError.value = "";
 }
 
-function toggleAccountMenu() {
-  const next = !accountMenuOpen.value;
-  closeChromeMenus();
-  accountMenuOpen.value = next;
-}
-
 function openJumpMenu() {
   addMenuOpen.value = false;
-  accountMenuOpen.value = false;
   jumpOpen.value = true;
+}
+
+function openCommandPalette() {
+  closeChromeMenus();
+  commandOpen.value = true;
 }
 
 const onCompanyPage = computed(
@@ -263,7 +282,10 @@ async function onCompanyAddFiles(event) {
 }
 
 function onDocPointerDown(event) {
-  if (!headerRef.value?.contains(event.target)) closeChromeMenus();
+  if (!headerRef.value?.contains(event.target)) {
+    addMenuOpen.value = false;
+    jumpOpen.value = false;
+  }
 }
 
 function onChromeKeydown(event) {
@@ -272,17 +294,24 @@ function onChromeKeydown(event) {
   if (meta && key === "k") {
     event.preventDefault();
     addMenuOpen.value = false;
-    accountMenuOpen.value = false;
     jumpOpen.value = false;
     commandOpen.value = !commandOpen.value;
     return;
   }
   if (event.key !== "Escape") return;
-  if (addMenuOpen.value || accountMenuOpen.value || jumpOpen.value || commandOpen.value) {
+  if (addMenuOpen.value || jumpOpen.value || commandOpen.value) {
     closeChromeMenus();
     return;
   }
+  if (mobileNavOpen.value) {
+    mobileNavOpen.value = false;
+    return;
+  }
   if (copilotOpen.value) setCopilotOpen(false);
+}
+
+function onWindowScroll() {
+  scrolled.value = window.scrollY > 2;
 }
 
 function goToCompany(company) {
@@ -312,20 +341,15 @@ function onJumpEnter() {
   else researchQuery();
 }
 
-async function onSignOut() {
-  if (signingOut.value) return;
-  signingOut.value = true;
-  closeChromeMenus();
-  try {
-    await signOut();
-  } finally {
-    signingOut.value = false;
-  }
-}
+let uninstallGlassMotion = () => {};
 
 onMounted(() => {
+  autoTitleTimer = setTimeout(() => autoObserveLargeTitle(viewRef.value), 450);
   document.addEventListener("pointerdown", onDocPointerDown);
   document.addEventListener("keydown", onChromeKeydown);
+  window.addEventListener("scroll", onWindowScroll, { passive: true });
+  onWindowScroll();
+  uninstallGlassMotion = installGlassMotion();
   hydrateTrackingWatchlist();
   if (isAuthenticated.value) {
     // Pull the server desk-state copy (watchlists, rules, lots…), then
@@ -337,9 +361,12 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  clearTimeout(autoTitleTimer);
   stopPolling();
   document.removeEventListener("pointerdown", onDocPointerDown);
   document.removeEventListener("keydown", onChromeKeydown);
+  window.removeEventListener("scroll", onWindowScroll);
+  uninstallGlassMotion();
 });
 
 watch(currentCompanyId, (id) => {
@@ -351,9 +378,29 @@ watch(currentCompanyId, (id) => {
   syncCopilotFromRoute(route, currentCompany.value);
 });
 
+// A memo point or flag handed to Warren belongs to the page it came from;
+// leaving the page drops it so later questions aren't scoped to it.
+watch(
+  () => route.path,
+  (next, previous) => {
+    if (previous && next !== previous) clearCopilotFocus();
+  },
+);
+
+// Pages without their own large-title registration still hand their first
+// h1 to the toolbar once the route transition has rendered it.
+watch(
+  () => route.name,
+  () => {
+    clearTimeout(autoTitleTimer);
+    autoTitleTimer = setTimeout(() => autoObserveLargeTitle(viewRef.value), 450);
+  },
+);
+
 watch(
   () => route.fullPath,
   () => {
+    mobileNavOpen.value = false;
     syncCopilotFromRoute(route, currentCompany.value);
     if (route.query?.tab === "console") {
       setCopilotOpen(true);
@@ -384,7 +431,7 @@ const toolbarTitle = computed(() => {
 const breadcrumbs = computed(() => {
   const name = String(route.name || "");
   const root = t("nav.research_center");
-  if (name === "home") return [root, t("companies.section_title")];
+  if (name === "home") return [root, t("nav.home")];
   if (name === "news-desk") return [root, t("nav.news")];
   if (name === "reports") return [root, t("nav.reports")];
   if (name === "tracking") return [root, t("sidebar.tracking")];
@@ -423,47 +470,86 @@ const breadcrumbs = computed(() => {
   return [root];
 });
 
-const copilotContext = computed(() => {
-  if (currentCompany.value?.name) {
-    return `${currentCompany.value.name} · ${tabLabel(route.query?.tab)}`;
-  }
-  if (route.name === "news-desk") return t("nav.news");
-  if (route.name === "tracking") return t("sidebar.tracking");
-  return breadcrumbs.value.slice(1).join(" · ") || t("nav.breadcrumb_root");
+const syncLabel = computed(() => {
+  if (error.value) return t("toolbar.sync_failed");
+  if (!lastSyncAt.value) return t("toolbar.syncing");
+  const time = lastSyncAt.value.toLocaleTimeString(currentLanguage.value === "zh" ? "zh-CN" : "en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return t("toolbar.synced", { time });
 });
 
-const copilotCompanyId = computed(
-  () => copilotCompanyOverride.value || currentCompanyId.value || "",
+// Company pages keep the tab as a quiet second line under the toolbar title.
+const toolbarSubtitle = computed(() => {
+  if (route.name !== "research") return "";
+  const crumbs = breadcrumbs.value;
+  return crumbs.length > 2 ? crumbs[crumbs.length - 1] : "";
+});
+
+// Warren reads one company: the one picked in his header, else the company
+// page on screen, else the last company opened (as the Mac falls back to
+// its selected company).
+const copilotCompanyId = computed(() => {
+  if (copilotCompanyOverride.value) return copilotCompanyOverride.value;
+  if (currentCompanyId.value) return currentCompanyId.value;
+  const last = lastCompanyId.value;
+  return last && companies.value.some((company) => company.id === last) ? last : "";
+});
+
+const copilotCompanyName = computed(
+  () => companies.value.find((company) => company.id === copilotCompanyId.value)?.name || "",
 );
 
-// Co-Pilot stays in the header everywhere in the app shell. On Home (no
-// company id) the drawer shows a pick-a-company prompt + recents.
-const showCopilotButton = computed(() => true);
+// The tab Warren can see, only while his company is the page on screen.
+const copilotSeesLabel = computed(() => {
+  if (route.name !== "research" || copilotCompanyId.value !== currentCompanyId.value) return "";
+  return tabLabel(route.query?.report ? route.query.tab || "memo" : route.query?.tab);
+});
 
-const copilotRecentCompanies = computed(() => {
+const copilotRecentIds = computed(() => {
   const views = companyViews.value || {};
   const last = lastCompanyId.value;
-  return [...(companies.value || [])]
-    .filter((company) => company?.id)
+  const known = new Set((companies.value || []).map((company) => company.id));
+  return [...new Set([last, ...Object.keys(views)])]
+    .filter((id) => id && known.has(id))
     .sort((a, b) => {
-      if (a.id === last) return -1;
-      if (b.id === last) return 1;
-      return (Number(views[b.id]) || 0) - (Number(views[a.id]) || 0);
+      if (a === last) return -1;
+      if (b === last) return 1;
+      return (Number(views[b]) || 0) - (Number(views[a]) || 0);
     })
     .slice(0, 3);
 });
 
-const accountTitle = computed(() => {
-  const name = sessionName.value?.trim();
-  const email = sessionEmail.value?.trim();
-  if (name && email && name.toLowerCase() !== email.toLowerCase()) {
-    return `${name} · ${email}`;
-  }
-  return name || email || t("toolbar.account");
+const copilotSuggestedCompanies = computed(() => {
+  const rows = companies.value || [];
+  const recent = copilotRecentIds.value
+    .map((id) => rows.find((company) => company.id === id))
+    .filter(Boolean);
+  const recentSet = new Set(recent.map((company) => company.id));
+  const others = rows
+    .filter((company) => company?.id && !recentSet.has(company.id))
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  return [...recent, ...others].slice(0, 6);
 });
+
+const copilotPickerValue = computed({
+  get: () => copilotCompanyId.value,
+  set: (id) => chooseCopilotCompany(id),
+});
+
+function chooseCopilotCompany(id) {
+  const next = String(id || "");
+  copilotCompanyOverride.value = next && next !== currentCompanyId.value ? next : null;
+}
+
+function onCopilotState(state) {
+  copilotState.value = { ...copilotState.value, ...state };
+}
 
 function setCopilotOpen(open) {
   if (open) copilotReady.value = true;
+  else copilotState.value = { ...copilotState.value, busy: false, hasTurns: false };
   copilotOpen.value = open;
 }
 
@@ -487,7 +573,12 @@ function onOpenCopilot(payload) {
       },
     }).catch(() => {});
   }
-  if (payload.prompt) queueCopilotPrompt(payload.prompt);
+  if (!payload.prompt) return;
+  // A ticker or headline outside the workspace has no company of its own.
+  // Rather than send it to whichever company Warren is on, leave it in his
+  // composer under that company for the analyst to send or redirect.
+  if (payload.companyId || currentCompanyId.value) queueCopilotPrompt(payload.prompt);
+  else copilotDraftPrompt.value = String(payload.prompt);
 }
 
 function queueCopilotPrompt(prompt) {
@@ -514,7 +605,7 @@ function onCopilotNavigate(target) {
   if (target.kind === "file") {
     router.push({
       name: "research",
-      params: { id: target.companyId },
+      params: { companyId: target.companyId },
       query: {
         tab: "documents",
         previewFile: target.file?.id,
@@ -526,7 +617,7 @@ function onCopilotNavigate(target) {
   if (target.kind === "memo_bullet") {
     router.push({
       name: "research",
-      params: { id: target.companyId },
+      params: { companyId: target.companyId },
       query: {
         tab: "memo",
         memoStage: "edit",
@@ -545,44 +636,100 @@ provide("copilotNavigate", onCopilotNavigate);
        no polling, no modals. -->
   <RouterView v-if="!isAuthenticated" />
 
-  <!-- Authenticated: full app chrome. -->
-  <div v-else class="canvas-wash min-h-screen bg-canvas text-ink-primary lg:flex">
+  <!-- Authenticated: full app chrome. Two floating glass panels (sidebar,
+       Ask inspector) frame the content column. -->
+  <div v-else class="canvas-wash min-h-screen text-ink-primary lg:flex">
+    <Transition name="sheet-scrim">
+      <button
+        v-if="mobileNavOpen"
+        type="button"
+        class="sheet-scrim fixed inset-0 z-40 lg:hidden"
+        :aria-label="t('sidebar.close')"
+        @click="mobileNavOpen = false"
+      />
+    </Transition>
+
     <Sidebar
       :companies="companies"
       :loading="loading"
       :error="error"
+      :mobile-open="mobileNavOpen"
+      @close="mobileNavOpen = false"
+      @navigate="mobileNavOpen = false"
     />
+
     <main class="min-w-0 flex-1">
       <header
         ref="headerRef"
-        class="material-bar sticky top-0 z-30 px-3 py-1.5 md:px-5"
+        class="material-bar sticky top-0 z-30"
+        :data-scrolled="scrolled ? 'true' : 'false'"
       >
-        <div class="flex items-center gap-2">
-          <div class="min-w-0 flex-1 truncate text-headline font-semibold tracking-tight text-ink-primary">
-            {{ toolbarTitle }}
+        <div class="flex h-[52px] items-center gap-2 px-3 md:px-5">
+          <button
+            type="button"
+            class="icon-btn -ml-1 lg:hidden"
+            :aria-label="t('sidebar.open')"
+            :title="t('sidebar.open')"
+            :aria-expanded="mobileNavOpen"
+            @click="mobileNavOpen = true"
+          >
+            <PanelLeft class="h-[18px] w-[18px]" />
+          </button>
+
+          <div
+            class="toolbar-title min-w-0 flex-1 leading-tight"
+            :data-hidden="largeTitleVisible ? 'true' : 'false'"
+          >
+            <div class="truncate text-headline font-semibold text-ink-primary">
+              {{ toolbarTitle }}
+            </div>
+            <div v-if="toolbarSubtitle" class="truncate text-caption1 text-ink-muted">
+              {{ toolbarSubtitle }}
+            </div>
           </div>
+
+          <button
+            type="button"
+            class="sync-status focus-ring max-xl:hidden"
+            :data-state="error ? 'error' : lastSyncAt ? 'ok' : 'pending'"
+            :title="t('toolbar.sync_retry')"
+            @click="refreshAll"
+          >
+            <span class="status-dot" />
+            <span>{{ syncLabel }}</span>
+          </button>
 
           <div
             v-if="route.name !== 'home'"
-            class="relative hidden min-w-[11.5rem] max-w-[17rem] flex-[0.8] md:block"
+            class="relative hidden w-[15.5rem] shrink md:block lg:w-[18rem]"
           >
             <Search
-              class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle"
+              class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-muted"
             />
             <input
               v-model="jumpQuery"
               type="search"
               autocomplete="off"
-              class="field h-8 w-full rounded-subbox !py-0 !pl-8 !pr-2 text-footnote"
+              spellcheck="false"
+              class="toolbar-search"
               :placeholder="t('cmd.jump_placeholder')"
               :aria-label="t('cmd.jump_placeholder')"
               @focus="openJumpMenu"
               @keydown.escape.prevent="closeChromeMenus"
               @keydown.enter.prevent="onJumpEnter"
             />
+            <button
+              type="button"
+              class="kbd absolute right-2 top-1/2 -translate-y-1/2 focus-ring"
+              :aria-label="t('cmd.open')"
+              :title="t('cmd.open')"
+              @click="openCommandPalette"
+            >
+              ⌘K
+            </button>
             <div
               v-if="jumpOpen && jumpQuery.trim()"
-              class="toolbar-menu left-0 right-auto min-w-[17rem]"
+              class="toolbar-menu left-0 right-auto min-w-[18rem]"
               role="listbox"
             >
               <button
@@ -593,17 +740,18 @@ provide("copilotNavigate", onCopilotNavigate);
                 role="option"
                 @click="goToCompany(company)"
               >
-                <span class="truncate font-medium">{{ company.name }}</span>
+                <Monogram :company="company" :size="22" tinted />
+                <span class="min-w-0 flex-1 truncate font-medium">{{ company.name }}</span>
                 <span
                   v-if="company.ticker || company.industry"
-                  class="truncate text-caption1 text-ink-muted"
+                  class="max-w-[7rem] truncate text-caption1 text-ink-muted"
                 >
                   {{ company.ticker || company.industry }}
                 </span>
               </button>
               <p
                 v-if="jumpHits.length === 0"
-                class="px-3 py-2.5 text-footnote text-ink-muted"
+                class="px-2.5 py-2 text-footnote text-ink-muted"
               >
                 {{ t("toolbar.no_matches") }}
               </p>
@@ -612,113 +760,113 @@ provide("copilotNavigate", onCopilotNavigate);
                 class="toolbar-menu-item hairline-t text-accent-ink"
                 @click="researchQuery"
               >
-                {{
-                  jumpQuery.trim()
-                    ? t("toolbar.research_query", { q: jumpQuery.trim() })
-                    : t("toolbar.search_all")
-                }}
+                <Search class="h-3.5 w-3.5 shrink-0" />
+                <span class="truncate">
+                  {{
+                    jumpQuery.trim()
+                      ? t("toolbar.research_query", { q: jumpQuery.trim() })
+                      : t("toolbar.search_all")
+                  }}
+                </span>
               </RouterLink>
             </div>
           </div>
 
-          <div class="relative">
-            <button
-              type="button"
-              class="icon-btn"
-              :aria-label="
-                onCompanyPage
-                  ? t('toolbar.add_to_company', {
-                      name: currentCompany?.name || t('app.company'),
-                    })
-                  : t('toolbar.add')
-              "
-              :title="
-                onCompanyPage
-                  ? t('toolbar.add_to_company', {
-                      name: currentCompany?.name || t('app.company'),
-                    })
-                  : t('toolbar.add')
-              "
-              :aria-expanded="addMenuOpen"
-              :disabled="addUploading"
-              @click="toggleAddMenu"
-            >
-              <Loader2 v-if="addUploading" class="h-[18px] w-[18px] animate-spin" />
-              <Plus v-else class="h-[18px] w-[18px]" />
-            </button>
-            <div v-if="addMenuOpen" class="toolbar-menu" role="menu">
-              <template v-if="onCompanyPage">
-                <p class="px-3 pb-2.5 pt-2.5 text-caption1 text-danger">
-                  {{ addUploadError }}
-                </p>
-                <button
-                  type="button"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  :disabled="addUploading"
-                  @click="addFileInput?.click()"
-                >
-                  <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("documents.add_file") }}
-                </button>
-              </template>
-              <template v-else>
-                <RouterLink
-                  :to="{ path: '/', query: { intake: 'link' } }"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  @click="closeChromeMenus"
-                >
-                  <LinkIcon class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("home.action_link") }}
-                </RouterLink>
-                <RouterLink
-                  :to="{ path: '/', query: { intake: 'upload' } }"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  @click="closeChromeMenus"
-                >
-                  <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("home.action_file") }}
-                </RouterLink>
-                <RouterLink
-                  :to="{ path: '/', query: { intake: 'note' } }"
-                  class="toolbar-menu-item"
-                  role="menuitem"
-                  @click="closeChromeMenus"
-                >
-                  <ScrollText class="h-4 w-4 shrink-0 text-ink-muted" />
-                  {{ t("home.action_note") }}
-                </RouterLink>
-              </template>
+          <!-- Actions share one capsule of glass, as in a macOS toolbar. -->
+          <div class="glass-capsule relative h-9 shrink-0 gap-px px-[3px]">
+            <div class="relative">
+              <button
+                type="button"
+                class="icon-btn !h-[30px] !w-[30px]"
+                :aria-label="
+                  onCompanyPage
+                    ? t('toolbar.add_to_company', {
+                        name: currentCompany?.name || t('app.company'),
+                      })
+                    : t('toolbar.add')
+                "
+                :title="
+                  onCompanyPage
+                    ? t('toolbar.add_to_company', {
+                        name: currentCompany?.name || t('app.company'),
+                      })
+                    : t('toolbar.add')
+                "
+                :aria-expanded="addMenuOpen"
+                :disabled="addUploading"
+                @click="toggleAddMenu"
+              >
+                <Loader2 v-if="addUploading" class="h-[18px] w-[18px] animate-spin" />
+                <Plus v-else class="h-[18px] w-[18px]" />
+              </button>
+              <div v-if="addMenuOpen" class="toolbar-menu" role="menu">
+                <template v-if="onCompanyPage">
+                  <p class="px-2.5 pb-2 pt-1.5 text-caption1 text-danger">
+                    {{ addUploadError }}
+                  </p>
+                  <button
+                    type="button"
+                    class="toolbar-menu-item"
+                    role="menuitem"
+                    :disabled="addUploading"
+                    @click="addFileInput?.click()"
+                  >
+                    <UploadCloud class="h-4 w-4 shrink-0 text-ink-muted" />
+                    {{ t("documents.add_file") }}
+                  </button>
+                </template>
+                <template v-else>
+                  <RouterLink
+                    :to="{ path: '/', query: { intake: 'link' } }"
+                    class="toolbar-menu-item"
+                    role="menuitem"
+                    @click="closeChromeMenus"
+                  >
+                    <LinkIcon class="h-4 w-4 shrink-0 text-accent" />
+                    {{ t("home.action_link") }}
+                  </RouterLink>
+                  <RouterLink
+                    :to="{ path: '/', query: { intake: 'upload' } }"
+                    class="toolbar-menu-item"
+                    role="menuitem"
+                    @click="closeChromeMenus"
+                  >
+                    <UploadCloud class="h-4 w-4 shrink-0 text-info" />
+                    {{ t("home.action_file") }}
+                  </RouterLink>
+                  <RouterLink
+                    :to="{ path: '/', query: { intake: 'note' } }"
+                    class="toolbar-menu-item"
+                    role="menuitem"
+                    @click="closeChromeMenus"
+                  >
+                    <ScrollText class="h-4 w-4 shrink-0 text-warning" />
+                    {{ t("home.action_note") }}
+                  </RouterLink>
+                </template>
+              </div>
+              <input
+                ref="addFileInput"
+                type="file"
+                multiple
+                :accept="FILE_ACCEPT"
+                class="hidden"
+                @change="onCompanyAddFiles"
+              />
             </div>
-            <input
-              ref="addFileInput"
-              type="file"
-              multiple
-              :accept="FILE_ACCEPT"
-              class="hidden"
-              @change="onCompanyAddFiles"
-            />
-          </div>
-
-          <div class="inline-flex shrink-0 items-center gap-1">
             <button
               type="button"
-              class="icon-btn"
+              class="icon-btn !h-[30px] !w-[30px]"
               :aria-label="t('cmd.open')"
               :title="t('cmd.open')"
               :aria-pressed="commandOpen"
               @click="commandOpen = !commandOpen"
             >
-              <Search class="h-[18px] w-[18px]" />
+              <Command class="h-[17px] w-[17px]" />
             </button>
-          </div>
-
-          <div class="inline-flex shrink-0 items-center">
             <button
               type="button"
-              class="icon-btn"
+              class="icon-btn !h-[30px] !w-[30px]"
               :aria-label="t('jobs.history_title')"
               :title="t('jobs.history_title')"
               :aria-pressed="historyOpen"
@@ -729,81 +877,34 @@ provide("copilotNavigate", onCopilotNavigate);
             </button>
           </div>
 
-          <div v-if="showCopilotButton" class="inline-flex shrink-0 items-center gap-1">
+          <!-- Ask gets its own capsule: the one AI entry point everywhere. -->
+          <div class="glass-capsule relative h-9 shrink-0 px-[3px]">
             <button
               type="button"
-              class="copilot-toolbar-btn focus-ring"
+              class="copilot-toolbar-btn focus-ring !h-[30px] max-sm:!px-1"
               :aria-label="t('copilot.ask')"
               :title="t('copilot.ask')"
               :aria-pressed="copilotOpen"
               @click="setCopilotOpen(!copilotOpen)"
             >
-              <AiMark class="h-[18px] w-[18px] shrink-0" />
-              <span class="text-caption1 font-medium">{{ t("copilot.ask_short") }}</span>
+              <WarrenMark :size="22" :busy="copilotState.busy" />
+              <span class="max-sm:hidden">{{ t("copilot.ask") }}</span>
             </button>
-          </div>
-
-          <div class="relative">
-            <button
-              type="button"
-              class="icon-btn overflow-hidden p-0"
-              :aria-label="t('toolbar.account')"
-              :title="accountTitle"
-              :aria-expanded="accountMenuOpen"
-              @click="toggleAccountMenu"
-            >
-              <span
-                class="grid h-7 w-7 place-items-center rounded-subbox bg-fill-tertiary text-[11px] font-semibold tracking-tight text-ink-secondary"
-                aria-hidden="true"
-              >
-                {{ sessionInitials }}
-              </span>
-            </button>
-            <div v-if="accountMenuOpen" class="toolbar-menu" role="menu">
-              <p
-                v-if="sessionName || sessionEmail"
-                class="truncate px-3 pb-0.5 pt-2.5 text-caption1 font-medium text-ink-primary"
-              >
-                {{ sessionName || sessionEmail }}
-              </p>
-              <p
-                v-if="sessionName && sessionEmail"
-                class="truncate px-3 pb-1 text-caption1 text-ink-muted"
-              >
-                {{ sessionEmail }}
-              </p>
-              <RouterLink
-                :to="{ name: 'settings' }"
-                class="toolbar-menu-item"
-                role="menuitem"
-                @click="closeChromeMenus"
-              >
-                {{ t("app.settings") }}
-              </RouterLink>
-              <button
-                type="button"
-                class="toolbar-menu-item text-danger"
-                role="menuitem"
-                :disabled="signingOut"
-                @click="onSignOut"
-              >
-                <LogOut class="h-4 w-4 shrink-0" />
-                {{ t("auth.sign_out") }}
-              </button>
-            </div>
           </div>
         </div>
       </header>
 
-      <RouterView v-slot="{ Component }">
-        <Transition name="view-fade" mode="out-in">
-          <component
-            :is="Component"
-            @reports-changed="refreshAll"
-            @open-copilot="onOpenCopilot"
-          />
-        </Transition>
-      </RouterView>
+      <div ref="viewRef">
+        <RouterView v-slot="{ Component }">
+          <Transition name="view-fade" mode="out-in">
+            <component
+              :is="Component"
+              @reports-changed="refreshAll"
+              @open-copilot="onOpenCopilot"
+            />
+          </Transition>
+        </RouterView>
+      </div>
     </main>
 
     <Transition name="sheet-scrim">
@@ -818,25 +919,41 @@ provide("copilotNavigate", onCopilotNavigate);
     <Transition name="copilot-drawer">
       <aside
         v-if="copilotOpen && copilotReady"
-        class="copilot-sheet fixed inset-x-0 bottom-0 top-auto z-50 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-[1.5rem] bg-surface shadow-[0_-12px_40px_rgb(0_0_0_/0.12)] xl:inset-y-0 xl:right-0 xl:left-auto xl:top-0 xl:bottom-auto xl:z-20 xl:h-screen xl:max-h-none xl:w-[400px] xl:max-w-[400px] xl:shrink-0 xl:rounded-none xl:shadow-none xl:sticky hairline-l"
+        class="copilot-sheet glass-panel fixed inset-x-0 bottom-0 z-50 flex max-h-[min(92dvh,900px)] w-full flex-col rounded-t-[22px] xl:sticky xl:inset-auto xl:top-2 xl:z-20 xl:my-2 xl:mr-2 xl:h-[calc(100vh-1rem)] xl:max-h-none xl:w-[392px] xl:max-w-[392px] xl:shrink-0 xl:rounded-[20px]"
         :aria-label="t('copilot.title')"
       >
         <div
-          class="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-fill-secondary xl:hidden"
+          class="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-ink-primary/15 xl:hidden"
           aria-hidden="true"
         />
-        <header class="flex items-center gap-3 px-4 pb-3 pt-2 hairline-b xl:pt-3">
+        <header class="flex items-center gap-2.5 px-4 pb-3 pt-2 xl:pt-3.5">
+          <WarrenMark :size="36" :busy="copilotState.busy" />
           <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <AiMark class="h-5 w-5 shrink-0 text-accent-ink" />
-              <div class="text-title3 font-semibold tracking-tight text-ink-primary">
-                {{ t("copilot.ask_short") }}
-              </div>
+            <div class="text-headline leading-tight text-ink-primary">
+              {{ t("copilot.title") }}
             </div>
-            <div class="mt-0.5 truncate text-footnote text-ink-muted">
-              {{ copilotContext }}
+            <CopilotCompanyPicker
+              v-if="companies.length"
+              v-model="copilotPickerValue"
+              class="-ml-1.5"
+              :companies="companies"
+              :recent-ids="copilotRecentIds"
+            />
+            <div v-else class="truncate text-footnote text-ink-muted">
+              {{ t("copilot.warren_full_name") }}
             </div>
           </div>
+          <button
+            v-if="copilotCompanyId && copilotState.hasTurns && copilotState.mode === 'quick'"
+            type="button"
+            class="icon-btn"
+            :disabled="copilotState.busy"
+            :aria-label="t('copilot.clear_chat')"
+            :title="t('copilot.clear_chat')"
+            @click="copilotPanelRef?.clearChat()"
+          >
+            <SquarePen class="h-4 w-4" />
+          </button>
           <button
             type="button"
             @click="setCopilotOpen(false)"
@@ -847,28 +964,18 @@ provide("copilotNavigate", onCopilotNavigate);
             <PanelRightClose class="h-4 w-4" />
           </button>
         </header>
-        <div class="flex min-h-0 flex-1 flex-col px-4 py-3">
+        <div class="mx-4 h-px shrink-0 bg-ink-primary/[0.08]" aria-hidden="true" />
+        <div class="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-3">
           <CopilotPanel
             ref="copilotPanelRef"
             :company-id="copilotCompanyId"
-            :context-label="copilotContext"
+            :company-name="copilotCompanyName"
+            :context-label="copilotSeesLabel"
+            :suggested-companies="copilotSuggestedCompanies"
+            @state="onCopilotState"
+            @choose-company="chooseCopilotCompany"
             @close="setCopilotOpen(false)"
           />
-          <div
-            v-if="!copilotCompanyId && copilotRecentCompanies.length"
-            class="mt-3 space-y-0.5"
-          >
-            <div class="vogue-label px-0.5">{{ t("copilot.recent") }}</div>
-            <button
-              v-for="company in copilotRecentCompanies"
-              :key="company.id"
-              type="button"
-              class="toolbar-menu-item w-full text-left"
-              @click="goToCompany(company)"
-            >
-              <span class="truncate font-medium">{{ company.name }}</span>
-            </button>
-          </div>
         </div>
       </aside>
     </Transition>

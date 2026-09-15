@@ -324,7 +324,7 @@ describe("MemoStudioEditor", () => {
       bullet_id: "bullet-1",
     });
 
-    expect(wrapper.text()).toContain("Co-Pilot Tasks");
+    expect(wrapper.text()).toContain("Tasks from Warren");
     await wrapper.findAll("button").find((button) => button.text() === "Accept").trigger("click");
     await flushPromises();
     expect(m.updateTask).toHaveBeenCalledWith("zainar-inc", "task-1", { status: "accepted" });

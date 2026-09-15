@@ -1,7 +1,8 @@
 <script setup>
 import { computed, inject, onMounted, onUnmounted, ref, unref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { Loader2, Maximize2, Minimize2, Newspaper, Search, Star, TrendingDown, TrendingUp } from "lucide-vue-next";
+import { Keyboard, Loader2, Maximize2, Minimize2, Newspaper, Search, Star, TrendingDown, TrendingUp } from "lucide-vue-next";
+import { useLargeTitle } from "../chrome.js";
 import { api } from "../api.js";
 import CompanyFollowButton from "../components/CompanyFollowButton.vue";
 import QuoteChart from "../components/QuoteChart.vue";
@@ -110,6 +111,8 @@ import { useT } from "../i18n.js";
 const t = useT();
 const router = useRouter();
 const route = useRoute();
+const pageTitleEl = ref(null);
+useLargeTitle(pageTitleEl);
 const openCopilot = inject("openCopilot", null);
 
 const news = inject("workspaceNews", ref([]));
@@ -1720,7 +1723,7 @@ async function logSignal(direction) {
   const row = selected.value;
   if (!row?.ticker) return;
   try {
-    await api.recordSignal({
+    const res = await api.recordSignal({
       ticker: row.ticker,
       direction,
       label: tickerNote.value || `${row.ticker} desk call`,
@@ -1728,7 +1731,9 @@ async function logSignal(direction) {
       price_at_signal: Number.isFinite(Number(row.last)) ? Number(row.last) : null,
     });
     await loadLedger();
-    signalToast.value = t("radar.signal_logged", { ticker: row.ticker });
+    signalToast.value = res?.deduplicated
+      ? t("radar.signal_already_logged", { ticker: row.ticker })
+      : t("radar.signal_logged", { ticker: row.ticker });
   } catch (e) {
     signalToast.value = e?.message || t("radar.signal_log_failed");
   }
@@ -1988,8 +1993,18 @@ function asOfLabel(value) {
 
 <template>
   <div class="yf-page">
-    <header class="mb-5 flex flex-col gap-3">
-      <form class="yf-search w-full max-w-xl" @submit.prevent="submitSearch">
+    <header class="mb-5 flex flex-col gap-4">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div class="min-w-0">
+          <h1 ref="pageTitleEl" class="page-title">
+            {{ t("radar.page_title") }}
+          </h1>
+          <p class="page-subtitle">
+            {{ t("radar.page_subtitle") }}
+          </p>
+        </div>
+        <div class="flex w-full items-center gap-2 lg:w-auto">
+      <form class="yf-search w-full lg:w-[24rem]" @submit.prevent="submitSearch">
         <Search class="yf-search-icon" />
         <input
           v-model="query"
@@ -2014,21 +2029,19 @@ function asOfLabel(value) {
           </button>
         </div>
       </form>
-      <div class="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 class="font-display text-large-title text-ink-primary">
-            {{ t("radar.page_title") }}
-          </h1>
-          <p class="mt-1 text-callout text-ink-secondary">
-            {{ t("radar.page_subtitle") }}
-          </p>
+          <button
+            type="button"
+            class="icon-btn shrink-0"
+            :aria-label="t('radar.kb_hint_short')"
+            :title="t('radar.kb_hint_short')"
+            @click="showKeyHelp = true"
+          >
+            <Keyboard class="h-[18px] w-[18px]" />
+          </button>
         </div>
-        <button type="button" class="yf-kb-hint self-start focus-ring" @click="showKeyHelp = true">
-          {{ t("radar.kb_hint_short") }}
-        </button>
       </div>
       <section id="market-desks" class="flex flex-wrap items-center gap-2" :data-focus="focusPanel === 'desk'">
-        <span class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+        <span class="text-footnote font-semibold text-ink-muted">
           {{ t("radar.desks_label") }}
         </span>
         <button
@@ -2056,7 +2069,7 @@ function asOfLabel(value) {
           <button type="submit" class="yf-range-item focus-ring">{{ t("radar.desk_save_btn") }}</button>
         </form>
         <template v-if="recentTickers.length">
-          <span class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <span class="text-footnote font-semibold text-ink-muted">
             {{ t("radar.recents_label") }}
           </span>
           <button
@@ -2095,7 +2108,7 @@ function asOfLabel(value) {
       :data-focus="focusPanel === 'alerts'"
     >
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+        <div class="text-footnote font-semibold text-ink-muted">
           {{ t("radar.alerts_label") }}
         </div>
         <div class="flex flex-wrap gap-1">
@@ -2158,7 +2171,7 @@ function asOfLabel(value) {
         data-testid="alerts-while-away"
       >
         <div class="flex items-center justify-between gap-2">
-          <span class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <span class="text-footnote font-semibold text-ink-muted">
             {{ t("radar.alerts_while_away", { n: serverAlerts.length }) }}
           </span>
           <button type="button" class="yf-range-item focus-ring" @click="markAlertsSeen">
@@ -2221,7 +2234,7 @@ function asOfLabel(value) {
     <section id="market-wei" class="mb-5" :aria-label="t('radar.wei_label')" :data-focus="focusPanel === 'wei'">
       <div class="mb-2 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             {{ t("radar.wei_label") }}
           </div>
           <p class="mt-0.5 text-footnote text-ink-secondary">
@@ -2239,7 +2252,7 @@ function asOfLabel(value) {
           :data-selected="selected?.ticker === card.ticker"
           @click="selectRow(card)"
         >
-          <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             {{ card.label }}
           </div>
           <div class="mt-1 font-display text-headline tabular text-ink-primary">
@@ -2278,7 +2291,7 @@ function asOfLabel(value) {
         <article v-if="selected" class="news-grouped p-5">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <div class="text-footnote font-semibold text-ink-muted">
                 {{ selected.exchange || t("radar.selected_quote") }}
               </div>
               <h2 class="mt-1 font-display text-title2 text-ink-primary">
@@ -2291,7 +2304,7 @@ function asOfLabel(value) {
                 {{ t("radar.as_of", { when: asOfLabel(selected.asOf) }) }}
                 <span
                   v-if="selectedStaleness?.stale"
-                  class="ml-1 rounded-pill bg-notice/15 px-1.5 py-0.5 text-caption2 font-semibold uppercase tracking-[0.04em] text-notice"
+                  class="ml-1 rounded-pill bg-notice/15 px-1.5 py-0.5 text-caption2 font-semibold text-notice"
                 >
                   {{ t("radar.stale_quote", { n: selectedStaleness.ageMinutes }) }}
                 </span>
@@ -2303,7 +2316,7 @@ function asOfLabel(value) {
                   class="btn-filled btn-sm focus-ring inline-flex items-center gap-1.5"
                   @click="openAsk"
                 >
-                  {{ t("copilot.ask_short") }}
+                  {{ t("copilot.ask") }}
                 </button>
                 <RouterLink
                   v-if="selected.companyId"
@@ -2410,7 +2423,7 @@ function asOfLabel(value) {
             :aria-label="t('radar.hp_label')"
             :data-focus="focusPanel === 'hp'"
           >
-            <span class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <span class="text-footnote font-semibold text-ink-muted">
               {{ t("radar.hp_label") }}
             </span>
             <button
@@ -2488,7 +2501,7 @@ function asOfLabel(value) {
             :aria-label="t('radar.session_returns')"
             :data-focus="focusPanel === 'ladder'"
           >
-            <h3 class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("radar.session_returns") }}
             </h3>
             <div
@@ -2549,7 +2562,7 @@ function asOfLabel(value) {
             :data-focus="focusPanel === 'pair'"
           >
             <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <h3 class="text-footnote font-semibold text-ink-muted">
                 {{ t("radar.pair_label") }} · {{ selected.ticker }}/{{ pairPeerLabel }}
               </h3>
               <div class="flex gap-1">
@@ -2574,7 +2587,7 @@ function asOfLabel(value) {
           </section>
 
           <label id="market-notes" class="mt-3 block">
-            <span class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <span class="text-footnote font-semibold text-ink-muted">
               {{ t("radar.note_label") }}
             </span>
             <textarea
@@ -2602,7 +2615,7 @@ function asOfLabel(value) {
             class="mt-4 news-grouped px-4 py-3"
             :aria-label="t('radar.research_rail')"
           >
-            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               {{ t("radar.research_rail") }}
             </div>
             <ul v-if="researchHits.length" class="yf-research-rail mt-2">
@@ -2636,7 +2649,7 @@ function asOfLabel(value) {
             :data-focus="focusPanel === 'peers'"
           >
             <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <h3 class="text-footnote font-semibold text-ink-muted">
                 {{ t("radar.comp_label") }}
               </h3>
               <label class="inline-flex items-center gap-1 text-caption1 text-ink-muted">
@@ -2721,7 +2734,7 @@ function asOfLabel(value) {
             :aria-label="t('radar.rrg_label')"
             :data-focus="focusPanel === 'rrg'"
           >
-            <h3 class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("radar.rrg_label") }}
             </h3>
             <div class="yf-rrg">
@@ -2785,7 +2798,7 @@ function asOfLabel(value) {
             class="yf-earn-strip mt-5"
             :aria-label="t('radar.earn_strip_label')"
           >
-            <h3 class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("radar.earn_strip_label") }}
             </h3>
             <dl class="yf-stats">
@@ -2869,7 +2882,7 @@ function asOfLabel(value) {
             :aria-label="t('radar.filings_label')"
             :data-focus="focusPanel === 'filings'"
           >
-            <h3 class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("radar.filings_label") }}
             </h3>
             <div v-if="!selectedFilings.length" class="mb-3 flex flex-wrap gap-2">
@@ -2917,7 +2930,7 @@ function asOfLabel(value) {
               class="btn-filled focus-ring"
               @click="openAsk"
             >
-              {{ t("copilot.ask_short") }}
+              {{ t("copilot.ask") }}
             </button>
             <button
               v-if="openCopilot"
@@ -2954,7 +2967,7 @@ function asOfLabel(value) {
           :data-focus="focusPanel === 'calendar'"
         >
           <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="text-footnote font-semibold text-ink-muted">
               {{ t("radar.calendar_label") }}
             </h3>
             <div class="flex items-center gap-2">
@@ -3052,7 +3065,7 @@ function asOfLabel(value) {
           :data-focus="focusPanel === 'breadth'"
         >
           <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="text-footnote font-semibold text-ink-muted">
               {{ t("radar.breadth_label") }}
             </h3>
             <QuoteSparkline
@@ -3127,7 +3140,7 @@ function asOfLabel(value) {
             class="mb-4"
             :aria-label="t('radar.heat_label')"
           >
-            <h3 class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <h3 class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("radar.heat_label") }}
             </h3>
             <div class="yf-heat">
@@ -3357,7 +3370,7 @@ function asOfLabel(value) {
           :aria-label="t('radar.risk_label')"
           :data-focus="focusPanel === 'risk'"
         >
-          <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             {{ t("radar.risk_label") }}
           </div>
           <p v-if="bookRisk.portfolioBeta != null" class="mt-1 text-footnote">
@@ -3376,7 +3389,7 @@ function asOfLabel(value) {
             data-testid="book-pnl"
           >
             <div class="flex items-baseline justify-between gap-2">
-              <span class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <span class="text-footnote font-semibold text-ink-muted">
                 {{ t("radar.pnl_label") }}
               </span>
               <span class="mono-data text-footnote tabular text-ink-primary">
@@ -3420,7 +3433,7 @@ function asOfLabel(value) {
           class="news-grouped px-4 py-3"
           :aria-label="t('radar.book_lens_label')"
         >
-          <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="text-footnote font-semibold text-ink-muted">
             {{ t("radar.book_lens_label") }}
           </div>
           <p v-if="bookLens.avgBeta != null" class="mt-1 text-footnote text-ink-secondary">
@@ -3460,29 +3473,30 @@ function asOfLabel(value) {
           :class="deskExpanded ? 'lg:col-span-2' : ''"
           :data-focus="focusPanel === 'news'"
         >
-          <div class="flex items-center justify-between gap-2 px-4 pb-1 pt-3">
-            <h2 class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <!-- Labels stay whole; in a narrow column the actions drop below the title. -->
+          <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-4 pb-1 pt-3">
+            <h2 class="text-footnote font-semibold text-ink-muted">
               {{ t("radar.tape_label") }}
             </h2>
-            <div class="flex items-center gap-2">
+            <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
               <button
                 v-if="openCopilot"
                 type="button"
-                class="text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
+                class="whitespace-nowrap text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
                 @click="openAsk"
               >
-                {{ t("copilot.ask_short") }}
+                {{ t("copilot.ask") }}
               </button>
               <button
                 v-if="openCopilot"
                 type="button"
-                class="text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
+                class="whitespace-nowrap text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
                 @click="askWhyMoving"
               >
                 {{ t("radar.why_moving") }}
               </button>
               <RouterLink
-                class="text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
+                class="whitespace-nowrap text-caption1 font-medium text-accent-ink focus-ring rounded-pill px-1"
                 :to="{ name: 'news-desk' }"
               >
                 {{ t("radar.open_news") }}

@@ -27,7 +27,7 @@ function normalizeLot(row) {
   const ticker = String(row?.ticker || "").trim().toUpperCase();
   const shares = Number(row?.shares);
   const cost = Number(row?.cost);
-  if (!ticker || !Number.isFinite(shares) || shares <= 0 || !Number.isFinite(cost)) return null;
+  if (!ticker || !Number.isFinite(shares) || shares <= 0 || !Number.isFinite(cost) || cost < 0) return null;
   return {
     ticker,
     companyId: row?.companyId ? String(row.companyId) : null,

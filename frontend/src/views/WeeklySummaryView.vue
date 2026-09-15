@@ -31,9 +31,12 @@ import {
 import { appLanguage } from "../state.js";
 import { useLiveQuotes } from "../useLiveQuotes.js";
 import { useT } from "../i18n.js";
+import { useLargeTitle } from "../chrome.js";
 
 const t = useT();
 const router = useRouter();
+const pageTitleEl = ref(null);
+useLargeTitle(pageTitleEl);
 
 const loading = ref(true);
 const refreshing = ref(false);
@@ -624,7 +627,12 @@ function refreshedAtLabel(iso) {
   if (!iso) return t("pulse.not_generated");
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(viewLang.value === "zh" ? "zh-CN" : "en-US");
+  return d.toLocaleString(viewLang.value === "zh" ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function moverChange(row) {
@@ -648,61 +656,64 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="w-full px-4 py-6 lg:px-6">
-    <header class="mb-4 flex flex-col gap-3 border-b border-subtle/70 pb-4 lg:flex-row lg:items-end lg:justify-between">
-      <div class="min-w-0 flex-1">
-        <div class="flex flex-wrap items-center gap-2">
-          <h1 class="font-display text-title2 text-ink-primary">{{ t("pulse.title") }}</h1>
-          <span
-            v-if="weekLabel"
-            class="inline-flex items-center gap-1.5 rounded-subbox border border-subtle px-2 py-0.5 text-caption1 text-ink-secondary"
-          >
-            <CalendarClock class="h-3.5 w-3.5" />
-            {{ weekLabel }}
-          </span>
-          <span
-            v-if="summary?.generated_at"
-            class="text-caption1 text-ink-muted"
-          >
-            {{ t("pulse.updated") }} {{ refreshedAtLabel(summary.generated_at) }}
-          </span>
+  <div class="page-wide">
+    <header class="mb-6">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <span
+              v-if="weekLabel"
+              class="inline-flex items-center gap-1.5 text-[13px] font-semibold text-accent-ink"
+            >
+              <CalendarClock class="h-3.5 w-3.5" />
+              {{ weekLabel }}
+            </span>
+            <span
+              v-if="summary?.generated_at"
+              class="text-footnote text-ink-muted"
+            >
+              · {{ t("pulse.updated") }} {{ refreshedAtLabel(summary.generated_at) }}
+            </span>
+          </div>
+          <h1 ref="pageTitleEl" class="page-title mt-1">{{ t("pulse.title") }}</h1>
         </div>
-        <p class="mt-1 max-w-4xl text-callout text-ink-secondary">
-          {{ marketPulse || t("pulse.subtitle") }}
-        </p>
+        <div class="flex flex-wrap items-center gap-2">
+          <RouterLink class="btn-bordered focus-ring" :to="{ name: 'market-radar' }">
+            {{ t("pulse.open_market") }}
+          </RouterLink>
+          <RouterLink class="btn-bordered focus-ring" :to="{ name: 'research-page-market-pulse' }">
+            {{ t("pulse.open_signals") }}
+          </RouterLink>
+          <button
+            type="button"
+            class="btn-bordered focus-ring"
+            :aria-pressed="expandedPrompt"
+            @click="expandedPrompt = !expandedPrompt"
+          >
+            {{ t("pulse.prompt") }}
+          </button>
+          <button
+            type="button"
+            class="btn-filled focus-ring"
+            :disabled="refreshing"
+            @click="refreshSummary({ force: true })"
+          >
+            <Loader2 v-if="refreshing" class="h-4 w-4 animate-spin" />
+            <RefreshCw v-else class="h-4 w-4" />
+            {{ t("pulse.refresh") }}
+          </button>
+        </div>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <RouterLink class="btn-bordered focus-ring" :to="{ name: 'market-radar' }">
-          {{ t("pulse.open_market") }}
-        </RouterLink>
-        <RouterLink class="btn-bordered focus-ring" :to="{ name: 'research-page-market-pulse' }">
-          {{ t("pulse.open_signals") }}
-        </RouterLink>
-        <button
-          type="button"
-          class="btn-bordered focus-ring"
-          @click="expandedPrompt = !expandedPrompt"
-        >
-          {{ t("pulse.prompt") }}
-        </button>
-        <button
-          type="button"
-          class="btn-filled focus-ring"
-          :disabled="refreshing"
-          @click="refreshSummary({ force: true })"
-        >
-          <Loader2 v-if="refreshing" class="h-4 w-4 animate-spin" />
-          <RefreshCw v-else class="h-4 w-4" />
-          {{ t("pulse.refresh") }}
-        </button>
-      </div>
+      <p class="mt-3 max-w-4xl text-[15px] leading-relaxed text-ink-secondary">
+        {{ marketPulse || t("pulse.subtitle") }}
+      </p>
     </header>
 
     <div
       v-if="expandedPrompt && prompt"
       class="mb-4 news-grouped px-4 py-3"
     >
-      <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+      <div class="mb-2 text-footnote font-semibold text-ink-muted">
         {{ t("pulse.prompt_title") }}
       </div>
       <pre class="max-h-72 overflow-auto whitespace-pre-wrap text-footnote leading-relaxed text-ink-secondary">{{ prompt }}</pre>
@@ -745,7 +756,7 @@ onBeforeUnmount(() => {
     <div class="space-y-5">
         <section class="news-grouped px-4 py-3" :aria-label="t('pulse.posture_label')">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               {{ t("pulse.posture_label") }}
             </div>
             <span class="text-callout font-medium text-ink-primary">
@@ -790,7 +801,7 @@ onBeforeUnmount(() => {
           data-testid="morning-brief"
         >
           <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               {{ t("pulse.morning_brief_label") }}
             </div>
             <div class="flex flex-wrap items-center gap-1">
@@ -841,7 +852,7 @@ onBeforeUnmount(() => {
           <p v-if="briefError" class="text-callout text-danger">{{ briefError }}</p>
           <template v-else-if="brief">
             <p class="text-caption1 text-ink-muted">
-              {{ t("pulse.brief_as_of", { when: brief.generated_at || brief.date }) }}
+              {{ t("pulse.brief_as_of", { when: (brief.generated_at && refreshedAtLabel(brief.generated_at)) || brief.date }) }}
             </p>
             <div
               v-if="brief.note"
@@ -852,7 +863,7 @@ onBeforeUnmount(() => {
                 <p class="text-callout font-semibold text-ink-primary">
                   {{ pick(brief.note, "headline") }}
                 </p>
-                <span class="rounded-pill bg-accent/10 px-1.5 py-0.5 text-caption2 font-semibold uppercase tracking-[0.04em] text-accent-ink">
+                <span class="chip bg-accent/10 text-accent-ink">
                   {{ t("pulse.note_ai_tag") }}
                 </span>
               </div>
@@ -946,7 +957,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section :aria-label="t('pulse.indexes_label')">
-          <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="mb-2 text-footnote font-semibold text-ink-muted">
             {{ t("pulse.indexes_label") }}
           </div>
           <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
@@ -975,7 +986,7 @@ onBeforeUnmount(() => {
 
         <section class="news-grouped px-4 py-3" :aria-label="t('pulse.sectors_label')">
           <div class="mb-2 flex items-center justify-between gap-2">
-            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               {{ t("pulse.sectors_label") }}
             </div>
             <span class="text-caption1 text-ink-muted">{{ t("pulse.sectors_hint") }}</span>
@@ -1010,7 +1021,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="news-grouped px-4 py-3" :aria-label="t('pulse.macro_label')">
-          <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="mb-2 text-footnote font-semibold text-ink-muted">
             {{ t("pulse.macro_label") }}
           </div>
           <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
@@ -1036,7 +1047,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section :aria-label="t('pulse.movers_label')">
-          <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+          <div class="mb-2 text-footnote font-semibold text-ink-muted">
             {{ t("pulse.movers_label") }}
           </div>
           <div class="grid gap-3 lg:grid-cols-3">
@@ -1082,7 +1093,7 @@ onBeforeUnmount(() => {
 
         <section class="news-grouped px-4 py-3" :aria-label="t('pulse.calendar_label')">
           <div class="mb-2 flex items-center justify-between gap-2">
-            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               {{ t("pulse.calendar_label") }}
             </div>
             <span class="text-caption1 text-ink-muted">{{ t("pulse.calendar_hint") }}</span>
@@ -1132,7 +1143,7 @@ onBeforeUnmount(() => {
           </div>
 
           <section class="news-grouped px-4 py-3" :aria-label="t('pulse.brief_label')">
-            <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("pulse.brief_label") }}
             </div>
             <p class="text-callout leading-relaxed text-ink-secondary">
@@ -1159,7 +1170,7 @@ onBeforeUnmount(() => {
 
           <section class="news-grouped overflow-hidden" :aria-label="t('pulse.setups_label')">
             <div class="flex items-center justify-between gap-2 border-b border-subtle/70 px-4 py-2">
-              <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <div class="text-footnote font-semibold text-ink-muted">
                 {{ t("pulse.setups_label") }}
               </div>
               <span class="text-caption1 text-ink-muted">
@@ -1228,7 +1239,7 @@ onBeforeUnmount(() => {
 
           <section class="grid gap-4 lg:grid-cols-2">
             <div class="news-grouped px-4 py-3">
-              <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <div class="mb-2 text-footnote font-semibold text-ink-muted">
                 {{ t("pulse.watchlist") }}
               </div>
               <div class="divide-y divide-subtle/60">
@@ -1250,7 +1261,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="news-grouped px-4 py-3">
-              <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <div class="mb-2 text-footnote font-semibold text-ink-muted">
                 {{ t("pulse.sources") }}
               </div>
               <div class="space-y-1">
@@ -1277,7 +1288,7 @@ onBeforeUnmount(() => {
             class="news-grouped px-4 py-3"
             :aria-label="t('pulse.theme_heat')"
           >
-            <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("pulse.theme_heat") }}
             </div>
             <div class="space-y-2">
@@ -1318,7 +1329,7 @@ onBeforeUnmount(() => {
         <div class="grid gap-4 lg:grid-cols-2">
           <section class="news-grouped px-4 py-3" :aria-label="t('pulse.signals_label')">
             <div class="mb-2 flex items-center justify-between gap-2">
-              <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+              <div class="text-footnote font-semibold text-ink-muted">
                 {{ t("pulse.signals_label") }}
               </div>
               <RouterLink
@@ -1358,7 +1369,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section class="news-grouped px-4 py-3" :aria-label="t('pulse.wow_label')">
-            <div class="mb-2 text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="mb-2 text-footnote font-semibold text-ink-muted">
               {{ t("pulse.wow_label") }}
             </div>
             <div class="grid grid-cols-3 gap-2 text-center">
@@ -1392,7 +1403,7 @@ onBeforeUnmount(() => {
           data-testid="signal-ledger"
         >
           <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div class="text-caption1 font-semibold uppercase tracking-[0.04em] text-ink-muted">
+            <div class="text-footnote font-semibold text-ink-muted">
               {{ t("pulse.ledger_label") }}
             </div>
             <div class="flex flex-wrap gap-3 text-caption1 text-ink-muted">

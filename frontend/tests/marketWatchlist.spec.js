@@ -34,6 +34,21 @@ describe("marketWatchlist", () => {
     expect(togglePinnedTicker("NVDA")).toEqual([]);
   });
 
+  it("only pins symbols the server accepts", () => {
+    expect(togglePinnedTicker("^vix")).toEqual([]);
+    expect(togglePinnedTicker("brk b")).toEqual([]);
+    expect(togglePinnedTicker("brk.b")).toEqual(["BRK.B"]);
+    window.localStorage.setItem("bsh.marketPinnedTickers", JSON.stringify(["aapl", "^GSPC", "", 7, "RDS-A"]));
+    expect(loadPinnedTickers()).toEqual(["AAPL", "7", "RDS-A"]);
+  });
+
+  it("rejects book lots with a negative cost basis", () => {
+    expect(upsertBookLot({ ticker: "NVDA", shares: 10, cost: -5 })).toEqual([]);
+    expect(upsertBookLot({ ticker: "NVDA", shares: 10, cost: 0 })).toEqual([
+      { ticker: "NVDA", companyId: null, shares: 10, cost: 0 },
+    ]);
+  });
+
   it("flags gap moves and 52-week extremes", () => {
     const alerts = watchlistAlerts([
       { ticker: "AAA", change: 6.2, last: 100, weekHigh: 101, weekLow: 50 },

@@ -95,6 +95,49 @@ describe("HomeView M1 layout and search", () => {
     expect(api.startDeepSearch).not.toHaveBeenCalled();
   });
 
+  it("keeps local matches and the reason when a deep search falls back", async () => {
+    const sources = [];
+    vi.stubGlobal(
+      "EventSource",
+      class {
+        constructor(url) {
+          this.url = url;
+          this.close = vi.fn();
+          sources.push(this);
+        }
+      },
+    );
+    api.startDeepSearch.mockResolvedValue({ job_id: "job-1", cached: false });
+    api.searchStreamUrl.mockReturnValue("/api/companies/search/stream/job-1");
+    mockRoute.query = { q: "Acme" };
+    let wrapper;
+    try {
+      wrapper = mount(HomeView);
+      await flushPromises();
+      const opened = sources.length;
+      expect(opened).toBeGreaterThan(0);
+
+      const fallback = {
+        data: JSON.stringify({
+          type: "error",
+          error: "Claude is unavailable",
+          reason: "Claude is unavailable",
+          source: "fallback",
+          matches: [{ id: "acme-robotics", name: "Acme Robotics", source: "local" }],
+        }),
+      };
+      sources.forEach((source) => source.onmessage?.(fallback));
+      await flushPromises();
+
+      expect(wrapper.text()).toContain("Acme Robotics");
+      expect(wrapper.text()).toContain("Claude is unavailable");
+      expect(sources[opened - 1].close).toHaveBeenCalled();
+    } finally {
+      wrapper?.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shows unresolved Quick Add assignment confirmation for submitted links", async () => {
     api.linkPreview.mockResolvedValue({
       final_url: "https://example.com/research",
@@ -248,6 +291,51 @@ describe("HomeView tracking mesh", () => {
     expect(wrapper.text()).not.toContain("Radio positioning");
     expect(api.liveQuotes).toHaveBeenCalledWith(["NVDA"]);
     expect(api.trackingRollup).not.toHaveBeenCalled();
+  });
+
+  it("keeps a live tape of benchmarks when the book has no public names", async () => {
+    window.localStorage.removeItem("bsh.marketPinnedTickers");
+    const wrapper = mount(HomeView, {
+      global: {
+        provide: {
+          workspaceCompanies: [
+            { id: "zainar-inc", name: "ZaiNar, Inc.", company_type: "private" },
+          ],
+          workspaceLoading: false,
+        },
+        stubs: {
+          RouterLink: { props: ["to"], template: "<a><slot /></a>" },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(api.liveQuotes).toHaveBeenCalledWith(["SPY", "QQQ", "DIA", "IWM", "GLD", "TLT"]);
+    expect(wrapper.text()).toContain("Live");
+    expect(wrapper.text()).toContain("SPY");
+
+    const spy = wrapper.findAll("button").find((el) => el.text().startsWith("SPY"));
+    await spy.trigger("click");
+    expect(push).toHaveBeenCalledWith({ name: "market-radar", query: { ticker: "SPY" } });
+  });
+
+  it("leads the tape with Market watchlist pins, then benchmarks", async () => {
+    window.localStorage.setItem("bsh.marketPinnedTickers", JSON.stringify(["AMD", "TSM"]));
+    try {
+      mount(HomeView, {
+        global: {
+          provide: { workspaceCompanies: [], workspaceLoading: false },
+          stubs: {
+            RouterLink: { props: ["to"], template: "<a><slot /></a>" },
+          },
+        },
+      });
+      await flushPromises();
+
+      expect(api.liveQuotes).toHaveBeenCalledWith(["AMD", "TSM", "SPY", "QQQ", "DIA", "IWM", "GLD", "TLT"]);
+    } finally {
+      window.localStorage.removeItem("bsh.marketPinnedTickers");
+    }
   });
 
   it("puts tickers next to public names on Recent cards", async () => {

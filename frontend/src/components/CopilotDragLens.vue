@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, watch } from "vue";
-import AiMark from "./AiMark.vue";
+import WarrenMark from "./WarrenMark.vue";
 import { copilotLensDragging, endLensDrag, startLensDrag } from "../copilotDrag.js";
 import { useT } from "../i18n.js";
 
@@ -40,7 +40,7 @@ onBeforeUnmount(() => {
     @dragstart.stop="startLensDrag"
     @dragend.stop="endLensDrag"
   >
-    <AiMark class="h-5 w-5" />
+    <WarrenMark :size="20" />
     <span class="copilot-drag-lens-label">{{ t("copilot.drag_tell_short") }}</span>
   </div>
 </template>

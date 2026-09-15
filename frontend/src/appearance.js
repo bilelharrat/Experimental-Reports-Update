@@ -1,9 +1,9 @@
 /**
  * Appearance (light / dark / auto).
  *
- * The dark palette existed in style.css from the start but nothing ever
- * applied the `.dark` class, so the app was effectively light-only. Apple
- * defaults to light mode, with an explicit system/dark override available.
+ * Like the Mac terminal, the web app follows the system appearance by
+ * default: dark only when the Mac itself is dark. An explicit Light or Dark
+ * choice in Settings overrides it.
  *
  * NOTE: index.html runs an inline copy of `resolve()` before first paint to
  * avoid a white flash on load. Keep the two in sync.
@@ -21,10 +21,10 @@ const media =
 function readStored() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return APPEARANCES.includes(raw) ? raw : "light";
+    return APPEARANCES.includes(raw) ? raw : "auto";
   } catch {
     // Private browsing / storage disabled.
-    return "light";
+    return "auto";
   }
 }
 

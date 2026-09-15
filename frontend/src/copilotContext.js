@@ -8,6 +8,9 @@ export const copilotSurface = ref(null);
 export const copilotTab = ref(null);
 export const copilotMode = ref("quick"); // quick | deep
 export const copilotPendingPrompt = ref("");
+// A question to leave in Warren's composer unsent (it has no company of its
+// own, so the analyst picks where it goes).
+export const copilotDraftPrompt = ref("");
 export const copilotCompanyOverride = ref(null);
 export const copilotDocumentIds = ref([]);
 export const copilotDragTell = ref(false);
@@ -38,6 +41,13 @@ export function clearCopilotJobContext() {
   copilotJob.value = null;
 }
 
+/** Drop what was handed to Warren from a page (a memo point, a flag, a job). */
+export function clearCopilotFocus() {
+  copilotSelection.value = null;
+  copilotAttention.value = null;
+  copilotJob.value = null;
+}
+
 export function resetCopilotContext() {
   copilotSelection.value = null;
   copilotAttention.value = null;
@@ -45,6 +55,7 @@ export function resetCopilotContext() {
   copilotSurface.value = null;
   copilotTab.value = null;
   copilotPendingPrompt.value = "";
+  copilotDraftPrompt.value = "";
   copilotDocumentIds.value = [];
   copilotDragTell.value = false;
 }

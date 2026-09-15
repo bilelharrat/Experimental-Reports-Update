@@ -610,7 +610,7 @@ function sourceLabel(section) {
           <div class="flex items-center gap-1.5 font-medium">
             <AlertTriangle class="h-3.5 w-3.5 shrink-0" />
             <span>{{ sectionTitle(status.sectionId) }}</span>
-            <span class="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] uppercase">
+            <span class="rounded bg-warning/15 px-1.5 py-0.5 text-[10px]">
               {{ status.status === "stale" ? t("trader.section.stale") : t("trader.section.failed") }}
             </span>
           </div>

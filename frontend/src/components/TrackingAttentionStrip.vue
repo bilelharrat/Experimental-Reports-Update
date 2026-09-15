@@ -40,7 +40,7 @@ const t = useT();
         class="shrink-0 text-caption1 font-medium text-accent hover:underline focus-ring rounded-subbox px-1"
         @click="$emit('inspect', item)"
       >
-        {{ t("copilot.ask_short") }}
+        {{ t("copilot.ask") }}
       </button>
     </article>
   </section>

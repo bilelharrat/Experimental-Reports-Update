@@ -29,29 +29,29 @@ function asOfHint(item) {
 <template>
   <section
     v-if="items.length"
-    class="overflow-x-auto rounded-card bg-surface px-4 py-3 shadow-card"
+    class="ticker-tape"
     :aria-label="title()"
   >
-    <div class="mb-2 flex items-center gap-2 text-caption1 text-ink-muted">
-      <span class="live-pulse h-1.5 w-1.5 rounded-full bg-accent"></span>
+    <div class="flex shrink-0 items-center gap-1.5 pl-1 pr-3 text-caption1 font-semibold text-ink-muted">
+      <span class="live-pulse status-dot bg-success"></span>
       <RouterLink
         v-if="linkToTracking"
         :to="{ name: 'tracking' }"
-        class="hover:text-ink-primary focus-ring rounded-subbox"
+        class="rounded-[6px] hover:text-ink-primary focus-ring"
       >
         {{ title() }}
       </RouterLink>
       <span v-else>{{ title() }}</span>
     </div>
-    <div class="flex min-w-max items-stretch gap-4">
+    <div class="ticker-tape-track">
       <button
         v-for="item in items"
         :key="item.ticker"
         type="button"
-        class="flex items-baseline gap-2 rounded-subbox text-left focus-ring"
+        class="ticker-tape-item focus-ring"
         @click="emit('select', { id: item.companyId, ticker: item.ticker, name: item.name })"
       >
-        <span class="mono-data font-semibold text-ink-primary">{{ item.ticker }}</span>
+        <span class="text-footnote font-semibold text-ink-primary">{{ item.ticker }}</span>
         <span v-if="item.lastPrice" class="mono-data text-footnote text-ink-secondary">
           {{ item.lastPrice }}
         </span>
@@ -68,7 +68,7 @@ function asOfHint(item) {
         <span
           v-if="asOfHint(item)"
           class="text-caption2"
-          :class="quoteStaleness(item?.quote?.as_of || item?.asOf)?.stale ? 'text-warning' : 'text-ink-subtle'"
+          :class="quoteStaleness(item?.quote?.as_of || item?.asOf)?.stale ? 'text-warning-ink' : 'text-ink-subtle'"
         >
           {{ asOfHint(item) }}
         </span>
