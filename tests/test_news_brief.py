@@ -431,18 +431,25 @@ def test_brief_statuses_reports_ready(stub_claude):
 def test_structured_prompt_passes_model_effort_and_tools(monkeypatch):
     commands: list[list[str]] = []
 
-    class _Done:
+    class _Proc:
         returncode = 0
-        stdout = json.dumps({"result": '{"ok": true}'})
-        stderr = ""
+        pid = 4242
 
-    def _run(cmd, **kwargs):
+        def communicate(self, timeout=None):
+            return json.dumps({"result": '{"ok": true}'}), ""
+
+        def poll(self):
+            return 0
+
+    def _popen(cmd, **kwargs):
         commands.append(cmd)
-        return _Done()
+        return _Proc()
 
+    # The non-streaming path spawns through the process registry, so fake
+    # that: faking subprocess.run here would launch the real claude CLI.
     monkeypatch.setattr(claude_runner, "is_available", lambda: True)
     monkeypatch.setattr(claude_runner, "claude_path", lambda: "claude")
-    monkeypatch.setattr(claude_runner.subprocess, "run", _run)
+    monkeypatch.setattr(claude_runner, "_popen_claude", _popen)
 
     data, err = claude_runner.run_structured_prompt(
         system_prompt="s",
