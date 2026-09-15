@@ -1,6 +1,6 @@
 """Single source of truth for the memo report structure.
 
-Stage profiles live in ``server/skills/structures/{stage}.md`` (per-section
+Stage profiles live in ``skills/memo/structures/{stage}.md`` (per-section
 YAML metadata + the section's prompt contract as the markdown body) plus the
 shared ``components.yaml``. Everything that used to be a scattered literal —
 section ids, numbered titles, Chinese-parity regexes, section specs,
@@ -17,14 +17,16 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-STRUCTURES_DIR = Path(__file__).resolve().parent / "skills" / "structures"
+# Repo-root skills/memo/structures — the editorial stage profiles, beside
+# the other memo prompts the founder's team edits (see skills/memo/README.md).
+STRUCTURES_DIR = Path(__file__).resolve().parents[1] / "skills" / "memo" / "structures"
 
 _ROMAN = (
     "I II III IV V VI VII VIII IX X XI XII XIII XIV XV".split()
@@ -105,6 +107,77 @@ SCORECARD_DIMENSION_KEYS: tuple[str, ...] = (
     "risk_reward",
 )
 
+# Plain-language names for the nine dimensions. The pin sheet, the
+# executive summary's opening "case rests on ..." sentence, and the
+# highlight headlines all use these so every section names a dimension
+# the same way (founder feedback 2026-09-13: say WHICH aspects carry the
+# case before explaining them).
+SCORECARD_DIMENSION_LABELS: dict[str, dict[str, str]] = {
+    "market_size_growth": {"en": "market size and growth", "zh": "市场空间与增速"},
+    "industry_position": {"en": "industry position", "zh": "行业地位"},
+    "moat": {"en": "moat", "zh": "护城河"},
+    "revenue_growth_quality": {
+        "en": "revenue growth and quality",
+        "zh": "收入增长与质量",
+    },
+    "business_model_ue": {
+        "en": "business model and unit economics",
+        "zh": "商业模式与单位经济",
+    },
+    "team_governance": {"en": "team and governance", "zh": "团队与治理"},
+    "valuation": {"en": "valuation", "zh": "估值"},
+    "exit_certainty": {"en": "exit certainty", "zh": "退出确定性"},
+    "risk_reward": {"en": "risk-reward balance", "zh": "风险收益比"},
+}
+
+# The seven areas a pinned risk is filed under, so a risk first says
+# WHICH aspect of the case it concentrates on.
+RISK_AREA_KEYS: tuple[str, ...] = (
+    "market",
+    "technology",
+    "competition",
+    "commercialization",
+    "concentration",
+    "team_governance_regulatory",
+    "valuation_exit",
+)
+
+RISK_AREA_LABELS: dict[str, dict[str, str]] = {
+    "market": {"en": "Market", "zh": "市场"},
+    "technology": {"en": "Technology", "zh": "技术"},
+    "competition": {"en": "Competition", "zh": "竞争"},
+    "commercialization": {"en": "Commercialization", "zh": "商业化"},
+    "concentration": {"en": "Concentration", "zh": "集中度"},
+    "team_governance_regulatory": {
+        "en": "Team, governance & regulation",
+        "zh": "团队、治理与监管",
+    },
+    "valuation_exit": {"en": "Valuation & exit", "zh": "估值与退出"},
+}
+
+# Company types (the fund's five focus verticals plus a fallback). Phase 1
+# classifies a run into one; the type file under skills/memo/types/
+# steers Phase 2 research focus, the Phase 3 analysis lens, and an
+# optional per-stage scorecard weight overlay. Registry key: `vertical`
+# (`company_type` is already public|private).
+COMPANY_TYPE_KEYS: tuple[str, ...] = (
+    "ai_foundation_model",
+    "ai_infra",
+    "ai_application",
+    "ai_video_short_drama",
+    "robotics",
+    "other",
+)
+
+COMPANY_TYPE_LABELS: dict[str, dict[str, str]] = {
+    "ai_foundation_model": {"en": "AI foundation model", "zh": "AI 大模型"},
+    "ai_infra": {"en": "AI infrastructure", "zh": "AI 基础设施"},
+    "ai_application": {"en": "AI application", "zh": "AI 应用"},
+    "ai_video_short_drama": {"en": "AI video & short drama", "zh": "AI 视频与短剧"},
+    "robotics": {"en": "Robotics", "zh": "机器人"},
+    "other": {"en": "Other", "zh": "其他"},
+}
+
 # Verdict tiers and their scorecard-total bands (inclusive bounds).
 VERDICT_BANDS: tuple[tuple[str, int, int], ...] = (
     ("Strong Buy", 85, 100),
@@ -138,6 +211,10 @@ class MemoStructure:
     # by the renderer's card gate) or "bullets" (compact profiles: one
     # verdict-lead bullet per pinned risk; the card gate stands down).
     risk_format: str = "cards"
+    # The company type this structure was resolved for (None = no type
+    # lens, stage-default weights). Carried in meta() so gates and the
+    # renderer re-resolve the same effective weights.
+    company_type: str | None = None
 
     @property
     def section_ids(self) -> tuple[str, ...]:
@@ -272,16 +349,112 @@ class MemoStructure:
         """The identity stamp carried inside every memo package, so gates
         and renderers resolve the structure the package was written
         against (:func:`for_package`)."""
-        return {"stage": self.stage, "version": self.version}
+        meta: dict[str, Any] = {"stage": self.stage, "version": self.version}
+        if self.company_type:
+            meta["company_type"] = self.company_type
+        return meta
 
     def profile_digest(self) -> str:
-        """Short digest of the profile + component files — lets a run
-        record (and a prompt assert) exactly which structure text it ran
-        against."""
+        """Short digest of the profile + component files (+ the company
+        type file when one applies) — lets a run record (and a prompt
+        assert) exactly which structure text it ran against."""
         hasher = hashlib.sha256()
         hasher.update(_profile_path(self.stage, self.version).read_bytes())
         hasher.update((STRUCTURES_DIR / "components.yaml").read_bytes())
+        if self.company_type:
+            type_path = _type_path(self.company_type)
+            if type_path.exists():
+                hasher.update(type_path.read_bytes())
         return hasher.hexdigest()[:12]
+
+
+# ---- company type profiles ----------------------------------------------
+
+# Repo-root skills/memo/types/<type>.md — the editorial prompt files the
+# founder's team edits (with zh twins under skills/memo/zh/).
+TYPES_DIR = Path(__file__).resolve().parents[1] / "skills" / "memo" / "types"
+
+
+@dataclass(frozen=True)
+class CompanyTypeProfile:
+    type: str
+    label: dict[str, str]
+    # stage family (early|growth|late) -> full nine-key weight map
+    scorecard: dict[str, dict[str, int]]
+    # pass_id (or "all") -> research focus addendum for Phase 2
+    research_focus: dict[str, str]
+    # The analysis lens appended to the Phase 3 shared context
+    body: str
+
+    def focus_for(self, pass_id: str) -> str:
+        parts = [
+            str(self.research_focus.get("all") or "").strip(),
+            str(self.research_focus.get(pass_id) or "").strip(),
+        ]
+        return "\n".join(p for p in parts if p)
+
+
+def _type_path(company_type: str) -> Path:
+    return TYPES_DIR / f"{company_type}.md"
+
+
+@lru_cache(maxsize=None)
+def load_company_type(company_type: str | None) -> CompanyTypeProfile | None:
+    """The type profile for ``company_type``; None when the type is unset,
+    unknown, or has no file (a run then behaves exactly as before)."""
+    if not company_type or company_type not in COMPANY_TYPE_KEYS:
+        return None
+    path = _type_path(company_type)
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---"):
+        raise ValueError(f"{path.name}: missing front matter")
+    _, front, body = text.split("---", 2)
+    head = yaml.safe_load(front) or {}
+    if str(head.get("type") or "") != company_type:
+        raise ValueError(
+            f"{path.name}: declares type {head.get('type')!r}, expected "
+            f"{company_type!r}"
+        )
+    scorecard: dict[str, dict[str, int]] = {}
+    for family, weights in (head.get("scorecard") or {}).items():
+        if not isinstance(weights, dict):
+            continue
+        scorecard[str(family)] = {str(k): int(v) for k, v in weights.items()}
+    label = head.get("label") or {}
+    return CompanyTypeProfile(
+        type=company_type,
+        label={
+            "en": str(label.get("en") or COMPANY_TYPE_LABELS[company_type]["en"]),
+            "zh": str(label.get("zh") or COMPANY_TYPE_LABELS[company_type]["zh"]),
+        },
+        scorecard=scorecard,
+        research_focus={
+            str(k): str(v) for k, v in (head.get("research_focus") or {}).items()
+        },
+        body=body.strip(),
+    )
+
+
+def company_type_lens(structure: "MemoStructure") -> str:
+    """The Phase 3 shared-context block for the structure's company type
+    (empty when none): a heading plus the type file body."""
+    profile = load_company_type(structure.company_type)
+    if profile is None or not profile.body:
+        return ""
+    return f"## Company type lens — {profile.label['en']}\n{profile.body}"
+
+
+def company_type_research_focus(
+    structure: "MemoStructure", pass_id: str
+) -> str:
+    """The Phase 2 per-pass research addendum for the structure's company
+    type (empty when none)."""
+    profile = load_company_type(structure.company_type)
+    if profile is None:
+        return ""
+    return profile.focus_for(pass_id)
 
 
 _SECTION_HEADER_RE = re.compile(r"^## section: ([a-z0-9_]+)\s*$")
@@ -333,7 +506,25 @@ def _profile_path(stage: str, version: int = 1) -> Path:
 
 
 @lru_cache(maxsize=None)
-def load_structure(stage: str, version: int = 1) -> MemoStructure:
+def load_structure(
+    stage: str, version: int = 1, company_type: str | None = None
+) -> MemoStructure:
+    """Load a stage profile. With ``company_type``, the type file's
+    scorecard overlay for this stage family (if any) replaces the
+    profile's weights — the sum-100 validation still runs on the
+    result — and the structure carries the type in its meta."""
+    if company_type:
+        base = load_structure(stage, version)
+        type_profile = load_company_type(company_type)
+        if type_profile is None:
+            return base
+        overlay = type_profile.scorecard.get(base.pin_stage)
+        scorecard = dict(base.scorecard)
+        if overlay and base.scorecard:
+            scorecard = {str(k): int(v) for k, v in overlay.items()}
+        structure = replace(base, scorecard=scorecard, company_type=company_type)
+        _validate_structure(structure)
+        return structure
     profile = _parse_profile(_profile_path(stage, version))
     components_doc = yaml.safe_load(
         (STRUCTURES_DIR / "components.yaml").read_text(encoding="utf-8")
@@ -493,7 +684,9 @@ def clear_cache() -> None:
 LATE = load_structure("late")
 
 
-def active_structure(stage: str = "late", mode: str = "full") -> MemoStructure:
+def active_structure(
+    stage: str = "late", mode: str = "full", company_type: str | None = None
+) -> MemoStructure:
     """The structure a NEW pipeline run should use for this stage.
 
     Default (flag off): every run writes the historical late v1
@@ -519,7 +712,7 @@ def active_structure(stage: str = "late", mode: str = "full") -> MemoStructure:
     candidates.extend([(stage, 2), (stage, 1), ("late", 2)])
     for candidate in candidates:
         try:
-            return load_structure(*candidate)
+            return load_structure(*candidate, company_type=company_type or None)
         except (FileNotFoundError, ValueError):
             continue
     return LATE
@@ -537,8 +730,9 @@ def for_package(package: Any) -> MemoStructure:
             version = int(meta.get("version") or 1)
         except (TypeError, ValueError):
             version = 1
+        company_type = str(meta.get("company_type") or "").strip() or None
         try:
-            return load_structure(stage, version)
+            return load_structure(stage, version, company_type)
         except (FileNotFoundError, ValueError):
             return LATE
     return LATE

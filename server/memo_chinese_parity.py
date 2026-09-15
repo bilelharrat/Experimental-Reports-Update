@@ -11,7 +11,7 @@ from server import memo_structure
 REQUIRED_SECTION_IDS = memo_structure.LATE.section_ids
 
 # Section headings are full-line anchored patterns per id per locale,
-# defined in the structure profile (server/skills/structures/).
+# defined in the structure profile (skills/memo/structures/).
 SECTION_PATTERNS = memo_structure.LATE.parity_patterns()
 
 CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")

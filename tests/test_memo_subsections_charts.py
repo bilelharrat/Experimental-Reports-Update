@@ -89,6 +89,12 @@ def _risk_card(number: int, rating: int) -> list[dict]:
             "rows": [
                 row("Risk Type", "Concentration"),
                 row(
+                    "Verdict",
+                    f"The concentration case number {number} erodes revenue "
+                    "durability under stress.",
+                ),
+                row("Impact", "churn at the top customer removes $10M."),
+                row(
                     "Why it matters",
                     "Top customer is 40% of revenue; churn there cuts "
                     "revenue by $10M and breaks the growth case.",

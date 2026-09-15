@@ -721,6 +721,9 @@ class CompanyOut(BaseModel):
     exchange: str | None = None
     status: str | None = None
     company_type: str | None = None  # "public" | "private" (see storage.infer_company_type)
+    # The fund's company type (memo_structure.COMPANY_TYPE_KEYS); None when
+    # the registry has not been told and the run-time classifier decides.
+    vertical: str | None = None
     hq: str | None = None
     founded_year: int | None = None
     website: str | None = None
@@ -816,6 +819,11 @@ class ReportDetail(ReportSummary):
     content_zh: str | None = None
     warnings: list[str] = Field(default_factory=list)
     scope_check: dict | None = None
+    # Phase 1 company type ({type, source, confidence?}) and the spine's
+    # evidence-confirmed stage ({stage, source}); the research view renders
+    # both as cards once they land.
+    company_type: dict | None = None
+    company_stage: dict | None = None
     stream_url: str | None = None
     log_url: str | None = None
     analysis_artifacts: list[dict] = Field(default_factory=list)
@@ -1566,6 +1574,11 @@ class NewsBriefStatusBody(BaseModel):
     lang: str = "en"
 
 
+class NewsBriefRefreshBody(BaseModel):
+    items: list[NewsBriefPrewarmItem] = []
+    limit: int | None = None
+
+
 class DeviceTokenBody(BaseModel):
     token: str
     platform: str = "ios"
@@ -1627,7 +1640,12 @@ def get_news_brief(
 
 @router.post("/news/brief")
 def post_news_brief(request: Request, body: NewsBriefBody) -> dict:
-    """Expand a headline into a full desk briefing (web-grounded, cached)."""
+    """The briefing for a headline.
+
+    ``refresh=false`` never calls Claude: the cached AI briefing, else a
+    basic briefing pulled from the article without AI. ``refresh=true`` is
+    the user's warned rewrite: one Sonnet call writes English and Chinese.
+    """
     _require_permission(request, "tasks:action")
     from server import news_brief
 
@@ -1653,18 +1671,40 @@ def post_news_brief(request: Request, body: NewsBriefBody) -> dict:
 
 @router.post("/news/brief/prewarm")
 def post_news_brief_prewarm(body: NewsBriefPrewarmBody) -> dict:
-    """Kick off parallel briefing generation for the top of the tape.
+    """Record the headlines a client is showing. Never calls Claude.
 
-    Returns immediately with a queue plan. Cached / in-flight / already-queued
-    headlines are skipped; the rest expand on a shared background worker pool
-    (default 8 concurrent Claude writes). Successive calls enqueue more work
-    onto the same pool instead of dropping it.
+    The scheduled refresh (every BSH_NEWS_BRIEF_REFRESH_HOURS, default 6)
+    writes AI briefings for this recorded top of the tape.
     """
     from server import news_brief
 
     return news_brief.prewarm(
         [item.model_dump() for item in body.items],
         lang=body.lang,
+        limit=body.limit,
+    )
+
+
+@router.get("/news/brief/refresh")
+def get_news_brief_refresh() -> dict:
+    """AI briefing schedule and progress: model, next run, done of total."""
+    from server import news_brief
+
+    return news_brief.refresh_status()
+
+
+@router.post("/news/brief/refresh")
+def post_news_brief_refresh(body: NewsBriefRefreshBody) -> dict:
+    """Start the AI briefing refresh now (the News page warns first).
+
+    One worker writes the missing briefings for the given top headlines,
+    one headline at a time, both languages per call. Returns at once.
+    """
+    from server import news_brief
+
+    return news_brief.start_refresh(
+        items=[item.model_dump() for item in body.items],
+        reason="manual",
         limit=body.limit,
     )
 
@@ -3601,6 +3641,26 @@ def sync_all_tracking_updates(
         mark_auto=payload.mark_auto,
         execute=payload.execute,
         refresh_news=payload.refresh_news,
+    )
+
+
+class TrackingSettingsBody(BaseModel):
+    auto_apply: bool
+
+
+@router.get("/tracking/settings")
+def get_tracking_settings() -> dict:
+    """Background sync schedule, models, and the auto-apply switch."""
+    return tracking_updates.get_settings()
+
+
+@router.put("/tracking/settings")
+def put_tracking_settings(request: Request, body: TrackingSettingsBody) -> dict:
+    """Turn auto-apply on or off for every tracked company (off by default:
+    recommended runs wait for Run now)."""
+    _require_permission(request, "tasks:action")
+    return tracking_updates.set_auto_apply(
+        body.auto_apply, updated_by=_caller_email(request)
     )
 
 
@@ -9666,6 +9726,7 @@ def _company_view(c: dict) -> dict:
         "exchange": c.get("exchange"),
         "status": c.get("status"),
         "company_type": c.get("company_type") or storage.infer_company_type(c),
+        "vertical": storage._valid_vertical(c.get("vertical")),
         "hq": c.get("hq"),
         "founded_year": c.get("founded_year"),
         "website": c.get("website"),
@@ -9802,6 +9863,8 @@ def _report_detail(r: dict) -> dict:
         "content_zh": r.get("content_zh"),
         "warnings": list(r.get("warnings") or []),
         "scope_check": r.get("scope_check"),
+        "company_type": r.get("company_type"),
+        "company_stage": r.get("company_stage"),
     }
     # Attach unified-rail URLs and download links for memo runs so the
     # frontend can tail the same JSONL the prep wrote and offer

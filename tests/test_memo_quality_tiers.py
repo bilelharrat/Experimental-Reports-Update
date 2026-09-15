@@ -85,12 +85,15 @@ def test_economy_routes_every_role(tmp_path):
     assert claude_runner._memo_role_effort("SECTION", tmp_path) is None
 
 
-def test_balanced_leaves_the_writing_wave_alone(tmp_path):
+def test_balanced_keeps_the_writing_wave_on_the_default_model_at_medium(tmp_path):
+    """The writing wave stays on the CLI default model (no --model flag)
+    but runs at medium effort; research goes to Sonnet at default effort."""
     claude_runner.register_memo_run_quality(tmp_path, "balanced")
     for role in ("SPINE", "SECTION", "ARTIFACTS", "REPAIR", "ENGLISH"):
         assert claude_runner._memo_role_model(role, tmp_path) is None
-        assert claude_runner._memo_role_effort(role, tmp_path) is None
+        assert claude_runner._memo_role_effort(role, tmp_path) == "medium"
     assert claude_runner._memo_role_model("ANALYSIS_PASS", tmp_path) == "sonnet"
+    assert claude_runner._memo_role_effort("ANALYSIS_PASS", tmp_path) is None
     assert claude_runner._memo_role_model("TRANSLATION", tmp_path) == "sonnet"
     assert claude_runner._memo_role_model("SPINE_CHECK", tmp_path) == "sonnet"
 

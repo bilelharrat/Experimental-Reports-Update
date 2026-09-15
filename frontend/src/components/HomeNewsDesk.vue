@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, nextTick, ref, unref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from "vue";
 import {
   Building2,
   ChartColumn,
@@ -47,7 +47,15 @@ const brief = ref(null);
 const briefLoading = ref(false);
 const briefError = ref("");
 let briefRequestId = 0;
-let lastPrewarmKey = "";
+let lastTapeKey = "";
+
+// AI briefings are written by the server on a schedule (every few hours)
+// or when the user confirms "Refresh AI briefs now". Nothing here asks for
+// an AI write on its own.
+const REFRESH_TOP_N = 16;
+const refreshStatus = ref(null);
+const refreshStarting = ref(false);
+let refreshPollTimer = null;
 
 const feed = computed(() => [
   ...(unref(workspaceNews) || []),
@@ -90,7 +98,7 @@ watch(rows, (list) => {
 watch(
   assembled,
   (list) => {
-    maybePrewarm(list || []);
+    recordTape(list || []);
   },
   { immediate: true },
 );
@@ -105,8 +113,12 @@ watch(
 
 watch(appLanguage, () => {
   openBriefing(selected.value);
-  lastPrewarmKey = "";
-  maybePrewarm(assembled.value);
+});
+
+onMounted(loadRefreshStatus);
+onBeforeUnmount(() => {
+  if (refreshPollTimer) clearTimeout(refreshPollTimer);
+  refreshPollTimer = null;
 });
 
 const scopes = computed(() => [
@@ -166,31 +178,67 @@ function briefPayloadFor(row) {
   };
 }
 
-function maybePrewarm(list) {
-  const top = (list || []).slice(0, 16);
-  if (!top.length) return;
-  const key = `${appLanguage.value || "en"}|${top.map((row) => row.title).join("|")}`;
-  if (key === lastPrewarmKey) return;
-  lastPrewarmKey = key;
+function tapeItems(list) {
+  return (list || []).slice(0, REFRESH_TOP_N).map((row) => ({
+    title: row.title,
+    summary: row.summary || null,
+    source: row.source || null,
+    published_at: row.ts || null,
+    company: row.companyName || row.companies?.[0]?.name || null,
+    ticker: row.ticker || null,
+    url: row.url || null,
+  }));
+}
+
+// Tell the server which headlines sit at the top of the tape. This never
+// writes a briefing; the scheduled refresh uses the list later.
+function recordTape(list) {
+  const items = tapeItems(list);
+  if (!items.length) return;
+  const key = items.map((row) => row.title).join("|");
+  if (key === lastTapeKey) return;
+  lastTapeKey = key;
   api
-    .prewarmNewsBriefs({
-      items: top.map((row) => ({
-        title: row.title,
-        summary: row.summary || null,
-        source: row.source || null,
-        published_at: row.ts || null,
-        company: row.companyName || row.companies?.[0]?.name || null,
-        ticker: row.ticker || null,
-        url: row.url || null,
-      })),
-      lang: appLanguage.value || "en",
-      limit: 16,
-    })
+    .prewarmNewsBriefs({ items, lang: appLanguage.value || "en", limit: REFRESH_TOP_N })
     .catch(() => {});
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function loadRefreshStatus() {
+  try {
+    refreshStatus.value = await api.newsBriefRefreshStatus();
+  } catch {
+    return;
+  }
+  scheduleRefreshPoll();
+}
+
+function scheduleRefreshPoll() {
+  if (refreshPollTimer) clearTimeout(refreshPollTimer);
+  refreshPollTimer = null;
+  if (!refreshStatus.value?.running) return;
+  refreshPollTimer = setTimeout(async () => {
+    refreshPollTimer = null;
+    await loadRefreshStatus();
+    // The batch finished: show the AI briefing for the open story.
+    if (!refreshStatus.value?.running) openBriefing(selected.value);
+  }, 8000);
+}
+
+async function refreshAllBriefs() {
+  if (refreshStarting.value || refreshStatus.value?.running) return;
+  const items = tapeItems(assembled.value);
+  if (!items.length) return;
+  const hours = refreshStatus.value?.interval_hours || 6;
+  if (!window.confirm(t("news.refresh_all_confirm", { n: items.length, hours }))) return;
+  refreshStarting.value = true;
+  try {
+    refreshStatus.value = await api.startNewsBriefRefresh({ items, limit: REFRESH_TOP_N });
+    scheduleRefreshPoll();
+  } catch (err) {
+    briefError.value = err?.message || t("news.briefing_failed");
+  } finally {
+    refreshStarting.value = false;
+  }
 }
 
 async function openBriefing(row) {
@@ -219,64 +267,27 @@ async function openBriefing(row) {
     if (requestId !== briefRequestId) return;
     brief.value = cached;
     cacheBrief(cacheKey, cached);
-    briefLoading.value = false;
-  } catch (err) {
+  } catch {
     if (requestId !== briefRequestId) return;
-    if (err?.status !== 404) {
-      // Fall through to generate; soft-fail only if generate also fails.
-    }
-    // Race: blocking generate (joins in-flight prewarm) vs polling the
-    // cache so a sibling worker's finish shows up without waiting on our
-    // own HTTP call's full timeout path.
-    const payload = { ...briefPayloadFor(row), refresh: false };
-    const generatePromise = api.postNewsBrief(payload).then((generated) => ({
-      ok: true,
-      brief: generated,
-    }));
-    const pollPromise = (async () => {
-      for (let i = 0; i < 60; i += 1) {
-        await sleep(1500);
-        if (requestId !== briefRequestId) return { ok: false };
-        try {
-          const hit = await api.getNewsBrief({ title: row.title, company, lang });
-          if (hit) return { ok: true, brief: hit };
-        } catch {
-          /* still missing */
-        }
-      }
-      return { ok: false };
-    })();
+    // No AI briefing yet. refresh:false never calls Claude — the server
+    // answers with a basic briefing pulled from the article.
     try {
-      const winner = await Promise.any([
-        generatePromise,
-        pollPromise.then((result) => {
-          if (!result?.ok || !result.brief) {
-            return Promise.reject(new Error("poll miss"));
-          }
-          return result;
-        }),
-      ]);
+      const basic = await api.postNewsBrief({ ...briefPayloadFor(row), refresh: false });
       if (requestId !== briefRequestId) return;
-      brief.value = winner.brief;
-      cacheBrief(cacheKey, winner.brief);
-    } catch (genErr) {
+      brief.value = basic;
+    } catch (err) {
       if (requestId !== briefRequestId) return;
-      if (!brief.value) {
-        const message =
-          genErr?.errors?.[0]?.message ||
-          genErr?.message ||
-          t("news.briefing_failed");
-        briefError.value = message;
-      }
-    } finally {
-      if (requestId === briefRequestId) briefLoading.value = false;
+      if (!brief.value) briefError.value = err?.message || t("news.briefing_failed");
     }
+  } finally {
+    if (requestId === briefRequestId) briefLoading.value = false;
   }
 }
 
 async function regenerateBrief() {
   const row = selected.value;
   if (!row?.title || briefLoading.value) return;
+  if (!window.confirm(t("news.regenerate_confirm"))) return;
   const requestId = ++briefRequestId;
   briefLoading.value = true;
   briefError.value = "";
@@ -387,6 +398,25 @@ const briefWatch = computed(() => {
 const briefSources = computed(() =>
   Array.isArray(brief.value?.sources) ? brief.value.sources.filter((s) => s?.url) : [],
 );
+const briefFigures = computed(() =>
+  Array.isArray(brief.value?.key_figures) ? brief.value.key_figures.filter(Boolean) : [],
+);
+const refreshLabel = computed(() => {
+  const status = refreshStatus.value;
+  if (!status) return "";
+  if (status.running) {
+    return t("news.refresh_running", {
+      done: (status.done || 0) + (status.failed || 0),
+      total: status.total || 0,
+    });
+  }
+  if (status.note === "nothing_to_write") return t("news.refresh_nothing");
+  if (!status.interval_hours) return "";
+  const next = status.next_refresh_at ? Date.parse(status.next_refresh_at) : NaN;
+  if (!Number.isFinite(next)) return t("news.refresh_every", { hours: status.interval_hours });
+  const n = Math.max(0, Math.ceil((next - Date.now()) / 3600000));
+  return t("news.refresh_next", { hours: status.interval_hours, n });
+});
 </script>
 
 <template>
@@ -435,6 +465,22 @@ const briefSources = computed(() =>
           <span>{{ expanded ? t("radar.collapse_desk") : t("radar.expand_desk") }}</span>
         </button>
       </div>
+    </div>
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <p class="text-caption1 text-ink-muted">{{ refreshLabel }}</p>
+      <button
+        type="button"
+        class="btn-bordered focus-ring inline-flex items-center gap-1.5"
+        :disabled="refreshStarting || Boolean(refreshStatus?.running) || !assembled.length"
+        @click="refreshAllBriefs"
+      >
+        <Sparkles
+          class="h-3.5 w-3.5"
+          :class="refreshStatus?.running ? 'animate-pulse' : ''"
+          aria-hidden="true"
+        />
+        {{ t("news.refresh_all") }}
+      </button>
     </div>
 
     <article
@@ -501,6 +547,9 @@ const briefSources = computed(() =>
 
       <div class="news-brief-panel border-t border-border-subtle/70 px-3.5 py-4 sm:px-4">
         <div v-if="brief" class="space-y-5">
+          <p v-if="brief.kind === 'basic'" class="text-footnote text-ink-muted">
+            {{ t("news.basic_brief_note") }}
+          </p>
           <p
             v-if="briefHeadline && briefHeadline !== selected.title"
             class="font-display text-title3 text-ink-secondary"
@@ -514,6 +563,19 @@ const briefSources = computed(() =>
           <section v-if="briefWhy">
             <h3 class="news-brief-kicker">{{ t("news.why_it_matters") }}</h3>
             <p class="news-brief-body mt-2 whitespace-pre-wrap">{{ briefWhy }}</p>
+          </section>
+          <section v-if="briefFigures.length">
+            <h3 class="news-brief-kicker">{{ t("news.key_figures") }}</h3>
+            <ul class="mt-2 space-y-2">
+              <li
+                v-for="(line, idx) in briefFigures"
+                :key="`fig-${idx}`"
+                class="news-brief-bullet"
+              >
+                <span class="news-brief-dot" aria-hidden="true" />
+                <span>{{ line }}</span>
+              </li>
+            </ul>
           </section>
           <section v-if="briefContext.length">
             <h3 class="news-brief-kicker">{{ t("news.context") }}</h3>

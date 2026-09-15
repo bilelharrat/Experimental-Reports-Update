@@ -208,6 +208,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // Background sync schedule and the global auto-apply switch.
+  getTrackingSettings: () => request("/api/tracking/settings"),
+  putTrackingSettings: (body) =>
+    request("/api/tracking/settings", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   // Tracking dashboard: the follow list is browser-local, so the ids ride
   // along as query params rather than the server keeping a watchlist.
   trackingRollup: (companyIds = []) => {
@@ -245,11 +252,21 @@ export const api = {
     if (company) params.set("company", String(company));
     return request(`/api/news/brief?${params}`, { timeoutMs: 10000 });
   },
+  // refresh:false never calls Claude (cached AI brief or a basic brief);
+  // refresh:true is the warned rewrite, which may queue behind a refresh.
   postNewsBrief: (body) =>
     request("/api/news/brief", {
       method: "POST",
       body: JSON.stringify(body || {}),
-      timeoutMs: 120000,
+      timeoutMs: 300000,
+    }),
+  newsBriefRefreshStatus: () =>
+    request("/api/news/brief/refresh", { timeoutMs: 10000 }),
+  startNewsBriefRefresh: (body) =>
+    request("/api/news/brief/refresh", {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+      timeoutMs: 15000,
     }),
   prewarmNewsBriefs: (body) =>
     request("/api/news/brief/prewarm", {

@@ -122,6 +122,10 @@ const executeNotice = ref("");
 // Set when Run now was blocked by a parked card review; renders the
 // "I've reviewed — run anyway" confirmation next to the notice.
 const pendingReviewRunId = ref("");
+// Background sync schedule and the global auto-apply switch (off by
+// default: recommended runs wait for Run now).
+const trackingSettings = ref(null);
+const trackingSettingsSaving = ref(false);
 const decisionRecords = ref(null);
 const decisionSubmitting = ref(false);
 const decisionSubmitError = ref(false);
@@ -213,9 +217,10 @@ watch(reportMode, (mode) => {
   }
 });
 
-// Quality: "best" (every agent on the default model), "balanced"
-// (research + translation on a cheaper model), or "economy" (everything
-// on a cheaper model). Applies to One-Click generation.
+// Quality: "best" (every agent on the default model at full effort),
+// "balanced" (research + translation on a cheaper model; writing on the
+// default model at medium effort), or "economy" (everything on a cheaper
+// model). Applies to One-Click generation.
 const QUALITY_KEY = "bsh.research.quality";
 function loadQuality() {
   try {
@@ -954,6 +959,7 @@ async function loadIndustryView() {
 async function loadTrackingUpdates() {
   if (!props.companyId) return;
   const requestedId = props.companyId;
+  loadTrackingSettings();
   try {
     const fresh = await api.listTrackingUpdates(requestedId);
     if (requestedId !== props.companyId) return;
@@ -962,6 +968,41 @@ async function loadTrackingUpdates() {
     // Non-fatal: the panel keeps whatever it already shows.
   }
 }
+
+async function loadTrackingSettings() {
+  try {
+    trackingSettings.value = await api.getTrackingSettings();
+  } catch {
+    // Non-fatal: the auto-apply toggle stays disabled until settings load.
+  }
+}
+
+async function toggleAutoApply() {
+  if (trackingSettingsSaving.value || !trackingSettings.value) return;
+  const next = !trackingSettings.value.auto_apply;
+  // Turning it on lets news start paid runs unattended, so confirm first.
+  if (next && !window.confirm(tr("research.updates_auto_apply_confirm"))) return;
+  trackingSettingsSaving.value = true;
+  executeNotice.value = "";
+  try {
+    trackingSettings.value = await api.putTrackingSettings({ auto_apply: next });
+  } catch {
+    executeNotice.value = tr("research.updates_auto_apply_failed");
+  } finally {
+    trackingSettingsSaving.value = false;
+  }
+}
+
+const trackingScheduleLabel = computed(() => {
+  const settings = trackingSettings.value;
+  if (!settings) return "";
+  return tr(
+    settings.auto_apply
+      ? "research.updates_schedule_auto"
+      : "research.updates_schedule_manual",
+    { hours: settings.interval_hours || 12 },
+  );
+});
 
 async function loadDecisionRecords() {
   if (!props.companyId) return;
@@ -2162,6 +2203,23 @@ onUnmounted(stopPolling);
         </button>
       </div>
 
+      <!-- Company type: classified in Phase 1 (registry `vertical` or the
+           tool-free classifier); it steers research focus, the analysis
+           lens and the scorecard weights for this run. -->
+      <div
+        v-if="isMemo && activeReport.company_type?.type"
+        class="mt-4 rounded-lg border border-subtle bg-surface-muted p-4 text-sm text-ink-primary"
+      >
+        <span class="font-semibold">
+          {{ tr("research.company_type_label") }}
+        </span>
+        <span class="ml-2">
+          {{
+            tr("research.company_type_" + activeReport.company_type.type)
+          }}
+        </span>
+      </div>
+
       <!-- Company stage: the run's evidence-confirmed stage, pinned by
            the spine after Phase 2 research. Absent until the spine
            lands, so it never shows a registry guess. -->
@@ -2740,16 +2798,37 @@ onUnmounted(stopPolling);
           <p v-if="trackingUpdates?.last_synced_at" class="mt-2 text-xs text-ink-muted">
             {{ tr("research.updates_last_synced") }}: {{ formatIsoDate(trackingUpdates.last_synced_at) }}
           </p>
+          <p v-if="trackingScheduleLabel" class="mt-1 text-xs text-ink-muted">
+            {{ trackingScheduleLabel }}
+          </p>
         </div>
-        <button
-          type="button"
-          class="btn-bordered inline-flex items-center gap-2 focus-ring"
-          :disabled="trackingSyncing"
-          @click="syncTracking"
-        >
-          <Loader2 v-if="trackingSyncing" class="h-4 w-4 animate-spin" />
-          {{ tr(trackingSyncing ? "research.updates_syncing" : "research.updates_sync") }}
-        </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            role="switch"
+            class="btn-bordered inline-flex items-center gap-2 focus-ring"
+            :aria-checked="Boolean(trackingSettings?.auto_apply)"
+            :disabled="trackingSettingsSaving || !trackingSettings"
+            @click="toggleAutoApply"
+          >
+            {{
+              tr(
+                trackingSettings?.auto_apply
+                  ? "research.updates_auto_apply_on"
+                  : "research.updates_auto_apply_off",
+              )
+            }}
+          </button>
+          <button
+            type="button"
+            class="btn-bordered inline-flex items-center gap-2 focus-ring"
+            :disabled="trackingSyncing"
+            @click="syncTracking"
+          >
+            <Loader2 v-if="trackingSyncing" class="h-4 w-4 animate-spin" />
+            {{ tr(trackingSyncing ? "research.updates_syncing" : "research.updates_sync") }}
+          </button>
+        </div>
       </div>
       <p v-if="!isFollowedCompany" class="mb-3 text-sm text-ink-muted">
         {{ tr("research.updates_follow_hint") }}

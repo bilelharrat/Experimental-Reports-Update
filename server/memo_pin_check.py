@@ -115,8 +115,18 @@ class PinCheckResult:
         ]
 
 
+# Inline provenance tokens ("[S3]", "[C2, S4]") may sit anywhere in a v2
+# package, including inside a pinned sentence's final period ("...buyer
+# is feasible [S15]."). A cited echo is still an echo: strip the tokens
+# (and the space before them) from both the section text and the pin
+# before matching. A live compact run lost a repair round when all nine
+# cited scorecard why-lines "failed" exact matching (2026-09-14).
+_CITATION_TOKEN_RE = re.compile(r"\s*\[[SC]\d+(?:\s*,\s*[SC]\d+)*\]")
+
+
 def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text)).strip().casefold()
+    text = _CITATION_TOKEN_RE.sub("", str(text))
+    return re.sub(r"\s+", " ", text).strip().casefold()
 
 
 def _squash(text: str) -> str:
@@ -482,6 +492,58 @@ def check_package_pins(package: dict, shared_facts: dict) -> PinCheckResult:
                         )
                     )
 
+    # 6. Highlights (headline verbatim in the executive summary) and risk
+    #    impacts (verbatim in the risk section; the top three also in the
+    #    executive summary's Key risks). Absent pins mean no checks.
+    highlights = shared_facts.get("highlights")
+    if weights and isinstance(highlights, list):
+        for index, item in enumerate(highlights, start=1):
+            if not isinstance(item, dict):
+                continue
+            headline = _pin_sentence(item.get("headline"))
+            if not headline:
+                continue
+            pins_checked += 1
+            if not _contains(exec_norm, exec_squashed, headline):
+                findings.append(
+                    PinFinding(
+                        code="highlight_not_echoed",
+                        location=section_exec,
+                        pin=f"highlight {index}: {headline}",
+                        detail=(
+                            f'pinned highlight headline "{headline}" does '
+                            f"not appear in {section_exec} — open highlight "
+                            f"bullet {index} with it verbatim"
+                        ),
+                    )
+                )
+    pinned_risks = shared_facts.get("risks")
+    if weights and isinstance(pinned_risks, list):
+        for index, risk in enumerate(pinned_risks, start=1):
+            if not isinstance(risk, dict):
+                continue
+            impact = _pin_sentence(risk.get("impact"))
+            if not impact:
+                continue
+            targets = [(section_risk, risk_norm, risk_squashed)]
+            if index <= 3:
+                targets.append((section_exec, exec_norm, exec_squashed))
+            for location, norm_text, squashed in targets:
+                pins_checked += 1
+                if not _contains(norm_text, squashed, impact):
+                    findings.append(
+                        PinFinding(
+                            code="risk_impact_not_echoed",
+                            location=location,
+                            pin=f"risk {index} impact: {impact}",
+                            detail=(
+                                f'the pinned impact "{impact}" for risk '
+                                f"{index} does not appear in {location} — "
+                                'state it verbatim after "Impact:"'
+                            ),
+                        )
+                    )
+
     return PinCheckResult(
         findings=findings,
         pins_checked=pins_checked,
@@ -541,6 +603,13 @@ def _parse_money(text: str) -> float | None:
     if suffix.startswith("k"):
         return value * 1_000
     return value
+
+
+def _pin_sentence(value: object) -> str:
+    """A pinned sentence for echo matching: trailing full stops are
+    dropped so a section that ends the sentence differently ("...it." vs
+    "...it, because") still matches the words."""
+    return str(value or "").strip().rstrip(".。 ")
 
 
 def check_spine_pins_v2(
@@ -674,6 +743,89 @@ def check_spine_pins_v2(
                         f"exit value / entry valuation (~{undiluted:.1f}x "
                         "before dilution) — fix the numbers or the MOIC"
                     )
+
+    calculations = shared_facts.get("calculations")
+    if isinstance(calculations, list):
+        seen_calc_ids: set[str] = set()
+        blob_parts: list[str] = []
+        for note in calculations:
+            if not isinstance(note, dict):
+                continue
+            calc_id = str(note.get("id") or "").strip()
+            if calc_id in seen_calc_ids:
+                problems.append(f"calculation id {calc_id} is duplicated")
+            seen_calc_ids.add(calc_id)
+            blob_parts.append(
+                f"{note.get('formula') or ''} {note.get('result') or ''}"
+            )
+        blob = " ".join(blob_parts).lower().replace(" ", "")
+        needed: list[tuple[str, object]] = []
+        if isinstance(scenarios, dict):
+            for key in ("bear", "base", "bull"):
+                scenario = scenarios.get(key)
+                if isinstance(scenario, dict) and scenario.get("moic"):
+                    needed.append((f"{key} scenario MOIC", scenario["moic"]))
+        if isinstance(fair_value, dict):
+            for bound in ("low", "high"):
+                if fair_value.get(bound):
+                    needed.append((f"fair value {bound}", fair_value[bound]))
+        for label, value in needed:
+            token = str(value or "").strip().lower().replace(" ", "")
+            if token and token not in blob:
+                problems.append(
+                    f"calculations must include a note whose formula or "
+                    f"result shows the {label} {value} — add the arithmetic "
+                    "behind it"
+                )
+
+    highlights = shared_facts.get("highlights")
+    dimensions_pinned = (
+        scorecard.get("dimensions")
+        if isinstance(scorecard, dict)
+        and isinstance(scorecard.get("dimensions"), dict)
+        else {}
+    )
+    if isinstance(highlights, list):
+        if len(highlights) != 3:
+            problems.append(
+                f"highlights must contain exactly three items, found "
+                f"{len(highlights)}"
+            )
+        seen_dimensions: set[str] = set()
+        for item in highlights:
+            if not isinstance(item, dict):
+                continue
+            dimension = str(item.get("dimension") or "").strip()
+            if dimension in seen_dimensions:
+                problems.append(
+                    f"highlight dimension {dimension} is used twice — each "
+                    "highlight files under a different scorecard dimension"
+                )
+            seen_dimensions.add(dimension)
+            weight = weights.get(dimension)
+            entry = dimensions_pinned.get(dimension)
+            score = entry.get("score") if isinstance(entry, dict) else None
+            if (
+                isinstance(score, int)
+                and isinstance(weight, int)
+                and weight > 0
+                and score * 10 < weight * 6
+            ):
+                problems.append(
+                    f"highlight dimension {dimension} scores {score} of "
+                    f"{weight} (below 60%) — a highlight must be one of the "
+                    "strongest dimensions; pick a stronger dimension"
+                )
+            headline = str(item.get("headline") or "").strip()
+            if (
+                headline
+                and len(headline.split()) <= 5
+                and not _FINITE_VERB_RE.search(headline)
+            ):
+                problems.append(
+                    f'highlight headline "{headline}" is a topic label — '
+                    "write one plain verdict sentence with a finite verb"
+                )
 
     for risk in shared_facts.get("risks") or []:
         if not isinstance(risk, dict):

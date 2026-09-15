@@ -27,6 +27,13 @@ what "Serena" and "Hormuz" are) lives in `docs/architecture.md`. Env vars
 are documented in `.env.example`. The web UI's design language (tokens, glass
 materials, controls, page anatomy) is in `docs/web-design-language.md`.
 
+The memo agents' editorial prompts (voice contract, structure profiles,
+risk cards, Phase 2 pass focus texts, company-type lenses) are files under
+`skills/memo/`, with Chinese twins under `skills/memo/zh/` that the
+founder's team edits — see `skills/memo/README.md`. Edit the files, never
+the `memo_prompts.load_prompt(...)` lines; after porting a zh edit into
+English run `uv run python scripts/skills_sync.py --stamp`.
+
 ## Branching
 
 **All work happens directly on `main`.** No worktree branches, no feature

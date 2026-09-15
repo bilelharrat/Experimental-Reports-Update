@@ -38,7 +38,7 @@ and `claude_runner.load_memo_recent_news` injects it into every pass
 and the spine — never the shared section context (kill switch
 `BSH_MEMO_TRACKED_NEWS=0`).
 
-### Phase 2 — 8 analysis passes (~2.3–6.3 m, gated by slowest pass)
+### Phase 2 — 12 analysis passes (~2.3–6.3 m, gated by slowest pass; defined in `skills/memo/passes.md`)
 
 `memo_analysis._FAST_MEMO_PASSES` defines 8 pass specs (id, label,
 artifact filename, focus). Dispatch: `ThreadPoolExecutor` with

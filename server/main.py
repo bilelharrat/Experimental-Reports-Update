@@ -228,6 +228,16 @@ def _startup() -> None:
         tracking_updates.start_tracking_sync_loop()
     except Exception:  # noqa: BLE001
         logger.exception("Tracking sync startup failed")
+    # News desk AI briefings: one Sonnet worker refreshes the recorded top
+    # of the tape every BSH_NEWS_BRIEF_REFRESH_HOURS (default 6; 0 turns
+    # the schedule off). Opening the News page never calls Claude.
+    try:
+        from . import news_brief
+
+        if news_brief.start_refresh_loop():
+            logger.info("News brief refresh loop started.")
+    except Exception:  # noqa: BLE001
+        logger.exception("News brief refresh loop startup failed")
     # Server-side alert engine — opt-in via BSH_ALERT_ENGINE_INTERVAL so
     # tests and offline runs never poll quote providers.
     try:
