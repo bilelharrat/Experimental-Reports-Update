@@ -4,9 +4,10 @@ import SwiftUI
 /// auto-runs, and a "needs re-underwriting" filter driven by decision retrospectives.
 struct MacPortfolioDeskView: View {
     @EnvironmentObject private var store: MacAppStore
+    @AppStorage("mac.portfolio.mode") private var mode: String = "holdings"
     @State private var selectedId: String?
     @State private var reunderwritingOnly = false
-    @State private var lastExecute: MacAutoRunExecuteResult?
+    @State private var executeResults: [String: MacAutoRunExecuteResult] = [:]
 
     private var entries: [(company: MacCompany, decision: MacDecision)] {
         let all = store.portfolioEntries
@@ -21,7 +22,25 @@ struct MacPortfolioDeskView: View {
     }
 
     var body: some View {
-        HSplitView {
+        VStack(spacing: 0) {
+            HStack {
+                GlassSegmentedPicker("Mode", selection: $mode, segments: ["holdings": "Holdings", "monitoring": "Monitoring"])
+                .frame(width: 220)
+                Spacer()
+            }
+            .dsToolbarStrip()
+            Divider()
+                    if mode == "holdings" {
+                        MacHoldingsDeskView()
+                    } else {
+                        monitoring
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+    private var monitoring: some View {
+        HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack {
                     Toggle("Needs re-underwriting", isOn: $reunderwritingOnly)
@@ -69,18 +88,22 @@ struct MacPortfolioDeskView: View {
                         }
                         .padding(.vertical, 2)
                         .tag(entry.company.id)
+                        .glassListRow(isSelected: selectedId == entry.company.id)
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .listStyle(.inset)
             }
-            .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
-            .layoutPriority(0)
+                .frame(minWidth: 280, idealWidth: 320, maxWidth: 420, maxHeight: .infinity)
+                .layoutPriority(0)
 
-            detail
-                .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
-        }
-        .task {
+                Divider()
+
+                detail
+                    .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+                    .layoutPriority(1)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .task {
             if store.rollup == nil { await store.loadPipeline() }
             if selectedId == nil { selectedId = entries.first?.company.id }
             for entry in store.portfolioEntries where store.trackingByCompany[entry.company.id] == nil {
@@ -133,7 +156,7 @@ struct MacPortfolioDeskView: View {
                         .disabled(!store.canRunTasks)
                     }
                     .padding()
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .appleGlassCard()
 
                     // Recommended auto-run
                     if let auto = updates?.recommendedAutoRun {
@@ -144,15 +167,16 @@ struct MacPortfolioDeskView: View {
                                 Text("Triggered by: " + auto.newsTitles.prefix(3).joined(separator: " · "))
                                     .font(.caption).foregroundStyle(.secondary).lineLimit(3)
                             }
+                            let resultKey = "\(id)|\(auto.id)"
                             HStack {
                                 Button {
-                                    Task { lastExecute = await store.executeAutoRun(companyId: id, autoRun: auto) }
+                                    Task { executeResults[resultKey] = await store.executeAutoRun(companyId: id, autoRun: auto) }
                                 } label: {
                                     Label("Execute", systemImage: "play.fill")
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .disabled(!store.canRunTasks)
-                                if let result = lastExecute {
+                                if let result = executeResults[resultKey] {
                                     Text(result.executed ? "Started — follow it in the Jobs blotter." : result.reasonLabel)
                                         .font(.caption)
                                         .foregroundStyle(result.executed ? Color.green : Color.orange)
@@ -169,7 +193,7 @@ struct MacPortfolioDeskView: View {
                         MacDecisionTimeline(companyId: id)
                     }
                     .padding()
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                    .appleGlassCard()
 
                     // Tracked news by impact
                     VStack(alignment: .leading, spacing: 8) {
@@ -215,7 +239,7 @@ struct MacPortfolioDeskView: View {
                         }
                     }
                     .padding()
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                    .appleGlassCard()
                 }
                 .padding(20)
             }

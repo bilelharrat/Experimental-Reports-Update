@@ -16,189 +16,138 @@ struct MacVCRatiosBlotterView: View {
     // Interactive Inputs
     // Inputs start empty: this is a calculator over figures you type from the memo or a founder
     // update. Nothing is fetched or estimated.
-    @State private var arr: Double = 0 // $M ARR
-    @State private var netNewArr: Double = 0 // $M Net New ARR
-    @State private var netBurn: Double = 0 // $M Annual Net Burn
-    @State private var arrGrowthRate: Double = 0 // % YoY Growth
-    @State private var fcfMargin: Double = 0 // % Free Cash Flow Margin
-    @State private var ndr: Double = 0 // % Net Dollar Retention
-    @State private var cacPaybackMonths: Double = 0 // Months CAC Payback
-    @State private var smSpend: Double = 0 // $M Sales & Marketing Spend
+    @State private var arr: Double? // $M ARR
+    @State private var netNewArr: Double? // $M Net New ARR
+    @State private var netBurn: Double? // $M Annual Net Burn
+    @State private var arrGrowthRate: Double? // % YoY Growth
+    @State private var fcfMargin: Double? // % Free Cash Flow Margin
+    @State private var ndr: Double? // % Net Dollar Retention
+    @State private var cacPaybackMonths: Double? // Months CAC Payback
+    @State private var smSpend: Double? // $M Sales & Marketing Spend
 
     @State private var copiedToClipboard: Bool = false
 
+    private static let gridColumns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
     // Calculated Institutional VC Metrics
-    private var burnMultiple: Double {
-        guard netNewArr > 0 else { return 0 }
+    private var burnMultiple: Double? {
+        guard let netBurn, let netNewArr, netNewArr > 0 else { return nil }
         return netBurn / netNewArr
     }
 
-    private var ruleOf40: Double {
+    private var ruleOf40: Double? {
+        guard let arrGrowthRate, let fcfMargin else { return nil }
         return arrGrowthRate + fcfMargin
     }
 
-    private var magicNumber: Double {
-        guard smSpend > 0 else { return 0 }
+    private var magicNumber: Double? {
+        guard let netNewArr, let smSpend, smSpend > 0 else { return nil }
         return netNewArr / smSpend
+    }
+
+    private var hasAnyMetric: Bool {
+        burnMultiple != nil || ruleOf40 != nil || ndr != nil || cacPaybackMonths != nil || magicNumber != nil
+    }
+
+    private var isTopTier: Bool {
+        guard let burnMultiple, let ruleOf40 else { return false }
+        return burnMultiple < 1.0 && ruleOf40 >= 40
+    }
+
+    private var readoutIsPositive: Bool {
+        guard let burnMultiple else { return false }
+        return burnMultiple <= 1.5
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // Header Bar
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "gauge.with.needle.fill")
-                            .foregroundStyle(Color.accentColor)
-                        Text("Institutional VC Ratios & Efficiency Blotter")
-                            .font(.headline)
-
-                        Text("BESSEMER / a16z / SEQUOIA")
-                            .font(.system(size: 8, weight: .black))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(Color.accentColor)
-                    }
-
-                    Text("Calculator — enter figures from the memo or the latest founder update. Nothing here is fetched or estimated.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
+            MacCardHeader("VC ratios", subtitle: "A calculator over figures you type from the memo or the latest founder update. Nothing is fetched or estimated.", systemImage: "gauge.with.needle") {
                 Button {
                     copyRatiosSummary()
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: copiedToClipboard ? "checkmark" : "doc.on.doc")
-                        Text(copiedToClipboard ? "Copied" : "Copy Diligence Ratios")
-                    }
+                    Label(copiedToClipboard ? "Copied" : "Copy ratios", systemImage: copiedToClipboard ? "checkmark" : "doc.on.doc")
                 }
-                .buttonStyle(.bordered)
                 .controlSize(.small)
+                .disabled(!hasAnyMetric)
             }
 
-            Divider()
-
             // Key Ratios Grid (Top Tier Metrics)
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ], spacing: 12) {
+            LazyVGrid(columns: Self.gridColumns, spacing: 12) {
                 // 1. Burn Multiple
                 RatioMetricCard(
-                    title: "BURN MULTIPLE",
-                    value: String(format: "%.2fx", burnMultiple),
-                    badge: burnMultipleBadge.text,
-                    badgeColor: burnMultipleBadge.color,
-                    caption: "Net Burn / Net New ARR",
-                    target: "< 1.0x (Top Decile)"
+                    title: "Burn multiple",
+                    value: burnMultiple.map { String(format: "%.2fx", $0) },
+                    badge: burnMultiple.map { burnMultipleBadge($0).text } ?? "",
+                    badgeColor: burnMultiple.map { burnMultipleBadge($0).color } ?? .secondary,
+                    caption: "Net burn ÷ net new ARR",
+                    target: "Under 1.0x is top decile"
                 )
 
                 // 2. Rule of 40
                 RatioMetricCard(
-                    title: "RULE OF 40",
-                    value: String(format: "%.1f%%", ruleOf40),
-                    badge: ruleOf40 >= 40 ? "ELITE" : "SUB-40",
-                    badgeColor: ruleOf40 >= 40 ? .green : .orange,
-                    caption: "Growth (\(Int(arrGrowthRate))%) + FCF (\(Int(fcfMargin))%)",
-                    target: "≥ 40.0% Target"
+                    title: "Rule of 40",
+                    value: ruleOf40.map { String(format: "%.1f%%", $0) },
+                    badge: ruleOf40.map { $0 >= 40 ? "Elite" : "Below 40" } ?? "",
+                    badgeColor: (ruleOf40 ?? 0) >= 40 ? .green : .orange,
+                    caption: "Growth (\(arrGrowthRate.map { String(format: "%.0f%%", $0) } ?? "—")) + FCF (\(fcfMargin.map { String(format: "%.0f%%", $0) } ?? "—"))",
+                    target: "40% or more"
                 )
 
                 // 3. Net Dollar Retention (NDR)
                 RatioMetricCard(
-                    title: "NET RETENTION (NDR)",
-                    value: String(format: "%.0f%%", ndr),
-                    badge: ndr >= 130 ? "UNIFIED UNICORN" : (ndr >= 115 ? "STRONG" : "CHURN RISK"),
-                    badgeColor: ndr >= 130 ? .purple : (ndr >= 115 ? .green : .red),
-                    caption: "Existing Cohort ARR Expansion",
-                    target: "≥ 120% Enterprise Grade"
+                    title: "Net retention",
+                    value: ndr.map { String(format: "%.0f%%", $0) },
+                    badge: ndr.map { $0 >= 130 ? "Best in class" : ($0 >= 115 ? "Strong" : "Churn risk") } ?? "",
+                    badgeColor: (ndr ?? 0) >= 130 ? .purple : ((ndr ?? 0) >= 115 ? .green : .red),
+                    caption: "Existing-cohort ARR expansion",
+                    target: "120% or more for enterprise"
                 )
 
                 // 4. CAC Payback
                 RatioMetricCard(
-                    title: "CAC PAYBACK",
-                    value: String(format: "%.1f mo", cacPaybackMonths),
-                    badge: cacPaybackMonths <= 12 ? "CAPITAL EFFICIENT" : "SLOW PAYBACK",
-                    badgeColor: cacPaybackMonths <= 12 ? .green : .orange,
-                    caption: "Gross Profit Recoup Months",
-                    target: "≤ 12 Months Target"
+                    title: "CAC payback",
+                    value: cacPaybackMonths.map { String(format: "%.1f mo", $0) },
+                    badge: cacPaybackMonths.map { $0 <= 12 ? "Efficient" : "Slow payback" } ?? "",
+                    badgeColor: (cacPaybackMonths ?? 0) <= 12 ? .green : .orange,
+                    caption: "Months to recoup CAC",
+                    target: "12 months or less"
                 )
             }
 
-            // Interactive Assumption Sliders Bar
+            // Typed Inputs
             VStack(alignment: .leading, spacing: 12) {
-                Text("Underwriting Assumptions & Live Inputs")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                MacSectionLabel("Inputs", trailing: "figures from the memo or founder update")
 
-                HStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Current ARR:")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("$\(String(format: "%.1f", arr))M")
-                                .font(.caption2.weight(.bold).monospaced())
-                        }
-                        Slider(value: $arr, in: 1.0...100.0, step: 0.5)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Net New ARR (TTM):")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("$\(String(format: "%.1f", netNewArr))M")
-                                .font(.caption2.weight(.bold).monospaced())
-                        }
-                        Slider(value: $netNewArr, in: 0.5...50.0, step: 0.5)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Annual Net Burn:")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("$\(String(format: "%.1f", netBurn))M")
-                                .font(.caption2.weight(.bold).monospaced())
-                        }
-                        Slider(value: $netBurn, in: 0.5...40.0, step: 0.5)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Net Dollar Retention:")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("\(Int(ndr))%")
-                                .font(.caption2.weight(.bold).monospaced())
-                        }
-                        Slider(value: $ndr, in: 80.0...160.0, step: 1.0)
-                    }
+                LazyVGrid(columns: Self.gridColumns, spacing: 12) {
+                    inputField("Current ARR", unit: "$M", value: $arr)
+                    inputField("Net new ARR (TTM)", unit: "$M", value: $netNewArr)
+                    inputField("Annual net burn", unit: "$M", value: $netBurn)
+                    inputField("S&M spend (TTM)", unit: "$M", value: $smSpend)
+                    inputField("ARR growth (YoY)", unit: "%", value: $arrGrowthRate)
+                    inputField("FCF margin", unit: "%", value: $fcfMargin)
+                    inputField("Net dollar retention", unit: "%", value: $ndr)
+                    inputField("CAC payback", unit: "months", value: $cacPaybackMonths)
                 }
             }
             .padding(12)
             .appleGlassTile(cornerRadius: 10)
 
-            // Investment Committee Verdict Callout
+            // Read-out — only once there is something to read
+            if let burnMultiple {
             HStack(spacing: 12) {
-                Image(systemName: burnMultiple <= 1.0 && ruleOf40 >= 40 ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                Image(systemName: isTopTier ? "checkmark.seal.fill" : (readoutIsPositive ? "checkmark.circle" : "exclamationmark.triangle.fill"))
                     .font(.title3)
-                    .foregroundStyle(burnMultiple <= 1.0 && ruleOf40 >= 40 ? Color.green : Color.orange)
+                    .foregroundStyle(isTopTier || readoutIsPositive ? Color.green : Color.orange)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verdictTitle)
+                    Text(verdictTitle(burnMultiple))
                         .font(.caption.weight(.bold))
-                    Text(verdictDescription)
+                    Text(verdictDescription(burnMultiple))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -206,67 +155,106 @@ struct MacVCRatiosBlotterView: View {
                 Spacer()
 
                 // Magic Number Indicator
-                HStack(spacing: 6) {
-                    Text("Magic Number:")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(String(format: "%.2fx", magicNumber))
-                        .font(.caption.weight(.bold).monospaced())
-                        .foregroundStyle(magicNumber >= 1.0 ? Color.green : Color.primary)
-                    Text(magicNumber >= 1.0 ? "(Expand S&M)" : "(Tune Efficiency)")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(magicNumber >= 1.0 ? Color.green : Color.secondary)
+                if let magicNumber {
+                    HStack(spacing: 6) {
+                        Text("Magic Number:")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.2fx", magicNumber))
+                            .font(.caption.weight(.bold).monospacedDigit())
+                            .foregroundStyle(magicNumber >= 1.0 ? Color.green : Color.primary)
+                        Text(magicNumber >= 1.0 ? "expand S&M" : "tune efficiency")
+                            .font(.dsCaption)
+                            .foregroundStyle(magicNumber >= 1.0 ? Color.green : Color.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .appleGlassPill(color: magicNumber >= 1.0 ? .green : .secondary)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .appleGlassPill(color: magicNumber >= 1.0 ? .green : .secondary)
             }
             .padding(12)
-            .appleGlassTile(cornerRadius: 10, tint: burnMultiple <= 1.0 && ruleOf40 >= 40 ? Color.green : Color.orange)
+            .appleGlassTile(cornerRadius: 10, tint: isTopTier || readoutIsPositive ? Color.green : Color.orange)
+            } else {
+                Text("Enter net burn and net new ARR for the burn multiple; growth and FCF margin for Rule of 40; retention, CAC payback and S&M spend for the rest.")
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(16)
-        .appleGlassCard(cornerRadius: 16)
+        .appleGlassCard()
+    }
+
+    private func inputField(_ label: String, unit: String, value: Binding<Double?>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            HStack(spacing: 4) {
+                TextField("—", value: value, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption.monospacedDigit())
+                Text(unit)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     // MARK: - Verdict Logic
-    private var burnMultipleBadge: (text: String, color: Color) {
-        if burnMultiple < 1.0 {
-            return ("EXCEPTIONAL", .green)
-        } else if burnMultiple <= 1.5 {
-            return ("GOOD", .blue)
-        } else if burnMultiple <= 2.0 {
-            return ("MANAGEABLE", .orange)
+    private func burnMultipleBadge(_ value: Double) -> (text: String, color: Color) {
+        if value < 1.0 {
+            return ("Exceptional", .green)
+        } else if value <= 1.5 {
+            return ("Good", .blue)
+        } else if value <= 2.0 {
+            return ("Manageable", .orange)
         } else {
-            return ("HIGH BURN", .red)
+            return ("High burn", .red)
         }
     }
 
-    private var verdictTitle: String {
-        if burnMultiple < 1.0 && ruleOf40 >= 40 {
-            return "IC VERDICT: TIER-1 INSTITUTIONAL OUTPERFORMER"
-        } else if burnMultiple <= 1.5 {
-            return "IC VERDICT: STRONG VENTURE PROFILE — SOUND UNIT ECONOMICS"
+    private var missingForVerdict: [String] {
+        var missing: [String] = []
+        if ruleOf40 == nil { missing.append("Rule of 40") }
+        if ndr == nil { missing.append("net retention") }
+        return missing
+    }
+
+    private func verdictTitle(_ burn: Double) -> String {
+        if isTopTier {
+            return "Top-tier efficiency profile"
+        } else if !missingForVerdict.isEmpty {
+            return "Burn multiple only — enter \(missingForVerdict.joined(separator: " and ")) for a full read"
+        } else if burn <= 1.5 {
+            return "Strong venture profile with sound unit economics"
         } else {
-            return "IC VERDICT: CAPITAL INTENSIVE — SCRUTINIZE S&M SPEND"
+            return "Capital intensive — scrutinize sales and marketing spend"
         }
     }
 
-    private var verdictDescription: String {
-        "Burn Multiple of \(String(format: "%.2fx", burnMultiple)) with \(Int(ndr))% NDR places \(company.name ?? company.id) in the top tier of institutional growth benchmarks."
+    private func verdictDescription(_ burn: Double) -> String {
+        let retention = ndr.map { String(format: "%.0f%% net retention", $0) } ?? "net retention not entered"
+        return "Burn multiple \(String(format: "%.2fx", burn)) with \(retention), against the benchmarks shown on each card."
     }
 
     private func copyRatiosSummary() {
+        func money(_ v: Double?) -> String { v.map { "$" + String(format: "%.1f", $0) + "M" } ?? "not entered" }
+        func pct(_ v: Double?) -> String { v.map { String(format: "%.0f%%", $0) } ?? "not entered" }
         let text = """
         --- INSTITUTIONAL VC RATIOS SUMMARY ---
         Company: \(company.name ?? company.id)
-        ARR: $\(String(format: "%.1f", arr))M
-        Net New ARR: $\(String(format: "%.1f", netNewArr))M
-        Annual Net Burn: $\(String(format: "%.1f", netBurn))M
-        Burn Multiple: \(String(format: "%.2fx", burnMultiple)) (\(burnMultipleBadge.text))
-        Rule of 40: \(String(format: "%.1f%%", ruleOf40))
-        Net Dollar Retention (NDR): \(Int(ndr))%
-        CAC Payback: \(String(format: "%.1f", cacPaybackMonths)) months
-        Magic Number: \(String(format: "%.2fx", magicNumber))
+        ARR: \(money(arr))
+        Net New ARR: \(money(netNewArr))
+        Annual Net Burn: \(money(netBurn))
+        S&M Spend: \(money(smSpend))
+        ARR Growth: \(pct(arrGrowthRate))
+        FCF Margin: \(pct(fcfMargin))
+        Burn Multiple: \(burnMultiple.map { String(format: "%.2fx", $0) + " (" + burnMultipleBadge($0).text + ")" } ?? "not entered")
+        Rule of 40: \(ruleOf40.map { String(format: "%.1f%%", $0) } ?? "not entered")
+        Net Dollar Retention (NDR): \(pct(ndr))
+        CAC Payback: \(cacPaybackMonths.map { String(format: "%.1f", $0) + " months" } ?? "not entered")
+        Magic Number: \(magicNumber.map { String(format: "%.2fx", $0) } ?? "not entered")
         ---------------------------------------
         """
         NSPasteboard.general.clearContents()
@@ -282,7 +270,7 @@ struct MacVCRatiosBlotterView: View {
 // MARK: - Ratio Metric Card
 private struct RatioMetricCard: View {
     let title: String
-    let value: String
+    let value: String?
     let badge: String
     let badgeColor: Color
     let caption: String
@@ -292,20 +280,17 @@ private struct RatioMetricCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.dsLabel)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(badge)
-                    .font(.system(size: 8, weight: .black))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .foregroundStyle(badgeColor)
-                    .appleGlassPill(color: badgeColor)
+                if value != nil, !badge.isEmpty {
+                    MacStatusPill(text: badge, color: badgeColor)
+                }
             }
 
-            Text(value)
-                .font(.system(size: 20, weight: .bold, design: .monospaced))
-                .monospacedDigit()
+            Text(value ?? "—")
+                .font(.dsMetric)
+                .foregroundStyle(value == nil ? Color.secondary : Color.primary)
 
             Text(caption)
                 .font(.caption2)
@@ -316,10 +301,10 @@ private struct RatioMetricCard: View {
 
             HStack {
                 Image(systemName: "scope")
-                    .font(.system(size: 8))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                 Text(target)
-                    .font(.system(size: 8, weight: .medium))
+                    .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
             }
         }

@@ -38,7 +38,7 @@ struct MacShortcutOverlay: View {
                         ShortcutRow(keys: ["⌘", "/"], description: "Show this shortcut sheet")
                         ShortcutRow(keys: ["↑", "↓"], description: "Navigate list rows & results")
                         ShortcutRow(keys: ["⏎"], description: "Select or execute highlighted row")
-                        ShortcutRow(keys: ["Space"], description: "Quick Look preview on selected memo")
+                        ShortcutRow(keys: ["⌘", "⏎"], description: "Deep Search with Claude for the typed name")
                         ShortcutRow(keys: ["Esc"], description: "Dismiss palettes & popovers")
                     }
 
@@ -64,9 +64,9 @@ struct MacShortcutOverlay: View {
                         ShortcutRow(keys: ["⌥", "⌘", "J"], description: "Jobs & Alerts blotter")
                         ShortcutRow(keys: ["⌘", "L"], description: "Signal log")
                         ShortcutRow(keys: ["⌘", "R"], description: "Refresh all desks")
-                        ShortcutRow(keys: ["⌘", "B"], description: "Toggle Embedded Web Browser")
+                        ShortcutRow(keys: ["⌘", "B"], description: "Show/Hide Research Browser")
                         ShortcutRow(keys: ["⌥", "⌘", "I"], description: "Toggle Inspector Sidebar")
-                        ShortcutRow(keys: ["⇧", "⌘", "W"], description: "Open Current Asset on Web Portal")
+                        ShortcutRow(keys: ["⇧", "⌘", "W"], description: "Open Current Page on Web")
                     }
                 }
                 .padding(20)

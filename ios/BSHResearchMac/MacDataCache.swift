@@ -1,13 +1,17 @@
+import CryptoKit
 import Foundation
 
 /// Fast, disk-backed cache for BSH Research Mac desk.
 /// Provides sub-20ms hydration on startup and transparent background persistence.
+/// Files live in one folder per server (`BSHMacCache/<hash of host:port>/`).
 final class MacDataCache: @unchecked Sendable {
     static let shared = MacDataCache()
 
-    private let cacheDir: URL
+    private let rootDir: URL
     private let fileManager = FileManager.default
     private let queue = DispatchQueue(label: "com.bsh.macdatacache", qos: .utility)
+    private let lock = NSLock()
+    private var preparedScopes = Set<String>()
     private let encoder: JSONEncoder = {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted]
@@ -23,14 +27,47 @@ final class MacDataCache: @unchecked Sendable {
     private init() {
         let base = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        cacheDir = base.appendingPathComponent("BSHMacCache", isDirectory: true)
-        try? fileManager.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        rootDir = base.appendingPathComponent("BSHMacCache", isDirectory: true)
+        try? fileManager.createDirectory(at: rootDir, withIntermediateDirectories: true)
+        removeLegacyUnscopedFiles()
     }
 
     // MARK: - File Paths
 
+    /// Folder for the currently configured server.
+    var cacheDir: URL {
+        scopeDir(for: MacConfig.serverScope)
+    }
+
+    private func scopeDir(for scope: String) -> URL {
+        let digest = SHA256.hash(data: Data(scope.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+            .prefix(16)
+        let name = String(digest)
+        let dir = rootDir.appendingPathComponent(name, isDirectory: true)
+        lock.lock()
+        defer { lock.unlock() }
+        if !preparedScopes.contains(name) {
+            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            preparedScopes.insert(name)
+        }
+        return dir
+    }
+
     private func fileURL(named name: String) -> URL {
         cacheDir.appendingPathComponent("\(name).json")
+    }
+
+    /// Files written by versions that kept one unscoped folder mixed data from
+    /// several servers; drop them once.
+    private func removeLegacyUnscopedFiles() {
+        guard let items = try? fileManager.contentsOfDirectory(
+            at: rootDir, includingPropertiesForKeys: nil
+        ) else { return }
+        for item in items where item.pathExtension == "json" {
+            try? fileManager.removeItem(at: item)
+        }
     }
 
     // MARK: - Metadata & Sync Timestamps
@@ -100,6 +137,22 @@ final class MacDataCache: @unchecked Sendable {
 
     // MARK: - "What Changed" Baseline Snapshots
 
+    func loadRollup() -> MacRollup? {
+        load(MacRollup.self, from: "rollup")
+    }
+
+    func saveRollup(_ rollup: MacRollup) {
+        save(rollup, to: "rollup")
+    }
+
+    func loadDecisions() -> [String: [MacDecision]]? {
+        load([String: [MacDecision]].self, from: "decisions")
+    }
+
+    func saveDecisions(_ decisions: [String: [MacDecision]]) {
+        save(decisions, to: "decisions")
+    }
+
     func loadBaselines() -> [String: Date] {
         load([String: Date].self, from: "baselines") ?? [:]
     }
@@ -111,11 +164,11 @@ final class MacDataCache: @unchecked Sendable {
     // MARK: - Generic Persistence Helpers
 
     private func save<T: Encodable>(_ value: T, to name: String) {
+        let url = fileURL(named: name)
         queue.async { [weak self] in
             guard let self else { return }
             do {
                 let data = try self.encoder.encode(value)
-                let url = self.fileURL(named: name)
                 try data.write(to: url, options: .atomic)
             } catch {
                 // Best effort disk cache
@@ -129,11 +182,24 @@ final class MacDataCache: @unchecked Sendable {
         return try? decoder.decode(type, from: data)
     }
 
+    /// Removes the current server's cached files. Waits for pending writes so a
+    /// `load()` issued right after cannot observe stale data.
     func clearAll() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            try? self.fileManager.removeItem(at: self.cacheDir)
-            try? self.fileManager.createDirectory(at: self.cacheDir, withIntermediateDirectories: true)
+        let dir = cacheDir
+        queue.sync {
+            try? fileManager.removeItem(at: dir)
+            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+    }
+
+    /// Removes every server's cached files.
+    func clearAllServers() {
+        queue.sync {
+            try? fileManager.removeItem(at: rootDir)
+            try? fileManager.createDirectory(at: rootDir, withIntermediateDirectories: true)
+            lock.lock()
+            preparedScopes.removeAll()
+            lock.unlock()
         }
     }
 }

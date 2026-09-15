@@ -8,11 +8,47 @@ struct MacMarketRadarView: View {
     @State private var newTickerSearch = ""
     @State private var showAddLotSheet = false
     @State private var showAddAlertSheet = false
+    @State private var pinError: String?
+    @StateObject private var detail = MacQuoteDetailModel()
+    @AppStorage("mac.chart.compareTickers") private var compareTickersRaw = ""
+
+    private var compareTickers: Binding<[String]> {
+        Binding(
+            get: { compareTickersRaw.split(separator: ",").map(String.init).filter { !$0.isEmpty } },
+            set: { compareTickersRaw = $0.joined(separator: ",") }
+        )
+    }
+
+    /// Earnings prints (E), the next estimated print (E?) and logged calls (S↑ / S↓) on the chart.
+    private func chartMarkers(for ticker: String) -> [MacChartMarker] {
+        var markers: [MacChartMarker] = []
+        func stamp(_ day: String?) -> Int? {
+            guard let day = day?.prefix(10), let date = ISO8601DateFormatter().date(from: "\(day)T16:00:00Z") else { return nil }
+            return Int(date.timeIntervalSince1970)
+        }
+        if let earnings = store.selectedWorkspace?.earnings {
+            for print in earnings.past {
+                if let t = stamp(print.reported) { markers.append(MacChartMarker(t: t, label: "E", kind: .earnings)) }
+            }
+            if let t = stamp(earnings.nextDate) {
+                markers.append(MacChartMarker(t: t, label: earnings.nextEstimated ? "E?" : "E", kind: .earnings))
+            }
+        }
+        for signal in store.signals where signal.ticker.uppercased() == ticker.uppercased() {
+            guard let raw = signal.recordedAt, let date = MacQuoteInsight.parseISO(raw) else { continue }
+            let up = signal.direction == "bullish"
+            markers.append(MacChartMarker(t: Int(date.timeIntervalSince1970), label: up ? "S↑" : "S↓", kind: up ? .signalUp : .signalDown))
+        }
+        return markers
+    }
+
+    private static let tickerPattern = try! NSRegularExpression(pattern: "^[A-Z0-9][A-Z0-9.\\-]{0,15}$")
 
     enum RadarTab: String, CaseIterable, Identifiable {
         case watchlist = "Watchlist"
         case gainers = "Gainers"
         case losers = "Losers"
+        case filings = "Filings"
         var id: String { rawValue }
     }
 
@@ -21,6 +57,7 @@ struct MacMarketRadarView: View {
         case .watchlist: return store.watchlist
         case .gainers: return store.gainers
         case .losers: return store.losers
+        case .filings: return []
         }
     }
 
@@ -28,42 +65,44 @@ struct MacMarketRadarView: View {
         HSplitView {
             // Left Pane: Quotes Radar & Screeners
             VStack(spacing: 0) {
+                MacTickerTapeView()
                 // Section Picker
-                Picker("Radar", selection: $radarTab) {
-                    ForEach(RadarTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
+                GlassSegmentedPicker("Radar", selection: $radarTab, options: RadarTab.allCases, title: \.rawValue)
                 .padding(10)
-                .background(.ultraThinMaterial)
+                .background(.bar)
 
                 Divider()
 
                 // Add to Watchlist quick bar (when on watchlist tab)
                 if radarTab == .watchlist {
-                    HStack(spacing: 6) {
-                        Image(systemName: "plus.magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Pin ticker (e.g. MSFT)…", text: $newTickerSearch)
-                            .textFieldStyle(.plain)
-                            .onSubmit {
-                                let t = newTickerSearch.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-                                guard !t.isEmpty else { return }
-                                Task {
-                                    await store.toggleWatchlist(t)
-                                    newTickerSearch = ""
-                                }
-                            }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            TextField("Pin ticker (e.g. MSFT)…", text: $newTickerSearch)
+                                .textFieldStyle(.plain)
+                                .disabled(!store.canWriteDesk)
+                                .onSubmit { pinTypedTicker() }
+                                .onChange(of: newTickerSearch) { _, _ in pinError = nil }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.dsTile, in: RoundedRectangle(cornerRadius: 7))
+                        if let pinError {
+                            Text(pinError)
+                                .font(.caption)
+                                .foregroundStyle(Color.orange)
+                                .padding(.horizontal, 4)
+                        }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                     .padding(8)
 
                     Divider()
                 }
 
+                if radarTab == .filings {
+                    MacFilingsWatchPane()
+                } else {
                 // Quotes List
                 List(selection: Binding(
                     get: { store.selectedTicker },
@@ -78,12 +117,13 @@ struct MacMarketRadarView: View {
                                     .foregroundStyle(store.isPinned(q.ticker) ? Color.yellow : Color.secondary)
                                     .font(.caption)
                             }
+                            .disabled(!store.canWriteDesk)
                             .buttonStyle(.plain)
                             .help(store.isPinned(q.ticker) ? "Unpin from desk" : "Pin to desk (syncs with web/iPad)")
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(q.ticker)
-                                    .font(.body.monospaced().weight(.bold))
+                                    .font(.body.monospacedDigit().weight(.bold))
                                 if let name = q.name, !name.isEmpty {
                                     Text(name)
                                         .font(.caption2)
@@ -108,9 +148,11 @@ struct MacMarketRadarView: View {
                         }
                         .tag(q.ticker)
                         .padding(.vertical, 2)
+                        .glassListRow(isSelected: store.selectedTicker == q.ticker)
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .listStyle(.inset)
+                }
             }
             .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
 
@@ -119,11 +161,11 @@ struct MacMarketRadarView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         // Ticker Header
-                        HStack(alignment: .top) {
+                        HStack(alignment: .center) {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack(spacing: 10) {
                                     Text(ticker)
-                                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                                        .font(.dsTitle)
 
                                     Button {
                                         Task { await store.toggleWatchlist(ticker) }
@@ -133,6 +175,7 @@ struct MacMarketRadarView: View {
                                             .foregroundStyle(store.isPinned(ticker) ? Color.yellow : Color.secondary)
                                     }
                                     .buttonStyle(.plain)
+                                    .disabled(!store.canWriteDesk)
                                     .help("Pin to desk")
 
                                     if let name = store.selectedChart?.name ?? store.selectedWorkspace?.profile?.name {
@@ -144,7 +187,7 @@ struct MacMarketRadarView: View {
 
                                 if let exchange = store.selectedChart?.exchange ?? store.selectedWorkspace?.summary?.exchange {
                                     Text(exchange)
-                                        .font(.caption.monospaced())
+                                        .font(.caption.monospacedDigit())
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -157,17 +200,15 @@ struct MacMarketRadarView: View {
                                     let url = MacConfig.webQuoteURL(ticker: ticker)
                                     MacConfig.openInBrowser(url)
                                 } label: {
-                                    Label("Open on Web", systemImage: "safari")
+                                    Image(systemName: "safari")
                                 }
-                                .buttonStyle(.bordered)
-                                .help("Open quote workspace on Web")
+                                .help("Open the quote workspace on the web")
 
                                 Button {
                                     store.openSignalLog(seedTicker: ticker)
                                 } label: {
                                     Label("Log signal", systemImage: "flag")
                                 }
-                                .buttonStyle(.bordered)
                                 .help("Log a bullish / bearish call on \(ticker) — scored against live prices (⌘L)")
 
                                 Button {
@@ -180,88 +221,90 @@ struct MacMarketRadarView: View {
                                 .disabled(!store.canRunTasks)
                             }
                         }
-                        .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.bottom, 4)
+
+                        MacQuotePriceLine(payload: store.selectedChart)
 
                         // Interactive Chart Canvas
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("Price Action")
-                                    .font(.headline)
+                                Text("Price")
+                                    .font(.dsHeadline)
                                 Spacer()
 
                                 // Range Selector
-                                Picker("Timeframe", selection: Binding(
+                                GlassSegmentedPicker("Timeframe", selection: Binding(
                                     get: { store.selectedChartRange },
                                     set: { newRange in
                                         Task { await store.loadChart(range: newRange) }
                                     }
-                                )) {
-                                    ForEach(MacChartRange.allCases) { r in
-                                        Text(r.rawValue).tag(r)
-                                    }
-                                }
-                                .pickerStyle(.segmented)
-                                .frame(width: 260)
+                                ), options: MacChartRange.allCases, title: \.rawValue)
+                                .controlSize(.small)
+                                .frame(width: 380)
                             }
 
-                            if store.loadingChart {
+                            if store.loadingChart && store.selectedChart == nil {
                                 ProgressView()
-                                    .frame(height: 220)
+                                    .frame(height: 260)
                                     .frame(maxWidth: .infinity)
-                            } else if let points = store.selectedChart?.points, points.count > 1 {
-                                MacQuoteChartCanvas(
-                                    points: points,
-                                    previousClose: store.selectedChart?.previousClose,
-                                    range: store.selectedChartRange
+                            } else if let payload = store.selectedChart, (payload.points?.count ?? 0) > 1 {
+                                MacQuoteChartPanel(
+                                    ticker: ticker,
+                                    payload: payload,
+                                    range: store.selectedChartRange,
+                                    markers: chartMarkers(for: ticker),
+                                    compare: detail.compareSeries,
+                                    peers: detail.peerSeries,
+                                    compareTickers: compareTickers
                                 )
-                                .frame(height: 220)
+                                .opacity(store.loadingChart ? 0.5 : 1)
                             } else {
-                                ContentUnavailableView("No Chart Data Available", systemImage: "chart.line.uptrend.xyaxis")
-                                    .frame(height: 220)
+                                ContentUnavailableView(store.chartError ?? "No chart data", systemImage: "chart.line.uptrend.xyaxis")
+                                    .frame(height: 260)
                             }
                         }
                         .padding()
-                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-
-                        // Key Statistics Grid
-                        if let sum = store.selectedWorkspace?.summary {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Key Financial Statistics")
-                                    .font(.headline)
-
-                                let dividendText = [sum.dividend, sum.yield].compactMap { $0 }.joined(separator: " · ")
-                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                                    StatBox(label: "Market Cap", value: sum.marketCap ?? "—")
-                                    StatBox(label: "Previous Close", value: sum.previousClose ?? "—")
-                                    StatBox(label: "Day Range", value: sum.dayRange ?? "—")
-                                    StatBox(label: "52-Week Range", value: sum.fiftyTwoWeek ?? "—")
-                                    StatBox(label: "Volume", value: sum.volume ?? "—")
-                                    StatBox(label: "Avg Volume", value: sum.avgVolume ?? "—")
-                                    StatBox(label: "1-Yr Target", value: sum.oneYearTarget ?? "—")
-                                    StatBox(label: "Beta", value: sum.beta ?? "—")
-                                    StatBox(label: "Dividend / Yield", value: dividendText.isEmpty ? "—" : dividendText)
-                                }
-                            }
-                            .padding()
-                            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                        .appleGlassCard()
+                        .task(id: ticker) { await detail.loadDetail(ticker: ticker) }
+                        .task(id: "\(compareTickersRaw)|\(store.selectedChartRange.apiValue)") {
+                            await detail.loadCompare(tickers: compareTickers.wrappedValue, range: store.selectedChartRange)
                         }
+
+                        if let payload = store.selectedChart {
+                            MacQuoteSessionCard(payload: payload, range: store.selectedChartRange, peers: detail.peers)
+                        }
+
+                        MacQuoteAllStatsCard(payload: store.selectedChart, workspace: store.selectedWorkspace)
+
+                        MacQuoteEarningsStripCard(workspace: store.selectedWorkspace)
+
+                        MacQuoteWorkspaceCard(
+                            ticker: ticker,
+                            workspace: store.selectedWorkspace,
+                            points: store.selectedChart?.points ?? [],
+                            range: store.selectedChartRange,
+                            lastPrice: store.selectedChart?.lastPrice ?? store.selectedChart?.points?.last?.close
+                        )
+
+                        MacQuoteCompCard(peers: detail.peers) { symbol in
+                            store.selectTicker(symbol)
+                        }
+
+                        MacQuoteNoteAndActionsCard(ticker: ticker, payload: store.selectedChart, peers: detail.peers)
+
+                        MacQuoteCalendarCard(ticker: ticker, events: detail.calendar)
+
+                        MacQuoteFilingsCard(ticker: ticker, news: store.news)
 
                         // Portfolio Lots Tracker (Synced with Web & iPad)
                         let matchingLots = store.bookLots.filter { $0.ticker == ticker }
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        Text("Portfolio Lots")
-                                            .font(.headline)
-                                        Image(systemName: "arrow.triangle.2.circlepath")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                            .help("Synced across Web, iPadOS, and macOS via /api/desk/prefs")
-                                    }
-                                    Text("Shared live with web and iPad book")
-                                        .font(.caption)
+                                    Text("Book lots")
+                                        .font(.dsHeadline)
+                                    Text("Shared with the web and iPad desk")
+                                        .font(.dsCaption)
                                         .foregroundStyle(.secondary)
                                 }
 
@@ -270,7 +313,7 @@ struct MacMarketRadarView: View {
                                 Button {
                                     showAddLotSheet = true
                                 } label: {
-                                    Label("Add Lot", systemImage: "plus")
+                                    Label("Add lot", systemImage: "plus")
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
@@ -302,7 +345,7 @@ struct MacMarketRadarView: View {
                                         Spacer()
 
                                         VStack(alignment: .trailing, spacing: 2) {
-                                            Text(String(format: "%+$%.2f", gain))
+                                            Text((gain >= 0 ? "+$" : "-$") + String(format: "%.2f", abs(gain)))
                                                 .font(.body.monospacedDigit().weight(.semibold))
                                                 .foregroundStyle(gain >= 0 ? Color.green : Color.red)
                                             Text(String(format: "%+.2f%%", gainPct))
@@ -318,6 +361,7 @@ struct MacMarketRadarView: View {
                                                 .foregroundStyle(.secondary)
                                         }
                                         .buttonStyle(.plain)
+                                        .disabled(!store.canWriteDesk)
                                         .padding(.leading, 8)
                                     }
                                     .padding(8)
@@ -326,26 +370,26 @@ struct MacMarketRadarView: View {
                             }
                         }
                         .padding()
-                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                        .appleGlassCard()
 
                         // Price Alerts Manager
                         let matchingAlerts = store.alertRules.filter { $0.ticker == ticker }
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
-                                Text("Price Alerts")
-                                    .font(.headline)
+                                Text("Alerts")
+                                    .font(.dsHeadline)
                                 Spacer()
                                 Button {
                                     showAddAlertSheet = true
                                 } label: {
-                                    Label("New Alert", systemImage: "bell.badge.plus")
+                                    Label("New alert", systemImage: "bell.badge")
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
                             }
 
                             if matchingAlerts.isEmpty {
-                                Text("No price alerts set for \(ticker).")
+                                Text("No alerts set for \(ticker).")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                     .padding(.vertical, 8)
@@ -356,9 +400,10 @@ struct MacMarketRadarView: View {
                                             get: { rule.enabled },
                                             set: { _ in Task { await store.toggleAlertRule(id: rule.id) } }
                                         )) {
-                                            Text(String(format: "%@ when price %@ $%.2f", rule.ticker, rule.direction, rule.threshold))
+                                            Text(alertRuleLabel(rule))
                                                 .font(.body.monospacedDigit())
                                         }
+                                        .disabled(!store.canWriteDesk)
 
                                         Spacer()
 
@@ -370,6 +415,7 @@ struct MacMarketRadarView: View {
                                                 .foregroundStyle(.secondary)
                                         }
                                         .buttonStyle(.plain)
+                                        .disabled(!store.canWriteDesk)
                                     }
                                     .padding(8)
                                     .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
@@ -377,12 +423,12 @@ struct MacMarketRadarView: View {
                             }
                         }
                         .padding()
-                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                        .appleGlassCard()
                     }
                     .padding(20)
                 }
             } else {
-                ContentUnavailableView("Select a Ticker", systemImage: "chart.bar.xaxis", description: Text("Select a quote from the radar list to view live charts and portfolio positions."))
+                ContentUnavailableView("Select a ticker", systemImage: "chart.bar.xaxis", description: Text("Pick a quote on the left for the chart, key statistics, book lots and price alerts."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -400,6 +446,42 @@ struct MacMarketRadarView: View {
         }
     }
 
+    private func pinTypedTicker() {
+        let t = newTickerSearch.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !t.isEmpty else { return }
+        let range = NSRange(t.startIndex..., in: t)
+        guard Self.tickerPattern.firstMatch(in: t, range: range) != nil else {
+            pinError = "Not a valid ticker symbol"
+            return
+        }
+        pinError = nil
+        Task {
+            if !store.isPinned(t) {
+                await store.toggleWatchlist(t)
+            }
+            store.selectTicker(t)
+            newTickerSearch = ""
+        }
+    }
+
+    private func alertRuleLabel(_ rule: MacAlertRule) -> String {
+        let t = rule.threshold.formatted(.number.precision(.fractionLength(0...2)))
+        switch rule.kind {
+        case "price":
+            return String(format: "%@ when price %@ $%.2f", rule.ticker, rule.direction == "below" ? "drops below" : "rises above", rule.threshold)
+        case "pct":
+            return "\(rule.ticker) moves ±\(t)% in a day"
+        case "volume":
+            return "\(rule.ticker) volume ≥ \(t)× average"
+        case "earnings":
+            return "\(rule.ticker) earnings within \(Int(rule.threshold)) days"
+        case "sma_cross":
+            return "\(rule.ticker) crosses \(rule.direction == "below" ? "below" : "above") \(Int(rule.threshold))-day SMA"
+        default:
+            return "\(rule.ticker) \(rule.kind) \(t)"
+        }
+    }
+
     private func formatLargeNumber(_ val: Double?) -> String {
         guard let val else { return "—" }
         if val >= 1_000_000_000_000 {
@@ -414,115 +496,6 @@ struct MacMarketRadarView: View {
     }
 }
 
-// MARK: - Swift Charts Canvas
-
-struct MacQuoteChartCanvas: View {
-    let points: [MacChartPoint]
-    let previousClose: Double?
-    let range: MacChartRange
-
-    @State private var scrubPoint: MacChartPoint?
-
-    var body: some View {
-        let isUp: Bool = {
-            if let first = points.first?.close, let last = points.last?.close {
-                return last >= first
-            }
-            return true
-        }()
-        let lineColor: Color = isUp ? .green : .red
-
-        VStack(alignment: .leading, spacing: 6) {
-            // Hover Tooltip Display
-            if let p = scrubPoint, let c = p.close {
-                HStack(spacing: 8) {
-                    Text(String(format: "$%.2f", c))
-                        .font(.headline.monospacedDigit().weight(.bold))
-                    Text(p.timestamp.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-            } else if let last = points.last?.close {
-                Text(String(format: "$%.2f", last))
-                    .font(.headline.monospacedDigit().weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-            }
-
-            Chart {
-                ForEach(points) { point in
-                    if let close = point.close {
-                        LineMark(
-                            x: .value("Time", point.timestamp),
-                            y: .value("Price", close)
-                        )
-                        .foregroundStyle(lineColor)
-                        .interpolationMethod(.monotone)
-
-                        AreaMark(
-                            x: .value("Time", point.timestamp),
-                            y: .value("Price", close)
-                        )
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [lineColor.opacity(0.25), lineColor.opacity(0.01)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                    }
-                }
-
-                if let scrub = scrubPoint, let close = scrub.close {
-                    RuleMark(x: .value("Time", scrub.timestamp))
-                        .foregroundStyle(Color.secondary.opacity(0.5))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-
-                    PointMark(
-                        x: .value("Time", scrub.timestamp),
-                        y: .value("Price", close)
-                    )
-                    .foregroundStyle(lineColor)
-                    .symbolSize(36)
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: .automatic) { _ in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
-                    AxisValueLabel(format: .dateTime.hour().minute())
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .trailing) { _ in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
-                    AxisValueLabel()
-                }
-            }
-            .chartOverlay { proxy in
-                GeometryReader { geo in
-                    Rectangle()
-                        .fill(Color.clear)
-                        .contentShape(Rectangle())
-                        .onContinuousHover { phase in
-                            switch phase {
-                            case .active(let location):
-                                guard let date: Date = proxy.value(atX: location.x) else { return }
-                                let targetTime = date.timeIntervalSince1970
-                                scrubPoint = points.min(by: {
-                                    abs(TimeInterval($0.t) - targetTime) < abs(TimeInterval($1.t) - targetTime)
-                                })
-                            case .ended:
-                                scrubPoint = nil
-                            }
-                        }
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Stat Box
 
 struct StatBox: View {
@@ -530,20 +503,26 @@ struct StatBox: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.body.monospacedDigit().weight(.semibold))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+        MacStatTile(label: label, value: value, compact: true)
     }
 }
 
 // MARK: - Add Book Lot Sheet
+
+enum MacSheetNumber {
+    static func parse(_ raw: String) -> Double? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = text.replacingOccurrences(of: "$", with: "")
+        if let grouping = Locale.current.groupingSeparator {
+            text = text.replacingOccurrences(of: grouping, with: "")
+        }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.isLenient = true
+        guard !text.isEmpty, let value = formatter.number(from: text)?.doubleValue, value.isFinite else { return nil }
+        return value
+    }
+}
 
 struct AddBookLotSheet: View {
     let ticker: String
@@ -552,6 +531,24 @@ struct AddBookLotSheet: View {
 
     @State private var sharesText = "10"
     @State private var costBasisText = "100.00"
+    @State private var saving = false
+    @State private var errorText: String?
+
+    private var shares: Double? {
+        guard let v = MacSheetNumber.parse(sharesText), v > 0 else { return nil }
+        return v
+    }
+
+    private var costBasis: Double? {
+        guard let v = MacSheetNumber.parse(costBasisText), v >= 0 else { return nil }
+        return v
+    }
+
+    private var validationHint: String? {
+        if shares == nil { return "Shares must be a number greater than zero." }
+        if costBasis == nil { return "Cost basis must be a number of zero or more." }
+        return nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -569,7 +566,7 @@ struct AddBookLotSheet: View {
 
             Form {
                 LabeledContent("Ticker") {
-                    Text(ticker).font(.body.monospaced().weight(.bold))
+                    Text(ticker).font(.body.monospacedDigit().weight(.bold))
                 }
                 TextField("Shares (Quantity)", text: $sharesText)
                 TextField("Cost Basis per Share ($)", text: $costBasisText)
@@ -580,22 +577,36 @@ struct AddBookLotSheet: View {
             Divider()
 
             HStack {
+                if let message = errorText ?? validationHint {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(errorText == nil ? Color.secondary : Color.orange)
+                        .lineLimit(2)
+                }
                 Spacer()
+                if saving { ProgressView().controlSize(.small) }
                 Button("Save Position") {
-                    if let sh = Double(sharesText), let cost = Double(costBasisText) {
-                        Task {
-                            await store.addLot(ticker: ticker, shares: sh, costBasis: cost)
+                    guard let sh = shares, let cost = costBasis, !saving else { return }
+                    saving = true
+                    errorText = nil
+                    Task {
+                        let ok = await store.addLot(ticker: ticker, shares: sh, costBasis: cost)
+                        saving = false
+                        if ok {
                             dismiss()
+                        } else {
+                            errorText = "Could not save to the desk: \(store.error ?? "unknown error")"
                         }
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
+                .disabled(saving || validationHint != nil || !store.canWriteDesk)
             }
             .padding()
             .background(.ultraThinMaterial)
         }
-        .frame(width: 360, height: 260)
+        .frame(width: 400, height: 280)
     }
 }
 
@@ -608,6 +619,17 @@ struct AddPriceAlertSheet: View {
 
     @State private var direction = "above"
     @State private var thresholdText = "150.00"
+    @State private var saving = false
+    @State private var errorText: String?
+
+    private var threshold: Double? {
+        guard let v = MacSheetNumber.parse(thresholdText), v > 0 else { return nil }
+        return v
+    }
+
+    private var validationHint: String? {
+        threshold == nil ? "Price target must be a number greater than zero." : nil
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -625,7 +647,7 @@ struct AddPriceAlertSheet: View {
 
             Form {
                 LabeledContent("Ticker") {
-                    Text(ticker).font(.body.monospaced().weight(.bold))
+                    Text(ticker).font(.body.monospacedDigit().weight(.bold))
                 }
                 Picker("Direction", selection: $direction) {
                     Text("Rises Above").tag("above")
@@ -639,21 +661,35 @@ struct AddPriceAlertSheet: View {
             Divider()
 
             HStack {
+                if let message = errorText ?? validationHint {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(errorText == nil ? Color.secondary : Color.orange)
+                        .lineLimit(2)
+                }
                 Spacer()
+                if saving { ProgressView().controlSize(.small) }
                 Button("Create Alert") {
-                    if let th = Double(thresholdText) {
-                        Task {
-                            await store.addAlertRule(ticker: ticker, threshold: th, direction: direction)
+                    guard let th = threshold, !saving else { return }
+                    saving = true
+                    errorText = nil
+                    Task {
+                        let ok = await store.addAlertRule(ticker: ticker, threshold: th, direction: direction)
+                        saving = false
+                        if ok {
                             dismiss()
+                        } else {
+                            errorText = "Could not save to the desk: \(store.error ?? "unknown error")"
                         }
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
+                .disabled(saving || validationHint != nil || !store.canWriteDesk)
             }
             .padding()
             .background(.ultraThinMaterial)
         }
-        .frame(width: 360, height: 260)
+        .frame(width: 400, height: 280)
     }
 }

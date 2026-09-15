@@ -59,7 +59,7 @@ struct MacThesisTrackerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Thesis Tracker", systemImage: "point.3.connected.trianglepath.dotted").font(.headline)
+                Label("Thesis tracker", systemImage: "point.3.connected.trianglepath.dotted").font(.dsHeadline)
                 Spacer()
                 if let decision {
                     MacStatusPill(text: decision.verdictLabel, color: decision.verdict == "invest" ? .green : (decision.verdict == "pass" ? .red : .orange))
@@ -123,7 +123,7 @@ struct MacThesisTrackerView: View {
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .appleGlassCard()
         .task(id: company.id) {
             if analysis != nil {
                 if evidence == nil { await store.loadEvidence(company.id) }

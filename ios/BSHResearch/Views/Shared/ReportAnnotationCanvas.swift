@@ -111,83 +111,6 @@ struct QuickLookDocViewer: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Legacy PencilCanvasView (backwards compatibility)
-
-struct PencilCanvasView: UIViewRepresentable {
-    @Binding var drawing: PKDrawing
-    var isDrawingEnabled: Bool
-    var showsToolPicker: Bool
-    var canvasRef: Binding<PKCanvasView?>
-    var replaceToken: Int
-    var pencilOnly: Bool = false
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(drawing: $drawing)
-    }
-
-    func makeUIView(context: Context) -> PKCanvasView {
-        let canvas = PKCanvasView()
-        canvas.backgroundColor = .clear
-        canvas.isOpaque = false
-        canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
-        canvas.drawing = drawing
-        canvas.delegate = context.coordinator
-        canvasRef.wrappedValue = canvas
-        context.coordinator.appliedReplaceToken = replaceToken
-        context.coordinator.toolPicker = PKToolPicker()
-        return canvas
-    }
-
-    func updateUIView(_ canvas: PKCanvasView, context: Context) {
-        canvasRef.wrappedValue = canvas
-        canvas.isUserInteractionEnabled = isDrawingEnabled
-        canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
-
-        if context.coordinator.appliedReplaceToken != replaceToken {
-            context.coordinator.appliedReplaceToken = replaceToken
-            context.coordinator.suppressDelegate = true
-            canvas.drawing = drawing
-            context.coordinator.suppressDelegate = false
-        }
-
-        guard let picker = context.coordinator.toolPicker else { return }
-        if showsToolPicker, isDrawingEnabled {
-            picker.setVisible(true, forFirstResponder: canvas)
-            picker.addObserver(canvas)
-            DispatchQueue.main.async {
-                _ = canvas.becomeFirstResponder()
-            }
-        } else {
-            picker.setVisible(false, forFirstResponder: canvas)
-            picker.removeObserver(canvas)
-            if canvas.isFirstResponder {
-                canvas.resignFirstResponder()
-            }
-        }
-    }
-
-    static func dismantleUIView(_ canvas: PKCanvasView, coordinator: Coordinator) {
-        coordinator.toolPicker?.setVisible(false, forFirstResponder: canvas)
-        coordinator.toolPicker?.removeObserver(canvas)
-    }
-
-    final class Coordinator: NSObject, PKCanvasViewDelegate {
-        var drawing: Binding<PKDrawing>
-        var toolPicker: PKToolPicker?
-        var appliedReplaceToken = -1
-        var suppressDelegate = false
-
-        init(drawing: Binding<PKDrawing>) {
-            self.drawing = drawing
-        }
-
-        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            guard !suppressDelegate else { return }
-            drawing.wrappedValue = canvasView.drawing
-        }
-    }
-}
-
 // MARK: - Paper desk reader
 
 /// Full-screen memo reader optimized for deep reading + Apple Pencil on iPad.
@@ -213,6 +136,8 @@ struct PaperDeskReader: View {
     @State private var showAsk = false
     @State private var askPrompt: String?
     @State private var askSessionID = UUID()
+
+    @State private var confirmClear = false
 
     @State private var resolvedURL: URL?
     @State private var isConverting = false
@@ -322,35 +247,85 @@ struct PaperDeskReader: View {
 
     private var documentPane: some View {
         documentStack
-            .overlay(alignment: .topLeading) {
-                Button(action: closeReader) {
-                    Text(language.t("common.done"))
-                        .font(.body.weight(.semibold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 9)
+            .overlay(alignment: .top) {
+                GeometryReader { geo in
+                    readerChrome(width: geo.size.width)
                 }
-                .buttonStyle(.borderedProminent)
-                .clipShape(Capsule(style: .continuous))
-                .shadow(color: .black.opacity(0.14), radius: 10, y: 3)
-                .accessibilityLabel(language.t("common.done"))
-                .padding(.top, 10)
-                .padding(.leading, 14)
             }
-            .overlay(alignment: .topTrailing) {
-                HStack(spacing: 10) {
-                    // Share Button (Annotated PDF export)
-                    Button {
-                        Task { await handleShare() }
-                    } label: {
-                        Group {
-                            if isPreparingShare {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "square.and.arrow.up")
-                                    .font(.body.weight(.semibold))
-                            }
-                        }
+    }
+
+    private var showsInkControls: Bool {
+        resolvedURL?.pathExtension.lowercased() == "pdf"
+    }
+
+    /// Everything floats at the top. The PencilKit tool picker docks along the bottom edge,
+    /// so ink controls placed there end up underneath it.
+    private func readerChrome(width: CGFloat) -> some View {
+        // Done + the full annotating bar + Share/Ask need roughly 600 pt on one row.
+        let inkControlsInline = width >= 700
+        return VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                closeButton
+                Spacer(minLength: 0)
+                if showsInkControls && inkControlsInline {
+                    annotationControls
+                }
+                Spacer(minLength: 0)
+                trailingButtons
+            }
+            if showsInkControls && !inkControlsInline {
+                annotationControls
+            }
+        }
+        .padding(.top, 10)
+        .padding(.horizontal, 14)
+    }
+
+    private var closeButton: some View {
+        Button(action: closeReader) {
+            Text(language.t("common.done"))
+                .font(.body.weight(.semibold))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+        }
+        .buttonStyle(.borderedProminent)
+        .clipShape(Capsule(style: .continuous))
+        .shadow(color: .black.opacity(0.14), radius: 10, y: 3)
+        .accessibilityLabel(language.t("common.done"))
+    }
+
+    private var trailingButtons: some View {
+        HStack(spacing: 10) {
+            // Share Button (Annotated PDF export)
+            Button {
+                Task { await handleShare() }
+            } label: {
+                Group {
+                    if isPreparingShare {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.body.weight(.semibold))
+                    }
+                }
+                .frame(width: 42, height: 42)
+                .background {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+                }
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isPreparingShare)
+            .accessibilityLabel(language.t("common.share"))
+
+            if canAsk {
+                Button {
+                    openAsk(withSelection: nil)
+                } label: {
+                    AskMark(size: 28)
                         .frame(width: 42, height: 42)
                         .background {
                             Circle()
@@ -358,39 +333,11 @@ struct PaperDeskReader: View {
                                 .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
                         }
                         .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isPreparingShare)
-                    .accessibilityLabel(language.t("common.share"))
-
-                    if canAsk {
-                        Button {
-                            openAsk(withSelection: nil)
-                        } label: {
-                            AskMark(size: 28)
-                                .frame(width: 42, height: 42)
-                                .background {
-                                    Circle()
-                                        .fill(.ultraThinMaterial)
-                                        .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
-                                }
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(askPersona.investor.inviteTitle(lang: language.language))
-                    }
                 }
-                .padding(.top, 10)
-                .padding(.trailing, 14)
+                .buttonStyle(.plain)
+                .accessibilityLabel(askPersona.investor.inviteTitle(lang: language.language))
             }
-            .overlay(alignment: .bottom) {
-                if resolvedURL?.pathExtension.lowercased() == "pdf" {
-                    // Keep the controls above a bottom-docked PencilKit tool picker.
-                    floatingAnnotationControls
-                        .padding(.bottom, 16 + ink.toolPickerBottomInset)
-                        .animation(.snappy(duration: 0.25), value: ink.toolPickerBottomInset)
-                }
-            }
+        }
     }
 
     @ViewBuilder
@@ -433,12 +380,11 @@ struct PaperDeskReader: View {
         min(420, max(320, totalWidth * 0.42))
     }
 
-    // MARK: - Floating Annotation Controls
+    // MARK: - Annotation Controls
 
-    private var floatingAnnotationControls: some View {
-        HStack(spacing: 8) {
+    private var annotationControls: some View {
+        HStack(spacing: 6) {
             if isAnnotating {
-                // Undo
                 toolButton(
                     systemName: "arrow.uturn.backward",
                     label: language.t("research.ink_undo"),
@@ -460,7 +406,7 @@ struct PaperDeskReader: View {
                                 .font(.caption2.weight(.bold))
                         }
                         .padding(.horizontal, 10)
-                        .frame(height: 42)
+                        .frame(height: 36)
                         .background(
                             Capsule().fill(pencilOnly ? Color.secondary.opacity(0.12) : Color.orange.opacity(0.2))
                         )
@@ -470,14 +416,22 @@ struct PaperDeskReader: View {
                     .help(pencilOnly ? "Only Apple Pencil draws; fingers scroll" : "Finger draws on document")
                 }
 
-                // Clear
                 toolButton(
                     systemName: "trash",
                     label: language.t("research.ink_clear"),
                     disabled: ink.strokeCount == 0,
                     role: .destructive
                 ) {
-                    ink.clearAll()
+                    confirmClear = true
+                }
+                .confirmationDialog(
+                    language.t("research.ink_clear"),
+                    isPresented: $confirmClear,
+                    titleVisibility: .visible
+                ) {
+                    Button(language.t("research.ink_clear"), role: .destructive) {
+                        ink.clearAll()
+                    }
                 }
             }
 
@@ -493,7 +447,7 @@ struct PaperDeskReader: View {
                 )
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .frame(height: 36)
                 .background(
                     Capsule(style: .continuous)
                         .fill(isAnnotating ? Color.accentColor : Color.primary.opacity(0.08))
@@ -503,15 +457,13 @@ struct PaperDeskReader: View {
             .buttonStyle(.plain)
             .accessibilityLabel(language.t(isAnnotating ? "research.ink_done" : "research.ink_annotate"))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(5)
         .background {
             Capsule(style: .continuous)
                 .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.14), radius: 14, y: 5)
+                .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
         }
-        .frame(maxWidth: AdaptiveLayout.isPad ? 560 : .infinity)
-        .frame(maxWidth: .infinity)
+        .fixedSize()
     }
 
     private func toolButton(
@@ -524,7 +476,7 @@ struct PaperDeskReader: View {
         Button(role: role, action: action) {
             Image(systemName: systemName)
                 .font(.body.weight(.semibold))
-                .frame(width: 42, height: 42)
+                .frame(width: 36, height: 36)
                 .background(Circle().fill(Color.primary.opacity(0.08)))
         }
         .buttonStyle(.plain)
@@ -583,13 +535,20 @@ struct PaperDeskReader: View {
 
         guard let activeURL = resolvedURL else { return }
 
-        // If there are annotations, bake them into the actual PDF for export
-        if ink.strokeCount > 0, let doc = PDFDocument(url: activeURL) {
-            if let annotatedURL = ReportAnnotationStore.renderAnnotatedPDF(
-                document: doc,
-                pageDrawings: ink.pageDrawings,
-                reportId: reportId
-            ) {
+        // If there are annotations, bake them into the actual PDF for export (off the main thread —
+        // a long memo is a lot of rendering).
+        if ink.strokeCount > 0 {
+            let pageDrawings = ink.pageDrawings
+            let reportId = reportId
+            let annotatedURL = await Task.detached(priority: .userInitiated) { () -> URL? in
+                guard let doc = PDFDocument(url: activeURL) else { return nil }
+                return ReportAnnotationStore.renderAnnotatedPDF(
+                    document: doc,
+                    pageDrawings: pageDrawings,
+                    reportId: reportId
+                )
+            }.value
+            if let annotatedURL {
                 shareItems = [annotatedURL]
                 return
             }

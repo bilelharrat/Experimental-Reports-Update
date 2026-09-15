@@ -13,6 +13,9 @@ import AppKit
 struct MacDealPipelineView: View {
     let company: MacCompany
     @EnvironmentObject private var store: MacAppStore
+    @State private var saving = false
+    @State private var saveError: String?
+    @State private var loadAttempted = false
 
     private var pipeline: MacDealPipeline? {
         store.dealPipelines[company.id]
@@ -36,85 +39,44 @@ struct MacDealPipelineView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Header Bar
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "point.3.filled.connected.trianglepath.dotted")
-                            .foregroundStyle(Color.accentColor)
-                        Text("Deal Pipeline & Relationship Warmth")
-                            .font(.headline)
-
-                        Text("AFFINITY CRM GRADE")
-                            .font(.system(size: 8, weight: .black))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(Color.accentColor)
-
-                        // Warmth Score Badge
-                        if let score = pipeline?.warmthScore {
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(score >= 80 ? Color.green : Color.orange)
-                                    .frame(width: 6, height: 6)
-                                Text("Warmth: \(score)/100")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .monospacedDigit()
-                            }
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .foregroundStyle(score >= 80 ? Color.green : Color.orange)
-                            .appleGlassPill(color: score >= 80 ? .green : .orange)
-                        }
-                    }
-
-                    Text("Active pipeline progression, diligence milestone tracking, and relationship pathway.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            MacCardHeader("Deal pipeline", subtitle: "Stage, intro path, last touchpoint and next step — as recorded by the team.", systemImage: "point.3.filled.connected.trianglepath.dotted") {
+                if let score = pipeline?.warmthScore {
+                    MacStatusPill(text: "Warmth \(score)", color: score >= 80 ? .green : .orange)
                 }
-
-                Spacer()
-
-                // Deal Lead Pill
                 if let lead = pipeline?.dealLead {
-                    HStack(spacing: 5) {
-                        Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.caption)
-                        Text(lead)
-                            .font(.caption.weight(.medium))
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    Label(lead, systemImage: "person.crop.circle")
+                        .font(.dsCaption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
-            Divider()
-
             // Interactive Pipeline Stages Stepper
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Pipeline Stage")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if let days = pipeline?.daysInStage {
-                        Text("\(days) days in \(currentStage)")
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                MacSectionLabel("Stage", trailing: pipeline.map { "\($0.daysInStage) days in \(currentStage)" })
 
+                if pipeline == nil && loadAttempted {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(Color.dsWarning)
+                        Text("Couldn't load the deal pipeline.")
+                            .font(.dsCaption)
+                            .foregroundStyle(.secondary)
+                        Button("Retry") { Task { await load() } }
+                            .controlSize(.small)
+                    }
+                } else if pipeline == nil {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading pipeline…").font(.dsCaption).foregroundStyle(.secondary)
+                    }
+                } else {
                 HStack(spacing: 6) {
                     ForEach(Array(currentStages.enumerated()), id: \.offset) { index, stage in
                         let isCurrent = (stage == currentStage)
                         let isPast = stageIndex(stage) < stageIndex(currentStage)
 
                         Button {
-                            Task {
-                                await store.updateDealStage(companyId: company.id, newStage: stage)
-                            }
+                            Task { await changeStage(to: stage) }
                         } label: {
                             HStack(spacing: 6) {
                                 ZStack {
@@ -123,11 +85,11 @@ struct MacDealPipelineView: View {
                                         .frame(width: 16, height: 16)
                                     if isPast {
                                         Image(systemName: "checkmark")
-                                            .font(.system(size: 8, weight: .bold))
+                                            .font(.system(size: 10, weight: .bold))
                                             .foregroundStyle(.white)
                                     } else {
                                         Text("\(index + 1)")
-                                            .font(.system(size: 9, weight: .bold))
+                                            .font(.system(size: 10, weight: .bold))
                                             .foregroundStyle(isCurrent ? Color.white : Color.secondary)
                                     }
                                 }
@@ -142,7 +104,15 @@ struct MacDealPipelineView: View {
                             .appleGlassTile(cornerRadius: 8, tint: isCurrent ? Color.accentColor : (isPast ? Color.green : nil))
                         }
                         .buttonStyle(.plain)
+                        .disabled(!store.canWriteDesk || saving || isCurrent)
+                        .help(store.canWriteDesk ? "Move \(company.title) to \(stage)" : "A read-only session cannot change the stage")
                     }
+                }
+                if let saveError {
+                    Label(saveError, systemImage: "exclamationmark.triangle")
+                        .font(.dsCaption)
+                        .foregroundStyle(Color.dsNegative)
+                }
                 }
             }
 
@@ -150,8 +120,8 @@ struct MacDealPipelineView: View {
             HStack(spacing: 14) {
                 // Intro Path Card
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Sourced / Warm Intro Pathway", systemImage: "link")
-                        .font(.system(size: 9, weight: .bold))
+                    Label("Intro path", systemImage: "link")
+                        .font(.dsLabel)
                         .foregroundStyle(.secondary)
 
                     Text(pipeline?.introPath ?? "Not recorded")
@@ -164,8 +134,8 @@ struct MacDealPipelineView: View {
 
                 // Last Touchpoint
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Last Touchpoint", systemImage: "message.fill")
-                        .font(.system(size: 9, weight: .bold))
+                    Label("Last touchpoint", systemImage: "message")
+                        .font(.dsLabel)
                         .foregroundStyle(.secondary)
 
                     Text(pipeline?.lastTouchpoint ?? "Not recorded")
@@ -179,8 +149,8 @@ struct MacDealPipelineView: View {
 
                 // Next Step
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Next Action", systemImage: "calendar.badge.clock")
-                        .font(.system(size: 9, weight: .bold))
+                    Label("Next step", systemImage: "calendar.badge.clock")
+                        .font(.dsLabel)
                         .foregroundStyle(Color.accentColor)
 
                     Text(pipeline?.nextStep ?? "Not set")
@@ -196,7 +166,35 @@ struct MacDealPipelineView: View {
         .padding(16)
         .appleGlassCard(cornerRadius: 16)
         .task(id: company.id) {
-            await store.fetchDealPipeline(for: company.id)
+            saveError = nil
+            loadAttempted = false
+            await load()
+        }
+    }
+
+    private func load() async {
+        await store.fetchDealPipeline(for: company.id)
+        guard !Task.isCancelled else { return }
+        loadAttempted = true
+    }
+
+    private func changeStage(to stage: String) async {
+        guard store.canWriteDesk, !saving, stage != currentStage, var optimistic = pipeline else { return }
+        let previous = pipeline
+        saving = true
+        saveError = nil
+        optimistic.stage = stage
+        optimistic.daysInStage = 0
+        store.dealPipelines[company.id] = optimistic
+        defer { saving = false }
+        do {
+            store.dealPipelines[company.id] = try await MacAPIClient.shared.updateDealPipeline(
+                companyId: company.id,
+                fields: ["stage": stage]
+            )
+        } catch {
+            store.dealPipelines[company.id] = previous
+            saveError = "Stage change wasn't saved: \(error.localizedDescription)"
         }
     }
 

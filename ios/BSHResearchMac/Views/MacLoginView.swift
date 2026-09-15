@@ -11,6 +11,11 @@ struct MacLoginView: View {
 
     private enum Field { case email, password }
 
+    private var canCancel: Bool {
+        guard let session = store.session else { return false }
+        return MacConfig.bypassLogin || !session.isAnonDev
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 12) {
@@ -21,9 +26,22 @@ struct MacLoginView: View {
                     Text("Sign in to BSH Research")
                         .font(.title3.weight(.semibold))
                     Text(MacConfig.baseURL.absoluteString)
-                        .font(.caption.monospaced())
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            if let notice = store.sessionNotice {
+                Text(notice)
+                    .font(.dsSubhead)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let storedError = MacConfig.storedBaseURLError {
+                Text(storedError)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Text("Memos, decisions and desk changes are tied to your account. Same email and password as the web portal.")
@@ -52,7 +70,7 @@ struct MacLoginView: View {
             }
 
             HStack {
-                if store.session != nil {
+                if canCancel {
                     Button("Cancel") {
                         store.authError = nil
                         dismiss()

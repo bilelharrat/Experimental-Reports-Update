@@ -3,7 +3,7 @@ import SwiftUI
 struct MacSettingsView: View {
     @EnvironmentObject private var store: MacAppStore
 
-    @State private var serverURL: String = UserDefaults.standard.string(forKey: MacConfig.baseURLKey) ?? MacConfig.baseURL.absoluteString
+    @State private var serverURL: String = MacConfig.baseURL.absoluteString
     @State private var serviceToken: String = ""
     @State private var requireLogin: Bool = UserDefaults.standard.bool(forKey: MacConfig.bypassLoginKey)
     @State private var testResult: String?
@@ -24,9 +24,14 @@ struct MacSettingsView: View {
                         }
                     }
                     LabeledContent("Role", value: session.roleLabel + (session.isAnonDev ? " (local dev bypass)" : ""))
+                    if store.needsPasswordReset {
+                        Label("Password reset required — change it in the web portal.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                     LabeledContent("Permissions") {
                         Text(session.permissions.isEmpty ? "read-only" : session.permissions.sorted().joined(separator: ", "))
-                            .font(.caption.monospaced())
+                            .font(.caption.monospacedDigit())
                             .multilineTextAlignment(.trailing)
                     }
                     HStack {
@@ -58,18 +63,20 @@ struct MacSettingsView: View {
                 }
             }
 
-            Section("Backend API Origin") {
-                TextField("Server Base URL", text: $serverURL)
+            Section("Thesis") {
+                MacThesisEditor()
+            }
+
+            Section("Server") {
+                TextField("Base URL", text: $serverURL)
                     .textFieldStyle(.roundedBorder)
 
                 HStack {
-                    Button("Save URL") {
-                        MacConfig.saveBaseURL(serverURL)
-                        testResult = "Saved base URL: \(serverURL)"
-                        Task { await store.bootstrap() }
+                    Button("Save") {
+                        saveServer()
                     }
 
-                    Button("Test Connection") {
+                    Button("Test connection") {
                         Task { await testServer() }
                     }
                     .disabled(testing)
@@ -86,26 +93,35 @@ struct MacSettingsView: View {
                 }
             }
 
-            Section("Advanced Authentication") {
-                Toggle("Require User Authentication (Disable Dev Bypass)", isOn: $requireLogin)
+            Section("Authentication") {
+                Toggle("Require sign-in in this app", isOn: $requireLogin)
                     .onChange(of: requireLogin) { _, val in
                         UserDefaults.standard.set(val, forKey: MacConfig.bypassLoginKey)
-                        if val && store.session?.isAnonDev == true {
-                            store.showLoginSheet = true
+                        Task {
+                            if val {
+                                await store.refreshSession()
+                                if store.session == nil || store.session?.isAnonDev == true { store.showLoginSheet = true }
+                            } else {
+                                await store.bootstrap()
+                                if store.session != nil { store.showLoginSheet = false }
+                            }
                         }
                     }
+                Text("Hides the local dev identity behind the sign-in sheet. The server still accepts unauthenticated requests while BSH_ALLOW_ANON_DEV=1.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
-                SecureField("Service Bearer Token (read-only machine credential)", text: $serviceToken)
+                SecureField("Service token (read-only, for tooling)", text: $serviceToken)
                     .textFieldStyle(.roundedBorder)
 
                 HStack {
-                    Button("Use Token") {
+                    Button("Use token") {
                         MacConfig.writeToken(serviceToken)
                         serviceToken = ""
                         Task { await store.bootstrap() }
                     }
                     .disabled(serviceToken.isEmpty)
-                    Button("Forget Stored Token") {
+                    Button("Forget stored token") {
                         MacConfig.clearToken()
                         Task { await store.signOut() }
                     }
@@ -115,7 +131,7 @@ struct MacSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Cross-Platform Synchronization (/api/desk/prefs)") {
+            Section("Desk sync · web, iPad and Mac") {
                 LabeledContent("Pinned Watchlist Tickers") {
                     Text("\(store.pinnedTickers.count) symbols")
                         .font(.body.monospacedDigit())
@@ -137,12 +153,28 @@ struct MacSettingsView: View {
                         await store.refreshMarket()
                     }
                 } label: {
-                    Label("Sync Now with Web & iPad Desk", systemImage: "arrow.triangle.2.circlepath")
+                    Label("Sync now", systemImage: "arrow.triangle.2.circlepath")
                 }
             }
 
-            Section("Cache & Diagnostics") {
-                Button("Reload All Intelligence Data") {
+            Section("MCP connector") {
+                Text("Expose the firm's memory — memos, decisions, calls, transcripts, portfolio, signal scores — to any MCP client. Read-only.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("uv run python scripts/bsh_mcp.py")
+                    .font(.caption.monospacedDigit())
+                    .textSelection(.enabled)
+                Button("Copy Claude Desktop config") {
+                    let cfg = """
+                    {"mcpServers": {"bsh-research": {"command": "uv", "args": ["run", "--directory", "/PATH/TO/bsh-research-center", "python", "scripts/bsh_mcp.py"]}}}
+                    """
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(cfg, forType: .string)
+                }
+                .controlSize(.small)
+            }
+
+            Section("Data") {
+                Button("Reload everything") {
                     Task { await store.bootstrap() }
                 }
             }
@@ -152,15 +184,49 @@ struct MacSettingsView: View {
         .padding()
     }
 
+    private func saveServer() {
+        guard let url = MacConfig.normalizedBaseURL(serverURL) else {
+            testResult = "Invalid base URL: include a host, e.g. http://192.168.1.5:8010"
+            return
+        }
+        let target = url.absoluteString
+        testResult = "Saved base URL: \(target)"
+        Task {
+            await store.switchServer(to: target)
+            serverURL = MacConfig.baseURL.absoluteString
+        }
+    }
+
     private func testServer() async {
         testing = true
         testResult = nil
         defer { testing = false }
+        guard let base = MacConfig.normalizedBaseURL(serverURL) else {
+            let stored = MacConfig.storedBaseURLError.map { " \($0)" } ?? ""
+            testResult = "Connection failed: enter a full http(s) URL (current: \(MacConfig.baseURL.absoluteString))\(stored)"
+            return
+        }
+        let saved = base.absoluteString == MacConfig.baseURL.absoluteString
+        let suffix = saved ? "" : " (not saved yet; current: \(MacConfig.baseURL.absoluteString))"
+        var req = URLRequest(url: base.appendingPathComponent("api").appendingPathComponent("health"), timeoutInterval: 5)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("macos", forHTTPHeaderField: "X-BSH-Client")
+        if let token = MacConfig.readToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         do {
-            let cos = try await MacAPIClient.shared.listCompanies()
-            testResult = "Success: Connected! Loaded \(cos.count) research enterprises."
+            let (_, response) = try await URLSession.shared.data(for: req)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            switch status {
+            case 200..<300:
+                testResult = "Success: \(base.absoluteString) is reachable\(suffix)"
+            case 401:
+                testResult = "Reachable, but \(base.absoluteString) requires sign-in\(suffix)"
+            default:
+                testResult = "Connection failed: HTTP \(status) from \(base.absoluteString)\(suffix)"
+            }
         } catch {
-            testResult = "Connection failed: \(error.localizedDescription)"
+            testResult = "Connection failed: \(error.localizedDescription)\(suffix)"
         }
     }
 }

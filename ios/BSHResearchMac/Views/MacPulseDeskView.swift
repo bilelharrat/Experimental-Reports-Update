@@ -6,34 +6,8 @@ struct MacPulseDeskView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // Pulse Header
-                HStack(alignment: .center) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "waveform.path.ecg")
-                            .font(.title)
-                            .foregroundStyle(Color.red)
-                            .padding(10)
-                            .background(Color.red.opacity(0.12), in: Circle())
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Market Pulse")
-                                .font(.title.weight(.bold))
-                            if let d = store.pulse?.date {
-                                Text("Briefing for \(d)")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    Spacer()
-
-                    // Language Selector
-                    Picker("Language", selection: $store.pulseLanguage) {
-                        Text("English").tag("en")
-                        Text("中文 (ZH)").tag("zh")
-                    }
-                    .pickerStyle(.segmented)
+                MacDeskHeader("Market Pulse", subtitle: store.pulse?.date.map { "Briefing for \($0)" } ?? "The morning brief: benchmarks and the macro read.") {
+                    GlassSegmentedPicker("Language", selection: $store.pulseLanguage, segments: ["en": "English", "zh": "中文"])
                     .frame(width: 140)
 
                     Button {
@@ -41,17 +15,13 @@ struct MacPulseDeskView: View {
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut("r", modifiers: .command)
                 }
-                .padding()
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
 
                 // Major Indices Grid
                 if let indices = store.pulse?.indices, !indices.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Benchmark Indices & Asset Classes")
-                            .font(.headline)
+                        Text("Benchmarks")
+                            .font(.dsHeadline)
 
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
                             ForEach(indices) { idx in
@@ -59,7 +29,7 @@ struct MacPulseDeskView: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack {
                                         Text(idx.ticker)
-                                            .font(.body.monospaced().weight(.bold))
+                                            .font(.body.monospacedDigit().weight(.bold))
                                         Spacer()
                                         Text(String(format: "%+.2f%%", idx.changePct1d ?? 0))
                                             .font(.caption.monospacedDigit().weight(.semibold))
@@ -70,11 +40,7 @@ struct MacPulseDeskView: View {
                                         .font(.title3.monospacedDigit().weight(.semibold))
                                 }
                                 .padding(12)
-                                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(isUp ? Color.green.opacity(0.2) : Color.red.opacity(0.2), lineWidth: 1)
-                                )
+                                .appleGlassCard()
                             }
                         }
                     }
@@ -86,49 +52,64 @@ struct MacPulseDeskView: View {
                         ? (note.headlineZh ?? note.headlineEn ?? "全球市场宏观简报")
                         : (note.headlineEn ?? "Global Macro Economic Synthesis")
 
-                    let bullets = store.pulseLanguage == "zh"
-                        ? (note.bulletsZh ?? note.bulletsEn ?? [])
-                        : (note.bulletsEn ?? [])
+                    let zh = store.pulseLanguage == "zh"
+                    let bullets = note.bullets(zh: zh)
+                    let sections = note.sections(zh: zh)
 
                     VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "sparkles")
-                                .foregroundStyle(.blue)
-                            Text("Macro Takeaways")
-                                .font(.headline)
-                        }
+                        MacCardHeader("Macro takeaways", systemImage: "sparkles")
 
                         Text(headline)
                             .font(.title3.weight(.bold))
 
                         Divider()
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            ForEach(bullets, id: \.self) { bullet in
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "chevron.right.circle.fill")
-                                        .font(.caption)
-                                        .foregroundStyle(Color.blue)
-                                        .padding(.top, 3)
+                        if !bullets.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(Array(bullets.enumerated()), id: \.offset) { _, bullet in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Image(systemName: "chevron.right.circle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(Color.blue)
+                                            .padding(.top, 3)
 
-                                    Text(bullet)
-                                        .font(.body)
-                                        .lineSpacing(4)
+                                        Text(bullet)
+                                            .font(.body)
+                                            .lineSpacing(4)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !sections.isEmpty {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(section.title)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                        Text(section.body)
+                                            .font(.body)
+                                            .lineSpacing(4)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
                                 }
                             }
                         }
                     }
                     .padding(20)
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+                    .appleGlassCard()
                 } else {
                     ContentUnavailableView(
-                        "Pulse Briefing In Transit",
+                        "No briefing yet",
                         systemImage: "waveform.path.ecg",
-                        description: Text("Morning brief is being compiled by the synthesis engine.")
+                        description: Text("The morning brief appears here once the synthesis run has finished. Refresh to check.")
                     )
+                    .frame(maxWidth: .infinity, minHeight: 360)
                 }
             }
-            .padding(24)
+            .dsPage()
         }
+        .background(Color.dsCanvas)
     }
 }

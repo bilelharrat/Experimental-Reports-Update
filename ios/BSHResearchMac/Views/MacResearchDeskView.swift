@@ -42,12 +42,6 @@ struct MacResearchDeskView: View {
 
     private var directoryPane: some View {
         VStack(spacing: 0) {
-            // Drag & Drop Pitch Deck intake zone
-            MacPitchDeckDropBanner()
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-
             HStack(spacing: 8) {
                 Picker("Sector", selection: $selectedSector) {
                     ForEach(sectors, id: \.self) { s in
@@ -78,9 +72,7 @@ struct MacResearchDeskView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.ultraThinMaterial)
+            .dsToolbarStrip()
 
             Divider()
 
@@ -88,14 +80,19 @@ struct MacResearchDeskView: View {
                 ForEach(filteredCompanies) { company in
                     CompanyListRow(company: company)
                         .tag(company)
+                        .listRowSeparator(.hidden)
+                        .glassListRow(isSelected: store.selectedCompany?.id == company.id)
                 }
             }
-            .listStyle(.inset(alternatesRowBackgrounds: true))
+            .listStyle(.inset)
             .onChange(of: store.selectedCompany) { _, newComp in
                 if let newComp {
                     store.markCompanyVisited(newComp.id)
                 }
             }
+
+            Divider()
+            MacPitchDeckDropBanner()
         }
     }
 
@@ -128,53 +125,46 @@ struct CompanyListRow: View {
         return String(company.id.prefix(2)).uppercased()
     }
 
+    private var secondaryLine: String {
+        var parts: [String] = []
+        if let t = company.ticker, !t.isEmpty { parts.append(t.uppercased()) }
+        if let s = company.sector, !s.isEmpty { parts.append(s) }
+        else if let i = company.industry, !i.isEmpty { parts.append(i) }
+        if let status = company.status?.lowercased(), !status.isEmpty, status != "public", status != "private" {
+            parts.append(status.capitalized)
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            if store.isCompanyModified(company.id) {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 6, height: 6)
-            } else {
-                Spacer().frame(width: 6)
-            }
-
-            Circle()
-                .fill(colorForString(company.ticker ?? company.id))
-                .frame(width: 28, height: 28)
-                .overlay(
-                    Text(initials)
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(company.name ?? company.id)
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
-                    if let t = company.ticker, !t.isEmpty {
-                        Text(t)
-                            .font(.caption2.monospaced())
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+        HStack(spacing: 10) {
+            MacMonogram(name: company.name ?? company.id, size: 30)
+                .overlay(alignment: .topTrailing) {
+                    if store.isCompanyModified(company.id) {
+                        Circle().fill(Color.accentColor).frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Color.dsCard, lineWidth: 1.5))
+                            .offset(x: 3, y: -3)
                     }
                 }
-                Text(company.subtitle)
-                    .font(.caption)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(company.name ?? company.id)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(secondaryLine.isEmpty ? " " : secondaryLine)
+                    .font(.dsCaption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            if let status = company.status, !status.isEmpty {
-                Text(status.capitalized)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if let status = company.status?.lowercased(), status == "private" {
+                MacDot(color: .purple).help("Private company")
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
     }
 
     private func colorForString(_ s: String) -> Color {
@@ -185,18 +175,20 @@ struct CompanyListRow: View {
 }
 
 enum DossierSection: String, CaseIterable, Identifiable {
-    case all = "All Modules"
-    case ic = "IC & Decisions"
-    case team = "Team & Founders"
-    case pipeline = "Deal CRM"
-    case capTable = "Cap Table"
-    case comps = "Public Comps"
-    case ratios = "VC Ratios"
-    case memos = "Memos & Docs"
+    case overview = "Overview"
+    case ic = "Decisions"
+    case team = "Team"
+    case pipeline = "Pipeline"
+    case capTable = "Cap table"
+    case comps = "Comps"
+    case ratios = "Ratios"
+    case memos = "Memos"
+    case all = "All"
 
     var id: String { rawValue }
     var icon: String {
         switch self {
+        case .overview: return "rectangle.3.group"
         case .all: return "square.grid.2x2.fill"
         case .ic: return "checkmark.seal.fill"
         case .team: return "person.3.fill"
@@ -216,7 +208,19 @@ struct CompanyDossierView: View {
     var onNewReport: () -> Void
 
     @EnvironmentObject private var store: MacAppStore
-    @State private var activeSection: DossierSection = .all
+    @State private var activeSection: DossierSection = DossierSection(rawValue: UserDefaults.standard.string(forKey: "bsh.launchDossierSection") ?? "") ?? .overview
+
+    private var headerLine: String {
+        var parts: [String] = []
+        if let t = company.ticker, !t.isEmpty { parts.append(t.uppercased()) }
+        if let s = company.sector, !s.isEmpty { parts.append(s) } else if let i = company.industry, !i.isEmpty { parts.append(i) }
+        if let status = company.status, !status.isEmpty { parts.append(status.capitalized) }
+        return parts.joined(separator: " · ")
+    }
+
+    private func shows(_ sections: DossierSection...) -> Bool {
+        activeSection == .all || sections.contains(activeSection)
+    }
 
     private var companyReports: [MacReport] {
         store.reports(for: company.id)
@@ -229,37 +233,29 @@ struct CompanyDossierView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Header Card
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
+                // Header
+                HStack(alignment: .center, spacing: 14) {
+                    MacMonogram(name: company.name ?? company.id, size: 48)
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 10) {
                             Text(company.name ?? company.id)
-                                .font(.title2.weight(.bold))
-                            if let ticker = company.ticker, !ticker.isEmpty {
-                                Text(ticker)
-                                    .font(.title3.monospaced().weight(.semibold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                            }
+                                .font(.dsTitle)
+                                .lineLimit(1)
                             if let stage = store.dealPipelines[company.id]?.stage {
-                                Text(stage)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2.5)
-                                    .background(Color.accentColor.opacity(0.1), in: Capsule())
+                                MacStatusPill(text: stage, color: .accentColor)
+                            }
+                            if store.isFollowed(company.id) {
+                                Image(systemName: "star.fill").font(.caption).foregroundStyle(Color.yellow).help("Followed on the Pipeline board")
                             }
                         }
-
-                        Text(company.subtitle)
-                            .font(.subheadline)
+                        Text(headerLine.isEmpty ? company.subtitle : headerLine)
+                            .font(.dsBody)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
 
-                    Spacer()
+                    Spacer(minLength: 12)
 
-                    // Quick Actions
                     HStack(spacing: 8) {
                         Button {
                             onNewReport()
@@ -275,7 +271,6 @@ struct CompanyDossierView: View {
                         } label: {
                             Label("Decision", systemImage: "checkmark.seal")
                         }
-                        .buttonStyle(.bordered)
                         .disabled(!store.canRunTasks)
                         .help("Record Invest / Pass / Watch (⌘D)")
 
@@ -285,97 +280,72 @@ struct CompanyDossierView: View {
                             } label: {
                                 Label("IC Review", systemImage: "rectangle.split.2x1")
                             }
-                            .buttonStyle(.bordered)
                             .help("Memo beside thesis, risks, evidence and the decision form (⌘⇧O)")
                         }
 
-                        Button {
-                            Task { await store.toggleFollow(company.id) }
-                        } label: {
-                            Image(systemName: store.isFollowed(company.id) ? "star.fill" : "star")
-                                .foregroundStyle(store.isFollowed(company.id) ? Color.yellow : Color.secondary)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(!store.canRunTasks)
-                        .help(store.isFollowed(company.id) ? "Followed on the Pipeline board" : "Follow on the Pipeline board")
-
-                        Button {
-                            let url = MacConfig.webCompanyURL(id: company.id)
-                            withAnimation {
-                                store.openInEmbeddedBrowser(url)
-                            }
-                        } label: {
-                            Label("Open in Web", systemImage: "globe")
-                        }
-                        .buttonStyle(.bordered)
-                        .help("View comprehensive company portal in embedded browser (⌘⇧W)")
-                    }
-                }
-                .padding()
-                .appleGlassCard(cornerRadius: 16)
-
-                // Quick Navigation / Section Filter Bar
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(DossierSection.allCases) { sec in
+                        Menu {
                             Button {
-                                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                    activeSection = sec
-                                }
+                                Task { await store.toggleFollow(company.id) }
                             } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: sec.icon)
-                                        .font(.caption2)
-                                    Text(sec.rawValue)
-                                        .font(.caption.weight(activeSection == sec ? .bold : .medium))
-                                }
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 6)
-                                .background(
-                                    activeSection == sec ? Color.accentColor.opacity(0.18) : Color.white.opacity(0.05),
-                                    in: Capsule()
-                                )
-                                .foregroundStyle(activeSection == sec ? Color.accentColor : Color.secondary)
-                                .overlay(
-                                    Capsule().stroke(
-                                        activeSection == sec ? Color.accentColor.opacity(0.4) : Color.white.opacity(0.12),
-                                        lineWidth: 0.75
-                                    )
-                                )
+                                Label(store.isFollowed(company.id) ? "Unfollow" : "Follow on Pipeline", systemImage: store.isFollowed(company.id) ? "star.slash" : "star")
                             }
-                            .buttonStyle(.plain)
+                            .disabled(!store.canRunTasks)
+                            Button {
+                                withAnimation { store.openInEmbeddedBrowser(MacConfig.webCompanyURL(id: company.id)) }
+                            } label: {
+                                Label("Open in Research Browser", systemImage: "globe")
+                            }
+                            Button {
+                                MacConfig.openInBrowser(MacConfig.webCompanyURL(id: company.id))
+                            } label: {
+                                Label("Open on Web", systemImage: "safari")
+                            }
+                            Divider()
+                            Button {
+                                store.askWarren("Give me the one-paragraph state of play for \(company.title).", context: MacCopilotContext(surface: "research", tab: "memo"), company: company)
+                            } label: {
+                                Label("Ask Warren", systemImage: "bubble.left.and.bubble.right")
+                            }
+                            .disabled(!store.canRunTasks)
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
+                        .menuIndicator(.hidden)
+                        .fixedSize()
                     }
-                    .padding(.horizontal, 2)
+                }
+                .padding(.bottom, 4)
+
+                MacTabBar(items: DossierSection.allCases.map { ($0, $0.rawValue) }, selection: $activeSection)
+
+                // Overview: the one object, its score, the record and the memos
+                if shows(.overview) {
+                    MacUnifiedProfileView(companyId: company.id)
+                    MacSignalScoreView(companyId: company.id)
                 }
 
-                // Deal Pipeline & Relationship Warmth (Affinity Grade)
-                if activeSection == .all || activeSection == .pipeline {
+                if shows(.pipeline, .overview) {
                     MacDealPipelineView(company: company)
                 }
 
-                // Public ↔ Private Comps Rail
-                if activeSection == .all || activeSection == .comps {
-                    MacCompsRailView(company: company)
+                if shows(.comps) {
+                    MacCompsRailView(company: company).id(company.id)
                 }
 
-                // Cap Table & Waterfall Dilution Simulator (Carta/Excel Grade)
-                if activeSection == .all || activeSection == .capTable {
-                    MacCapTableSimulatorView(company: company)
+                if shows(.capTable) {
+                    MacCapTableSimulatorView(company: company).id(company.id)
                 }
 
-                // Founder Pedigree & Developer Traction Radar (Harmonic/Ampersand Grade)
-                if activeSection == .all || activeSection == .team {
+                if shows(.team) {
                     MacFounderRadarView(company: company)
                 }
 
-                // Institutional VC Ratios & Efficiency Blotter (Bessemer / a16z / Sequoia)
-                if activeSection == .all || activeSection == .ratios {
-                    MacVCRatiosBlotterView(company: company)
+                if shows(.ratios) {
+                    MacVCRatiosBlotterView(company: company).id(company.id)
                 }
 
                 // Active Pipeline Monitor (if any runs in progress)
-                if (activeSection == .all || activeSection == .memos) && !runningReports.isEmpty {
+                if shows(.memos, .overview) && !runningReports.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("Active Analysis Pipelines", systemImage: "gearshape.arrow.triangle.2.circlepath")
                             .font(.headline)
@@ -387,7 +357,7 @@ struct CompanyDossierView: View {
                                     .font(.subheadline.weight(.medium))
                                 Spacer()
                                 Text(rep.stage ?? "Processing…")
-                                    .font(.caption.monospaced())
+                                    .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
                             .padding(10)
@@ -399,19 +369,12 @@ struct CompanyDossierView: View {
                 }
 
                 // Investment Memos & Research Reports Table
-                if activeSection == .all || activeSection == .memos {
+                if shows(.memos, .overview) {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Research Memos & Artifacts")
-                                .font(.headline)
-                            Spacer()
-                            Text("\(companyReports.count) documents")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
+                        MacCardHeader("Memos", subtitle: companyReports.isEmpty ? nil : "\(companyReports.count) on file", systemImage: "doc.text")
 
                         if companyReports.isEmpty {
-                            Text("No investment memos generated yet for this company.")
+                            Text("No memo yet. New Memo runs the research pipeline for this company.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .padding(.vertical, 24)
@@ -428,27 +391,27 @@ struct CompanyDossierView: View {
                     .appleGlassCard(cornerRadius: 16)
                 }
 
-                // IC & Decisions: the firm's record, readiness gates, and thesis vs evidence
-                if activeSection == .all || activeSection == .ic {
+                // Decisions: the firm's record, readiness gates, IC room and thesis vs evidence
+                if shows(.ic, .overview) {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Label("Decision Record", systemImage: "checkmark.seal")
-                                .font(.headline)
-                            Spacer()
-                            Text(store.stage(for: company.id).rawValue)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
+                        MacCardHeader("Decision record", subtitle: store.stage(for: company.id).rawValue, systemImage: "checkmark.seal")
                         MacDecisionTimeline(companyId: company.id)
                     }
                     .padding()
-                    .appleGlassCard(cornerRadius: 16)
+                    .appleGlassCard()
+                }
 
+                if shows(.ic) {
                     MacICPrepView(company: company)
+                    MacICRoomView(companyId: company.id, reportId: nil)
+                        .id(company.id)
+                    MacNumberLintView(companyId: company.id)
                     MacThesisTrackerView(company: company)
+                    MacCommentsView(companyId: company.id, target: MacCommentTarget(kind: "company", ref: company.id, label: company.title))
+                        .id(company.id)
                 }
             }
-            .padding(20)
+            .dsPage()
         }
         .embeddedInAmbientGlass()
     }
@@ -465,10 +428,10 @@ private struct KPICard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 17, weight: .bold, design: .monospaced))
+                .font(.system(size: 17, weight: .bold).monospacedDigit())
                 .monospacedDigit()
                 .foregroundStyle(isGood == false ? Color.red : (isGood == true ? Color.green : Color.primary))
             Text(subtext)
@@ -502,7 +465,7 @@ struct MemoRowView: View {
 
                     if store.isReportNew(report) {
                         Text("NEW")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1.5)
@@ -511,7 +474,7 @@ struct MemoRowView: View {
 
                     if let lang = report.language {
                         Text(lang.uppercased())
-                            .font(.caption2.monospaced())
+                            .font(.caption2.monospacedDigit())
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
@@ -601,6 +564,7 @@ struct MacGenerateReportSheet: View {
     let company: MacCompany
     var onCreated: (MacReport) -> Void
 
+    @EnvironmentObject private var store: MacAppStore
     @Environment(\.dismiss) private var dismiss
 
     // Defaults mirror server REPORT_TYPES / AUDIENCES; replaced by GET /api/options on appear.
@@ -643,7 +607,7 @@ struct MacGenerateReportSheet: View {
                     }
                     if let ticker = company.ticker {
                         LabeledContent("Ticker") {
-                            Text(ticker).font(.body.monospaced())
+                            Text(ticker).font(.body.monospacedDigit())
                         }
                     }
                 }
@@ -687,7 +651,7 @@ struct MacGenerateReportSheet: View {
                     Task { await submit() }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(submitting || loadingOptions)
+                .disabled(submitting || loadingOptions || !store.canRunTasks)
                 .keyboardShortcut(.defaultAction)
             }
             .padding()

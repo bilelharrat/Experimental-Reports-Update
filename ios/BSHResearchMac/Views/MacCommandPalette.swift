@@ -9,6 +9,10 @@ enum MacCommandCode: String, CaseIterable {
     case n = "N"
     case new = "NEW"
     case ask = "ASK"
+    case firm = "FIRM"
+    case hold = "HOLD"
+    case tr = "TR"
+    case chat = "CHAT"
 
     var help: String {
         switch self {
@@ -16,9 +20,13 @@ enum MacCommandCode: String, CaseIterable {
         case .memo: return "Latest memo"
         case .gp: return "Price chart"
         case .q: return "Quote workspace"
-        case .n: return "News"
+        case .n: return "News desk"
         case .new: return "New memo run"
         case .ask: return "Ask Warren"
+        case .firm: return "Firm memory search"
+        case .hold: return "Holdings"
+        case .tr: return "Transcripts"
+        case .chat: return "Company chat"
         }
     }
 }
@@ -74,6 +82,9 @@ struct MacCommandPalette: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var deepTask: Task<Void, Never>?
     @State private var busy = false
+    @State private var deepSearchArmed = false
+    @State private var pendingSubmit = false
+    @State private var deepQuery: String?
     @FocusState private var focused: Bool
 
     private var parsed: MacParsedCommand { MacParsedCommand.parse(query) }
@@ -84,17 +95,17 @@ struct MacCommandPalette: View {
                 Image(systemName: "terminal")
                     .font(.title3)
                     .foregroundStyle(Color.accentColor)
-                TextField("Company, ticker, or  NAME CODE  —  MEMO · DES · GP · N · NEW · ASK", text: $query)
+                TextField("Company or ticker — add a code: MEMO · DES · GP · N · NEW · ASK · FIRM · HOLD", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($focused)
                     .onSubmit { runSelected() }
                     .onKeyPress(.downArrow) {
-                        selection = min(selection + 1, max(results.count - 1, 0))
+                        moveSelection(by: 1)
                         return .handled
                     }
                     .onKeyPress(.upArrow) {
-                        selection = max(selection - 1, 0)
+                        moveSelection(by: -1)
                         return .handled
                     }
                 if searching || busy {
@@ -113,34 +124,52 @@ struct MacCommandPalette: View {
 
             Divider()
 
-            List {
-                ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
-                    row(result)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selection = index
-                            runSelected()
-                        }
-                        .listRowBackground(index == selection ? Color.accentColor.opacity(0.16) : Color.clear)
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                        row(result)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selection = index
+                                if case .deepSearch = result { deepSearchArmed = true }
+                                runSelected()
+                            }
+                            .glassListRow(isSelected: index == selection)
+                            .id(result.id)
+                    }
+                    if results.isEmpty {
+                        Text(query.isEmpty ? "Start typing a company or ticker." : "Nothing matches yet.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                if results.isEmpty {
-                    Text(query.isEmpty ? "Start typing a company or ticker." : "Nothing matches yet.")
-                        .foregroundStyle(.secondary)
+                .listStyle(.plain)
+                .frame(minHeight: 260)
+                .onChange(of: selection) { _, newValue in
+                    let list = results
+                    guard list.indices.contains(newValue) else { return }
+                    proxy.scrollTo(list[newValue].id)
                 }
+                .onChange(of: hits.count) { _, _ in clampSelection() }
+                .onChange(of: symbols.count) { _, _ in clampSelection() }
+                .onChange(of: deepMatches.count) { _, _ in clampSelection() }
             }
-            .listStyle(.plain)
-            .frame(minHeight: 260)
 
             Divider()
 
-            HStack(spacing: 14) {
-                ForEach(MacCommandCode.allCases, id: \.rawValue) { code in
-                    HStack(spacing: 3) {
-                        Text(code.rawValue).font(.caption2.monospaced().weight(.bold))
-                        Text(code.help).font(.caption2).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 10, alignment: .leading)], alignment: .leading, spacing: 4) {
+                    ForEach(MacCommandCode.allCases, id: \.rawValue) { code in
+                        HStack(spacing: 5) {
+                            Text(code.rawValue)
+                                .font(.caption2.monospaced().weight(.bold))
+                                .foregroundStyle(Color.accentColor)
+                            Text(code.help)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
-                Spacer()
                 if let deepStatus {
                     Text(deepStatus)
                         .font(.caption)
@@ -150,15 +179,23 @@ struct MacCommandPalette: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial)
+            .background(.bar)
 
             // Esc closes the palette.
             Button("") { dismiss() }
                 .keyboardShortcut(.cancelAction)
                 .frame(width: 0, height: 0)
                 .opacity(0)
+
+            Button("") {
+                let subject = parsed.subject
+                if !subject.isEmpty, store.canRunTasks { startDeepSearch(subject) }
+            }
+            .keyboardShortcut(.return, modifiers: .command)
+            .frame(width: 0, height: 0)
+            .opacity(0)
         }
-        .frame(width: 700, height: 440)
+        .frame(width: 720, height: 470)
         .onAppear {
             query = store.commandPaletteSeed
             store.commandPaletteSeed = ""
@@ -166,12 +203,28 @@ struct MacCommandPalette: View {
         }
         .onChange(of: query) { _, _ in
             selection = 0
+            deepSearchArmed = false
+            pendingSubmit = false
             scheduleSearch()
         }
         .onDisappear {
+            pendingSubmit = false
             searchTask?.cancel()
             deepTask?.cancel()
         }
+    }
+
+    private func moveSelection(by delta: Int) {
+        let list = results
+        let next = min(max(selection + delta, 0), max(list.count - 1, 0))
+        selection = next
+        if list.indices.contains(next), case .deepSearch = list[next] {
+            deepSearchArmed = true
+        }
+    }
+
+    private func clampSelection() {
+        selection = min(selection, max(results.count - 1, 0))
     }
 
     // MARK: - Results
@@ -273,7 +326,7 @@ struct MacCommandPalette: View {
                 Image(systemName: "sparkle.magnifyingglass").foregroundStyle(Color.purple).frame(width: 26)
                 Text("Deep Search with Claude for “\(q)”").font(.body)
                 Spacer()
-                Text("↩").font(.caption).foregroundStyle(.secondary)
+                Text("⌘↩").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -281,12 +334,17 @@ struct MacCommandPalette: View {
     private func actionLabel(for company: MacCompany) -> String {
         switch parsed.code {
         case .memo:
-            return store.reports(for: company.id).contains(where: \.canOpen) ? "Open latest memo" : "No memo — start one"
+            if store.reports(for: company.id).contains(where: \.canOpen) { return "Open latest memo" }
+            return store.canRunTasks ? "No memo — start one" : "No memo — dossier"
         case .gp, .q:
             return company.ticker == nil ? "No ticker" : "Chart"
-        case .n: return "News"
-        case .new: return "New memo run"
+        case .n: return "News desk"
+        case .new: return store.canRunTasks ? "New memo run" : "Dossier"
         case .ask: return "Ask Warren"
+        case .firm: return "Search firm memory"
+        case .hold: return "Holdings"
+        case .tr: return "Transcripts"
+        case .chat: return "Company chat"
         case .des, .none: return "Dossier"
         }
     }
@@ -295,9 +353,15 @@ struct MacCommandPalette: View {
 
     private func scheduleSearch() {
         searchTask?.cancel()
+        let subject = parsed.subject
+        if let dq = deepQuery, dq.caseInsensitiveCompare(subject) != .orderedSame {
+            deepTask?.cancel()
+            deepTask = nil
+            deepQuery = nil
+            busy = false
+        }
         deepMatches = []
         deepStatus = nil
-        let subject = parsed.subject
         guard !subject.isEmpty else {
             hits = []
             symbols = []
@@ -314,45 +378,98 @@ struct MacCommandPalette: View {
                 ? (try? await MacAPIClient.shared.searchSymbols(query: subject)) ?? []
                 : []
             let hitsResult = (try? await a) ?? []
-            let symbolsResult = await s
             if Task.isCancelled { return }
             hits = hitsResult
+            let symbolsResult = await s
+            if Task.isCancelled { return }
             symbols = Array(symbolsResult.prefix(4))
             searching = false
+            if pendingSubmit {
+                pendingSubmit = false
+                runSelected()
+            }
         }
     }
 
     private func startDeepSearch(_ q: String) {
+        if busy, deepQuery?.caseInsensitiveCompare(q) == .orderedSame { return }
         deepTask?.cancel()
         deepStatus = "Asking Claude…"
         busy = true
+        deepQuery = q
         deepTask = Task {
-            defer { busy = false }
+            @MainActor func isCurrent() -> Bool {
+                !Task.isCancelled && parsed.subject.caseInsensitiveCompare(q) == .orderedSame
+            }
+            // `deepQuery` stays set until a different subject cancels this run, so the
+            // defer below can tell "my run ended" from "a newer run took over".
+            defer { if deepQuery == q { busy = false } }
             do {
                 let start = try await MacAPIClient.shared.startDeepSearch(query: q)
+                guard isCurrent() else { return }
                 if let matches = start.matches, !matches.isEmpty {
                     deepMatches = matches
                     deepStatus = "\(matches.count) match(es) from cache"
                     return
                 }
-                if let stream = start.streamUrl, !stream.isEmpty {
-                    for try await event in MacAPIClient.shared.streamEvents(path: stream) {
-                        if Task.isCancelled { return }
-                        let obj = event.json
-                        let type = (obj?["type"] as? String) ?? event.event ?? ""
-                        if let message = obj?["message"] as? String, !message.isEmpty {
-                            deepStatus = message
+                guard let stream = start.streamUrl, !stream.isEmpty else {
+                    deepMatches = []
+                    deepStatus = "Claude found nothing for “\(q)”"
+                    return
+                }
+                var terminal = false
+                for try await event in MacAPIClient.shared.streamEvents(path: stream) {
+                    guard isCurrent() else { return }
+                    let obj = event.json
+                    let type = (obj?["type"] as? String) ?? event.event ?? ""
+                    if type == "done" {
+                        let matches = Self.decodeMatches(obj?["matches"]) ?? []
+                        deepMatches = matches
+                        if let reason = obj?["reason"] as? String, !reason.isEmpty {
+                            deepStatus = reason
+                        } else {
+                            deepStatus = matches.isEmpty ? "Claude found nothing for “\(q)”" : "\(matches.count) match(es)"
                         }
-                        if type == "done" || type == "error" { break }
+                        terminal = true
+                        break
+                    }
+                    if type == "error", let matches = Self.decodeMatches(obj?["matches"]) {
+                        deepMatches = matches
+                        if let reason = obj?["reason"] as? String, !reason.isEmpty {
+                            deepStatus = reason
+                        } else {
+                            deepStatus = (obj?["error"] as? String) ?? "Deep search failed"
+                        }
+                        terminal = true
+                        break
+                    }
+                    if type == "error" || type == "cancelled" {
+                        deepMatches = []
+                        deepStatus = (obj?["error"] as? String) ?? (obj?["message"] as? String) ?? "Deep search failed"
+                        terminal = true
+                        break
+                    }
+                    if let text = (obj?["error"] as? String) ?? (obj?["message"] as? String), !text.isEmpty {
+                        deepStatus = text
                     }
                 }
-                let matches = try await MacAPIClient.shared.fetchDeepSearchResults(query: q)
-                deepMatches = matches
-                deepStatus = matches.isEmpty ? "Claude found nothing for “\(q)”" : "\(matches.count) match(es)"
+                guard isCurrent() else { return }
+                if !terminal {
+                    deepMatches = []
+                    deepStatus = "Search stream ended unexpectedly"
+                }
             } catch {
+                if error is CancellationError || !isCurrent() { return }
+                deepMatches = []
                 deepStatus = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
+    }
+
+    private static func decodeMatches(_ raw: Any?) -> [MacCompanyMatch]? {
+        guard let list = raw as? [Any], JSONSerialization.isValidJSONObject(list),
+              let data = try? JSONSerialization.data(withJSONObject: list) else { return nil }
+        return (try? JSONDecoder().decode([MacCompanyMatch].self, from: data)) ?? []
     }
 
     // MARK: - Execute
@@ -361,6 +478,14 @@ struct MacCommandPalette: View {
         let list = results
         guard !list.isEmpty else { return }
         let index = min(max(selection, 0), list.count - 1)
+        if case .deepSearch = list[index], !deepSearchArmed {
+            if searching {
+                pendingSubmit = true
+            } else {
+                deepStatus = "No match — ↓ then ↩, or ⌘↩, to Deep Search with Claude"
+            }
+            return
+        }
         run(list[index])
     }
 
@@ -433,6 +558,22 @@ struct MacCommandPalette: View {
         case .ask:
             store.selectCompany(company)
             store.selectedTab = .copilot
+        case .firm:
+            store.selectCompany(company)
+            store.showFirmSearch = true
+        case .hold:
+            store.selectCompany(company)
+            UserDefaults.standard.set("holdings", forKey: "mac.portfolio.mode")
+            store.selectedTab = .portfolio
+        case .tr:
+            store.selectCompany(company)
+            UserDefaults.standard.set("transcripts", forKey: "mac.documents.mode")
+            store.selectedTab = .documents
+        case .chat:
+            store.selectCompany(company)
+            store.showBlotter = true
+            store.blotterTab = .chat
+            Task { await store.openChat(channel: "company:\(company.id)") }
         case .des, .none:
             store.showCompany(company)
         }

@@ -18,12 +18,14 @@ final class APIResponseCache: @unchecked Sendable {
     }
 
     static func cacheKey(path: String, query: [URLQueryItem] = []) -> String {
+        // Include host so switching LAN / localhost / production never serves another server's JSON.
+        let host = AppConfig.baseURL.host ?? AppConfig.baseURL.absoluteString
         let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let sorted = query.sorted { $0.name < $1.name }
             .map { "\($0.name)=\($0.value ?? "")" }
             .joined(separator: "&")
-        if sorted.isEmpty { return trimmed }
-        return "\(trimmed)?\(sorted)"
+        let pathKey = sorted.isEmpty ? trimmed : "\(trimmed)?\(sorted)"
+        return "\(host)__\(pathKey)"
     }
 
     private func fileURL(for key: String) -> URL {
@@ -94,7 +96,7 @@ final class AppDataCache: ObservableObject {
         let decoder = JSONDecoder()
 
         // 1. Companies
-        if let data = APIResponseCache.shared.load(for: "companies") {
+        if let data = APIResponseCache.shared.load(for: APIResponseCache.cacheKey(path: "companies")) {
             if let resp = try? decoder.decode(CompaniesResponse.self, from: data), let list = resp.companies {
                 self.companies = list
                 for comp in list {
@@ -110,11 +112,10 @@ final class AppDataCache: ObservableObject {
         }
 
         // 3. News
-        let feedData = APIResponseCache.shared.load(for: "external/feed")
+        let feedData = APIResponseCache.shared.load(for: APIResponseCache.cacheKey(path: "external/feed"))
         let liveData = APIResponseCache.shared.load(for: APIResponseCache.cacheKey(path: "quotes/news", query: [URLQueryItem(name: "limit", value: "50")]))
             ?? APIResponseCache.shared.load(for: APIResponseCache.cacheKey(path: "quotes/news", query: [URLQueryItem(name: "limit", value: "40")]))
             ?? APIResponseCache.shared.load(for: APIResponseCache.cacheKey(path: "quotes/news", query: [URLQueryItem(name: "limit", value: "100")]))
-
         let feedDTOs = feedData.flatMap { try? decoder.decode([ExternalFeedDTO].self, from: $0) } ?? []
         let liveDTOs = liveData.flatMap { try? decoder.decode(LiveNewsResponse.self, from: $0) }?.items ?? []
 
@@ -130,14 +131,28 @@ final class AppDataCache: ObservableObject {
     }
 
     private func restoreCompanyDiskCache(id: String, decoder: JSONDecoder) {
-        if let detailData = APIResponseCache.shared.load(for: "companies/\(id)"),
+        if let detailData = APIResponseCache.shared.load(for: APIResponseCache.cacheKey(path: "companies/\(id)")),
            let detail = try? decoder.decode(CompanyDetail.self, from: detailData) {
             self.companyDetails[id] = detail
         }
-        if let reportsData = APIResponseCache.shared.load(for: "companies/\(id)/reports"),
+        if let reportsData = APIResponseCache.shared.load(for: APIResponseCache.cacheKey(path: "companies/\(id)/reports")),
            let reports = try? decoder.decode([ReportSummary].self, from: reportsData) {
             self.companyReports[id] = reports
         }
+    }
+
+    /// Drop memory + disk caches for the current host and pull fresh data from the live API.
+    func invalidateAndReload(lang: AppLanguage = .en) async {
+        APIResponseCache.shared.clearAll()
+        companies = []
+        companyDetails = [:]
+        companyReports = [:]
+        quotes = [:]
+        newsItems = []
+        briefs = [:]
+        lastPreloadDate = nil
+        await preloadAll(lang: lang, force: true)
+        NotificationCenter.default.post(name: .bshServerDidSync, object: nil)
     }
 
     // MARK: - Preload Everything

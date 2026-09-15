@@ -45,7 +45,7 @@ What the uncommitted work added (Phases 1–3 of the roadmap in `docs/` history;
 
 ## 2. Map of the code you will touch
 
-Mac app (`ios/BSHResearchMac/`, SwiftUI, macOS 14+, sandboxed, `com.apple.security.files.user-selected.read-only` + network client):
+Mac app (`ios/BSHResearchMac/`, SwiftUI, macOS 14+, sandboxed, `com.apple.security.files.user-selected.read-write` + network client):
 - `BSHResearchMacApp.swift` — scenes (`main`, `memo`, `ic`, Settings) and all menus/shortcuts. Every action must exist here as a menu item with its shortcut.
 - `MacRootView.swift` — `MacTab` enum, sidebar, detail `HSplitView`, blotter strip, toolbar, sheets (login, new report, decision, command palette).
 - `MacAppStore.swift` — the single `@MainActor ObservableObject`; sections: session, home/market/news/pulse refresh, desk prefs, jobs & alerts loops, pipeline/decisions/tracking/IC prep/evidence, memo loading, copilot, attention, signals, console.

@@ -1,12 +1,27 @@
 import SwiftUI
+import AppKit
+
+extension OpenWindowAction {
+    /// Bring the main desk forward (or open it) after a secondary window changed its state.
+    func revealDesk() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let desk = NSApp.windows.first(where: { ($0.identifier?.rawValue ?? "").hasPrefix("main") && ($0.isVisible || $0.isMiniaturized) }) {
+            desk.makeKeyAndOrderFront(nil)
+        } else {
+            callAsFunction(id: "main")
+        }
+    }
+}
 
 /// A memo in its own window — open several side by side for IC prep.
 /// Select text → "Ask about this passage"; IC Review can drive `findText` to jump to a claim.
 struct MacMemoWindowView: View {
     let request: MacMemoWindowRequest
-    var findText: Binding<String?>? = nil
+    var findText: Binding<MacFindRequest?>? = nil
     @EnvironmentObject private var store: MacAppStore
+    @Environment(\.openWindow) private var openWindow
 
+    @State private var showDecision = false
     @State private var loaded: MacLoadedMemo?
     @State private var language: String
     @State private var loading = false
@@ -15,7 +30,7 @@ struct MacMemoWindowView: View {
     @State private var selectionText: String?
     @State private var currentPage: Int?
 
-    init(request: MacMemoWindowRequest, findText: Binding<String?>? = nil) {
+    init(request: MacMemoWindowRequest, findText: Binding<MacFindRequest?>? = nil) {
         self.request = request
         self.findText = findText
         _language = State(initialValue: request.language)
@@ -38,6 +53,18 @@ struct MacMemoWindowView: View {
         }
         .frame(minWidth: 700, minHeight: 560)
         .navigationTitle(loaded?.title ?? report.map { "\($0.companyName ?? "") — \($0.displayTitle)" } ?? "Memo")
+        .focusedSceneValue(\.deskTarget, MacDeskCommandTarget(
+            companyId: report?.companyId,
+            reportId: request.reportId,
+            recordDecision: { showDecision = true },
+            openICReview: { if let report { store.openICReview(report: report) } }
+        ))
+        .sheet(isPresented: $showDecision) {
+            if let company {
+                MacDecisionSheet(company: company, seedReportId: request.reportId)
+                    .environmentObject(store)
+            }
+        }
         .task(id: language) {
             await load()
         }
@@ -47,12 +74,10 @@ struct MacMemoWindowView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(loaded?.title ?? "Investment Memo")
-                    .font(.headline)
+                    .font(.dsHeadline)
                     .lineLimit(1)
+                    .help("Report \(request.reportId)")
                 HStack(spacing: 6) {
-                    Text("ID: \(request.reportId)")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
                     if let report {
                         MacStatusPill(
                             text: report.statusTone,
@@ -81,11 +106,7 @@ struct MacMemoWindowView: View {
                 .help("Toggle iPad Apple Pencil ink overlay")
             }
 
-            Picker("Language", selection: $language) {
-                Text("English").tag("en")
-                Text("中文").tag("zh")
-            }
-            .pickerStyle(.segmented)
+            GlassSegmentedPicker("Language", selection: $language, segments: ["en": "English", "zh": "中文"])
             .frame(width: 140)
 
             // Context-aware Ask: the selected passage travels with the question.
@@ -98,21 +119,21 @@ struct MacMemoWindowView: View {
                     context: .memo(reportId: request.reportId, page: currentPage, selectionText: selectionText),
                     company: company
                 )
+                openWindow.revealDesk()
             } label: {
                 Label(selectionText == nil ? "Ask about memo" : "Ask about selection", systemImage: "sparkles")
             }
-            .buttonStyle(.bordered)
-            .disabled(!store.canRunTasks || company == nil)
-            .help(selectionText == nil ? "Ask Warren with this memo as context" : "Ask Warren about the selected passage")
+            .disabled(!store.canRunTasks || company == nil || store.copilotStreaming)
+            .help(selectionText == nil ? "Ask Warren with this memo as context; the answer opens on the desk" : "Ask Warren about the selected passage; the answer opens on the desk")
 
             if let company {
                 Button {
                     store.showCompany(company)
+                    openWindow.revealDesk()
                 } label: {
                     Label("Dossier", systemImage: "building.columns")
                 }
-                .buttonStyle(.bordered)
-                .help("Show this company on the Research Desk")
+                    .help("Show this company on the Research Desk")
             }
 
             Button {
@@ -126,22 +147,20 @@ struct MacMemoWindowView: View {
             } label: {
                 Label("Open on Web", systemImage: "safari")
             }
-            .buttonStyle(.bordered)
 
             if let url = loaded?.url {
                 ShareLink(item: url) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(.bordered)
-            }
+                }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-    }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.bar)
+        }
 
-    @ViewBuilder
-    private var content: some View {
+        @ViewBuilder
+        private var content: some View {
         ZStack {
             Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
 
@@ -153,7 +172,7 @@ struct MacMemoWindowView: View {
                                 url: loaded.url,
                                 overlayData: showInk ? loaded.overlayData : nil,
                                 overlayOpacity: 0.95,
-                                findText: findText?.wrappedValue,
+                                findRequest: findText?.wrappedValue,
                                 onSelection: { text in selectionText = text },
                                 onPageChange: { page in currentPage = page }
                             )

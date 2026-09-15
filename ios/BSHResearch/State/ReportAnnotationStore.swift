@@ -59,55 +59,58 @@ enum ReportAnnotationStore {
         var cleared: Bool
     }
 
-    // MARK: Local disk (per-page and composite)
+    // MARK: Local disk (per-page archive + composite)
 
-    /// Load per-page drawings for a report. Falls back to single composite drawing on page 0 if legacy.
-    static func loadPageDrawings(reportId: String) -> [Int: PKDrawing] {
-        let url = pagesURL(for: reportId)
-        if let data = try? Data(contentsOf: url),
+    /// Ink found on disk for a report, in whichever form was saved last.
+    enum LocalInk {
+        case none
+        /// Page-anchored strokes (page coordinates) — what the reader writes.
+        case pages([Int: PKDrawing])
+        /// Composite-space strokes only, e.g. synced from another device before this one saved.
+        case composite(PKDrawing)
+
+        /// The ink laid out in composite space for a document with `pageSizes`.
+        func compositeDrawing(pageSizes: [CGSize]) -> PKDrawing {
+            switch self {
+            case .none:
+                return PKDrawing()
+            case .pages(let pages):
+                return ReportAnnotationStore.compositeDrawing(from: pages, pageSizes: pageSizes)
+            case .composite(let drawing):
+                return drawing
+            }
+        }
+    }
+
+    static func loadLocalInk(reportId: String) -> LocalInk {
+        if let data = try? Data(contentsOf: pagesURL(for: reportId)),
            let archive = try? JSONDecoder().decode(MultiPageDrawingArchive.self, from: data) {
-            var result: [Int: PKDrawing] = [:]
+            var pages: [Int: PKDrawing] = [:]
             for (key, b64) in archive.pages {
                 if let index = Int(key),
                    let raw = Data(base64Encoded: b64),
                    let drawing = try? PKDrawing(data: raw) {
-                    result[index] = drawing
+                    pages[index] = drawing
                 }
             }
-            if !result.isEmpty {
-                return result
+            if !pages.isEmpty {
+                return .pages(pages)
             }
         }
-
-        // Fallback: load legacy single composite drawing and assign to page 0
-        let legacy = load(reportId: reportId)
-        if !legacy.strokes.isEmpty {
-            return [0: legacy]
-        }
-        return [:]
+        let composite = load(reportId: reportId)
+        return composite.strokes.isEmpty ? .none : .composite(composite)
     }
 
-    /// Save per-page drawings, build a composite drawing for legacy/cloud sync, and update meta.
-    static func savePageDrawings(
-        _ pageDrawings: [Int: PKDrawing],
-        reportId: String,
-        pageSizes: [CGSize] = []
-    ) {
+    /// Save the reader's composite ink: the page-anchored archive plus the composite copy the cloud sync sends.
+    static func saveComposite(_ composite: PKDrawing, reportId: String, pageSizes: [CGSize]) {
         do {
             try ensureDirectory()
             var archive = MultiPageDrawingArchive(version: 1, pages: [:])
-            var totalStrokes = 0
-            for (index, drawing) in pageDrawings {
-                if !drawing.strokes.isEmpty {
-                    archive.pages[String(index)] = drawing.dataRepresentation().base64EncodedString()
-                    totalStrokes += drawing.strokes.count
-                }
+            for (index, drawing) in splitComposite(composite, pageSizes: pageSizes) where !drawing.strokes.isEmpty {
+                archive.pages[String(index)] = drawing.dataRepresentation().base64EncodedString()
             }
             let data = try JSONEncoder().encode(archive)
             try data.write(to: pagesURL(for: reportId), options: .atomic)
-
-            // Synthesize composite drawing for web/cloud sync
-            let composite = compositeDrawing(from: pageDrawings, pageSizes: pageSizes)
             save(composite, reportId: reportId, canvasSize: compositeCanvasSize(pageSizes: pageSizes))
         } catch {
             // Local ink is best effort
@@ -130,6 +133,15 @@ enum ReportAnnotationStore {
             y += size.height + compositeGap
         }
         return tops
+    }
+
+    /// Where each page sits in composite space. The memo reader lays its pages out exactly here,
+    /// so the canvas drawing *is* the composite drawing.
+    static func compositePageRects(pageSizes: [CGSize]) -> [CGRect] {
+        let tops = compositePageTops(pageSizes: pageSizes, count: pageSizes.count)
+        return zip(tops, pageSizes).map { top, size in
+            CGRect(x: 0, y: top, width: size.width, height: size.height)
+        }
     }
 
     /// Size of the composite canvas the web overlay is rendered against.
@@ -207,10 +219,15 @@ enum ReportAnnotationStore {
                 page.draw(with: .mediaBox, to: cgContext)
                 cgContext.restoreGState()
 
-                // Draw vector ink annotations directly on the page
+                // Burn the ink in bands: one image for a whole long page would exceed
+                // Metal's texture limit (a converted memo is a single ~14,000 pt page).
                 if let drawing = pageDrawings[index], !drawing.strokes.isEmpty {
-                    let image = drawing.image(from: mediaBox, scale: 2.0)
-                    image.draw(in: mediaBox)
+                    let scale = inkImageScale(forWidth: mediaBox.width)
+                    for band in inkBands(forPageHeight: mediaBox.height) {
+                        let source = CGRect(x: 0, y: band.minY, width: mediaBox.width, height: band.height)
+                        let image = drawing.image(from: source, scale: scale)
+                        image.draw(in: source.offsetBy(dx: mediaBox.minX, dy: mediaBox.minY))
+                    }
                 }
             }
         }
@@ -222,6 +239,26 @@ enum ReportAnnotationStore {
         } catch {
             return nil
         }
+    }
+
+    /// Tallest slice of a page rendered as one ink image (at `inkImageScale` that stays far below 8192 px).
+    static let inkBandHeight: CGFloat = 2_000
+
+    /// Vertical slices (page coordinates) that tile a page of `height` points top to bottom.
+    static func inkBands(forPageHeight height: CGFloat) -> [CGRect] {
+        guard height > 0 else { return [] }
+        var bands: [CGRect] = []
+        var y: CGFloat = 0
+        while y < height {
+            let h = min(inkBandHeight, height - y)
+            bands.append(CGRect(x: 0, y: y, width: 0, height: h))
+            y += h
+        }
+        return bands
+    }
+
+    static func inkImageScale(forWidth width: CGFloat) -> CGFloat {
+        min(2.0, max(0.25, 7_800 / max(width, 1)))
     }
 
     static func load(reportId: String) -> PKDrawing {

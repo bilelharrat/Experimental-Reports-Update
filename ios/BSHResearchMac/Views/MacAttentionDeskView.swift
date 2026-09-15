@@ -12,12 +12,7 @@ struct MacAttentionDeskView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Attention Queue").font(.title2.weight(.bold))
-                        Text(summaryLine).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
+                MacDeskHeader("Attention", subtitle: summaryLine) {
                     if store.attentionLoading { ProgressView().controlSize(.small) }
                     Button {
                         Task { await store.loadAttention() }
@@ -27,7 +22,7 @@ struct MacAttentionDeskView: View {
                     .disabled(store.attentionLoading)
                 }
 
-                section("Needs a decision or a fix", systemImage: "exclamationmark.triangle", count: attention.count, empty: "Nothing is blocked on you. The pipeline is clear.") {
+                section("Needs a decision or a fix", systemImage: "exclamationmark.triangle", count: attention.count, empty: "Nothing is blocked on you. The pipeline is clear.", error: loadError("pipeline")) {
                     ForEach(attention) { item in
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: item.isHigh ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
@@ -66,7 +61,7 @@ struct MacAttentionDeskView: View {
                 }
 
                 HStack(alignment: .top, spacing: 16) {
-                    section("Stale coverage", systemImage: "clock.badge.exclamationmark", count: staleCoverage.count, empty: "Every company has a memo from the last 30 days.") {
+                    section("Stale coverage", systemImage: "clock.badge.exclamationmark", count: staleCoverage.count, empty: "Every company has a memo from the last 30 days.", error: loadError("screener")) {
                         ForEach(staleCoverage) { item in
                             HStack(spacing: 8) {
                                 VStack(alignment: .leading, spacing: 1) {
@@ -87,10 +82,10 @@ struct MacAttentionDeskView: View {
                     }
                     .frame(maxWidth: .infinity)
 
-                    section("Watchlist drawdowns", systemImage: "arrow.down.right.circle", count: drawdowns.count, empty: "No pinned ticker is down more than 3% today.") {
+                    section("Watchlist drawdowns", systemImage: "arrow.down.right.circle", count: drawdowns.count, empty: "No pinned ticker is down more than 3% today.", error: loadError("screener")) {
                         ForEach(drawdowns) { item in
                             HStack(spacing: 8) {
-                                Text(item.ticker ?? "").font(.subheadline.monospaced().weight(.bold))
+                                Text(item.ticker ?? "").font(.subheadline.monospacedDigit().weight(.bold))
                                 Text(item.title ?? "").font(.subheadline).foregroundStyle(Color.red)
                                 Spacer()
                                 if let t = item.ticker {
@@ -104,7 +99,7 @@ struct MacAttentionDeskView: View {
                     .frame(maxWidth: .infinity)
                 }
 
-                section("What changed since last launch", systemImage: "sparkles.rectangle.stack", count: store.digestItems.count, empty: "Nothing moved, landed or finished since you were last here.") {
+                section("What changed since last launch", systemImage: "sparkles.rectangle.stack", count: store.digestItems.count, empty: "Nothing moved, landed or finished since you were last here.", error: loadError("digest")) {
                     ForEach(store.digestItems) { item in
                         HStack(spacing: 10) {
                             Image(systemName: digestIcon(item.kind))
@@ -128,7 +123,7 @@ struct MacAttentionDeskView: View {
                     }
                 }
 
-                section("Unfiled uploads", systemImage: "tray.full", count: store.intakeItems.count, empty: "Every upload has been filed to a company.") {
+                section("Unfiled uploads", systemImage: "tray.full", count: store.intakeItems.count, empty: "Every upload has been filed to a company.", error: loadError("intake")) {
                     ForEach(store.intakeItems) { item in
                         HStack(spacing: 10) {
                             Image(systemName: "doc.badge.ellipsis").foregroundStyle(.secondary).frame(width: 18)
@@ -157,15 +152,18 @@ struct MacAttentionDeskView: View {
                     }
                 }
             }
-            .padding(24)
-            .frame(maxWidth: 1100, alignment: .leading)
+            .dsPage()
         }
+        .background(Color.dsCanvas)
         .task {
-            if store.attentionLoadedAt == nil {
+            if store.attentionLoadedAt == nil || !store.attentionErrors.isEmpty {
                 await store.loadAttention()
-                store.stampLaunch()
             }
         }
+    }
+
+    private func loadError(_ source: String) -> String? {
+        store.attentionErrors[source]
     }
 
     private var summaryLine: String {
@@ -175,6 +173,15 @@ struct MacAttentionDeskView: View {
         if !drawdowns.isEmpty { parts.append("\(drawdowns.count) drawdowns") }
         if !store.digestItems.isEmpty { parts.append("\(store.digestItems.count) changes") }
         if !store.intakeItems.isEmpty { parts.append("\(store.intakeItems.count) unfiled") }
+        var failed = ["pipeline", "screener", "digest", "intake"].filter { store.attentionErrors[$0] != nil }
+        if store.rollupStale {
+            failed.removeAll { $0 == "pipeline" }
+            parts.append(store.pipelineError == nil ? "Showing the last board" : "Showing the last board · sync failed")
+        }
+        if !failed.isEmpty {
+            let line = "Couldn't load: " + failed.joined(separator: ", ")
+            return parts.isEmpty ? line : parts.joined(separator: " · ") + " · " + line
+        }
         if parts.isEmpty { return store.attentionLoadedAt == nil ? "Loading…" : "All clear." }
         return parts.joined(separator: " · ")
     }
@@ -200,22 +207,24 @@ struct MacAttentionDeskView: View {
         }
     }
 
-    private func section<Content: View>(_ title: String, systemImage: String, count: Int, empty: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label(title, systemImage: systemImage).font(.headline)
+    private func section<Content: View>(_ title: String, systemImage: String, count: Int, empty: String, error: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            MacCardHeader(title, subtitle: count == 0 && error == nil ? empty : nil, systemImage: systemImage) {
                 if count > 0 {
-                    Text("\(count)").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                    Text("\(count)").font(.dsCaption.monospacedDigit().weight(.semibold)).foregroundStyle(.secondary)
                 }
-                Spacer()
             }
-            if count == 0 {
-                Text(empty).font(.caption).foregroundStyle(.secondary)
-            } else {
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.dsCaption)
+                    .foregroundStyle(Color.orange)
+                    .lineLimit(2)
+            }
+            if count > 0 {
                 content()
             }
         }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(MacDS.card)
+        .appleGlassCard()
     }
 }

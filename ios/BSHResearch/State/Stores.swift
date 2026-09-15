@@ -249,6 +249,7 @@ final class SessionStore: ObservableObject {
             self.name = res.name
             isAuthenticated = true
             await refreshMe()
+            await AppDataCache.shared.invalidateAndReload()
         } catch {
             lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             isAuthenticated = false

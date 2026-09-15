@@ -30,6 +30,10 @@ struct WatchRootView: View {
                 WatchDetailShell(title: "Settings", route: $route) { SettingsDetail() }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(WatchTheme.text)
+        .background(WatchTheme.canvas.ignoresSafeArea())
+        .environment(\.colorScheme, .light)
         .preferredColorScheme(.light)
         .task {
             await quotes.refresh()
@@ -49,60 +53,33 @@ struct WatchRootView: View {
     }
 }
 
-// MARK: - Marquee tape
+// MARK: - Live tape (2 names)
 
-/// Auto-scrolling ticker + % tape. Duplicates content for a seamless loop.
-struct MarqueeTape: View {
+/// Fixed strip — no GeometryReader marquee (that rendered empty in ScrollView).
+struct LiveTapeStrip: View {
     let quotes: [WatchQuote]
-    var speedPointsPerSecond: CGFloat = 28
 
     var body: some View {
-        let items = quotes.isEmpty ? WatchConfig.demoQuotes() : quotes
-        GeometryReader { geo in
-            let row = tapeRow(items)
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
-                let width = max(measureWidth(items), geo.size.width + 1)
-                let period = max(Double(width / speedPointsPerSecond), 8)
-                let t = context.date.timeIntervalSinceReferenceDate
-                let progress = t.truncatingRemainder(dividingBy: period) / period
-                let offset = -CGFloat(progress) * width
-
-                HStack(spacing: 0) {
-                    row
-                    row
-                }
-                .offset(x: offset)
-            }
-        }
-        .frame(height: 22)
-        .clipped()
-        .padding(.vertical, 4)
-        .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityLabel(items.map(\.tapeText).joined(separator: ", "))
-    }
-
-    private func tapeRow(_ items: [WatchQuote]) -> some View {
-        HStack(spacing: 14) {
-            ForEach(items) { quote in
-                HStack(spacing: 3) {
+        let items = Array((quotes.isEmpty ? WatchConfig.demoQuotes() : quotes).prefix(2))
+        HStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, quote in
+                HStack(spacing: 4) {
                     Text(quote.ticker)
-                        .font(.system(size: 11, weight: .bold).monospaced())
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .bold).monospaced())
+                        .foregroundStyle(WatchTheme.text)
+                        .fixedSize(horizontal: true, vertical: false)
                     Text(quote.pctText)
-                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
                         .foregroundStyle(quote.isUp ? Color.green : Color.red)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
+                .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : .trailing)
             }
-            // Trailing spacer so the loop gap looks even.
-            Color.clear.frame(width: 20, height: 1)
         }
-        .padding(.leading, 8)
-    }
-
-    private func measureWidth(_ items: [WatchQuote]) -> CGFloat {
-        // Approximate monospaced width; good enough for marquee pacing.
-        let chars = items.reduce(0) { $0 + $1.tapeText.count + 2 } + 4
-        return CGFloat(chars) * 7.2 + CGFloat(items.count) * 14 + 28
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(WatchTheme.cardFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel(items.map(\.tapeText).joined(separator: ", "))
     }
 }
 
@@ -116,7 +93,7 @@ struct WatchDeskHome: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                MarqueeTape(quotes: quotes.tapeQuotes)
+                LiveTapeStrip(quotes: quotes.featureQuotes)
                     .onTapGesture { route = .tape }
 
                 VStack(spacing: 0) {
@@ -144,11 +121,11 @@ struct WatchDeskHome: View {
                                 .font(.system(size: 9, weight: .bold))
                                 .tracking(0.4)
                         }
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WatchTheme.muted)
 
                         Text(quotes.news.first?.title ?? (quotes.loading ? "Loading headlines…" : "No headlines yet"))
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(WatchTheme.text)
                             .multilineTextAlignment(.leading)
                             .lineLimit(3)
 
@@ -163,12 +140,12 @@ struct WatchDeskHome: View {
                                 }
                             }
                             .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WatchTheme.muted)
                         }
                     }
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.black.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(WatchTheme.cardFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
@@ -176,12 +153,12 @@ struct WatchDeskHome: View {
                     HStack(spacing: 6) {
                         Image(systemName: "waveform.path.ecg")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(WatchTheme.text)
                         Text("Pulse:")
                             .font(.system(size: 11, weight: .bold))
                         Text(quotes.pulseHeadline)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WatchTheme.muted)
                             .lineLimit(2)
                         Spacer(minLength: 0)
                     }
@@ -200,7 +177,7 @@ struct WatchDeskHome: View {
         HStack {
             Text("BSH")
                 .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WatchTheme.muted)
             if quotes.stale {
                 Text("cached")
                     .font(.system(size: 9, weight: .semibold))
@@ -242,7 +219,7 @@ struct WatchHubHome: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                MarqueeTape(quotes: quotes.tapeQuotes)
+                LiveTapeStrip(quotes: quotes.featureQuotes)
                     .onTapGesture { route = .tape }
 
                 LazyVGrid(columns: columns, spacing: 6) {
@@ -250,7 +227,10 @@ struct WatchHubHome: View {
                         title: "Tape",
                         systemImage: "chart.line.uptrend.xyaxis"
                     ) {
-                        MiniSparkline(values: sparkValues(from: quotes.tapeQuotes))
+                        LiveTapeDuo(
+                            quotes: quotes.featureQuotes,
+                            sparks: quotes.sparks
+                        )
                     } action: { route = .tape }
 
                     HubTile(
@@ -264,10 +244,10 @@ struct WatchHubHome: View {
                                     .foregroundStyle(.green)
                                 Text("Up")
                                     .font(.system(size: 9))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WatchTheme.muted)
                             }
                             Rectangle()
-                                .fill(Color.secondary.opacity(0.25))
+                                .fill(WatchTheme.hairline)
                                 .frame(width: 1, height: 28)
                             VStack(spacing: 1) {
                                 Text("\(max(quotes.losers.count, quotes.tapeQuotes.filter { !$0.isUp }.count))")
@@ -275,7 +255,7 @@ struct WatchHubHome: View {
                                     .foregroundStyle(.red)
                                 Text("Down")
                                     .font(.system(size: 9))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WatchTheme.muted)
                             }
                         }
                     } action: { route = .movers }
@@ -288,7 +268,7 @@ struct WatchHubHome: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(quotes.news.first?.title ?? (quotes.loading ? "Loading…" : "No headlines"))
                                 .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(WatchTheme.text)
                                 .lineLimit(3)
                                 .multilineTextAlignment(.leading)
                             if let age = quotes.news.first?.timeText, !age.isEmpty {
@@ -309,7 +289,7 @@ struct WatchHubHome: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(quotes.pulse == nil ? "Brief" : "Live")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WatchTheme.muted)
                             Text(quotes.pulseHeadline)
                                 .font(.system(size: 10, weight: .medium))
                                 .lineLimit(3)
@@ -321,7 +301,7 @@ struct WatchHubHome: View {
                 HStack {
                     Text("BSH")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WatchTheme.muted)
                     Spacer()
                     Button {
                         Task { await quotes.refresh() }
@@ -348,18 +328,79 @@ struct WatchHubHome: View {
             .padding(.bottom, 6)
         }
     }
+}
 
-    private func sparkValues(from quotes: [WatchQuote]) -> [CGFloat] {
-        let pcts = quotes.prefix(8).map { CGFloat($0.pct ?? 0) }
-        if pcts.isEmpty { return [0, 0.2, -0.1, 0.3, 0.1, -0.2, 0.15, 0] }
-        return pcts
+/// Two compact live names for the Tape tile.
+/// Sparklines only when we have a real last-day series — no fake waves.
+private struct LiveTapeDuo: View {
+    let quotes: [WatchQuote]
+    let sparks: [String: WatchSparkSeries]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(quotes.prefix(2)) { quote in
+                let spark = sparks[quote.ticker]
+                let hasLiveSpark = (spark?.closes.count ?? 0) > 1
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(quote.ticker)
+                            .font(.system(size: 12, weight: .bold).monospaced())
+                            .foregroundStyle(WatchTheme.text)
+                            .fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 2)
+                        Text(quote.pctText)
+                            .font(.system(size: 11, weight: .bold).monospacedDigit())
+                            .foregroundStyle(quote.isUp ? Color.green : Color.red)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    if let name = quote.shortName {
+                        Text(name)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(WatchTheme.muted)
+                            .lineLimit(1)
+                    }
+                    if hasLiveSpark, let spark {
+                        LiveMiniSpark(closes: spark.closes, isUp: spark.isUp || quote.isUp)
+                            .frame(height: 14)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct LiveMiniSpark: View {
+    let closes: [Double]
+    let isUp: Bool
+
+    var body: some View {
+        Canvas { context, size in
+            guard closes.count > 1,
+                  let minV = closes.min(),
+                  let maxV = closes.max()
+            else { return }
+            let span = max(maxV - minV, 0.0001)
+            var path = Path()
+            for (i, v) in closes.enumerated() {
+                let x = size.width * CGFloat(i) / CGFloat(closes.count - 1)
+                let y = size.height * (1 - CGFloat((v - minV) / span))
+                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                else { path.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(
+                path,
+                with: .color(isUp ? Color.green.opacity(0.9) : Color.red.opacity(0.9)),
+                style: StrokeStyle(lineWidth: 1.4, lineJoin: .round)
+            )
+        }
     }
 }
 
 private struct HubTile<Content: View>: View {
     let title: String
     let systemImage: String
-    var accent: Color = .primary
+    var accent: Color = WatchTheme.text
     @ViewBuilder var content: Content
     let action: () -> Void
 
@@ -372,41 +413,28 @@ private struct HubTile<Content: View>: View {
                         .foregroundStyle(accent)
                     Text(title)
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(WatchTheme.text)
                     Spacer(minLength: 0)
                 }
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .padding(7)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
-            .background(Color.black.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+            .background(WatchTheme.cardFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
     }
 }
 
-private struct MiniSparkline: View {
-    let values: [CGFloat]
-
-    var body: some View {
-        GeometryReader { geo in
-            let minV = values.min() ?? 0
-            let maxV = values.max() ?? 1
-            let span = max(maxV - minV, 0.01)
-            Path { path in
-                guard values.count > 1 else { return }
-                for (i, v) in values.enumerated() {
-                    let x = geo.size.width * CGFloat(i) / CGFloat(values.count - 1)
-                    let y = geo.size.height * (1 - (v - minV) / span)
-                    if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                    else { path.addLine(to: CGPoint(x: x, y: y)) }
-                }
-            }
-            .stroke(Color.primary.opacity(0.75), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
-        }
-        .frame(height: 28)
-    }
+private enum WatchTheme {
+    static let canvas = Color.white
+    static let cardFill = Color(white: 0.92)
+    static let cardFillSelected = Color(white: 0.84)
+    /// Explicit ink — watchOS often keeps white `.primary` even with a light shell.
+    static let text = Color.black
+    static let muted = Color(white: 0.35)
+    static let hairline = Color(white: 0.75)
 }
 
 // MARK: - C · Hero Ticker
@@ -422,12 +450,7 @@ struct WatchHeroTickerHome: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "mountain.2.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
-
+        VStack(spacing: 4) {
             // Horizontal page TabView only — never nest NavigationStack/List in a vertical TabView.
             TabView(selection: $page) {
                 ForEach(Array(heroes.enumerated()), id: \.element.id) { index, quote in
@@ -436,18 +459,20 @@ struct WatchHeroTickerHome: View {
                             openURL(url)
                         }
                     } label: {
-                        VStack(spacing: 2) {
+                        VStack(spacing: 1) {
                             Text(quote.ticker)
-                                .font(.system(size: 34, weight: .bold).monospaced())
-                                .foregroundStyle(.primary)
+                                .font(.system(size: 30, weight: .bold).monospaced())
+                                .foregroundStyle(WatchTheme.text)
                             Text(quote.priceText)
-                                .font(.system(size: 26, weight: .bold).monospacedDigit())
-                                .foregroundStyle(.primary)
+                                .font(.system(size: 24, weight: .bold).monospacedDigit())
+                                .foregroundStyle(WatchTheme.text)
                             Text(quote.pctText)
-                                .font(.system(size: 18, weight: .bold).monospacedDigit())
+                                .font(.system(size: 16, weight: .bold).monospacedDigit())
                                 .foregroundStyle(quote.isUp ? Color.green : Color.red)
+                            Spacer(minLength: 0)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 2)
                     }
                     .buttonStyle(.plain)
                     .tag(index)
@@ -455,6 +480,7 @@ struct WatchHeroTickerHome: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .automatic))
             .frame(maxHeight: .infinity)
+            .layoutPriority(1)
 
             HStack(spacing: 6) {
                 heroChip("News", systemImage: "newspaper") { route = .news }
@@ -498,12 +524,12 @@ struct WatchHeroTickerHome: View {
                 Text(title)
                     .font(.system(size: 10, weight: .semibold))
             }
-            .foregroundStyle(.primary)
+            .foregroundStyle(WatchTheme.text)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .overlay(
                 Capsule()
-                    .stroke(Color.primary.opacity(0.35), lineWidth: 1)
+                    .stroke(WatchTheme.hairline, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -531,7 +557,7 @@ private struct WatchDetailShell<Content: View>: View {
                     Spacer()
                     Text(title)
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WatchTheme.muted)
                 }
                 content
             }
@@ -550,7 +576,7 @@ private struct WatchCard<Content: View>: View {
             .padding(.vertical, 4)
             .padding(.horizontal, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(WatchTheme.cardFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -561,7 +587,16 @@ struct TapeDetail: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        MarqueeTape(quotes: quotes.tapeQuotes)
+        LiveTapeDuo(
+            quotes: quotes.featureQuotes,
+            sparks: quotes.sparks
+        )
+        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(WatchTheme.cardFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+        LiveTapeStrip(quotes: quotes.featureQuotes)
             .padding(.bottom, 4)
 
         ForEach(quotes.tapeQuotes) { quote in
@@ -596,14 +631,14 @@ struct MoversDetail: View {
         section("Gainers")
         let gainers = quotes.gainers.isEmpty ? quotes.tapeQuotes.filter(\.isUp) : quotes.gainers
         if gainers.isEmpty {
-            Text(quotes.loading ? "Loading…" : "—").font(.caption2).foregroundStyle(.secondary)
+            Text(quotes.loading ? "Loading…" : "—").font(.caption2).foregroundStyle(WatchTheme.muted)
         }
         ForEach(gainers) { quote in moverRow(quote) }
 
         section("Losers")
         let losers = quotes.losers.isEmpty ? quotes.tapeQuotes.filter { !$0.isUp } : quotes.losers
         if losers.isEmpty {
-            Text("—").font(.caption2).foregroundStyle(.secondary)
+            Text("—").font(.caption2).foregroundStyle(WatchTheme.muted)
         }
         ForEach(losers) { quote in moverRow(quote) }
 
@@ -616,7 +651,7 @@ struct MoversDetail: View {
     private func section(_ text: String) -> some View {
         Text(text)
             .font(.caption2.weight(.bold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WatchTheme.muted)
             .padding(.top, 2)
     }
 
@@ -638,7 +673,7 @@ struct NewsDetail: View {
         if quotes.news.isEmpty {
             Text(quotes.loading ? "Loading headlines…" : "No headlines")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WatchTheme.muted)
         }
         ForEach(quotes.news) { item in
             Button {
@@ -664,14 +699,14 @@ struct NewsDetail: View {
                             if let source = item.source, !source.isEmpty {
                                 Text(source)
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WatchTheme.muted)
                                     .lineLimit(1)
                             }
                             Spacer(minLength: 2)
                             if !item.timeText.isEmpty {
                                 Text(item.timeText)
                                     .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WatchTheme.muted)
                             }
                         }
                     }
@@ -690,7 +725,7 @@ struct PulseDetail: View {
         if quotes.pulse == nil {
             Text(quotes.loading ? "Loading brief…" : "No morning brief on server yet")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WatchTheme.muted)
         } else {
             WatchCard {
                 VStack(alignment: .leading, spacing: 4) {
@@ -698,19 +733,19 @@ struct PulseDetail: View {
                         .font(.caption.weight(.semibold))
                         .fixedSize(horizontal: false, vertical: true)
                     if let date = quotes.pulse?.date {
-                        Text(date).font(.caption2).foregroundStyle(.secondary)
+                        Text(date).font(.caption2).foregroundStyle(WatchTheme.muted)
                     }
                     ForEach(Array(quotes.pulseBullets.enumerated()), id: \.offset) { _, bullet in
                         Text("• \(bullet)")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WatchTheme.muted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
 
             if !quotes.pulseIndices.isEmpty {
-                Text("Indices").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                Text("Indices").font(.caption2.weight(.bold)).foregroundStyle(WatchTheme.muted)
                 ForEach(quotes.pulseIndices) { quote in
                     Button { openTicker(quote.ticker) } label: { WatchQuoteRow(quote: quote) }
                         .buttonStyle(.plain)
@@ -718,7 +753,7 @@ struct PulseDetail: View {
             }
 
             if !quotes.pulseGainers.isEmpty {
-                Text("Brief ↑").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                Text("Brief ↑").font(.caption2.weight(.bold)).foregroundStyle(WatchTheme.muted)
                 ForEach(quotes.pulseGainers) { quote in
                     Button { openTicker(quote.ticker) } label: { WatchQuoteRow(quote: quote) }
                         .buttonStyle(.plain)
@@ -726,7 +761,7 @@ struct PulseDetail: View {
             }
 
             if !quotes.pulseLosers.isEmpty {
-                Text("Brief ↓").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                Text("Brief ↓").font(.caption2.weight(.bold)).foregroundStyle(WatchTheme.muted)
                 ForEach(quotes.pulseLosers) { quote in
                     Button { openTicker(quote.ticker) } label: { WatchQuoteRow(quote: quote) }
                         .buttonStyle(.plain)
@@ -734,7 +769,7 @@ struct PulseDetail: View {
             }
 
             if !quotes.pulseAlerts.isEmpty {
-                Text("Alerts").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                Text("Alerts").font(.caption2.weight(.bold)).foregroundStyle(WatchTheme.muted)
                 ForEach(quotes.pulseAlerts) { alert in
                     WatchCard {
                         VStack(alignment: .leading, spacing: 2) {
@@ -743,7 +778,7 @@ struct PulseDetail: View {
                             }
                             Text(alert.message ?? alert.kind ?? "Alert")
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WatchTheme.muted)
                                 .lineLimit(3)
                         }
                     }
@@ -765,7 +800,7 @@ struct SettingsDetail: View {
     var body: some View {
         Text("Home layout")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WatchTheme.muted)
 
         VStack(spacing: 6) {
             ForEach(WatchLayoutStyle.allCases) { style in
@@ -775,7 +810,7 @@ struct SettingsDetail: View {
                     HStack {
                         Text(style.title)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(WatchTheme.text)
                         Spacer()
                         if quotes.layoutStyle == style {
                             Image(systemName: "checkmark.circle.fill")
@@ -786,7 +821,7 @@ struct SettingsDetail: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 7)
                     .background(
-                        Color.black.opacity(quotes.layoutStyle == style ? 0.10 : 0.04),
+                        quotes.layoutStyle == style ? WatchTheme.cardFillSelected : WatchTheme.cardFill,
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                     )
                 }
@@ -796,7 +831,7 @@ struct SettingsDetail: View {
 
         Text("API base URL")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WatchTheme.muted)
             .padding(.top, 6)
         TextField("http://…", text: $baseURL)
             .textInputAutocapitalization(.never)
@@ -814,14 +849,24 @@ struct SettingsDetail: View {
 
         Text("Pins (tape)")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WatchTheme.muted)
             .padding(.top, 4)
-        ForEach(WatchConfig.resolvedTapeTickers(), id: \.self) { ticker in
+        Text("Live duo")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(WatchTheme.muted)
+        ForEach(WatchConfig.featureCompanyTickers(), id: \.self) { ticker in
             Text(ticker).font(.body.monospaced())
         }
-        Text("Edit pins on iPhone Settings, or use defaults SPY/QQQ + NVDA/AAPL.")
+        Text("Full tape")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(WatchTheme.muted)
+            .padding(.top, 2)
+        ForEach(WatchConfig.resolvedTapeTickers(), id: \.self) { ticker in
+            Text(ticker).font(.caption.monospaced())
+        }
+        Text("Edit pins on iPhone Settings. Tape tile shows the first two equities (default NVDA / AAPL).")
             .font(.system(size: 9))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WatchTheme.muted)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -840,7 +885,7 @@ struct WatchQuoteRow: View {
                 if showName, let name = quote.name, !name.isEmpty {
                     Text(name)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WatchTheme.muted)
                         .lineLimit(1)
                 }
             }

@@ -8,6 +8,10 @@ struct BSHResearchWatchApp: App {
         WindowGroup {
             WatchRootView()
                 .environmentObject(quotes)
+                .environment(\.colorScheme, .light)
+                .preferredColorScheme(.light)
+                .foregroundStyle(Color.black)
+                .background(Color.white)
         }
     }
 }

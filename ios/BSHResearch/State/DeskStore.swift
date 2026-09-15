@@ -24,6 +24,12 @@ final class DeskStore: ObservableObject {
         await load()
     }
 
+    /// Always re-fetch desk prefs from the current API host (after base URL / account sync).
+    func forceReload() async {
+        loaded = false
+        await load()
+    }
+
     func load() async {
         do {
             let res: DeskPrefsResponse = try await APIClient.shared.get("desk/prefs")

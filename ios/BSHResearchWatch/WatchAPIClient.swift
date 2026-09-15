@@ -106,6 +106,24 @@ actor WatchAPIClient {
         return brief
     }
 
+    func fetchSparks(tickers: [String]) async throws -> [String: WatchSparkSeries] {
+        let unique = Array(Set(tickers.map { $0.uppercased() })).sorted()
+        guard !unique.isEmpty else { return [:] }
+
+        var components = URLComponents(
+            url: WatchConfig.apiRoot.appendingPathComponent("quotes/spark"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = unique.map { URLQueryItem(name: "ticker", value: $0) }
+        guard let url = components.url else { throw WatchAPIError.invalidURL }
+
+        let data = try await get(url)
+        guard let payload = try? decoder.decode(WatchSparkPayload.self, from: data) else {
+            throw WatchAPIError.decoding
+        }
+        return payload.sparks ?? [:]
+    }
+
     private func get(_ url: URL) async throws -> Data {
         var req = URLRequest(url: url)
         req.timeoutInterval = 12

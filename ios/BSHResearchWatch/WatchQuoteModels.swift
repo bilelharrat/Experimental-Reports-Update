@@ -22,6 +22,42 @@ struct WatchQuote: Identifiable, Codable, Hashable {
     var tapeText: String {
         "\(ticker) \(pctText)"
     }
+
+    /// Short label under the ticker when we have a name (watch-sized).
+    var shortName: String? {
+        guard let name, !name.isEmpty else { return nil }
+        let trimmed = name
+            .replacingOccurrences(of: " Inc.", with: "")
+            .replacingOccurrences(of: " Inc", with: "")
+            .replacingOccurrences(of: " Corp.", with: "")
+            .replacingOccurrences(of: " Corp", with: "")
+            .replacingOccurrences(of: " Corporation", with: "")
+            .replacingOccurrences(of: " Company", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.uppercased() != ticker else { return nil }
+        if trimmed.count <= 14 { return trimmed }
+        return String(trimmed.prefix(12)) + "…"
+    }
+}
+
+struct WatchSparkSeries: Codable, Hashable {
+    let closes: [Double]
+    let previousClose: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case closes
+        case previousClose = "previous_close"
+    }
+
+    var isUp: Bool {
+        let reference = previousClose ?? closes.first ?? 0
+        let last = closes.last ?? reference
+        return last >= reference
+    }
+}
+
+struct WatchSparkPayload: Decodable {
+    let sparks: [String: WatchSparkSeries]?
 }
 
 struct WatchQuotesPayload: Codable {

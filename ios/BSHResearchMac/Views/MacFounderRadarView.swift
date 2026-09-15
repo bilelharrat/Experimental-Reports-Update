@@ -2,9 +2,9 @@
 //  MacFounderRadarView.swift
 //  BSHResearchMac
 //
-//  Sequoia Ampersand & Harmonic-grade Founder Pedigree & Developer Traction Radar.
-//  Displays verified leadership pedigree, academic affiliations, previous exits,
-//  and real-time open-source developer velocity with live deep-search trigger.
+//  Founder pedigree and developer traction, read from the company record.
+//  Displays leadership, board, headcount and open-source velocity when recorded;
+//  the refresh button re-reads the record (no external lookup).
 //
 
 import SwiftUI
@@ -22,46 +22,19 @@ struct MacFounderRadarView: View {
         store.deepSearchingFounders.contains(company.id)
     }
 
+    @State private var loadFailed = false
+    @State private var loading = false
+
+    private func hasPeople(_ dossier: MacFounderDossier) -> Bool {
+        !dossier.founders.isEmpty
+            || !(dossier.advisorsAndBoard ?? []).isEmpty
+            || dossier.teamHeadcount != nil
+            || dossier.developerTraction != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // Header Bar
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.3.sequence.fill")
-                            .foregroundStyle(Color.accentColor)
-                        Text("Founder Pedigree & Developer Traction Radar")
-                            .font(.headline)
-
-                        Text("HARMONIC / AMPERSAND")
-                            .font(.system(size: 8, weight: .black))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(Color.accentColor)
-
-                        if dossier?.isDeepAudited == true {
-                            HStack(spacing: 3) {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 9))
-                                Text("DEEP INVESTIGATED")
-                                    .font(.system(size: 8, weight: .black))
-                            }
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(Color.green)
-                        }
-                    }
-
-                    Text("Verified executive pedigree, former BigTech/lab footprints, prior startup exits, and GitHub velocity.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                // Live Deep-Search Button
+            MacCardHeader("Founders & team", subtitle: "People from the company record, prior companies and exits, and open-source velocity when a repo is known.", systemImage: "person.3") {
                 Button {
                     Task {
                         await store.deepSearchFounder(for: company.id)
@@ -71,30 +44,38 @@ struct MacFounderRadarView: View {
                         if isSearching {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Deep Searching…")
+                            Text("Refreshing…")
                         } else {
-                            Image(systemName: "sparkle.magnifyingglass")
-                            Text("Deep Search Founders")
+                            Image(systemName: "arrow.clockwise")
+                            Text("Refresh from record")
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(isSearching)
+                .help("Re-read people, board and links from the company record")
             }
 
-            Divider()
+            if let dossier = dossier {
+                if !hasPeople(dossier) {
+                    ContentUnavailableView(
+                        "No people on the company record",
+                        systemImage: "person.3",
+                        description: Text("Founders, board members and headcount appear here once they are recorded on the company.")
+                    )
+                }
 
-            // Founders & Executive Leadership Dossier Cards
-            if let dossier = dossier, !dossier.founders.isEmpty {
+                // Founders & Executive Leadership Dossier Cards
+                if !dossier.founders.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Label("Founding & Executive Leadership Team", systemImage: "person.2.fill")
-                            .font(.caption.weight(.bold))
+                        Label("Leadership", systemImage: "person.2")
+                            .font(.dsLabel)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Text("\(dossier.founders.count) key executives")
-                            .font(.caption2.monospaced())
+                            .font(.caption2.monospacedDigit())
                             .foregroundStyle(.tertiary)
                     }
 
@@ -104,17 +85,18 @@ struct MacFounderRadarView: View {
                         }
                     }
                 }
+                }
 
                 // Board of Directors & Strategic Advisors
                 if let board = dossier.advisorsAndBoard, !board.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Label("Board of Directors & Strategic Advisors", systemImage: "briefcase.fill")
-                                .font(.caption.weight(.bold))
+                            Label("Board & advisors", systemImage: "briefcase")
+                                .font(.dsLabel)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Text("\(board.count) board & advisors")
-                                .font(.caption2.monospaced())
+                                .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.tertiary)
                         }
 
@@ -131,8 +113,8 @@ struct MacFounderRadarView: View {
                 if let team = dossier.teamHeadcount {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Label("Company Headcount & Organization Breakdown", systemImage: "chart.bar.doc.horizontal.fill")
-                                .font(.caption.weight(.bold))
+                            Label("Headcount", systemImage: "chart.bar.doc.horizontal")
+                                .font(.dsLabel)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Text(team.hiringVelocity ?? "")
@@ -144,30 +126,30 @@ struct MacFounderRadarView: View {
                             DevMetricPill(
                                 icon: "person.3.fill",
                                 color: .blue,
-                                title: "TOTAL HEADCOUNT",
+                                title: "Total headcount",
                                 value: team.employeeCountEstimate ?? "—",
                                 delta: team.openRolesCount.map { "\($0) open roles" } ?? "Open roles unknown"
                             )
                             DevMetricPill(
                                 icon: "chevron.left.forwardslash.chevron.right",
                                 color: .indigo,
-                                title: "ENGINEERING & R&D",
+                                title: "Engineering & R&D",
                                 value: team.engineeringPct.map { "\($0)%" } ?? "—",
-                                delta: "Technical Depth"
+                                delta: "of headcount"
                             )
                             DevMetricPill(
                                 icon: "megaphone.fill",
                                 color: .green,
-                                title: "GO-TO-MARKET / SALES",
+                                title: "Go-to-market",
                                 value: team.gtmSalesPct.map { "\($0)%" } ?? "—",
-                                delta: "Distribution Core"
+                                delta: "of headcount"
                             )
                             DevMetricPill(
                                 icon: "gearshape.fill",
                                 color: .orange,
-                                title: "OPERATIONS & G&A",
+                                title: "Operations & G&A",
                                 value: team.operationsPct.map { "\($0)%" } ?? "—",
-                                delta: "Corporate Ops"
+                                delta: "of headcount"
                             )
                         }
 
@@ -204,17 +186,17 @@ struct MacFounderRadarView: View {
                 if let dev = dossier.developerTraction {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Label("Open Source & Developer Velocity Radar", systemImage: "chevron.left.forwardslash.chevron.right")
-                                .font(.caption.weight(.bold))
+                            Label("Open source velocity", systemImage: "chevron.left.forwardslash.chevron.right")
+                                .font(.dsLabel)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             if let repo = dev.repoUrl, let url = URL(string: repo) {
                                 Link(destination: url) {
                                     HStack(spacing: 4) {
                                         Text(repo.replacingOccurrences(of: "https://github.com/", with: ""))
-                                            .font(.caption2.monospaced())
+                                            .font(.caption2.monospacedDigit())
                                         Image(systemName: "arrow.up.right")
-                                            .font(.system(size: 9))
+                                            .font(.system(size: 10))
                                     }
                                 }
                             }
@@ -225,14 +207,14 @@ struct MacFounderRadarView: View {
                             DevMetricPill(
                                 icon: "star.fill",
                                 color: .yellow,
-                                title: "GITHUB STARS",
+                                title: "GitHub stars",
                                 value: dev.stars.map { $0.formatted() } ?? "—",
                                 delta: dev.starsGrowthWeekly ?? "Not tracked yet"
                             )
                             DevMetricPill(
                                 icon: "tuningfork",
                                 color: .blue,
-                                title: "FORKS",
+                                title: "Forks",
                                 value: dev.forks.map { $0.formatted() } ?? "—",
                                 delta: "Forks"
                             )
@@ -240,7 +222,7 @@ struct MacFounderRadarView: View {
                                 DevMetricPill(
                                     icon: "arrow.down.circle.fill",
                                     color: .green,
-                                    title: "WEEKLY DOWNLOADS",
+                                    title: "Weekly downloads",
                                     value: downloads,
                                     delta: "Weekly"
                                 )
@@ -248,7 +230,7 @@ struct MacFounderRadarView: View {
                             DevMetricPill(
                                 icon: "clock.arrow.circlepath",
                                 color: .purple,
-                                title: "COMMIT CADENCE",
+                                title: "Commit cadence",
                                 value: dev.commitCadence ?? "—",
                                 delta: "Commit cadence"
                             )
@@ -258,8 +240,8 @@ struct MacFounderRadarView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "flame.fill")
                                 .foregroundStyle(.orange)
-                            Text("TRACTION SIGNAL:")
-                                .font(.system(size: 10, weight: .black))
+                            Text("Traction signal")
+                                .font(.dsLabel)
                                 .foregroundStyle(.orange)
                             Text(dev.inflectionSignal ?? "—")
                                 .font(.caption.weight(.semibold))
@@ -271,13 +253,26 @@ struct MacFounderRadarView: View {
                     .padding(.top, 6)
                 }
 
-                if let searchedAt = dossier.searchedAt {
-                    Text("Investigated: \(searchedAt)")
-                        .font(.system(size: 9).monospaced())
-                        .foregroundStyle(.tertiary)
+                if let refreshError = store.founderDossierErrors[company.id] {
+                    Label("Refresh failed: \(refreshError)", systemImage: "exclamationmark.triangle")
+                        .font(.dsCaption)
+                        .foregroundStyle(Color.dsNegative)
+                        .lineLimit(2)
+                }
+
+                Text("Built from the company record")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            } else if loadFailed && !loading {
+                ContentUnavailableView {
+                    Label("Couldn't load people", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(store.founderDossierErrors[company.id] ?? "The company record could not be read from the server.")
+                } actions: {
+                    Button("Retry") { Task { await load() } }
+                        .controlSize(.small)
                 }
             } else {
-                // Loading or Placeholder
                 HStack(spacing: 12) {
                     ProgressView()
                         .controlSize(.small)
@@ -292,8 +287,17 @@ struct MacFounderRadarView: View {
         .padding(16)
         .appleGlassCard(cornerRadius: 16)
         .task(id: company.id) {
-            await store.fetchFounderDossier(for: company.id)
+            loadFailed = false
+            await load()
         }
+    }
+
+    private func load() async {
+        loading = true
+        await store.fetchFounderDossier(for: company.id)
+        guard !Task.isCancelled else { return }
+        loading = false
+        loadFailed = store.founderDossiers[company.id] == nil
     }
 }
 
@@ -425,12 +429,7 @@ private struct PedigreeBadgeView: View {
     }
 
     var body: some View {
-        Text(tag)
-            .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2.5)
-            .appleGlassPill(color: color)
+        MacStatusPill(text: tag, color: color)
     }
 }
 
@@ -446,17 +445,16 @@ private struct DevMetricPill: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(color)
                 Text(title)
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.dsLabel)
                     .foregroundStyle(.secondary)
             }
             Text(value)
-                .font(.system(size: 14, weight: .bold, design: .monospaced))
-                .monospacedDigit()
+                .font(.dsMetricSmall)
             Text(delta)
-                .font(.system(size: 9))
+                .font(.system(size: 10))
                 .foregroundStyle(color)
                 .lineLimit(1)
         }

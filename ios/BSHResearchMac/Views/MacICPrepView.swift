@@ -7,7 +7,7 @@ import SwiftUI
 struct MacICPrepView: View {
     let company: MacCompany
     @EnvironmentObject private var store: MacAppStore
-    @State private var expanded = false
+    @State private var loadError: String?
     @State private var reviewArea: MacReadinessArea?
     @State private var approving = false
     @State private var showRisks = true
@@ -18,8 +18,8 @@ struct MacICPrepView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("IC Prep", systemImage: "checklist")
-                    .font(.headline)
+                Label("IC prep", systemImage: "checklist")
+                                    .font(.dsHeadline)
                 if let readiness = analysis?.readiness {
                     Text("\(readiness.score ?? 0)/\(readiness.total ?? 0) gates")
                         .font(.caption.monospacedDigit().weight(.semibold))
@@ -28,15 +28,14 @@ struct MacICPrepView: View {
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
                 if analysis == nil {
-                    Button(expanded ? "Loading…" : "Load IC Prep") {
-                        expanded = true
-                        Task { await store.loadMemoAnalysis(company.id) }
+                    Button(busy ? "Loading…" : (loadError == nil ? "Load IC prep" : "Retry")) {
+                        Task { await load() }
                     }
                     .disabled(busy)
                     .controlSize(.small)
                 } else {
                     Button {
-                        Task { await store.loadMemoAnalysis(company.id) }
+                        Task { await load() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -47,18 +46,32 @@ struct MacICPrepView: View {
 
             if let analysis {
                 content(analysis)
-            } else if !expanded {
+            } else if let loadError {
+                Text(loadError).font(.caption).foregroundStyle(.red)
+            } else if !busy {
                 Text("Readiness gates, risk cards and analysis tools for the memo. Loading opens a Memo Studio session for this company.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .padding()
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .appleGlassCard()
+        .task(id: company.id) {
+            if loadError != nil { loadError = nil }
+        }
         .sheet(item: $reviewArea) { area in
             MacReadinessReviewSheet(companyId: company.id, area: area)
                 .environmentObject(store)
         }
+    }
+
+    private func load() async {
+        let id = company.id
+        loadError = nil
+        store.error = nil
+        await store.loadMemoAnalysis(id)
+        guard id == company.id, store.analysisByCompany[id] == nil, !store.analysisBusy.contains(id) else { return }
+        loadError = store.error ?? "Could not load IC prep."
     }
 
     @ViewBuilder
@@ -251,6 +264,7 @@ struct MacReadinessReviewSheet: View {
     @State private var status = "reviewed"
     @State private var rationale = ""
     @State private var saving = false
+    @State private var errorText: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -258,26 +272,35 @@ struct MacReadinessReviewSheet: View {
             if let why = area.whyItMatters, !why.isEmpty {
                 Text(why).font(.callout).foregroundStyle(.secondary)
             }
-            Picker("Status", selection: $status) {
-                Text("Reviewed").tag("reviewed")
-                Text("Waived").tag("waived")
-                Text("Open").tag("open")
+            LabeledContent("Status") {
+                GlassSegmentedPicker("Status", selection: $status, segments: ["reviewed": "Reviewed", "waived": "Waived", "open": "Open"])
             }
-            .pickerStyle(.segmented)
             Text("Rationale").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             TextEditor(text: $rationale)
                 .font(.body)
                 .frame(minHeight: 100)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.2)))
+            if let errorText {
+                Text(errorText).font(.caption).foregroundStyle(.red)
+            }
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(saving ? "Saving…" : "Save") {
                     saving = true
+                    errorText = nil
+                    let trimmed = rationale.trimmingCharacters(in: .whitespacesAndNewlines)
                     Task {
-                        await store.reviewReadinessArea(companyId: companyId, areaId: area.id, status: status, rationale: rationale.trimmingCharacters(in: .whitespacesAndNewlines))
+                        store.error = nil
+                        await store.reviewReadinessArea(companyId: companyId, areaId: area.id, status: status, rationale: trimmed)
                         saving = false
-                        dismiss()
+                        let stored = store.analysisByCompany[companyId]?.additionalAreas.first { $0.id == area.id }
+                        let saved = store.error == nil && stored?.status == status && (stored?.rationale ?? "") == trimmed
+                        if saved {
+                            dismiss()
+                        } else {
+                            errorText = store.error ?? "Could not save the review. It may not have been recorded; try again."
+                        }
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -287,6 +310,8 @@ struct MacReadinessReviewSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+        .onChange(of: status) { _, _ in errorText = nil }
+        .onChange(of: rationale) { _, _ in errorText = nil }
         .onAppear {
             status = area.status ?? "reviewed"
             if status == "open" { status = "reviewed" }

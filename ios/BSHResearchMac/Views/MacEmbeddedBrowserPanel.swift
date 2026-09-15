@@ -9,6 +9,7 @@ struct MacWKWebView: NSViewRepresentable {
     @Binding var canGoForward: Bool
     @Binding var isLoading: Bool
     @Binding var pageTitle: String
+    @Binding var loadError: String?
     let webView: WKWebView
 
     func makeCoordinator() -> Coordinator {
@@ -53,15 +54,35 @@ struct MacWKWebView: NSViewRepresentable {
             kvoTokens.append(webView.observe(\.url, options: .new) { [weak self] wv, _ in
                 guard let newURL = wv.url else { return }
                 DispatchQueue.main.async {
-                    self?.isNavigatingInternal = true
-                    self?.parent.url = newURL
-                    self?.isNavigatingInternal = false
+                    guard let self, self.parent.loadError == nil else { return }
+                    self.isNavigatingInternal = true
+                    self.parent.url = newURL
+                    self.isNavigatingInternal = false
                 }
             })
         }
 
+        private func report(_ error: Error) {
+            let nsError = error as NSError
+            guard nsError.code != NSURLErrorCancelled else { return }
+            let failing = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
+                ?? (nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String)
+            let text = failing.map { "\($0) — \(error.localizedDescription)" } ?? error.localizedDescription
+            DispatchQueue.main.async {
+                self.parent.isLoading = false
+                self.parent.loadError = text
+            }
+        }
+
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            DispatchQueue.main.async { self.parent.isLoading = true }
+            DispatchQueue.main.async {
+                self.parent.isLoading = true
+                self.parent.loadError = nil
+            }
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            DispatchQueue.main.async { self.parent.loadError = nil }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -69,9 +90,17 @@ struct MacWKWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            DispatchQueue.main.async { self.parent.isLoading = false }
+            report(error)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            report(error)
         }
     }
+}
+
+final class MacBrowserController: ObservableObject {
+    let webView = WKWebView()
 }
 
 // MARK: - MacEmbeddedBrowserPanel (Cursor Style Side Drawer)
@@ -79,12 +108,15 @@ struct MacWKWebView: NSViewRepresentable {
 struct MacEmbeddedBrowserPanel: View {
     @EnvironmentObject private var store: MacAppStore
 
-    @State private var webView = WKWebView()
+    @StateObject private var browser = MacBrowserController()
     @State private var canGoBack = false
     @State private var canGoForward = false
     @State private var isLoading = false
     @State private var pageTitle = ""
     @State private var inputURLString = ""
+    @State private var loadError: String?
+
+    private var webView: WKWebView { browser.webView }
 
     private var activeCompanyTicker: String? {
         store.selectedCompany?.ticker
@@ -102,6 +134,30 @@ struct MacEmbeddedBrowserPanel: View {
 
             Divider()
 
+            if let loadError {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.dsLabel)
+                        .foregroundStyle(Color.dsWarning)
+                    Text(loadError)
+                        .font(.dsCaption)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 8)
+                    Button {
+                        self.loadError = nil
+                    } label: {
+                        Image(systemName: "xmark").font(.dsLabel)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.dsWarning.opacity(0.10))
+                Divider()
+            }
+
             // Native WebKit Viewport
             MacWKWebView(
                 url: $store.browserCurrentURL,
@@ -109,6 +165,7 @@ struct MacEmbeddedBrowserPanel: View {
                 canGoForward: $canGoForward,
                 isLoading: $isLoading,
                 pageTitle: $pageTitle,
+                loadError: $loadError,
                 webView: webView
             )
             .background(Color(NSColor.textBackgroundColor))
@@ -171,7 +228,7 @@ struct MacEmbeddedBrowserPanel: View {
 
                 TextField("Enter URL or search…", text: $inputURLString)
                     .textFieldStyle(.plain)
-                    .font(.callout.monospaced())
+                    .font(.callout.monospacedDigit())
                     .onSubmit {
                         commitAddressInput()
                     }
@@ -241,7 +298,7 @@ struct MacEmbeddedBrowserPanel: View {
                 // Yahoo Finance Preset
                 if let ticker = activeCompanyTicker, !ticker.isEmpty {
                     PresetChip(label: "\(ticker) Quote", icon: "chart.xyaxis.line") {
-                        if let u = URL(string: "https://finance.yahoo.com/quote/\(ticker)") {
+                        if let u = Self.yahooQuoteURL(ticker: ticker) {
                             navigate(to: u)
                         }
                     }
@@ -250,7 +307,9 @@ struct MacEmbeddedBrowserPanel: View {
                 // Google Finance Preset
                 if let ticker = activeCompanyTicker, !ticker.isEmpty {
                     PresetChip(label: "Google Finance", icon: "magnifyingglass") {
-                        if let u = URL(string: "https://www.google.com/finance/quote/\(ticker):NASDAQ") {
+                        var c = URLComponents(string: "https://www.google.com/finance")!
+                        c.queryItems = [URLQueryItem(name: "q", value: ticker)]
+                        if let u = c.url {
                             navigate(to: u)
                         }
                     }
@@ -269,6 +328,39 @@ struct MacEmbeddedBrowserPanel: View {
         .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
     }
 
+    static func yahooQuoteURL(ticker: String) -> URL? {
+        let upper = ticker.uppercased()
+        var symbol = upper
+        if upper.range(of: "^[A-Z]{1,5}\\.[A-Z]$", options: .regularExpression) != nil {
+            symbol = upper.replacingOccurrences(of: ".", with: "-")
+        }
+        let encoded = symbol.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? symbol
+        return URL(string: "https://finance.yahoo.com/quote/\(encoded)")
+    }
+
+    static func looksLikeHost(_ input: String) -> Bool {
+        guard !input.contains(" ") else { return false }
+        var host = input
+        if let slash = host.firstIndex(of: "/") { host = String(host[..<slash]) }
+        if let colon = host.lastIndex(of: ":"), host[host.index(after: colon)...].allSatisfy(\.isNumber) {
+            host = String(host[..<colon])
+        }
+        guard !host.isEmpty else { return false }
+        if host == "localhost" { return true }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        if labels.count == 4, labels.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) { return true }
+        guard labels.count >= 2, let last = labels.last else { return false }
+        return last.count >= 2 && last.allSatisfy(\.isLetter)
+    }
+
+    static func searchURL(for text: String) -> URL? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#?")
+        var c = URLComponents(string: "https://www.google.com/search")!
+        c.percentEncodedQuery = "q=" + (text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text)
+        return c.url
+    }
+
     private func commitAddressInput() {
         let trimmed = inputURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -276,21 +368,18 @@ struct MacEmbeddedBrowserPanel: View {
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
             if let valid = URL(string: trimmed) {
                 navigate(to: valid)
-            }
-        } else if trimmed.contains(".") && !trimmed.contains(" ") {
-            if let valid = URL(string: "https://\(trimmed)") {
-                navigate(to: valid)
-            }
-        } else {
-            // Search Google
-            let query = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
-            if let searchURL = URL(string: "https://www.google.com/search?q=\(query)") {
+            } else if let searchURL = Self.searchURL(for: trimmed) {
                 navigate(to: searchURL)
             }
+        } else if Self.looksLikeHost(trimmed), let valid = URL(string: "https://\(trimmed)") {
+            navigate(to: valid)
+        } else if let searchURL = Self.searchURL(for: trimmed) {
+            navigate(to: searchURL)
         }
     }
 
     private func navigate(to target: URL) {
+        loadError = nil
         store.browserCurrentURL = target
         inputURLString = target.absoluteString
         webView.load(URLRequest(url: target))

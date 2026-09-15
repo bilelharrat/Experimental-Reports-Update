@@ -376,6 +376,13 @@ struct HomeView: View {
                 await model.loadWatchlist(desk.watchlist)
                 consumeDeepLink()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .bshServerDidSync)) { _ in
+                Task {
+                    await model.load()
+                    await desk.forceReload()
+                    await model.loadWatchlist(desk.watchlist)
+                }
+            }
             .onChange(of: router.pending) { _, _ in consumeDeepLink() }
             .onChange(of: desk.watchlist) { _, tickers in
                 Task { await model.loadWatchlist(tickers) }

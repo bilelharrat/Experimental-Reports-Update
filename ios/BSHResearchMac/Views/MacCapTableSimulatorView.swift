@@ -22,6 +22,10 @@ struct MacCapTableSimulatorView: View {
     @State private var futureDilutionPercent: Double = 22.0 // cumulative Series B/C/IPO dilution
     @State private var fundSizeMillions: Double = 400.0
     @State private var copiedNotice: Bool = false
+    @State private var saveState: String?
+    @State private var savedModelLoaded: Bool = false
+    @State private var savedModelFailed: Bool = false
+    @EnvironmentObject private var store: MacAppStore
 
     // MARK: - Computed Cap Table Math
     private var postMoneyMillions: Double {
@@ -34,7 +38,11 @@ struct MacCapTableSimulatorView: View {
     }
 
     private var foundersPreMoneyDilutionPercent: Double {
-        100.0 - initialOwnershipPercent - optionPoolPercent
+        max(0, 100.0 - initialOwnershipPercent - optionPoolPercent)
+    }
+
+    private var isOverAllocated: Bool {
+        initialOwnershipPercent + optionPoolPercent > 100.0
     }
 
     private var finalDilutedOwnershipPercent: Double {
@@ -54,88 +62,81 @@ struct MacCapTableSimulatorView: View {
     }
 
     private let scenarios: [ExitScenario] = [
-        ExitScenario(exitValuationMillions: 250.0, label: "$250M (Acquisition)"),
-        ExitScenario(exitValuationMillions: 500.0, label: "$500M (Strategic)"),
-        ExitScenario(exitValuationMillions: 1000.0, label: "$1.0B (Unicorn)"),
-        ExitScenario(exitValuationMillions: 3000.0, label: "$3.0B (Public Scale)"),
-        ExitScenario(exitValuationMillions: 5000.0, label: "$5.0B (Decacorn)"),
-        ExitScenario(exitValuationMillions: 10000.0, label: "$10.0B (Mega Exit)")
+        ExitScenario(exitValuationMillions: 250.0, label: "$250M · acquisition"),
+        ExitScenario(exitValuationMillions: 500.0, label: "$500M · strategic"),
+        ExitScenario(exitValuationMillions: 1000.0, label: "$1.0B · unicorn"),
+        ExitScenario(exitValuationMillions: 3000.0, label: "$3.0B · public scale"),
+        ExitScenario(exitValuationMillions: 5000.0, label: "$5.0B · decacorn"),
+        ExitScenario(exitValuationMillions: 10000.0, label: "$10B · mega exit")
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // Header with Round Selector & Action
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "chart.pie.fill")
-                            .foregroundStyle(Color.accentColor)
-                        Text("Cap Table & Waterfall Dilution Simulator")
-                            .font(.headline)
-                        Text("CARTA / EXCEL GRADE")
-                            .font(.system(size: 8, weight: .black))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    Text("Model term sheet pricing, option pool shuffles, multi-round dilution, and fund return multiples.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            MacCardHeader("Cap table & waterfall", subtitle: "Model the check, pre-money, option pool and later-round dilution; exits show proceeds and MOIC. Saved to the company record.", systemImage: "chart.pie") {
+                if !savedModelLoaded {
+                    ProgressView().controlSize(.small)
+                } else if savedModelFailed {
+                    Label("Saved inputs unavailable", systemImage: "exclamationmark.triangle")
+                        .font(.dsCaption).foregroundStyle(Color.dsWarning)
+                    Button("Retry") { Task { await loadSaved() } }
+                        .controlSize(.small)
+                } else if let saveState {
+                    Text(saveState).font(.dsCaption).foregroundStyle(.secondary)
                 }
-
-                Spacer()
-
-                HStack(spacing: 8) {
-                    if copiedNotice {
-                        Text("Copied to Clipboard!")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.green)
-                            .transition(.opacity)
-                    }
-
-                    Button {
-                        copyTermSheetSummary()
-                    } label: {
-                        Label("Copy Term Sheet", systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button {
-                        resetToStandardSeriesA()
-                    } label: {
-                        Label("Reset", systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                if copiedNotice {
+                    Text("Copied").font(.dsCaption).foregroundStyle(.green).transition(.opacity)
                 }
+                Button {
+                    let inputs = MacCapModelInputs(
+                        preMoneyMusd: preMoneyMillions, newMoneyMusd: checkSizeMillions, ourCheckMusd: checkSizeMillions,
+                        optionPoolPctPost: optionPoolPercent, liquidationPreferenceX: 1.0, participating: false,
+                        exitValuesMusd: scenarios.map(\.exitValuationMillions), notes: roundName
+                    )
+                    saveState = "Saving…"
+                    Task {
+                        saveState = await store.saveCapModel(company.id, inputs: inputs) ? "Saved to \(company.title)" : "Save failed"
+                    }
+                } label: {
+                    Label("Save", systemImage: "tray.and.arrow.down")
+                }
+                .controlSize(.small)
+                .disabled(!store.canWriteDesk || !savedModelLoaded || savedModelFailed)
+                .help(savedModelFailed
+                      ? "The saved model could not be read; retry before saving so it is not overwritten with defaults"
+                      : "Persist these inputs on the company record so IC Review and the decision record can cite them")
+                Button {
+                    copyTermSheetSummary()
+                } label: {
+                    Label("Copy term sheet", systemImage: "doc.on.doc")
+                }
+                .controlSize(.small)
+                Button {
+                    resetToStandardSeriesA()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .controlSize(.small)
+                .help("Reset to a standard Series A")
             }
-
-            Divider()
 
             // Round Inputs Grid
             HStack(alignment: .top, spacing: 20) {
                 // Left Column: Investment Parameters
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Round & Valuation Terms")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
+                    MacSectionLabel("Round terms")
 
                     // Target Round Picker
-                    Picker("Round", selection: $roundName) {
-                        Text("Seed").tag("Seed")
-                        Text("Series A").tag("Series A")
-                        Text("Series B").tag("Series B")
-                        Text("Series C").tag("Series C")
-                        Text("Growth").tag("Growth")
+                    LabeledContent("Round") {
+                        GlassSegmentedPicker("Round", selection: $roundName, segments: [
+                            "Seed": "Seed", "Series A": "Series A", "Series B": "Series B",
+                            "Series C": "Series C", "Growth": "Growth",
+                        ])
                     }
-                    .pickerStyle(.segmented)
 
                     // Check Size
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Our Check Size:")
+                            Text("Our check")
                                 .font(.caption)
                             Spacer()
                             Text("$\(checkSizeMillions, specifier: "%.1f")M")
@@ -147,7 +148,7 @@ struct MacCapTableSimulatorView: View {
                     // Pre-Money Valuation
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Pre-Money Valuation:")
+                            Text("Pre-money")
                                 .font(.caption)
                             Spacer()
                             Text("$\(preMoneyMillions, specifier: "%.1f")M")
@@ -159,7 +160,7 @@ struct MacCapTableSimulatorView: View {
                     // Option Pool Expansion
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Unallocated Option Pool:")
+                            Text("Option pool")
                                 .font(.caption)
                             Spacer()
                             Text("\(optionPoolPercent, specifier: "%.1f")%")
@@ -172,40 +173,26 @@ struct MacCapTableSimulatorView: View {
 
                 // Right Column: Output Summary & Future Dilution
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Post-Money & Dilution Mechanics")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
+                    MacSectionLabel("Post-money & dilution")
 
                     // Key Outputs Card
                     HStack(spacing: 12) {
-                        OutputMetricTile(
-                            title: "POST-MONEY",
-                            value: "$\(String(format: "%.1f", postMoneyMillions))M",
-                            subtext: "Pre + Check"
-                        )
-                        OutputMetricTile(
-                            title: "INITIAL OWNERSHIP",
-                            value: "\(String(format: "%.1f", initialOwnershipPercent))%",
-                            subtext: "At Close"
-                        )
-                        OutputMetricTile(
-                            title: "DILUTED AT EXIT",
-                            value: "\(String(format: "%.1f", finalDilutedOwnershipPercent))%",
-                            subtext: modelFutureDilution ? "Post-\(String(format: "%.0f", futureDilutionPercent))% Dilution" : "Uncut"
-                        )
+                        MacStatTile(label: "Post-money", value: "$\(String(format: "%.1f", postMoneyMillions))M", detail: "pre-money + check", compact: true)
+                        MacStatTile(label: "Ownership at close", value: "\(String(format: "%.1f", initialOwnershipPercent))%", detail: "check ÷ post-money", compact: true)
+                        MacStatTile(label: "Ownership at exit", value: "\(String(format: "%.1f", finalDilutedOwnershipPercent))%", detail: modelFutureDilution ? "after \(String(format: "%.0f", futureDilutionPercent))% later dilution" : "no later rounds modelled", compact: true)
                     }
 
                     // Future Dilution Toggle & Slider
                     VStack(alignment: .leading, spacing: 6) {
                         Toggle(isOn: $modelFutureDilution) {
-                            Text("Model Subsequent Rounds Dilution")
+                            Text("Model later-round dilution")
                                 .font(.caption.weight(.medium))
                         }
                         .toggleStyle(.checkbox)
 
                         if modelFutureDilution {
                             HStack {
-                                Text("Cumulative Future Dilution (Series B/C/IPO):")
+                                Text("Cumulative dilution through exit")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                                 Spacer()
@@ -220,11 +207,11 @@ struct MacCapTableSimulatorView: View {
 
                     // Reference Fund Size
                     HStack {
-                        Text("Reference Fund Size:")
+                        Text("Fund size")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text("$\(fundSizeMillions, specifier: "%.0f")M Fund")
+                        Text("$\(fundSizeMillions, specifier: "%.0f")M")
                             .font(.caption2.monospacedDigit().weight(.semibold))
                     }
                 }
@@ -233,77 +220,73 @@ struct MacCapTableSimulatorView: View {
 
             // Visual Cap Table Structure Bar
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Post-Round Cap Table Breakdown")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("Check + Common + Pool = 100%")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                }
+                MacSectionLabel("Post-round ownership", trailing: isOverAllocated ? nil : "check + common + pool = 100%")
 
                 GeometryReader { geo in
+                    let founders = foundersPreMoneyDilutionPercent
+                    let pool = max(0, optionPoolPercent)
+                    let ours = max(0, initialOwnershipPercent)
+                    let total = max(0.0001, founders + pool + ours)
+                    let avail = max(0, geo.size.width - 4)
                     HStack(spacing: 2) {
                         // Founders & Common
                         Rectangle()
                             .fill(Color.blue)
-                            .frame(width: max(4, geo.size.width * CGFloat(foundersPreMoneyDilutionPercent / 100.0)))
-                            .help("Founders & Prior Investors: \(String(format: "%.1f", foundersPreMoneyDilutionPercent))%")
+                            .frame(width: avail * CGFloat(founders / total))
+                            .help("Founders & Prior Investors: \(String(format: "%.1f", founders))%")
 
                         // Option Pool
                         Rectangle()
                             .fill(Color.orange)
-                            .frame(width: max(4, geo.size.width * CGFloat(optionPoolPercent / 100.0)))
-                            .help("Unallocated Option Pool: \(String(format: "%.1f", optionPoolPercent))%")
+                            .frame(width: avail * CGFloat(pool / total))
+                            .help("Unallocated Option Pool: \(String(format: "%.1f", pool))%")
 
                         // Our Ownership
                         Rectangle()
                             .fill(Color.green)
-                            .frame(width: max(4, geo.size.width * CGFloat(initialOwnershipPercent / 100.0)))
-                            .help("Our Fund (\(roundName)): \(String(format: "%.1f", initialOwnershipPercent))%")
+                            .frame(width: avail * CGFloat(ours / total))
+                            .help("Our Fund (\(roundName)): \(String(format: "%.1f", ours))%")
                     }
+                    .frame(width: geo.size.width, alignment: .leading)
+                    .clipped()
                     .cornerRadius(4)
                 }
                 .frame(height: 14)
 
+                if isOverAllocated {
+                    Label("Check + option pool exceed 100% of post-money; lower the check or raise pre-money.", systemImage: "exclamationmark.triangle")
+                        .font(.dsCaption)
+                        .foregroundStyle(Color.dsWarning)
+                }
+
                 HStack(spacing: 16) {
-                    LegendItem(color: .blue, title: "Founders & Common", value: "\(String(format: "%.1f", foundersPreMoneyDilutionPercent))%")
-                    LegendItem(color: .orange, title: "Option Pool", value: "\(String(format: "%.1f", optionPoolPercent))%")
-                    LegendItem(color: .green, title: "Our Investment (\(roundName))", value: "\(String(format: "%.1f", initialOwnershipPercent))%")
+                    LegendItem(color: .blue, title: "Founders & common", value: "\(String(format: "%.1f", foundersPreMoneyDilutionPercent))%")
+                    LegendItem(color: .orange, title: "Option pool", value: "\(String(format: "%.1f", optionPoolPercent))%")
+                    LegendItem(color: .green, title: "Our stake · \(roundName)", value: "\(String(format: "%.1f", initialOwnershipPercent))%")
                 }
             }
 
             // Exit Return & MOIC Matrix Table
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Exit Proceeds & Fund Return Multiples (MOIC)")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("Based on \(String(format: "%.1f", finalDilutedOwnershipPercent))% diluted terminal equity")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                }
+                MacSectionLabel("Exit proceeds & MOIC", trailing: "at \(String(format: "%.1f", finalDilutedOwnershipPercent))% ownership at exit")
 
                 // Table Header
                 HStack(spacing: 10) {
-                    Text("Exit Valuation")
+                    Text("Exit value")
                         .frame(width: 170, alignment: .leading)
-                    Text("Diluted Ownership")
+                    Text("Stake")
                         .frame(width: 130, alignment: .trailing)
-                    Text("Gross Proceeds")
+                    Text("Proceeds")
                         .frame(width: 130, alignment: .trailing)
-                    Text("Net MOIC")
+                    Text("MOIC")
                         .frame(width: 90, alignment: .trailing)
-                    Text("Fund Returned")
+                    Text("Fund returned")
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .font(.caption2.weight(.bold))
+                .font(.dsLabel)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .appleGlassTile(cornerRadius: 6)
 
                 // Table Rows
                 VStack(spacing: 4) {
@@ -339,12 +322,7 @@ struct MacCapTableSimulatorView: View {
                                     .foregroundStyle(isFundReturner ? Color.green : Color.secondary)
 
                                 if isFundReturner {
-                                    Text("FUND MAKER")
-                                        .font(.system(size: 7, weight: .bold))
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1.5)
-                                        .foregroundStyle(Color.green)
-                                        .appleGlassPill(color: .green)
+                                    MacStatusPill(text: "Returns the fund", color: .green)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -358,9 +336,37 @@ struct MacCapTableSimulatorView: View {
         }
         .padding(16)
         .appleGlassCard(cornerRadius: 16)
+        .task(id: company.id) {
+            saveState = nil
+            copiedNotice = false
+            resetToStandardSeriesA()
+            await loadSaved()
+        }
     }
 
     // MARK: - Actions
+    /// Loads the saved model; Save stays disabled until the server record has been read,
+    /// so a failed read can't be overwritten with the defaults shown meanwhile.
+    private func loadSaved() async {
+        savedModelLoaded = false
+        savedModelFailed = false
+        await store.loadCapModel(company.id)
+        guard !Task.isCancelled else { return }
+        if let model = store.capModelByCompany[company.id] {
+            applySaved(model)
+        } else {
+            savedModelFailed = true
+        }
+        savedModelLoaded = true
+    }
+
+    private func applySaved(_ model: MacCapModel) {
+        preMoneyMillions = model.inputs.preMoneyMusd ?? 60.0
+        checkSizeMillions = model.inputs.ourCheckMusd ?? model.inputs.newMoneyMusd ?? 15.0
+        optionPoolPercent = model.inputs.optionPoolPctPost ?? 10.0
+        roundName = model.inputs.notes.isEmpty ? "Series A" : model.inputs.notes
+    }
+
     private func resetToStandardSeriesA() {
         roundName = "Series A"
         checkSizeMillions = 15.0
@@ -412,14 +418,14 @@ private struct OutputMetricTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                .font(.system(size: 16, weight: .bold).monospacedDigit())
                 .monospacedDigit()
                 .foregroundStyle(Color.accentColor)
             Text(subtext)
-                .font(.system(size: 9))
+                .font(.system(size: 10))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

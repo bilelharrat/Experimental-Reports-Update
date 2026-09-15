@@ -106,6 +106,14 @@ enum WatchConfig {
         return Array(out.prefix(8))
     }
 
+    /// Two equity names for the compact live Tape tile (not index ETFs).
+    static func featureCompanyTickers() -> [String] {
+        let pins = loadWatchlist().map { $0.uppercased() }
+        let equities = pins.filter { !defaultIndexTickers.contains($0) }
+        let picks = equities.isEmpty ? defaultEquityPins : equities
+        return Array(picks.prefix(2))
+    }
+
     /// Offline / first-launch quotes so the tape is never empty.
     static func demoQuotes() -> [WatchQuote] {
         [

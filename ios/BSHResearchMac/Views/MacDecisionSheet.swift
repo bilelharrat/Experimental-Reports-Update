@@ -1,5 +1,19 @@
 import SwiftUI
 
+enum MacDecisionDate {
+    /// The picked calendar day as midnight UTC, so the stored `decided_at` reads as that day everywhere.
+    static func dayInstant(_ date: Date) -> Date {
+        // Read the day with a Gregorian calendar in the user's zone: a Buddhist or Japanese
+        // system calendar would otherwise hand back its own year (2569, 8) for the UTC date.
+        var local = Calendar(identifier: .gregorian)
+        local.timeZone = .current
+        let comps = local.dateComponents([.year, .month, .day], from: date)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return utc.date(from: comps) ?? date
+    }
+}
+
 /// ⌘D — put an Invest / Pass / Watch call on the record, optionally tied to a memo.
 struct MacDecisionSheet: View {
     let company: MacCompany
@@ -37,12 +51,13 @@ struct MacDecisionSheet: View {
 
             Form {
                 Section {
-                    Picker("Verdict", selection: $verdict) {
-                        Label("Invest", systemImage: "checkmark.circle.fill").tag("invest")
-                        Label("Watch", systemImage: "eye").tag("watch")
-                        Label("Pass", systemImage: "xmark.circle").tag("pass")
+                    LabeledContent("Verdict") {
+                        GlassSegmentedPicker(
+                            "Verdict", selection: $verdict, options: ["invest", "watch", "pass"],
+                            title: { ["invest": "Invest", "watch": "Watch", "pass": "Pass"][$0] ?? $0 },
+                            systemImage: { ["invest": "checkmark.circle.fill", "watch": "eye", "pass": "xmark.circle"][$0] }
+                        )
                     }
-                    .pickerStyle(.segmented)
 
                     DatePicker("Decided", selection: $decidedAt, displayedComponents: .date)
 
@@ -106,7 +121,7 @@ struct MacDecisionSheet: View {
             companyId: company.id,
             verdict: verdict,
             explanation: explanation.trimmingCharacters(in: .whitespacesAndNewlines),
-            decidedAt: decidedAt,
+            decidedAt: MacDecisionDate.dayInstant(decidedAt),
             reportId: reportId.isEmpty ? nil : reportId
         )
         if ok {

@@ -8,109 +8,102 @@ private let inkLog = Logger(subsystem: "com.bilelharrrat.bshresearch", category:
 
 // MARK: - Ink controller (state + persistence, owned by the SwiftUI reader)
 
-/// Owns the per-page ink for one open report and persists it off the main thread.
+/// Owns one open report's ink and persists it off the main thread.
 ///
-/// The PencilKit canvases inside `PaperDeskPDFHostView` are the live surface; this
-/// object is the source of truth the host reads when it (re)creates a page overlay,
-/// and the only place that talks to `ReportAnnotationStore`. All disk / network /
-/// PNG work runs on the `InkPersistence` actor so nothing heavy ever executes on the
-/// main thread while the user is writing.
+/// The reader's single `PKCanvasView` is the live surface. This object holds the last committed
+/// copy of its drawing — in composite space, where `ReportAnnotationStore.compositePageRects`
+/// stacks the pages — and is the only place that talks to `ReportAnnotationStore`. Disk, PNG and
+/// network work runs serially on `InkPersistence`, never on the main thread.
 @MainActor
 final class PaperDeskInkController: ObservableObject {
     let reportId: String
 
-    /// Total committed strokes across pages — drives Undo / Clear enablement.
+    /// Strokes on the canvas — drives Undo / Clear enablement.
     @Published private(set) var strokeCount = 0
-    /// Height of the docked `PKToolPicker` overlapping the bottom of the reader (0 when floating/hidden).
-    @Published private(set) var toolPickerBottomInset: CGFloat = 0
 
-    private(set) var pageDrawings: [Int: PKDrawing] = [:]
+    /// Display size of each page; empty until the document loads.
     private(set) var pageSizes: [CGSize] = []
+    /// Last committed canvas drawing, in composite space.
+    private(set) var drawing = PKDrawing()
 
-    weak var host: PaperDeskPDFHostView?
+    weak var host: PaperDeskReaderView?
 
     private let persistence = InkPersistence()
+    private let localInk: ReportAnnotationStore.LocalInk
+    private var needsLocalSave = false
+    private var needsPush = false
     private var localSaveTask: Task<Void, Never>?
     private var pushTask: Task<Void, Never>?
     private var pullTask: Task<Void, Never>?
+    /// Tail of the serial persistence queue.
+    private var persistTail: Task<Void, Never>?
 
     init(reportId: String) {
         self.reportId = reportId
-        pageDrawings = ReportAnnotationStore.loadPageDrawings(reportId: reportId)
-        strokeCount = Self.count(pageDrawings)
+        localInk = ReportAnnotationStore.loadLocalInk(reportId: reportId)
+    }
+
+    /// Ink per page, in page coordinates (annotated-PDF export).
+    var pageDrawings: [Int: PKDrawing] {
+        ReportAnnotationStore.splitComposite(drawing, pageSizes: pageSizes)
     }
 
     // MARK: Host → controller
 
-    func documentDidLoad(pageSizes: [CGSize]) {
+    /// The document is laid out: returns the ink to show, then reconciles with the cloud copy.
+    func documentDidLoad(pageSizes: [CGSize]) -> PKDrawing {
         self.pageSizes = pageSizes
+        drawing = localInk.compositeDrawing(pageSizes: pageSizes)
+        strokeCount = drawing.strokes.count
         pullRemote()
+        return drawing
     }
 
-    func drawing(forPage index: Int) -> PKDrawing {
-        pageDrawings[index] ?? PKDrawing()
-    }
-
-    /// Called once per committed stroke / erase / undo. Cheap: updates state and arms timers.
-    func noteDrawingChanged(page index: Int, drawing: PKDrawing) {
-        pageDrawings[index] = drawing
-        strokeCount = Self.count(pageDrawings)
+    /// A stroke was committed, erased or undone. PencilKit never calls this mid-stroke.
+    func canvasDrawingDidChange(_ drawing: PKDrawing) {
+        self.drawing = drawing
+        strokeCount = drawing.strokes.count
+        needsLocalSave = true
+        needsPush = true
         scheduleLocalSave(after: 1.0)
         schedulePush(after: 4.0)
-    }
-
-    func setToolPickerBottomInset(_ inset: CGFloat) {
-        guard abs(toolPickerBottomInset - inset) > 0.5 else { return }
-        toolPickerBottomInset = inset
     }
 
     // MARK: Reader → controller
 
     func undo() {
-        host?.undoLastStroke()
+        host?.undo()
     }
 
     func clearAll() {
-        pageDrawings.removeAll()
-        strokeCount = 0
-        host?.clearAllCanvases()
         localSaveTask?.cancel()
         pushTask?.cancel()
+        pullTask?.cancel()
+        needsLocalSave = false
+        needsPush = false
+        drawing = PKDrawing()
+        strokeCount = 0
+        host?.clearDrawing()
         let reportId = reportId
-        let persistence = persistence
-        Task.detached(priority: .utility) {
-            await persistence.clear(reportId: reportId)
-        }
+        enqueue { await $0.clear(reportId: reportId) }
     }
 
-    /// Persist now (local + cloud). Safe to call often; work is serialized off-main.
+    /// Persist unsaved edits now (local + cloud). No-op when nothing changed.
     func flush() {
         localSaveTask?.cancel()
         pushTask?.cancel()
-        let snapshot = pageDrawings
-        let sizes = pageSizes
-        let reportId = reportId
-        let persistence = persistence
-        Task.detached(priority: .utility) {
-            await persistence.saveLocal(snapshot, reportId: reportId, pageSizes: sizes)
-            await persistence.push(snapshot, reportId: reportId, pageSizes: sizes)
-        }
+        saveLocalNow()
+        pushNow()
     }
 
-    // MARK: Timers
+    // MARK: Persistence
 
     private func scheduleLocalSave(after delay: TimeInterval) {
         localSaveTask?.cancel()
         localSaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled, let self else { return }
-            let snapshot = self.pageDrawings
-            let sizes = self.pageSizes
-            let reportId = self.reportId
-            let persistence = self.persistence
-            Task.detached(priority: .utility) {
-                await persistence.saveLocal(snapshot, reportId: reportId, pageSizes: sizes)
-            }
+            guard !Task.isCancelled else { return }
+            self?.saveLocalNow()
         }
     }
 
@@ -119,51 +112,71 @@ final class PaperDeskInkController: ObservableObject {
         pushTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
-            // Never compete with a live stroke for the GPU — try again shortly.
+            // The cloud push renders a PNG; never compete with a live stroke for the GPU.
             if self.host?.strokeInFlight == true {
                 self.schedulePush(after: 2.0)
                 return
             }
-            let snapshot = self.pageDrawings
-            let sizes = self.pageSizes
-            let reportId = self.reportId
-            let persistence = self.persistence
-            Task.detached(priority: .utility) {
-                await persistence.push(snapshot, reportId: reportId, pageSizes: sizes)
-            }
+            self.pushNow()
         }
+    }
+
+    private func saveLocalNow() {
+        guard needsLocalSave, !pageSizes.isEmpty else { return }
+        needsLocalSave = false
+        let snapshot = drawing
+        let sizes = pageSizes
+        let reportId = reportId
+        enqueue { await $0.saveLocal(snapshot, reportId: reportId, pageSizes: sizes) }
+    }
+
+    private func pushNow() {
+        guard needsPush, !pageSizes.isEmpty else { return }
+        needsPush = false
+        let snapshot = drawing
+        let sizes = pageSizes
+        let reportId = reportId
+        enqueue { await $0.push(snapshot, reportId: reportId, pageSizes: sizes) }
     }
 
     private func pullRemote() {
         pullTask?.cancel()
         let reportId = reportId
-        let sizes = pageSizes
         let persistence = persistence
         pullTask = Task { [weak self] in
             guard let remote = await persistence.pull(reportId: reportId) else { return }
-            let split = ReportAnnotationStore.splitComposite(remote, pageSizes: sizes)
             guard !Task.isCancelled, let self else { return }
-            self.pageDrawings = split
-            self.strokeCount = Self.count(split)
-            self.host?.applyPageDrawings(split)
+            // Strokes made while the request was out are newer than the server copy; they push shortly.
+            guard !self.needsLocalSave, !self.needsPush, remote != self.drawing else { return }
+            inkLog.info("applying newer cloud ink: \(remote.strokes.count) strokes")
+            self.drawing = remote
+            self.strokeCount = remote.strokes.count
+            self.host?.showDrawing(remote)
+            self.needsLocalSave = true
+            self.saveLocalNow()
         }
     }
 
-    private static func count(_ pages: [Int: PKDrawing]) -> Int {
-        pages.values.reduce(0) { $0 + $1.strokes.count }
+    /// Runs persistence operations one at a time, in the order they were requested.
+    private func enqueue(_ operation: @escaping @Sendable (InkPersistence) async -> Void) {
+        let previous = persistTail
+        let persistence = persistence
+        persistTail = Task.detached(priority: .utility) {
+            await previous?.value
+            await operation(persistence)
+        }
     }
 }
 
-/// Serializes every disk / network / image-render operation for the ink store.
+/// Disk, PNG-render and network work for the ink store, off the main thread.
 actor InkPersistence {
-    func saveLocal(_ pages: [Int: PKDrawing], reportId: String, pageSizes: [CGSize]) {
-        ReportAnnotationStore.savePageDrawings(pages, reportId: reportId, pageSizes: pageSizes)
+    func saveLocal(_ drawing: PKDrawing, reportId: String, pageSizes: [CGSize]) {
+        ReportAnnotationStore.saveComposite(drawing, reportId: reportId, pageSizes: pageSizes)
     }
 
-    func push(_ pages: [Int: PKDrawing], reportId: String, pageSizes: [CGSize]) async {
-        let composite = ReportAnnotationStore.compositeDrawing(from: pages, pageSizes: pageSizes)
+    func push(_ drawing: PKDrawing, reportId: String, pageSizes: [CGSize]) async {
         let size = ReportAnnotationStore.compositeCanvasSize(pageSizes: pageSizes)
-        _ = await ReportAnnotationStore.push(composite, reportId: reportId, canvasSize: size)
+        _ = await ReportAnnotationStore.push(drawing, reportId: reportId, canvasSize: size)
     }
 
     func pull(reportId: String) async -> PKDrawing? {
@@ -178,15 +191,18 @@ actor InkPersistence {
 
 // MARK: - SwiftUI wrapper
 
-/// Full-bleed native PDF reader with page-locked Apple Pencil & finger annotations via `PDFPageOverlayViewProvider`.
+/// Full-bleed memo reader with Apple Pencil ink.
 ///
-/// Live-ink rules (these are what keep PencilKit's in-flight stroke visible on iPad):
-/// - One `PKCanvasView` per page, hosted by PDFKit itself; `isInMarkupMode` routes Pencil to the
-///   overlays and fingers to scrolling. No gesture-recognizer surgery, no hit-test tricks.
-/// - Nothing touches the canvas hierarchy, first responder, tool, or PDF layout while a
-///   stroke is in flight (`strokeInFlight` gates every mutation and defers it to stroke end).
-/// - SwiftUI only ever receives a stroke *count*; drawings never round-trip through view state.
-/// - Persistence and the cloud PNG render run on a background actor, seconds after the last stroke.
+/// Live-ink rules — these are what keep PencilKit's in-flight stroke on screen:
+/// - Exactly one `PKCanvasView`, the size of the viewport, doing its own scrolling and zooming
+///   (the Notes setup). PencilKit sizes the Metal layer that shows a stroke *while it's being
+///   drawn* to the canvas bounds. A canvas as big as the document — a converted memo is a single
+///   ~14,000 pt page — asks for a drawable far past the GPU texture limit, gets none ("No drawable
+///   available; skipping frame"), and the stroke only appears once PencilKit commits it at lift.
+/// - PDF pages are tiled views underneath the ink, inside the canvas, laid out in the same
+///   composite space as the drawing, so ink stays locked to the text while scrolling and zooming.
+/// - Nothing mutates the canvas, zoom or tool picker while a stroke is in flight; it waits for tool-up.
+/// - SwiftUI only ever sees a stroke count; drawings persist off-main, seconds after the last stroke.
 struct MemoPaperDocumentView: UIViewRepresentable {
     let url: URL
     let controller: PaperDeskInkController
@@ -196,66 +212,219 @@ struct MemoPaperDocumentView: UIViewRepresentable {
     var askMenuTitle: String = "Ask Warren"
     var onAskSelection: ((String) -> Void)? = nil
 
-    func makeUIView(context: Context) -> PaperDeskPDFHostView {
-        let host = PaperDeskPDFHostView()
-        host.controller = controller
-        controller.host = host
-        host.askMenuTitle = askMenuTitle
-        host.onAskSelection = onAskSelection
-        host.load(url: url)
-        host.setAnnotating(isAnnotating, pencilOnly: pencilOnly, showsToolPicker: showsToolPicker)
-        return host
+    func makeUIView(context: Context) -> PaperDeskReaderView {
+        let reader = PaperDeskReaderView()
+        reader.controller = controller
+        controller.host = reader
+        reader.askMenuTitle = askMenuTitle
+        reader.onAskSelection = onAskSelection
+        reader.load(url: url)
+        reader.setAnnotating(isAnnotating, pencilOnly: pencilOnly, showsToolPicker: showsToolPicker)
+        return reader
     }
 
-    func updateUIView(_ host: PaperDeskPDFHostView, context: Context) {
-        host.askMenuTitle = askMenuTitle
-        host.onAskSelection = onAskSelection
-        if host.currentURL != url {
-            host.load(url: url)
+    func updateUIView(_ reader: PaperDeskReaderView, context: Context) {
+        reader.askMenuTitle = askMenuTitle
+        reader.onAskSelection = onAskSelection
+        if reader.currentURL != url {
+            reader.load(url: url)
         }
-        host.setAnnotating(isAnnotating, pencilOnly: pencilOnly, showsToolPicker: showsToolPicker)
+        reader.setAnnotating(isAnnotating, pencilOnly: pencilOnly, showsToolPicker: showsToolPicker)
     }
 
-    static func dismantleUIView(_ host: PaperDeskPDFHostView, coordinator: ()) {
-        host.teardown()
+    static func dismantleUIView(_ reader: PaperDeskReaderView, coordinator: ()) {
+        reader.teardown()
     }
 }
 
-// MARK: - Page canvas
+// MARK: - Pages
 
-final class PageCanvasView: PKCanvasView {
+/// Where a PDF page's content lands in a y-down view the page's display size.
+struct PaperPageGeometry {
+    /// Page size as shown (media box, with the page's own rotation applied).
+    let displaySize: CGSize
+    /// PDF page space (y-up, media box coordinates) → view coordinates.
+    let pageToView: CGAffineTransform
+
+    init(page: CGPDFPage) {
+        let box = page.getBoxRect(.mediaBox)
+        let quarterTurns = (Int(page.rotationAngle) % 360 + 360) % 360 / 90
+        let size = quarterTurns % 2 == 0 ? box.size : CGSize(width: box.height, height: box.width)
+        let fit = page.getDrawingTransform(
+            .mediaBox,
+            rect: CGRect(origin: .zero, size: size),
+            rotate: 0,
+            preserveAspectRatio: true
+        )
+        let flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: size.height)
+        displaySize = size
+        pageToView = fit.concatenating(flip)
+    }
+}
+
+/// One page of paper: white sheet, shadow, tiled PDF content and the text-selection highlight.
+/// Its bounds are in page points; the reader scales it with a transform as the canvas zooms.
+final class PaperPageView: UIView {
+    let displaySize: CGSize
+    let pageToView: CGAffineTransform
+    let viewToPage: CGAffineTransform
+    private let selectionLayer = CAShapeLayer()
+
+    init(page: CGPDFPage, pageNumber: Int) {
+        let geometry = PaperPageGeometry(page: page)
+        displaySize = geometry.displaySize
+        pageToView = geometry.pageToView
+        viewToPage = geometry.pageToView.inverted()
+        super.init(frame: CGRect(origin: .zero, size: geometry.displaySize))
+        isUserInteractionEnabled = false
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.16
+        layer.shadowPath = UIBezierPath(rect: bounds).cgPath
+
+        addSubview(PaperPageTilesView(page: page, pageToView: geometry.pageToView, size: geometry.displaySize))
+
+        selectionLayer.frame = bounds
+        selectionLayer.fillColor = UIColor.systemBlue.withAlphaComponent(0.32).cgColor
+        selectionLayer.compositingFilter = "multiplyBlendMode"
+        layer.addSublayer(selectionLayer)
+
+        isAccessibilityElement = true
+        accessibilityLabel = "Page \(pageNumber)"
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    /// Keep the sheet's shadow the same size on screen at every zoom.
+    func zoomDidChange(_ zoom: CGFloat) {
+        layer.shadowRadius = 5 / zoom
+        layer.shadowOffset = CGSize(width: 0, height: 1 / zoom)
+    }
+
+    func setSelectionPath(_ path: CGPath?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        selectionLayer.path = path
+        CATransaction.commit()
+    }
+}
+
+private final class PaperPageTiledLayer: CATiledLayer {
+    override class func fadeDuration() -> CFTimeInterval { 0.05 }
+}
+
+/// Draws a page with Core Graphics from CATiledLayer's background threads, tile by tile, at
+/// whatever resolution the current zoom needs — no PDFKit and no main-thread rendering.
+private final class PaperPageTilesView: UIView {
+    override class var layerClass: AnyClass { PaperPageTiledLayer.self }
+
+    private let page: CGPDFPage
+    private let pageToView: CGAffineTransform
+
+    init(page: CGPDFPage, pageToView: CGAffineTransform, size: CGSize) {
+        self.page = page
+        self.pageToView = pageToView
+        super.init(frame: CGRect(origin: .zero, size: size))
+        isUserInteractionEnabled = false
+        backgroundColor = .white
+        if let tiled = layer as? CATiledLayer {
+            // Levels from 1/2x to 32x page resolution: fit-width through 5x zoom on a 2x screen.
+            tiled.levelsOfDetail = 7
+            tiled.levelsOfDetailBias = 5
+            tiled.tileSize = CGSize(width: 512, height: 512)
+        }
+        layer.setNeedsDisplay()
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func draw(_ layer: CALayer, in ctx: CGContext) {
+        ctx.setFillColor(UIColor.white.cgColor)
+        ctx.fill(ctx.boundingBoxOfClipPath)
+        ctx.concatenate(pageToView)
+        ctx.drawPDFPage(page)
+    }
+}
+
+/// The reader's one canvas. Keeps the page underlay beneath PencilKit's own content views.
+final class PaperCanvasView: PKCanvasView {
+    weak var underlay: UIView?
+
     override var canBecomeFirstResponder: Bool { true }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if let underlay, subviews.first !== underlay {
+            sendSubviewToBack(underlay)
+        }
+    }
 }
 
-// MARK: - Host view
+// MARK: - Reader view
 
-final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasViewDelegate, PKToolPickerObserver {
+final class PaperDeskReaderView: UIView, PKCanvasViewDelegate, UIGestureRecognizerDelegate {
     weak var controller: PaperDeskInkController?
-    var askMenuTitle: String = "Ask Warren"
+    var askMenuTitle = "Ask Warren"
     var onAskSelection: ((String) -> Void)?
 
-    let pdfView = PDFView()
+    private(set) var currentURL: URL?
+    /// True from tool-down to tool-up. Canvas, zoom and tool-picker changes wait for it.
+    private(set) var strokeInFlight = false
+
+    private static let deskColor = UIColor(red: 0.89, green: 0.89, blue: 0.91, alpha: 1.0)
+    /// Zoom range as multiples of fit-width.
+    private static let minZoomFactor: CGFloat = 0.5
+    private static let maxZoomFactor: CGFloat = 5
+
+    private let canvas = PaperCanvasView()
+    private let pagesView = UIView()
     private let toolPicker = PKToolPicker()
 
-    private var canvasMap: [PDFPage: PageCanvasView] = [:]
-    /// Overlays PDFKit currently has on screen, in display order.
-    private var displayedCanvases: [PageCanvasView] = []
-    private weak var lastEditedCanvas: PageCanvasView?
+    private var document: PDFDocument?
+    private var pageViews: [PaperPageView] = []
+    /// Page frames in composite space (= canvas content at zoom 1).
+    private var pageRects: [CGRect] = []
+    private var documentSize: CGSize = .zero
 
     private var isAnnotating = false
     private var pencilOnly = true
     private var showsToolPicker = false
-    private(set) var currentURL: URL?
 
-    /// True from tool-down to tool-up. Every hierarchy / responder / layout mutation is gated on it.
-    private(set) var strokeInFlight = false
+    private var fitScale: CGFloat = 1
+    private var placedSize: CGSize = .zero
+    private var didPlaceDocument = false
+    private var userMovedDocument = false
+
     private var pendingConfig: (annotating: Bool, pencilOnly: Bool, picker: Bool)?
-    private var pendingResponderFix = false
-    private var pendingPageDrawings: [Int: PKDrawing]?
+    private var pendingDrawing: PKDrawing?
     private var pendingClear = false
+    private var pendingPlacement = false
+    private var pendingPickerRefresh = false
+    private var isApplyingDrawing = false
+
+    // Text selection (reading mode).
+    private struct PageHit {
+        let page: Int
+        /// PDF page space.
+        let point: CGPoint
+    }
+
+    private let selectPress = UILongPressGestureRecognizer()
+    private let tapGesture = UITapGestureRecognizer()
+    private var selection: PDFSelection?
+    private var selectionAnchor: PageHit?
+    /// First highlighted line: page index and rect in that page view's coordinates.
+    private var selectionHead: (page: Int, rect: CGRect)?
+    private var lastSelectionUpdate: CFTimeInterval = 0
+    private var dragLocation: CGPoint = .zero
+    private var autoscrollLink: CADisplayLink?
+    private var autoscrollSpeed: CGFloat = 0
 
     private let askCalloutButton: UIButton = {
-        let btn = UIButton(type: .system)
+        let button = UIButton(type: .system)
         var config = UIButton.Configuration.filled()
         config.cornerStyle = .capsule
         config.buttonSize = .mini
@@ -263,17 +432,15 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
         config.baseForegroundColor = .white
         config.imagePadding = 6
         config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14)
-        btn.configuration = config
-        btn.layer.shadowColor = UIColor.black.cgColor
-        btn.layer.shadowOpacity = 0.22
-        btn.layer.shadowOffset = CGSize(width: 0, height: 4)
-        btn.layer.shadowRadius = 8
-        btn.alpha = 0
-        btn.isHidden = true
-        return btn
+        button.configuration = config
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.22
+        button.layer.shadowOffset = CGSize(width: 0, height: 4)
+        button.layer.shadowRadius = 8
+        button.alpha = 0
+        button.isHidden = true
+        return button
     }()
-
-    private var selectedText: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -286,361 +453,621 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
     }
 
     private func setup() {
-        backgroundColor = UIColor(red: 0.89, green: 0.89, blue: 0.91, alpha: 1.0)
+        backgroundColor = Self.deskColor
 
-        pdfView.translatesAutoresizingMaskIntoConstraints = false
-        pdfView.displayMode = .singlePageContinuous
-        pdfView.displayDirection = .vertical
-        pdfView.displayBox = .mediaBox
-        pdfView.autoScales = true
-        pdfView.displaysPageBreaks = true
-        pdfView.pageBreakMargins = UIEdgeInsets(top: 14, left: 0, bottom: 14, right: 0)
-        pdfView.backgroundColor = UIColor(red: 0.89, green: 0.89, blue: 0.91, alpha: 1.0)
-        pdfView.usePageViewController(false)
-        pdfView.pageOverlayViewProvider = self
-        addSubview(pdfView)
+        canvas.frame = bounds
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
+        // Ink colors are chosen for white paper; don't let PencilKit invert them in Dark Mode.
+        canvas.overrideUserInterfaceStyle = .light
+        canvas.drawingPolicy = .pencilOnly
+        canvas.drawingGestureRecognizer.isEnabled = false
+        canvas.alwaysBounceVertical = true
+        canvas.bouncesZoom = true
+        canvas.delegate = self
+        addSubview(canvas)
 
-        askCalloutButton.translatesAutoresizingMaskIntoConstraints = false
+        pagesView.isUserInteractionEnabled = false
+        pagesView.backgroundColor = .clear
+        canvas.addSubview(pagesView)
+        canvas.underlay = pagesView
+        canvas.sendSubviewToBack(pagesView)
+
+        toolPicker.stateAutosaveName = "BSHMemoReaderInk"
+        toolPicker.colorUserInterfaceStyle = .light
+        toolPicker.addObserver(canvas)
+
+        selectPress.addTarget(self, action: #selector(handleSelectPress(_:)))
+        selectPress.minimumPressDuration = 0.35
+        selectPress.delegate = self
+        canvas.addGestureRecognizer(selectPress)
+
+        tapGesture.addTarget(self, action: #selector(handleTap(_:)))
+        tapGesture.delegate = self
+        canvas.addGestureRecognizer(tapGesture)
+
         askCalloutButton.addTarget(self, action: #selector(handleAskCalloutTapped), for: .touchUpInside)
         addSubview(askCalloutButton)
-
-        NSLayoutConstraint.activate([
-            pdfView.topAnchor.constraint(equalTo: topAnchor),
-            pdfView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            pdfView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pdfView.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
-
-        toolPicker.selectedTool = PKInkingTool(.pen, color: .black, width: 3)
-        toolPicker.addObserver(self)
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleSelectionChanged),
-            name: .PDFViewSelectionChanged,
-            object: pdfView
-        )
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
         DispatchQueue.main.async { [weak self] in
-            self?.ensureToolPickerActive()
-            self?.reportToolPickerInset()
+            guard let self, !self.strokeInFlight else { return }
+            self.updateToolPicker()
         }
     }
 
     func teardown() {
-        NotificationCenter.default.removeObserver(self)
-        toolPicker.removeObserver(self)
-        if let responder = displayedCanvases.first(where: { $0.isFirstResponder }) ?? canvasMap.values.first {
-            toolPicker.setVisible(false, forFirstResponder: responder)
-            if responder.isFirstResponder {
-                responder.resignFirstResponder()
-            }
+        stopAutoscroll()
+        toolPicker.setVisible(false, forFirstResponder: canvas)
+        toolPicker.removeObserver(canvas)
+        if canvas.isFirstResponder {
+            canvas.resignFirstResponder()
         }
-        for canvas in canvasMap.values {
-            toolPicker.removeObserver(canvas)
-            canvas.delegate = nil
-        }
-        canvasMap.removeAll()
-        displayedCanvases.removeAll()
+        canvas.delegate = nil
     }
 
-    // MARK: - Document loading
+    // MARK: Document
 
     func load(url: URL) {
         currentURL = url
-        guard let doc = PDFDocument(url: url) else { return }
+        clearSelection()
+        pageViews.forEach { $0.removeFromSuperview() }
+        pageViews = []
+        pageRects = []
+        documentSize = .zero
+        document = nil
+        didPlaceDocument = false
+        placedSize = .zero
+        userMovedDocument = false
 
-        for canvas in canvasMap.values {
-            toolPicker.removeObserver(canvas)
-            canvas.delegate = nil
+        guard let pdf = PDFDocument(url: url),
+              let source = CGPDFDocument(url as CFURL),
+              pdf.pageCount > 0,
+              source.numberOfPages == pdf.pageCount
+        else {
+            inkLog.error("could not open \(url.lastPathComponent, privacy: .public)")
+            return
         }
-        canvasMap.removeAll()
-        displayedCanvases.removeAll()
-        lastEditedCanvas = nil
+        let pages = (1...source.numberOfPages).compactMap { source.page(at: $0) }
+        guard pages.count == pdf.pageCount else { return }
 
-        pdfView.document = doc
-        pdfView.isInMarkupMode = isAnnotating
-
+        document = pdf
         var sizes: [CGSize] = []
-        for i in 0..<doc.pageCount {
-            if let page = doc.page(at: i) {
-                sizes.append(page.bounds(for: .mediaBox).size)
-            }
+        for (offset, page) in pages.enumerated() {
+            let view = PaperPageView(page: page, pageNumber: offset + 1)
+            pagesView.addSubview(view)
+            pageViews.append(view)
+            sizes.append(view.displaySize)
         }
-        controller?.documentDidLoad(pageSizes: sizes)
+        pageRects = ReportAnnotationStore.compositePageRects(pageSizes: sizes)
+        documentSize = ReportAnnotationStore.compositeCanvasSize(pageSizes: sizes)
+        showDrawing(controller?.documentDidLoad(pageSizes: sizes) ?? PKDrawing())
+        setNeedsLayout()
+    }
 
+    // MARK: Layout & zoom
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if canvas.frame != bounds {
+            canvas.frame = bounds
+        }
+        guard !pageRects.isEmpty, bounds.width > 1, bounds.height > 1, bounds.size != placedSize else { return }
+        guard !strokeInFlight else {
+            pendingPlacement = true
+            return
+        }
+        placeDocument()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.pdfView.autoScales = true
-            if let firstPage = doc.page(at: 0) {
-                self.pdfView.go(to: firstPage)
+            guard let self, self.didPlaceDocument, !self.strokeInFlight else { return }
+            self.updateContentGeometry()
+            if !self.userMovedDocument {
+                self.canvas.contentOffset = CGPoint(x: self.canvas.contentOffset.x, y: -self.canvas.adjustedContentInset.top)
             }
         }
     }
 
-    /// Replace on-screen ink with `drawings` (e.g. after a cloud pull). Deferred while a stroke is in flight.
-    func applyPageDrawings(_ drawings: [Int: PKDrawing]) {
-        guard !strokeInFlight else {
-            pendingPageDrawings = drawings
+    /// Fit the document to the width on first layout; on later size changes (rotation, the Ask
+    /// panel, window resizing) keep the zoom relative to fit-width and the line at the top of the view.
+    private func placeDocument() {
+        let size = bounds.size
+        let newFit = max(0.01, size.width / documentSize.width)
+
+        guard didPlaceDocument else {
+            didPlaceDocument = true
+            placedSize = size
+            fitScale = newFit
+            canvas.minimumZoomScale = newFit * Self.minZoomFactor
+            canvas.maximumZoomScale = newFit * Self.maxZoomFactor
+            setZoom(newFit)
+            canvas.contentOffset = CGPoint(x: -canvas.adjustedContentInset.left, y: -canvas.adjustedContentInset.top)
             return
         }
-        for canvas in canvasMap.values {
-            let target = drawings[canvas.tag] ?? PKDrawing()
-            let current = canvas.drawing
-            if current.strokes.count != target.strokes.count || current.bounds != target.bounds {
-                canvas.drawing = target
-            }
+
+        let oldZoom = canvas.zoomScale
+        let anchor = CGPoint(
+            x: (canvas.contentOffset.x + canvas.bounds.width / 2) / oldZoom,
+            y: (canvas.contentOffset.y + canvas.adjustedContentInset.top) / oldZoom
+        )
+        let relativeZoom = oldZoom / fitScale
+        placedSize = size
+        fitScale = newFit
+        canvas.minimumZoomScale = newFit * Self.minZoomFactor
+        canvas.maximumZoomScale = newFit * Self.maxZoomFactor
+        let zoom = min(max(relativeZoom * newFit, canvas.minimumZoomScale), canvas.maximumZoomScale)
+        setZoom(zoom)
+        canvas.contentOffset = clampedOffset(CGPoint(
+            x: anchor.x * zoom - canvas.bounds.width / 2,
+            y: anchor.y * zoom - canvas.adjustedContentInset.top
+        ))
+    }
+
+    private func setZoom(_ zoom: CGFloat) {
+        if abs(canvas.zoomScale - zoom) > 0.000_1 {
+            canvas.zoomScale = zoom
+        }
+        updateContentGeometry()
+    }
+
+    /// Size the scrollable content and place every page for the current zoom.
+    private func updateContentGeometry() {
+        guard !pageRects.isEmpty else { return }
+        let zoom = canvas.zoomScale
+        let scaled = CGSize(width: documentSize.width * zoom, height: documentSize.height * zoom)
+        if canvas.contentSize != scaled {
+            canvas.contentSize = scaled
+        }
+        pagesView.frame = CGRect(origin: .zero, size: scaled)
+        for (index, view) in pageViews.enumerated() where index < pageRects.count {
+            let rect = pageRects[index]
+            view.center = CGPoint(x: rect.midX * zoom, y: rect.midY * zoom)
+            view.transform = CGAffineTransform(scaleX: zoom, y: zoom)
+            view.zoomDidChange(zoom)
+        }
+        // Center the paper when it's smaller than the view (zoomed out past fit-width).
+        let safe = canvas.safeAreaInsets
+        let spareWidth = max(0, canvas.bounds.width - safe.left - safe.right - scaled.width) / 2
+        let spareHeight = max(0, canvas.bounds.height - safe.top - safe.bottom - scaled.height) / 2
+        let centering = UIEdgeInsets(top: spareHeight, left: spareWidth, bottom: spareHeight, right: spareWidth)
+        if canvas.contentInset != centering {
+            canvas.contentInset = centering
         }
     }
 
-    func clearAllCanvases() {
-        guard !strokeInFlight else {
-            pendingClear = true
-            return
-        }
-        for canvas in canvasMap.values where !canvas.drawing.strokes.isEmpty {
-            canvas.drawing = PKDrawing()
-        }
+    private func clampedOffset(_ point: CGPoint) -> CGPoint {
+        let inset = canvas.adjustedContentInset
+        let minX = -inset.left
+        let minY = -inset.top
+        let maxX = max(minX, canvas.contentSize.width + inset.right - canvas.bounds.width)
+        let maxY = max(minY, canvas.contentSize.height + inset.bottom - canvas.bounds.height)
+        return CGPoint(x: min(max(point.x, minX), maxX), y: min(max(point.y, minY), maxY))
     }
 
-    func undoLastStroke() {
-        guard !strokeInFlight else { return }
-        guard let canvas = lastEditedCanvas ?? displayedCanvases.first(where: { !$0.drawing.strokes.isEmpty }) else {
-            return
-        }
-        if let undoManager = canvas.undoManager, undoManager.canUndo {
-            undoManager.undo()
-        } else {
-            var drawing = canvas.drawing
-            guard !drawing.strokes.isEmpty else { return }
-            drawing.strokes.removeLast()
-            canvas.drawing = drawing
-        }
-        controller?.noteDrawingChanged(page: canvas.tag, drawing: canvas.drawing)
-    }
-
-    // MARK: - Annotation mode & tool picker
+    // MARK: Annotation mode & tool picker
 
     func setAnnotating(_ annotating: Bool, pencilOnly: Bool, showsToolPicker: Bool) {
-        let changed = self.isAnnotating != annotating
-            || self.pencilOnly != pencilOnly
-            || self.showsToolPicker != showsToolPicker
-        guard changed else {
-            ensureToolPickerActive()
-            return
-        }
+        guard annotating != isAnnotating
+            || pencilOnly != self.pencilOnly
+            || showsToolPicker != self.showsToolPicker
+        else { return }
         guard !strokeInFlight else {
             pendingConfig = (annotating, pencilOnly, showsToolPicker)
+            scheduleStrokeWatchdog()
             return
         }
 
-        inkLog.info("setAnnotating \(annotating) pencilOnly=\(pencilOnly) picker=\(showsToolPicker)")
-        self.isAnnotating = annotating
+        inkLog.info("annotating=\(annotating) pencilOnly=\(pencilOnly) picker=\(showsToolPicker)")
+        isAnnotating = annotating
         self.pencilOnly = pencilOnly
         self.showsToolPicker = showsToolPicker
 
-        pdfView.isInMarkupMode = annotating
+        canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
+        canvas.drawingGestureRecognizer.isEnabled = annotating
+        selectPress.isEnabled = !annotating
+        tapGesture.isEnabled = !annotating
         if annotating {
-            hideAskCallout()
-            pdfView.clearSelection()
+            clearSelection()
         }
-
-        for canvas in canvasMap.values {
-            canvas.isUserInteractionEnabled = annotating
-            canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
+        // This runs inside SwiftUI's view update. Changing first responder / showing the tool
+        // picker there re-lays out the hosting view mid-update and SwiftUI drops the frame (the
+        // reader's controls render one state behind), so do it on the next turn of the run loop.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.strokeInFlight else { return }
+            self.updateToolPicker()
         }
+    }
 
-        if annotating && showsToolPicker {
-            ensureToolPickerActive()
-        } else {
-            for canvas in canvasMap.values where canvas.isFirstResponder {
-                toolPicker.setVisible(false, forFirstResponder: canvas)
-                canvas.resignFirstResponder()
+    private func updateToolPicker() {
+        guard window != nil else { return }
+        let wantsPicker = isAnnotating && showsToolPicker
+        toolPicker.setVisible(wantsPicker, forFirstResponder: canvas)
+        if wantsPicker {
+            if !canvas.isFirstResponder {
+                canvas.becomeFirstResponder()
             }
-            reportToolPickerInset()
+        } else if canvas.isFirstResponder {
+            canvas.resignFirstResponder()
         }
     }
 
-    /// Show the tool picker for one on-screen canvas if none currently owns it. Cheap no-op otherwise.
-    private func ensureToolPickerActive() {
-        guard isAnnotating, showsToolPicker, window != nil, !strokeInFlight else { return }
-        if displayedCanvases.contains(where: { $0.isFirstResponder }) { return }
-        let target = pdfView.currentPage.flatMap { canvasMap[$0] }
-            ?? displayedCanvases.first
-            ?? canvasMap.values.first
-        guard let target else { return }
-        toolPicker.setVisible(true, forFirstResponder: target)
-        _ = target.becomeFirstResponder()
-        inkLog.info("tool picker activated for page \(target.tag)")
-    }
+    // MARK: Ink
 
-    private func reportToolPickerInset() {
-        guard let controller else { return }
-        var inset: CGFloat = 0
-        if toolPicker.isVisible, bounds.height > 0 {
-            let obscured = toolPicker.frameObscured(in: self)
-            if !obscured.isNull, obscured.height > 0, obscured.width > bounds.width * 0.5 {
-                inset = max(0, bounds.maxY - obscured.minY)
-            }
+    /// Replace the canvas ink (document load, a newer cloud copy). Waits for tool-up.
+    func showDrawing(_ drawing: PKDrawing) {
+        guard !strokeInFlight else {
+            pendingDrawing = drawing
+            scheduleStrokeWatchdog()
+            return
         }
-        controller.setToolPickerBottomInset(inset)
+        isApplyingDrawing = true
+        canvas.drawing = drawing
+        isApplyingDrawing = false
     }
 
-    private func applyPendingMutations() {
+    func clearDrawing() {
+        guard !strokeInFlight else {
+            pendingClear = true
+            scheduleStrokeWatchdog()
+            return
+        }
+        showDrawing(PKDrawing())
+    }
+
+    func undo() {
+        guard !strokeInFlight else { return }
+        if let undoManager = canvas.undoManager, undoManager.canUndo {
+            undoManager.undo()
+        } else if !canvas.drawing.strokes.isEmpty {
+            var drawing = canvas.drawing
+            drawing.strokes.removeLast()
+            // Reported through canvasViewDrawingDidChange like any edit.
+            canvas.drawing = drawing
+        }
+    }
+
+    private func applyPendingChanges() {
+        guard !strokeInFlight else { return }
         if let config = pendingConfig {
             pendingConfig = nil
             setAnnotating(config.annotating, pencilOnly: config.pencilOnly, showsToolPicker: config.picker)
         }
-        if pendingResponderFix {
-            pendingResponderFix = false
-            ensureToolPickerActive()
-        }
         if pendingClear {
             pendingClear = false
-            clearAllCanvases()
+            pendingDrawing = nil
+            // As an edit, so the controller also persists the clear over the stroke just committed.
+            canvas.drawing = PKDrawing()
+        } else if let drawing = pendingDrawing {
+            pendingDrawing = nil
+            showDrawing(drawing)
         }
-        if let drawings = pendingPageDrawings {
-            pendingPageDrawings = nil
-            applyPageDrawings(drawings)
+        if pendingPlacement {
+            pendingPlacement = false
+            setNeedsLayout()
+        }
+        if pendingPickerRefresh {
+            pendingPickerRefresh = false
+            updateToolPicker()
         }
     }
 
-    // MARK: - PKToolPickerObserver
-
-    func toolPickerFramesObscuredDidChange(_ toolPicker: PKToolPicker) {
-        reportToolPickerInset()
-    }
-
-    func toolPickerVisibilityDidChange(_ toolPicker: PKToolPicker) {
-        reportToolPickerInset()
-    }
-
-    // MARK: - PDFPageOverlayViewProvider
-
-    func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
-        if let existing = canvasMap[page] {
-            return existing
-        }
-        guard let doc = view.document else { return nil }
-        let index = doc.index(for: page)
-        guard index != NSNotFound else { return nil }
-
-        let bounds = page.bounds(for: .mediaBox)
-        let canvas = PageCanvasView(frame: CGRect(origin: .zero, size: bounds.size))
-        canvas.backgroundColor = .clear
-        canvas.isOpaque = false
-        canvas.isScrollEnabled = false
-        canvas.drawingPolicy = pencilOnly ? .pencilOnly : .anyInput
-        canvas.isUserInteractionEnabled = isAnnotating
-        canvas.tool = toolPicker.selectedTool
-        canvas.isRulerActive = toolPicker.isRulerActive
-        canvas.tag = index
-        canvas.delegate = self
-        if let controller {
-            let drawing = controller.drawing(forPage: index)
-            if !drawing.strokes.isEmpty {
-                canvas.drawing = drawing
+    /// Recovers if PencilKit ever skips `canvasViewDidEndUsingTool`, so queued changes still land.
+    private func scheduleStrokeWatchdog() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self, self.strokeInFlight else { return }
+            if self.canvas.drawingGestureRecognizer.numberOfTouches == 0 {
+                inkLog.error("stroke end was never reported; releasing queued changes")
+                self.strokeInFlight = false
+                self.applyPendingChanges()
+            } else {
+                self.scheduleStrokeWatchdog()
             }
         }
-        toolPicker.addObserver(canvas)
-        canvasMap[page] = canvas
-        return canvas
     }
 
-    func pdfView(_ view: PDFView, willDisplayOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let canvas = overlayView as? PageCanvasView else { return }
-        if !displayedCanvases.contains(where: { $0 === canvas }) {
-            displayedCanvases.append(canvas)
-        }
-        if strokeInFlight {
-            pendingResponderFix = true
-        } else {
-            ensureToolPickerActive()
-        }
-    }
-
-    func pdfView(_ view: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
-        guard let canvas = overlayView as? PageCanvasView else { return }
-        displayedCanvases.removeAll { $0 === canvas }
-        guard canvas.isFirstResponder else { return }
-        // PDFKit is about to pull this view out of the window, which drops first responder
-        // and hides the tool picker — hand it to another visible page.
-        if strokeInFlight {
-            pendingResponderFix = true
-        } else if let next = displayedCanvases.first {
-            toolPicker.setVisible(true, forFirstResponder: next)
-            _ = next.becomeFirstResponder()
-        }
-    }
-
-    // MARK: - PKCanvasViewDelegate
+    // MARK: PKCanvasViewDelegate
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         strokeInFlight = true
-        if let canvas = canvasView as? PageCanvasView {
-            lastEditedCanvas = canvas
+        // TEMP DIAG
+        do {
+            var lines = ["DIAG canvas bounds=\(canvasView.bounds.size) zoom=\(canvasView.zoomScale) contentSize=\(canvasView.contentSize)"]
+            func walk(_ layer: CALayer, _ path: String) {
+                if let metal = layer as? CAMetalLayer {
+                    lines.append("DIAG metal \(path) bounds=\(metal.bounds.size) drawable=\(metal.drawableSize) scale=\(metal.contentsScale)")
+                }
+                for (i, s) in (layer.sublayers ?? []).enumerated() { walk(s, path + "/\(i)") }
+            }
+            if let window { walk(window.layer, "w") }
+            for line in lines { inkLog.error("\(line, privacy: .public)") }
         }
-        inkLog.debug("stroke begin page \(canvasView.tag) window=\(canvasView.window != nil) responder=\(canvasView.isFirstResponder)")
+        if isAnnotating, showsToolPicker, !canvas.isFirstResponder {
+            // Something else took first responder (e.g. the Ask panel); bring the picker back after this stroke.
+            pendingPickerRefresh = true
+        }
     }
 
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
         strokeInFlight = false
-        inkLog.debug("stroke end page \(canvasView.tag)")
-        applyPendingMutations()
+        // Let PencilKit finish committing the stroke before anything touches the canvas.
+        DispatchQueue.main.async { [weak self] in
+            self?.applyPendingChanges()
+        }
     }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-        if let canvas = canvasView as? PageCanvasView {
-            lastEditedCanvas = canvas
-        }
-        controller?.noteDrawingChanged(page: canvasView.tag, drawing: canvasView.drawing)
+        guard !isApplyingDrawing else { return }
+        // The user's edit supersedes a cloud copy that was waiting for tool-up.
+        pendingDrawing = nil
+        controller?.canvasDrawingDidChange(canvasView.drawing)
     }
 
-    // MARK: - Text selection & Ask callout
+    // MARK: UIScrollViewDelegate
 
-    @objc private func handleSelectionChanged(_ notification: Notification) {
-        guard !isAnnotating else {
-            hideAskCallout()
-            return
-        }
-
-        guard let selection = pdfView.currentSelection,
-              let raw = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else {
-            hideAskCallout()
-            return
-        }
-
-        selectedText = raw
-        guard let page = selection.pages.first else {
-            hideAskCallout()
-            return
-        }
-
-        let pageBounds = selection.bounds(for: page)
-        let rectInPDFView = pdfView.convert(pageBounds, from: page)
-        let centerPoint = CGPoint(x: rectInPDFView.midX, y: max(rectInPDFView.minY - 24, 60))
-
-        showAskCallout(at: centerPoint)
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        updateContentGeometry()
+        updateCalloutPosition()
     }
 
-    private func showAskCallout(at point: CGPoint) {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateCalloutPosition()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        userMovedDocument = true
+    }
+
+    func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+        userMovedDocument = true
+    }
+
+    // MARK: Text selection (reading mode)
+
+    private func pageHit(at location: CGPoint, clampToNearestPage: Bool) -> PageHit? {
+        var nearest: (page: Int, point: CGPoint, distance: CGFloat)?
+        for (index, view) in pageViews.enumerated() {
+            let point = view.convert(location, from: self)
+            if view.bounds.contains(point) {
+                return PageHit(page: index, point: point.applying(view.viewToPage))
+            }
+            guard clampToNearestPage else { continue }
+            let clamped = CGPoint(
+                x: min(max(point.x, view.bounds.minX), view.bounds.maxX),
+                y: min(max(point.y, view.bounds.minY), view.bounds.maxY)
+            )
+            let distance = hypot(clamped.x - point.x, clamped.y - point.y)
+            if nearest.map({ distance < $0.distance }) ?? true {
+                nearest = (index, clamped, distance)
+            }
+        }
+        guard let nearest else { return nil }
+        return PageHit(page: nearest.page, point: nearest.point.applying(pageViews[nearest.page].viewToPage))
+    }
+
+    private func word(at location: CGPoint) -> (hit: PageHit, word: PDFSelection)? {
+        guard let hit = pageHit(at: location, clampToNearestPage: false),
+              let word = document?.page(at: hit.page)?.selectionForWord(at: hit.point),
+              !(word.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return (hit, word)
+    }
+
+    @objc private func handleSelectPress(_ gesture: UILongPressGestureRecognizer) {
+        let location = gesture.location(in: self)
+        switch gesture.state {
+        case .began:
+            guard let found = word(at: location) else { return }
+            hideAskCallout()
+            selectionAnchor = found.hit
+            dragLocation = location
+            applySelection(found.word)
+            UISelectionFeedbackGenerator().selectionChanged()
+        case .changed:
+            dragLocation = location
+            extendSelection(to: location, force: false)
+            updateAutoscroll(for: location)
+        case .ended:
+            stopAutoscroll()
+            extendSelection(to: location, force: true)
+            showAskCallout()
+        case .cancelled, .failed:
+            stopAutoscroll()
+            showAskCallout()
+        default:
+            break
+        }
+    }
+
+    private func extendSelection(to location: CGPoint, force: Bool) {
+        let now = CACurrentMediaTime()
+        guard force || now - lastSelectionUpdate > 1.0 / 30 else { return }
+        lastSelectionUpdate = now
+        guard let anchor = selectionAnchor,
+              let document,
+              let hit = pageHit(at: location, clampToNearestPage: true),
+              let anchorPage = document.page(at: anchor.page),
+              let endPage = document.page(at: hit.page)
+        else { return }
+        // Reading order: page, then top-down (PDF y grows upward), then left-right.
+        let forward = (hit.page, -hit.point.y, hit.point.x) >= (anchor.page, -anchor.point.y, anchor.point.x)
+        let range = forward
+            ? document.selection(from: anchorPage, at: anchor.point, to: endPage, at: hit.point)
+            : document.selection(from: endPage, at: hit.point, to: anchorPage, at: anchor.point)
+        let extended = range ?? PDFSelection(document: document)
+        if let word = anchorPage.selectionForWord(at: anchor.point) {
+            extended.add(word)
+        }
+        if let word = endPage.selectionForWord(at: hit.point) {
+            extended.add(word)
+        }
+        applySelection(extended)
+    }
+
+    private func applySelection(_ newSelection: PDFSelection?) {
+        var paths: [Int: CGMutablePath] = [:]
+        var head: (page: Int, rect: CGRect)?
+        let text = newSelection?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let newSelection, let document, !text.isEmpty {
+            for line in newSelection.selectionsByLine() {
+                for page in line.pages {
+                    let index = document.index(for: page)
+                    guard index != NSNotFound, index < pageViews.count else { continue }
+                    let rect = line.bounds(for: page).applying(pageViews[index].pageToView)
+                    guard !rect.isNull, !rect.isEmpty else { continue }
+                    let path = paths[index] ?? CGMutablePath()
+                    path.addRect(rect)
+                    paths[index] = path
+                    if head == nil {
+                        head = (index, rect)
+                    }
+                }
+            }
+        }
+        selection = text.isEmpty ? nil : newSelection
+        selectionHead = selection == nil ? nil : head
+        for (index, view) in pageViews.enumerated() {
+            view.setSelectionPath(paths[index])
+        }
+    }
+
+    private func clearSelection() {
+        selectionAnchor = nil
+        stopAutoscroll()
+        applySelection(nil)
+        hideAskCallout()
+    }
+
+    private func updateAutoscroll(for location: CGPoint) {
+        let margin: CGFloat = 64
+        let top = safeAreaInsets.top + margin
+        let bottom = bounds.height - safeAreaInsets.bottom - margin
+        if location.y < top {
+            autoscrollSpeed = -min(24, (top - location.y) * 0.4)
+        } else if location.y > bottom {
+            autoscrollSpeed = min(24, (location.y - bottom) * 0.4)
+        } else {
+            stopAutoscroll()
+            return
+        }
+        guard autoscrollLink == nil else { return }
+        let link = CADisplayLink(target: self, selector: #selector(autoscrollTick))
+        link.add(to: .main, forMode: .common)
+        autoscrollLink = link
+    }
+
+    @objc private func autoscrollTick() {
+        let current = canvas.contentOffset
+        let target = clampedOffset(CGPoint(x: current.x, y: current.y + autoscrollSpeed))
+        guard target != current else { return }
+        canvas.contentOffset = target
+        extendSelection(to: dragLocation, force: false)
+    }
+
+    private func stopAutoscroll() {
+        autoscrollLink?.invalidate()
+        autoscrollLink = nil
+        autoscrollSpeed = 0
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        if selection != nil {
+            clearSelection()
+            return
+        }
+        guard let hit = pageHit(at: gesture.location(in: self), clampToNearestPage: false),
+              let page = document?.page(at: hit.page),
+              let annotation = page.annotation(at: hit.point)
+        else { return }
+        if let url = annotation.url ?? (annotation.action as? PDFActionURL)?.url {
+            UIApplication.shared.open(url)
+        } else if let destination = (annotation.action as? PDFActionGoTo)?.destination ?? annotation.destination {
+            scroll(to: destination)
+        }
+    }
+
+    private func scroll(to destination: PDFDestination) {
+        guard let document, let page = destination.page else { return }
+        let index = document.index(for: page)
+        guard index != NSNotFound, index < pageViews.count, index < pageRects.count else { return }
+        var viewY: CGFloat = 0
+        if destination.point.y != kPDFDestinationUnspecifiedValue {
+            viewY = CGPoint(x: 0, y: destination.point.y).applying(pageViews[index].pageToView).y
+        }
+        let zoom = canvas.zoomScale
+        let target = CGPoint(
+            x: canvas.contentOffset.x,
+            y: (pageRects[index].minY + viewY) * zoom - canvas.adjustedContentInset.top - 12
+        )
+        canvas.setContentOffset(clampedOffset(target), animated: true)
+    }
+
+    // MARK: UIGestureRecognizerDelegate
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === selectPress {
+            return !isAnnotating && word(at: selectPress.location(in: self)) != nil
+        }
+        if gestureRecognizer === tapGesture {
+            return !isAnnotating
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        // A press on text may still become a selection; hold the scroll until it can't.
+        gestureRecognizer === selectPress && otherGestureRecognizer === canvas.panGestureRecognizer
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === tapGesture
+    }
+
+    // MARK: Ask callout
+
+    private func showAskCallout() {
+        guard selection != nil, onAskSelection != nil else {
+            hideAskCallout()
+            return
+        }
         var config = askCalloutButton.configuration ?? UIButton.Configuration.filled()
         config.title = askMenuTitle
         config.image = UIImage(systemName: "sparkles")
         askCalloutButton.configuration = config
-
-        askCalloutButton.center = point
+        askCalloutButton.bounds.size = askCalloutButton.intrinsicContentSize
         askCalloutButton.isHidden = false
-
+        updateCalloutPosition()
+        bringSubviewToFront(askCalloutButton)
         UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
             self.askCalloutButton.alpha = 1.0
             self.askCalloutButton.transform = .identity
         }
+    }
+
+    private func updateCalloutPosition() {
+        guard !askCalloutButton.isHidden, let head = selectionHead, head.page < pageViews.count else { return }
+        let rect = pageViews[head.page].convert(head.rect, to: self)
+        let size = askCalloutButton.bounds.size
+        // Stay clear of the reader's top controls.
+        let minY = safeAreaInsets.top + 72 + size.height / 2
+        let maxY = bounds.height - safeAreaInsets.bottom - size.height / 2 - 12
+        var y = rect.minY - size.height / 2 - 10
+        if y < minY {
+            y = rect.maxY + size.height / 2 + 10
+        }
+        let x = min(max(rect.midX, size.width / 2 + 12), bounds.width - size.width / 2 - 12)
+        askCalloutButton.center = CGPoint(x: x, y: min(max(y, minY), max(minY, maxY)))
     }
 
     private func hideAskCallout() {
@@ -649,15 +1076,17 @@ final class PaperDeskPDFHostView: UIView, PDFPageOverlayViewProvider, PKCanvasVi
             self.askCalloutButton.alpha = 0
             self.askCalloutButton.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
         } completion: { _ in
-            self.askCalloutButton.isHidden = true
-            self.selectedText = nil
+            if self.askCalloutButton.alpha == 0 {
+                self.askCalloutButton.isHidden = true
+            }
         }
     }
 
     @objc private func handleAskCalloutTapped() {
-        guard let text = selectedText else { return }
-        hideAskCallout()
-        pdfView.clearSelection()
+        guard let text = selection?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return
+        }
+        clearSelection()
         onAskSelection?(text)
     }
 }

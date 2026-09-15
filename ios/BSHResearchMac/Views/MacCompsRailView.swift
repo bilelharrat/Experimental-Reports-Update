@@ -1,216 +1,260 @@
 import SwiftUI
 
-/// A public peer. Fundamentals stay nil until the comps endpoint (Phase 5) supplies them —
-/// nothing here is estimated on the client.
-struct PublicCompPeer: Identifiable, Hashable {
-    var id: String { ticker }
-    let ticker: String
-    let name: String
-    var evRevenue: Double? = nil
-    var yoyGrowth: Double? = nil
-    var marketCapBillions: Double? = nil
-}
-
+/// Public ↔ private comps, served by `/api/companies/{id}/comps`.
+/// Peer numbers are Nasdaq quote + annual income statement; the private multiple only
+/// appears when the memo states post-money and revenue. Every figure names its source.
 struct MacCompsRailView: View {
     let company: MacCompany
     @EnvironmentObject private var store: MacAppStore
 
-    @State private var customPeerTickers: [String] = []
+    @State private var newPeer = ""
+    @State private var editingPeers = false
+    @State private var loading = false
+    @State private var loadFailed = false
+    @State private var saving = false
+    @State private var peerError: String?
+    @State private var peerTickers: [String]?
 
-    // Default institutional peer comps based on sector
-    private var defaultPeers: [PublicCompPeer] {
-        let sec = (company.sector ?? "").lowercased()
-        if sec.contains("health") || sec.contains("bio") {
-            return [
-                PublicCompPeer(ticker: "ISRG", name: "Intuitive Surgical"),
-                PublicCompPeer(ticker: "VEEV", name: "Veeva Systems"),
-                PublicCompPeer(ticker: "DXCM", name: "DexCom")
-            ]
-        } else if sec.contains("fin") || sec.contains("bank") {
-            return [
-                PublicCompPeer(ticker: "SQ", name: "Block"),
-                PublicCompPeer(ticker: "PYPL", name: "PayPal"),
-                PublicCompPeer(ticker: "AFRM", name: "Affirm Holdings")
-            ]
-        } else {
-            // Enterprise Software / AI / Cloud default
-            return [
-                PublicCompPeer(ticker: "PLTR", name: "Palantir Tech"),
-                PublicCompPeer(ticker: "CRWD", name: "CrowdStrike"),
-                PublicCompPeer(ticker: "DDOG", name: "Datadog"),
-                PublicCompPeer(ticker: "SNOW", name: "Snowflake"),
-                PublicCompPeer(ticker: "MDB", name: "MongoDB")
-            ]
-        }
-    }
+    private var comps: MacComps? { store.compsByCompany[company.id] }
 
-    /// Live quotes for the peer set (fetched on appear; the desk watchlist rarely holds peers).
-    @State private var peerQuotes: [String: MacQuote] = [:]
+    private var canEditPeers: Bool { store.canWriteDesk && peerTickers != nil && !loading }
 
-    /// The company's own implied multiple is only shown when a memo fact supplies it — never guessed.
-    private var targetImpliedEVMultiple: Double? { nil }
+    private var listedTickers: [String] { peerTickers ?? comps?.peers.map(\.ticker) ?? [] }
 
-    private var medianPeerMultiple: Double? {
-        let vals = defaultPeers.compactMap(\.evRevenue).sorted()
-        guard !vals.isEmpty else { return nil }
-        let mid = vals.count / 2
-        return vals.count % 2 == 0 ? (vals[mid - 1] + vals[mid]) / 2.0 : vals[mid]
+    private func fetchedPeer(_ ticker: String) -> MacCompPeer? {
+        comps?.peers.first { $0.ticker == ticker }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "chart.bar.xaxis")
-                            .foregroundStyle(Color.accentColor)
-                        Text("Public ↔ Private Comps Rail")
-                            .font(.headline)
-                        Text("LIVE PEER SET")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2.5)
-                            .appleGlassPill(color: .secondary)
+            MacCardHeader("Comps", subtitle: "Peer price-to-sales from live quotes and annual revenue; the private multiple only when the memo states post-money and revenue.", systemImage: "chart.bar.xaxis") {
+                if loading || saving { ProgressView().controlSize(.small) }
+                Button {
+                    editingPeers.toggle()
+                } label: {
+                    Label(editingPeers ? "Done" : "Edit peers", systemImage: "slider.horizontal.3")
+                }
+                .controlSize(.small)
+                .disabled(!canEditPeers)
+                .help(peerTickers == nil ? "Peers can be edited once the saved list has loaded" : "Add or remove peer tickers")
+                Button {
+                    Task { await reload(refresh: true) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .controlSize(.small)
+                .disabled(loading)
+            }
+
+            if let priv = comps?.privateSide {
+                HStack(spacing: 16) {
+                    stat("Post-money (memo)", priv.postMoneyUsd.map(money) ?? "—")
+                    stat("Revenue / ARR (memo)", priv.revenueUsd.map(money) ?? "—")
+                    stat("Implied multiple", priv.impliedMultiple.map { String(format: "%.1fx", $0) } ?? "—")
+                    stat("Peer median P/S", comps?.peerMedianPriceToSales.map { String(format: "%.1fx", $0) } ?? "—")
+                    if let diff = priv.vsPeerMedianPct {
+                        stat("vs peers", String(format: "%+.0f%%", diff), color: diff <= 0 ? .green : .orange)
                     }
-                    Text("Valuation benchmarking: implied target multiple vs live public trading comps")
+                }
+                if priv.impliedMultiple == nil {
+                    Text(priv.postMoneyUsd == nil
+                         ? "No post-money on record for \(company.title): the memo doesn't state one yet."
+                         : "The memo states a post-money but no revenue figure, so no multiple is implied.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                Spacer()
-
-                HStack(spacing: 6) {
-                    Text(medianPeerMultiple.map { "Median: \(String(format: "%.1fx", $0)) EV/Sales" } ?? "Peer EV/Sales: not loaded")
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(Color.primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .appleGlassTile(cornerRadius: 6)
+                if !priv.sources.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(priv.sources, id: \.self) { source in
+                                Label("\(source.field ?? "fact") · \(source.section ?? "memo")", systemImage: "doc.text")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6).padding(.vertical, 3)
+                                    .background(Color.secondary.opacity(0.1), in: Capsule())
+                                    .help(source.excerpt ?? "")
+                            }
+                        }
+                    }
                 }
             }
 
-            if let target = targetImpliedEVMultiple, let median = medianPeerMultiple {
-                HStack {
-                    Text("Implied \(String(format: "%.1fx", target)) EV/Sales")
-                        .font(.subheadline.weight(.semibold))
+            if editingPeers {
+                HStack(spacing: 8) {
+                    TextField("Add ticker", text: $newPeer)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 120)
+                        .onSubmit { addPeer() }
+                        .disabled(saving || !canEditPeers)
+                    Button("Add") { addPeer() }
+                        .controlSize(.small)
+                        .disabled(newPeer.trimmingCharacters(in: .whitespaces).isEmpty || saving || !canEditPeers)
+                    if let peerError {
+                        Label(peerError, systemImage: "exclamationmark.triangle")
+                            .font(.dsCaption)
+                            .foregroundStyle(Color.dsNegative)
+                            .lineLimit(1)
+                    }
                     Spacer()
-                    let diff = ((target - median) / median) * 100.0
-                    Text(String(format: "%+.1f%% vs peer median", diff))
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(diff <= 0 ? Color.green : Color.orange)
                 }
-            } else {
-                Text("No round-implied multiple on record for \(company.title). It appears here once a memo fact supplies post-money and revenue.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
-            // Comps Peer Table
             VStack(spacing: 0) {
-                // Table Header
                 HStack {
-                    Text("TICKER / PEER")
-                        .frame(width: 160, alignment: .leading)
-                    Text("PRICE")
-                        .frame(width: 80, alignment: .trailing)
-                    Text("1D %")
-                        .frame(width: 70, alignment: .trailing)
-                    Text("EV / SALES")
-                        .frame(width: 90, alignment: .trailing)
-                    Text("YOY GROWTH")
-                        .frame(width: 90, alignment: .trailing)
+                    Text("Peer").frame(width: 190, alignment: .leading)
+                    Text("Price").frame(width: 80, alignment: .trailing)
+                    Text("1D").frame(width: 70, alignment: .trailing)
+                    Text("P/S").frame(width: 70, alignment: .trailing)
+                    Text("Revenue growth").frame(width: 100, alignment: .trailing)
+                    Text("Gross margin").frame(width: 110, alignment: .trailing)
                     Spacer()
-                    Text("MKT CAP")
-                        .frame(width: 80, alignment: .trailing)
+                    Text("Market cap").frame(width: 90, alignment: .trailing)
+                    if editingPeers { Text("").frame(width: 28) }
                 }
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.dsLabel)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color.secondary.opacity(0.06))
 
                 Divider()
 
-                // Table Rows
-                ForEach(defaultPeers) { peer in
-                    let liveQuote = peerQuotes[peer.ticker] ?? store.watchlist.first(where: { $0.ticker == peer.ticker })
-                    HStack {
-                        // Ticker & Name
-                        HStack(spacing: 6) {
-                            Text(peer.ticker)
-                                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
-                            Text(peer.name)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                if !listedTickers.isEmpty {
+                    ForEach(listedTickers, id: \.self) { ticker in
+                        let peer = fetchedPeer(ticker)
+                        HStack {
+                            HStack(spacing: 6) {
+                                Text(ticker)
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text(peer?.name ?? "")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            .frame(width: 190, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .onTapGesture { store.showTicker(ticker) }
+
+                            cell(peer?.lastPrice.map { String(format: "$%.2f", $0) }, width: 80)
+                            cell(peer?.changePct1d.map { String(format: "%+.2f%%", $0) }, width: 70,
+                                 color: (peer?.changePct1d ?? 0) >= 0 ? .green : .red)
+                            cell(peer?.priceToSales.map { String(format: "%.1fx", $0) }, width: 70, bold: true)
+                            cell(peer?.revenueGrowth.map { String(format: "%+.0f%%", $0) }, width: 100,
+                                 color: (peer?.revenueGrowth ?? 0) >= 0 ? .green : .red)
+                            cell(peer?.grossMargin.map { String(format: "%.0f%%", $0) }, width: 110)
+                            Spacer()
+                            cell(peer?.marketCapUsd.map(money), width: 90, secondary: true)
+                            if editingPeers {
+                                Button {
+                                    removePeer(ticker)
+                                } label: {
+                                    Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .frame(width: 28)
+                                .disabled(saving || !canEditPeers)
+                            }
                         }
-                        .frame(width: 160, alignment: .leading)
-
-                        // Live Price
-                        Text(liveQuote?.priceText ?? "—")
-                            .font(.system(size: 12, design: .monospaced))
-                            .monospacedDigit()
-                            .frame(width: 80, alignment: .trailing)
-
-                        // 1D Change
-                        Text(liveQuote?.pctText ?? "—")
-                            .font(.system(size: 12, design: .monospaced))
-                            .monospacedDigit()
-                            .foregroundStyle((liveQuote?.isUp ?? true) ? Color.green : Color.red)
-                            .frame(width: 70, alignment: .trailing)
-
-                        // EV/Sales
-                        Text(peer.evRevenue.map { String(format: "%.1fx", $0) } ?? "—")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .monospacedDigit()
-                            .frame(width: 90, alignment: .trailing)
-
-                        // YoY Growth
-                        Text(peer.yoyGrowth.map { String(format: "%+.0f%%", $0 * 100.0) } ?? "—")
-                            .font(.system(size: 12, design: .monospaced))
-                            .monospacedDigit()
-                            .foregroundStyle((peer.yoyGrowth ?? 0) >= 0 ? Color.green : Color.red)
-                            .frame(width: 90, alignment: .trailing)
-
-                        Spacer()
-
-                        // Mkt Cap
-                        Text(peer.marketCapBillions.map { String(format: "$%.1fB", $0) } ?? "—")
-                            .font(.system(size: 12, design: .monospaced))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 80, alignment: .trailing)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .help(peer?.source ?? "")
+                        Divider()
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-
-                    Divider()
+                } else if loadFailed && comps == nil {
+                    HStack(spacing: 8) {
+                        Text("Peers unavailable.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Retry") { Task { await reload(refresh: false) } }
+                            .controlSize(.small)
+                    }
+                    .padding(10)
+                } else {
+                    Text(loading ? "Loading peers…" : "No peer data yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(10)
                 }
             }
             .appleGlassTile(cornerRadius: 10)
 
-            // Transparency footer
-            HStack(spacing: 8) {
-                Image(systemName: "info.circle")
+            if let at = comps?.generatedAt {
+                Text("Fetched \(MacTimeFormat.relative(at)) · P/S = market cap ÷ latest annual revenue")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("Prices and 1D moves are live quotes. EV/Sales, growth and market cap populate from the comps endpoint (not wired yet) — nothing is estimated.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
         }
         .padding(16)
         .appleGlassCard(cornerRadius: 16)
         .task(id: company.id) {
-            let tickers = defaultPeers.map(\.ticker)
-            if let quotes = try? await MacAPIClient.shared.fetchQuotes(tickers: tickers) {
-                peerQuotes = Dictionary(uniqueKeysWithValues: quotes.map { ($0.ticker, $0) })
+            if comps == nil {
+                await reload(refresh: false)
+            } else {
+                seedPeersFromServer()
             }
         }
+    }
+
+    private func reload(refresh: Bool) async {
+        loading = true
+        await store.loadComps(company.id, refresh: refresh)
+        loading = false
+        loadFailed = comps == nil
+        seedPeersFromServer()
+    }
+
+    private func seedPeersFromServer() {
+        if let comps { peerTickers = comps.peers.map(\.ticker) }
+    }
+
+    private func addPeer() {
+        let t = normalized(newPeer)
+        guard !t.isEmpty, !saving, canEditPeers, var tickers = peerTickers else { return }
+        if !tickers.contains(t) { tickers.append(t) }
+        Task { await savePeers(tickers, clearingDraft: true) }
+    }
+
+    private func removePeer(_ ticker: String) {
+        guard !saving, canEditPeers, let tickers = peerTickers else { return }
+        Task { await savePeers(tickers.filter { $0 != ticker }, clearingDraft: false) }
+    }
+
+    private func savePeers(_ tickers: [String], clearingDraft: Bool) async {
+        var clean: [String] = []
+        for t in tickers.map(normalized) where !t.isEmpty && !clean.contains(t) { clean.append(t) }
+        clean = Array(clean.prefix(12))
+        saving = true
+        peerError = nil
+        defer { saving = false }
+        do {
+            try await MacAPIClient.shared.saveCompsPeers(companyId: company.id, tickers: clean)
+            peerTickers = clean
+            if clearingDraft { newPeer = "" }
+            await store.loadComps(company.id, refresh: true)
+            seedPeersFromServer()
+        } catch {
+            peerError = "Couldn't save peers: \(error.localizedDescription)"
+        }
+    }
+
+    private func normalized(_ raw: String) -> String {
+        String(raw.uppercased().unicodeScalars.filter { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "." || $0 == "-") })
+    }
+
+    private func stat(_ label: String, _ value: String, color: Color = .primary) -> some View {
+        MacStatTile(label: label, value: value, tone: color == .primary ? nil : color, compact: true)
+    }
+
+    private func cell(_ text: String?, width: CGFloat, bold: Bool = false, color: Color = .primary, secondary: Bool = false) -> some View {
+        Text(text ?? "—")
+            .font(.system(size: 12, weight: bold ? .semibold : .regular).monospacedDigit())
+            .monospacedDigit()
+            .foregroundStyle(text == nil ? Color.secondary : (secondary ? Color.secondary : color))
+            .frame(width: width, alignment: .trailing)
+    }
+
+    private func money(_ usd: Double) -> String {
+        if usd >= 1e12 { return String(format: "$%.2fT", usd / 1e12) }
+        if usd >= 1e9 { return String(format: "$%.1fB", usd / 1e9) }
+        if usd >= 1e6 { return String(format: "$%.1fM", usd / 1e6) }
+        return String(format: "$%.0f", usd)
     }
 }

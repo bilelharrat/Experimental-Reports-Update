@@ -57,6 +57,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
 extension Notification.Name {
     static let bshOpenDeepLink = Notification.Name("bshOpenDeepLink")
+    /// Fired after API base URL change / explicit Sync — Home and desks should reload from the live server.
+    static let bshServerDidSync = Notification.Name("bshServerDidSync")
 }
 
 enum PushRegistrar {

@@ -6,8 +6,11 @@ struct SettingsView: View {
     @EnvironmentObject private var language: LanguageStore
     @EnvironmentObject private var appearance: AppearanceStore
     @EnvironmentObject private var askPersona: AskPersonaStore
+    @EnvironmentObject private var desk: DeskStore
     @State private var baseURL: String = AppGroupStore.loadBaseURL() ?? AppConfig.baseURL.absoluteString
     @State private var savedPulse = false
+    @State private var syncing = false
+    @State private var syncMessage: String?
     @State private var showAlerts = false
 
     var body: some View {
@@ -129,7 +132,7 @@ struct SettingsView: View {
                             .keyboardType(.URL)
                             .multilineTextAlignment(.trailing)
                             .font(.footnote.monospaced())
-                            .onSubmit(saveBaseURL)
+                            .onSubmit { Task { await saveBaseURLAndSync() } }
                     } label: {
                         Label {
                             Text(language.t("settings.base_url"))
@@ -137,7 +140,9 @@ struct SettingsView: View {
                             SettingsIcon(symbol: "server.rack", color: .green)
                         }
                     }
-                    Button(action: saveBaseURL) {
+                    Button {
+                        Task { await saveBaseURLAndSync() }
+                    } label: {
                         HStack {
                             Text(language.t("common.save"))
                             if savedPulse {
@@ -148,9 +153,34 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    .disabled(syncing)
+
+                    Button {
+                        Task { await syncNow() }
+                    } label: {
+                        HStack {
+                            if syncing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(syncing ? "Syncing…" : "Sync with server")
+                        }
+                    }
+                    .disabled(syncing)
+
+                    if let syncMessage {
+                        Text(syncMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } footer: {
-                    Text(AppConfig.baseURL.absoluteString)
-                        .font(.caption.monospaced())
+                    Text(
+                        """
+                        Active: \(AppConfig.baseURL.absoluteString)
+                        Use the same URL as the website (this Mac’s LAN IP + :8010). Save then Sync so companies, reports, and desk match the web.
+                        """
+                    )
+                    .font(.caption.monospaced())
                 }
 
                 Section {
@@ -176,12 +206,26 @@ struct SettingsView: View {
         }
     }
 
-    private func saveBaseURL() {
+    private func saveBaseURLAndSync() async {
         AppGroupStore.saveBaseURL(baseURL)
         withAnimation(.spring(duration: 0.3)) { savedPulse = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             withAnimation { savedPulse = false }
         }
+        await syncNow()
+    }
+
+    private func syncNow() async {
+        syncing = true
+        syncMessage = nil
+        defer { syncing = false }
+        await session.refreshMe()
+        await desk.forceReload()
+        await AppDataCache.shared.invalidateAndReload(lang: language.language)
+        let count = AppDataCache.shared.companies.count
+        syncMessage = count == 0
+            ? "Synced — no companies on \(AppConfig.baseURL.host ?? "server"). Check the URL."
+            : "Synced — \(count) companies from \(AppConfig.baseURL.host ?? "server")."
     }
 }
 

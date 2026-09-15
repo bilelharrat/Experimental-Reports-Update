@@ -14,21 +14,33 @@ final class MacNewsDetailViewModel: ObservableObject {
     @Published var loading = false
     @Published var error: String?
 
-    private var currentItemId: String = ""
+    @Published private(set) var briefKey: String?
+
+    private var generation = 0
+
+    static func key(for item: MacNewsItem, lang: String) -> String {
+        "\(item.id)|\(lang)"
+    }
 
     func load(item: MacNewsItem, lang: String = "en", forceRefresh: Bool = false) async {
-        if currentItemId == item.id && brief != nil && !forceRefresh { return }
-        currentItemId = item.id
+        let key = Self.key(for: item, lang: lang)
+        if briefKey == key && (brief != nil || loading) && !forceRefresh { return }
+        briefKey = key
+        generation += 1
+        let token = generation
         if !forceRefresh {
             brief = nil
         }
         loading = true
         error = nil
-        defer { loading = false }
+        defer { if token == generation { loading = false } }
 
         do {
-            brief = try await MacAPIClient.shared.fetchNewsBrief(item: item, lang: lang, refresh: forceRefresh)
+            let result = try await MacAPIClient.shared.fetchNewsBrief(item: item, lang: lang, refresh: forceRefresh)
+            guard token == generation else { return }
+            brief = result
         } catch {
+            guard token == generation, !Task.isCancelled else { return }
             self.error = error.localizedDescription
         }
     }
@@ -77,12 +89,7 @@ struct MacNewsDeskView: View {
                     // Scope & Search Header
                     VStack(spacing: 8) {
                         HStack {
-                            Picker("Scope", selection: $scope) {
-                                ForEach(MacNewsScope.allCases) { s in
-                                    Text(s.rawValue).tag(s)
-                                }
-                            }
-                            .pickerStyle(.segmented)
+                            GlassSegmentedPicker("Scope", selection: $scope, options: MacNewsScope.allCases, title: \.rawValue)
 
                             Button {
                                 Task { await store.refreshNews() }
@@ -140,21 +147,23 @@ struct MacNewsDeskView: View {
                                         .tag(first)
                                         .listRowInsets(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
                                         .listRowSeparator(.hidden)
+                                        .glassListRow(isSelected: selectedNews == first, cornerRadius: 12)
                                 }
                             }
 
                             // Subsequent Magazine Story Rows
                             if scopedNews.count > 1 {
-                                Section("Earlier Stories") {
+                                Section("Earlier") {
                                     ForEach(scopedNews.dropFirst()) { item in
                                         MacNewsStoryRow(item: item)
                                             .tag(item)
                                             .padding(.vertical, 3)
+                                            .glassListRow(isSelected: selectedNews == item)
                                     }
                                 }
                             }
                         }
-                        .listStyle(.inset(alternatesRowBackgrounds: true))
+                        .listStyle(.inset)
                     }
                 }
                 .frame(minWidth: 260, idealWidth: 320, maxWidth: 420)
@@ -166,7 +175,7 @@ struct MacNewsDeskView: View {
                 if let item = effectiveSelection {
                     detailPane(for: item)
                 } else {
-                    ContentUnavailableView("Select a Story", systemImage: "newspaper", description: Text("Select an article from the news stream to view the full intelligence brief."))
+                    ContentUnavailableView("Select a story", systemImage: "newspaper", description: Text("Pick a headline on the left to read it with its brief."))
                 }
             }
             .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
@@ -184,16 +193,8 @@ struct MacNewsDeskView: View {
                 .help(listExpanded ? "Collapse news rail" : "Show news rail")
             }
 
-            ToolbarItem(placement: .automatic) {
-                Picker("Language", selection: $language) {
-                    Text("English").tag("en")
-                    Text("中文").tag("zh")
-                }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-            }
         }
-        .onChange(of: selectedNews) { _, newItem in
+        .onChange(of: effectiveSelection) { _, newItem in
             if let newItem {
                 Task {
                     await detailModel.load(item: newItem, lang: language)
@@ -207,11 +208,24 @@ struct MacNewsDeskView: View {
                 }
             }
         }
+        .onChange(of: store.newsFocusId) { _, _ in
+            adoptFocus()
+        }
         .task {
-            if let first = scopedNews.first {
-                await detailModel.load(item: first, lang: language)
+            adoptFocus()
+            if let item = effectiveSelection {
+                await detailModel.load(item: item, lang: language)
             }
         }
+    }
+
+    private func adoptFocus() {
+        guard let id = store.newsFocusId else { return }
+        store.newsFocusId = nil
+        guard let match = store.news.first(where: { $0.id == id }) else { return }
+        scope = .all
+        newsSearch = ""
+        selectedNews = match
     }
 
     // MARK: - Detail Reading Pane
@@ -225,15 +239,16 @@ struct MacNewsDeskView: View {
                 Divider()
 
                 // AI Briefing or Standfirst
-                if let brief = detailModel.brief {
+                let isCurrent = detailModel.briefKey == MacNewsDetailViewModel.key(for: item, lang: language)
+                if isCurrent, let brief = detailModel.brief {
                     briefingContent(brief: brief, item: item)
-                } else if detailModel.loading {
+                } else if isCurrent, detailModel.loading {
                     writingBanner
                 } else {
                     standfirstView(for: item)
                 }
 
-                if let err = detailModel.error {
+                if isCurrent, let err = detailModel.error {
                     Label(err, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundStyle(.red)
@@ -275,17 +290,20 @@ struct MacNewsDeskView: View {
 
                 Spacer()
 
+                GlassSegmentedPicker("Language", selection: $language, segments: ["en": "English", "zh": "中文"])
+                .controlSize(.small)
+                .frame(width: 140)
+
                 if let rawURL = item.url, let url = URL(string: rawURL) {
                     Button {
                         withAnimation {
                             store.openInEmbeddedBrowser(url)
                         }
                     } label: {
-                        Label("Read Source in Browser", systemImage: "globe")
+                        Label("Read source", systemImage: "globe")
                     }
-                    .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .help("Open original story inside embedded research browser")
+                    .help("Open the original story in the research browser")
                 }
             }
 
@@ -319,20 +337,20 @@ struct MacNewsDeskView: View {
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                Label("Generate Investment Briefing", systemImage: "sparkles")
-                    .font(.headline)
-                Text("Synthesize what happened, why it matters for equity valuation, risk vectors, and checkable markers using Serena LLM.")
+                Label("Investment brief", systemImage: "sparkles")
+                    .font(.dsHeadline)
+                Text("What happened, why it matters for the valuation, the risks, and the markers to check next — written from the article and grounded sources.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 Button {
                     Task {
-                        await detailModel.load(item: item, lang: language, forceRefresh: true)
+                        await detailModel.load(item: item, lang: language, forceRefresh: false)
                     }
                 } label: {
                     HStack {
                         Image(systemName: "bolt.fill")
-                        Text("Draft Long-Form Briefing")
+                        Text("Write the brief")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -347,9 +365,9 @@ struct MacNewsDeskView: View {
         HStack(spacing: 12) {
             ProgressView().controlSize(.small)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Synthesizing investment brief with Serena LLM…")
+                Text("Writing the brief…")
                     .font(.subheadline.weight(.medium))
-                Text("Ingesting article content and grounding thesis implications.")
+                Text("Reading the article and grounding the implications.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -364,32 +382,32 @@ struct MacNewsDeskView: View {
             // What Happened
             let what = brief.whatHappened(lang: language)
             if !what.isEmpty {
-                articleBlock("What Happened", body: what)
+                articleBlock("What happened", body: what)
             }
 
             // Why It Matters
             let why = brief.whyItMatters(lang: language)
             if !why.isEmpty {
-                articleBlock("Why It Matters", body: why)
+                articleBlock("Why it matters", body: why)
             }
 
             // Context
             let contextRows = brief.contextBullets(lang: language)
             if !contextRows.isEmpty {
-                bulletBlock("Market & Company Context", rows: contextRows)
+                bulletBlock("Context", rows: contextRows)
             }
 
             // Watch Next
             let watchRows = brief.watchNextBullets(lang: language)
             if !watchRows.isEmpty {
-                bulletBlock("Upcoming Markers & Risks", rows: watchRows)
+                bulletBlock("Watch next", rows: watchRows)
             }
 
             // Sources & Quality
             if let sources = brief.sources, !sources.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("SOURCES")
-                        .font(.caption.weight(.bold))
+                    Text("Sources")
+                        .font(.dsLabel)
                         .foregroundStyle(.secondary)
                     ForEach(Array(sources.enumerated()), id: \.offset) { _, s in
                         if let u = s.url, let linkURL = URL(string: u) {
@@ -417,7 +435,7 @@ struct MacNewsDeskView: View {
                         await detailModel.load(item: item, lang: language, forceRefresh: true)
                     }
                 } label: {
-                    Label("Regenerate Brief", systemImage: "arrow.clockwise")
+                    Label("Regenerate", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
                 .font(.caption)
@@ -428,8 +446,8 @@ struct MacNewsDeskView: View {
 
     private func articleBlock(_ title: String, body: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption.weight(.bold))
+            Text(title)
+                .font(.dsLabel)
                 .foregroundStyle(.secondary)
             Text(body)
                 .font(.system(.body, design: .serif))
@@ -441,8 +459,8 @@ struct MacNewsDeskView: View {
 
     private func bulletBlock(_ title: String, rows: [String]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption.weight(.bold))
+            Text(title)
+                .font(.dsLabel)
                 .foregroundStyle(.secondary)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(alignment: .top, spacing: 8) {
@@ -461,9 +479,9 @@ struct MacNewsDeskView: View {
     private func actionRow(for item: MacNewsItem) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Divider()
-            Label("Consult Warren Buffett / Co-Pilot", systemImage: "bubble.left.and.bubble.right.fill")
-                .font(.headline)
-            Text("Engage the Warren Buffett analytical model on moats, capital efficiency, and valuation impact.")
+            Label("Ask Warren", systemImage: "bubble.left.and.bubble.right")
+                .font(.dsHeadline)
+            Text("Moats, capital efficiency and valuation impact of this story, in the value-investing frame.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -476,7 +494,7 @@ struct MacNewsDeskView: View {
                     }
                     store.askWarren(prompt, context: .news(item: item), company: company)
                 } label: {
-                    Label("Ask Warren About This Story", systemImage: "sparkles")
+                    Label("Ask about this story", systemImage: "sparkles")
                 }
                 .buttonStyle(.bordered)
                 .disabled(!store.canRunTasks)
@@ -502,67 +520,45 @@ struct MacNewsLeadCard: View {
     let item: MacNewsItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .bottomLeading) {
-                LinearGradient(
-                    colors: [tone.opacity(0.85), tone.opacity(0.45)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .font(.system(size: 68, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.2))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, 14)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    if let badge = item.ticker ?? item.companyName {
-                        Text(badge.uppercased())
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(.ultraThinMaterial, in: Capsule())
-                    }
-
-                    Text(item.title)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(3)
-                        .multilineTextAlignment(.leading)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tone)
+                if let badge = item.ticker ?? item.companyName {
+                    MacStatusPill(text: badge.uppercased(), color: tone)
                 }
-                .padding(14)
+                Spacer()
+                Text("Top story").font(.dsLabel).foregroundStyle(.secondary)
             }
-            .frame(height: 150)
 
-            VStack(alignment: .leading, spacing: 8) {
-                if let summary = item.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                }
+            Text(item.title)
+                .font(.system(size: 17, weight: .bold))
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 6) {
-                    if let src = item.source, !src.isEmpty {
-                        Text(src).font(.caption2.weight(.semibold))
-                    }
-                    if !item.timeAgo.isEmpty {
-                        Text("·").font(.caption2).foregroundStyle(.tertiary)
-                        Text(item.timeAgo).font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-                .foregroundStyle(.secondary)
+            if let summary = item.summary, !summary.isEmpty {
+                Text(summary)
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
             }
-            .padding(12)
+
+            HStack(spacing: 6) {
+                if let src = item.source, !src.isEmpty {
+                    Text(src).font(.dsCaption.weight(.semibold))
+                }
+                if !item.timeAgo.isEmpty {
+                    Text("·").font(.dsCaption).foregroundStyle(.tertiary)
+                    Text(item.timeAgo).font(.dsCaption).foregroundStyle(.secondary)
+                }
+            }
+            .foregroundStyle(.secondary)
         }
-        .background(Color(NSColor.controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appleGlassCard()
     }
 
     private var tone: Color {

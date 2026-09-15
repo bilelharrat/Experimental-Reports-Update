@@ -43,7 +43,30 @@ struct MacDocumentsDeskView: View {
         }
     }
 
+    @AppStorage("mac.documents.mode") private var mode: String = "files"
+
     var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                GlassSegmentedPicker("Mode", selection: $mode, segments: ["files": "Files & memos", "transcripts": "Transcripts"])
+                .frame(width: 240)
+                Spacer()
+            }
+            .dsToolbarStrip()
+            Divider()
+                if mode == "transcripts" {
+                    MacTranscriptLibraryView()
+                } else {
+                    filesBody
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onChange(of: store.transcriptToOpen, initial: true) { _, id in
+            if id != nil { mode = "transcripts" }
+        }
+    }
+
+    private var filesBody: some View {
         HSplitView {
             // Left Pane: Document Directory & Filter Rail
             VStack(spacing: 0) {
@@ -69,25 +92,27 @@ struct MacDocumentsDeskView: View {
                     .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
 
                     HStack(spacing: 8) {
-                        // Company Picker
                         Picker("Company", selection: $selectedCompanyFilter) {
-                            Text("All Companies").tag("ALL")
+                            Text("All companies").tag("ALL")
                             Divider()
                             ForEach(availableCompanies) { co in
                                 Text(co.name ?? co.id).tag(co.id)
                             }
                         }
                         .pickerStyle(.menu)
+                        .labelsHidden()
                         .controlSize(.small)
+                        .frame(maxWidth: .infinity)
 
-                        // Status Picker
                         Picker("Status", selection: $selectedStatusFilter) {
-                            Text("All Status").tag("ALL")
+                            Text("Any status").tag("ALL")
                             Text("Complete").tag("COMPLETE")
                             Text("Running").tag("RUNNING")
                         }
                         .pickerStyle(.menu)
+                        .labelsHidden()
                         .controlSize(.small)
+                        .frame(width: 120)
                     }
                 }
                 .padding(10)
@@ -115,16 +140,17 @@ struct MacDocumentsDeskView: View {
                             documentRow(report)
                                 .tag(report)
                                 .padding(.vertical, 4)
+                                .glassListRow(isSelected: store.selectedReport?.id == report.id)
                         }
                     }
-                    .listStyle(.inset(alternatesRowBackgrounds: true))
+                    .listStyle(.inset)
                 }
 
                 Divider()
 
                 // Footer Count & Refresh
                 HStack {
-                    Text("\(filteredReports.count) Documents")
+                    Text("\(filteredReports.count) documents")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -156,9 +182,9 @@ struct MacDocumentsDeskView: View {
                     documentCanvas(report: report)
                 } else {
                     ContentUnavailableView(
-                        "No Document Selected",
+                        "No document selected",
                         systemImage: "doc.richtext",
-                        description: Text("Select an investment memo from the library to open in the native viewer.")
+                        description: Text("Pick a memo on the left to read it here.")
                     )
                 }
             }
@@ -187,52 +213,29 @@ struct MacDocumentsDeskView: View {
 
     private func documentRow(_ report: MacReport) -> some View {
         HStack(spacing: 10) {
-            // Company Initials Monogram
-            Circle()
-                .fill(report.isComplete ? Color.accentColor.opacity(0.12) : Color.orange.opacity(0.12))
-                .frame(width: 32, height: 32)
-                .overlay(
-                    Text(monogram(report))
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(report.isComplete ? Color.accentColor : Color.orange)
-                )
+            MacMonogram(name: report.companyName ?? report.companyId ?? "Document", size: 30)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(report.companyName ?? report.companyId ?? "Document")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
-
-                HStack(spacing: 6) {
-                    Text(report.reportType ?? "Investment Memo")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    if !report.timeAgo.isEmpty {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text(report.timeAgo)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Text([report.reportType ?? "Investment Memo", report.timeAgo].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.dsCaption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
-            Spacer()
+            Spacer(minLength: 6)
 
-            VStack(alignment: .trailing, spacing: 3) {
-                MacStatusPill(
-                    text: report.statusLabel,
-                    color: report.isComplete ? .green : (report.isFailed ? .red : .orange)
-                )
-
-                // iPad ink icon if annotated
-                if report.id == store.openReportId && store.openDocumentOverlayData != nil {
-                    Image(systemName: "pencil.tip.crop.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(Color.orange)
-                        .help("Contains iPad Apple Pencil ink")
-                }
+            if report.id == store.openReportId && store.openDocumentOverlayData != nil {
+                Image(systemName: "pencil.tip.crop.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .help("Contains iPad Apple Pencil ink")
+            }
+            if !report.isComplete {
+                MacStatusPill(text: report.statusLabel, color: report.isFailed ? .red : .orange)
             }
         }
     }
@@ -287,11 +290,7 @@ struct MacDocumentsDeskView: View {
             Divider().frame(height: 18)
 
             // Language Toggle
-            Picker("Language", selection: $store.readerLanguage) {
-                Text("English").tag("en")
-                Text("中文").tag("zh")
-            }
-            .pickerStyle(.segmented)
+            GlassSegmentedPicker("Language", selection: $store.readerLanguage, segments: ["en": "English", "zh": "中文"])
             .controlSize(.small)
             .frame(width: 130)
             .onChange(of: store.readerLanguage) { _, newLang in
@@ -309,10 +308,10 @@ struct MacDocumentsDeskView: View {
                 store.askWarren(prompt, context: .memo(reportId: report.id, page: nil, selectionText: nil), company: company)
             } label: {
                 Label("Ask Warren", systemImage: "sparkles")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Inquire with Warren Copilot about this document")
+                            }
+                            .controlSize(.small)
+                            .disabled(!store.canRunTasks || store.copilotStreaming)
+                            .help(store.canRunTasks ? "Ask Warren about this memo" : "Sign in with an analyst or partner role to ask Warren")
 
             // Open in Embedded Browser / Web Portal
             Button {
@@ -325,7 +324,7 @@ struct MacDocumentsDeskView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .help("Open in Embedded Research Browser (⌘⇧W)")
+            .help("Open this memo in the Research Browser")
 
             // Share / Export File
             if let url = store.openDocumentURL {
@@ -337,12 +336,12 @@ struct MacDocumentsDeskView: View {
                 .help("Export or share file")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color(NSColor.controlBackgroundColor))
-    }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
 
-    // MARK: - Document Canvas
+        // MARK: - Document Canvas
 
     private func documentCanvas(report: MacReport) -> some View {
         ZStack {
@@ -381,8 +380,10 @@ struct MacDocumentsDeskView: View {
                     Image(systemName: "doc.questionmark")
                         .font(.system(size: 36))
                         .foregroundStyle(.secondary)
-                    Text("No document preview available")
+                    Text(store.openDocumentError ?? "No document preview available")
                         .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button("Reload Document") {
                         Task { await store.openMemo(report, language: store.readerLanguage) }
                     }

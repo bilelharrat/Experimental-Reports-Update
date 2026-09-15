@@ -10,6 +10,7 @@ final class WatchQuotesStore: ObservableObject {
     @Published private(set) var active: [WatchQuote] = []
     @Published private(set) var news: [WatchNewsItem] = []
     @Published private(set) var pulse: WatchPulseBrief?
+    @Published private(set) var sparks: [String: WatchSparkSeries] = [:]
     @Published private(set) var loading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var lastRefresh: Date?
@@ -59,6 +60,22 @@ final class WatchQuotesStore: ObservableObject {
         return out
     }
 
+    /// Compact live Tape: exactly two companies (equity pins / defaults).
+    var featureQuotes: [WatchQuote] {
+        let wanted = WatchConfig.featureCompanyTickers()
+        var byTicker = Dictionary(uniqueKeysWithValues: tapeQuotes.map { ($0.ticker, $0) })
+        for demo in WatchConfig.demoQuotes() where byTicker[demo.ticker] == nil {
+            byTicker[demo.ticker] = demo
+        }
+        let resolved = wanted.compactMap { byTicker[$0] }
+        if resolved.count >= 2 { return Array(resolved.prefix(2)) }
+        return Array((resolved + tapeQuotes.filter { !wanted.contains($0.ticker) }).prefix(2))
+    }
+
+    func spark(for ticker: String) -> WatchSparkSeries? {
+        sparks[ticker.uppercased()]
+    }
+
     var pulseHeadline: String {
         pulse?.note?.headlineEn?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             ?? "Morning brief"
@@ -100,10 +117,12 @@ final class WatchQuotesStore: ObservableObject {
         defer { loading = false }
 
         let tickers = resolvedTickers()
+        let featureTickers = WatchConfig.featureCompanyTickers()
         async let quotesTask = WatchAPIClient.shared.fetchQuotes(tickers: tickers)
         async let screenersTask = WatchAPIClient.shared.fetchScreeners(limit: 6)
         async let newsTask = WatchAPIClient.shared.fetchNews(tickers: tickers, limit: 12)
         async let pulseTask = WatchAPIClient.shared.fetchPulse()
+        async let sparksTask = WatchAPIClient.shared.fetchSparks(tickers: featureTickers)
 
         var firstError: String?
 
@@ -138,6 +157,15 @@ final class WatchQuotesStore: ObservableObject {
             if pulse == nil {
                 firstError = firstError ?? error.localizedDescription
             }
+        }
+
+        do {
+            let fetched = try await sparksTask
+            if !fetched.isEmpty {
+                sparks.merge(fetched) { _, new in new }
+            }
+        } catch {
+            // Sparks are optional; keep prior series when offline.
         }
 
         if !watchlist.isEmpty || !gainers.isEmpty || !news.isEmpty || pulse != nil {

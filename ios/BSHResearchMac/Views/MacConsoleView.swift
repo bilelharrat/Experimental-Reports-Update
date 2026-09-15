@@ -47,33 +47,42 @@ struct MacConsoleView: View {
             HStack {
                 Text("Sessions").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
-                Button {
-                    creating = true
-                    Task {
-                        await store.createConsoleSession(companyId: company.id, includeLibraryDocs: includeLibraryDocs, language: "en")
-                        creating = false
-                    }
-                } label: {
-                    if creating { ProgressView().controlSize(.mini) } else { Image(systemName: "plus") }
+                Button(action: startSession) {
+                    if creating { ProgressView().controlSize(.mini) } else { Label("New", systemImage: "plus") }
                 }
-                .buttonStyle(.plain)
+                .controlSize(.small)
                 .disabled(creating || !store.canRunTasks)
                 .help("New session (stages research + library documents)")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
 
-            Toggle("Include document library", isOn: $includeLibraryDocs)
+            Toggle("Load the document library too", isOn: $includeLibraryDocs)
                 .toggleStyle(.checkbox)
                 .font(.caption)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 6)
 
+            if let consoleError = store.consoleError {
+                HStack(alignment: .top, spacing: 6) {
+                    Text(consoleError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button { store.consoleError = nil } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 6)
+            }
+
             Divider()
 
             List(selection: $store.consoleSelectedSessionId) {
                 if sessions.isEmpty {
-                    Text("No sessions yet. Press + to start one.")
+                    Text("No sessions yet. Press New to start one.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(sessions) { session in
@@ -102,9 +111,11 @@ struct MacConsoleView: View {
                     }
                     .padding(.vertical, 2)
                     .tag(session.id)
+                    .glassListRow(isSelected: store.consoleSelectedSessionId == session.id)
                     .contextMenu {
                         if !session.isArchived {
                             Button("Archive") { Task { await store.archiveConsoleSession(companyId: company.id, sessionId: session.id) } }
+                                .disabled(!store.canRunTasks)
                         }
                         Button("Delete", role: .destructive) { Task { await store.deleteConsoleSession(companyId: company.id, sessionId: session.id) } }
                             .disabled(!store.canDeleteDocuments)
@@ -142,7 +153,7 @@ struct MacConsoleView: View {
                             Label("Archive", systemImage: "archivebox")
                         }
                         .controlSize(.small)
-                        .disabled(streaming)
+                        .disabled(streaming || !store.canRunTasks)
                     }
                 }
                 .padding(.horizontal, 14)
@@ -182,7 +193,17 @@ struct MacConsoleView: View {
                 }
             }
         } else {
-            ContentUnavailableView("No session", systemImage: "terminal", description: Text("Create a session to talk to Warren with this company's documents staged."))
+            ContentUnavailableView {
+                Label("Sessions for \(company.title)", systemImage: "clock.arrow.circlepath")
+            } description: {
+                Text("A session is a saved conversation that keeps this company's research files loaded, so follow-ups remember what came before. You can attach PDFs, images and Word files, and pick it up again later.")
+            } actions: {
+                Button(action: startSession) {
+                    if creating { ProgressView().controlSize(.small) } else { Text("Start a Session") }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(creating || !store.canRunTasks)
+            }
         }
     }
 
@@ -195,11 +216,11 @@ struct MacConsoleView: View {
                 if !turn.isUser && turn.text.isEmpty {
                     HStack(spacing: 6) { ProgressView().controlSize(.small); Text(store.consoleActivity ?? "Thinking…").font(.subheadline).foregroundStyle(.secondary) }
                         .padding(12)
-                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                        .appleGlassCard()
                 } else {
-                    Text(turn.text)
-                        .font(.body)
-                        .lineSpacing(3)
+                    Group {
+                        if turn.isUser { Text(turn.text).font(.system(size: 14)) } else { MacMarkdownText(text: turn.text) }
+                    }
                         .textSelection(.enabled)
                         .padding(12)
                         .background(turn.isUser ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -259,17 +280,26 @@ struct MacConsoleView: View {
                     Button("Cancel") { Task { await store.cancelConsoleTurn(companyId: company.id) } }
                         .controlSize(.small)
                 } else {
+                    if store.consoleSubmitting {
+                        ProgressView().controlSize(.mini)
+                    } else if store.consoleStreamingTurn != nil {
+                        Text("A turn is running in another session")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     Button { send(session) } label: {
                         Image(systemName: "arrow.up.circle.fill").font(.title2)
-                            .foregroundStyle(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.accentColor)
+                            .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
                     }
                     .buttonStyle(.plain)
-                    .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !store.canRunTasks)
+                    .disabled(!canSend)
+                    .help(store.consoleSubmitting ? "Sending…"
+                          : (store.consoleStreamingTurn != nil ? "Warren is answering in another session; wait or cancel" : "Send"))
                     .keyboardShortcut(.defaultAction)
                 }
             }
             .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .appleGlassCard()
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(dropTargeted ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: dropTargeted ? 2 : 1))
         }
         .padding(14)
@@ -280,7 +310,7 @@ struct MacConsoleView: View {
                     var url: URL?
                     if let data = item as? Data { url = URL(dataRepresentation: data, relativeTo: nil) }
                     if let u = item as? URL { url = u }
-                    if let url {
+                    if let url, Self.droppableExtensions.contains(url.pathExtension.lowercased()) {
                         DispatchQueue.main.async { attachments.append(url) }
                     }
                 }
@@ -289,11 +319,28 @@ struct MacConsoleView: View {
         }
     }
 
+    private func startSession() {
+        creating = true
+        Task {
+            await store.createConsoleSession(companyId: company.id, includeLibraryDocs: includeLibraryDocs, language: "en")
+            creating = false
+        }
+    }
+
+    private static let droppableExtensions: Set<String> = ["png", "jpg", "jpeg", "webp", "pdf", "doc", "docx"]
+
+    private var canSend: Bool {
+        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && store.canRunTasks
+            && !store.consoleBusy
+    }
+
     private func send(_ session: MacConsoleSession) {
+        guard canSend else { return }
         let text = prompt
         let files = attachments
+        guard store.askConsole(companyId: company.id, sessionId: session.id, prompt: text, attachments: files) else { return }
         prompt = ""
         attachments = []
-        store.askConsole(companyId: company.id, sessionId: session.id, prompt: text, attachments: files)
     }
 }

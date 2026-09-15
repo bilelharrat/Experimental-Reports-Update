@@ -40,10 +40,15 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connects to your BSH Research server on the local network.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Dictates questions for Ask Warren.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Records voice questions for Ask.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Dictates questions for Ask Warren.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
@@ -59,10 +64,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<true/>
-	</dict>
 </dict>
 </plist>

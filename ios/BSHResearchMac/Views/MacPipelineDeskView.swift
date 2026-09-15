@@ -20,6 +20,10 @@ struct MacPipelineRow: Identifiable, Hashable {
     let attentionHigh: Bool
     let followed: Bool
     let lastActivity: String
+    let lastActivityDate: Date
+    let fitScore: Int
+    let fitLabel: String
+    let fitReasons: String
 }
 
 struct MacPipelineDeskView: View {
@@ -60,7 +64,11 @@ struct MacPipelineDeskView: View {
                 attention: row?.primaryAttention?.label ?? "",
                 attentionHigh: row?.primaryAttention?.isHigh ?? false,
                 followed: store.isFollowed(id),
-                lastActivity: MacTimeFormat.relative(row?.lastActivityAt)
+                lastActivity: MacTimeFormat.relative(row?.lastActivityAt),
+                lastActivityDate: MacTimeFormat.parse(row?.lastActivityAt) ?? .distantPast,
+                fitScore: row?.thesisFit?.score ?? -1,
+                fitLabel: row?.thesisFit.map { $0.score.map { "\($0)" } ?? $0.label } ?? "",
+                fitReasons: row?.thesisFit?.reasons.joined(separator: "\n") ?? ""
             ))
         }
         var filtered = out
@@ -103,12 +111,15 @@ struct MacPipelineDeskView: View {
                 store.selectCompany(company)
             }
         }
-        .onKeyPress(.return) {
-            openSelected()
-            return .handled
+        .onChange(of: validFollowedIds.isEmpty) { _, empty in
+            if empty { followedOnly = false }
         }
-        .onKeyPress("j") { move(1); return .handled }
-        .onKeyPress("k") { move(-1); return .handled }
+    }
+
+    private var validFollowedIds: [String] {
+        guard !store.companies.isEmpty else { return [] }
+        let known = Set(store.companies.map(\.id))
+        return store.followedCompanyIds.filter { known.contains($0) }
     }
 
     // MARK: - Header / footer
@@ -128,7 +139,7 @@ struct MacPipelineDeskView: View {
             Picker("Stage", selection: $stageFilter) {
                 Text("All stages").tag(MacLifecycleStage?.none)
                 Divider()
-                ForEach(MacLifecycleStage.allCases) { stage in
+                ForEach(MacLifecycleStage.knownCases) { stage in
                     Label(stage.rawValue, systemImage: stage.systemImage).tag(MacLifecycleStage?.some(stage))
                 }
             }
@@ -137,6 +148,7 @@ struct MacPipelineDeskView: View {
 
             Toggle("Followed only", isOn: $followedOnly)
                 .toggleStyle(.checkbox)
+                .disabled(validFollowedIds.isEmpty)
 
             Spacer()
 
@@ -164,8 +176,10 @@ struct MacPipelineDeskView: View {
                     Label("Sync All", systemImage: "arrow.triangle.2.circlepath")
                 }
             }
-            .disabled(store.pipelineSyncing || !store.canRunTasks)
-            .help("Refresh tracked news for every followed company (runs on the server; can take minutes)")
+            .disabled(store.pipelineSyncing || !store.canRunTasks || validFollowedIds.isEmpty)
+            .help(validFollowedIds.isEmpty
+                  ? "Follow companies to sync their tracked news"
+                  : "Refresh tracked news for every followed company (runs on the server; can take minutes)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -183,10 +197,14 @@ struct MacPipelineDeskView: View {
 
     private var footer: some View {
         HStack {
-            Text("\(rows.count) companies · \(store.followedCompanyIds.count) followed")
+            Text("\(rows.count) companies · \(validFollowedIds.count) followed")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            if let at = store.pipelineLoadedAt {
+            if store.rollupStale {
+                Text(store.pipelineError == nil ? "· Showing the last board" : "· Showing the last board · sync failed")
+                    .font(.caption2)
+                    .foregroundStyle(Color.dsWarning)
+            } else if let at = store.pipelineLoadedAt {
                 Text("· rollup \(at.formatted(date: .omitted, time: .shortened))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -211,7 +229,7 @@ struct MacPipelineDeskView: View {
                     }
                     Text(row.name).fontWeight(.medium)
                     if !row.ticker.isEmpty {
-                        Text(row.ticker).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        Text(row.ticker).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -222,6 +240,18 @@ struct MacPipelineDeskView: View {
                     .foregroundStyle(stageColor(row.stage))
             }
             .width(min: 100, ideal: 120)
+
+            TableColumn("Fit", value: \.fitScore) { row in
+                if row.fitScore < 0 {
+                    Text("—").foregroundStyle(.tertiary).help(row.fitLabel.isEmpty ? "" : row.fitLabel)
+                } else {
+                    Text("\(row.fitScore)%")
+                        .monospacedDigit()
+                        .foregroundStyle(row.fitScore >= 70 ? Color.green : (row.fitScore >= 40 ? Color.orange : Color.red))
+                        .help(row.fitReasons)
+                }
+            }
+            .width(min: 50, ideal: 60)
 
             TableColumn("Next action", value: \.nextAction) { row in
                 if row.attention.isEmpty {
@@ -266,7 +296,7 @@ struct MacPipelineDeskView: View {
             }
             .width(min: 120, ideal: 240)
 
-            TableColumn("Activity", value: \.lastActivity) { row in
+            TableColumn("Activity", value: \.lastActivityDate) { row in
                 Text(row.lastActivity).font(.caption).foregroundStyle(.secondary)
             }
             .width(min: 70, ideal: 90)
@@ -292,6 +322,12 @@ struct MacPipelineDeskView: View {
                 store.showCompany(company)
             }
         }
+        .onKeyPress(.return) {
+            openSelected()
+            return .handled
+        }
+        .onKeyPress("j") { move(1); return .handled }
+        .onKeyPress("k") { move(-1); return .handled }
     }
 
     // MARK: - Detail pane
@@ -315,6 +351,8 @@ struct MacPipelineDeskView: View {
                     Label(store.stage(for: company.id).rawValue, systemImage: store.stage(for: company.id).systemImage)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(stageColor(store.stage(for: company.id)))
+
+                    MacSignalScoreView(companyId: company.id, compact: true)
 
                     if let row {
                         VStack(alignment: .leading, spacing: 6) {
@@ -395,7 +433,7 @@ struct MacPipelineDeskView: View {
                         Button {
                             store.requestNewReport(for: company)
                         } label: {
-                            Label("New memo run", systemImage: "plus.doc").frame(maxWidth: .infinity)
+                            Label("New memo run", systemImage: "doc.badge.plus").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
                         .disabled(!store.canRunTasks)
@@ -436,6 +474,7 @@ struct MacPipelineDeskView: View {
         case .portfolio: return .green
         case .watch: return .orange
         case .passed: return .red
+        case .unknown: return .secondary
         }
     }
 

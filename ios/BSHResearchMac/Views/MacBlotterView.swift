@@ -16,6 +16,10 @@ struct MacBlotterView: View {
                 alertsPane
             case .signals:
                 MacSignalsPane()
+            case .chat:
+                MacFirmChatPane()
+            case .audit:
+                MacAuditPane()
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -38,25 +42,26 @@ struct MacBlotterView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Picker("", selection: $store.blotterTab) {
-                Text("Jobs \(store.activeJobs.isEmpty ? "" : "· \(store.activeJobs.count)")").tag(MacBlotterTab.jobs)
-                Text("Alerts \(store.alertEvents.isEmpty ? "" : "· \(min(store.alertEvents.count, 99))")").tag(MacBlotterTab.alerts)
-                Text("Signals \(store.signals.isEmpty ? "" : "· \(store.signals.count)")").tag(MacBlotterTab.signals)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 320)
+            GlassSegmentedPicker("Panel", selection: $store.blotterTab, segments: [
+                .jobs: "Jobs \(store.activeJobs.isEmpty ? "" : "· \(store.activeJobs.count)")",
+                .alerts: "Alerts \(store.alertEvents.isEmpty ? "" : "· \(min(store.alertEvents.count, 99))")\(store.unseenAlertCount > 0 ? " · \(store.unseenAlertCount) new" : "")",
+                .signals: "Signals \(store.signals.isEmpty ? "" : "· \(store.signals.count)")",
+                .chat: "Chat \((store.mentions?.openCount ?? 0) == 0 ? "" : "· @\(store.mentions?.openCount ?? 0)")",
+                .audit: "Audit",
+            ])
+            .frame(width: 460)
 
             Spacer()
 
-            if store.blotterTab == .jobs {
+            switch store.blotterTab {
+            case .jobs:
                 Button {
                     Task { await store.refreshJobs() }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .controlSize(.small)
-            } else if store.blotterTab == .signals {
+            case .signals:
                 Button {
                     Task { await store.loadSignals() }
                 } label: {
@@ -65,23 +70,27 @@ struct MacBlotterView: View {
                 .controlSize(.small)
                 .disabled(store.signalsLoading)
                 .help("Score every logged call against live prices")
-            } else {
+            case .alerts:
                 if let last = store.lastAlertCheck {
                     Text("Checked \(last.formatted(date: .omitted, time: .shortened))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text(MacAppStore.isUSMarketOpen() ? "Market open · auto-check every minute" : "Market closed")
+                Text(!MacAppStore.isUSMarketOpen()
+                     ? "Market closed"
+                     : (store.armedAlertRules.isEmpty ? "Market open · no armed alert rules" : "Market open · auto-check every minute"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button {
-                    Task { await store.runAlertCheck(notify: true) }
+                    Task { await store.runAlertCheck(notify: true, reveal: true) }
                 } label: {
                     Label("Check now", systemImage: "bell.badge")
                 }
                 .controlSize(.small)
-                .disabled(store.checkingAlerts || store.alertRules.isEmpty)
-                .help(store.alertRules.isEmpty ? "No alert rules on the desk yet" : "Evaluate every rule against live quotes")
+                .disabled(store.checkingAlerts || store.armedAlertRules.isEmpty)
+                .help(store.armedAlertRules.isEmpty ? "No enabled price or % alert rules on the desk yet" : "Evaluate every rule against live quotes")
+            case .chat, .audit:
+                EmptyView()
             }
 
             Button {
@@ -106,6 +115,7 @@ struct MacBlotterView: View {
                     Section("Running") {
                         ForEach(store.activeJobs) { job in
                             activeRow(job).tag(job.id)
+                                .glassListRow(isSelected: store.selectedJobId == job.id)
                         }
                     }
                 }
@@ -116,10 +126,11 @@ struct MacBlotterView: View {
                     }
                     ForEach(store.jobHistory) { row in
                         historyRow(row).tag(row.reportId ?? row.id)
+                            .glassListRow(isSelected: store.selectedJobId == (row.reportId ?? row.id))
                     }
                 }
             }
-            .listStyle(.inset(alternatesRowBackgrounds: true))
+            .listStyle(.inset)
             .frame(minWidth: 420)
             .layoutPriority(1)
 
@@ -265,7 +276,7 @@ struct MacBlotterView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(selectedLogLines.enumerated()), id: \.offset) { index, line in
                             Text(line)
-                                .font(.caption.monospaced())
+                                .font(.caption.monospacedDigit())
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .id(index)
@@ -302,7 +313,7 @@ struct MacBlotterView: View {
             if store.alertEvents.isEmpty {
                 Text(store.alertRules.isEmpty
                      ? "No alert rules yet — add one from Market Radar."
-                     : "No alerts have fired. \(store.alertRules.count) rule(s) armed.")
+                     : "No alerts have fired. \(store.armedAlertRules.count) rule(s) armed.")
                     .foregroundStyle(.secondary)
             }
             ForEach(store.alertEvents) { event in
@@ -310,7 +321,7 @@ struct MacBlotterView: View {
                     Image(systemName: "bell.fill")
                         .foregroundStyle(Color.orange)
                     Text(event.ticker ?? "—")
-                        .font(.subheadline.monospaced().weight(.bold))
+                        .font(.subheadline.monospacedDigit().weight(.bold))
                         .frame(width: 64, alignment: .leading)
                     Text(event.headline)
                         .font(.subheadline)
@@ -332,7 +343,7 @@ struct MacBlotterView: View {
                 .padding(.vertical, 2)
             }
         }
-        .listStyle(.inset(alternatesRowBackgrounds: true))
+        .listStyle(.inset)
     }
 }
 
@@ -353,13 +364,7 @@ struct MacSignalsPane: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 90)
                     .onSubmit { log() }
-                Picker("", selection: $direction) {
-                    Text("Bullish").tag("bullish")
-                    Text("Bearish").tag("bearish")
-                    Text("Watch").tag("watch")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                GlassSegmentedPicker("Direction", selection: $direction, segments: ["bullish": "Bullish", "bearish": "Bearish", "watch": "Watch"])
                 .frame(width: 220)
                 TextField("What's the call? (e.g. breakout above 200d, guide raise into print)", text: $label)
                     .textFieldStyle(.roundedBorder)
@@ -367,10 +372,15 @@ struct MacSignalsPane: View {
                 Button(saving ? "Logging…" : "Log signal") { log() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(saving || ticker.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(saving || !store.canWriteDesk || ticker.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .help(store.canWriteDesk ? "Record the call in the signal ledger" : "A read-only session cannot log signals")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+
+            Divider()
+
+            MacSignalMovesStrip()
 
             Divider()
 
@@ -382,7 +392,7 @@ struct MacSignalsPane: View {
                 ForEach(store.signals) { signal in
                     HStack(spacing: 10) {
                         Text(signal.ticker)
-                            .font(.subheadline.monospaced().weight(.bold))
+                            .font(.subheadline.monospacedDigit().weight(.bold))
                             .frame(width: 64, alignment: .leading)
                         Text(signal.direction.capitalized)
                             .font(.caption.weight(.semibold))
@@ -417,11 +427,12 @@ struct MacSignalsPane: View {
                             Image(systemName: "trash")
                         }
                         .controlSize(.small)
+                        .disabled(!store.canWriteDesk)
                     }
                     .padding(.vertical, 2)
                 }
             }
-            .listStyle(.inset(alternatesRowBackgrounds: true))
+            .listStyle(.inset)
         }
         .task {
             if store.signals.isEmpty { await store.loadSignals() }
@@ -434,7 +445,7 @@ struct MacSignalsPane: View {
 
     private func log() {
         let t = ticker.trimmingCharacters(in: .whitespaces).uppercased()
-        guard !t.isEmpty else { return }
+        guard !t.isEmpty, store.canWriteDesk, !saving else { return }
         saving = true
         Task {
             if await store.logSignal(ticker: t, direction: direction, label: label.trimmingCharacters(in: .whitespaces)) {

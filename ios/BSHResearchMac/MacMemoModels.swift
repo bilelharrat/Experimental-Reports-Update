@@ -164,6 +164,7 @@ struct MacReport: Identifiable, Hashable, Codable {
     let downloadUrls: [String: String]?
     let previewUrls: [String: String]?
     let memoFiles: [MacMemoFile]?
+    let failurePhase: String?
 
     enum CodingKeys: String, CodingKey {
         case id, audience, language, status, progress, stage, error, kind
@@ -175,6 +176,11 @@ struct MacReport: Identifiable, Hashable, Codable {
         case downloadUrls = "download_urls"
         case previewUrls = "preview_urls"
         case memoFiles = "memo_files"
+        case failurePhase = "failure_phase"
+    }
+
+    var isCancelled: Bool {
+        (failurePhase ?? "").lowercased() == "cancelled" || (status ?? "").lowercased() == "cancelled"
     }
 
     /// Human title — not "Investment Memo Latestage".
@@ -314,11 +320,29 @@ struct MacAnnotationPayload: Decodable {
     let overlayPngBase64: String?
     let overlayUrl: String?
     let updatedAt: String?
+    let canvasWidth: Double?
+    let canvasHeight: Double?
 
     enum CodingKeys: String, CodingKey {
         case overlayPngBase64 = "overlay_png_base64"
         case overlayUrl = "overlay_url"
         case updatedAt = "updated_at"
+        case canvasWidth = "canvas_width"
+        case canvasHeight = "canvas_height"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        overlayPngBase64 = try? c.decodeIfPresent(String.self, forKey: .overlayPngBase64)
+        overlayUrl = try? c.decodeIfPresent(String.self, forKey: .overlayUrl)
+        updatedAt = try? c.decodeIfPresent(String.self, forKey: .updatedAt)
+        canvasWidth = try? c.decodeIfPresent(Double.self, forKey: .canvasWidth)
+        canvasHeight = try? c.decodeIfPresent(Double.self, forKey: .canvasHeight)
+    }
+
+    var canvasSize: CGSize? {
+        guard let canvasWidth, let canvasHeight, canvasWidth > 0, canvasHeight > 0 else { return nil }
+        return CGSize(width: canvasWidth, height: canvasHeight)
     }
 }
 
@@ -329,16 +353,34 @@ enum MacChartRange: String, CaseIterable, Identifiable {
     case d5 = "5D"
     case m1 = "1M"
     case m6 = "6M"
+    case ytd = "YTD"
     case y1 = "1Y"
+    case y5 = "5Y"
     case max = "MAX"
 
     var id: String { rawValue }
+
+    var apiValue: String {
+        switch self {
+        case .d1: return "1d"
+        case .d5: return "5d"
+        case .m1: return "1mo"
+        case .m6: return "6mo"
+        case .ytd: return "ytd"
+        case .y1: return "1y"
+        case .y5: return "5y"
+        case .max: return "max"
+        }
+    }
 }
 
 struct MacChartPoint: Decodable, Identifiable, Hashable {
     var id: Int { t }
     let t: Int
     let close: Double?
+    var open: Double? = nil
+    var high: Double? = nil
+    var low: Double? = nil
     let volume: Double?
 
     var timestamp: Date {
@@ -353,10 +395,35 @@ struct MacChartPayload: Decodable {
     let currency: String?
     let previousClose: Double?
     let points: [MacChartPoint]?
+    var lastPrice: Double? = nil
+    var change: Double? = nil
+    var changePct: Double? = nil
+    var open: Double? = nil
+    var high: Double? = nil
+    var low: Double? = nil
+    var volume: Double? = nil
+    var avgVolume: Double? = nil
+    var marketCap: Double? = nil
+    var peRatio: Double? = nil
+    var eps: Double? = nil
+    var beta: Double? = nil
+    var dividendYield: Double? = nil
+    var fiftyTwoWeekHigh: Double? = nil
+    var fiftyTwoWeekLow: Double? = nil
+    var asOf: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case ticker, name, exchange, currency, points
+        case ticker, name, exchange, currency, points, open, high, low, volume, eps, beta, change
         case previousClose = "previous_close"
+        case lastPrice = "last_price"
+        case changePct = "change_pct_1d"
+        case avgVolume = "avg_volume"
+        case marketCap = "market_cap"
+        case peRatio = "pe_ratio"
+        case dividendYield = "dividend_yield"
+        case fiftyTwoWeekHigh = "fifty_two_week_high"
+        case fiftyTwoWeekLow = "fifty_two_week_low"
+        case asOf = "as_of"
     }
 }
 
@@ -378,9 +445,15 @@ struct MacQuoteSummary: Decodable {
     let beta: String?
     let bid: String?
     let ask: String?
+    var exDividend: String? = nil
+    var alpha: String? = nil
+    var aum: String? = nil
+    var expenseRatio: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case exchange, sector, industry, volume, dividend, yield, beta, bid, ask
+        case exchange, sector, industry, volume, dividend, yield, beta, bid, ask, alpha, aum
+        case exDividend = "ex_dividend"
+        case expenseRatio = "expense_ratio"
         case oneYearTarget = "one_year_target"
         case dayRange = "day_range"
         case avgVolume = "avg_volume"
@@ -411,6 +484,10 @@ struct MacQuoteSummary: Decodable {
         beta = text(.beta)
         bid = text(.bid)
         ask = text(.ask)
+        exDividend = text(.exDividend)
+        alpha = text(.alpha)
+        aum = text(.aum)
+        expenseRatio = text(.expenseRatio)
     }
 
     /// Numeric previous close when the string parses ("$123.45" → 123.45).
@@ -434,6 +511,29 @@ struct MacQuoteProfile: Decodable {
 struct MacQuoteWorkspace: Decodable {
     let summary: MacQuoteSummary?
     let profile: MacQuoteProfile?
+    var financials: MacQuoteFinancials? = nil
+    var analysis: MacQuoteAnalysis? = nil
+    var holders: MacQuoteHolders? = nil
+    var insiders: MacQuoteInsiders? = nil
+    var options: MacQuoteOptions? = nil
+    var earnings: MacQuoteEarnings? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case summary, profile, financials, analysis, holders, insiders, options, earnings
+    }
+
+    init(from decoder: Decoder) throws {
+        // Each block decodes on its own so one malformed section never blanks the workspace.
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try? c.decodeIfPresent(MacQuoteSummary.self, forKey: .summary)
+        profile = try? c.decodeIfPresent(MacQuoteProfile.self, forKey: .profile)
+        financials = try? c.decodeIfPresent(MacQuoteFinancials.self, forKey: .financials)
+        analysis = try? c.decodeIfPresent(MacQuoteAnalysis.self, forKey: .analysis)
+        holders = try? c.decodeIfPresent(MacQuoteHolders.self, forKey: .holders)
+        insiders = try? c.decodeIfPresent(MacQuoteInsiders.self, forKey: .insiders)
+        options = try? c.decodeIfPresent(MacQuoteOptions.self, forKey: .options)
+        earnings = try? c.decodeIfPresent(MacQuoteEarnings.self, forKey: .earnings)
+    }
 }
 
 // MARK: - Desk Preferences & Portfolio Sync
@@ -488,6 +588,59 @@ enum MacCopilotPersona: String, CaseIterable, Identifiable {
         }
     }
 
+    /// First name used in prompts and placeholders ("Ask Warren about TSM…").
+    var shortName: String {
+        switch self {
+        case .warren: return "Warren"
+        case .growth: return "the growth analyst"
+        case .macro: return "the macro strategist"
+        }
+    }
+
+    /// One line on how this lens reads a company, shown wherever the lens is picked.
+    var tagline: String {
+        switch self {
+        case .warren: return "Moat, management, intrinsic value and margin of safety"
+        case .growth: return "Market size, unit economics, retention and product velocity"
+        case .macro: return "Rates, liquidity, currencies and geopolitics"
+        }
+    }
+
+    /// Starter questions for the empty chat, written about the company on screen.
+    func starters(company: String) -> [String] {
+        switch self {
+        case .warren:
+            return [
+                "Does \(company) have a durable moat? What could erode it?",
+                "Is management allocating capital well at \(company)?",
+                "What is \(company) worth, and is there a margin of safety at today's price?",
+                "Would you own \(company) for ten years? Why or why not?"
+            ]
+        case .growth:
+            return [
+                "How big is the real market for \(company), and how much can it win?",
+                "Are \(company)'s unit economics improving or getting worse?",
+                "What are the top growth drivers and headwinds for \(company)?",
+                "Which metric would tell us early that \(company)'s growth is stalling?"
+            ]
+        case .macro:
+            return [
+                "How exposed is \(company) to interest rates and liquidity?",
+                "What currency and geopolitical risks does \(company) carry?",
+                "Where are we in the cycle, and what does that mean for \(company)?",
+                "Which macro scenario hurts \(company) the most?"
+            ]
+        }
+    }
+
+    /// Short follow-ups offered under the latest answer.
+    static let followUps = [
+        "Summarize that in three bullets",
+        "What would change your mind?",
+        "What's the biggest risk here?",
+        "What evidence is this based on?"
+    ]
+
     var icon: String {
         switch self {
         case .warren: return "building.columns"
@@ -516,6 +669,10 @@ struct MacCopilotMessage: Identifiable, Hashable {
     var sources: [String]?
     /// On-screen context the question was asked with ("Memo · page 4", "TSM").
     var contextLabel: String?
+    /// Lens that produced an assistant answer, so switching lenses keeps old answers labeled.
+    var persona: MacCopilotPersona?
+    /// The answer failed; `text` holds the reason and the bubble offers a retry.
+    var isError = false
     let date: Date
 
     enum Role {
@@ -551,7 +708,8 @@ struct MacGenerateReportRequest: Encodable {
 // MARK: - Autocomplete & Active Jobs
 
 struct MacAutocompleteHit: Identifiable, Hashable, Decodable {
-    var id: String { ticker ?? name ?? UUID().uuidString }
+    var id: String { "\(source ?? "")|\(companyId ?? ticker ?? "")|\(name ?? "")" }
+    let companyId: String?
     let ticker: String?
     let name: String?
     let sector: String?
@@ -563,6 +721,7 @@ struct MacAutocompleteHit: Identifiable, Hashable, Decodable {
 
     enum CodingKeys: String, CodingKey {
         case ticker, name, sector, industry, exchange, source, status
+        case companyId = "id"
         case companyType = "company_type"
     }
 
@@ -575,6 +734,59 @@ struct MacAutocompleteHit: Identifiable, Hashable, Decodable {
             .compactMap { $0 }
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
+    }
+}
+
+/// `latest_action` on an active job: an object from the server, or a plain string on older builds.
+struct MacJobAction: Hashable, Decodable {
+    let action: String?
+    let tool: String?
+    let preview: String?
+    let text: String?
+    let error: String?
+    let isError: Bool?
+    let apiErrorStatus: Int?
+    let ts: String?
+
+    enum CodingKeys: String, CodingKey {
+        case action, tool, preview, text, error, ts
+        case isError = "is_error"
+        case apiErrorStatus = "api_error_status"
+    }
+
+    init(action: String? = nil, tool: String? = nil, preview: String? = nil, text: String? = nil, error: String? = nil, isError: Bool? = nil, apiErrorStatus: Int? = nil, ts: String? = nil) {
+        self.action = action
+        self.tool = tool
+        self.preview = preview
+        self.text = text
+        self.error = error
+        self.isError = isError
+        self.apiErrorStatus = apiErrorStatus
+        self.ts = ts
+    }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), let string = try? single.decode(String.self) {
+            self.init(text: string)
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            action: try? c.decodeIfPresent(String.self, forKey: .action),
+            tool: try? c.decodeIfPresent(String.self, forKey: .tool),
+            preview: try? c.decodeIfPresent(String.self, forKey: .preview),
+            text: try? c.decodeIfPresent(String.self, forKey: .text),
+            error: try? c.decodeIfPresent(String.self, forKey: .error),
+            isError: try? c.decodeIfPresent(Bool.self, forKey: .isError),
+            apiErrorStatus: (try? c.decodeIfPresent(Int.self, forKey: .apiErrorStatus))
+                ?? (try? c.decodeIfPresent(Double.self, forKey: .apiErrorStatus)).flatMap { Int($0) },
+            ts: try? c.decodeIfPresent(String.self, forKey: .ts)
+        )
+    }
+
+    var summary: String? {
+        let candidates = [text, preview, tool.map { "\(action ?? "tool") \($0)" }, action, error]
+        return candidates.compactMap { $0 }.first { !$0.isEmpty }
     }
 }
 
@@ -595,7 +807,7 @@ struct MacActiveJob: Identifiable, Hashable, Decodable {
     let lastEventAt: String?
     let elapsedMs: Double?
     let latestStage: String?
-    let latestAction: String?
+    let latestAction: MacJobAction?
     let error: String?
     let reportReady: Bool
     let index: Int?
@@ -620,27 +832,27 @@ struct MacActiveJob: Identifiable, Hashable, Decodable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        kind = try c.decodeIfPresent(String.self, forKey: .kind)
-        title = try c.decodeIfPresent(String.self, forKey: .title)
-        subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+        kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+        title = try? c.decodeIfPresent(String.self, forKey: .title)
+        subtitle = try? c.decodeIfPresent(String.self, forKey: .subtitle)
         progress = (try? c.decodeIfPresent(Int.self, forKey: .progress))
             ?? (try? c.decodeIfPresent(Double.self, forKey: .progress)).flatMap { Int($0) }
-        lastMessage = try c.decodeIfPresent(String.self, forKey: .lastMessage)
-        reportId = try c.decodeIfPresent(String.self, forKey: .reportId)
-        companyId = try c.decodeIfPresent(String.self, forKey: .companyId)
-        streamUrl = try c.decodeIfPresent(String.self, forKey: .streamUrl)
-        logUrl = try c.decodeIfPresent(String.self, forKey: .logUrl)
-        startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)
-        lastEventAt = try c.decodeIfPresent(String.self, forKey: .lastEventAt)
+        lastMessage = try? c.decodeIfPresent(String.self, forKey: .lastMessage)
+        reportId = try? c.decodeIfPresent(String.self, forKey: .reportId)
+        companyId = try? c.decodeIfPresent(String.self, forKey: .companyId)
+        streamUrl = try? c.decodeIfPresent(String.self, forKey: .streamUrl)
+        logUrl = try? c.decodeIfPresent(String.self, forKey: .logUrl)
+        startedAt = try? c.decodeIfPresent(String.self, forKey: .startedAt)
+        lastEventAt = try? c.decodeIfPresent(String.self, forKey: .lastEventAt)
         elapsedMs = try? c.decodeIfPresent(Double.self, forKey: .elapsedMs)
-        latestStage = try c.decodeIfPresent(String.self, forKey: .latestStage)
-        latestAction = try c.decodeIfPresent(String.self, forKey: .latestAction)
-        error = try c.decodeIfPresent(String.self, forKey: .error)
+        latestStage = try? c.decodeIfPresent(String.self, forKey: .latestStage)
+        latestAction = try? c.decodeIfPresent(MacJobAction.self, forKey: .latestAction)
+        error = try? c.decodeIfPresent(String.self, forKey: .error)
         reportReady = (try? c.decodeIfPresent(Bool.self, forKey: .reportReady)) ?? false
         index = try? c.decodeIfPresent(Int.self, forKey: .index)
         totalCount = try? c.decodeIfPresent(Int.self, forKey: .totalCount)
-        let explicit = try c.decodeIfPresent(String.self, forKey: .id)
-        let runId = try c.decodeIfPresent(String.self, forKey: .runId)
+        let explicit = try? c.decodeIfPresent(String.self, forKey: .id)
+        let runId = try? c.decodeIfPresent(String.self, forKey: .runId)
         id = explicit
             ?? reportId
             ?? runId
@@ -900,6 +1112,7 @@ struct MacLoadedMemo {
     let overlayData: Data?
     let title: String
     let report: MacReport
+    var overlayCanvasSize: CGSize? = nil
 }
 
 enum MacTimeFormat {

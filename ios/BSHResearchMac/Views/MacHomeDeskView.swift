@@ -27,7 +27,9 @@ struct MacHomeDeskView: View {
                 // Market Posture & Regime Pill
                 postureAndRegimeSection
 
-                // Major Market Indices Ribbon
+                // Ticker tape + Major Market Indices Ribbon
+                MacTickerTapeView()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 marketIndicesRibbon
 
                 // Watchlist Quick Deck & Top Movers
@@ -45,12 +47,39 @@ struct MacHomeDeskView: View {
                 // Breaking Market Headlines Preview
                 breakingNewsSection
             }
-            .padding(24)
-            .frame(maxWidth: 1100, alignment: .leading)
-        }
-        .background(Color(NSColor.windowBackgroundColor))
+                .dsPage()
+            }
+            .background(Color.dsCanvas)
         .task {
-            await store.refreshHome()
+            if shouldRefreshOnAppear {
+                await store.refreshHome()
+            }
+        }
+    }
+
+    private var shouldRefreshOnAppear: Bool {
+        // Until the session check has run, bootstrap owns the first load; a second
+        // refreshHome here would duplicate every request at launch.
+        if !store.authChecked || store.loading { return false }
+        if store.isOfflineMode || store.error != nil { return true }
+        guard let last = store.lastSyncDate else { return true }
+        return Date().timeIntervalSince(last) > 60
+    }
+
+    private func open(_ hit: MacAutocompleteHit) {
+        let name = hit.name?.lowercased()
+        let ticker = hit.ticker?.uppercased()
+        let local = store.companies.first { company in
+            (hit.companyId != nil && company.id == hit.companyId)
+                || (name != nil && company.name?.lowercased() == name)
+                || (ticker != nil && !ticker!.isEmpty && company.ticker?.uppercased() == ticker)
+        }
+        if let local {
+            store.showCompany(local)
+        } else if let ticker, !ticker.isEmpty {
+            store.showTicker(ticker)
+        } else {
+            store.openCommandPalette(seed: hit.name ?? searchQuery)
         }
     }
 
@@ -58,14 +87,14 @@ struct MacHomeDeskView: View {
 
     private var searchCommandBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkle.magnifyingglass")
-                    .font(.title2)
-                    .foregroundStyle(Color.accentColor)
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.secondary)
 
-                TextField("Search companies, tickers, memos, or SEC filings (e.g. AAPL, Berkshire, Semiconductor)…", text: $searchQuery)
+                TextField("Search companies and tickers — or press ⌘K for the command line", text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.title3)
+                    .font(.system(size: 15))
                     .onChange(of: searchQuery) { _, newValue in
                         performSearch(query: newValue)
                     }
@@ -86,13 +115,9 @@ struct MacHomeDeskView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(14)
-            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.accentColor.opacity(searchQuery.isEmpty ? 0.15 : 0.4), lineWidth: 1.5)
-            )
-            .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .appleGlassCard(isInteractive: true)
         }
     }
 
@@ -127,8 +152,8 @@ struct MacHomeDeskView: View {
     private var searchResultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Matching Companies & Tickers", systemImage: "building.2.crop.circle")
-                    .font(.headline)
+                Label("Matches", systemImage: "building.2")
+                                    .font(.dsHeadline)
                 Spacer()
                 Text("\(autocompleteHits.count) results")
                     .font(.caption)
@@ -154,20 +179,12 @@ struct MacHomeDeskView: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     ForEach(autocompleteHits) { hit in
                         Button {
-                            if let ticker = hit.ticker, !ticker.isEmpty {
-                                store.selectTicker(ticker)
-                                store.selectedTab = .market
-                            } else if let name = hit.name {
-                                if let match = store.companies.first(where: { $0.name == name || $0.id == hit.id }) {
-                                    store.selectedCompany = match
-                                    store.selectedTab = .research
-                                }
-                            }
+                            open(hit)
                         } label: {
                             HStack(spacing: 12) {
                                 if let ticker = hit.ticker, !ticker.isEmpty {
                                     Text(ticker.uppercased())
-                                        .font(.caption.monospaced().weight(.bold))
+                                        .font(.caption.monospacedDigit().weight(.bold))
                                         .foregroundStyle(Color.accentColor)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
@@ -192,7 +209,7 @@ struct MacHomeDeskView: View {
                                     .foregroundStyle(.tertiary)
                             }
                             .padding(10)
-                            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                            .appleGlassTile()
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
                                     .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
@@ -204,15 +221,15 @@ struct MacHomeDeskView: View {
             }
         }
         .padding(16)
-        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        .appleGlassCard()
     }
 
     // MARK: - Active Research Pipelines
 
     private var activePipelinesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Active Research Pipelines & Jobs", systemImage: "gearshape.arrow.triangle.2.circlepath")
-                .font(.headline)
+            Label("Running now", systemImage: "gearshape.arrow.triangle.2.circlepath")
+                            .font(.dsHeadline)
 
             VStack(spacing: 8) {
                 // Running Reports
@@ -257,7 +274,7 @@ struct MacHomeDeskView: View {
                         .help("Follow this run in the Jobs blotter")
                     }
                     .padding(12)
-                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .appleGlassTile()
                 }
 
                 // Other Background Jobs
@@ -285,16 +302,12 @@ struct MacHomeDeskView: View {
                         }
                     }
                     .padding(10)
-                    .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .appleGlassTile()
                 }
             }
         }
         .padding(16)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-        )
+        .appleGlassCard(tint: .orange)
     }
 
     // MARK: - Posture & Regime Section
@@ -309,8 +322,8 @@ struct MacHomeDeskView: View {
         return HStack(spacing: 16) {
             // Posture Badge
             VStack(alignment: .leading, spacing: 4) {
-                Text("MARKET POSTURE")
-                    .font(.caption2.weight(.bold))
+                Text("Market posture")
+                                    .font(.dsLabel)
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
@@ -328,8 +341,8 @@ struct MacHomeDeskView: View {
 
             // Top Signal
             VStack(alignment: .leading, spacing: 2) {
-                Text("STRATEGIC REGIME SIGNAL")
-                    .font(.caption2.weight(.bold))
+                Text("Regime signal")
+                                    .font(.dsLabel)
                     .foregroundStyle(.secondary)
                 Text(topSignal)
                     .font(.subheadline)
@@ -341,8 +354,8 @@ struct MacHomeDeskView: View {
 
             if let breadth, breadth.total > 0 {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("SIGNAL BREADTH")
-                        .font(.caption2.weight(.bold))
+                    Text("Breadth")
+                                            .font(.dsLabel)
                         .foregroundStyle(.secondary)
                     Text("\(breadth.positiveSignals ?? 0) up · \(breadth.negativeSignals ?? 0) down · \(breadth.neutralSignals ?? 0) flat")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
@@ -354,17 +367,12 @@ struct MacHomeDeskView: View {
             Button {
                 store.selectedTab = .pulse
             } label: {
-                Label("Pulse Desk", systemImage: "waveform.path.ecg")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-        .padding(14)
-        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
+                        Label("Market Pulse", systemImage: "waveform.path.ecg")
+                    }
+                    .controlSize(.small)
+                }
+                .padding(14)
+                .appleGlassCard()
     }
 
     private func postureColor(_ posture: String) -> Color {
@@ -379,8 +387,8 @@ struct MacHomeDeskView: View {
     private var marketIndicesRibbon: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Major Indices & Benchmarks", systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.headline)
+                Label("Benchmarks", systemImage: "chart.line.uptrend.xyaxis")
+                                    .font(.dsHeadline)
                 Spacer()
                 Button {
                     Task { await store.refreshMarket() }
@@ -408,7 +416,7 @@ struct MacHomeDeskView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack {
                                 Text(quote.ticker)
-                                    .font(.subheadline.monospaced().weight(.bold))
+                                    .font(.subheadline.monospacedDigit().weight(.bold))
                                 Spacer()
                                 Image(systemName: (quote.pct ?? 0) >= 0 ? "arrow.up.right" : "arrow.down.right")
                                     .font(.caption2)
@@ -437,11 +445,7 @@ struct MacHomeDeskView: View {
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-                        )
+                        .appleGlassCard(isInteractive: true)
                     }
                     .buttonStyle(.plain)
                     .help("Open \(quote.ticker) in Market Radar")
@@ -452,37 +456,42 @@ struct MacHomeDeskView: View {
 
     // MARK: - Watchlist Section
 
+    private var pinnedQuotes: [MacQuote] {
+        let pinned = Set(store.pinnedTickers.map { $0.uppercased() })
+        return store.watchlist.filter { pinned.contains($0.ticker.uppercased()) }
+    }
+
     private var watchlistSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Pinned Watchlist", systemImage: "star.fill")
-                    .font(.headline)
-                    .foregroundStyle(Color.orange)
+                Label("Watchlist", systemImage: "star")
+                    .font(.dsHeadline)
                 Spacer()
-                Button {
-                    store.selectedTab = .market
-                } label: {
-                    Text("View Radar →")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.plain)
+                Button("Market Radar") { store.selectedTab = .market }
+                    .buttonStyle(.link)
+                    .font(.dsCaption.weight(.semibold))
             }
 
-            if store.watchlist.isEmpty {
+            if store.pinnedTickers.isEmpty {
                 Text("No pinned tickers. Star tickers in Market Radar to track them here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else if pinnedQuotes.isEmpty {
+                Text("No quotes yet for your pinned tickers.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
                 VStack(spacing: 8) {
-                    ForEach(store.watchlist.prefix(5)) { quote in
+                    ForEach(pinnedQuotes.prefix(5)) { quote in
                         Button {
                             store.selectTicker(quote.ticker)
                             store.selectedTab = .market
                         } label: {
                             HStack(spacing: 10) {
                                 Text(quote.ticker)
-                                    .font(.subheadline.monospaced().weight(.bold))
+                                    .font(.subheadline.monospacedDigit().weight(.bold))
                                     .frame(width: 55, alignment: .leading)
 
                                 if let name = quote.name, !name.isEmpty {
@@ -507,7 +516,7 @@ struct MacHomeDeskView: View {
                                 }
                             }
                             .padding(10)
-                            .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                            .appleGlassTile()
                         }
                         .buttonStyle(.plain)
                     }
@@ -515,16 +524,15 @@ struct MacHomeDeskView: View {
             }
         }
         .padding(16)
-        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        .appleGlassCard()
     }
 
     // MARK: - Movers Section
 
     private var moversSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Top Movers", systemImage: "flame.fill")
-                .font(.headline)
-                .foregroundStyle(Color.red)
+            Label("Top movers", systemImage: "flame")
+                .font(.dsHeadline)
 
             VStack(spacing: 8) {
                 // Gainers
@@ -535,7 +543,7 @@ struct MacHomeDeskView: View {
                     } label: {
                         HStack {
                             Text(quote.ticker)
-                                .font(.caption.monospaced().weight(.bold))
+                                .font(.caption.monospacedDigit().weight(.bold))
                             Spacer()
                             if let last = quote.last {
                                 Text(String(format: "$%.2f", last))
@@ -548,7 +556,7 @@ struct MacHomeDeskView: View {
                             }
                         }
                         .padding(8)
-                        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                        .appleGlassTile()
                     }
                     .buttonStyle(.plain)
                 }
@@ -561,7 +569,7 @@ struct MacHomeDeskView: View {
                     } label: {
                         HStack {
                             Text(quote.ticker)
-                                .font(.caption.monospaced().weight(.bold))
+                                .font(.caption.monospacedDigit().weight(.bold))
                             Spacer()
                             if let last = quote.last {
                                 Text(String(format: "$%.2f", last))
@@ -574,14 +582,14 @@ struct MacHomeDeskView: View {
                             }
                         }
                         .padding(8)
-                        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                        .appleGlassTile()
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
         .padding(16)
-        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        .appleGlassCard()
     }
 
     // MARK: - Recent Memos Section (1-Click Document Viewer Link)
@@ -589,20 +597,16 @@ struct MacHomeDeskView: View {
     private var recentMemosSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Recent Research Memos", systemImage: "doc.text.magnifyingglass")
-                    .font(.headline)
+                Label("Recent memos", systemImage: "doc.text")
+                    .font(.dsHeadline)
                 Spacer()
-                Button {
-                    store.selectedTab = .documents
-                } label: {
-                    Text("All Documents Library →")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.plain)
+                Button("Documents") { store.selectedTab = .documents }
+                    .buttonStyle(.link)
+                    .font(.dsCaption.weight(.semibold))
             }
 
             if store.recentReports.isEmpty {
-                Text("No generated research memos available.")
+                Text("No memos yet. Press ⌘N to run the first one.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
@@ -610,15 +614,7 @@ struct MacHomeDeskView: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     ForEach(store.recentReports.prefix(6)) { report in
                         HStack(spacing: 12) {
-                            // Initials Avatar
-                            Circle()
-                                .fill(Color.accentColor.opacity(0.15))
-                                .frame(width: 38, height: 38)
-                                .overlay(
-                                    Text(avatarInitials(report))
-                                        .font(.caption.weight(.bold))
-                                        .foregroundStyle(Color.accentColor)
-                                )
+                            MacMonogram(name: report.companyName ?? report.companyId ?? "Memo", size: 34)
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(report.companyName ?? report.companyId ?? "Investment Memo")
@@ -638,28 +634,38 @@ struct MacHomeDeskView: View {
 
                             Spacer()
 
-                            // Direct 1-Click Button to Document Viewer
-                            Button {
-                                store.openReportInViewer(report)
-                            } label: {
-                                Label("Read Memo", systemImage: "doc.richtext")
+                            if report.canOpen {
+                                Button {
+                                    store.openReportInViewer(report)
+                                } label: {
+                                    Label("Read", systemImage: "doc.richtext")
+                                }
+                                .controlSize(.small)
+                                .help("Open in the document viewer")
+                            } else if !report.isComplete && !report.isFailed {
+                                Button {
+                                    store.showBlotter = true
+                                    store.blotterTab = .jobs
+                                    store.selectedJobId = report.id
+                                } label: {
+                                    Label("Follow", systemImage: "waveform.path.ecg")
+                                }
+                                .controlSize(.small)
+                                .help("Follow this run in the Jobs blotter")
+                            } else {
+                                Text(report.statusLabel)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .help("Open in Document Viewer")
-                        }
-                        .padding(12)
-                        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-                        )
+                                }
+                                .padding(10)
+                                .appleGlassTile()
                     }
                 }
             }
         }
         .padding(16)
-        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        .appleGlassCard()
     }
 
     private func avatarInitials(_ report: MacReport) -> String {
@@ -673,27 +679,24 @@ struct MacHomeDeskView: View {
     private var breakingNewsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Breaking Market & Company Disclosures", systemImage: "newspaper")
-                    .font(.headline)
+                Label("Latest news", systemImage: "newspaper")
+                    .font(.dsHeadline)
                 Spacer()
-                Button {
-                    store.selectedTab = .news
-                } label: {
-                    Text("News Desk →")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.plain)
+                Button("News Desk") { store.selectedTab = .news }
+                    .buttonStyle(.link)
+                    .font(.dsCaption.weight(.semibold))
             }
 
             VStack(spacing: 8) {
                 ForEach(store.news.prefix(4)) { item in
                     Button {
+                        store.newsFocusId = item.id
                         store.selectedTab = .news
                     } label: {
                         HStack(spacing: 12) {
                             if let ticker = item.ticker, !ticker.isEmpty {
                                 Text(ticker.uppercased())
-                                    .font(.caption2.monospaced().weight(.bold))
+                                    .font(.caption2.monospacedDigit().weight(.bold))
                                     .foregroundStyle(Color.accentColor)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
@@ -720,13 +723,13 @@ struct MacHomeDeskView: View {
                             }
                         }
                         .padding(10)
-                        .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                        .appleGlassTile()
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
         .padding(16)
-        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+        .appleGlassCard()
     }
 }

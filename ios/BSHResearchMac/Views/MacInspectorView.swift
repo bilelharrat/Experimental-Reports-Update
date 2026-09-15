@@ -38,7 +38,7 @@ struct MacInspectorView: View {
 
                         if let ticker = company.ticker {
                             Text(ticker)
-                                .font(.subheadline.monospaced().weight(.semibold))
+                                .font(.subheadline.monospacedDigit().weight(.semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
@@ -103,7 +103,7 @@ struct MacInspectorView: View {
                         if let chip = store.copilotContext.chipLabel {
                             Text(chip).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        if let actions = store.copilotContextInfo?.actions, !actions.isEmpty {
+                        if let actions = store.visibleCopilotContextInfo?.actions, !actions.isEmpty {
                             ForEach(actions.prefix(5)) { action in
                                 Button {
                                     store.askWarren(action.prompt, context: store.copilotContext, company: company)
@@ -129,7 +129,7 @@ struct MacInspectorView: View {
                             .controlSize(.small)
                             .disabled(!store.canRunTasks)
                         }
-                        if let prov = store.copilotContextInfo?.provenance, !prov.sources.isEmpty {
+                        if let prov = store.visibleCopilotContextInfo?.provenance, !prov.sources.isEmpty {
                             Text("Sources").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                             ForEach(prov.sources.prefix(4)) { source in
                                 Label(source.filename ?? source.locator ?? "source", systemImage: "doc.text")
@@ -166,7 +166,7 @@ struct MacInspectorView: View {
                 } else if let ticker = store.selectedTicker {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(ticker)
-                            .font(.title2.monospaced().weight(.bold))
+                            .font(.title2.monospacedDigit().weight(.bold))
                         Text("Selected quote on Market Radar")
                             .font(.caption)
                             .foregroundStyle(.secondary)

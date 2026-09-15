@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Tracking rollup (`GET /api/tracking/rollup`)
 
-struct MacRollup: Decodable {
+struct MacRollup: Codable {
     let generatedAt: String?
     let companies: [MacRollupRow]
     let attention: [MacAttentionItem]
@@ -15,6 +15,14 @@ struct MacRollup: Decodable {
         case unknownCompanyIds = "unknown_company_ids"
     }
 
+    init(generatedAt: String?, companies: [MacRollupRow], attention: [MacAttentionItem], totals: MacRollupTotals?, unknownCompanyIds: [String]?) {
+        self.generatedAt = generatedAt
+        self.companies = companies
+        self.attention = attention
+        self.totals = totals
+        self.unknownCompanyIds = unknownCompanyIds
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         generatedAt = try c.decodeIfPresent(String.self, forKey: .generatedAt)
@@ -25,7 +33,7 @@ struct MacRollup: Decodable {
     }
 }
 
-struct MacRollupTotals: Decodable {
+struct MacRollupTotals: Codable {
     let companyCount: Int?
     let attentionCount: Int?
     let highCount: Int?
@@ -47,9 +55,53 @@ struct MacRollupTotals: Decodable {
         case failedMemoCount = "failed_memo_count"
         case runningMemoCount = "running_memo_count"
     }
+
+    init(companyCount: Int?, attentionCount: Int?, highCount: Int?, needsActionCount: Int?, inProgressCount: Int?, notStartedCount: Int?, clearCompanyCount: Int?, failedMemoCount: Int?, runningMemoCount: Int?) {
+        self.companyCount = companyCount
+        self.attentionCount = attentionCount
+        self.highCount = highCount
+        self.needsActionCount = needsActionCount
+        self.inProgressCount = inProgressCount
+        self.notStartedCount = notStartedCount
+        self.clearCompanyCount = clearCompanyCount
+        self.failedMemoCount = failedMemoCount
+        self.runningMemoCount = runningMemoCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        companyCount = try? c.decodeIfPresent(Int.self, forKey: .companyCount)
+        attentionCount = try? c.decodeIfPresent(Int.self, forKey: .attentionCount)
+        highCount = try? c.decodeIfPresent(Int.self, forKey: .highCount)
+        needsActionCount = try? c.decodeIfPresent(Int.self, forKey: .needsActionCount)
+        inProgressCount = try? c.decodeIfPresent(Int.self, forKey: .inProgressCount)
+        notStartedCount = try? c.decodeIfPresent(Int.self, forKey: .notStartedCount)
+        clearCompanyCount = try? c.decodeIfPresent(Int.self, forKey: .clearCompanyCount)
+        failedMemoCount = try? c.decodeIfPresent(Int.self, forKey: .failedMemoCount)
+        runningMemoCount = try? c.decodeIfPresent(Int.self, forKey: .runningMemoCount)
+    }
+
+    static func merged(_ parts: [MacRollupTotals]) -> MacRollupTotals? {
+        guard !parts.isEmpty else { return nil }
+        func sum(_ path: KeyPath<MacRollupTotals, Int?>) -> Int? {
+            let values = parts.compactMap { $0[keyPath: path] }
+            return values.isEmpty ? nil : values.reduce(0, +)
+        }
+        return MacRollupTotals(
+            companyCount: sum(\.companyCount),
+            attentionCount: sum(\.attentionCount),
+            highCount: sum(\.highCount),
+            needsActionCount: sum(\.needsActionCount),
+            inProgressCount: sum(\.inProgressCount),
+            notStartedCount: sum(\.notStartedCount),
+            clearCompanyCount: sum(\.clearCompanyCount),
+            failedMemoCount: sum(\.failedMemoCount),
+            runningMemoCount: sum(\.runningMemoCount)
+        )
+    }
 }
 
-struct MacAttentionItem: Identifiable, Hashable, Decodable {
+struct MacAttentionItem: Identifiable, Hashable, Codable {
     let id: String
     let companyId: String?
     let companyName: String?
@@ -68,13 +120,13 @@ struct MacAttentionItem: Identifiable, Hashable, Decodable {
     var isHigh: Bool { severity == "high" }
 }
 
-struct MacNextAction: Hashable, Decodable {
+struct MacNextAction: Hashable, Codable {
     let kind: String?
     let label: String?
 }
 
-struct MacRollupRow: Identifiable, Hashable, Decodable {
-    struct Price: Hashable, Decodable {
+struct MacRollupRow: Identifiable, Hashable, Codable {
+    struct Price: Hashable, Codable {
         let changePct1d: Double?
         let changePct30d: Double?
         let lastPrice: Double?
@@ -87,7 +139,7 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
         }
     }
 
-    struct Memo: Hashable, Decodable {
+    struct Memo: Hashable, Codable {
         let total: Int?
         let failed: Int?
         let running: Int?
@@ -109,7 +161,7 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
         }
     }
 
-    struct Risks: Hashable, Decodable {
+    struct Risks: Hashable, Codable {
         let total: Int?
         let researched: Int?
         let needsReview: Int?
@@ -122,7 +174,7 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
         }
     }
 
-    struct Evidence: Hashable, Decodable {
+    struct Evidence: Hashable, Codable {
         let total: Int?
         let supported: Int?
         let partial: Int?
@@ -131,12 +183,12 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
         let mixed: Int?
     }
 
-    struct Documents: Hashable, Decodable {
+    struct Documents: Hashable, Codable {
         let total: Int?
         let unresolved: Int?
     }
 
-    struct News: Hashable, Decodable {
+    struct News: Hashable, Codable {
         let recentCount: Int?
         let latestTitle: String?
         let latestAt: String?
@@ -147,7 +199,7 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
         }
     }
 
-    struct Session: Hashable, Decodable {
+    struct Session: Hashable, Codable {
         let id: String?
         let approvedForMemo: Bool?
         let hasUnapprovedWork: Bool?
@@ -177,6 +229,8 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
     let attention: [MacAttentionItem]
     /// Server-derived deal stage (sourcing … passed) — shared with the web so both agree.
     let lifecycleStage: String?
+    /// Explainable thesis fit computed server-side from the firm thesis.
+    let thesisFit: MacThesisScore?
 
     enum CodingKeys: String, CodingKey {
         case id, name, ticker, status, category, price, memo, risks, evidence, documents, news, session, bucket, attention
@@ -184,6 +238,7 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
         case lastActivityAt = "last_activity_at"
         case nextAction = "next_action"
         case lifecycleStage = "lifecycle_stage"
+        case thesisFit = "thesis_fit"
     }
 
     init(from decoder: Decoder) throws {
@@ -206,6 +261,7 @@ struct MacRollupRow: Identifiable, Hashable, Decodable {
         nextAction = try? c.decodeIfPresent(MacNextAction.self, forKey: .nextAction)
         attention = (try? c.decodeIfPresent([MacAttentionItem].self, forKey: .attention)) ?? []
         lifecycleStage = try? c.decodeIfPresent(String.self, forKey: .lifecycleStage)
+        thesisFit = try? c.decodeIfPresent(MacThesisScore.self, forKey: .thesisFit)
     }
 
     var memoRunning: Bool { (memo?.running ?? 0) > 0 || MacRollupRow.runningStatuses.contains(memo?.latestStatus ?? "") }
@@ -234,8 +290,14 @@ enum MacLifecycleStage: String, CaseIterable, Identifiable {
     case portfolio = "Portfolio"
     case watch = "Watch"
     case passed = "Passed"
+    case unknown = "—"
 
     var id: String { rawValue }
+
+    /// Stages a company can actually be in; `.unknown` only means no rollup row or decision is loaded.
+    static let knownCases: [MacLifecycleStage] = allCases.filter { $0 != .unknown }
+
+    var isKnown: Bool { self != .unknown }
 
     var order: Int {
         switch self {
@@ -246,6 +308,7 @@ enum MacLifecycleStage: String, CaseIterable, Identifiable {
         case .portfolio: return 4
         case .watch: return 5
         case .passed: return 6
+        case .unknown: return 7
         }
     }
 
@@ -258,12 +321,13 @@ enum MacLifecycleStage: String, CaseIterable, Identifiable {
         case .portfolio: return "briefcase.fill"
         case .watch: return "eye"
         case .passed: return "xmark.circle"
+        case .unknown: return "questionmark.circle"
         }
     }
 
     static func derive(row: MacRollupRow?, latestDecision: MacDecision?) -> MacLifecycleStage {
         // Prefer the server's stage when it sends one so Mac and web never disagree.
-        if let raw = row?.lifecycleStage, let stage = MacLifecycleStage.allCases.first(where: { $0.rawValue.lowercased() == raw.lowercased() }) {
+        if let raw = row?.lifecycleStage, let stage = MacLifecycleStage.knownCases.first(where: { $0.rawValue.lowercased() == raw.lowercased() }) {
             return stage
         }
         if let verdict = latestDecision?.verdict {
@@ -274,7 +338,7 @@ enum MacLifecycleStage: String, CaseIterable, Identifiable {
             default: break
             }
         }
-        guard let row else { return .sourcing }
+        guard let row else { return .unknown }
         if row.memoRunning { return .diligence }
         if row.memoComplete { return .ic }
         if (row.memo?.total ?? 0) == 0 {
@@ -286,7 +350,7 @@ enum MacLifecycleStage: String, CaseIterable, Identifiable {
 
 // MARK: - Decisions (`/api/companies/{id}/decisions`)
 
-struct MacDecision: Identifiable, Hashable, Decodable {
+struct MacDecision: Identifiable, Hashable, Codable {
     let id: String
     let verdict: String
     let explanation: String
@@ -333,7 +397,7 @@ struct MacDecision: Identifiable, Hashable, Decodable {
     }
 }
 
-struct MacRetrospective: Identifiable, Hashable, Decodable {
+struct MacRetrospective: Identifiable, Hashable, Codable {
     let id: String
     let assessedAt: String?
     let verdict: String
@@ -927,6 +991,13 @@ struct MacCopilotContext: Encodable, Equatable {
 
     static let none = MacCopilotContext()
 
+    /// True when the context points at something concrete (a passage, ticker, job, alert),
+    /// not just "the research desk"; only then is it worth showing as a chip.
+    var isSpecific: Bool {
+        !selection.isEmpty || !attention.isEmpty || !job.isEmpty
+            || (surface != nil && surface != "research")
+    }
+
     /// Short human label shown as a chip in the chat ("Memo · page 4", "TSM · Market Radar").
     var chipLabel: String? {
         if let text = selection["bullet_text"] ?? selection["claim"] ?? selection["excerpt"], !text.isEmpty {
@@ -934,6 +1005,11 @@ struct MacCopilotContext: Encodable, Equatable {
         }
         if let title = selection["title"], !title.isEmpty { return String(title.prefix(60)) }
         if let ticker = selection["ticker"], !ticker.isEmpty { return ticker }
+        if let title = job["title"], !title.isEmpty { return "Job · " + String(title.prefix(50)) }
+        if let kind = attention["kind"], !kind.isEmpty {
+            let detail = attention["detail"].map { " · " + String($0.prefix(50)) } ?? ""
+            return kind.replacingOccurrences(of: "_", with: " ").capitalized + detail
+        }
         if let surface, !surface.isEmpty { return surface.replacingOccurrences(of: "_", with: " ").capitalized }
         return nil
     }

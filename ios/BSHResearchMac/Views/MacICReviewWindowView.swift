@@ -11,7 +11,8 @@ struct MacICReviewWindowView: View {
     @State private var decidedAt = Date()
     @State private var submitting = false
     @State private var saved = false
-    @State private var findText: String?
+    @State private var findText: MacFindRequest?
+    @State private var showDecision = false
 
     private var company: MacCompany? {
         store.companies.first { $0.id == request.companyId }
@@ -32,6 +33,18 @@ struct MacICReviewWindowView: View {
         }
         .frame(minWidth: 1100, minHeight: 700)
         .navigationTitle("IC Review — \(company?.title ?? request.companyId)")
+        .focusedSceneValue(\.deskTarget, MacDeskCommandTarget(
+            companyId: request.companyId,
+            reportId: request.reportId,
+            recordDecision: { showDecision = true },
+            openICReview: {}
+        ))
+        .sheet(isPresented: $showDecision) {
+            if let company {
+                MacDecisionSheet(company: company, seedReportId: request.reportId)
+                    .environmentObject(store)
+            }
+        }
         .task {
             await store.loadMemoAnalysis(request.companyId)
             await store.loadEvidence(request.companyId)
@@ -102,7 +115,7 @@ struct MacICReviewWindowView: View {
                 }
 
                 if let company {
-                    MacThesisTrackerView(company: company, onFind: { claim in findText = claim })
+                    MacThesisTrackerView(company: company, onFind: { claim in findText = MacFindRequest(text: claim) })
                 }
 
                 if let evidence {
@@ -128,13 +141,16 @@ struct MacICReviewWindowView: View {
                     }
                 }
 
+                MacNumberLintView(companyId: request.companyId, findText: $findText)
+
+                MacICRoomView(companyId: request.companyId, reportId: request.reportId, findText: $findText)
+
+                MacCommentsView(companyId: request.companyId, target: MacCommentTarget(kind: "report", ref: request.reportId, label: "This memo"))
+
                 section("Decision", systemImage: "checkmark.seal") {
-                    Picker("Verdict", selection: $verdict) {
-                        Text("Invest").tag("invest")
-                        Text("Watch").tag("watch")
-                        Text("Pass").tag("pass")
+                    LabeledContent("Verdict") {
+                        GlassSegmentedPicker("Verdict", selection: $verdict, segments: ["invest": "Invest", "watch": "Watch", "pass": "Pass"])
                     }
-                    .pickerStyle(.segmented)
                     DatePicker("Decided", selection: $decidedAt, displayedComponents: .date)
                         .controlSize(.small)
                     TextEditor(text: $explanation)
@@ -155,7 +171,7 @@ struct MacICReviewWindowView: View {
                                     companyId: request.companyId,
                                     verdict: verdict,
                                     explanation: explanation.trimmingCharacters(in: .whitespacesAndNewlines),
-                                    decidedAt: decidedAt,
+                                    decidedAt: MacDecisionDate.dayInstant(decidedAt),
                                     reportId: request.reportId
                                 )
                                 submitting = false
@@ -184,7 +200,7 @@ struct MacICReviewWindowView: View {
             content()
         }
         .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .appleGlassCard()
     }
 
     private func claimList(_ title: String, _ claims: [MacThesisClaim], color: Color) -> some View {
@@ -196,7 +212,7 @@ struct MacICReviewWindowView: View {
                         Circle().fill(color).frame(width: 6, height: 6).padding(.top, 5)
                         VStack(alignment: .leading, spacing: 1) {
                             Button {
-                                findText = claim.claim
+                                findText = MacFindRequest(text: claim.claim ?? "")
                             } label: {
                                 Text(claim.claim ?? "").font(.caption.weight(.medium)).multilineTextAlignment(.leading)
                             }
