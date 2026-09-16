@@ -2722,6 +2722,7 @@ def _run_fast_memo_pass(
     scope_check: dict | None,
     warnings: list[str],
     structure: memo_structure.MemoStructure | None = None,
+    common_context: str | None = None,
 ) -> _FastMemoPassResult:
     started_at = _now_iso()
     started_monotonic = time.monotonic()
@@ -2769,6 +2770,7 @@ def _run_fast_memo_pass(
             progress=sub_progress,
             type_focus=type_focus or None,
             type_label=type_profile.label["en"] if type_profile else None,
+            common_context=common_context,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("fast memo pass crashed: %s", spec.pass_id)
@@ -2877,6 +2879,20 @@ def _run_fast_phase2(
                 f"Runs with up to {worker_count} parallel Claude workers."
             ),
         )
+    # One shared, cached system-prompt block for the whole fan-out. Built
+    # here and not inside each pass so every pass sends byte-identical
+    # bytes and they collapse into a single prompt-cache entry.
+    pass_common_context = claude_runner.memo_fast_pass_common_context(
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=memo_prep.SETTINGS_FILE,
+        companies_yaml_path=memo_prep.COMPANIES_FILE,
+        research_dir=research_dir,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
     stream.emit(
         "stage",
         stage="memo_fast_parallel_dispatch",
@@ -2912,6 +2928,7 @@ def _run_fast_phase2(
                 scope_check=scope_check,
                 warnings=warnings,
                 structure=structure,
+                common_context=pass_common_context,
             ): spec
             for spec in _FAST_MEMO_PASSES
         }

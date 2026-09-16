@@ -4688,38 +4688,30 @@ Return only the JSON object matching the attached schema: `type`,
     }
 
 
-def run_memo_fast_analysis_pass(
+def memo_fast_pass_common_context(
     *,
-    run_dir: Path,
     company_name: str,
     company_slug: str,
     run_id: str,
-    pass_id: str,
-    pass_label: str,
-    artifact_filename: str,
-    focus: str,
     settings_path: Path,
     companies_yaml_path: Path,
     research_dir: Path | None = None,
     lessons_path: Path | None = None,
     scope_check: dict | None = None,
     warnings: list[str] | None = None,
-    progress=None,
-    timeout_sec: int = 900,
-    type_focus: str | None = None,
-    type_label: str | None = None,
-) -> tuple[dict | None, str | None]:
-    """Run one narrow memo-analysis pass as its own Claude subprocess.
+) -> str:
+    """The run-wide context every Phase-2 analysis pass shares.
 
-    ``type_focus`` is the company-type research addendum for this pass
-    (skills/memo/types/<type>.md ``research_focus``); passes share no
-    prompt cache, so it rides the per-pass prompt at no cost."""
-    type_block = (
-        f"\nCompany-type research focus ({type_label or 'this company type'}):\n"
-        f"{type_focus.strip()}\n"
-        if type_focus and type_focus.strip()
-        else ""
-    )
+    Build it ONCE per run and hand the same string to every pass: it rides
+    ``--append-system-prompt``, which lands on the CLI's system-prompt cache
+    breakpoint, so the twelve concurrent passes pay to cache the registry
+    entry, research listing, fact ledger, recent news and decision record
+    once between them instead of twelve times in twelve user messages. It is
+    only a cache hit while the bytes are identical, which is why this is a
+    function of run-wide inputs only — nothing per-pass may enter it, and the
+    caller must not rebuild it per pass (the ledger and news files can change
+    mid-phase and would split the cache).
+    """
     registry_entry = _extract_company_registry_entry_yaml(
         companies_yaml_path,
         company_slug,
@@ -4741,14 +4733,12 @@ def run_memo_fast_analysis_pass(
         if lessons_path and lessons_path.exists()
         else ""
     )
-    prompt = f"""\
+    return f"""\
 You are running one independent fast-path analysis pass for a BSH LP-facing
-investment memo.
+investment memo. The pass you are running is named in the user message.
 
 Company: {company_name} (`{company_slug}`)
 Run id: {run_id}
-Pass: {pass_label} (`{pass_id}`)
-Artifact later written by server: `analysis/{artifact_filename}`
 
 Registry entry:
 {registry_block}
@@ -4765,9 +4755,6 @@ Scope check: `{scope}`
 Warnings:
 {warning_text}
 
-Focus for this pass:
-{focus}
-{type_block}
 Rules:
 - Do not write files. Return only the JSON object matching the attached schema.
 - For every `supporting_evidence` item retrieved from the web, set `url` to
@@ -4789,6 +4776,70 @@ Rules:
 - This is a sell-side LP memo input. Convert evidence into investment judgment,
   but do not draft final memo prose.
 """
+
+
+def run_memo_fast_analysis_pass(
+    *,
+    run_dir: Path,
+    company_name: str,
+    company_slug: str,
+    run_id: str,
+    pass_id: str,
+    pass_label: str,
+    artifact_filename: str,
+    focus: str,
+    settings_path: Path,
+    companies_yaml_path: Path,
+    research_dir: Path | None = None,
+    lessons_path: Path | None = None,
+    scope_check: dict | None = None,
+    warnings: list[str] | None = None,
+    progress=None,
+    timeout_sec: int = 900,
+    type_focus: str | None = None,
+    type_label: str | None = None,
+    common_context: str | None = None,
+) -> tuple[dict | None, str | None]:
+    """Run one narrow memo-analysis pass as its own Claude subprocess.
+
+    ``common_context`` is the run-wide block from
+    ``memo_fast_pass_common_context``; passing the same string to every pass
+    is what lets them share one prompt-cache entry. It is rebuilt here when
+    a caller omits it (resume paths, tests), which still works but pays for
+    the context once per pass.
+
+    ``type_focus`` is the company-type research addendum for this pass
+    (skills/memo/types/<type>.md ``research_focus``); it is per-pass, so it
+    stays in the user message and never touches the shared block."""
+    type_block = (
+        f"\nCompany-type research focus ({type_label or 'this company type'}):\n"
+        f"{type_focus.strip()}\n"
+        if type_focus and type_focus.strip()
+        else ""
+    )
+    shared = common_context or memo_fast_pass_common_context(
+        company_name=company_name,
+        company_slug=company_slug,
+        run_id=run_id,
+        settings_path=settings_path,
+        companies_yaml_path=companies_yaml_path,
+        research_dir=research_dir,
+        lessons_path=lessons_path,
+        scope_check=scope_check,
+        warnings=warnings,
+    )
+    # Only what differs between passes lives here. Everything else is in the
+    # cached system-prompt block above.
+    prompt = f"""\
+Pass: {pass_label} (`{pass_id}`)
+Artifact later written by server: `analysis/{artifact_filename}`
+
+Focus for this pass:
+{focus}
+{type_block}
+Run this pass now under the rules in your system prompt, and return only the
+JSON object matching the attached schema.
+"""
     add_dirs = [settings_path.parent, companies_yaml_path.parent]
     if research_dir and research_dir.exists():
         add_dirs.append(research_dir)
@@ -4803,6 +4854,7 @@ Rules:
         timeout_label=f"memo pass {pass_id}",
         timeout_sec=timeout_sec,
         add_dirs=add_dirs,
+        append_system_prompt=shared,
         model=_memo_role_model("ANALYSIS_PASS", run_dir),
         effort=_memo_role_effort("ANALYSIS_PASS", run_dir),
     )
