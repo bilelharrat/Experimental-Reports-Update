@@ -12,6 +12,7 @@ enum MacDS {
     static let tileRadius: CGFloat = 8
 }
 
+#if os(macOS)
 extension Color {
     static let dsCanvas = Color(nsColor: .windowBackgroundColor)
     static let dsCard = Color(nsColor: .controlBackgroundColor)
@@ -21,6 +22,17 @@ extension Color {
     static let dsNegative = Color.red
     static let dsWarning = Color.orange
 }
+#else
+extension Color {
+    static let dsCanvas = Color(uiColor: .systemGroupedBackground)
+    static let dsCard = Color(uiColor: .secondarySystemGroupedBackground)
+    static let dsTile = Color.primary.opacity(0.045)
+    static let dsHairline = Color.primary.opacity(0.09)
+    static let dsPositive = Color.green
+    static let dsNegative = Color.red
+    static let dsWarning = Color.orange
+}
+#endif
 
 extension Font {
     static let dsTitle = Font.system(size: 22, weight: .bold)
@@ -190,8 +202,52 @@ struct MacTabBar<Item: Hashable>: View {
 /// Rounded-square initials avatar used for companies everywhere.
 struct MacAvatar: View {
     let name: String
+    var ticker: String? = nil
+    var companyId: String? = nil
+    var logoUrl: String? = nil
+    var website: String? = nil
     var size: CGFloat = 28
-    var body: some View { MacMonogram(name: name, size: size) }
+    var round: Bool = false
+
+    init(
+        name: String,
+        ticker: String? = nil,
+        companyId: String? = nil,
+        logoUrl: String? = nil,
+        website: String? = nil,
+        size: CGFloat = 28,
+        round: Bool = false
+    ) {
+        self.name = name
+        self.ticker = ticker
+        self.companyId = companyId
+        self.logoUrl = logoUrl
+        self.website = website
+        self.size = size
+        self.round = round
+    }
+
+    init(company: MacCompany, size: CGFloat = 28, round: Bool = false) {
+        self.name = company.name ?? company.id
+        self.ticker = company.ticker
+        self.companyId = company.id
+        self.logoUrl = company.logoUrl
+        self.website = company.website
+        self.size = size
+        self.round = round
+    }
+
+    var body: some View {
+        MacMonogram(
+            name: name,
+            ticker: ticker,
+            companyId: companyId,
+            logoUrl: logoUrl,
+            website: website,
+            size: size,
+            round: round
+        )
+    }
 }
 
 /// Dot + text status, e.g. "● Synced 10:42 PM".

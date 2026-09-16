@@ -7,7 +7,9 @@
 //
 
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 
 struct AppleGlassCardModifier: ViewModifier {
     var cornerRadius: CGFloat = MacDS.cardRadius
@@ -277,9 +279,7 @@ private struct EqualWidthSegmentsLayout: Layout {
     }
 }
 
-/// Turns off the built-in selection fill on the row hosting this view. It sets the style on the
-/// NSTableRowView, never on the table: `NSTableView.selectionHighlightStyle` reloads the whole
-/// list and re-posts the selection, so doing it from every row made each click crawl.
+#if os(macOS)
 private struct NativeSelectionHighlightRemover: NSViewRepresentable {
     func makeNSView(context: Context) -> Probe { Probe() }
     func updateNSView(_ nsView: Probe, context: Context) {}
@@ -307,6 +307,13 @@ private struct NativeSelectionHighlightRemover: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
+#else
+private struct NativeSelectionHighlightRemover: View {
+    var body: some View {
+        Color.clear
+    }
+}
+#endif
 
 extension View {
     /// Row modifier for `List(selection:)`: draws the Liquid Glass highlight when `isSelected`.

@@ -11,11 +11,13 @@ import {
   Plus,
   ScrollText,
   Search,
+  SlidersHorizontal,
   SquarePen,
   UploadCloud,
 } from "lucide-vue-next";
 import { api } from "./api.js";
 import { currentLanguage, useT } from "./i18n.js";
+import AiMark from "./components/AiMark.vue";
 import Monogram from "./components/Monogram.vue";
 import WarrenMark from "./components/WarrenMark.vue";
 import CopilotCompanyPicker from "./components/CopilotCompanyPicker.vue";
@@ -23,6 +25,7 @@ import Sidebar from "./components/Sidebar.vue";
 import ActiveJobsRail from "./components/ActiveJobsRail.vue";
 import TaskHistoryPanel from "./components/TaskHistoryPanel.vue";
 import DeckSummaryModal from "./components/DeckSummaryModal.vue";
+import ReportCustomizerModal from "./components/ReportCustomizerModal.vue";
 import CopilotPanel from "./components/CopilotPanel.vue";
 import MarketCommandPalette from "./components/MarketCommandPalette.vue";
 import {
@@ -186,9 +189,9 @@ function stopPolling() {
 }
 
 watch(
-  isAuthenticated,
-  (signedIn) => {
-    if (signedIn) startPolling();
+  () => [isAuthenticated.value, route.name],
+  ([signedIn, routeName]) => {
+    if (signedIn && routeName !== "login") startPolling();
     else stopPolling();
   },
   { immediate: true },
@@ -205,6 +208,17 @@ const currentCompanyId = computed(() => {
 const currentCompany = computed(() =>
   companies.value.find((c) => c.id === currentCompanyId.value) || null,
 );
+
+const reportCustomizerOpen = ref(false);
+const reportCustomizerCompanyId = ref(null);
+
+function openReportCustomizer(companyId = null) {
+  const resolved = typeof companyId === "string" ? companyId : companyId?.companyId || null;
+  reportCustomizerCompanyId.value = resolved || currentCompany.value?.id || null;
+  reportCustomizerOpen.value = true;
+}
+
+provide("openReportCustomizer", openReportCustomizer);
 
 const jumpHits = computed(() => {
   const q = jumpQuery.value.trim().toLowerCase();
@@ -298,7 +312,19 @@ function onChromeKeydown(event) {
     commandOpen.value = !commandOpen.value;
     return;
   }
+  if (meta && key === "n") {
+    event.preventDefault();
+    addMenuOpen.value = false;
+    jumpOpen.value = false;
+    commandOpen.value = false;
+    openReportCustomizer();
+    return;
+  }
   if (event.key !== "Escape") return;
+  if (reportCustomizerOpen.value) {
+    reportCustomizerOpen.value = false;
+    return;
+  }
   if (addMenuOpen.value || jumpOpen.value || commandOpen.value) {
     closeChromeMenus();
     return;
@@ -632,9 +658,9 @@ provide("copilotNavigate", onCopilotNavigate);
 </script>
 
 <template>
-  <!-- Unauthenticated: just the routed view (LoginView). No sidebar,
-       no polling, no modals. -->
-  <RouterView v-if="!isAuthenticated" />
+  <!-- Unauthenticated or on login route: just the routed view (LoginView).
+       No sidebar, no polling, no modals. -->
+  <RouterView v-if="route.name === 'login' || !isAuthenticated" />
 
   <!-- Authenticated: full app chrome. Two floating glass panels (sidebar,
        Ask inspector) frame the content column. -->
@@ -808,6 +834,15 @@ provide("copilotNavigate", onCopilotNavigate);
                     type="button"
                     class="toolbar-menu-item"
                     role="menuitem"
+                    @click="openReportCustomizer(currentCompany?.id); closeChromeMenus()"
+                  >
+                    <AiMark class="h-4 w-4 shrink-0" />
+                    {{ t("memo.generate_report") }}
+                  </button>
+                  <button
+                    type="button"
+                    class="toolbar-menu-item"
+                    role="menuitem"
                     :disabled="addUploading"
                     @click="addFileInput?.click()"
                   >
@@ -816,6 +851,15 @@ provide("copilotNavigate", onCopilotNavigate);
                   </button>
                 </template>
                 <template v-else>
+                  <button
+                    type="button"
+                    class="toolbar-menu-item"
+                    role="menuitem"
+                    @click="openReportCustomizer(); closeChromeMenus()"
+                  >
+                    <AiMark class="h-4 w-4 shrink-0" />
+                    {{ t("memo.generate_report") }}
+                  </button>
                   <RouterLink
                     :to="{ path: '/', query: { intake: 'link' } }"
                     class="toolbar-menu-item"
@@ -996,6 +1040,12 @@ provide("copilotNavigate", onCopilotNavigate);
       :company-id="summaryCompanyId"
       :file="summaryFile"
       @close="closeSummary"
+    />
+    <ReportCustomizerModal
+      :open="reportCustomizerOpen"
+      :initial-company-id="reportCustomizerCompanyId"
+      @close="reportCustomizerOpen = false"
+      @created="refreshAll"
     />
   </div>
 </template>

@@ -340,7 +340,7 @@ struct MacPipelineDeskView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 10) {
-                        MacMonogram(name: company.title, size: 36)
+                        MacMonogram(company: company, size: 36)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(company.title).font(.headline)
                             Text(company.subtitle).font(.caption).foregroundStyle(.secondary)

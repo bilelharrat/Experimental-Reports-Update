@@ -3,6 +3,9 @@ import Security
 #if canImport(AppKit)
 import AppKit
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 enum MacConfig {
     static let baseURLKey = "bsh.baseURL"
@@ -199,6 +202,9 @@ enum MacConfig {
         if let token = keychainRead(account: keychainAccount) {
             return token
         }
+        if let iosToken = keychainRead(account: "bsh.research.session") {
+            return iosToken
+        }
         // One-time migration from the unscoped Keychain entry.
         if let unscoped = keychainRead(account: keychainAccountBase) {
             writeToken(unscoped)
@@ -272,6 +278,8 @@ enum MacConfig {
     static func openInBrowser(_ url: URL) {
         #if canImport(AppKit)
         NSWorkspace.shared.open(url)
+        #elseif canImport(UIKit)
+        UIApplication.shared.open(url)
         #endif
     }
 }

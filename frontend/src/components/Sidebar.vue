@@ -1,8 +1,9 @@
 <script setup>
-import { computed, h, onBeforeUnmount, onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { computed, h, inject, onBeforeUnmount, onMounted, ref } from "vue";
+import { RouterLink, useRouter } from "vue-router";
 import {
   ArrowUpDown,
+  Building2,
   Check,
   ChevronsUpDown,
   FileText,
@@ -17,11 +18,11 @@ import {
   X,
 } from "lucide-vue-next";
 import { companyStatusLine, sortCompanies } from "../companyLists.js";
-import { companyInitials } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { isAnonDev, sessionEmail, sessionInitials, sessionName, signOut } from "../auth.js";
 import { useMediaQuery } from "../chrome.js";
 import { useGlider } from "../glassMotion.js";
+import AiMark from "./AiMark.vue";
 import BrandMark from "./BrandMark.vue";
 import CompanyFollowButton from "./CompanyFollowButton.vue";
 import Monogram from "./Monogram.vue";
@@ -37,6 +38,13 @@ import {
 } from "../state.js";
 
 const t = useT();
+
+const openReportCustomizer = inject("openReportCustomizer", () => {});
+
+function onGenerateReport() {
+  openReportCustomizer();
+  if (props.mobileOpen) emit("close");
+}
 
 const props = defineProps({
   companies: { type: Array, default: () => [] },
@@ -84,6 +92,7 @@ const trackedCount = computed(
 
 const navItems = computed(() => [
   { id: "home", to: { name: "home" }, label: t("nav.home"), icon: Home },
+  { id: "research-desk", to: { name: "research-desk" }, label: t("sidebar.research_desk"), icon: Building2 },
   { id: "market", to: { name: "market-radar" }, label: t("sidebar.markets_radar"), icon: MarketIcon },
   { id: "pulse", to: { name: "weekly-summary" }, label: t("sidebar.markets_pulse"), icon: PulseECGIcon },
   { id: "news", to: { name: "news-desk" }, label: t("nav.news"), icon: Newspaper },
@@ -214,12 +223,15 @@ function onNavigate() {
   emit("navigate");
 }
 
+const router = useRouter();
+
 async function onSignOut() {
   if (signingOut.value) return;
   signingOut.value = true;
   closeMenus();
   try {
     await signOut();
+    router?.push({ name: "login" });
   } finally {
     signingOut.value = false;
   }
@@ -305,6 +317,34 @@ onBeforeUnmount(() => {
           @click="emit('close')"
         >
           <X class="h-[18px] w-[18px]" />
+        </button>
+      </div>
+
+      <!-- Quick Action: Generate Report -->
+      <div
+        class="shrink-0"
+        :class="collapsed ? 'flex justify-center px-2 py-1' : 'px-2.5 py-1'"
+      >
+        <button
+          v-if="!collapsed"
+          type="button"
+          class="focus-ring flex w-full items-center gap-2 rounded-xl border border-accent/20 bg-accent/10 px-3 py-2 text-[13px] font-semibold text-accent-ink hover:bg-accent/15 transition-all active:scale-[0.98] shadow-sm"
+          :title="`${t('memo.generate_report')} (⌘N)`"
+          @click="onGenerateReport"
+        >
+          <AiMark class="h-4 w-4 shrink-0" />
+          <span class="flex-1 truncate text-left">{{ t("memo.generate_report") }}</span>
+          <kbd class="hidden font-mono text-[10px] text-ink-muted/80 sm:inline-block">⌘N</kbd>
+        </button>
+        <button
+          v-else
+          type="button"
+          class="icon-btn !h-9 !w-9 rounded-xl border border-accent/20 bg-accent/10 text-accent hover:bg-accent/20 focus-ring"
+          :aria-label="`${t('memo.generate_report')} (⌘N)`"
+          :title="`${t('memo.generate_report')} (⌘N)`"
+          @click="onGenerateReport"
+        >
+          <AiMark class="h-4 w-4 shrink-0" />
         </button>
       </div>
 
@@ -454,13 +494,13 @@ onBeforeUnmount(() => {
                 :title="company.name"
                 @click="onCompanyRowClick"
               >
-                <span
+                <Monogram
+                  :company="company"
+                  :size="collapsed ? 30 : 26"
+                  tinted
                   class="company-rail-mark"
-                  :style="collapsed ? null : { '--mono-size': '26px' }"
                   aria-hidden="true"
-                >
-                  {{ companyInitials(company) }}
-                </span>
+                />
                 <template v-if="!collapsed">
                   <span class="min-w-0 flex-1 leading-tight">
                     <span class="block truncate">{{ company.name }}</span>

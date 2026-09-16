@@ -9,13 +9,13 @@ import {
   GripVertical,
   Loader2,
   RefreshCw,
-  Sparkles,
   X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import { formatIsoDate, humanizeStatus } from "../formatters.js";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
+import AiMark from "./AiMark.vue";
 import MemoStudioBulletTree from "./memo/MemoStudioBulletTree.vue";
 
 const props = defineProps({
@@ -504,7 +504,7 @@ async function setTaskStatus(task, status) {
           class="btn-filled rounded-full px-4 py-2 text-xs font-semibold disabled:opacity-60 focus-ring"
         >
           <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
-          <Sparkles v-else class="h-4 w-4" />
+          <AiMark v-else class="h-4 w-4 shrink-0" />
           {{ t("memo.generate_report") }}
         </button>
       </div>

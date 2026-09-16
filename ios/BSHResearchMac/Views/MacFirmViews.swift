@@ -754,6 +754,7 @@ struct MacAddTranscriptSheet: View {
                 }
                 TextField("Participants (comma-separated)", text: $participants)
                 TextField("Tags (comma-separated)", text: $tags)
+                #if os(macOS)
                 HStack {
                     Button(fileURL == nil ? "Choose file (.txt .vtt .srt .docx .pdf)…" : fileURL!.lastPathComponent) {
                         let panel = NSOpenPanel()
@@ -763,6 +764,7 @@ struct MacAddTranscriptSheet: View {
                     }
                     if fileURL != nil { Button("Clear") { fileURL = nil }.controlSize(.small) }
                 }
+                #endif
                 if fileURL == nil {
                     TextEditor(text: $text)
                         .font(.system(size: 12))

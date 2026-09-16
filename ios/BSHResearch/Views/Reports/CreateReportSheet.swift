@@ -17,6 +17,7 @@ struct CreateReportSheet: View {
     @State private var submitting = false
     @State private var loadingOptions = true
     @State private var loadingCompanies = false
+    @State private var showingCustomizer = false
     @State private var error: String?
 
     init(
@@ -40,6 +41,7 @@ struct CreateReportSheet: View {
                 companySection
 
                 if !selectedCompanyId.isEmpty {
+                    customizerPromotionSection
                     optionsSection
                 }
 
@@ -73,6 +75,61 @@ struct CreateReportSheet: View {
             .task {
                 await loadCompanies()
                 await loadOptions()
+            }
+            .sheet(isPresented: $showingCustomizer) {
+                let macComp = selectedCompany.map { c in
+                    MacCompany(
+                        id: c.id,
+                        name: c.displayName(lang: language.language),
+                        ticker: c.ticker,
+                        companyType: c.companyType,
+                        status: c.status,
+                        sector: c.sector
+                    )
+                }
+                ResearchReportCustomizerSheet(company: macComp) { newRep in
+                    let detail = ReportDetail(from: newRep)
+                    onCreated(detail)
+                    dismiss()
+                }
+                .environmentObject(ResearchDeskStore.shared)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var customizerPromotionSection: some View {
+        Section {
+            Button {
+                showingCustomizer = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Institutional Report Customizer")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text("ADVANCED")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.accentColor.opacity(0.15))
+                                .foregroundStyle(Color.accentColor)
+                                .clipShape(Capsule())
+                        }
+                        Text("Blueprint archetypes, Studio review, reasoning quality tier & risk cards")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
             }
         }
     }

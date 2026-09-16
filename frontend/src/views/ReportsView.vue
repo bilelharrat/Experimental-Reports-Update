@@ -14,10 +14,12 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Sparkles,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
 import { useT } from "../i18n.js";
+import AiMark from "../components/AiMark.vue";
 import DocumentViewerWindow from "../components/DocumentViewerWindow.vue";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer.vue";
 import Monogram from "../components/Monogram.vue";
@@ -28,6 +30,8 @@ const route = useRoute();
 const router = useRouter();
 const pageTitleEl = ref(null);
 useLargeTitle(pageTitleEl);
+
+const openReportCustomizer = inject("openReportCustomizer", () => {});
 
 // Optional workspaceCompanies injected from App.vue
 const workspaceCompanies = inject("workspaceCompanies", ref([]));
@@ -116,6 +120,34 @@ function reportSources(report) {
     }));
 }
 
+function formatReportCompanyName(r) {
+  if (!r) return "";
+  if (r.company_name && r.company_name !== "x") {
+    return r.company_name;
+  }
+  if (r.company_id && r.company_id !== "x") {
+    return r.company_id;
+  }
+  return "Investment Report";
+}
+
+function reportCompany(r) {
+  if (!r) return {};
+  const cid = r.company_id || "";
+  const match = (workspaceCompanies.value || []).find(
+    (c) => c.id === cid || c.ticker?.toLowerCase() === cid.toLowerCase(),
+  );
+  return {
+    ...(match || {}),
+    id: r.company_id,
+    name: formatReportCompanyName(r),
+    ticker: r.ticker || match?.ticker || (cid && cid.length <= 5 && !cid.includes("-") ? cid.toUpperCase() : null),
+    logo_url: r.logo_url || match?.logo_url,
+    logo_domain: r.logo_domain || match?.logo_domain,
+    website: r.website || match?.website,
+  };
+}
+
 async function loadReports() {
   loading.value = true;
   error.value = null;
@@ -141,7 +173,7 @@ const companyOptions = computed(() => {
   const map = new Map();
   for (const r of reports.value) {
     if (r.company_id) {
-      map.set(r.company_id, r.company_name || r.company_id);
+      map.set(r.company_id, formatReportCompanyName(r));
     }
   }
   return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
@@ -316,6 +348,16 @@ onMounted(loadReports);
 
         <button
           type="button"
+          class="btn-filled btn-sm focus-ring inline-flex items-center gap-1.5"
+          :title="`${t('memo.generate_report')} (⌘N)`"
+          @click="openReportCustomizer(selectedCompany !== 'all' ? selectedCompany : null)"
+        >
+          <AiMark class="h-3.5 w-3.5 shrink-0" />
+          <span>{{ t("memo.generate_report") }}</span>
+        </button>
+
+        <button
+          type="button"
           class="btn-bordered btn-sm focus-ring"
           :disabled="loading"
           @click="loadReports"
@@ -364,6 +406,14 @@ onMounted(loadReports);
           </span>
           <div class="text-callout font-semibold text-ink-primary">{{ t("reports.empty_title") }}</div>
           <p class="mt-1 max-w-xs text-footnote text-ink-muted">{{ t("reports.empty_desc") }}</p>
+          <button
+            type="button"
+            class="btn-filled btn-sm mt-3 inline-flex items-center gap-1.5 focus-ring"
+            @click="openReportCustomizer(selectedCompany !== 'all' ? selectedCompany : null)"
+          >
+            <AiMark class="h-3.5 w-3.5 shrink-0" />
+            <span>{{ t("memo.generate_report") }}</span>
+          </button>
         </div>
 
         <div v-else class="flex-1 space-y-0.5 overflow-y-auto px-1.5 pb-1.5">
@@ -375,7 +425,7 @@ onMounted(loadReports);
             @click="selectReport(r)"
           >
             <Monogram
-              :company="{ id: r.company_id, name: r.company_name || r.company_id }"
+              :company="reportCompany(r)"
               :size="34"
               tinted
               class="mt-0.5"
@@ -383,7 +433,7 @@ onMounted(loadReports);
             <div class="min-w-0 flex-1">
               <div class="flex items-baseline justify-between gap-2">
                 <span class="truncate text-callout font-semibold text-ink-primary">
-                  {{ r.company_name || r.company_id }}
+                  {{ formatReportCompanyName(r) }}
                 </span>
                 <span class="shrink-0 text-caption1 text-ink-muted tabular">
                   {{ fmtDate(r.created_at) }}
@@ -482,8 +532,8 @@ onMounted(loadReports);
 
       <section class="desk-card flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <DocumentViewerWindow
-          :title="activeReport?.title || (activeReport ? `${activeReport.company_name || activeReport.company_id} — ${reportKindLabel(activeReport.kind || activeReport.report_type)}` : '')"
-          :company-name="activeReport?.company_name || activeReport?.company_id || ''"
+          :title="activeReport?.title || (activeReport ? `${formatReportCompanyName(activeReport)} — ${reportKindLabel(activeReport.kind || activeReport.report_type)}` : '')"
+          :company-name="formatReportCompanyName(activeReport)"
           :company-id="activeReport?.company_id || ''"
           :report-id="activeReport?.id || ''"
           :date="fmtDate(activeReport?.created_at)"

@@ -6,6 +6,7 @@ import { renderAsync } from "docx-preview";
 import { RouterLink } from "vue-router";
 import { useT } from "../i18n.js";
 import { withApiToken } from "../api.js";
+import Monogram from "./Monogram.vue";
 
 const props = defineProps({
   title: { type: String, default: "" },
@@ -122,7 +123,14 @@ onMounted(() => {
     <header class="flex flex-wrap items-center justify-between gap-2.5 border-b border-subtle px-4 py-2 bg-surface shrink-0">
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2">
-          <FileText class="h-4 w-4 shrink-0 text-accent" />
+          <Monogram
+            v-if="companyId || companyName"
+            :company="{ id: companyId, name: companyName }"
+            :size="20"
+            tinted
+            class="shrink-0"
+          />
+          <FileText v-else class="h-4 w-4 shrink-0 text-accent" />
           <h2 class="truncate text-sm font-semibold text-ink-primary" :title="title">
             {{ title || t("reports.viewer_window_title") }}
           </h2>

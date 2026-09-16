@@ -25,13 +25,28 @@ extension FocusedValues {
     }
 }
 
+final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            for window in sender.windows {
+                if window.canBecomeMain {
+                    window.makeKeyAndOrderFront(nil)
+                    return true
+                }
+            }
+        }
+        return true
+    }
+}
+
 @main
 struct BSHResearchMacApp: App {
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     /// One store for every window — desks, memo windows and Settings all read the same data.
     @StateObject private var store = MacAppStore()
 
     var body: some Scene {
-        Window("BSH Research", id: "main") {
+        WindowGroup("BSH Research", id: "main") {
             MacRootView()
                 .environmentObject(store)
                 .frame(minWidth: 1050, minHeight: 680)
@@ -118,6 +133,11 @@ struct MacDeskCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            Button("New Window") {
+                openWindow(id: "main")
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+
             Button("New Investment Memo…") {
                 route(target?.newMemo) { store.requestNewReport(for: targetCompany) }
             }
@@ -276,6 +296,11 @@ struct MacDeskCommands: Commands {
                 withAnimation(.easeInOut(duration: 0.18)) { store.showBrowserPanel.toggle() }
             }
             .keyboardShortcut("b", modifiers: .command)
+
+            Button(store.showCopilotPanel ? "Hide Ask Warren Side Panel" : "Show Ask Warren Side Panel") {
+                withAnimation(.easeInOut(duration: 0.18)) { store.showCopilotPanel.toggle() }
+            }
+            .keyboardShortcut("c", modifiers: [.command, .option])
 
             Button("Open Current Page on Web") {
                 MacConfig.openInBrowser(store.currentWebURL)

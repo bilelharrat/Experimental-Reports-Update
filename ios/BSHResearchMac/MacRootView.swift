@@ -101,6 +101,7 @@ struct MacRootView: View {
             store.showNewReportSheet = false
             store.showDecisionSheet = false
             store.showDeckIntakeSheet = false
+            store.showCopilotPanel = false
         }
         .onChange(of: store.selectedTab) { _, tab in
             let now = Date()
@@ -226,10 +227,19 @@ struct MacRootView: View {
     }
 
     private func sidebarRow(_ tab: MacTab, badge: Int = 0) -> some View {
-        Label(tab.title, systemImage: tab.systemImage)
-            .badge(badge)
-            .tag(tab)
-            .glassListRow(isSelected: store.selectedTab == tab, cornerRadius: 10)
+        HStack(spacing: 8) {
+            if tab == .copilot {
+                WarrenMarkView(size: 16, isBusy: store.copilotStreaming)
+            } else {
+                Image(systemName: tab.systemImage)
+                    .frame(width: 16)
+            }
+            Text(tab.title)
+            Spacer()
+        }
+        .badge(badge)
+        .tag(tab)
+        .glassListRow(isSelected: store.selectedTab == tab, cornerRadius: 10)
     }
 
     /// Who is signed in and what they may do — the gate for every write action.
@@ -327,6 +337,13 @@ struct MacRootView: View {
                         .layoutPriority(0)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
+
+                if store.showCopilotPanel {
+                    MacCopilotSidePanel()
+                        .frame(minWidth: 340, idealWidth: 400, maxWidth: 580)
+                        .layoutPriority(0)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -377,10 +394,38 @@ struct MacRootView: View {
                 Button {
                     store.requestNewReport()
                 } label: {
-                    Label("New Memo", systemImage: "plus")
+                    HStack(spacing: 5) {
+                        AiOrbView(size: 14)
+                        Text("Generate report")
+                            .font(.system(size: 12, weight: .medium))
+                    }
                 }
-                .help(store.canRunTasks ? "Generate a new investment memo (⌘N)" : "Sign in with an analyst or partner role to run memos")
+                .help(store.canRunTasks ? "Generate research report / memo (⌘N)" : "Sign in with an analyst or partner role to run memos")
                 .disabled(!store.canRunTasks)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        store.showBrowserPanel.toggle()
+                    }
+                } label: {
+                    Label("Research Browser", systemImage: store.showBrowserPanel ? "globe.americas.fill" : "globe")
+                }
+                .help("Toggle Embedded Research Browser (⌘B)")
+                .keyboardShortcut("b", modifiers: .command)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        store.showCopilotPanel.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        WarrenMarkView(size: 19, isBusy: store.copilotStreaming)
+                        Text("Ask")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .help("Ask Warren (⌥⌘C)")
+                .keyboardShortcut("c", modifiers: [.command, .option])
 
                 Button {
                     store.toggleBlotter()

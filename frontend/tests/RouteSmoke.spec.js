@@ -204,6 +204,8 @@ async function mountRouteWithRouter(path) {
       { path: "/innovation-lab/hypothesis-lab", name: "research-page-hypothesis-lab", component: { template: "<div />" } },
       { path: "/market-radar", name: "market-radar", component: { template: "<div>Market</div>" } },
       { path: "/reports", name: "reports", component: { template: "<div>Research Reports</div>" } },
+      { path: "/research-desk", name: "research-desk", component: { template: "<div>Desk</div>" } },
+      { path: "/research-desk/:companyId", name: "research-desk-company", component: { template: "<div>Desk</div>" }, props: true },
       {
         path: "/:companyId",
         name: "research",

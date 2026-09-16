@@ -8,7 +8,9 @@
 //
 
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 
 struct MacFounderRadarView: View {
     let company: MacCompany

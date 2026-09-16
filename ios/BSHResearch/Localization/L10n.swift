@@ -4,6 +4,7 @@ enum L10n {
     private static let en: [String: String] = [
         "app.name": "BSH Research",
         "tab.home": "Home",
+        "tab.research": "Research Desk",
         "tab.reports": "Reports",
         "tab.news": "News",
         "tab.market": "Market",
@@ -12,6 +13,7 @@ enum L10n {
         "tab.settings": "Settings",
         "sidebar.collapse": "Collapse sidebar",
         "sidebar.expand": "Expand sidebar",
+        "sidebar.desks": "Desks",
         "login.title": "Sign in",
         "login.email": "Email",
         "login.password": "Password",
@@ -256,6 +258,7 @@ enum L10n {
     private static let zh: [String: String] = [
         "app.name": "BSH 研究中心",
         "tab.home": "首页",
+        "tab.research": "研究工作台",
         "tab.reports": "报告",
         "tab.news": "新闻",
         "tab.market": "市场",
@@ -264,6 +267,7 @@ enum L10n {
         "tab.settings": "设置",
         "sidebar.collapse": "收起边栏",
         "sidebar.expand": "展开边栏",
+        "sidebar.desks": "工作台",
         "login.title": "登录",
         "login.email": "邮箱",
         "login.password": "密码",
@@ -516,6 +520,7 @@ enum L10n {
         "tab.settings": "सेटिंग्स",
         "sidebar.collapse": "साइडबार संकुचित करें",
         "sidebar.expand": "साइडबार विस्तार करें",
+        "sidebar.desks": "डेस्क",
         "login.title": "साइन इन",
         "login.email": "ईमेल",
         "login.password": "पासवर्ड",
@@ -750,6 +755,7 @@ enum L10n {
         "tab.settings": "Ajustes",
         "sidebar.collapse": "Contraer barra lateral",
         "sidebar.expand": "Expandir barra lateral",
+        "sidebar.desks": "Mesas",
         "login.title": "Iniciar sesión",
         "login.email": "Correo",
         "login.password": "Contraseña",
@@ -984,6 +990,7 @@ enum L10n {
         "tab.settings": "Réglages",
         "sidebar.collapse": "Réduire la barre latérale",
         "sidebar.expand": "Développer la barre latérale",
+        "sidebar.desks": "Bureaux",
         "login.title": "Connexion",
         "login.email": "E-mail",
         "login.password": "Mot de passe",
@@ -1218,6 +1225,7 @@ enum L10n {
         "tab.settings": "الإعدادات",
         "sidebar.collapse": "طي الشريط الجانبي",
         "sidebar.expand": "توسيع الشريط الجانبي",
+        "sidebar.desks": "المكاتب",
         "login.title": "تسجيل الدخول",
         "login.email": "البريد الإلكتروني",
         "login.password": "كلمة المرور",
@@ -1452,6 +1460,7 @@ enum L10n {
         "tab.settings": "সেটিংস",
         "sidebar.collapse": "সাইডবার সংকুচিত করুন",
         "sidebar.expand": "সাইডবার প্রসারিত করুন",
+        "sidebar.desks": "ডেস্ক",
         "login.title": "সাইন ইন",
         "login.email": "ইমেইল",
         "login.password": "পাসওয়ার্ড",
@@ -1686,6 +1695,7 @@ enum L10n {
         "tab.settings": "Definições",
         "sidebar.collapse": "Recolher barra lateral",
         "sidebar.expand": "Expandir barra lateral",
+        "sidebar.desks": "Mesas",
         "login.title": "Iniciar sessão",
         "login.email": "E-mail",
         "login.password": "Palavra-passe",
@@ -1920,6 +1930,7 @@ enum L10n {
         "tab.settings": "Настройки",
         "sidebar.collapse": "Свернуть боковую панель",
         "sidebar.expand": "Развернуть боковую панель",
+        "sidebar.desks": "Рабочие столы",
         "login.title": "Вход",
         "login.email": "Эл. почта",
         "login.password": "Пароль",
@@ -2154,6 +2165,7 @@ enum L10n {
         "tab.settings": "ترتیبات",
         "sidebar.collapse": "سائیڈبار سکیڑیں",
         "sidebar.expand": "سائیڈبار پھیلائیں",
+        "sidebar.desks": "ڈیسک",
         "login.title": "سائن اِن",
         "login.email": "ای میل",
         "login.password": "پاس ورڈ",
@@ -2391,6 +2403,8 @@ enum L10n {
         case .ru: table = ru
         case .ur: table = ur
         }
-        return table[key] ?? en[key] ?? key
+        if let val = table[key] { return val }
+        if key == "tab.research", let val = table["tab.search"] { return val }
+        return en[key] ?? key
     }
 }

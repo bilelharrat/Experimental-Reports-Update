@@ -484,7 +484,14 @@ def _serve_index() -> HTMLResponse:
             html_text = html_text.replace("</head>", f"  {block}\n  </head>", 1)
         elif "<head>" in html_text:
             html_text = html_text.replace("<head>", f"<head>\n  {block}", 1)
-    return HTMLResponse(content=html_text)
+    return HTMLResponse(
+        content=html_text,
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/")

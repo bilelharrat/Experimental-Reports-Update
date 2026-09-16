@@ -487,7 +487,7 @@ function onBlur() {
       >
         <div class="relative flex items-center">
           <Search
-            class="pointer-events-none absolute left-[1.125rem] h-5 w-5 text-ink-muted"
+            class="pointer-events-none absolute left-3.5 h-4 w-4 text-ink-muted"
           />
           <input
             v-model="query"
@@ -506,8 +506,8 @@ function onBlur() {
             :aria-label="searching ? t('home.searching') : t('home.search')"
             :title="searching ? t('home.searching') : t('home.search')"
           >
-            <Loader2 v-if="searching" class="h-[18px] w-[18px] animate-spin" />
-            <ArrowRight v-else class="h-[18px] w-[18px]" />
+            <Loader2 v-if="searching" class="h-3.5 w-3.5 animate-spin" />
+            <ArrowRight v-else class="h-3.5 w-3.5" />
           </button>
         </div>
 
@@ -520,7 +520,7 @@ function onBlur() {
             :aria-pressed="linkOpen"
             @click="setIntake('link')"
           >
-            <LinkIcon class="h-4 w-4" />
+            <LinkIcon class="h-3.5 w-3.5" />
             {{ t("home.action_link") }}
           </button>
           <button
@@ -531,7 +531,7 @@ function onBlur() {
             :aria-pressed="uploadOpen"
             @click="setIntake('upload')"
           >
-            <Upload class="h-4 w-4" />
+            <Upload class="h-3.5 w-3.5" />
             {{ t("home.action_file") }}
           </button>
           <button
@@ -542,7 +542,7 @@ function onBlur() {
             :aria-pressed="noteOpen"
             @click="setIntake('note')"
           >
-            <ScrollText class="h-4 w-4" />
+            <ScrollText class="h-3.5 w-3.5" />
             {{ t("home.action_note") }}
           </button>
         </div>
@@ -566,7 +566,7 @@ function onBlur() {
           @mousedown.prevent="pickSuggestion(s)"
           class="home-suggestion focus-ring"
         >
-          <Monogram :name="s.name" :initials="suggestionInitials(s)" :size="32" tinted />
+          <Monogram :company="s" :name="s.name" :initials="suggestionInitials(s)" :size="32" tinted />
           <div class="min-w-0 flex-1">
             <div class="truncate text-callout font-medium text-ink-primary">
               {{ s.name }}

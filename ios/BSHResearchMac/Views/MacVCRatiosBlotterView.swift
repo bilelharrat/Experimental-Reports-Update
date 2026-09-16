@@ -8,7 +8,12 @@
 //
 
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct MacVCRatiosBlotterView: View {
     let company: MacCompany
@@ -257,8 +262,12 @@ struct MacVCRatiosBlotterView: View {
         Magic Number: \(magicNumber.map { String(format: "%.2fx", $0) } ?? "not entered")
         ---------------------------------------
         """
+        #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
 
         copiedToClipboard = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

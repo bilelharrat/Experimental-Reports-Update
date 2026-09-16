@@ -8,7 +8,12 @@
 //
 
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct MacCapTableSimulatorView: View {
     let company: MacCompany
@@ -396,8 +401,12 @@ struct MacCapTableSimulatorView: View {
         - $5.0B Exit  -> Proceeds: $\(String(format: "%.1f", 5000.0 * finalDilutedOwnershipPercent / 100.0))M (\(String(format: "%.1f", (5000.0 * finalDilutedOwnershipPercent / 100.0) / checkSizeMillions))x MOIC)
         - $10.0B Exit -> Proceeds: $\(String(format: "%.1f", 10000.0 * finalDilutedOwnershipPercent / 100.0))M (\(String(format: "%.1f", (10000.0 * finalDilutedOwnershipPercent / 100.0) / checkSizeMillions))x MOIC)
         """
+        #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(summary, forType: .string)
+        #else
+        UIPasteboard.general.string = summary
+        #endif
         withAnimation {
             copiedNotice = true
         }

@@ -8,10 +8,39 @@ struct MacCompany: Identifiable, Hashable, Codable {
     let status: String?
     let sector: String?
     let industry: String?
+    let website: String?
+    let logoUrl: String?
+    let logoDomain: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, ticker, status, sector, industry
+        case id, name, ticker, status, sector, industry, website
         case companyType = "company_type"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
+    }
+
+    init(
+        id: String,
+        name: String? = nil,
+        ticker: String? = nil,
+        companyType: String? = nil,
+        status: String? = nil,
+        sector: String? = nil,
+        industry: String? = nil,
+        website: String? = nil,
+        logoUrl: String? = nil,
+        logoDomain: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.ticker = ticker
+        self.companyType = companyType
+        self.status = status
+        self.sector = sector
+        self.industry = industry
+        self.website = website
+        self.logoUrl = logoUrl
+        self.logoDomain = logoDomain
     }
 
     var title: String { name ?? id }
@@ -1286,6 +1315,232 @@ struct MacNewsBrief: Decodable {
     func watchNextBullets(lang: String = "en") -> [String] {
         if lang == "zh", let zh = watchNextZh, !zh.isEmpty { return zh }
         return watchNextEn ?? []
+    }
+}
+
+// MARK: - Memo Studio Editor & Customization Models
+
+struct MacReportCustomizerConfig: Hashable, Codable {
+    var reportType: String = "Investment Report (Auto)"
+    var audience: String = "Internal"
+    var language: String = "en"
+    var generationMode: String = "studio_review" // "one_click" or "studio_review"
+    var reportMode: String = "full" // "full" or "compact"
+    var quality: String = "best" // "best", "balanced", "economy"
+    var customPrompt: String = ""
+    var focusPillars: [String] = []
+    var companyTypeLens: String = "auto"
+    var selectedDocumentIds: [String] = []
+}
+
+struct MacMemoEditorSourceRef: Identifiable, Hashable, Codable {
+    var id: String { title + (origin ?? "") + (url ?? "") }
+    let title: String
+    let origin: String?
+    let url: String?
+    let file: String?
+    let capturedAt: String?
+    let publishedAt: String?
+    let language: String?
+    let sourceClass: String?
+    let confidence: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title, origin, url, file, language, confidence
+        case capturedAt = "captured_at"
+        case publishedAt = "published_at"
+        case sourceClass = "source_class"
+    }
+}
+
+struct MacMemoEditorBullet: Identifiable, Hashable, Codable {
+    let id: String
+    var text: String
+    var sourceClass: String?
+    var sourceRefs: [MacMemoEditorSourceRef]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, text
+        case sourceClass = "source_class"
+        case sourceRefs = "source_refs"
+    }
+    init(id: String = UUID().uuidString, text: String, sourceClass: String? = nil, sourceRefs: [MacMemoEditorSourceRef]? = nil) {
+        self.id = id
+        self.text = text
+        self.sourceClass = sourceClass
+        self.sourceRefs = sourceRefs
+    }
+}
+
+struct MacMemoEditorCard: Identifiable, Hashable, Codable {
+    let id: String
+    var title: String
+    var category: String?
+    var severity: String?
+    var likelihood: String?
+    var rating: String?
+    var confidence: String?
+    var included: Bool?
+    var expanded: Bool?
+    var sourceClass: String?
+    var bullets: [MacMemoEditorBullet]
+    var sourceRefs: [MacMemoEditorSourceRef]?
+
+    init(
+        id: String = UUID().uuidString,
+        title: String,
+        category: String? = nil,
+        severity: String? = nil,
+        likelihood: String? = nil,
+        rating: String? = nil,
+        confidence: String? = nil,
+        included: Bool? = true,
+        expanded: Bool? = false,
+        sourceClass: String? = nil,
+        bullets: [MacMemoEditorBullet] = [],
+        sourceRefs: [MacMemoEditorSourceRef]? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.category = category
+        self.severity = severity
+        self.likelihood = likelihood
+        self.rating = rating
+        self.confidence = confidence
+        self.included = included
+        self.expanded = expanded
+        self.sourceClass = sourceClass
+        self.bullets = bullets
+        self.sourceRefs = sourceRefs
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, category, severity, likelihood, rating, confidence, included, expanded, bullets
+        case sourceClass = "source_class"
+        case sourceRefs = "source_refs"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        category = try c.decodeIfPresent(String.self, forKey: .category)
+        severity = try c.decodeIfPresent(String.self, forKey: .severity)
+        likelihood = try c.decodeIfPresent(String.self, forKey: .likelihood)
+        rating = try c.decodeIfPresent(String.self, forKey: .rating)
+        confidence = try c.decodeIfPresent(String.self, forKey: .confidence)
+        included = try c.decodeIfPresent(Bool.self, forKey: .included)
+        expanded = try c.decodeIfPresent(Bool.self, forKey: .expanded)
+        sourceClass = try c.decodeIfPresent(String.self, forKey: .sourceClass)
+        bullets = (try c.decodeIfPresent([MacMemoEditorBullet].self, forKey: .bullets)) ?? []
+        sourceRefs = try c.decodeIfPresent([MacMemoEditorSourceRef].self, forKey: .sourceRefs)
+    }
+
+    var isCardIncluded: Bool { included ?? true }
+}
+
+struct MacMemoEditorSectionCards: Hashable, Codable {
+    let id: String
+    let title: String
+    let status: String?
+    var cards: [MacMemoEditorCard]
+}
+
+struct MacMemoEditorExecutiveSummary: Hashable, Codable {
+    let id: String
+    let title: String
+    let status: String?
+    let body: String?
+    let recommendation: String?
+    let round: String?
+    let preMoney: String?
+    let checkSize: String?
+    let targetOwnership: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, status, body, recommendation, round
+        case preMoney = "pre_money"
+        case checkSize = "check_size"
+        case targetOwnership = "target_ownership"
+    }
+}
+
+struct MacMemoEditorConclusion: Hashable, Codable {
+    let id: String
+    let title: String
+    let status: String?
+    let recommendation: String?
+    let valuationTarget: String?
+    let keyCatalysts: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, status, recommendation
+        case valuationTarget = "valuation_target"
+        case keyCatalysts = "key_catalysts"
+    }
+}
+
+struct MacMemoEditorAppendixBlock: Identifiable, Hashable, Codable {
+    let id: String
+    let title: String
+    let status: String?
+    var expanded: Bool?
+    let facts: [String]
+    let sourceClass: String?
+    let sourceRefs: [MacMemoEditorSourceRef]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, status, expanded, facts
+        case sourceClass = "source_class"
+        case sourceRefs = "source_refs"
+    }
+}
+
+struct MacMemoEditorAppendix: Hashable, Codable {
+    let id: String
+    let title: String
+    let status: String?
+    var blocks: [MacMemoEditorAppendixBlock]
+}
+
+struct MacMemoEditorSections: Hashable, Codable {
+    var executiveSummary: MacMemoEditorExecutiveSummary?
+    var investmentThesis: MacMemoEditorSectionCards?
+    var risksMitigations: MacMemoEditorSectionCards?
+    var conclusion: MacMemoEditorConclusion?
+    var appendix: MacMemoEditorAppendix?
+
+    enum CodingKeys: String, CodingKey {
+        case executiveSummary = "executive_summary"
+        case investmentThesis = "investment_thesis"
+        case risksMitigations = "risks_mitigations"
+        case conclusion, appendix
+    }
+}
+
+struct MacMemoEditorState: Identifiable, Hashable, Codable {
+    var id: String { companyId }
+    let schemaVersion: Int?
+    let companyId: String
+    let companyName: String?
+    let version: Int?
+    let versionId: String?
+    let revision: Int?
+    let revisionId: String?
+    let status: String?
+    let createdAt: String?
+    let updatedAt: String?
+    var sections: MacMemoEditorSections
+
+    enum CodingKeys: String, CodingKey {
+        case version, revision, status, sections
+        case schemaVersion = "schema_version"
+        case companyId = "company_id"
+        case companyName = "company_name"
+        case versionId = "version_id"
+        case revisionId = "revision_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
     }
 }
 

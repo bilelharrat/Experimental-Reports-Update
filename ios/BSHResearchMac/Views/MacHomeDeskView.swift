@@ -614,7 +614,15 @@ struct MacHomeDeskView: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                     ForEach(store.recentReports.prefix(6)) { report in
                         HStack(spacing: 12) {
-                            MacMonogram(name: report.companyName ?? report.companyId ?? "Memo", size: 34)
+                            if let c = store.companies.first(where: { $0.id == report.companyId }) {
+                                MacMonogram(company: c, size: 34)
+                            } else {
+                                MacMonogram(
+                                    name: report.companyName ?? report.companyId ?? "Memo",
+                                    companyId: report.companyId,
+                                    size: 34
+                                )
+                            }
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(report.companyName ?? report.companyId ?? "Investment Memo")

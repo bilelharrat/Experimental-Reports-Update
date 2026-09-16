@@ -21,8 +21,11 @@ struct BSHResearchApp: App {
                 .environmentObject(askPersona)
                 .environmentObject(router)
                 .environmentObject(dataCache)
+                .environmentObject(ResearchDeskStore.shared)
                 .task {
-                    await dataCache.preloadAll(lang: language.language)
+                    async let cachePreload: Void = dataCache.preloadAll(lang: language.language)
+                    async let deskPreload: Void = ResearchDeskStore.shared.loadAll()
+                    _ = await (cachePreload, deskPreload)
                 }
                 // Read `language.language` (not only the computed locale) so App
                 // body invalidates; `.id` forces TabView chrome to rebuild with

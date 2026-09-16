@@ -65,6 +65,7 @@ struct MacShortcutOverlay: View {
                         ShortcutRow(keys: ["⌘", "L"], description: "Signal log")
                         ShortcutRow(keys: ["⌘", "R"], description: "Refresh all desks")
                         ShortcutRow(keys: ["⌘", "B"], description: "Show/Hide Research Browser")
+                        ShortcutRow(keys: ["⌥", "⌘", "C"], description: "Toggle Ask Warren Side Panel")
                         ShortcutRow(keys: ["⌥", "⌘", "I"], description: "Toggle Inspector Sidebar")
                         ShortcutRow(keys: ["⇧", "⌘", "W"], description: "Open Current Page on Web")
                     }

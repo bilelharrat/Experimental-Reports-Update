@@ -11,7 +11,29 @@ const API_TARGET = process.env.VITE_API_TARGET || "http://127.0.0.1:8010";
 // fetches `/research/assets/...`, Starlette strips, mount serves it).
 export default defineConfig({
   base: "/research/",
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    {
+      name: "redirect-root-to-base",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const url = req.url || "/";
+          if (
+            !url.startsWith("/research") &&
+            !url.startsWith("/api") &&
+            !url.startsWith("/@") &&
+            !url.startsWith("/node_modules") &&
+            !url.startsWith("/src")
+          ) {
+            res.writeHead(302, { Location: `/research${url}` });
+            res.end();
+            return;
+          }
+          next();
+        });
+      },
+    },
+  ],
   build: {
     outDir: "dist",
     emptyOutDir: true,

@@ -37,12 +37,23 @@ actor APIClient {
         self.encoder = encoder
     }
 
+    private static func sanitizePath(_ raw: String) -> String {
+        var p = raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if p.lowercased().hasPrefix("api/") {
+            p = String(p.dropFirst(4)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else if p.lowercased() == "api" {
+            p = ""
+        }
+        return p
+    }
+
     func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         try await request(path, method: "GET", query: query)
     }
 
     nonisolated func getCached<T: Decodable>(_ path: String, query: [URLQueryItem] = []) -> T? {
-        let key = APIResponseCache.cacheKey(path: path, query: query)
+        let clean = Self.sanitizePath(path)
+        let key = APIResponseCache.cacheKey(path: clean, query: query)
         guard let data = APIResponseCache.shared.load(for: key) else { return nil }
         let decoder = JSONDecoder()
         return try? decoder.decode(T.self, from: data)
@@ -62,7 +73,7 @@ actor APIClient {
         fields: [String: String],
         files: [(field: String, name: String, mime: String, data: Data)] = []
     ) async throws -> T {
-        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let trimmed = Self.sanitizePath(path)
         var components = URLComponents(url: AppConfig.apiRoot, resolvingAgainstBaseURL: false)!
         let root = AppConfig.apiRoot.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = "/" + [root, trimmed].filter { !$0.isEmpty }.joined(separator: "/")
@@ -185,7 +196,7 @@ actor APIClient {
         body: (any Encodable)? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> T {
-        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let trimmed = Self.sanitizePath(path)
         guard var components = URLComponents(url: AppConfig.apiRoot, resolvingAgainstBaseURL: false) else {
             throw APIError.invalidURL
         }
@@ -207,7 +218,7 @@ actor APIClient {
             req.httpBody = try encoder.encode(AnyEncodable(body))
         }
 
-        let cacheKey = APIResponseCache.cacheKey(path: path, query: query)
+        let cacheKey = APIResponseCache.cacheKey(path: trimmed, query: query)
         let data: Data
         let response: URLResponse
         do {

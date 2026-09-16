@@ -253,3 +253,31 @@ struct CompanyDetail: Decodable, Identifiable {
         return description ?? ""
     }
 }
+
+extension ReportDetail {
+    init(from macReport: MacReport) {
+        self.id = macReport.id
+        self.companyId = macReport.companyId
+        self.companyName = macReport.companyName
+        self.reportType = macReport.reportType
+        self.audience = macReport.audience
+        self.language = macReport.language
+        self.status = macReport.status
+        self.progress = macReport.progress
+        self.stage = macReport.stage
+        self.error = macReport.error
+        self.kind = macReport.kind
+        self.content = nil
+        self.contentEn = nil
+        self.contentZh = nil
+        self.streamUrl = nil
+        self.downloadUrls = macReport.downloadUrls
+        self.previewUrls = macReport.previewUrls
+        self.qualityWarnings = nil
+        self.warnings = nil
+        self.resumeAvailable = nil
+        self.createdAt = macReport.createdAt
+        self.updatedAt = macReport.updatedAt
+        self.analysisArtifacts = nil
+    }
+}

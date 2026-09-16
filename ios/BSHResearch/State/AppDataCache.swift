@@ -104,6 +104,9 @@ final class AppDataCache: ObservableObject {
                 }
             }
         }
+        if self.companies.isEmpty {
+            self.companies = BSHResearchSeedData.coreCompanies
+        }
 
         // 2. Quotes
         let cachedQuotes = QuoteCache.load()

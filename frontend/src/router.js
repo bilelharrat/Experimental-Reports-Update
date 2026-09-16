@@ -1,6 +1,6 @@
 import { watch } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
-import { isAuthenticated, validateSession } from "./auth.js";
+import { isAuthenticated, isAnonDev, session, validateSession } from "./auth.js";
 import { postAuthPath } from "./state.js";
 
 const HomeView = () => import("./views/HomeView.vue");
@@ -24,6 +24,7 @@ const NewsDeskView = () => import("./views/NewsDeskView.vue");
 const MarketRadarView = () => import("./views/MarketRadarView.vue");
 const CompetitorDetailView = () => import("./views/CompetitorDetailView.vue");
 const ReportsView = () => import("./views/ReportsView.vue");
+const ResearchDeskView = () => import("./views/ResearchDeskView.vue");
 
 function routerHistoryBase() {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -57,6 +58,8 @@ export const router = createRouter({
       meta: { public: true },
     },
     { path: "/", name: "home", component: HomeView },
+    { path: "/research-desk", name: "research-desk", component: ResearchDeskView, props: true },
+    { path: "/research-desk/:companyId", name: "research-desk-company", component: ResearchDeskView, props: true },
     { path: "/news-desk", name: "news-desk", component: NewsDeskView },
     { path: "/reports", name: "reports", component: ReportsView },
     { path: "/tracking", name: "tracking", component: TrackingView },
@@ -124,7 +127,7 @@ export const router = createRouter({
     {
       path: "/:companyId",
       name: "research",
-      component: ResearchView,
+      component: ResearchDeskView,
       alias: "/research/:companyId",
       props: true,
     },
@@ -157,8 +160,8 @@ export const router = createRouter({
 });
 
 router.beforeEach((to) => {
-  // Already signed in and trying to reach /login → bounce home.
-  if (to.name === "login" && isAuthenticated.value) {
+  // Already signed in or in anon dev mode and trying to reach /login → bounce home.
+  if (to.name === "login" && (session.value !== null || isAnonDev()) && !to.query.switch) {
     return postAuthPath(typeof to.query.next === "string" ? to.query.next : "/");
   }
   // Any non-public route requires a session.
