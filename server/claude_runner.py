@@ -4776,6 +4776,42 @@ Return only the JSON object matching the attached schema: `type`,
     }
 
 
+# Effort floors for individual Phase-2 passes.
+#
+# market_sizing carries by far the longest, most procedural focus text —
+# collect every external estimate, keep the ones that disagree, explain the
+# definition mismatch, then build and reconcile an internal derivation. On
+# 2026-09-16 that pass ran at medium effort and returned placeholder text
+# ("test" / "a" / "b") while the other seven passes, with much shorter
+# instructions, were fine. The instruction load is the difference, so it
+# gets a floor.
+#
+# A floored pass no longer shares the wave's prompt cache: cache entries are
+# scoped to (model, effort). One pass out of eight paying its own context is
+# a cheap price for an answer that is actually about the market.
+MEMO_PASS_EFFORT_FLOOR: dict[str, str] = {
+    "market_sizing": "high",
+}
+
+_EFFORT_ORDER: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+
+
+def _memo_pass_effort(pass_id: str, effort: str | None) -> str | None:
+    """Raise ``effort`` to this pass's floor, never lower it."""
+    floor = MEMO_PASS_EFFORT_FLOOR.get(pass_id)
+    if floor is None:
+        return effort
+    if effort is None:
+        return floor
+    try:
+        if _EFFORT_ORDER.index(effort) >= _EFFORT_ORDER.index(floor):
+            return effort
+    except ValueError:
+        # An effort the CLI knows and we do not: leave the caller's choice.
+        return effort
+    return floor
+
+
 def memo_fast_pass_common_context(
     *,
     run_dir: Path | None = None,
@@ -4946,7 +4982,9 @@ JSON object matching the attached schema.
         add_dirs=add_dirs,
         append_system_prompt=shared,
         model=_memo_role_model("ANALYSIS_PASS", run_dir),
-        effort=_memo_role_effort("ANALYSIS_PASS", run_dir),
+        effort=_memo_pass_effort(
+            pass_id, _memo_role_effort("ANALYSIS_PASS", run_dir)
+        ),
     )
 
 

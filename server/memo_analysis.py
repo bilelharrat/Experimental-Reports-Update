@@ -466,6 +466,54 @@ class _FastMemoPassSpec:
     focus: str
 
 
+# A pass that answers with placeholder text passes schema validation and
+# poisons everything downstream. Observed live on 2026-09-16: market_sizing
+# ran for 2.4 minutes, spent 16k output tokens and returned
+# summary="test" with a single finding of claim="a", finding="b" — the
+# memo's whole TAM section was then written from "a | b | c | d". Nothing
+# in the pipeline noticed, because the shape was valid.
+# A floor for obviously-empty answers, not a quality judge: a pass whose
+# summary is this short has not written a summary at all.
+_FAST_PASS_MIN_SUMMARY_CHARS = 20
+_FAST_PASS_MIN_FINDING_CHARS = 40
+_FAST_PASS_PLACEHOLDER_WORDS = frozenset(
+    {"test", "todo", "tbd", "placeholder", "n/a", "na", "none", "example", "foo"}
+)
+
+
+def _fast_pass_degenerate_reason(data: dict | None) -> str | None:
+    """Why this pass result is unusable, or None when it looks like work.
+
+    Both halves must fail before a pass is thrown away: a thin summary on
+    top of real findings is terse, not broken, and a pass that genuinely
+    found nothing is allowed to say so. Only an answer that is empty at
+    BOTH ends is placeholder text.
+    """
+    if not isinstance(data, dict):
+        return None  # a missing result is already an error
+    summary = str(data.get("summary") or "").strip()
+    looks_placeholder = (
+        len(summary) < _FAST_PASS_MIN_SUMMARY_CHARS
+        or summary.strip(" .").lower() in _FAST_PASS_PLACEHOLDER_WORDS
+    )
+    if not looks_placeholder:
+        return None
+    findings = data.get("key_findings")
+    findings = findings if isinstance(findings, list) else []
+    for item in findings:
+        if not isinstance(item, dict):
+            continue
+        claim = str(item.get("claim") or "").strip()
+        finding = str(item.get("finding") or "").strip()
+        if len(claim) + len(finding) >= _FAST_PASS_MIN_FINDING_CHARS:
+            return None
+    return (
+        f"summary is {summary[:40]!r} and none of its {len(findings)} "
+        f"key_findings carry {_FAST_PASS_MIN_FINDING_CHARS} characters of "
+        "claim and finding"
+    )
+
+
 @dataclass
 class _FastMemoPassResult:
     spec: _FastMemoPassSpec
@@ -535,7 +583,53 @@ def _memo_package_path(run_dir: Path) -> Path:
     return run_dir / "logs" / "memo_package.json"
 
 
-def _memo_package_render_validation_error(package_path: Path) -> str | None:
+# A handful of paragraphs can come back from the translation wave with an
+# empty `zh` — the chaser refuses a translation that dropped or renumbered a
+# citation, and if its retry also misses, the slot stays blank. The renderer
+# requires `zh`, so on 2026-09-16 one such paragraph failed a run that had
+# already finished every phase. English in one Chinese paragraph is a far
+# smaller defect than no memo at all, so a FEW gaps are filled from the
+# English and reported. Many gaps mean the translation wave itself broke,
+# which is not something to paper over — those still fail the run.
+_MAX_ZH_FALLBACK_GAPS = 3
+
+
+def _fill_sparse_zh_gaps(payload: Any, limit: int = _MAX_ZH_FALLBACK_GAPS) -> list[str]:
+    """Fill blank ``zh`` slots from their English, in place.
+
+    Returns one description per filled slot, or an empty list when there was
+    nothing to fill or when there were too many to be a translation miss.
+    """
+    gaps: list[tuple[dict, str]] = []
+
+    def walk(node: Any, where: str) -> None:
+        if isinstance(node, dict):
+            if "en" in node and "zh" in node:
+                english = str(node.get("en") or "").strip()
+                if english and not str(node.get("zh") or "").strip():
+                    gaps.append((node, where))
+            for key, value in node.items():
+                walk(value, f"{where}.{key}")
+            return
+        if isinstance(node, list):
+            for index, item in enumerate(node):
+                walk(item, f"{where}[{index}]")
+
+    walk(payload, "package")
+    if not gaps or len(gaps) > limit:
+        return []
+    filled = []
+    for node, where in gaps:
+        node["zh"] = node["en"]
+        filled.append(f"{where}.zh: fell back to the English text")
+    return filled
+
+
+def _memo_package_render_validation_error(
+    package_path: Path,
+    *,
+    allow_zh_fallback: bool = False,
+) -> str | None:
     if not package_path.exists():
         return None
     try:
@@ -553,6 +647,11 @@ def _memo_package_render_validation_error(package_path: Path) -> str | None:
         except Exception:  # noqa: BLE001
             return error
         repaired, repairs = memo_docx_renderer.repair_package_structure(payload)
+        repairs = list(repairs)
+        if allow_zh_fallback:
+            # Last resort only, and only for the caller that has already run
+            # the monolithic Chinese repair: re-translation had its turn.
+            repairs += _fill_sparse_zh_gaps(repaired)
         if not repairs:
             return error
         try:
@@ -2751,8 +2850,8 @@ def _run_fast_memo_pass(
         started_monotonic=started_monotonic,
         thread=spec.label,
     )
-    try:
-        data, error = claude_runner.run_memo_fast_analysis_pass(
+    def _attempt() -> tuple[dict | None, str | None]:
+        return claude_runner.run_memo_fast_analysis_pass(
             run_dir=run_dir,
             company_name=company_name,
             company_slug=company_slug,
@@ -2772,6 +2871,34 @@ def _run_fast_memo_pass(
             type_label=type_profile.label["en"] if type_profile else None,
             common_context=common_context,
         )
+
+    try:
+        data, error = _attempt()
+        # A placeholder answer is worse than no answer: it is indistinguishable
+        # from real work downstream. Try once more, then fail the pass loudly.
+        if not error:
+            reason = _fast_pass_degenerate_reason(data)
+            if reason:
+                logger.warning(
+                    "fast memo pass %s returned placeholder output (%s); retrying",
+                    spec.pass_id,
+                    reason,
+                )
+                sub_progress.emit(
+                    "stage",
+                    stage="memo_pass_retry",
+                    message=(
+                        f"{spec.label}: answer looked like placeholder text "
+                        f"({reason}) — running it again"
+                    ),
+                )
+                data, error = _attempt()
+                if not error:
+                    reason = _fast_pass_degenerate_reason(data)
+                    if reason:
+                        data, error = None, (
+                            f"pass returned placeholder output twice: {reason}"
+                        )
     except Exception as exc:  # noqa: BLE001
         logger.exception("fast memo pass crashed: %s", spec.pass_id)
         data, error = None, f"{type(exc).__name__}: {exc}"
@@ -4046,7 +4173,8 @@ def _run_fast_synthesis(
                 claude_runner._adopt_zh_translations(memo_package, repaired)
                 _write_json(final_package_path, memo_package)
                 package_error = _memo_package_render_validation_error(
-                    final_package_path
+                    final_package_path,
+                    allow_zh_fallback=True,
                 )
     if package_error:
         message = (
