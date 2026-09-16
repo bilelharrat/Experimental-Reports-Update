@@ -123,6 +123,7 @@ const BASELINE = {
   "components/memo/MemoToolLauncherPanel.vue": 3,
   "components/memo/MemoToolboxPanel.vue": 31,
   "components/research-pages/ResearchPagesNav.vue": 1,
+  "components/research/VCRatiosCard.vue": 28,
   "components/stock/StockAggregatePanel.vue": 34,
   "components/stock/StockEvaluationPanel.vue": 35,
   "components/stock/StockHypothesesPanel.vue": 26,

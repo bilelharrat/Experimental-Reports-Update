@@ -179,3 +179,9 @@ export function accountInitials(nameOrEmail, fallback = "?") {
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase() || fallback;
   return fallback;
 }
+
+export {
+  companyFallbackLogoUrl,
+  companyLogoUrl,
+  resolveCompanyDomain,
+} from "./companyLogo.js";

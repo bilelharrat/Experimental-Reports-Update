@@ -1,7 +1,8 @@
 <script setup>
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, inject, onMounted, onUnmounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
+  Building2,
   Download,
   Eye,
   ExternalLink,
@@ -9,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   Send,
+  SlidersHorizontal,
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
 import AiMark from "../components/AiMark.vue";
@@ -44,6 +46,7 @@ const DocumentViewerDrawer = defineAsyncComponent(
 );
 
 const tr = useT();
+const openReportCustomizer = inject("openReportCustomizer", () => {});
 
 // Backend returns canonical option strings (e.g. "Investment Memo (Late-Stage)",
 // "Internal"). Map them to localized display labels here; unknown values fall
@@ -1795,6 +1798,16 @@ onUnmounted(stopPolling);
         </div>
         <button
           type="button"
+          class="btn-filled btn-sm shrink-0 inline-flex items-center gap-1.5 focus-ring shadow-sm"
+          :aria-label="tr('memo.new_memo')"
+          :title="`${tr('reports.custom_report_btn')} (⌘N)`"
+          @click="openReportCustomizer(companyId)"
+        >
+          <AiMark class="h-3.5 w-3.5 shrink-0" />
+          <span>{{ tr("memo.new_memo") }}</span>
+        </button>
+        <button
+          type="button"
           @click="refreshCompanyRecord"
           :disabled="refreshingCompany"
           class="btn-bordered btn-sm shrink-0"
@@ -1805,6 +1818,14 @@ onUnmounted(stopPolling);
           <RefreshCw v-else class="h-3.5 w-3.5" />
           <span class="hidden md:inline">{{ refreshingCompany ? tr("company.refreshing") : tr("company.refresh") }}</span>
         </button>
+        <RouterLink
+          :to="{ name: 'research-desk-company', params: { companyId } }"
+          class="btn-bordered btn-sm shrink-0 inline-flex items-center gap-1.5 focus-ring"
+          :title="tr('research_desk.open_desk')"
+        >
+          <Building2 class="h-3.5 w-3.5 text-accent" />
+          <span class="hidden md:inline">{{ tr("research_desk.open_desk") }}</span>
+        </RouterLink>
       </div>
       <!-- The positioning line frames the Overview; working tabs get the room back. -->
       <p v-if="activeTab === 'overview'" class="company-positioning">
@@ -1909,6 +1930,14 @@ onUnmounted(stopPolling);
       >
         <WarrenMark :size="18" />
         {{ tr("research.ask_copilot_open") }}
+      </button>
+      <button
+        type="button"
+        class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5"
+        @click="openReportCustomizer(companyId)"
+      >
+        <SlidersHorizontal class="h-3.5 w-3.5 text-accent" />
+        <span>{{ tr("research.memo_customize") }}</span>
       </button>
       </div>
 
@@ -2067,6 +2096,16 @@ onUnmounted(stopPolling);
               <Loader2 v-if="generating" class="h-4 w-4 animate-spin" />
               <AiMark v-else class="h-4 w-4" />
               <span>{{ studioCta.label }}</span>
+            </button>
+            <button
+              v-if="!generating"
+              type="button"
+              class="btn-bordered focus-ring inline-flex items-center gap-1.5"
+              :title="tr('customizer.title') + ' (⌘N)'"
+              @click="openReportCustomizer(companyId)"
+            >
+              <SlidersHorizontal class="h-4 w-4 text-accent" />
+              <span>{{ tr("research.memo_customize_run") }}</span>
             </button>
             <button
               v-if="awaitingStudio && !generating"

@@ -426,7 +426,7 @@ struct ReportsDeskView: View {
                             model.selectedCompanyId = (model.selectedCompanyId == comp.id) ? nil : comp.id
                         } label: {
                             HStack(spacing: 8) {
-                                MonogramAvatar(name: comp.name, size: 24)
+                                MonogramAvatar(name: comp.name, companyId: comp.id, size: 24)
                                 Text(comp.name)
                                     .lineLimit(1)
                                     .foregroundStyle(model.selectedCompanyId == comp.id ? Color.accentColor : Color.primary)
@@ -783,7 +783,14 @@ struct ReportCardRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                MonogramAvatar(name: companyDisplayName, size: 36)
+                MonogramAvatar(
+                    name: companyDisplayName,
+                    ticker: report.companyId,
+                    companyId: report.companyId,
+                    logoUrl: report.logoUrl,
+                    logoDomain: report.logoDomain,
+                    size: 36
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {

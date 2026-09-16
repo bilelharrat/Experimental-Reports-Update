@@ -7,10 +7,10 @@ final class ReportsDeskTests: XCTestCase {
     func testAppTabReportsIntegration() {
         let tab = AppTab.reports
         XCTAssertEqual(tab.rawValue, "reports")
-        XCTAssertEqual(tab.index, 1)
+        XCTAssertEqual(tab.index, 2)
         XCTAssertEqual(tab.titleKey, "tab.reports")
         XCTAssertEqual(tab.systemImage, "doc.text")
-        XCTAssertEqual(AppTab.from(index: 1), .reports)
+        XCTAssertEqual(AppTab.from(index: 2), .reports)
     }
 
     func testDeepLinkReportsTab() {
@@ -26,11 +26,18 @@ final class ReportsDeskTests: XCTestCase {
     }
 
     func testAppTabsCountAndPulseOnSameRow() {
-        // iPhone bottom bar supports exactly 5 tabs on a single row before overflow
-        XCTAssertEqual(AppTab.allCases.count, 5)
-        XCTAssertEqual(AppTab.allCases, [.home, .reports, .news, .pulse, .market])
-        XCTAssertEqual(AppTab.pulse.index, 3)
-        XCTAssertEqual(AppTab.market.index, 4)
+        XCTAssertEqual(AppTab.allCases.count, 6)
+        XCTAssertEqual(AppTab.allCases, [.home, .research, .reports, .news, .pulse, .market])
+        XCTAssertEqual(AppTab.pulse.index, 4)
+        XCTAssertEqual(AppTab.market.index, 5)
+    }
+
+    func testAllSixTabsConfigured() {
+        XCTAssertEqual(AppTab.allCases.count, 6)
+        XCTAssertEqual(AppTab.allCases, [.home, .research, .reports, .news, .pulse, .market])
+        for tab in AppTab.allCases {
+            XCTAssertFalse(tab.titleKey.isEmpty)
+        }
     }
 
     func testDeepLinkSettings() {

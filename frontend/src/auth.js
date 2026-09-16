@@ -69,7 +69,18 @@ export const sessionName = ref(null);
 export function isAnonDev() {
   if (typeof document === "undefined") return false;
   const el = document.querySelector('meta[name="bsh-research-anon-dev"]');
-  return el?.content?.trim() === "1";
+  if (el?.content?.trim() === "1") return true;
+  if (typeof window !== "undefined" && window.location) {
+    const host = window.location.hostname;
+    const port = window.location.port;
+    if (
+      (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0") &&
+      (port === "5173" || port === "5181" || port === "8010" || port === "8011")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export const isAuthenticated = computed(

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { Command, CornerDownLeft, Search } from "lucide-vue-next";
 import Monogram from "./Monogram.vue";
@@ -14,6 +14,7 @@ const props = defineProps({
 const emit = defineEmits(["close"]);
 const t = useT();
 const router = useRouter();
+const openReportCustomizer = inject("openReportCustomizer", () => {});
 const query = ref("");
 const active = ref(0);
 const inputRef = ref(null);
@@ -47,6 +48,16 @@ function run(row) {
     suggestions.value[active.value] ||
     parseMarketCommand(query.value);
   if (!cmd || cmd.action === "help") return;
+  if (cmd.action === "generate") {
+    close();
+    const found = cmd.ticker
+      ? (props.companies || []).find(
+          (c) => String(c.ticker || "").toUpperCase() === String(cmd.ticker).toUpperCase(),
+        )
+      : null;
+    openReportCustomizer(found?.id || cmd.companyId || null);
+    return;
+  }
   const target = routeForMarketCommand(cmd);
   close();
   if (target) router.push(target);

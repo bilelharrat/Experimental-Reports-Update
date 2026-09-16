@@ -7,6 +7,11 @@ struct MacResearchDeskView: View {
     @State private var selectedSector: String = "All"
     @State private var showOnlyModified: Bool = false
 
+    @State private var activeMemoReportId: String?
+    #if !os(macOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
     private var sectors: [String] {
         let set = Set(store.companies.compactMap { $0.sector }.filter { !$0.isEmpty })
         return ["All"] + Array(set).sorted()
@@ -28,6 +33,7 @@ struct MacResearchDeskView: View {
     }
 
     var body: some View {
+        #if os(macOS)
         HSplitView {
             directoryPane
                 .frame(minWidth: 230, idealWidth: 270, maxWidth: 380)
@@ -38,41 +44,151 @@ struct MacResearchDeskView: View {
                 .layoutPriority(1)
         }
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search companies or tickers…")
+        .sheet(isPresented: $store.showNewReportSheet) {
+            if let company = store.newReportCompany {
+                MacReportCustomizerSheet(company: company, onGenerate: { rep in
+                    store.showNewReportSheet = false
+                    store.openReportWindow(rep)
+                })
+                .environmentObject(store)
+            }
+        }
+        .sheet(isPresented: $store.showDecisionSheet) {
+            if let company = store.decisionTarget {
+                MacDecisionSheet(company: company)
+                    .environmentObject(store)
+            }
+        }
+        .sheet(isPresented: $store.showDeckIntakeSheet) {
+            MacPitchDeckIntakeSheet(fileURL: store.droppedDeckURL)
+                .environmentObject(store)
+        }
+        #else
+        responsiveLayout
+            .sheet(isPresented: $store.showNewReportSheet) {
+                if let company = store.newReportCompany {
+                    MacReportCustomizerSheet(company: company, onGenerate: { rep in
+                        store.showNewReportSheet = false
+                        activeMemoReportId = rep.id
+                    })
+                    .environmentObject(store)
+                }
+            }
+            .sheet(isPresented: $store.showDecisionSheet) {
+                if let company = store.decisionTarget {
+                    MacDecisionSheet(company: company)
+                        .environmentObject(store)
+                }
+            }
+            .sheet(isPresented: $store.showPitchDeckIntake) {
+                MacPitchDeckIntakeSheet(fileURL: store.droppedDeckURL)
+                    .environmentObject(store)
+            }
+            .sheet(item: Binding<ReportIdentifiable?>(
+                get: { activeMemoReportId.map { ReportIdentifiable(id: $0) } },
+                set: { activeMemoReportId = $0?.id }
+            )) { item in
+                NavigationStack {
+                    ReportDetailView(reportId: item.id)
+                }
+            }
+            .onAppear {
+                if store.selectedCompany == nil, let first = filteredCompanies.first {
+                    store.selectedCompany = first
+                }
+                store.openMemoWindow = { req in
+                    activeMemoReportId = req.reportId
+                }
+            }
+        #endif
+    }
+
+    #if !os(macOS)
+    @ViewBuilder
+    private var responsiveLayout: some View {
+        if horizontalSizeClass == .compact {
+            NavigationStack {
+                compactDirectoryPane
+                    .navigationTitle("Research Desk")
+                    .searchable(text: $searchText, prompt: "Search companies or tickers…")
+            }
+        } else {
+            HStack(spacing: 0) {
+                directoryPane
+                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
+
+                Divider()
+
+                detailPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .searchable(text: $searchText, prompt: "Search companies or tickers…")
+        }
+    }
+
+    private var compactDirectoryPane: some View {
+        VStack(spacing: 0) {
+            directoryToolbar
+
+            Divider()
+
+            List {
+                ForEach(filteredCompanies) { company in
+                    NavigationLink {
+                        CompanyDossierView(company: company, onNewReport: {
+                            store.requestNewReport(for: company)
+                        })
+                    } label: {
+                        CompanyListRow(company: company)
+                    }
+                    .listRowSeparator(.hidden)
+                }
+            }
+            .listStyle(.plain)
+
+            Divider()
+            MacPitchDeckDropBanner()
+        }
+    }
+    #endif
+
+    private var directoryToolbar: some View {
+        HStack(spacing: 8) {
+            Picker("Sector", selection: $selectedSector) {
+                ForEach(sectors, id: \.self) { s in
+                    Text(s).tag(s)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .controlSize(.small)
+
+            Spacer()
+
+            Button {
+                showOnlyModified.toggle()
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: showOnlyModified ? "sparkle" : "sparkles")
+                    Text("Diffs")
+                }
+                .font(.caption2.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .tint(showOnlyModified ? .accentColor : .secondary)
+            .controlSize(.mini)
+            .help("Show only companies with updates or new memos since last visit")
+
+            Text("\(filteredCompanies.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .dsToolbarStrip()
     }
 
     private var directoryPane: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Picker("Sector", selection: $selectedSector) {
-                    ForEach(sectors, id: \.self) { s in
-                        Text(s).tag(s)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-
-                Spacer()
-
-                Button {
-                    showOnlyModified.toggle()
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: showOnlyModified ? "sparkle" : "sparkles")
-                        Text("Diffs")
-                    }
-                    .font(.caption2.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .tint(showOnlyModified ? .accentColor : .secondary)
-                .controlSize(.mini)
-                .help("Show only companies with updates or new memos since last visit")
-
-                Text("\(filteredCompanies.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            .dsToolbarStrip()
+            directoryToolbar
 
             Divider()
 
@@ -112,6 +228,10 @@ struct MacResearchDeskView: View {
     }
 }
 
+struct ReportIdentifiable: Identifiable {
+    let id: String
+}
+
 // MARK: - Company List Row
 
 struct CompanyListRow: View {
@@ -138,7 +258,7 @@ struct CompanyListRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            MacMonogram(name: company.name ?? company.id, size: 30)
+            MacMonogram(company: company, size: 30)
                 .overlay(alignment: .topTrailing) {
                     if store.isCompanyModified(company.id) {
                         Circle().fill(Color.accentColor).frame(width: 8, height: 8)
@@ -176,13 +296,13 @@ struct CompanyListRow: View {
 
 enum DossierSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
+    case memos = "Memo Studio"
     case ic = "Decisions"
     case team = "Team"
     case pipeline = "Pipeline"
     case capTable = "Cap table"
     case comps = "Comps"
     case ratios = "Ratios"
-    case memos = "Memos"
     case all = "All"
 
     var id: String { rawValue }
@@ -196,7 +316,7 @@ enum DossierSection: String, CaseIterable, Identifiable {
         case .capTable: return "chart.pie.fill"
         case .comps: return "chart.bar.xaxis"
         case .ratios: return "gauge.with.dots.needle.bottom.50percent"
-        case .memos: return "doc.text.fill"
+        case .memos: return "sparkles"
         }
     }
 }
@@ -235,7 +355,7 @@ struct CompanyDossierView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // Header
                 HStack(alignment: .center, spacing: 14) {
-                    MacMonogram(name: company.name ?? company.id, size: 48)
+                    MacMonogram(company: company, size: 48)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 10) {
                             Text(company.name ?? company.id)
@@ -260,11 +380,14 @@ struct CompanyDossierView: View {
                         Button {
                             onNewReport()
                         } label: {
-                            Label("New Memo", systemImage: "plus")
+                            HStack(spacing: 5) {
+                                AiOrbView(size: 14)
+                                Text("Generate report")
+                            }
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!store.canRunTasks)
-                        .help(store.canRunTasks ? "Generate an investment memo (⌘N)" : "Sign in with an analyst or partner role to run memos")
+                        .help(store.canRunTasks ? "Configure & generate custom research memo (⌘N)" : "Sign in with an analyst or partner role to run memos")
 
                         Button {
                             store.requestDecision(for: company)
@@ -276,7 +399,13 @@ struct CompanyDossierView: View {
 
                         if let report = companyReports.first(where: \.canOpen) {
                             Button {
+                                #if os(macOS)
                                 store.openICReview(report: report)
+                                #else
+                                withAnimation {
+                                    activeSection = .ic
+                                }
+                                #endif
                             } label: {
                                 Label("IC Review", systemImage: "rectangle.split.2x1")
                             }
@@ -370,15 +499,41 @@ struct CompanyDossierView: View {
 
                 // Investment Memos & Research Reports Table
                 if shows(.memos, .overview) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        MacCardHeader("Memos", subtitle: companyReports.isEmpty ? nil : "\(companyReports.count) on file", systemImage: "doc.text")
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            MacCardHeader("Research Reports & Memos", subtitle: companyReports.isEmpty ? nil : "\(companyReports.count) dossiers on file", systemImage: "doc.text.fill")
+                            Spacer()
+                            Button {
+                                onNewReport()
+                            } label: {
+                                HStack(spacing: 5) {
+                                    AiOrbView(size: 13)
+                                    Text("Generate report")
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(!store.canRunTasks)
+                        }
 
                         if companyReports.isEmpty {
-                            Text("No memo yet. New Memo runs the research pipeline for this company.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 24)
-                                .frame(maxWidth: .infinity, alignment: .center)
+                            VStack(spacing: 8) {
+                                Text("No research reports on file yet.")
+                                    .font(.dsSubhead)
+                                    .foregroundStyle(.secondary)
+                                Button {
+                                    onNewReport()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        AiOrbView(size: 13)
+                                        Text("Generate report")
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(!store.canRunTasks)
+                            }
+                            .padding(.vertical, 24)
+                            .frame(maxWidth: .infinity, alignment: .center)
                         } else {
                             VStack(spacing: 8) {
                                 ForEach(companyReports) { report in
@@ -389,6 +544,8 @@ struct CompanyDossierView: View {
                     }
                     .padding()
                     .appleGlassCard(cornerRadius: 16)
+
+                    MacMemoStudioView(company: company)
                 }
 
                 // Decisions: the firm's record, readiness gates, IC room and thesis vs evidence
@@ -490,7 +647,19 @@ struct MemoRowView: View {
 
             Spacer()
 
-            if report.canOpen {
+            if report.status == "awaiting_studio" {
+                Button {
+                    Task {
+                        _ = try? await store.generateReportFromStudio(reportId: report.id)
+                    }
+                } label: {
+                    Label("Synthesize Memo", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(.orange)
+                .help("Freeze studio cards and synthesize Phase 3 memo")
+            } else if report.canOpen {
                 Button {
                     store.openReportWindow(report)
                 } label: {
@@ -558,143 +727,13 @@ struct StatusTag: View {
     }
 }
 
-// MARK: - Generate Report Sheet
+// MARK: - Generate Report Sheet (Delegates to MacReportCustomizerSheet)
 
 struct MacGenerateReportSheet: View {
     let company: MacCompany
     var onCreated: (MacReport) -> Void
 
-    @EnvironmentObject private var store: MacAppStore
-    @Environment(\.dismiss) private var dismiss
-
-    // Defaults mirror server REPORT_TYPES / AUDIENCES; replaced by GET /api/options on appear.
-    @State private var availableTypes = [
-        "Investment Report (Auto)",
-        "Investment Memo (Late-Stage)",
-        "Buffett Investment Memo",
-        "Background",
-        "Financial Analysis",
-        "Market Analysis",
-    ]
-    @State private var availableAudiences = ["LP", "Assistant", "Partner", "Internal"]
-    @State private var availableLanguages: [(code: String, label: String)] = [("en", "English"), ("zh", "中文")]
-    @State private var reportType = "Investment Report (Auto)"
-    @State private var audience = "Internal"
-    @State private var language = "en"
-    @State private var submitting = false
-    @State private var loadingOptions = true
-    @State private var error: String?
-
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Generate Research Memo")
-                    .font(.headline)
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-            }
-            .padding()
-            .background(.ultraThinMaterial)
-
-            Divider()
-
-            Form {
-                Section {
-                    LabeledContent("Target Enterprise") {
-                        Text(company.name ?? company.id)
-                            .font(.body.weight(.semibold))
-                    }
-                    if let ticker = company.ticker {
-                        LabeledContent("Ticker") {
-                            Text(ticker).font(.body.monospacedDigit())
-                        }
-                    }
-                }
-
-                Section("Memo Parameters") {
-                    Picker("Report Type", selection: $reportType) {
-                        ForEach(availableTypes, id: \.self) { type in
-                            Text(type).tag(type)
-                        }
-                    }
-                    .disabled(loadingOptions)
-
-                    Picker("Audience", selection: $audience) {
-                        ForEach(availableAudiences, id: \.self) { item in
-                            Text(item).tag(item)
-                        }
-                    }
-                    .disabled(loadingOptions)
-
-                    Picker("Language", selection: $language) {
-                        ForEach(availableLanguages, id: \.code) { item in
-                            Text(item.label).tag(item.code)
-                        }
-                    }
-                }
-
-                if let error {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
-            .formStyle(.grouped)
-            .padding()
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button(submitting ? "Starting…" : "Start Pipeline") {
-                    Task { await submit() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(submitting || loadingOptions || !store.canRunTasks)
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding()
-            .background(.ultraThinMaterial)
-        }
-        .frame(width: 480, height: 420)
-        .task { await loadOptions() }
-    }
-
-    /// The server rejects report types it doesn't know — always offer its own list.
-    private func loadOptions() async {
-        defer { loadingOptions = false }
-        guard let options = try? await MacAPIClient.shared.fetchReportOptions() else { return }
-        if !options.reportTypes.isEmpty {
-            availableTypes = options.reportTypes
-            if !availableTypes.contains(reportType) { reportType = availableTypes[0] }
-        }
-        if !options.audiences.isEmpty {
-            availableAudiences = options.audiences
-            if !availableAudiences.contains(audience) {
-                audience = availableAudiences.contains("Internal") ? "Internal" : availableAudiences[0]
-            }
-        }
-        if !options.languages.isEmpty {
-            availableLanguages = options.languages.map { ($0.code, $0.label ?? $0.code.uppercased()) }
-            if !availableLanguages.contains(where: { $0.code == language }) { language = availableLanguages[0].code }
-        }
-    }
-
-    private func submit() async {
-        submitting = true
-        error = nil
-        defer { submitting = false }
-        do {
-            let rep = try await MacAPIClient.shared.createReport(
-                companyId: company.id,
-                reportType: reportType,
-                audience: audience,
-                language: language
-            )
-            onCreated(rep)
-        } catch {
-            self.error = error.localizedDescription
-        }
+        MacReportCustomizerSheet(company: company, onGenerate: onCreated)
     }
 }

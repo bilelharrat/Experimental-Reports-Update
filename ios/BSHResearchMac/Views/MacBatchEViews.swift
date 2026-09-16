@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+#endif
 import SwiftUI
 
 // MARK: - Unified public/private profile card (dossier header)
@@ -308,6 +310,7 @@ struct MacNumberLintView: View {
     }
 }
 
+#if os(macOS)
 // MARK: - Menu-bar extra
 
 struct MacMenuBarExtraContent: View {
@@ -359,3 +362,4 @@ enum MacWorkspacePrompt {
         }
     }
 }
+#endif

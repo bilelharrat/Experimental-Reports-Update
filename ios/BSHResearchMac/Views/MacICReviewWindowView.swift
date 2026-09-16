@@ -57,7 +57,7 @@ struct MacICReviewWindowView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let company {
                     HStack(spacing: 10) {
-                        MacMonogram(name: company.title, size: 34)
+                        MacMonogram(company: company, size: 34)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(company.title).font(.headline)
                             Text(company.subtitle).font(.caption).foregroundStyle(.secondary)

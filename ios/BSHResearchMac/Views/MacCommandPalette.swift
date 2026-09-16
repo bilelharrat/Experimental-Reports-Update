@@ -276,7 +276,7 @@ struct MacCommandPalette: View {
         switch result {
         case .company(let company):
             HStack(spacing: 10) {
-                MacMonogram(name: company.title, size: 26)
+                MacMonogram(company: company, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(company.title).font(.body.weight(.medium))
                     Text(company.subtitle.isEmpty ? "In pipeline" : company.subtitle)

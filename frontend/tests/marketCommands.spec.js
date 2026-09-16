@@ -25,6 +25,9 @@ describe("marketCommands", () => {
     expect(parseMarketCommand("NOTE NVDA")).toMatchObject({ action: "notes", ticker: "NVDA" });
     expect(parseMarketCommand("EVTS")).toMatchObject({ action: "calendar", ticker: null });
     expect(parseMarketCommand("TRACK")).toMatchObject({ action: "tracking" });
+    expect(parseMarketCommand("GEN")).toMatchObject({ action: "generate", ticker: null });
+    expect(parseMarketCommand("GEN NVDA")).toMatchObject({ action: "generate", ticker: "NVDA" });
+    expect(parseMarketCommand("MEMO TSLA")).toMatchObject({ action: "generate", ticker: "TSLA" });
   });
 
   it("routes commands to Market panels", () => {
@@ -91,6 +94,7 @@ describe("marketCommands", () => {
     expect(rows.map((row) => row.action)).toContain("news");
     expect(rows.map((row) => row.action)).toContain("comp");
     expect(rows.map((row) => row.action)).toContain("hp");
+    expect(rows.map((row) => row.action)).toContain("generate");
     expect(rows.some((row) => String(row.title).startsWith("PEER"))).toBe(true);
   });
 });

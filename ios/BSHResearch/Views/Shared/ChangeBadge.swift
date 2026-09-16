@@ -39,35 +39,65 @@ struct StatusPill: View {
     }
 }
 
-/// Contacts-style monogram tile: company initials on a color derived
-/// from the name, so each company keeps a stable hue.
+/// Contacts-style monogram / brand logo tile.
+/// Resolves high-resolution vector and Retina brand logos,
+/// falling back to stable company monogram initials.
 struct MonogramAvatar: View {
     let name: String
+    var ticker: String? = nil
+    var companyId: String? = nil
+    var logoUrl: String? = nil
+    var logoDomain: String? = nil
+    var website: String? = nil
     var size: CGFloat = 44
+    var round: Bool = false
+    var showLogo: Bool = true
 
-    private static let palette: [Color] = [
-        .blue, .indigo, .purple, .pink, .red, .orange, .teal, .cyan, .mint, .green,
-    ]
+    init(
+        name: String,
+        ticker: String? = nil,
+        companyId: String? = nil,
+        logoUrl: String? = nil,
+        logoDomain: String? = nil,
+        website: String? = nil,
+        size: CGFloat = 44,
+        round: Bool = false,
+        showLogo: Bool = true
+    ) {
+        self.name = name
+        self.ticker = ticker
+        self.companyId = companyId
+        self.logoUrl = logoUrl
+        self.logoDomain = logoDomain
+        self.website = website
+        self.size = size
+        self.round = round
+        self.showLogo = showLogo
+    }
+
+    init(company: Company, size: CGFloat = 44, round: Bool = false, showLogo: Bool = true) {
+        self.name = company.name ?? company.id
+        self.ticker = company.ticker
+        self.companyId = company.id
+        self.logoUrl = company.logoUrl
+        self.logoDomain = company.logoDomain
+        self.website = company.website
+        self.size = size
+        self.round = round
+        self.showLogo = showLogo
+    }
 
     var body: some View {
-        let initials = name
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first.map(String.init) }
-            .joined()
-            .uppercased()
-        let color = Self.palette[abs(name.hashValue) % Self.palette.count]
-        Text(initials.isEmpty ? "?" : initials)
-            .font(.system(size: size * 0.38, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(
-                LinearGradient(
-                    colors: [color, color.opacity(0.72)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                in: RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-            )
+        MacMonogram(
+            name: name,
+            ticker: ticker,
+            companyId: companyId,
+            logoUrl: logoUrl,
+            logoDomain: logoDomain,
+            website: website,
+            size: size,
+            round: round,
+            showLogo: showLogo
+        )
     }
 }

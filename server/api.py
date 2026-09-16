@@ -728,6 +728,7 @@ class CompanyOut(BaseModel):
     founded_year: int | None = None
     website: str | None = None
     logo_domain: str | None = None
+    logo_url: str | None = None
     employee_band: str | None = None
     parent_company: str | None = None
     key_people: list[dict] = Field(default_factory=list)
@@ -763,6 +764,8 @@ class ReportSummary(BaseModel):
     # V3 appendix has no company or audience).
     company_id: str | None = None
     company_name: str | None = None
+    logo_domain: str | None = None
+    logo_url: str | None = None
     report_type: str
     audience: str | None = None
     language: str = "en"
@@ -9712,7 +9715,157 @@ def delete_hormuz(item_id: str, request: Request) -> None:
 
 # ---- view shaping ----
 
+_TICKER_DOMAINS: dict[str, str] = {
+    "AAPL": "apple.com",
+    "NVDA": "nvidia.com",
+    "MSFT": "microsoft.com",
+    "GOOG": "google.com",
+    "GOOGL": "google.com",
+    "AMZN": "amazon.com",
+    "META": "meta.com",
+    "TSLA": "tesla.com",
+    "TSM": "tsmc.com",
+    "INTC": "intel.com",
+    "AMD": "amd.com",
+    "AMGN": "amgen.com",
+    "HIPO": "hippo.com",
+    "NB": "niocorp.com",
+    "JOYY": "joyy.com",
+    "HIND": "vyome.com",
+    "KO": "coca-cola.com",
+    "OXY": "oxy.com",
+    "ATE": "alten.com",
+}
+
+_SLUG_DOMAINS: dict[str, str] = {
+    "anthropic": "anthropic.com",
+    "anthropic-pbc": "anthropic.com",
+    "openai": "openai.com",
+    "open-artificial-intelligence": "openai.com",
+    "open-artificial-intelligence-inc": "openai.com",
+    "google-llc": "google.com",
+    "google": "google.com",
+    "ko": "coca-cola.com",
+    "coca-cola": "coca-cola.com",
+    "oxy": "oxy.com",
+    "occidental-petroleum": "oxy.com",
+    "tsm": "tsmc.com",
+    "tsmc": "tsmc.com",
+    "cienet-technologies-beijing-co-ltd": "cienet.com",
+    "cienet-technologies": "cienet.com",
+    "cienet": "cienet.com",
+    "clenet-technologies": "cienet.com",
+    "clenet": "cienet.com",
+    "ceinet-data-co-ltd-中经网数据有限公司": "cei.cn",
+    "中经网数据有限公司": "cei.cn",
+    "ceinet-data": "cei.cn",
+    "ceinet": "cei.cn",
+    "celnet-data": "cei.cn",
+    "celnet": "cei.cn",
+    "alten": "alten.com",
+    "ate": "alten.com",
+    "zainar": "zainartech.com",
+    "zainar-inc": "zainartech.com",
+    "databricks": "databricks.com",
+    "stripe": "stripe.com",
+    "cerebras": "cerebras.ai",
+    "anduril": "anduril.com",
+    "oasys-now": "oasysnow.com",
+    "oasis-security": "oasis.security",
+}
+
+
+_SLUG_LOGOS: dict[str, str] = {
+    "anthropic": "https://api.iconify.design/simple-icons:anthropic.svg?color=%23D97757",
+    "anthropic-pbc": "https://api.iconify.design/simple-icons:anthropic.svg?color=%23D97757",
+    "openai": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
+    "open-artificial-intelligence": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
+    "open-artificial-intelligence-inc": "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f",
+    "google-llc": "https://assets.parqet.com/logos/symbol/GOOG",
+    "ko": "https://assets.parqet.com/logos/symbol/KO",
+    "oxy": "https://assets.parqet.com/logos/symbol/OXY",
+    "tsm": "https://assets.parqet.com/logos/symbol/TSM",
+    "cienet-technologies-beijing-co-ltd": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
+    "cienet-technologies": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
+    "cienet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
+    "clenet-technologies": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
+    "clenet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128",
+    "ceinet-data-co-ltd-中经网数据有限公司": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
+    "中经网数据有限公司": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
+    "ceinet-data": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
+    "ceinet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
+    "celnet-data": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
+    "celnet": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128",
+    "ate": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128",
+    "alten": "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128",
+    "oasys-now": "https://framerusercontent.com/images/ctwK8JfDzLYECpwWHw7fd1rrZU.svg",
+    "oasis-security": "https://cdn.prod.website-files.com/652ba09e4e7b1ba97dd01e7b/65c1f63438246a4ad5bcbed5_O%20(4).png",
+    "cerebras": "https://avatars.githubusercontent.com/Cerebras?s=256",
+    "databricks": "https://api.iconify.design/simple-icons:databricks.svg?color=%23FF3621",
+    "stripe": "https://api.iconify.design/simple-icons:stripe.svg?color=%23635BFF",
+    "zainar-inc": "https://zainartech.com/favicon.ico?favicon.d517f128.ico",
+    "zainar": "https://zainartech.com/favicon.ico?favicon.d517f128.ico",
+}
+
+
+def _company_logo_domain(c: dict) -> str | None:
+    domain = c.get("logo_domain") or storage._normalize_host(c.get("website"))
+    if domain:
+        return domain
+    ticker = (c.get("ticker") or "").strip().upper()
+    if ticker in _TICKER_DOMAINS:
+        return _TICKER_DOMAINS[ticker]
+    slug = (c.get("id") or "").strip().lower()
+    if slug in _SLUG_DOMAINS:
+        return _SLUG_DOMAINS[slug]
+    name = (c.get("name") or "").lower()
+    if "coca" in name and "cola" in name:
+        return "coca-cola.com"
+    if "open" in name and ("artificial" in name or "ai" in name):
+        return "openai.com"
+    if "occidental" in name:
+        return "oxy.com"
+    if "cienet" in name or "clenet" in name:
+        return "cienet.com"
+    if "ceinet" in name or "celnet" in name or "中经网" in name:
+        return "cei.cn"
+    if "alten" in name:
+        return "alten.com"
+    return None
+
+
+def _company_logo_url(c: dict, domain: str | None) -> str | None:
+    slug = (c.get("id") or "").strip().lower()
+    if slug in _SLUG_LOGOS:
+        return _SLUG_LOGOS[slug]
+    name = (c.get("name") or "").lower()
+    if "coca" in name and "cola" in name:
+        return "https://assets.parqet.com/logos/symbol/KO"
+    if "open" in name and ("artificial" in name or "ai" in name):
+        return "https://api.iconify.design/simple-icons:openai.svg?color=%2310a37f"
+    if "occidental" in name:
+        return "https://assets.parqet.com/logos/symbol/OXY"
+    if "cienet" in name or "clenet" in name:
+        return "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://cienet.com&size=128"
+    if "ceinet" in name or "celnet" in name or "中经网" in name:
+        return "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://www.cei.cn&size=128"
+    if "alten" in name:
+        return "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://alten.com&size=128"
+    ticker = (c.get("ticker") or "").strip().upper()
+    if not ticker and len(slug) <= 5 and slug.upper() in _TICKER_DOMAINS:
+        ticker = slug.upper()
+    if ticker:
+        return f"https://assets.parqet.com/logos/symbol/{ticker}"
+    if not domain:
+        return None
+    return (
+        f"https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://{domain}&size=128"
+    )
+
+
+
 def _company_view(c: dict) -> dict:
+    domain = _company_logo_domain(c)
     return {
         "id": c.get("id"),
         "name": c.get("name"),
@@ -9730,7 +9883,8 @@ def _company_view(c: dict) -> dict:
         "hq": c.get("hq"),
         "founded_year": c.get("founded_year"),
         "website": c.get("website"),
-        "logo_domain": c.get("logo_domain"),
+        "logo_domain": domain,
+        "logo_url": c.get("logo_url") or _company_logo_url(c, domain),
         "employee_band": c.get("employee_band"),
         "parent_company": c.get("parent_company"),
         "key_people": list(c.get("key_people") or []),
@@ -9803,10 +9957,19 @@ def _memo_report_artifact_urls(r: dict) -> tuple[dict[str, str], dict[str, str]]
 
 
 def _report_summary(r: dict) -> dict:
+    cid = (r.get("company_id") or "").strip()
+    cname = r.get("company_name")
+    comp = storage.get_company(cid) if cid else None
+    if comp is None:
+        comp = {"id": cid, "name": cname}
+    r_domain = _company_logo_domain(comp)
+    r_logo = _company_logo_url(comp, r_domain)
     base = {
         "id": r.get("id"),
         "company_id": r.get("company_id"),
         "company_name": r.get("company_name"),
+        "logo_domain": r_domain,
+        "logo_url": r_logo,
         "report_type": r.get("report_type"),
         "audience": r.get("audience"),
         "language": r.get("language") or "en",

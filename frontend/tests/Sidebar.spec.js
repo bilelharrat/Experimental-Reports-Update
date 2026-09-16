@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
+import { createMemoryHistory, createRouter } from "vue-router";
 import Sidebar from "../src/components/Sidebar.vue";
 import { session } from "../src/auth.js";
 import {
@@ -38,13 +39,18 @@ const companies = [
   },
 ];
 
-function mountSidebar() {
+function mountSidebar(list = companies) {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: "/", component: { template: "<div />" } }, { path: "/login", name: "login", component: { template: "<div />" } }],
+  });
   return mount(Sidebar, {
     props: {
       loading: false,
-      companies,
+      companies: list,
     },
     global: {
+      plugins: [router],
       stubs: {
         RouterLink: RouterLinkStub,
       },
@@ -187,10 +193,7 @@ describe("Sidebar", () => {
       status: "private",
       industry: "AI",
     }));
-    const wrapper = mount(Sidebar, {
-      props: { loading: false, companies: many },
-      global: { stubs: { RouterLink: RouterLinkStub } },
-    });
+    const wrapper = mountSidebar(many);
 
     await wrapper.get('input[aria-label="Filter companies"]').setValue("zeta");
 
@@ -206,15 +209,24 @@ describe("Sidebar", () => {
       status: "private",
       industry: "AI",
     }));
-    const wrapper = mount(Sidebar, {
-      props: { loading: false, companies: many },
-      global: { stubs: { RouterLink: RouterLinkStub } },
-    });
+    const wrapper = mountSidebar(many);
 
     expect(wrapper.text()).toContain("Company 0");
     expect(wrapper.text()).toContain("Company 2");
     expect(wrapper.text()).toContain("Company 3");
     expect(wrapper.text()).toContain("Company 5");
     expect(wrapper.text()).not.toContain("Show all");
+  });
+
+  it("renders company logos via Monogram in company items", () => {
+    const wrapper = mountSidebar();
+    const monograms = wrapper.findAllComponents({ name: "Monogram" });
+    expect(monograms.length).toBeGreaterThan(0);
+    const nvdaMonogram = monograms.find(
+      (m) => m.props("company")?.id === "nvda",
+    );
+    expect(nvdaMonogram).toBeTruthy();
+    const src = nvdaMonogram.find("img").attributes("src");
+    expect(src).toMatch(/nvidia\.com|NVDA/);
   });
 });

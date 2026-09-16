@@ -35,6 +35,50 @@ struct ReportSummary: Decodable, Identifiable, Hashable {
     let downloadUrls: [String: String]?
     let previewUrls: [String: String]?
     let resumeAvailable: Bool?
+    let logoUrl: String?
+    let logoDomain: String?
+
+    init(
+        id: String,
+        companyId: String? = nil,
+        companyName: String? = nil,
+        reportType: String? = nil,
+        audience: String? = nil,
+        language: String? = nil,
+        status: String? = nil,
+        progress: Int? = nil,
+        stage: String? = nil,
+        error: String? = nil,
+        kind: String? = nil,
+        createdAt: String? = nil,
+        updatedAt: String? = nil,
+        streamUrl: String? = nil,
+        downloadUrls: [String: String]? = nil,
+        previewUrls: [String: String]? = nil,
+        resumeAvailable: Bool? = nil,
+        logoUrl: String? = nil,
+        logoDomain: String? = nil
+    ) {
+        self.id = id
+        self.companyId = companyId
+        self.companyName = companyName
+        self.reportType = reportType
+        self.audience = audience
+        self.language = language
+        self.status = status
+        self.progress = progress
+        self.stage = stage
+        self.error = error
+        self.kind = kind
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.streamUrl = streamUrl
+        self.downloadUrls = downloadUrls
+        self.previewUrls = previewUrls
+        self.resumeAvailable = resumeAvailable
+        self.logoUrl = logoUrl
+        self.logoDomain = logoDomain
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, audience, language, status, progress, stage, error, kind
@@ -47,6 +91,8 @@ struct ReportSummary: Decodable, Identifiable, Hashable {
         case downloadUrls = "download_urls"
         case previewUrls = "preview_urls"
         case resumeAvailable = "resume_available"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
     }
 
     var isTerminal: Bool {
@@ -87,6 +133,8 @@ struct ReportDetail: Decodable, Identifiable {
     let createdAt: String?
     let updatedAt: String?
     let analysisArtifacts: [AnalysisArtifact]?
+    let logoUrl: String?
+    let logoDomain: String?
 
     enum CodingKeys: String, CodingKey {
         case id, audience, language, status, progress, stage, error, kind, content, warnings
@@ -103,6 +151,8 @@ struct ReportDetail: Decodable, Identifiable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case analysisArtifacts = "analysis_artifacts"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
     }
 
     func bodyText(lang: AppLanguage) -> String {
@@ -130,7 +180,9 @@ struct ReportDetail: Decodable, Identifiable {
             streamUrl: streamUrl,
             downloadUrls: downloadUrls,
             previewUrls: previewUrls,
-            resumeAvailable: resumeAvailable
+            resumeAvailable: resumeAvailable,
+            logoUrl: logoUrl,
+            logoDomain: logoDomain
         )
     }
 
@@ -228,6 +280,8 @@ struct CompanyDetail: Decodable, Identifiable {
     let nameZh: String?
     let descriptionZh: String?
     let traderSnapshot: TraderSnapshot?
+    let logoUrl: String?
+    let logoDomain: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, ticker, status, sector, industry, description, website
@@ -235,6 +289,8 @@ struct CompanyDetail: Decodable, Identifiable {
         case nameZh = "name_zh"
         case descriptionZh = "description_zh"
         case traderSnapshot = "trader_snapshot"
+        case logoUrl = "logo_url"
+        case logoDomain = "logo_domain"
     }
 
     var isPublic: Bool {
@@ -251,5 +307,35 @@ struct CompanyDetail: Decodable, Identifiable {
     func displayDescription(lang: AppLanguage) -> String {
         if lang.prefersChineseContent, let descriptionZh, !descriptionZh.isEmpty { return descriptionZh }
         return description ?? ""
+    }
+}
+
+extension ReportDetail {
+    init(from macReport: MacReport) {
+        self.id = macReport.id
+        self.companyId = macReport.companyId
+        self.companyName = macReport.companyName
+        self.reportType = macReport.reportType
+        self.audience = macReport.audience
+        self.language = macReport.language
+        self.status = macReport.status
+        self.progress = macReport.progress
+        self.stage = macReport.stage
+        self.error = macReport.error
+        self.kind = macReport.kind
+        self.content = nil
+        self.contentEn = nil
+        self.contentZh = nil
+        self.streamUrl = nil
+        self.downloadUrls = macReport.downloadUrls
+        self.previewUrls = macReport.previewUrls
+        self.qualityWarnings = nil
+        self.warnings = nil
+        self.resumeAvailable = nil
+        self.createdAt = macReport.createdAt
+        self.updatedAt = macReport.updatedAt
+        self.analysisArtifacts = nil
+        self.logoUrl = macReport.logoUrl
+        self.logoDomain = macReport.logoDomain
     }
 }

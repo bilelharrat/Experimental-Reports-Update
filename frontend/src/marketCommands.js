@@ -73,6 +73,11 @@ const VERB_ACTIONS = {
   REPORT: "reports",
   REPORTS: "reports",
   RP: "reports",
+  GEN: "generate",
+  GENERATE: "generate",
+  MEMO: "generate",
+  NEWMEMO: "generate",
+  NEWREPORT: "generate",
 };
 
 // Verbs that just open an app view — no ticker argument.
@@ -149,6 +154,10 @@ export function parseMarketCommand(raw) {
     const ticker = second && TICKER_RE.test(second) && !VERB_ACTIONS[second] ? second : null;
     return { action, ticker, label: "track", raw: text };
   }
+  if (action === "generate") {
+    const ticker = second && TICKER_RE.test(second) && !VERB_ACTIONS[second] ? second : null;
+    return { action: "generate", ticker, label: "generate", raw: text };
+  }
   if (
     action === "news" ||
     action === "comp" ||
@@ -221,6 +230,13 @@ export function suggestMarketCommands(raw, { companies = [], limit = 8 } = {}) {
       action: "hp",
       ticker: parsed.ticker,
     });
+    push({
+      id: `gen:${parsed.ticker}`,
+      title: `GEN ${parsed.ticker}`,
+      subtitle: "Generate investment memo for this symbol (⌘N)",
+      action: "generate",
+      ticker: parsed.ticker,
+    });
   } else if (parsed && parsed.action !== "search") {
     push({
       id: `${parsed.action}:${parsed.ticker || parsed.screen || ""}`,
@@ -235,6 +251,14 @@ export function suggestMarketCommands(raw, { companies = [], limit = 8 } = {}) {
   }
 
   const q = text.toLowerCase();
+  if (q && ("generate".includes(q) || "memo".includes(q) || "report".includes(q))) {
+    push({
+      id: "generate",
+      title: "GENERATE",
+      subtitle: "Launch Report Customizer / Generate Memo (⌘N)",
+      action: "generate",
+    });
+  }
   if (q) {
     for (const company of companies) {
       const ticker = String(company?.ticker || "").trim().toUpperCase();
@@ -268,6 +292,7 @@ function commandSubtitle(parsed) {
   if (parsed.action === "comp") return "Open COMP / RV peers";
   if (parsed.action === "calendar") return "Watchlist event calendar";
   if (parsed.action === "tracking") return "Open Tracking";
+  if (parsed.action === "generate") return "Generate Report / Research Memo (⌘N)";
   if (parsed.action === "home") return "Home desk";
   if (parsed.action === "pulse") return "Pulse";
   if (parsed.action === "quote") return "Market quote";

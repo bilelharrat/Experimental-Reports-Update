@@ -416,6 +416,89 @@ export const api = {
   },
   getCompanyIndustryView: (id) =>
     request(`/api/companies/${id}/industry-view`),
+  getCompanyProfile: (companyId, { quote = true } = {}) =>
+    request(`/api/companies/${companyId}/profile?quote=${quote ? "true" : "false"}`),
+  getDealPipeline: (companyId) =>
+    request(`/api/companies/${companyId}/deal-pipeline`),
+  updateDealPipeline: (companyId, payload) =>
+    request(`/api/companies/${companyId}/deal-pipeline`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  getCompanyComps: (companyId) =>
+    request(`/api/companies/${companyId}/comps`),
+  getFounderDossier: (companyId) =>
+    request(`/api/companies/${companyId}/founder-dossier`),
+  deepSearchFounder: (companyId) =>
+    request(`/api/companies/${companyId}/founder-dossier/deep-search`, {
+      method: "POST",
+    }),
+  getMemoNumberLint: (companyId) =>
+    request(`/api/companies/${companyId}/memo-number-lint`),
+  getSignalScore: (companyId) =>
+    request(`/api/companies/${companyId}/signal-score`),
+  intakeDeck: async ({ file, companyId, companyName }) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (companyId) fd.append("company_id", companyId);
+    if (companyName) fd.append("company_name", companyName);
+    const res = await ensureOk(
+      await apiFetch("/api/intake/decks", {
+        method: "POST",
+        body: fd,
+      }),
+    );
+    return res.json();
+  },
+  getICMeetings: (companyId) =>
+    request(`/api/companies/${companyId}/ic/meetings`),
+  openICMeeting: (companyId, payload) =>
+    request(`/api/companies/${companyId}/ic/meetings`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  castICVote: (companyId, meetingId, payload) =>
+    request(`/api/companies/${companyId}/ic/meetings/${meetingId}/votes`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  closeICMeeting: (companyId, meetingId, payload) =>
+    request(`/api/companies/${companyId}/ic/meetings/${meetingId}/close`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getReferenceCalls: (companyId) =>
+    request(`/api/companies/${companyId}/reference-calls`),
+  addReferenceCall: (companyId, payload) =>
+    request(`/api/companies/${companyId}/reference-calls`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  deleteReferenceCall: (companyId, itemId) =>
+    request(`/api/companies/${companyId}/reference-calls/${itemId}`, {
+      method: "DELETE",
+    }),
+  getICComparables: (companyId) =>
+    request(`/api/companies/${companyId}/ic/comparables`),
+  getRedTeam: (companyId) =>
+    request(`/api/companies/${companyId}/ic/red-team`),
+  startRedTeam: (companyId) =>
+    request(`/api/companies/${companyId}/ic/red-team`, {
+      method: "POST",
+    }),
+  getCompanyComments: (companyId) =>
+    request(`/api/companies/${companyId}/comments`),
+  addCompanyComment: (companyId, payload) =>
+    request(`/api/companies/${companyId}/comments`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  getMemoAnalysis: (companyId) =>
+    request(`/api/companies/${companyId}/memo-analysis`),
+  getEvidence: (companyId) =>
+    request(`/api/companies/${companyId}/evidence`),
+  getSignalMoves: () =>
+    request("/api/signal-watch"),
   getCompetitorDetail: (companyId, competitorId) =>
     request(
       `/api/companies/${companyId}/competitors/${encodeURIComponent(competitorId)}`,
@@ -1229,3 +1312,5 @@ export const api = {
       }),
   },
 };
+
+export default api;

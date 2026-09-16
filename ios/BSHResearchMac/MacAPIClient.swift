@@ -568,22 +568,202 @@ actor MacAPIClient {
         try await request("options", method: "GET")
     }
 
-    func createReport(companyId: String, reportType: String, audience: String, language: String) async throws -> MacReport {
+    func createReport(
+        companyId: String,
+        reportType: String,
+        audience: String,
+        language: String,
+        reportMode: String = "full",
+        quality: String = "best",
+        analysisSessionId: String? = nil
+    ) async throws -> MacReport {
         struct Body: Encodable {
             let companyId: String
             let reportType: String
             let audience: String
             let language: String
+            let reportMode: String
+            let quality: String
+            let analysisSessionId: String?
+
             enum CodingKeys: String, CodingKey {
-                case audience, language
+                case audience, language, quality
                 case companyId = "company_id"
                 case reportType = "report_type"
+                case reportMode = "report_mode"
+                case analysisSessionId = "analysis_session_id"
             }
         }
         return try await request(
             "reports",
             method: "POST",
-            body: Body(companyId: companyId, reportType: reportType, audience: audience, language: language)
+            body: Body(
+                companyId: companyId,
+                reportType: reportType,
+                audience: audience,
+                language: language,
+                reportMode: reportMode,
+                quality: quality,
+                analysisSessionId: analysisSessionId
+            )
+        )
+    }
+
+    func startMemoStudioInvestigate(
+        companyId: String,
+        reportType: String? = nil,
+        analysisSessionId: String? = nil
+    ) async throws -> MacReport {
+        struct Body: Encodable {
+            let companyId: String
+            let reportType: String?
+            let analysisSessionId: String?
+            enum CodingKeys: String, CodingKey {
+                case companyId = "company_id"
+                case reportType = "report_type"
+                case analysisSessionId = "analysis_session_id"
+            }
+        }
+        return try await request(
+            "memos/studio/investigate",
+            method: "POST",
+            body: Body(companyId: companyId, reportType: reportType, analysisSessionId: analysisSessionId)
+        )
+    }
+
+    func generateMemoFromStudio(reportId: String) async throws -> MacReport {
+        try await request("memos/studio/\(reportId)/generate", method: "POST")
+    }
+
+    // MARK: - Memo Studio Editor State & Mutations
+
+    func fetchMemoEditor(companyId: String) async throws -> MacMemoEditorState {
+        try await request("companies/\(companyId)/memo-editor", method: "GET")
+    }
+
+    func patchMemoEditorCard(
+        companyId: String,
+        sectionId: String,
+        cardId: String,
+        included: Bool? = nil,
+        expanded: Bool? = nil,
+        title: String? = nil,
+        category: String? = nil,
+        severity: String? = nil,
+        likelihood: String? = nil,
+        agentRating: String? = nil
+    ) async throws -> MacMemoEditorState {
+        struct PatchBody: Encodable {
+            let included: Bool?
+            let expanded: Bool?
+            let title: String?
+            let category: String?
+            let severity: String?
+            let likelihood: String?
+            let agentRating: String?
+
+            enum CodingKeys: String, CodingKey {
+                case included, expanded, title, category, severity, likelihood
+                case agentRating = "agent_rating"
+            }
+        }
+        return try await request(
+            "companies/\(companyId)/memo-editor/sections/\(sectionId)/cards/\(cardId)",
+            method: "PATCH",
+            body: PatchBody(
+                included: included,
+                expanded: expanded,
+                title: title,
+                category: category,
+                severity: severity,
+                likelihood: likelihood,
+                agentRating: agentRating
+            )
+        )
+    }
+
+    func addMemoEditorCard(
+        companyId: String,
+        sectionId: String,
+        title: String,
+        category: String? = nil,
+        severity: String? = nil,
+        rating: String? = nil,
+        likelihood: String? = nil,
+        bullets: [String]? = nil
+    ) async throws -> MacMemoEditorState {
+        struct CreateBody: Encodable {
+            let title: String
+            let category: String?
+            let severity: String?
+            let rating: String?
+            let likelihood: String?
+            let bullets: [String]?
+        }
+        return try await request(
+            "companies/\(companyId)/memo-editor/sections/\(sectionId)/cards",
+            method: "POST",
+            body: CreateBody(
+                title: title,
+                category: category,
+                severity: severity,
+                rating: rating,
+                likelihood: likelihood,
+                bullets: bullets
+            )
+        )
+    }
+
+    func deleteMemoEditorCard(companyId: String, sectionId: String, cardId: String) async throws -> MacMemoEditorState {
+        try await request(
+            "companies/\(companyId)/memo-editor/sections/\(sectionId)/cards/\(cardId)",
+            method: "DELETE"
+        )
+    }
+
+    func moveMemoEditorCard(companyId: String, sectionId: String, cardId: String, direction: String) async throws -> MacMemoEditorState {
+        struct MoveBody: Encodable {
+            let direction: String
+        }
+        return try await request(
+            "companies/\(companyId)/memo-editor/sections/\(sectionId)/cards/\(cardId)/move",
+            method: "POST",
+            body: MoveBody(direction: direction)
+        )
+    }
+
+    func reorderMemoEditorCards(companyId: String, sectionId: String, orderedIds: [String]) async throws -> MacMemoEditorState {
+        struct ReorderBody: Encodable {
+            let orderedIds: [String]
+            enum CodingKeys: String, CodingKey {
+                case orderedIds = "ordered_ids"
+            }
+        }
+        return try await request(
+            "companies/\(companyId)/memo-editor/sections/\(sectionId)/cards/reorder",
+            method: "POST",
+            body: ReorderBody(orderedIds: orderedIds)
+        )
+    }
+
+    func refineMemoRisk(
+        companyId: String,
+        riskId: String,
+        framing: String = "other",
+        analystNote: String = ""
+    ) async throws {
+        struct RefineBody: Encodable {
+            let framing: String
+            let analystNote: String
+            enum CodingKeys: String, CodingKey {
+                case framing
+                case analystNote = "analyst_note"
+            }
+        }
+        let _: [String: String]? = try? await request(
+            "companies/\(companyId)/memo-analysis/risks/\(riskId)/refine",
+            method: "POST",
+            body: RefineBody(framing: framing, analystNote: analystNote)
         )
     }
 

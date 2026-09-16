@@ -195,4 +195,23 @@ describe("ReportsView", () => {
 
     expect(wrapper.text()).toContain("Zeta AI — Buffett Memo");
   });
+
+  it("renders Monogram for each report with correct company info", async () => {
+    const router = await createTestRouter();
+    const wrapper = mount(ReportsView, {
+      global: {
+        plugins: [router],
+        stubs: { DocumentViewerDrawer: true },
+      },
+    });
+    await flushPromises();
+
+    const monograms = wrapper.findAllComponents({ name: "Monogram" });
+    expect(monograms.length).toBeGreaterThanOrEqual(sampleReports.length);
+    const acmeMonogram = monograms.find(
+      (m) => m.props("company")?.id === "acme"
+    );
+    expect(acmeMonogram).toBeTruthy();
+    expect(acmeMonogram.props("company").name).toBe("Acme Inc.");
+  });
 });

@@ -1,4 +1,9 @@
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
 import Combine
 import Foundation
 import UserNotifications
@@ -57,6 +62,9 @@ final class MacAppStore: ObservableObject {
     @Published private(set) var analysisByCompany: [String: MacMemoAnalysis] = [:]
     @Published private(set) var analysisBusy: Set<String> = []
     @Published private(set) var evidenceByCompany: [String: MacEvidenceMatrix] = [:]
+    @Published private(set) var memoEditorByCompany: [String: MacMemoEditorState] = [:]
+    @Published private(set) var memoEditorBusy: Set<String> = []
+    @Published private(set) var memoEditorError: [String: String] = [:]
 
     // MARK: - Session
     @Published private(set) var session: MacSession?
@@ -222,9 +230,10 @@ final class MacAppStore: ObservableObject {
     private var consoleTask: Task<Void, Never>?
     private var consoleAskGen = 0
 
-    // MARK: - Embedded Web Browser Panel (Cursor Style)
+    // MARK: - Embedded Web Browser Panel & Ask Warren Side Panel
     @Published var showBrowserPanel: Bool = false
     @Published var browserCurrentURL: URL = MacConfig.baseURL
+    @Published var showCopilotPanel: Bool = false
 
     // MARK: - Terminal Polish, Command Palette & Shortcuts
     @Published var showShortcutSheet: Bool = false
@@ -366,6 +375,9 @@ final class MacAppStore: ObservableObject {
         analysisByCompany = [:]
         analysisBusy = []
         evidenceByCompany = [:]
+        memoEditorByCompany = [:]
+        memoEditorBusy = []
+        memoEditorError = [:]
         pinnedTickers = []
         bookLots = []
         alertRules = []
@@ -1763,6 +1775,164 @@ final class MacAppStore: ObservableObject {
         }
     }
 
+    // MARK: - Memo Studio Editor State & Actions
+
+    func loadMemoEditor(_ companyId: String) async {
+        guard !memoEditorBusy.contains(companyId) else { return }
+        memoEditorBusy.insert(companyId)
+        defer { memoEditorBusy.remove(companyId) }
+        do {
+            let state = try await MacAPIClient.shared.fetchMemoEditor(companyId: companyId)
+            memoEditorByCompany[companyId] = state
+            memoEditorError[companyId] = nil
+        } catch {
+            memoEditorError[companyId] = error.localizedDescription
+        }
+    }
+
+    func patchMemoCard(
+        companyId: String,
+        sectionId: String,
+        cardId: String,
+        included: Bool? = nil,
+        expanded: Bool? = nil,
+        title: String? = nil,
+        category: String? = nil,
+        severity: String? = nil,
+        likelihood: String? = nil,
+        agentRating: String? = nil
+    ) async {
+        do {
+            let updated = try await MacAPIClient.shared.patchMemoEditorCard(
+                companyId: companyId,
+                sectionId: sectionId,
+                cardId: cardId,
+                included: included,
+                expanded: expanded,
+                title: title,
+                category: category,
+                severity: severity,
+                likelihood: likelihood,
+                agentRating: agentRating
+            )
+            memoEditorByCompany[companyId] = updated
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func addMemoCard(
+        companyId: String,
+        sectionId: String,
+        title: String,
+        category: String? = nil,
+        severity: String? = nil,
+        rating: String? = nil,
+        likelihood: String? = nil,
+        bullets: [String]? = nil
+    ) async {
+        do {
+            let updated = try await MacAPIClient.shared.addMemoEditorCard(
+                companyId: companyId,
+                sectionId: sectionId,
+                title: title,
+                category: category,
+                severity: severity,
+                rating: rating,
+                likelihood: likelihood,
+                bullets: bullets
+            )
+            memoEditorByCompany[companyId] = updated
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func deleteMemoCard(companyId: String, sectionId: String, cardId: String) async {
+        do {
+            let updated = try await MacAPIClient.shared.deleteMemoEditorCard(
+                companyId: companyId,
+                sectionId: sectionId,
+                cardId: cardId
+            )
+            memoEditorByCompany[companyId] = updated
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func reorderMemoCards(companyId: String, sectionId: String, orderedIds: [String]) async {
+        do {
+            let updated = try await MacAPIClient.shared.reorderMemoEditorCards(
+                companyId: companyId,
+                sectionId: sectionId,
+                orderedIds: orderedIds
+            )
+            memoEditorByCompany[companyId] = updated
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func moveMemoCard(companyId: String, sectionId: String, cardId: String, direction: String) async {
+        do {
+            let updated = try await MacAPIClient.shared.moveMemoEditorCard(
+                companyId: companyId,
+                sectionId: sectionId,
+                cardId: cardId,
+                direction: direction
+            )
+            memoEditorByCompany[companyId] = updated
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func refineRisk(companyId: String, riskId: String, framing: String = "other", analystNote: String = "") async {
+        do {
+            try await MacAPIClient.shared.refineMemoRisk(
+                companyId: companyId,
+                riskId: riskId,
+                framing: framing,
+                analystNote: analystNote
+            )
+            await loadMemoAnalysis(companyId)
+            await loadMemoEditor(companyId)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func launchCustomReport(
+        companyId: String,
+        config: MacReportCustomizerConfig
+    ) async throws -> MacReport {
+        let rep: MacReport
+        if config.generationMode == "studio_review" {
+            rep = try await MacAPIClient.shared.startMemoStudioInvestigate(
+                companyId: companyId,
+                reportType: config.reportType
+            )
+        } else {
+            rep = try await MacAPIClient.shared.createReport(
+                companyId: companyId,
+                reportType: config.reportType,
+                audience: config.audience,
+                language: config.language,
+                reportMode: config.reportMode,
+                quality: config.quality
+            )
+        }
+        handleCreatedReport(rep)
+        return rep
+    }
+
+    func generateReportFromStudio(reportId: String) async throws -> MacReport {
+        let rep = try await MacAPIClient.shared.generateMemoFromStudio(reportId: reportId)
+        handleCreatedReport(rep)
+        return rep
+    }
+
     func openICReview(report: MacReport, language: String? = nil) {
         guard let companyId = report.companyId else {
             openReportWindow(report, language: language)
@@ -1998,6 +2168,7 @@ final class MacAppStore: ObservableObject {
     func exportTearSheet(_ companyId: String, companyName: String) async {
         do {
             let data = try await MacAPIClient.shared.downloadTearSheet(companyId: companyId)
+            #if os(macOS)
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.init(filenameExtension: "docx") ?? .data]
             panel.nameFieldStringValue = "\(companyName) — LP tear sheet.docx"
@@ -2006,6 +2177,9 @@ final class MacAppStore: ObservableObject {
                 try data.write(to: url, options: .atomic)
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
+            #else
+            _ = data
+            #endif
         } catch {
             self.error = error.localizedDescription
         }
@@ -2541,10 +2715,14 @@ final class MacAppStore: ObservableObject {
         sendCopilotMessage(prompt: prompt)
     }
 
-    /// Ask with the current on-screen context, switching to the Ask desk.
+    func toggleCopilotPanel() {
+        showCopilotPanel.toggle()
+    }
+
+    /// Ask with the current on-screen context, opening the Ask Warren side panel (matching the web experience).
     func askWarren(_ prompt: String, context: MacCopilotContext, company: MacCompany? = nil) {
         setCopilotContext(context, company: company)
-        selectedTab = .copilot
+        showCopilotPanel = true
         sendCopilotMessage(prompt: prompt)
     }
 

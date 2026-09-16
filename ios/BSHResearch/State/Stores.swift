@@ -138,17 +138,18 @@ enum DeepLink: Equatable {
 }
 
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-    case home, reports, news, pulse, market
+    case home, research, reports, news, pulse, market
 
     var id: String { rawValue }
 
     var index: Int {
         switch self {
         case .home: return 0
-        case .reports: return 1
-        case .news: return 2
-        case .pulse: return 3
-        case .market: return 4
+        case .research: return 1
+        case .reports: return 2
+        case .news: return 3
+        case .pulse: return 4
+        case .market: return 5
         }
     }
 
@@ -159,6 +160,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var titleKey: String {
         switch self {
         case .home: return "tab.home"
+        case .research: return "tab.research"
         case .reports: return "tab.reports"
         case .news: return "tab.news"
         case .pulse: return "tab.pulse"
@@ -170,6 +172,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String? {
         switch self {
         case .home: return "house"
+        case .research: return "building.2"
         case .reports: return "doc.text"
         case .news: return "newspaper"
         case .pulse: return nil

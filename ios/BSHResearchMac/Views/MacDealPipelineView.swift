@@ -8,7 +8,9 @@
 //
 
 import SwiftUI
+#if canImport(AppKit)
 import AppKit
+#endif
 
 struct MacDealPipelineView: View {
     let company: MacCompany

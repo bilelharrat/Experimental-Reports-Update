@@ -65,7 +65,7 @@ struct MacPortfolioDeskView: View {
                     }
                     ForEach(entries, id: \.company.id) { entry in
                         HStack(spacing: 10) {
-                            MacMonogram(name: entry.company.title, size: 30)
+                            MacMonogram(company: entry.company, size: 30)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(entry.company.title).font(.body.weight(.medium))
                                 HStack(spacing: 6) {

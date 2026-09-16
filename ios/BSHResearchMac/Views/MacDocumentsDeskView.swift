@@ -213,7 +213,15 @@ struct MacDocumentsDeskView: View {
 
     private func documentRow(_ report: MacReport) -> some View {
         HStack(spacing: 10) {
-            MacMonogram(name: report.companyName ?? report.companyId ?? "Document", size: 30)
+            if let c = store.companies.first(where: { $0.id == report.companyId }) {
+                MacMonogram(company: c, size: 30)
+            } else {
+                MacMonogram(
+                    name: report.companyName ?? report.companyId ?? "Document",
+                    companyId: report.companyId,
+                    size: 30
+                )
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(report.companyName ?? report.companyId ?? "Document")

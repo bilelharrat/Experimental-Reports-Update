@@ -148,7 +148,11 @@ struct MacHoldingsDeskView: View {
         Table(rows, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Company", value: \.name) { row in
                 HStack(spacing: 8) {
-                    MacMonogram(name: row.name, size: 22)
+                    if let comp = store.companies.first(where: { $0.id == row.id }) {
+                        MacMonogram(company: comp, size: 22)
+                    } else {
+                        MacMonogram(name: row.name, companyId: row.id, size: 22)
+                    }
                     Text(row.name).font(.body.weight(.medium))
                 }
             }

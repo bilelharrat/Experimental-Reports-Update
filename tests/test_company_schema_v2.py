@@ -47,3 +47,18 @@ def test_company_view_keeps_legacy_string_competitors_valid():
     )
 
     assert payload.competitors == ["NextNav", "Skyhook"]
+
+
+def test_company_view_resolves_logo_domain_and_url():
+    view_aapl = _company_view({"id": "aapl", "name": "Apple", "ticker": "AAPL"})
+    assert view_aapl["logo_domain"] == "apple.com"
+    assert view_aapl["logo_url"] == "https://assets.parqet.com/logos/symbol/AAPL"
+
+    view_zainar = _company_view({"id": "zainar-inc", "name": "ZaiNar", "website": "https://zainartech.com"})
+    assert view_zainar["logo_domain"] == "zainartech.com"
+    assert "zainartech.com" in view_zainar["logo_url"]
+
+    view_generic = _company_view({"id": "generic-co", "name": "Generic", "website": "https://example.com"})
+    assert view_generic["logo_domain"] == "example.com"
+    assert "t1.gstatic.com" in view_generic["logo_url"]
+

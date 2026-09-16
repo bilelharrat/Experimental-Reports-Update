@@ -6,6 +6,7 @@ struct MacPitchDeckDropBanner: View {
     @State private var isTargeted: Bool = false
     @State private var notice: String?
     @State private var noticeTask: Task<Void, Never>?
+    @State private var showFileImporter: Bool = false
 
     private static let deckExtensions: Set<String> = ["pdf", "pptx"]
     private static var deckContentTypes: [UTType] {
@@ -33,6 +34,15 @@ struct MacPitchDeckDropBanner: View {
         }
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             handleDrop(providers: providers)
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: Self.deckContentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                store.ingestDeck(url: url)
+            }
         }
         .help("Files the deck under a company, reads the slides and pulls round, raise, post-money, ARR, burn, runway and headcount with page references")
     }
@@ -71,6 +81,7 @@ struct MacPitchDeckDropBanner: View {
     }
 
     private func selectDeckViaPicker() {
+        #if os(macOS)
         let panel = NSOpenPanel()
         panel.allowedContentTypes = Self.deckContentTypes
         panel.allowsMultipleSelection = false
@@ -79,6 +90,9 @@ struct MacPitchDeckDropBanner: View {
         if panel.runModal() == .OK, let url = panel.url {
             store.ingestDeck(url: url)
         }
+        #else
+        showFileImporter = true
+        #endif
     }
 }
 
