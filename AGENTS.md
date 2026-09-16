@@ -57,7 +57,12 @@ Concrete rules for future sessions:
 
 ## Commits and pushes
 
-- Commit when the user asks ("commit", "ship it", "submit it"). Sign with
-  the `Co-Authored-By: Codex …` trailer.
+- Commit after every completed change, without waiting to be asked. A
+  change is complete once its verification (the relevant test suites, lint,
+  and any native build it touches) passes. One commit per completed change,
+  with a message that says what changed and why. Sign with the
+  `Co-Authored-By: Codex …` trailer.
+- Only stage the files that belong to the change. Leave unrelated
+  in-progress edits from other sessions in the working tree.
 - Push to `origin/main` when the user asks to submit / push / ship.
 - Never push to a branch other than `main`.
