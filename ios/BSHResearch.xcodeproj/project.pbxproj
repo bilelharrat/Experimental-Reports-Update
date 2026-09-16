@@ -105,6 +105,7 @@
 		9E983E57F9D352811AB36C42 /* QuoteDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9553387E265F7A1D910BD662 /* QuoteDetailView.swift */; };
 		9EB7640BDAD32349D204B423 /* CompanyResearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7C6EC37E01F28EC550231E /* CompanyResearchView.swift */; };
 		9FB4BD75E89DC6ECA5A92478 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 70F0E3145B8AAA5F2ABF258F /* WidgetKit.framework */; };
+		A0246D1C019CF2736F9D8665 /* MacTokenConfirm.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DA52E8FA6D6E183D146DB56 /* MacTokenConfirm.swift */; };
 		A1A1D9DAA73991B30036D26D /* MacDocumentsDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69635BAD109B69CE344E47E2 /* MacDocumentsDeskView.swift */; };
 		A22CD255BD3BB3AA2E7850B1 /* BSHBrandMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB9B4E4D5E8B378533A6900 /* BSHBrandMark.swift */; };
 		A51D906902D43DAE535708FB /* VoiceAskSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2640396EFF89D5BB1B77AA /* VoiceAskSupportTests.swift */; };
@@ -340,6 +341,7 @@
 		8A32C443582FA463A85940FC /* MacQuoteInsightViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacQuoteInsightViews.swift; sourceTree = "<group>"; };
 		8ACFE61385D265F08137AB9D /* MacFirmViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacFirmViews.swift; sourceTree = "<group>"; };
 		8BF8AA313E4F698A11434B62 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		8DA52E8FA6D6E183D146DB56 /* MacTokenConfirm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacTokenConfirm.swift; sourceTree = "<group>"; };
 		8E1A713C68C3867444DCDCB6 /* MacCopilotSidePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCopilotSidePanel.swift; sourceTree = "<group>"; };
 		8F492C4593A13D11E6ACEBD7 /* BSHBrandMarkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BSHBrandMarkTests.swift; sourceTree = "<group>"; };
 		8FB5F0B02965FC29549E1F40 /* ReportsDeskTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsDeskTests.swift; sourceTree = "<group>"; };
@@ -843,6 +845,7 @@
 				56BBE64F3643670F998EE7F6 /* MacQuoteMath.swift */,
 				6069CAAF1B8D8942CE8CF6DE /* MacQuoteModels.swift */,
 				3785397A077E6363BECBCD6E /* MacRootView.swift */,
+				8DA52E8FA6D6E183D146DB56 /* MacTokenConfirm.swift */,
 				8B84ABD3DAD08CD48713C5CE /* Views */,
 			);
 			path = BSHResearchMac;
@@ -1030,11 +1033,11 @@
 			projectRoot = "";
 			targets = (
 				F653D4FD11E76E8105D71D49 /* BSHResearch */,
-				CBA57C68A98EB019971FD426 /* BSHResearchWidgets */,
-				5370A7C783ECFD534B58C9C0 /* BSHResearchWatch */,
-				1D8B14A10F19ABC683E91F94 /* BSHResearchWatchWidgets */,
 				AD5AEF7CA446B92D83F74CD1 /* BSHResearchMac */,
 				351183CDFF349CE4E893A1DB /* BSHResearchTests */,
+				5370A7C783ECFD534B58C9C0 /* BSHResearchWatch */,
+				1D8B14A10F19ABC683E91F94 /* BSHResearchWatchWidgets */,
+				CBA57C68A98EB019971FD426 /* BSHResearchWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -1233,6 +1236,7 @@
 				D3EEAC579B115E9375F6F0F3 /* MacThesisEditor.swift in Sources */,
 				2F4F22C7017113B2DA7AD767 /* MacThesisTrackerView.swift in Sources */,
 				BF1E45A0838EE4978674AA98 /* MacTickerTapeView.swift in Sources */,
+				A0246D1C019CF2736F9D8665 /* MacTokenConfirm.swift in Sources */,
 				67539ED53DFA60E4546DF623 /* MacVCRatiosBlotterView.swift in Sources */,
 				E95A9D04B486827C226F2BEA /* WarrenMarkView.swift in Sources */,
 			);

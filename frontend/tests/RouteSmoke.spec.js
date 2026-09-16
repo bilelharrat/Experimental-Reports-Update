@@ -232,6 +232,7 @@ async function mountRoute(path) {
 describe("route smoke tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     api.stockResearch.dashboard.mockResolvedValue(stockPayload());
     api.getCompany.mockResolvedValue({
       id: "generalist",

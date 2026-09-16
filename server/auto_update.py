@@ -12,9 +12,10 @@ Two rules follow from "prevent token spend on the start of the server":
    at first sight, so a fresh server waits a full interval before it
    spends anything.
 
-A stored choice always wins. Until someone sets one, the channel's legacy
-env var supplies the default (so existing deployments keep their
-schedule), and failing that the channel default applies.
+Every channel is MANUAL by default (owner, 2026-09-15): nothing spends on
+a schedule until someone turns that schedule on. A stored choice always
+wins; failing that, the channel's legacy env var still supplies a default,
+so a deployment that deliberately set one keeps it.
 
 Settings live in ``data/settings/auto_update.json``; each channel keeps
 its own last-run clock in its own module and registers it here.
@@ -72,7 +73,7 @@ CHANNELS: dict[str, Channel] = {
         label_zh="新闻简报",
         description_en="AI briefings for the top headlines on the News page.",
         description_zh="新闻页头条的 AI 简报。",
-        default_cadence="6h",
+        default_cadence="manual",
         env_var="BSH_NEWS_BRIEF_REFRESH_HOURS",
         env_unit="hours",
     ),
@@ -84,7 +85,7 @@ CHANNELS: dict[str, Channel] = {
             "News sweep and impact analysis for every tracked company."
         ),
         description_zh="对每家追踪公司做新闻扫描与影响分析。",
-        default_cadence="12h",
+        default_cadence="manual",
         env_var="BSH_TRACKING_SYNC_INTERVAL_SECONDS",
         env_unit="seconds",
     ),

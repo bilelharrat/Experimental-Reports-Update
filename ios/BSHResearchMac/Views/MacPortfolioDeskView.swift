@@ -137,6 +137,7 @@ struct MacPortfolioDeskView: View {
                         Spacer()
                         if busy { ProgressView().controlSize(.small) }
                         Button {
+                            guard MacTokenConfirm.ask() else { return }
                             Task { await store.loadTracking(id, sync: true) }
                         } label: {
                             Label("Sync news", systemImage: "arrow.triangle.2.circlepath")

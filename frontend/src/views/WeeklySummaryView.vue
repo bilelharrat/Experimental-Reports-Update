@@ -12,6 +12,7 @@ import {
   TrendingUp,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import { indexQuoteCards } from "../homeDesk.js";
 import { lastPriceLabel, signedChange } from "../liveTicker.js";
 import PulseECGIcon from "../components/PulseECGIcon.vue";
@@ -212,6 +213,7 @@ async function loadBrief(date = null) {
 
 async function runBrief() {
   if (briefRunning.value) return;
+  if (!confirmTokenSpend()) return;
   briefRunning.value = true;
   briefError.value = "";
   try {
@@ -228,6 +230,7 @@ async function runBrief() {
 
 async function writeBriefNote() {
   if (noteWriting.value || !brief.value) return;
+  if (!confirmTokenSpend()) return;
   noteWriting.value = true;
   briefError.value = "";
   try {

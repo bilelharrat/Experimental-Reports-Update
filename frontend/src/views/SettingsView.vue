@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { Activity, BarChart3, Bell, Database, Download, FlaskConical, Languages, Loader2, Moon, RefreshCw, SlidersHorizontal, Sun, SunMoon, Upload } from "lucide-vue-next";
 import { api } from "../api.js";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import AiMark from "../components/AiMark.vue";
 import { APPEARANCES, appearance, setAppearance } from "../appearance.js";
 import {
@@ -79,6 +80,7 @@ onMounted(load);
 
 async function regenAllCompanies() {
   if (regeneratingAll.value) return;
+  if (!confirmTokenSpend()) return;
   regeneratingAll.value = true;
   operationsMessage.value = "";
   operationsError.value = "";

@@ -30,13 +30,16 @@ def test_every_token_spending_loop_is_registered():
     assert tracking_updates.AUTO_UPDATE_CHANNEL == "tracked_news"
 
 
-def test_defaults_hold_until_someone_picks(monkeypatch):
+def test_everything_is_manual_until_someone_turns_it_on(monkeypatch):
+    """The owner's rule: nothing spends on a schedule out of the box."""
     monkeypatch.delenv("BSH_NEWS_BRIEF_REFRESH_HOURS", raising=False)
     monkeypatch.delenv("BSH_TRACKING_SYNC_INTERVAL_SECONDS", raising=False)
-    assert auto_update.cadence("news_brief") == "6h"
-    assert auto_update.cadence("tracked_news") == "12h"
-    assert auto_update.interval_hours("news_brief") == 6.0
-    assert auto_update.interval_hours("tracked_news") == 12.0
+    for channel_id in auto_update.CHANNELS:
+        assert auto_update.cadence(channel_id) == "manual"
+        assert auto_update.interval_hours(channel_id) == 0.0
+        assert auto_update.next_run_at(channel_id) is None
+    assert news_brief.refresh_interval_hours() == 0.0
+    assert tracking_updates.sync_interval_seconds() == 0.0
 
 
 def test_env_supplies_the_default_and_a_choice_overrides_it(monkeypatch):
@@ -76,9 +79,14 @@ def test_manual_never_fires_and_never_reports_a_next_run():
 
 
 def test_starting_the_server_does_not_make_anything_due(monkeypatch):
-    """The owner's rule: booting must not cost tokens."""
+    """The owner's rule: booting must not cost tokens.
+
+    Even with a cadence turned on, a server that has never run waits a
+    full interval instead of firing at startup."""
     monkeypatch.delenv("BSH_NEWS_BRIEF_REFRESH_HOURS", raising=False)
     monkeypatch.delenv("BSH_TRACKING_SYNC_INTERVAL_SECONDS", raising=False)
+    auto_update.set_cadence("news_brief", "6h")
+    auto_update.set_cadence("tracked_news", "12h")
 
     assert news_brief.last_refresh_at() is None
     assert news_brief.seconds_until_due() > 5 * 3600

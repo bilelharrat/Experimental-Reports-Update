@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import WarrenMark from "./WarrenMark.vue";
 import AutoUpdateBar from "./AutoUpdateBar.vue";
 import { useT } from "../i18n.js";
@@ -248,7 +249,7 @@ async function refreshAllBriefs() {
   const items = tapeItems(assembled.value);
   if (!items.length) return;
   const hours = refreshStatus.value?.interval_hours || 6;
-  if (!window.confirm(t("news.refresh_all_confirm", { n: items.length, hours }))) return;
+  if (!confirmTokenSpend(t("news.refresh_all_confirm", { n: items.length, hours }))) return;
   refreshStarting.value = true;
   try {
     refreshStatus.value = await api.startNewsBriefRefresh({ items, limit: REFRESH_TOP_N });
@@ -306,7 +307,7 @@ async function openBriefing(row) {
 async function regenerateBrief() {
   const row = selected.value;
   if (!row?.title || briefLoading.value) return;
-  if (!window.confirm(t("news.regenerate_confirm"))) return;
+  if (!confirmTokenSpend(t("news.regenerate_confirm"))) return;
   const requestId = ++briefRequestId;
   briefLoading.value = true;
   briefError.value = "";

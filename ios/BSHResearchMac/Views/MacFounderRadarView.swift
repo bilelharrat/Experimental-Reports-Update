@@ -38,6 +38,7 @@ struct MacFounderRadarView: View {
         VStack(alignment: .leading, spacing: 18) {
             MacCardHeader("Founders & team", subtitle: "People from the company record, prior companies and exits, and open-source velocity when a repo is known.", systemImage: "person.3") {
                 Button {
+                    guard MacTokenConfirm.ask() else { return }
                     Task {
                         await store.deepSearchFounder(for: company.id)
                     }

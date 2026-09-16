@@ -431,6 +431,7 @@ struct MacNewsDeskView: View {
                 }
                 Spacer()
                 Button {
+                    guard MacTokenConfirm.ask() else { return }
                     Task {
                         await detailModel.load(item: item, lang: language, forceRefresh: true)
                     }

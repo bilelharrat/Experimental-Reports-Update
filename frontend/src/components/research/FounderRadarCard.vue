@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted } from "vue";
 import { useT } from "../../i18n.js";
 import { Users, RotateCw, GitFork, Star, ExternalLink, Award, Briefcase } from "lucide-vue-next";
 import { api } from "../../api.js";
+import { confirmTokenSpend } from "../../confirmTokens.js";
 
 const t = useT();
 
@@ -36,6 +37,7 @@ async function loadFounders() {
 
 async function deepSearch() {
   if (!props.companyId || searching.value) return;
+  if (!confirmTokenSpend()) return;
   searching.value = true;
   try {
     const res = await api.deepSearchFounder(props.companyId);

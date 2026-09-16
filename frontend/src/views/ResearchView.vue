@@ -15,6 +15,7 @@ import {
 import { api, withApiToken } from "../api.js";
 import AiMark from "../components/AiMark.vue";
 import AutoUpdateBar from "../components/AutoUpdateBar.vue";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import {
   formatCompactNumber,
   formatIsoDate,
@@ -876,6 +877,7 @@ const companyPositioningFallback = computed(() => {
 
 async function refreshCompanyRecord() {
   if (!company.value || refreshingCompany.value) return;
+  if (!confirmTokenSpend()) return;
   refreshingCompany.value = true;
   refreshCompanyError.value = "";
   try {
@@ -1128,6 +1130,7 @@ function decisionLinkedReport(row) {
 
 async function syncTracking() {
   if (trackingSyncing.value || !props.companyId) return;
+  if (!confirmTokenSpend()) return;
   trackingSyncing.value = true;
   trackingSyncError.value = false;
   executeNotice.value = "";

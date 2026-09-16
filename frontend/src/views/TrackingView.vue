@@ -1,5 +1,6 @@
 <script setup>
 import { computed, inject, ref, unref, watch } from "vue";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   Loader2,
@@ -125,6 +126,7 @@ const { rollup, rollupError, rollupLoading, loadRollup, work } =
 
 async function syncAllTracked() {
   if (syncingAll.value || trackedIds.value.length === 0) return;
+  if (!confirmTokenSpend()) return;
   syncingAll.value = true;
   syncAllError.value = "";
   try {

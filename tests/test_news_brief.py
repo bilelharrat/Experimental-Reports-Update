@@ -15,7 +15,7 @@ from datetime import timedelta
 
 import pytest
 
-from server import claude_runner, news_brief
+from server import auto_update, claude_runner, news_brief
 
 _ENV = (
     "BSH_NEWS_BRIEF_MODEL",
@@ -387,6 +387,11 @@ def test_refresh_limit_caps_the_batch(stub_claude, monkeypatch):
 
 
 def test_schedule_is_due_every_six_hours(monkeypatch):
+    # Manual is the default, so the schedule only exists once it is on.
+    assert news_brief.refresh_cadence() == "manual"
+    assert news_brief.seconds_until_due() is None
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "6h")
+
     # A server that never refreshed waits a full interval: booting must
     # not cost tokens.
     fresh = news_brief.seconds_until_due()
@@ -398,7 +403,8 @@ def test_schedule_is_due_every_six_hours(monkeypatch):
     state = json.loads((news_brief.BRIEFS_ROOT / "_refresh_state.json").read_text())
     assert state["last_refresh_at"]
 
-    monkeypatch.setenv("BSH_NEWS_BRIEF_REFRESH_HOURS", "0")
+    # Back to manual: a stored choice beats the env default either way.
+    auto_update.set_cadence(news_brief.AUTO_UPDATE_CHANNEL, "manual")
     assert news_brief.next_refresh_at() is None
     assert news_brief.refresh_status()["next_refresh_at"] is None
     assert news_brief.refresh_cadence() == "manual"
