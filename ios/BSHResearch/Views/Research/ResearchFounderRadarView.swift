@@ -19,7 +19,7 @@ public struct MacFounderRadarView: View {
         VStack(alignment: .leading, spacing: 16) {
             MacCardHeader("Founders & team", subtitle: "Leadership, prior exits, and engineering velocity.", systemImage: "person.3") {
                 Button {
-                    Task { await reload() }
+                    Task { await refreshFromRecord() }
                 } label: {
                     if loading {
                         ProgressView().controlSize(.small)
@@ -108,7 +108,17 @@ public struct MacFounderRadarView: View {
                     }
                 }
             } else if loadFailed {
-                Text("Founder data unavailable.").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Couldn't load people", systemImage: "exclamationmark.triangle")
+                        .font(.caption.weight(.semibold))
+                    Text(store.founderRadarErrors[company.id] ?? "The company record could not be read from the server.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Button("Retry") { Task { await reload() } }
+                        .font(.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
             } else {
                 Text(loading ? "Loading team…" : "No founder records on file.")
                     .font(.caption)
@@ -125,6 +135,13 @@ public struct MacFounderRadarView: View {
     private func reload() async {
         loading = true
         await store.fetchFounderRadar(for: company.id)
+        loading = false
+        loadFailed = radar == nil
+    }
+
+    private func refreshFromRecord() async {
+        loading = true
+        await store.deepSearchFounderRadar(for: company.id)
         loading = false
         loadFailed = radar == nil
     }
@@ -146,7 +163,7 @@ public struct MacFounderRadarView: View {
 
                 Spacer()
 
-                if let url = founder.linkedinUrl, let dest = URL(string: url) {
+                if let url = founder.linkedinUrl ?? founder.profileUrl, let dest = URL(string: url) {
                     Link(destination: dest) {
                         Image(systemName: "link.circle.fill")
                             .font(.system(size: 16))

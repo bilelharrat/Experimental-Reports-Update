@@ -65,8 +65,26 @@ def _profile(person: dict, *, company_name: str) -> dict:
         "patents_papers_count": _int(person.get("patents_papers_count") or person.get("patents")),
         "github_handle": _text(person.get("github") or person.get("github_handle"), limit=80),
         "linkedin_url": _text(person.get("linkedin_url") or person.get("linkedin"), limit=300),
+        "profile_url": _text(person.get("profile_url") or person.get("url") or person.get("website"), limit=300),
         "company": company_name,
     }
+
+
+def _merge_person(target: dict, row: dict) -> None:
+    """Fill fields the first-seen row left empty from a later row for the same person.
+
+    ``key_people`` usually carries only name + role while ``team_profiles`` carries
+    the bio and LinkedIn link; the dossier must keep both rather than the first.
+    """
+    for key, value in row.items():
+        if value in (None, "", [], {}):
+            continue
+        if target.get(key) in (None, "", [], {}):
+            target[key] = value
+
+
+def _person_key(row: dict) -> str:
+    return " ".join(str(row.get("name") or "").split()).lower()
 
 
 def _is_board(profile: dict) -> bool:
@@ -79,35 +97,40 @@ def build_founder_dossier(company_id: str) -> dict:
     company = storage.get_company(company_id) or {}
     name = company.get("name") or company_id
 
-    people: list[dict] = []
-    for key in ("key_people", "team_profiles", "team", "founders"):
+    # One merged row per person, in first-seen order. The same person often
+    # appears in several record fields (key_people, team_profiles, board
+    # investors); later rows fill in whatever the earlier ones left blank.
+    merged: dict[str, dict] = {}
+    for key in ("key_people", "team_profiles", "team", "founders", "board_investors"):
         rows = company.get(key)
-        if isinstance(rows, list):
-            for row in rows:
-                if isinstance(row, dict) and row.get("name"):
-                    people.append(row)
-                elif isinstance(row, str) and row.strip():
-                    people.append({"name": row})
-    seen: set[str] = set()
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, str) and row.strip():
+                row = {"name": row}
+            if not isinstance(row, dict) or not row.get("name"):
+                continue
+            person_key = _person_key(row)
+            if not person_key:
+                continue
+            if person_key in merged:
+                _merge_person(merged[person_key], row)
+            else:
+                merged[person_key] = dict(row)
+                if key == "board_investors":
+                    merged[person_key].setdefault("_from_board", True)
+
     founders: list[dict] = []
     board: list[dict] = []
-    for row in people:
+    for row in merged.values():
         profile = _profile(row, company_name=name)
-        key = profile["name"].lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        (board if _is_board(profile) else founders).append(profile)
-    for row in company.get("board_investors") or []:
-        if not isinstance(row, dict) or not row.get("name"):
-            continue
-        profile = _profile(row, company_name=name)
-        if profile["name"].lower() in seen:
-            continue
-        seen.add(profile["name"].lower())
-        if not _is_board(profile):
+        if _is_board(profile):
+            board.append(profile)
+        elif row.get("_from_board"):
             profile["role"] = _text(row.get("role"), limit=120) or "Board / Investor"
-        board.append(profile)
+            board.append(profile)
+        else:
+            founders.append(profile)
 
     headcount = None
     band = _text(company.get("employee_band") or company.get("employees") or company.get("headcount"), limit=60)

@@ -27,6 +27,7 @@ public final class ResearchDeskStore: ObservableObject {
     @Published public var compsByCompany: [String: MacComps] = [:]
     @Published public var capModelByCompany: [String: MacCapModelPayload] = [:]
     @Published public var founderRadarByCompany: [String: MacFounderRadar] = [:]
+    @Published public var founderRadarErrors: [String: String] = [:]
     @Published public var vcRatiosByCompany: [String: MacVCRatios] = [:]
     @Published public var decisionsByCompany: [String: [MacDecision]] = [:]
     @Published public var analysisByCompany: [String: MacMemoAnalysis] = [:]
@@ -363,10 +364,22 @@ public final class ResearchDeskStore: ObservableObject {
 
     public func fetchFounderRadar(for companyId: String) async {
         do {
-            let radar: MacFounderRadar = try await APIClient.shared.get("companies/\(companyId)/founder-radar")
+            // Same payload the Mac terminal reads; `founder-radar` is only a server alias.
+            let radar: MacFounderRadar = try await APIClient.shared.get("companies/\(companyId)/founder-dossier")
             self.founderRadarByCompany[companyId] = radar
+            self.founderRadarErrors[companyId] = nil
         } catch {
-            // Optional
+            self.founderRadarErrors[companyId] = error.localizedDescription
+        }
+    }
+
+    public func deepSearchFounderRadar(for companyId: String) async {
+        do {
+            let radar: MacFounderRadar = try await APIClient.shared.post("companies/\(companyId)/founder-dossier/deep-search")
+            self.founderRadarByCompany[companyId] = radar
+            self.founderRadarErrors[companyId] = nil
+        } catch {
+            self.founderRadarErrors[companyId] = error.localizedDescription
         }
     }
 

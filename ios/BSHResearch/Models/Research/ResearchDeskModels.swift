@@ -69,6 +69,7 @@ public struct MacFounderProfile: Identifiable, Hashable, Codable {
     public let patentsOrPapersCount: Int?
     public let githubHandle: String?
     public let linkedinUrl: String?
+    public let profileUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case name, role, bio, education
@@ -78,6 +79,7 @@ public struct MacFounderProfile: Identifiable, Hashable, Codable {
         case patentsOrPapersCount = "patents_papers_count"
         case githubHandle = "github_handle"
         case linkedinUrl = "linkedin_url"
+        case profileUrl = "profile_url"
     }
 
     public init(from decoder: Decoder) throws {
@@ -92,6 +94,7 @@ public struct MacFounderProfile: Identifiable, Hashable, Codable {
         patentsOrPapersCount = try? c.decodeIfPresent(Int.self, forKey: .patentsOrPapersCount)
         githubHandle = try? c.decodeIfPresent(String.self, forKey: .githubHandle)
         linkedinUrl = try? c.decodeIfPresent(String.self, forKey: .linkedinUrl)
+        profileUrl = try? c.decodeIfPresent(String.self, forKey: .profileUrl)
     }
 }
 
