@@ -233,13 +233,12 @@ function togglePillar(pillar) {
   }
 }
 
-const sectorLenses = [
-  { id: "b2b_saas", label: "Enterprise B2B SaaS" },
-  { id: "deep_tech", label: "Deep Tech & AI Hardware" },
-  { id: "consumer", label: "Consumer & Marketplaces" },
-  { id: "fintech", label: "Fintech & Regulated Platforms" },
-];
-const selectedSectorLens = ref("b2b_saas");
+// No sector picker here. The memo's sector steering is the COMPANY TYPE
+// (ai_foundation_model / ai_infra / ai_application / ai_video_short_drama /
+// robotics / other): classified in Phase 1 from the company record, it
+// steers Phase 2 research through each type file's research_focus and
+// rebalances the Phase 3 scorecard weights. A second, unrelated four-way
+// picker here could only disagree with it.
 
 // Tab 4: Evidence Sources
 const evidenceSources = ref([
@@ -688,27 +687,6 @@ async function launchReport() {
               >
                 <Check v-if="selectedPillars.includes(pillar)" class="h-3 w-3 stroke-[3]" />
                 <span>{{ pillar }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Sector Diligence Lens -->
-          <div>
-            <span class="vogue-label block mb-2">{{ t("customizer.sector_lens_title") }}</span>
-            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <button
-                v-for="lens in sectorLenses"
-                :key="lens.id"
-                type="button"
-                class="p-2.5 rounded-xl border text-center text-xs font-medium transition-all focus-ring"
-                :class="[
-                  selectedSectorLens === lens.id
-                    ? 'border-accent bg-accent/5 ring-1 ring-accent text-accent-ink font-semibold'
-                    : 'border-subtle bg-surface text-ink-secondary hover:border-strong',
-                ]"
-                @click="selectedSectorLens = lens.id"
-              >
-                {{ lens.label }}
               </button>
             </div>
           </div>
