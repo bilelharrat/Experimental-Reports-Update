@@ -3363,6 +3363,34 @@ _MEMO_ENGLISH_SECTION_SCHEMA: dict[str, Any] = {
     "required": ["section"],
 }
 
+# The receipt a section worker returns when it delivers its subsections as
+# files (see _run_english_section_via_pieces). It is deliberately tiny: the
+# whole point is that no content travels through the response.
+_MEMO_ENGLISH_SECTION_MANIFEST_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "section_id": {"type": "string"},
+        "pieces": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "piece": {"type": "integer"},
+                    "file": {"type": "string"},
+                },
+                "required": ["piece", "file"],
+            },
+        },
+    },
+    "required": ["section_id", "pieces"],
+}
+
+# A section worker that delivers files needs Write; the default section
+# grant is read-only.
+_MEMO_SECTION_HANDOFF_TOOLS = "Read,Write,Bash,Grep,Glob"
+
 MEMO_PACKAGE_SOURCES_CONTRACT = """\
 ## Renderer Sources Contract (hard requirement — validated before rendering)
 
@@ -6972,6 +7000,379 @@ class SpeculativeEnglish:
         self._pool.shutdown(wait=False)
 
 
+# --- Section handoff: pieces on disk, not one oversized response -----------
+#
+# A section worker used to hand its whole section back as one structured
+# JSON response. The biggest asks outgrew what one response can carry: on
+# 2026-09-16 `executive_summary` wrote 17,189 output tokens and still never
+# closed its JSON, so every token was thrown away and a $14.60 run died.
+#
+# The fix keeps ONE agent per section. Splitting the section across four
+# sub-agents would pay this section's 21-52k token cache creation four
+# times over, and each sub-agent would see only its own slice — the
+# highlights would not know what the risks said. So the same agent writes
+# the same section; only the way the work LEAVES it changes. It writes each
+# numbered subsection to its own file the moment that subsection is done,
+# and returns a short manifest instead of the content. Work is banked as it
+# is written, and one bad piece is re-asked on its own instead of costing
+# the whole section.
+
+MEMO_SECTION_PIECE_MAX_RETRIES = 3
+
+_MEMO_SECTION_HANDOFF_DEFAULT = "executive_summary"
+
+
+def _memo_section_handoff_ids() -> frozenset[str]:
+    """Which sections deliver their subsections as files.
+
+    Executive summary only, until a live run says an assembled section
+    reads as well as one written whole. `BSH_MEMO_SECTION_HANDOFF` takes a
+    comma-separated id list, or `off` to send every section back inline.
+    """
+    raw = os.environ.get(
+        "BSH_MEMO_SECTION_HANDOFF", _MEMO_SECTION_HANDOFF_DEFAULT
+    ).strip()
+    if raw.lower() in {"", "0", "off", "none"}:
+        return frozenset()
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _memo_section_pieces_dir(run_dir: Path, section_id: str) -> Path:
+    return _memo_english_units_dir(run_dir) / "pieces" / section_id
+
+
+def _section_piece_plan(
+    run_dir: Path, section_id: str, section_def
+) -> list[tuple[int, str, str, Path]]:
+    """One (number, English heading, Chinese heading, file) per subsection."""
+    pieces_dir = _memo_section_pieces_dir(run_dir, section_id)
+    return [
+        (
+            number,
+            f"{number}. {sub.en}",
+            f"{number}. {sub.zh}",
+            pieces_dir / f"{number:02d}.json",
+        )
+        for number, sub in enumerate(section_def.subsections, start=1)
+    ]
+
+
+def _section_handoff_enabled(section_id: str, section_def) -> bool:
+    if section_id not in _memo_section_handoff_ids():
+        return False
+    # Nothing to split without numbered subsections, and one piece is just
+    # the inline path with extra moving parts.
+    return bool(section_def is not None and len(section_def.subsections) > 1)
+
+
+def _normalized_heading(text: str) -> str:
+    """Compare headings without punishing trivia.
+
+    An exact-match gate would burn three retries over a stray colon or a
+    capital letter, so casing, whitespace and trailing punctuation are
+    ignored; a wrong or missing heading still fails.
+    """
+    return re.sub(r"\s+", " ", str(text)).strip().strip(".:：。 ").lower()
+
+
+def _section_piece_error(
+    path: Path, number: int, heading_en: str
+) -> str | None:
+    """Why this piece file cannot be used, or None when it is good."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"piece {number} was never written to `{path.name}`"
+    except OSError as exc:
+        return f"piece {number} (`{path.name}`) could not be read: {exc}"
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return (
+            f"piece {number} (`{path.name}`) is not valid JSON: {exc.msg} "
+            f"at line {exc.lineno} column {exc.colno}"
+        )
+    if not isinstance(data, dict):
+        return f"piece {number} (`{path.name}`) is not a JSON object"
+    blocks = data.get("blocks")
+    if not isinstance(blocks, list) or not blocks:
+        return (
+            f"piece {number} (`{path.name}`) has no non-empty `blocks` list"
+        )
+    for index, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            return (
+                f"piece {number} (`{path.name}`) block {index} is not a "
+                "JSON object"
+            )
+    first = blocks[0]
+    if first.get("type") != "heading":
+        return (
+            f"piece {number} (`{path.name}`) must open with its heading "
+            f'block ("{heading_en}"), not a {first.get("type") or "typeless"} '
+            "block"
+        )
+    text = first.get("text")
+    found = text.get("en") if isinstance(text, dict) else text
+    if _normalized_heading(found or "") != _normalized_heading(heading_en):
+        return (
+            f"piece {number} (`{path.name}`) opens with the heading "
+            f'"{found}" where the scaffold fixes "{heading_en}"'
+        )
+    return None
+
+
+def _section_handoff_contract(
+    section_id: str,
+    plan: list[tuple[int, str, str, Path]],
+    pieces_dir: Path,
+) -> str:
+    file_lines = "\n".join(
+        f'- subsection {number} ("{heading_en}") -> `{path}`'
+        for number, heading_en, _heading_zh, path in plan
+    )
+    manifest_example = ", ".join(
+        f'{{"piece": {number}, "file": "{path.name}"}}'
+        for number, _en, _zh, path in plan
+    )
+    return f"""\
+## How this section reaches us (read this twice)
+Do NOT return the section in your reply. Your reply carries a receipt; the
+section itself travels as files. A section this size does not fit in one
+structured response — a previous run wrote 17,189 tokens of one and the
+response was cut off before its JSON closed, so every word was lost.
+
+Write one file per numbered subsection, in order, as you finish it:
+{file_lines}
+
+Each file holds exactly this, and nothing else:
+{{"piece": <number>, "blocks": [ ... ]}}
+
+`blocks` opens with that subsection's heading block, exactly as the
+scaffold above fixes it, and then carries every block belonging to that
+subsection. These are the same blocks you would otherwise have returned
+inline: same shapes, same bilingual objects, same depth of argument. The
+split is a delivery detail — you are still writing ONE section, and the
+later subsections must stay consistent with what you wrote in the earlier
+ones.
+
+Write each file ONCE, with a single write, the moment that subsection is
+done, then move to the next one. Never read a piece back, never measure it
+with `wc`, `awk`, `jq` or any other shell command, and never trim it to hit
+a length — a live run burned seventeen minutes on shell trim loops chasing
+a limit it was nowhere near. Your word budget lives in the section spec
+above and needs no arithmetic.
+
+When every file is written, return only:
+{{"section_id": "{section_id}", "pieces": [{manifest_example}]}}
+matching the attached schema. The receipt names the files you wrote; it
+must never contain the section's content.
+"""
+
+
+def _section_piece_retry_prompt(
+    *,
+    body: str,
+    section_id: str,
+    number: int,
+    heading_en: str,
+    heading_zh: str,
+    path: Path,
+    reason: str,
+    plan: list[tuple[int, str, str, Path]],
+) -> str:
+    """Re-ask for ONE subsection, leaving its siblings on disk untouched."""
+    siblings = "\n".join(
+        f'- subsection {other} ("{other_en}"): `{other_path}`'
+        for other, other_en, _zh, other_path in plan
+        if other != number
+    )
+    return f"""{body}
+## Rewrite ONE subsection
+You already wrote this section's subsections to files. One of them did not
+arrive usable:
+
+- subsection {number} ("{heading_en}" / "{heading_zh}") -> `{path}`
+- what went wrong: {reason}
+
+Rewrite that ONE subsection and nothing else. Its siblings are already on
+disk and are being used as they are — read them if you need to stay
+consistent with them, and do not rewrite them:
+{siblings}
+
+Write `{path}` once, holding exactly:
+{{"piece": {number}, "blocks": [ ... ]}}
+opening with the heading block {{"type": "heading", "level": 2, "text":
+{{"en": "{heading_en}", "zh": "{heading_zh}"}}}} and then the blocks of
+that subsection. Do not measure or trim the file with shell commands.
+
+Then return only:
+{{"section_id": "{section_id}", "pieces": [{{"piece": {number}, "file": "{path.name}"}}]}}
+matching the attached schema.
+"""
+
+
+def _accumulate_call_cost(totals: dict, result: dict | None) -> None:
+    if not isinstance(result, dict):
+        return
+    cost = result.get("claude_cost_usd")
+    if isinstance(cost, (int, float)):
+        totals["cost"] = (totals.get("cost") or 0.0) + float(cost)
+    duration = result.get("claude_duration_ms")
+    if isinstance(duration, (int, float)):
+        totals["duration_ms"] = (totals.get("duration_ms") or 0) + int(duration)
+    if totals.get("usage") is None:
+        totals["usage"] = result.get("claude_usage")
+
+
+def _run_english_section_via_pieces(
+    *,
+    run_dir: Path,
+    section_id: str,
+    section_def,
+    body: str,
+    common_context: str,
+    add_dirs: list[Path],
+    progress,
+    timeout_sec: int,
+) -> tuple[dict | None, str | None]:
+    """Draft one section as per-subsection files, then assemble it here."""
+    pieces_dir = _memo_section_pieces_dir(run_dir, section_id)
+    # A respin must not inherit the last attempt's files: a stale piece that
+    # happens to parse would be assembled into the new section.
+    shutil.rmtree(pieces_dir, ignore_errors=True)
+    pieces_dir.mkdir(parents=True, exist_ok=True)
+    plan = _section_piece_plan(run_dir, section_id, section_def)
+
+    totals: dict[str, Any] = {}
+    result, error = _run_memo_local_json_artifact(
+        prompt=body + _section_handoff_contract(section_id, plan, pieces_dir),
+        schema=_MEMO_ENGLISH_SECTION_MANIFEST_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message=f"Drafting section {section_id}",
+        timeout_label=f"memo English section ({section_id})",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=add_dirs,
+        allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+        model=_memo_role_model("SECTION", run_dir),
+        effort=_memo_role_effort("SECTION", run_dir),
+        append_system_prompt=common_context,
+    )
+    _accumulate_call_cost(totals, result)
+
+    pending: dict[int, str] = {}
+    for number, heading_en, _heading_zh, path in plan:
+        reason = _section_piece_error(path, number, heading_en)
+        if reason:
+            pending[number] = reason
+    if error and len(pending) == len(plan):
+        # Nothing landed, so the call never really started (cancelled run,
+        # missing CLI, immediate timeout). Per-piece retries would only
+        # repeat that failure once per subsection.
+        return None, error
+    if error and progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_section_partial_delivery",
+            message=(
+                f"{section_id}: the drafting call failed ({str(error)[:200]}) "
+                f"but {len(plan) - len(pending)} of {len(plan)} subsections "
+                "are already on disk; asking only for the rest"
+            ),
+            section_id=section_id,
+        )
+
+    attempts: dict[int, int] = {}
+    while pending:
+        halt_error = _memo_run_halt_error(run_dir)
+        if halt_error:
+            return None, halt_error
+        number = min(pending)
+        reason = pending[number]
+        if attempts.get(number, 0) >= MEMO_SECTION_PIECE_MAX_RETRIES:
+            return None, (
+                f"section {section_id}: subsection {number} is still "
+                f"unusable after {MEMO_SECTION_PIECE_MAX_RETRIES} retries "
+                f"({reason})"
+            )
+        attempts[number] = attempts.get(number, 0) + 1
+        _number, heading_en, heading_zh, path = plan[number - 1]
+        if progress is not None:
+            progress.emit(
+                "stage",
+                stage="memo_section_piece_retry",
+                message=(
+                    f"{section_id}: {reason}; asking for that subsection "
+                    f"again (attempt {attempts[number]} of "
+                    f"{MEMO_SECTION_PIECE_MAX_RETRIES})"
+                ),
+                section_id=section_id,
+                piece=number,
+            )
+        retry_result, retry_error = _run_memo_local_json_artifact(
+            prompt=_section_piece_retry_prompt(
+                body=body,
+                section_id=section_id,
+                number=number,
+                heading_en=heading_en,
+                heading_zh=heading_zh,
+                path=path,
+                reason=reason,
+                plan=plan,
+            ),
+            schema=_MEMO_ENGLISH_SECTION_MANIFEST_SCHEMA,
+            run_dir=run_dir,
+            progress=progress,
+            progress_message=(
+                f"Rewriting {section_id} subsection {number}"
+            ),
+            timeout_label=(
+                f"memo English section ({section_id} piece {number})"
+            ),
+            timeout_sec=timeout_sec,
+            silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+            add_dirs=add_dirs,
+            allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+            model=_memo_role_model("SECTION", run_dir),
+            effort=_memo_role_effort("SECTION", run_dir),
+            append_system_prompt=common_context,
+        )
+        _accumulate_call_cost(totals, retry_result)
+        reason = _section_piece_error(path, number, heading_en)
+        if reason is None:
+            pending.pop(number)
+        else:
+            if retry_error:
+                reason = f"{reason} (the rewrite also failed: {retry_error})"
+            pending[number] = reason
+
+    blocks: list[dict] = []
+    for number, _heading_en, _heading_zh, path in plan:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        blocks.extend(payload["blocks"])
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_section_assembled",
+            message=(
+                f"{section_id}: assembled {len(plan)} subsection files into "
+                f"{len(blocks)} blocks"
+            ),
+            section_id=section_id,
+        )
+    return (
+        {
+            "section": {"id": section_id, "blocks": blocks},
+            "claude_cost_usd": totals.get("cost"),
+            "claude_duration_ms": totals.get("duration_ms"),
+            "claude_usage": totals.get("usage"),
+        },
+        None,
+    )
+
+
 def _run_english_section(
     *,
     run_dir: Path,
@@ -7036,7 +7437,7 @@ defects:
     # Section-specific content stays at the tail so the five section prompts
     # share their whole leading region (the system prompt already carries the
     # common context via --append-system-prompt).
-    prompt = f"""\
+    body = f"""\
 You are drafting ONE SECTION of the English source package. Sibling workers
 draft the other sections in parallel; the shared fact sheet below pins
 everything the sections must agree on. Repeat the pinned recommendation,
@@ -7052,6 +7453,19 @@ language in prose; do not add, drop, or renumber sources.
 ## Your section: `{section_id}`
 {spec}
 {scaffold_block}{risk_contract}{note_block}{repair_block}
+"""
+    if _section_handoff_enabled(section_id, section_def):
+        return _run_english_section_via_pieces(
+            run_dir=run_dir,
+            section_id=section_id,
+            section_def=section_def,
+            body=body,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+    prompt = body + f"""\
 Return only JSON: {{"section": {{"id": "{section_id}", "blocks": [...]}}}}
 matching the attached schema. Pass the section as a real JSON object — never
 serialized as a string inside another field (the escaping roughly doubles the
@@ -7683,7 +8097,17 @@ def run_memo_fast_english_package_parallel(
             # $14.60 already spent). The cause is a response too large to
             # finish, so the one retry worth making is a SMALLER ask — a
             # blind repeat just spends the same money to truncate again.
-            if error and MEMO_STRUCTURED_OUTPUT_EXHAUSTED in str(error):
+            # A section that delivers its subsections as files has already
+            # retried the piece that failed, up to its own limit; re-running
+            # the whole section on top of that just pays twice.
+            hands_off = _section_handoff_enabled(
+                section_id, structure.section(section_id)
+            )
+            if (
+                error
+                and not hands_off
+                and MEMO_STRUCTURED_OUTPUT_EXHAUSTED in str(error)
+            ):
                 retry_job = dict(job)
                 retry_job["section_note"] = (
                     (retry_job.get("section_note") or "")

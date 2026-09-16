@@ -113,6 +113,20 @@ on any structural failure).
   `_MEMO_SECTION_SPECS[id]` (+ risk-register contract for
   `investment_risk`). Output schema is loose (`{"section": object}`) —
   enforcement is post-hoc.
+- **Section handoff** (`BSH_MEMO_SECTION_HANDOFF`, default
+  `executive_summary`): a listed section is written by the SAME single
+  agent, but it leaves through the filesystem instead of the response.
+  The agent writes each numbered subsection to
+  `logs/english_units/pieces/<section>/NN.json` as it finishes it and
+  returns only a receipt (`{section_id, pieces}`); the server validates
+  each piece (parses, non-empty `blocks`, opens with its scaffolded
+  heading) and assembles them in order. A missing or malformed piece is
+  re-asked alone, up to `MEMO_SECTION_PIECE_MAX_RETRIES` (3). Reason:
+  `executive_summary` wrote 17,189 output tokens on 2026-09-16 and its
+  JSON never closed (`error_max_structured_output_retries`), losing the
+  lot. One agent, not four: the per-call cache creation is 21–52k tokens,
+  and a sub-agent per subsection would pay it four times over while
+  seeing only its own slice.
 - **Detached artifacts** (`claude_runner.AsyncArtifacts`,
   `BSH_MEMO_ARTIFACTS_ASYNC=1`): the 7 private artifacts run on their
   own thread from wrapper entry. If the agent is already done at package
@@ -235,6 +249,7 @@ pin echo, gates).
 | `BSH_MEMO_FAST_MAX_WORKERS` (8) | Phase-2 pool |
 | `BSH_MEMO_ENGLISH_PARALLEL` (0) | spine-lite + section workers |
 | `BSH_MEMO_ENGLISH_SECTION_WORKERS` (6) | wave pool |
+| `BSH_MEMO_SECTION_HANDOFF` (`executive_summary`) | sections that deliver subsections as files |
 | `BSH_MEMO_ARTIFACTS_ASYNC` (0) | detach artifacts agent |
 | `BSH_MEMO_SPINE_SPECULATIVE` (0), `BSH_MEMO_SPINE_SPECULATE_AFTER` (6) | early spine + delta check |
 | `BSH_MEMO_SPINE_SPECULATE_REQUIRE` (pin-feeding passes) | pin-affine launch gate; `none` = count-only |
