@@ -190,41 +190,44 @@ const selectedLanguage = ref("dual");
 // Tab 2: Engine & Quality Options
 const generationModes = [
   {
-    id: "studio_review",
-    title: "Interactive Studio Review",
-    badge: "Recommended",
-    desc: "Pauses after Phase 2 (Research & Dilemma formulation) so analysts can curate thesis spine cards and adjust risk framing before synthesizing the final memo.",
-  },
-  {
     id: "one_click",
     title: "One-Click Autonomous",
-    badge: "Direct Run",
+    badge: "Recommended",
     desc: "Runs start-to-finish without stopping. Best for quick exploratory reads or overnight batches.",
   },
+  {
+    id: "studio_review",
+    title: "Interactive Studio Review",
+    badge: "Curated",
+    desc: "Pauses after Phase 2 (Research & Dilemma formulation) so analysts can curate thesis spine cards and adjust risk framing before synthesizing the final memo.",
+  },
 ];
-const selectedGenerationMode = ref("studio_review");
+const selectedGenerationMode = ref("one_click");
 
+// Tiers map to claude_runner._MEMO_QUALITY_TIERS. Balanced leads: it keeps
+// the top model on the English the founder reads and moves research,
+// checking and translation to Sonnet.
 const qualities = [
+  {
+    id: "balanced",
+    title: "Balanced Pipeline",
+    badge: "Recommended",
+    desc: "Top model writes the memo at medium effort; research, verification and translation run on Sonnet.",
+  },
   {
     id: "best",
     title: "Best Frontier",
     badge: "Frontier",
-    desc: "Deep multi-pass reasoning, maximum evidence cross-examination, and frontier-grade synthesis.",
-  },
-  {
-    id: "balanced",
-    title: "Balanced Pipeline",
-    badge: "Fast",
-    desc: "Optimal trade-off between turnaround speed and analytical thoroughness.",
+    desc: "Top model at high effort across the whole writing wave. The most thorough, and the most expensive.",
   },
   {
     id: "economy",
     title: "Economy Draft",
     badge: "Light",
-    desc: "Rapid reconnaissance run for initial screening and preliminary structuring.",
+    desc: "Everything on Sonnet. Rapid reconnaissance for initial screening and preliminary structuring.",
   },
 ];
-const selectedQuality = ref("best");
+const selectedQuality = ref("balanced");
 
 // Tab 4: Evidence Sources
 // Tab 4: the analysed documents this company actually has. An Analyze run

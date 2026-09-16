@@ -120,6 +120,14 @@ describe("ReportCustomizerModal", () => {
     apiMock.studioInvestigate.mockResolvedValue({ session_id: "sess_123" });
     const wrapper = mountModal();
 
+    // One-Click is the default now, so this mode has to be chosen.
+    const navButtons = wrapper.findAll("nav button");
+    await navButtons[1].trigger("click");
+    const studio = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Interactive Studio Review"));
+    await studio.trigger("click");
+
     const launchBtn = wrapper
       .findAll("button")
       .find((b) => b.text().includes("Launch Studio Investigation"));
@@ -144,6 +152,12 @@ describe("ReportCustomizerModal", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("Executive Brief");
     expect(wrapper.text()).toContain("Bilingual (EN + ZH)");
+    // One-Click is the default, so the launch button is the memo one.
+    expect(
+      wrapper
+        .findAll("button")
+        .some((b) => b.text().includes("Generate Research Memo")),
+    ).toBe(true);
 
     const disabled = wrapper
       .findAll("button")
@@ -236,7 +250,8 @@ describe("ReportCustomizerModal", () => {
       // The brief is the default scope now: it is the one that gets read
       // end to end, and the full IC runs past forty pages.
       report_mode: "compact",
-      quality: "best",
+      // Balanced is the default tier: the top model still writes the memo.
+      quality: "balanced",
       // Nothing deselected, so the run reads the whole research folder.
       evidence_files: null,
     });
