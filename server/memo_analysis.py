@@ -634,7 +634,14 @@ def _fill_sparse_zh_gaps(payload: Any, limit: int = _MAX_ZH_FALLBACK_GAPS) -> li
 # Rewriting from the same inputs lands at the same natural length; only
 # editing converges. So a failure that is nothing but over-length sections
 # skips the retries and goes straight to the repair.
-_WORD_BUDGET_ERROR_MARKER = "-word ceiling"
+#
+# This must stay the exact phrase `memo_docx_renderer._word_budget_errors`
+# writes. It said "-word ceiling" until the soft-budget change renamed the
+# message to "...-word target and its ...-word hard cap", and the shortcut
+# went silently dead: the 2026-09-16 re-run paid a full section
+# regeneration for company_team being 42 words over. `test_memo_budget_loop`
+# now builds its fixture from the renderer so the two cannot drift again.
+_WORD_BUDGET_ERROR_MARKER = "-word hard cap"
 
 
 def _only_word_budget_errors(validation_errors: list[str]) -> bool:

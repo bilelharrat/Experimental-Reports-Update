@@ -12,11 +12,46 @@ from server import memo_analysis, memo_docx_renderer, memo_structure
 
 COMPACT = memo_structure.load_structure("late_compact", 1)
 
-_BUDGET_ERR = (
-    "section company_team runs 1018 English words against its 1100-word "
-    "ceiling — this is the COMPACT memo: cut commentary"
-)
+def _real_budget_error(section_id="company_team"):
+    """The error the RENDERER actually writes for an over-long section.
+
+    Built, never typed. A hand-written fixture let the shortcut die
+    unnoticed: the marker still said "-word ceiling" after the message
+    became "...-word target and its ...-word hard cap", so the live
+    2026-09-16 re-run paid a full regeneration for a 42-word overrun.
+    """
+    sdef = COMPACT.section(section_id)
+    cap = int(
+        sdef.budget_words
+        * (sdef.budget_hard_multiple or memo_docx_renderer._BUDGET_GRACE)
+    )
+    package = {
+        "structure": COMPACT.meta(),
+        "sections": [
+            {
+                "id": section_id,
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {"en": "word " * (cap + 50), "zh": ""},
+                    }
+                ],
+            }
+        ],
+    }
+    errors = memo_docx_renderer._word_budget_errors(package)
+    assert errors, "the renderer must flag a section past its hard cap"
+    return errors[0]
+
+
+_BUDGET_ERR = _real_budget_error()
 _OTHER_ERR = "sections[1].blocks[9].text.zh is required"
+
+
+def test_the_shortcut_recognises_the_renderers_own_wording():
+    """The guard against the two drifting apart."""
+    assert memo_analysis._WORD_BUDGET_ERROR_MARKER in _BUDGET_ERR
+    assert memo_analysis._only_word_budget_errors([_BUDGET_ERR])
 
 
 def test_a_pure_budget_failure_skips_the_regeneration_rounds():
