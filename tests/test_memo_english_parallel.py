@@ -751,6 +751,32 @@ def test_stale_spine_format_forces_full_pass(tmp_path, monkeypatch):
     assert sorted(section_calls) == sorted(claude_runner.MEMO_PACKAGE_SECTION_IDS)
 
 
+def _write_spine_pieces(run_dir, payload, structure=None):
+    """Lay a spine payload out as the per-part files the agent would write.
+
+    Uses the production piece plan, so a test can never disagree with it
+    about which key belongs in which file.
+    """
+    import json as _json
+
+    from server import memo_structure as _ms
+
+    structure = structure or _ms.LATE
+    schema = claude_runner.memo_fast_english_spine_schema(structure)
+    plan = claude_runner._spine_piece_plan(run_dir, schema)
+    for _stem, target, keys, _required, _what, path in plan:
+        bucket = payload.get(target, {}) if target else payload
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            _json.dumps(
+                {key: bucket[key] for key in keys if key in bucket},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    return plan
+
+
 def test_parallel_prompts_share_common_system_prefix(tmp_path, monkeypatch):
     """The shared context must ride --append-system-prompt byte-identically
     on every phase-3 call, and the five section prompts must share their
@@ -762,6 +788,10 @@ def test_parallel_prompts_share_common_system_prefix(tmp_path, monkeypatch):
     def fake_artifact_runner(**kw):
         captured.append(kw)
         schema = kw["schema"]
+        if schema is claude_runner._MEMO_SPINE_MANIFEST_SCHEMA:
+            # the spine delivers its parts as files and returns a receipt
+            _write_spine_pieces(kwargs["run_dir"], _spine_result())
+            return {"pieces": []}, None
         if schema is claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA:
             return _spine_result(), None
         if schema is claude_runner.MEMO_FAST_ENGLISH_ARTIFACTS_SCHEMA:

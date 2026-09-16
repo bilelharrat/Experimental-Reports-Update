@@ -177,4 +177,31 @@ def test_pipeline_spine_prompt_stays_extras_free(tmp_path, monkeypatch):
         add_dirs=[run_dir],
     )
     assert "studio_extras" not in captured["prompt"]
+    # The pipeline spine delivers its parts as files, so the CLI gets the
+    # receipt schema; the studio path above keeps the inline contract.
+    assert captured["schema"] is claude_runner._MEMO_SPINE_MANIFEST_SCHEMA
+
+
+def test_pipeline_spine_inline_still_uses_the_base_schema(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("BSH_MEMO_SPINE_HANDOFF", "0")
+    captured: dict = {}
+
+    def fake_runner(**kw):
+        captured.update(kw)
+        return {}, None
+
+    monkeypatch.setattr(
+        claude_runner, "_run_memo_local_json_artifact", fake_runner
+    )
+    run_dir = tmp_path / "memo-run"
+    (run_dir / "logs").mkdir(parents=True)
+    claude_runner.run_memo_fast_english_spine(
+        run_dir=run_dir,
+        company_name="G",
+        common_context="ctx",
+        add_dirs=[run_dir],
+    )
+    assert "studio_extras" not in captured["prompt"]
     assert captured["schema"] is claude_runner.MEMO_FAST_ENGLISH_SPINE_SCHEMA

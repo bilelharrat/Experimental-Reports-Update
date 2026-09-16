@@ -5710,6 +5710,437 @@ def _memo_english_add_dirs(
     return add_dirs
 
 
+# --- Spine handoff: the pin sheet arrives as files --------------------------
+#
+# The spine is the run's most crowded single answer: envelope, the complete
+# source list, and the whole pin sheet in one tool call. A real accepted
+# spine measures 30,713 characters, and on 2026-09-16 one was rejected four
+# times as unparseable at 33,330 / 31,264 / 28,240 / 27,850 bytes — the
+# model shrinking its own answer and still not fitting. It cost 10.5
+# minutes and a package attempt. Every spine since has been one good
+# paragraph away from the same wall.
+#
+# Same treatment as a memo section, same reason: one agent, writing the
+# same pins with the same cached context, delivering them as files instead
+# of as one oversized tool call. The parts are already separable —
+# `sources` is 12KB of its own, `calculations` 6KB — so each file is small
+# and a rejected one is re-asked alone.
+
+MEMO_SPINE_PIECE_MAX_RETRIES = 3
+
+# (file stem, where it belongs, the keys it carries, what to write)
+_SPINE_PIECES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
+    (
+        "envelope",
+        "package_skeleton",
+        ("schema_version", "company", "run"),
+        "the package envelope: schema_version, company, run",
+    ),
+    (
+        "sources",
+        "package_skeleton",
+        ("sources",),
+        "the COMPLETE source list for the whole memo",
+    ),
+    (
+        "verdict",
+        "shared_facts",
+        (
+            "recommendation_sentence",
+            "decision_history_sentence",
+            "stage",
+            "verdict",
+            "scorecard",
+            "fair_value_range",
+            "entry",
+            "scenarios",
+        ),
+        "the recommendation (and any decision history), stage, verdict "
+        "tier, scorecard, fair-value range, entry terms and the three "
+        "scenarios",
+    ),
+    (
+        "metrics",
+        "shared_facts",
+        ("key_metrics", "source_topics"),
+        "the key metrics sections repeat, and one line per source id",
+    ),
+    (
+        "highlights",
+        "shared_facts",
+        ("highlights",),
+        "the three pinned investment highlights",
+    ),
+    (
+        "risks",
+        "shared_facts",
+        ("risks",),
+        "the full risk list, highest rating first",
+    ),
+    (
+        "calculations",
+        "shared_facts",
+        ("calculations",),
+        "every derived number as a numbered calculation note",
+    ),
+    (
+        "section_notes",
+        "",
+        ("section_notes",),
+        "the optional per-section pointers (write `{}` when you have none)",
+    ),
+)
+
+
+def _memo_spine_handoff_enabled() -> bool:
+    return os.environ.get("BSH_MEMO_SPINE_HANDOFF", "1") == "1"
+
+
+def _memo_spine_pieces_dir(run_dir: Path) -> Path:
+    return _memo_english_units_dir(run_dir) / "spine_pieces"
+
+
+def _schema_at(schema: dict, target: str) -> dict:
+    """The sub-schema a piece's keys live under ("" = the root)."""
+    if not target:
+        return schema
+    node = (schema.get("properties") or {}).get(target)
+    return node if isinstance(node, dict) else {}
+
+
+def _spine_piece_plan(
+    run_dir: Path, schema: dict
+) -> list[tuple[str, str, tuple[str, ...], tuple[str, ...], str, Path]]:
+    """One entry per file: (stem, target, keys, required keys, what, path).
+
+    Keys the structure's schema does not declare are dropped, so a v1 spine
+    (no scorecard, highlights or calculations) writes fewer, smaller files
+    rather than empty ones.
+    """
+    pieces_dir = _memo_spine_pieces_dir(run_dir)
+    plan = []
+    for index, (stem, target, keys, what) in enumerate(_SPINE_PIECES, start=1):
+        node = _schema_at(schema, target)
+        declared = node.get("properties") or {}
+        if declared:
+            present = tuple(key for key in keys if key in declared)
+            required = tuple(
+                key for key in present if key in (node.get("required") or [])
+            )
+        elif node:
+            # A free-form object declares no properties and allows anything
+            # — the v1 `package_skeleton` is one. Filtering by declared keys
+            # would drop the whole envelope, so keep the piece's keys, and
+            # treat them as required when the bucket itself is.
+            present = keys
+            required = (
+                keys if target in (schema.get("required") or []) else ()
+            )
+        else:
+            continue
+        if not present:
+            continue
+        plan.append(
+            (
+                stem,
+                target,
+                present,
+                required,
+                what,
+                pieces_dir / f"{index:02d}_{stem}.json",
+            )
+        )
+    return plan
+
+
+def _spine_piece_error(
+    path: Path, stem: str, keys: tuple[str, ...], required: tuple[str, ...]
+) -> str | None:
+    """Why this spine piece cannot be used, or None when it is good."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"`{path.name}` was never written"
+    except OSError as exc:
+        return f"`{path.name}` could not be read: {exc}"
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return (
+            f"`{path.name}` is not valid JSON: {exc.msg} at line "
+            f"{exc.lineno} column {exc.colno}"
+        )
+    if not isinstance(data, dict):
+        return f"`{path.name}` is not a JSON object"
+    missing = [key for key in required if key not in data]
+    if missing:
+        return (
+            f"`{path.name}` is missing "
+            + ", ".join(f"`{key}`" for key in missing)
+        )
+    extra = [key for key in data if key not in keys]
+    if extra:
+        return (
+            f"`{path.name}` carries "
+            + ", ".join(f"`{key}`" for key in extra)
+            + f", which belong in another file (this one holds only "
+            + ", ".join(f"`{key}`" for key in keys)
+            + ")"
+        )
+    return None
+
+
+def _spine_handoff_contract(plan, pieces_dir: Path) -> str:
+    file_lines = "\n".join(
+        f"- `{path.name}` — {what}: "
+        + ", ".join(f"`{key}`" for key in keys)
+        for _stem, _target, keys, _required, what, path in plan
+    )
+    example_stem, _t, example_keys, _r, _w, example_path = plan[0]
+    return f"""\
+## How the spine reaches us (read this twice)
+Do NOT return the spine in your reply. Your reply carries a receipt; the
+spine itself travels as files. A whole spine does not fit in one tool
+call — a previous run's was rejected four times as unparseable at 33,330,
+31,264, 28,240 and 27,850 bytes, shrinking each time and never fitting,
+because the answer was cut off mid-JSON before it arrived.
+
+Write these files under `{pieces_dir}`, one at a time, in this order:
+{file_lines}
+
+Each file holds ONE JSON object carrying exactly its own keys at the top
+level — not nested under `package_skeleton` or `shared_facts`, and not
+wrapped in anything. For `{example_path.name}` that means:
+{{{", ".join(f'"{key}": ...' for key in example_keys)}}}
+
+The content is exactly what you would otherwise have returned inline:
+same fields, same limits, same pins. You are still writing ONE spine, so
+the later files must agree with the earlier ones — the scorecard with the
+verdict, the highlights with the scores, the calculations with the
+scenarios.
+
+Write each file ONCE, with a single write, the moment that part is
+settled. Never read a file back, never measure it with `wc`, `awk`, `jq`
+or any other shell command, and never trim it to a length. The schema
+limits in your instructions still apply to every value.
+
+When every file is written, return only:
+{{"pieces": [{{"file": "{example_path.name}"}}, ...]}}
+matching the attached schema. The receipt names the files you wrote; it
+must never contain the spine's content.
+"""
+
+
+_MEMO_SPINE_MANIFEST_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "pieces": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"file": {"type": "string"}},
+                "required": ["file"],
+            },
+        },
+    },
+    "required": ["pieces"],
+}
+
+
+def _assemble_spine(plan) -> dict:
+    spine: dict[str, Any] = {}
+    for _stem, target, keys, _required, _what, path in plan:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        bucket = spine.setdefault(target, {}) if target else spine
+        for key in keys:
+            if key in data:
+                bucket[key] = data[key]
+    return spine
+
+
+def _spine_piece_for_schema_error(plan, error: str) -> str | None:
+    """Which file owns a schema error, from its "/a/b/..." path."""
+    head = error.split(":", 1)[0].strip()
+    parts = [part for part in head.split("/") if part]
+    if not parts:
+        return None
+    for _stem, target, keys, _required, _what, path in plan:
+        if target:
+            if len(parts) >= 2 and parts[0] == target and parts[1] in keys:
+                return path.name
+        elif parts[0] in keys:
+            return path.name
+    # "root: must have required property 'shared_facts'" — a whole bucket
+    # is missing, which means one of its files never arrived.
+    for _stem, target, keys, _required, _what, path in plan:
+        if target and f"'{target}'" in error:
+            return path.name
+    return None
+
+
+def _run_english_spine_via_pieces(
+    *,
+    run_dir: Path,
+    body: str,
+    schema: dict,
+    common_context: str,
+    add_dirs: list[Path],
+    progress,
+    timeout_sec: int,
+) -> tuple[dict | None, str | None]:
+    """Draft the spine as per-part files, then assemble and validate here."""
+    pieces_dir = _memo_spine_pieces_dir(run_dir)
+    shutil.rmtree(pieces_dir, ignore_errors=True)
+    pieces_dir.mkdir(parents=True, exist_ok=True)
+    plan = _spine_piece_plan(run_dir, schema)
+    if not plan:
+        return None, "spine handoff: the schema declared no known parts"
+    by_name = {path.name: entry for entry in plan for path in (entry[5],)}
+
+    totals: dict[str, Any] = {}
+    result, error = _run_memo_local_json_artifact(
+        prompt=body + _spine_handoff_contract(plan, pieces_dir),
+        schema=_MEMO_SPINE_MANIFEST_SCHEMA,
+        run_dir=run_dir,
+        progress=progress,
+        progress_message="Pinning memo spine: envelope and shared facts",
+        timeout_label="memo English spine",
+        timeout_sec=timeout_sec,
+        silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+        add_dirs=add_dirs,
+        allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+        model=_memo_role_model("SPINE", run_dir),
+        effort=_memo_role_effort("SPINE", run_dir),
+        append_system_prompt=common_context,
+    )
+    _accumulate_call_cost(totals, result)
+
+    pending: dict[str, str] = {}
+    for stem, _target, keys, required, _what, path in plan:
+        reason = _spine_piece_error(path, stem, keys, required)
+        if reason:
+            pending[path.name] = reason
+    if error and len(pending) == len(plan):
+        return None, error
+    if error and progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_spine_partial_delivery",
+            message=(
+                f"spine: the drafting call failed ({str(error)[:200]}) but "
+                f"{len(plan) - len(pending)} of {len(plan)} parts are on "
+                "disk; asking only for the rest"
+            ),
+        )
+
+    attempts: dict[str, int] = {}
+    while True:
+        while pending:
+            halt_error = _memo_run_halt_error(run_dir)
+            if halt_error:
+                return None, halt_error
+            name = sorted(pending)[0]
+            reason = pending[name]
+            if attempts.get(name, 0) >= MEMO_SPINE_PIECE_MAX_RETRIES:
+                return None, (
+                    f"spine part `{name}` is still unusable after "
+                    f"{MEMO_SPINE_PIECE_MAX_RETRIES} retries ({reason})"
+                )
+            attempts[name] = attempts.get(name, 0) + 1
+            stem, target, keys, _required, what, path = by_name[name]
+            if progress is not None:
+                progress.emit(
+                    "stage",
+                    stage="memo_spine_piece_retry",
+                    message=(
+                        f"spine: {reason}; asking for that part again "
+                        f"(attempt {attempts[name]} of "
+                        f"{MEMO_SPINE_PIECE_MAX_RETRIES})"
+                    ),
+                    piece=name,
+                )
+            retry_result, retry_error = _run_memo_local_json_artifact(
+                prompt=(
+                    f"{body}\n"
+                    "## Rewrite ONE part of the spine\n"
+                    "You already wrote this run's spine to files under "
+                    f"`{pieces_dir}`. One of them did not arrive usable:\n\n"
+                    f"- `{path}` — {what}\n"
+                    f"- what went wrong: {reason}\n\n"
+                    "Rewrite that ONE file and nothing else. Its siblings "
+                    "are already on disk and are being used as they are — "
+                    "read them if you need to stay consistent with them, "
+                    "and do not rewrite them.\n\n"
+                    f"Write `{path}` once, holding ONE JSON object with "
+                    "exactly these keys at the top level: "
+                    + ", ".join(f"`{key}`" for key in keys)
+                    + ". Every schema limit in your instructions still "
+                    "applies. Do not measure or trim the file with shell "
+                    "commands.\n\nThen return only: "
+                    f'{{"pieces": [{{"file": "{name}"}}]}} '
+                    "matching the attached schema.\n"
+                ),
+                schema=_MEMO_SPINE_MANIFEST_SCHEMA,
+                run_dir=run_dir,
+                progress=progress,
+                progress_message=f"Rewriting spine part {stem}",
+                timeout_label=f"memo English spine ({stem})",
+                timeout_sec=timeout_sec,
+                silence_timeout_sec=MEMO_PACKAGE_SILENCE_TIMEOUT_SEC,
+                add_dirs=add_dirs,
+                allowed_tools=_MEMO_SECTION_HANDOFF_TOOLS,
+                model=_memo_role_model("SPINE", run_dir),
+                effort=_memo_role_effort("SPINE", run_dir),
+                append_system_prompt=common_context,
+            )
+            _accumulate_call_cost(totals, retry_result)
+            reason = _spine_piece_error(path, stem, keys, _required)
+            if reason is None:
+                pending.pop(name)
+            else:
+                if retry_error:
+                    reason = f"{reason} (the rewrite also failed: {retry_error})"
+                pending[name] = reason
+
+        spine = _assemble_spine(plan)
+        schema_errors = _schema_errors(spine, schema)
+        if not schema_errors:
+            break
+        # The CLI would have made the model fix these before answering.
+        # Route each one to the file that owns it so only that part is
+        # rewritten — the whole point of splitting the spine up.
+        routed: dict[str, list[str]] = {}
+        for schema_error in schema_errors:
+            name = _spine_piece_for_schema_error(plan, schema_error)
+            if name is None:
+                return None, (
+                    "spine failed schema validation with an error that "
+                    f"belongs to no single part: {schema_error}"
+                )
+            routed.setdefault(name, []).append(schema_error)
+        for name, part_errors in routed.items():
+            pending[name] = "it failed schema validation: " + "; ".join(
+                part_errors[:6]
+            )
+
+    if progress is not None:
+        progress.emit(
+            "stage",
+            stage="memo_spine_assembled",
+            message=(
+                f"spine: assembled {len(plan)} parts and validated them "
+                "against the spine schema"
+            ),
+        )
+    spine["claude_cost_usd"] = totals.get("cost")
+    spine["claude_duration_ms"] = totals.get("duration_ms")
+    spine["claude_usage"] = totals.get("usage")
+    spine["generated_at"] = datetime.now(timezone.utc).isoformat()
+    return spine, None
+
+
 def run_memo_fast_english_spine(
     *,
     run_dir: Path,
@@ -5726,6 +6157,7 @@ def run_memo_fast_english_spine(
     schema: dict | None = None,
     extra_instructions: str = "",
     structure: memo_structure.MemoStructure | None = None,
+    handoff: bool = True,
 ) -> tuple[dict | None, str | None]:
     """Synthesize the lite spine: package envelope plus the shared-facts pin
     sheet. No analysis artifacts, no memo prose — those belong to the side
@@ -5886,15 +6318,30 @@ Produce ONE JSON object with:
 The schema limits are hard: exceeding any maxLength or maxItems rejects the
 whole response. Keep every value tight — this is a fact sheet, not a draft.
 {_memo_fact_ledger_block(fact_ledger)}{_memo_recent_news_block(recent_news)}{_memo_decision_record_block(decision_record, for_spine=True)}{speculative_block}{feedback_block}
-Return only the JSON matching the attached schema.
 """
+    resolved_schema = (
+        schema
+        if schema is not None
+        else memo_fast_english_spine_schema(structure)
+    )
+    # Memo Studio's standalone spine keeps the inline contract: it may ask
+    # for `studio_extras` under its own schema, and it is the path that
+    # carries a human's card edits — not the place to change how answers
+    # travel.
+    if handoff and schema is None and _memo_spine_handoff_enabled():
+        return _run_english_spine_via_pieces(
+            run_dir=run_dir,
+            body=prompt,
+            schema=resolved_schema,
+            common_context=common_context,
+            add_dirs=add_dirs,
+            progress=progress,
+            timeout_sec=timeout_sec,
+        )
+    prompt = prompt + "Return only the JSON matching the attached schema.\n"
     return _run_memo_local_json_artifact(
         prompt=prompt,
-        schema=(
-            schema
-            if schema is not None
-            else memo_fast_english_spine_schema(structure)
-        ),
+        schema=resolved_schema,
         run_dir=run_dir,
         progress=progress,
         progress_message="Pinning memo spine: envelope and shared facts",
@@ -5987,6 +6434,7 @@ def run_memo_english_spine_standalone(
         recent_news=load_memo_recent_news(research_dir),
         decision_record=load_memo_decision_record(research_dir),
         schema=MEMO_FAST_ENGLISH_SPINE_SCHEMA_STUDIO if studio_extras else None,
+        handoff=False,
         extra_instructions=(
             _MEMO_STUDIO_SPINE_EXTRAS_INSTRUCTIONS if studio_extras else ""
         ),
@@ -7438,6 +7886,143 @@ def _run_english_section_via_pieces(
         None,
     )
 
+
+# --- A small JSON-schema checker -------------------------------------------
+#
+# When a call returns its answer through `--json-schema`, the CLI validates
+# it and makes the model fix what it rejects — on 2026-09-16 the spine was
+# caught that way for an 89-character metric name (cap 80) and a fourth
+# highlight (cap 3), and it corrected both. Anything that leaves through
+# the filesystem instead is validated by nobody, so that enforcement has to
+# be reproduced here or it is simply lost.
+#
+# This covers exactly the keywords these schemas use — type, required,
+# properties, additionalProperties, items, minItems/maxItems,
+# minLength/maxLength, minimum/maximum, enum, pattern — and is checked
+# against the real schema object, so it cannot drift from what the CLI
+# would have enforced.
+
+_JSON_TYPES: dict[str, Any] = {
+    "object": dict,
+    "array": list,
+    "string": str,
+    "boolean": bool,
+    "null": type(None),
+}
+
+
+def _type_matches(value: Any, expected: str) -> bool:
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    python_type = _JSON_TYPES.get(expected)
+    if python_type is None:
+        return True
+    if python_type is bool:
+        return isinstance(value, bool)
+    if python_type in (dict, list, str):
+        return isinstance(value, python_type)
+    return isinstance(value, python_type)
+
+
+def _schema_errors(
+    value: Any, schema: dict, path: str = "", _limit: int = 40
+) -> list[str]:
+    """Validation errors for `value` against `schema`, worded like the CLI's.
+
+    Paths read "/shared_facts/key_metrics/1/name" so a reader (and the
+    piece router) can see which part of the answer is at fault.
+    """
+    errors: list[str] = []
+    where = path or "root"
+
+    expected = schema.get("type")
+    if isinstance(expected, str):
+        if not _type_matches(value, expected):
+            found = type(value).__name__
+            return [f"{where}: must be {expected} (got {found})"]
+    elif isinstance(expected, list):
+        if not any(_type_matches(value, one) for one in expected):
+            return [f"{where}: must be one of {', '.join(expected)}"]
+
+    enum = schema.get("enum")
+    if isinstance(enum, list) and value not in enum:
+        errors.append(f"{where}: must be one of {', '.join(map(str, enum))}")
+
+    if isinstance(value, str):
+        maximum = schema.get("maxLength")
+        if isinstance(maximum, int) and len(value) > maximum:
+            errors.append(
+                f"{where}: must NOT have more than {maximum} characters "
+                f"(got {len(value)})"
+            )
+        minimum = schema.get("minLength")
+        if isinstance(minimum, int) and len(value) < minimum:
+            errors.append(
+                f"{where}: must NOT have fewer than {minimum} characters "
+                f"(got {len(value)})"
+            )
+        pattern = schema.get("pattern")
+        if isinstance(pattern, str):
+            try:
+                if not re.search(pattern, value):
+                    errors.append(f"{where}: must match the pattern {pattern}")
+            except re.error:  # a schema we cannot check is not a failure
+                pass
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        maximum = schema.get("maximum")
+        if isinstance(maximum, (int, float)) and value > maximum:
+            errors.append(f"{where}: must be at most {maximum} (got {value})")
+        minimum = schema.get("minimum")
+        if isinstance(minimum, (int, float)) and value < minimum:
+            errors.append(f"{where}: must be at least {minimum} (got {value})")
+
+    if isinstance(value, list):
+        maximum = schema.get("maxItems")
+        if isinstance(maximum, int) and len(value) > maximum:
+            errors.append(
+                f"{where}: must NOT have more than {maximum} items "
+                f"(got {len(value)})"
+            )
+        minimum = schema.get("minItems")
+        if isinstance(minimum, int) and len(value) < minimum:
+            errors.append(
+                f"{where}: must NOT have fewer than {minimum} items "
+                f"(got {len(value)})"
+            )
+        items = schema.get("items")
+        if isinstance(items, dict):
+            for index, item in enumerate(value):
+                if len(errors) >= _limit:
+                    break
+                errors.extend(
+                    _schema_errors(item, items, f"{path}/{index}", _limit)
+                )
+
+    if isinstance(value, dict):
+        properties = schema.get("properties")
+        properties = properties if isinstance(properties, dict) else {}
+        for key in schema.get("required") or []:
+            if key not in value:
+                errors.append(f"{where}: must have required property '{key}'")
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in properties:
+                    errors.append(
+                        f"{where}: must NOT have additional properties "
+                        f"('{key}' is not allowed)"
+                    )
+        for key, sub_schema in properties.items():
+            if key in value and isinstance(sub_schema, dict):
+                if len(errors) >= _limit:
+                    break
+                errors.extend(
+                    _schema_errors(value[key], sub_schema, f"{path}/{key}", _limit)
+                )
+
+    return errors[:_limit]
 
 def _run_english_section(
     *,
