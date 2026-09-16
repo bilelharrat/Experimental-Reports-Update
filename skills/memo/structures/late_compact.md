@@ -42,7 +42,7 @@ pseudo_sections:
 ---
 
 COMPACT late-stage profile — the short memo, modeled on the tightest
-partner-memo style: seven sections, roughly 3,200-3,800 words total,
+partner-memo style: seven sections, roughly 5,000-6,000 words total,
 almost everything said in verdict-lead bullets ("An IP position that is
 hard to overstate. 120+ patents, 90+ issued, zero rejections."), two
 tables the reader actually needs (Deal Snapshot, Key Metrics Snapshot),
@@ -59,7 +59,11 @@ N of M.") must appear in this memo — the pin-echo gate rejects the
 package otherwise, however elegant the prose. Section word budgets are
 CEILINGS, not targets: each section's `budget_words` (in its yaml) is
 the hard maximum for ALL its English text — table cells included — and
-a deterministic gate rejects a section over it. A section past its
+a deterministic gate rejects a section over it. The ceilings are set
+ABOVE what this memo should normally run to, so hitting one is a signal
+that the section has drifted into commentary, not a sign that the
+budget is tight: aim for the material the decision turns on and the
+ceiling will not come up. A section past its
 budget cuts commentary — one bullet per point, one clause per
 judgment — until it fits. When in doubt, cut; the full report exists
 for depth. Every section is organized
@@ -188,7 +192,7 @@ Content per subsection:
 ## section: company_team
 ```yaml
 id: company_team
-budget_words: 750
+budget_words: 1100
 scorecard_dimensions:
 - team_governance
 en_title: Company, Team & Deal
@@ -244,7 +248,7 @@ subsections:
 ## section: thesis_market
 ```yaml
 id: thesis_market
-budget_words: 650
+budget_words: 900
 scorecard_dimensions:
 - market_size_growth
 - industry_position
@@ -297,7 +301,7 @@ subsections:
 ## section: business_financials
 ```yaml
 id: business_financials
-budget_words: 600
+budget_words: 850
 scorecard_dimensions:
 - business_model_ue
 - revenue_growth_quality
@@ -342,7 +346,7 @@ subsections:
 ## section: valuation_returns
 ```yaml
 id: valuation_returns
-budget_words: 750
+budget_words: 950
 scorecard_dimensions:
 - valuation
 - exit_certainty
@@ -392,7 +396,7 @@ subsections:
 ## section: risks
 ```yaml
 id: risks
-budget_words: 500
+budget_words: 800
 scorecard_dimensions:
 - risk_reward
 en_title: Risks
@@ -438,7 +442,7 @@ subsections:
 ## section: investment_decision
 ```yaml
 id: investment_decision
-budget_words: 700
+budget_words: 900
 en_title: Investment Decision
 zh_title: 投资决定
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?(?:final\s+)?investment\s+decision\s*[:：]?\s*$

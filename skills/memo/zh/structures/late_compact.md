@@ -1,5 +1,5 @@
 ---
-en_sha256: ccc07d9852f8e38e2ec91463530d5baa8407ebc627da98a28a132363fb6ea8eb
+en_sha256: 46205b9b82d6d0e653da8a3d18cfe3f58f3d0f112afabada02e52758da9f49f4
 ---
 ---
 stage: late_compact
@@ -45,7 +45,7 @@ pseudo_sections:
 ---
 
 后期（late-stage）精简版结构 —— 即短版备忘录，以最紧凑的合伙人备忘录
-风格为范本：七个章节，全文约 3,200-3,800 词，几乎所有内容都以结论先行
+风格为范本：七个章节，全文约 5,000-6,000 词，几乎所有内容都以结论先行
 的要点表述（"An IP position that is hard to overstate. 120+ patents,
 90+ issued, zero rejections."，即"一个难以高估的 IP 地位。120 余项专利，
 90 余项已授权，零驳回。"），只保留读者真正需要的两张表（Deal Snapshot
@@ -60,7 +60,9 @@ dimension scores N of M."）都必须出现在本备忘录中 —— 否则钉�
 （pin-echo）关卡会拒收整个报告包，无论文笔多么优雅。章节字数预算是
 上限，不是目标：每个章节的 `budget_words`（见其 yaml）是该章节全部
 英文文本（含表格单元格）的硬性最大值，超出预算的章节会被确定性关卡
-拒收。超出预算的章节须删减评论 —— 每个论点一条要点、每个判断一个
+拒收。这些上限的设定高于本备忘录通常应有的篇幅，因此触到上限说明该
+章节已经写成了评论，而不是说明预算太紧：只写决策所依赖的材料，就不
+会碰到上限。超出预算的章节须删减评论 —— 每个论点一条要点、每个判断一个
 分句 —— 直到符合为止。拿不准时就删；深度内容由完整版报告承载。每个
 章节都按其声明的编号子节组织；全局适用的数据诚实、导航与图表规则由
 共享上下文承载。默认使用要点而非段落：仅当论证确实需要连续的句子时
@@ -173,7 +175,7 @@ subsections:
 ## section: company_team
 ```yaml
 id: company_team
-budget_words: 750
+budget_words: 1100
 scorecard_dimensions:
 - team_governance
 en_title: Company, Team & Deal
@@ -230,7 +232,7 @@ subsections:
 ## section: thesis_market
 ```yaml
 id: thesis_market
-budget_words: 650
+budget_words: 900
 scorecard_dimensions:
 - market_size_growth
 - industry_position
@@ -279,7 +281,7 @@ subsections:
 ## section: business_financials
 ```yaml
 id: business_financials
-budget_words: 600
+budget_words: 850
 scorecard_dimensions:
 - business_model_ue
 - revenue_growth_quality
@@ -323,7 +325,7 @@ subsections:
 ## section: valuation_returns
 ```yaml
 id: valuation_returns
-budget_words: 750
+budget_words: 950
 scorecard_dimensions:
 - valuation
 - exit_certainty
@@ -369,7 +371,7 @@ subsections:
 ## section: risks
 ```yaml
 id: risks
-budget_words: 500
+budget_words: 800
 scorecard_dimensions:
 - risk_reward
 en_title: Risks
@@ -412,7 +414,7 @@ subsections:
 ## section: investment_decision
 ```yaml
 id: investment_decision
-budget_words: 700
+budget_words: 900
 en_title: Investment Decision
 zh_title: 投资决定
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?(?:final\s+)?investment\s+decision\s*[:：]?\s*$

@@ -625,6 +625,24 @@ def _fill_sparse_zh_gaps(payload: Any, limit: int = _MAX_ZH_FALLBACK_GAPS) -> li
     return filled
 
 
+# Regenerating a section has never brought it under its ceiling. Across
+# three Anthropic runs (2026-09-14 x2, 2026-09-16) every one of them spent
+# two full retry rounds on word-budget errors and still failed; on the last
+# of those company_team went 1358 -> 1187 -> 1018 words against a 750
+# ceiling, and the surgical repair pass — which EDITS the package it is
+# given instead of writing a new one — then fixed it in a single call.
+# Rewriting from the same inputs lands at the same natural length; only
+# editing converges. So a failure that is nothing but over-length sections
+# skips the retries and goes straight to the repair.
+_WORD_BUDGET_ERROR_MARKER = "-word ceiling"
+
+
+def _only_word_budget_errors(validation_errors: list[str]) -> bool:
+    return bool(validation_errors) and all(
+        _WORD_BUDGET_ERROR_MARKER in str(err) for err in validation_errors
+    )
+
+
 def _memo_package_render_validation_error(
     package_path: Path,
     *,
@@ -3513,12 +3531,21 @@ def _run_fast_synthesis(
         attempt_cost_before = phase3_progress.cost_usd
         attempt_duration_before = phase3_progress.duration_ms
         if attempt > 1:
+            # Name the real cause. This used to say "after a retryable
+            # Claude interruption" on every retry, so a package that was
+            # simply too long read in the job rail as an infrastructure
+            # failure.
+            cause = (
+                str(english_error).strip()
+                if english_error
+                else "renderer validation"
+            )
             phase3_progress.emit(
                 "stage",
                 stage="memo_fast_english_package_retry",
                 message=(
-                    "Retrying English package synthesis after a retryable "
-                    f"Claude interruption (attempt {attempt}/{max_attempts})"
+                    "Retrying English package synthesis after "
+                    f"{cause[:160]} (attempt {attempt}/{max_attempts})"
                 ),
                 attempt=attempt,
                 max_attempts=max_attempts,
@@ -3754,6 +3781,20 @@ def _run_fast_synthesis(
                 cost_usd=round(attempt_cost, 6),
                 claude_duration_ms=attempt_duration,
             )
+            if _only_word_budget_errors(validation_errors):
+                phase3_progress.emit(
+                    "stage",
+                    stage="memo_package_budget_repair_shortcut",
+                    message=(
+                        "Only word-budget errors remain; going straight to "
+                        "the trim repair instead of regenerating sections "
+                        "that would come back the same length"
+                    ),
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    validation_errors=validation_errors[:10],
+                )
+                break
             if attempt < max_attempts:
                 # Feed back the cumulative error list, not just this
                 # attempt's: retry 2 of the Axiom run fixed the fed-back

@@ -389,16 +389,37 @@ def test_word_budget_gate_flags_overrun_and_accepts_fit():
     errors = memo_docx_renderer.english_package_validation_errors(package)
     assert not [e for e in errors if "word" in e and "ceiling" in e], errors
     risks = next(s for s in package["sections"] if s["id"] == "risks")
+    ceiling = next(s for s in COMPACT.sections if s.id == "risks").budget_words
+    # Derived from the profile, so widening a budget never quietly turns
+    # this gate test into a no-op the way a hardcoded 300 did.
+    over_by = int(ceiling * memo_docx_renderer._BUDGET_GRACE) + 50
     risks["blocks"].append(
         {
             "type": "paragraph",
-            "text": {"en": "filler word " * 300, "zh": ""},
+            "text": {"en": "filler word " * over_by, "zh": ""},
         }
     )
     errors = memo_docx_renderer.english_package_validation_errors(package)
     overruns = [e for e in errors if "ceiling" in e]
     assert len(overruns) == 1 and "section risks" in overruns[0]
-    assert "500-word ceiling" in overruns[0]
+    assert f"{ceiling}-word ceiling" in overruns[0]
+
+
+def test_a_section_inside_the_grace_margin_is_not_re_emitted():
+    """The grace exists because re-emitting a marginal overshoot costs a
+    whole section and has never reliably shortened one."""
+    package = _compact_package()
+    risks = next(s for s in package["sections"] if s["id"] == "risks")
+    ceiling = next(s for s in COMPACT.sections if s.id == "risks").budget_words
+    current = memo_docx_renderer._section_en_word_count(risks)
+    # Land just inside ceiling * grace.
+    filler = int(ceiling * memo_docx_renderer._BUDGET_GRACE) - current - 5
+    assert filler > 0
+    risks["blocks"].append(
+        {"type": "paragraph", "text": {"en": "filler word " * (filler // 2), "zh": ""}}
+    )
+    errors = memo_docx_renderer.english_package_validation_errors(package)
+    assert not [e for e in errors if "ceiling" in e], errors
 
 
 def test_money_parser_handles_digit_grouping():

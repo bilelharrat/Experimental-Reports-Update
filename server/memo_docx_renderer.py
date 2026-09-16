@@ -458,6 +458,10 @@ def _section_en_word_count(section: dict) -> int:
     return words
 
 
+# How far over a ceiling a section may run before the gate fires.
+_BUDGET_GRACE = 1.10
+
+
 def _word_budget_errors(package: dict) -> list[str]:
     """Generation-time gate for profiles that declare hard word ceilings
     (compact only). Prose budgets alone failed twice live (5.2K and
@@ -478,10 +482,12 @@ def _word_budget_errors(package: dict) -> list[str]:
         if section is None:
             continue
         count = _section_en_word_count(section)
-        # 5% grace: a marginal overshoot (618 vs 600 live) is not worth
-        # a full section re-emit; the gate is for real blowouts (1435
-        # vs 750 in the same run).
-        if count > sdef.budget_words * 1.05:
+        # 10% grace: a marginal overshoot is not worth a section re-emit,
+        # and re-emitting has never reliably fixed one — company_team went
+        # 1358 -> 1187 -> 1018 against a 750 ceiling over three rounds on
+        # 2026-09-16. The ceilings now sit above the memo's natural length,
+        # so anything that still trips this gate is a real blowout.
+        if count > sdef.budget_words * _BUDGET_GRACE:
             errors.append(
                 f"section {sdef.id} runs {count} English words against its "
                 f"{sdef.budget_words}-word ceiling — this is the COMPACT "
