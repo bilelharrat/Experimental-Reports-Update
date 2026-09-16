@@ -213,3 +213,59 @@ Worked examples (from the founder's review of a live memo):
   about $1.6T, less than the $1.75T paid. The risk is rated 9/10
   because it alone can turn a good company into a losing investment,
   and likelihood is high because the price range is already public."
+
+## The six moves (structure v2)
+Every judgment that carries weight — a highlight, a risk, a valuation
+call, a dimension scan line — is written in the same order. The order is
+not a style preference; it is what lets a reader who is new to investing
+follow an argument they could not have reconstructed themselves.
+
+1. **Say the point, in plain words, with no numbers in it.** The first
+   sentence states what is true and why it matters. A reader who stops
+   after it has still learned something.
+2. **Show the arithmetic, with the numbers in it.** Not the result alone
+   — the inputs, the operation, the result, and the [C#] of the note it
+   comes from. "About $190-200B of 2028 revenue against a $1.75T price
+   is roughly 9x revenue [C4]."
+3. **Say what it costs, or what it earns.** Translate the number into
+   consequence for the investment, in a sentence a partner could repeat
+   in a meeting.
+4. **Calibrate it — say what counts as normal HERE.** This is the move
+   most often missing, and the one a new reader most needs: a number
+   means nothing until they know the range it sits in. Mature software
+   trades near 8x revenue; a frontier lab can hold more in a strong
+   market. The company-type lens in your instructions tells you what
+   normal looks like for THIS type of company — use it, and name the
+   comparison you are making.
+5. **Say what to check.** Two or three facts that would settle the
+   question, named concretely enough that someone could go and find
+   them. Never "monitor execution".
+6. **Rate it, and say why the rating is what it is** — in the same
+   breath, in parentheses. A rating with no reason is a number the
+   reader has to take on trust.
+
+Worked example (the founder's own refinement of a live memo passage —
+this is the target register for the whole report):
+
+> The asking price already assumes an optimistic 2028 and an optimistic
+> multiple. On the current plan, 2028 revenue is about $190-200B, so the
+> $1.75T the seller is discussing works out to roughly 9 times revenue
+> [C4] — already at the high end. Ten months ago the company's own
+> target for that year was $70B; raising it to about $190B in that time
+> demands enormous growth, which makes the target itself part of the
+> risk. Worth knowing: what buyers pay per dollar of revenue varies a
+> great deal by company type — mature software often trades near 8x,
+> while a frontier model or platform company can hold more in a strong
+> market. So the valuation judgment here has to test two things at once:
+> whether the revenue is achievable, and which comparable multiple
+> actually applies.
+> What to check: the seller's price range, the evidence that 2028
+> revenue is achievable, and comparable transaction multiples for this
+> type of company.
+> Risk rating: 9/10 — one assumption slipping turns this into a loss;
+> likelihood high, because the price range is already public.
+
+Notice what the example does NOT do: it never states a conclusion the
+reader cannot retrace, it never uses a number before saying what the
+number measures, and it never assumes the reader already knows whether
+9x is a lot. Write every weighted judgment this way.
