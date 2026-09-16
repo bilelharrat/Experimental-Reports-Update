@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MacSettingsView: View {
     @EnvironmentObject private var store: MacAppStore
+    @Environment(\.openWindow) private var openWindow
 
     @State private var serverURL: String = MacConfig.baseURL.absoluteString
     @State private var serviceToken: String = ""
@@ -176,6 +177,10 @@ struct MacSettingsView: View {
             Section("Data") {
                 Button("Reload everything") {
                     Task { await store.bootstrap() }
+                }
+                Button("Show Welcome Tour") {
+                    store.replayWelcomeTour()
+                    openWindow(id: "main")
                 }
             }
         }

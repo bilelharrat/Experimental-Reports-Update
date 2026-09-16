@@ -83,6 +83,9 @@ struct MacRootView: View {
             detail
         }
         .navigationSplitViewStyle(.balanced)
+        // The tour rides over the whole window so it can ring the sidebar row
+        // and the toolbar button it is describing.
+        .macWelcomeTourOverlay()
         .focusedSceneValue(\.deskTarget, deskTarget)
         .onAppear {
             shownTab = store.selectedTab
@@ -97,6 +100,7 @@ struct MacRootView: View {
         .onDisappear {
             store.showCommandPalette = false
             store.showShortcutSheet = false
+            store.showWelcomeTour = false
             store.showFirmSearch = false
             store.showNewReportSheet = false
             store.showDecisionSheet = false
@@ -143,6 +147,15 @@ struct MacRootView: View {
             if !Self.launchOverridesApplied {
                 Self.launchOverridesApplied = true
                 store.applyLaunchOverrides()
+            }
+            store.presentWelcomeTourIfNeeded()
+        }
+        .onChange(of: store.session == nil) { _, signedOut in
+            guard !signedOut else { return }
+            // The login sheet is still closing; give it a beat before presenting the tour.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                store.presentWelcomeTourIfNeeded()
             }
         }
         .sheet(isPresented: $store.showLoginSheet) {
@@ -240,6 +253,7 @@ struct MacRootView: View {
         .badge(badge)
         .tag(tab)
         .glassListRow(isSelected: store.selectedTab == tab, cornerRadius: 10)
+        .macWelcomeTourAnchor(MacWelcomeTourCatalog.tabAnchor(tab))
     }
 
     /// Who is signed in and what they may do — the gate for every write action.
@@ -390,6 +404,7 @@ struct MacRootView: View {
                     Label("Command Line", systemImage: "terminal")
                 }
                 .help("Command line — type a company, ticker or NAME CODE (⌘K)")
+                .macWelcomeTourAnchor(MacWelcomeTourCatalog.commandAnchor)
 
                 Button {
                     store.requestNewReport()

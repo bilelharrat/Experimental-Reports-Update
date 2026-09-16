@@ -19,6 +19,7 @@ struct RootView: View {
 struct MainTabView: View {
     @EnvironmentObject private var language: LanguageStore
     @EnvironmentObject private var router: DeepLinkRouter
+    @EnvironmentObject private var welcomeTour: WelcomeTourStore
     @State private var selection: AppTab = {
         if let tabArg = ProcessInfo.processInfo.environment["BSH_INITIAL_TAB"],
            let tab = AppTab(rawValue: tabArg.lowercased()) {
@@ -54,6 +55,13 @@ struct MainTabView: View {
             SettingsView()
                 .bshSheetChrome()
         }
+        // The tour rides over the app instead of covering it: each step moves
+        // the real tab and rings the real control.
+        .welcomeTourOverlay()
+        .onChange(of: welcomeTour.stepIndex) { _, _ in followTour() }
+        .onChange(of: welcomeTour.isPresented) { _, presented in
+            if presented { followTour() }
+        }
         .onPreferenceChange(RootWindowSizeKey.self) { size in
             guard size.width > 0, size.height > 0 else { return }
             windowSize = size
@@ -62,6 +70,7 @@ struct MainTabView: View {
         .onAppear {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
             recomputeChrome()
+            welcomeTour.presentIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: UIDevice.orientationDidChangeNotification
@@ -95,6 +104,14 @@ struct MainTabView: View {
         }
     }
 
+    /// Put the app on the desk the current tour step is talking about.
+    private func followTour() {
+        guard welcomeTour.isPresented, let tab = welcomeTour.focusedTab, selection != tab else { return }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            selection = tab
+        }
+    }
+
     private func recomputeChrome() {
         let next = AdaptiveLayout.prefersRootSidebar(
             width: windowSize.width,
@@ -103,6 +120,7 @@ struct MainTabView: View {
         if next != useSidebar {
             useSidebar = next
         }
+        welcomeTour.refreshLayout(isPad: AdaptiveLayout.isPad)
     }
 
     /// Navigation chrome for iPhone and portrait iPad.
@@ -255,6 +273,7 @@ private struct FloatingTravelGlassBar: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
+            .welcomeTourAnchor(WelcomeTourCatalog.tabAnchor(tab))
             .background {
                 if isSelected {
                     Capsule()
@@ -564,6 +583,7 @@ private struct RootSidebarRail: View {
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .welcomeTourAnchor(WelcomeTourCatalog.tabAnchor(tab))
         }
         .buttonStyle(.plain)
         .onHover { isHovered in

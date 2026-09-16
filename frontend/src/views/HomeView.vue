@@ -482,6 +482,7 @@ function onBlur() {
 
     <div class="relative z-10 mx-auto w-full max-w-3xl">
       <form
+        data-tour="home-search"
         @submit.prevent="runDeepSearch"
         class="material-glass home-search-plate"
       >

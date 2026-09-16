@@ -372,6 +372,7 @@ onBeforeUnmount(() => {
             class="source-row focus-ring"
             active-class=""
             :title="item.label"
+            :data-tour="`nav-${item.id}`"
             @click="onNavRowClick"
           >
             <component :is="item.icon" :size="18" class="source-row-icon shrink-0" />
