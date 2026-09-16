@@ -47,6 +47,54 @@ def test_founder_dossier_uses_only_recorded_people():
     assert data["is_deep_audited"] is False
 
 
+def test_founder_dossier_merges_the_same_person_across_record_fields():
+    """key_people carries name + role; team_profiles carries the bio and links.
+    The dossier keeps both instead of dropping the richer row as a duplicate."""
+    _seed(
+        key_people=[
+            {"name": "Daniel Jacker", "role": "Co-founder & CEO"},
+            {"name": "Steve Jurvetson", "role": "Board Member (Future Ventures)"},
+        ],
+        team_profiles=[
+            {
+                "name": "Daniel Jacker",
+                "role": "Co-founder / CEO",
+                "bio": "Leads PNT architecture.",
+                "linkedin_url": "https://linkedin.com/in/daniel",
+                "profile_url": "https://zainartech.com",
+            }
+        ],
+        board_investors=[
+            {"name": "Steve Jurvetson", "role": "Board / Future Ventures lead", "profile_url": "https://future.ventures"},
+            {"name": "Foundation Capital", "role": "Series A lead investor"},
+        ],
+        employee_band="50-200",
+    )
+    data = client.get("/api/companies/zainar-inc/founder-dossier").json()
+    assert [p["name"] for p in data["founders"]] == ["Daniel Jacker"]
+    daniel = data["founders"][0]
+    assert daniel["role"] == "Co-founder & CEO"  # first-seen role wins
+    assert daniel["bio"] == "Leads PNT architecture."
+    assert daniel["linkedin_url"] == "https://linkedin.com/in/daniel"
+    assert daniel["profile_url"] == "https://zainartech.com"
+    board = {p["name"]: p for p in data["advisors_and_board"]}
+    assert list(board) == ["Steve Jurvetson", "Foundation Capital"]
+    assert board["Steve Jurvetson"]["profile_url"] == "https://future.ventures"
+    assert data["team_headcount"]["employee_count_estimate"] == "50-200"
+
+
+def test_founder_radar_alias_matches_founder_dossier():
+    """The iOS/iPadOS Team tab requests ``founder-radar``; it must not 404."""
+    _seed(key_people=[{"name": "Ada Example", "role": "CEO"}])
+    radar = client.get("/api/companies/zainar-inc/founder-radar")
+    assert radar.status_code == 200
+    dossier = client.get("/api/companies/zainar-inc/founder-dossier").json()
+    a, b = radar.json(), dossier
+    a.pop("searched_at"), b.pop("searched_at")
+    assert a == b
+    assert client.get("/api/companies/nope/founder-radar").status_code == 404
+
+
 def test_founder_dossier_is_empty_without_people():
     _seed()
     data = client.get("/api/companies/zainar-inc/founder-dossier").json()
