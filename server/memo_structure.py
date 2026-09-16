@@ -76,11 +76,18 @@ class SectionDef:
     scorecard_dimensions: tuple[str, ...] = ()
     # Fixed numbered subsections (v2-family profiles); empty for late v1.
     subsections: tuple[SubsectionDef, ...] = ()
-    # Hard English word ceiling for the whole section (all `en` text,
-    # table cells included), enforced by a generation-time gate. None =
-    # no gate — declared only by compact profiles, whose prose budgets
-    # alone failed to keep sections short in two live runs.
+    # SOFT English word target for the whole section (all `en` text, table
+    # cells included). None = no gate — declared only by compact profiles,
+    # whose prose budgets alone failed to keep sections short in two live
+    # runs. Reaching it is a signal to land the section, not a stop: the
+    # writer finishes the point it is on and closes.
     budget_words: int | None = None
+    # What multiple of `budget_words` the generation-time gate actually
+    # rejects at. Per-section because the sections differ in how much a
+    # complete answer costs — a risk register that has genuinely found
+    # eight risks cannot be as short as a valuation summary. Owner-set
+    # 2026-09-16. None falls back to _BUDGET_GRACE in the renderer.
+    budget_hard_multiple: float | None = None
 
 
 @dataclass(frozen=True)
@@ -575,6 +582,11 @@ def load_structure(
             ),
             budget_words=(
                 int(s["budget_words"]) if s.get("budget_words") else None
+            ),
+            budget_hard_multiple=(
+                float(s["budget_hard_multiple"])
+                if s.get("budget_hard_multiple")
+                else None
             ),
         )
         for s in profile["section_list"]

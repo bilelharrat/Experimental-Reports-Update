@@ -1,5 +1,5 @@
 ---
-en_sha256: 46205b9b82d6d0e653da8a3d18cfe3f58f3d0f112afabada02e52758da9f49f4
+en_sha256: 8bb5b175f5570f7252ee66b6b7abb487e3a4238d26acaf480ccf2fdd437475d7
 ---
 ---
 stage: late_compact
@@ -58,12 +58,18 @@ pseudo_sections:
 每条风险摘要（逐字原文并附评分），以及各归属章节的评分卡句（"This
 dimension scores N of M."）都必须出现在本备忘录中 —— 否则钉定回显
 （pin-echo）关卡会拒收整个报告包，无论文笔多么优雅。章节字数预算是
-上限，不是目标：每个章节的 `budget_words`（见其 yaml）是该章节全部
-英文文本（含表格单元格）的硬性最大值，超出预算的章节会被确定性关卡
-拒收。这些上限的设定高于本备忘录通常应有的篇幅，因此触到上限说明该
-章节已经写成了评论，而不是说明预算太紧：只写决策所依赖的材料，就不
-会碰到上限。超出预算的章节须删减评论 —— 每个论点一条要点、每个判断一个
-分句 —— 直到符合为止。拿不准时就删；深度内容由完整版报告承载。每个
+软性目标，真正拒收的关卡设在远高于它的位置：每个章节的
+`budget_words`（见其 yaml）是该章节全部英文文本（含表格单元格）应当
+瞄准的篇幅，`budget_hard_multiple` 则是确定性关卡真正拒收的倍数 ——
+执行摘要、公司与团队、估值与回报为 1.3 倍，市场论点、财务与投资决策
+为 1.5 倍，风险清单为 2 倍（它诚实的长度取决于风险有几条）。写到目标
+字数是"准备收尾"的信号，绝不是"就此中断"：把手上这个论点说完，把
+章节收住，然后继续。一个只写了一半的判断，比一个写长了的章节更糟，
+因此绝不可为了压到某个数字而删掉钉定事实、子节标题或评分卡句。要写
+得更短，靠的是少带评论 —— 每个论点一条要点、每个判断一个分句 ——
+而不是把答案留在半路。拿不准深度时就删；深度内容由完整版报告承载。
+硬性上限是"跑偏探测器"：一旦触到，说明这个章节不是长，而是失去了
+形状。每个
 章节都按其声明的编号子节组织；全局适用的数据诚实、导航与图表规则由
 共享上下文承载。默认使用要点而非段落：仅当论证确实需要连续的句子时
 才使用散文段落。
@@ -72,6 +78,7 @@ dimension scores N of M."）都必须出现在本备忘录中 —— 否则钉�
 ```yaml
 id: executive_summary
 budget_words: 1200
+budget_hard_multiple: 1.3
 en_title: Executive Summary
 zh_title: 执行摘要
 parity_en: ^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\s*[:：]?\s*$
@@ -176,6 +183,7 @@ subsections:
 ```yaml
 id: company_team
 budget_words: 1100
+budget_hard_multiple: 1.3
 scorecard_dimensions:
 - team_governance
 en_title: Company, Team & Deal
@@ -233,6 +241,7 @@ subsections:
 ```yaml
 id: thesis_market
 budget_words: 900
+budget_hard_multiple: 1.5
 scorecard_dimensions:
 - market_size_growth
 - industry_position
@@ -282,6 +291,7 @@ subsections:
 ```yaml
 id: business_financials
 budget_words: 850
+budget_hard_multiple: 1.5
 scorecard_dimensions:
 - business_model_ue
 - revenue_growth_quality
@@ -326,6 +336,7 @@ subsections:
 ```yaml
 id: valuation_returns
 budget_words: 950
+budget_hard_multiple: 1.3
 scorecard_dimensions:
 - valuation
 - exit_certainty
@@ -372,6 +383,7 @@ subsections:
 ```yaml
 id: risks
 budget_words: 800
+budget_hard_multiple: 2.0
 scorecard_dimensions:
 - risk_reward
 en_title: Risks
@@ -415,6 +427,7 @@ subsections:
 ```yaml
 id: investment_decision
 budget_words: 900
+budget_hard_multiple: 1.5
 en_title: Investment Decision
 zh_title: 投资决定
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?(?:final\s+)?investment\s+decision\s*[:：]?\s*$

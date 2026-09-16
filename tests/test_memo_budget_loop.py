@@ -80,6 +80,60 @@ def test_every_compact_ceiling_grew():
         assert section.budget_words >= previous, section.id
 
 
+def test_every_compact_section_sets_its_own_hard_multiple():
+    """Owner-set 2026-09-16. The multiples differ because a complete answer
+    costs different amounts per section: the risk register's honest length
+    depends on how many risks there are, a valuation summary's does not."""
+    expected = {
+        "executive_summary": 1.3,
+        "company_team": 1.3,
+        "thesis_market": 1.5,
+        "business_financials": 1.5,
+        "valuation_returns": 1.3,
+        "risks": 2.0,
+        "investment_decision": 1.5,
+    }
+    got = {
+        s.id: s.budget_hard_multiple
+        for s in COMPACT.sections
+        if s.budget_words
+    }
+    assert got == expected
+
+
+def test_the_gate_fires_at_the_cap_not_the_target():
+    """A section between its target and its cap is finishing its argument,
+    which is the behaviour the soft budget exists to allow."""
+    risks = next(s for s in COMPACT.sections if s.id == "risks")
+    assert risks.budget_words == 800 and risks.budget_hard_multiple == 2.0
+    package = {
+        "structure": {"stage": "late_compact", "version": 1},
+        "sections": [
+            {
+                "id": "risks",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": {"en": "word " * 1200, "zh": "x"},
+                    }
+                ],
+            }
+        ],
+    }
+    # 1200 words: half again over target, still well under the 1600 cap.
+    assert not [
+        e
+        for e in memo_docx_renderer._word_budget_errors(package)
+        if "hard cap" in e
+    ]
+    package["sections"][0]["blocks"][0]["text"]["en"] = "word " * 1700
+    assert [
+        e
+        for e in memo_docx_renderer._word_budget_errors(package)
+        if "hard cap" in e
+    ]
+
+
 def test_the_profile_prose_agrees_with_its_own_ceilings():
     """The prose said 3,200-3,800 words while the ceilings summed to 5,150,
     and the writer followed the ceilings. Two targets is no target."""

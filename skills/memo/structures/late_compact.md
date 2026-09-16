@@ -57,16 +57,22 @@ range, the entry terms, every risk summary verbatim with its rating,
 and each owning section's scorecard sentence ("This dimension scores
 N of M.") must appear in this memo — the pin-echo gate rejects the
 package otherwise, however elegant the prose. Section word budgets are
-CEILINGS, not targets: each section's `budget_words` (in its yaml) is
-the hard maximum for ALL its English text — table cells included — and
-a deterministic gate rejects a section over it. The ceilings are set
-ABOVE what this memo should normally run to, so hitting one is a signal
-that the section has drifted into commentary, not a sign that the
-budget is tight: aim for the material the decision turns on and the
-ceiling will not come up. A section past its
-budget cuts commentary — one bullet per point, one clause per
-judgment — until it fits. When in doubt, cut; the full report exists
-for depth. Every section is organized
+SOFT TARGETS, and the gate that rejects a section sits well above them.
+Each section's `budget_words` (in its yaml) is the length to aim at for
+ALL its English text, table cells included; `budget_hard_multiple` is
+what multiple of it a deterministic gate actually rejects at — 1.3x for
+the executive summary, company & team and valuation, 1.5x for the market
+thesis, the financials and the decision, 2x for the risk register, whose
+honest length depends on how many risks there are. Reaching the target
+is a signal to LAND, never to stop mid-argument: finish the point you
+are making, close the section, and move on. A judgment cut off halfway
+through is worse than a section that runs long, so never drop a pinned
+fact, a subsection or a scorecard sentence to come in under a number.
+Write shorter by carrying less commentary — one bullet per point, one
+clause per judgment — not by leaving the answer incomplete. When in
+doubt about depth, cut; the full report exists for depth. The hard cap
+is a blowout detector: if you hit it, the section is not long, it has
+lost its shape. Every section is organized
 under its declared numbered subsections; the run-wide data-honesty,
 navigation, and chart rules ride the shared context. Bullets, not
 paragraphs, are the default: prose only where an argument genuinely
@@ -76,6 +82,7 @@ needs consecutive sentences.
 ```yaml
 id: executive_summary
 budget_words: 1200
+budget_hard_multiple: 1.3
 en_title: Executive Summary
 zh_title: 执行摘要
 parity_en: ^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\s*[:：]?\s*$
@@ -193,6 +200,7 @@ Content per subsection:
 ```yaml
 id: company_team
 budget_words: 1100
+budget_hard_multiple: 1.3
 scorecard_dimensions:
 - team_governance
 en_title: Company, Team & Deal
@@ -249,6 +257,7 @@ subsections:
 ```yaml
 id: thesis_market
 budget_words: 900
+budget_hard_multiple: 1.5
 scorecard_dimensions:
 - market_size_growth
 - industry_position
@@ -302,6 +311,7 @@ subsections:
 ```yaml
 id: business_financials
 budget_words: 850
+budget_hard_multiple: 1.5
 scorecard_dimensions:
 - business_model_ue
 - revenue_growth_quality
@@ -347,6 +357,7 @@ subsections:
 ```yaml
 id: valuation_returns
 budget_words: 950
+budget_hard_multiple: 1.3
 scorecard_dimensions:
 - valuation
 - exit_certainty
@@ -397,6 +408,7 @@ subsections:
 ```yaml
 id: risks
 budget_words: 800
+budget_hard_multiple: 2.0
 scorecard_dimensions:
 - risk_reward
 en_title: Risks
@@ -443,6 +455,7 @@ subsections:
 ```yaml
 id: investment_decision
 budget_words: 900
+budget_hard_multiple: 1.5
 en_title: Investment Decision
 zh_title: 投资决定
 parity_en: ^\s*(?:(?:vii|7)[\.\、]\s*)?(?:final\s+)?investment\s+decision\s*[:：]?\s*$

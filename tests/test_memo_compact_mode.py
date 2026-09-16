@@ -387,12 +387,16 @@ def test_compact_declares_word_ceilings():
 def test_word_budget_gate_flags_overrun_and_accepts_fit():
     package = _compact_package()
     errors = memo_docx_renderer.english_package_validation_errors(package)
-    assert not [e for e in errors if "word" in e and "ceiling" in e], errors
+    assert not [e for e in errors if "hard cap" in e], errors
     risks = next(s for s in package["sections"] if s["id"] == "risks")
-    ceiling = next(s for s in COMPACT.sections if s.id == "risks").budget_words
-    # Derived from the profile, so widening a budget never quietly turns
-    # this gate test into a no-op the way a hardcoded 300 did.
-    over_by = int(ceiling * memo_docx_renderer._BUDGET_GRACE) + 50
+    risks_def = next(s for s in COMPACT.sections if s.id == "risks")
+    ceiling = risks_def.budget_words
+    # Derived from the profile, so widening a budget or a multiple never
+    # quietly turns this gate test into a no-op the way a hardcoded 300 did.
+    hard = ceiling * (
+        risks_def.budget_hard_multiple or memo_docx_renderer._BUDGET_GRACE
+    )
+    over_by = int(hard) + 50
     risks["blocks"].append(
         {
             "type": "paragraph",
@@ -400,26 +404,32 @@ def test_word_budget_gate_flags_overrun_and_accepts_fit():
         }
     )
     errors = memo_docx_renderer.english_package_validation_errors(package)
-    overruns = [e for e in errors if "ceiling" in e]
+    overruns = [e for e in errors if "hard cap" in e]
     assert len(overruns) == 1 and "section risks" in overruns[0]
-    assert f"{ceiling}-word ceiling" in overruns[0]
+    assert f"{ceiling}-word target" in overruns[0]
+    assert f"{int(hard)}-word hard cap" in overruns[0]
 
 
-def test_a_section_inside_the_grace_margin_is_not_re_emitted():
-    """The grace exists because re-emitting a marginal overshoot costs a
-    whole section and has never reliably shortened one."""
+def test_a_section_between_its_target_and_its_cap_is_left_alone():
+    """The budget is a soft target: a section that ran past it to finish
+    its argument is fine, and re-emitting it has never shortened one."""
     package = _compact_package()
     risks = next(s for s in package["sections"] if s["id"] == "risks")
-    ceiling = next(s for s in COMPACT.sections if s.id == "risks").budget_words
+    risks_def = next(s for s in COMPACT.sections if s.id == "risks")
+    ceiling = risks_def.budget_words
     current = memo_docx_renderer._section_en_word_count(risks)
-    # Land just inside ceiling * grace.
-    filler = int(ceiling * memo_docx_renderer._BUDGET_GRACE) - current - 5
+    hard = ceiling * (
+        risks_def.budget_hard_multiple or memo_docx_renderer._BUDGET_GRACE
+    )
+    # Land above the target but inside the cap.
+    filler = int(hard) - current - 5
+    assert filler > ceiling - current
     assert filler > 0
     risks["blocks"].append(
         {"type": "paragraph", "text": {"en": "filler word " * (filler // 2), "zh": ""}}
     )
     errors = memo_docx_renderer.english_package_validation_errors(package)
-    assert not [e for e in errors if "ceiling" in e], errors
+    assert not [e for e in errors if "hard cap" in e], errors
 
 
 def test_money_parser_handles_digit_grouping():
