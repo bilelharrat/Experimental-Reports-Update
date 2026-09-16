@@ -248,8 +248,15 @@ async function refreshAllBriefs() {
   if (refreshStarting.value || refreshStatus.value?.running) return;
   const items = tapeItems(assembled.value);
   if (!items.length) return;
-  const hours = refreshStatus.value?.interval_hours || 6;
-  if (!confirmTokenSpend(t("news.refresh_all_confirm", { n: items.length, hours }))) return;
+  // 0 hours means the bar is on Manual: say so rather than promising a
+  // schedule that will never run.
+  const hours = Number(refreshStatus.value?.interval_hours) || 0;
+  const schedule =
+    hours > 0
+      ? t("news.refresh_all_schedule_on", { hours })
+      : t("news.refresh_all_schedule_off");
+  const detail = `${t("news.refresh_all_confirm", { n: items.length })} ${schedule}`;
+  if (!confirmTokenSpend(detail)) return;
   refreshStarting.value = true;
   try {
     refreshStatus.value = await api.startNewsBriefRefresh({ items, limit: REFRESH_TOP_N });

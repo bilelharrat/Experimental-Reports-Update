@@ -1024,11 +1024,20 @@ async function toggleAutoApply() {
 const trackingScheduleLabel = computed(() => {
   const settings = trackingSettings.value;
   if (!settings) return "";
+  // 0 hours means the cadence bar is on Manual: nothing checks on its own.
+  const hours = Number(settings.interval_hours) || 0;
+  if (hours <= 0) {
+    return tr(
+      settings.auto_apply
+        ? "research.updates_schedule_off_auto"
+        : "research.updates_schedule_off_manual",
+    );
+  }
   return tr(
     settings.auto_apply
       ? "research.updates_schedule_auto"
       : "research.updates_schedule_manual",
-    { hours: settings.interval_hours || 12 },
+    { hours },
   );
 });
 
