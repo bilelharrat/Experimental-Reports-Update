@@ -16,6 +16,7 @@ import {
 } from "lucide-vue-next";
 import { api } from "../api.js";
 import WarrenMark from "./WarrenMark.vue";
+import AutoUpdateBar from "./AutoUpdateBar.vue";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import {
@@ -116,6 +117,7 @@ watch(appLanguage, () => {
 });
 
 onMounted(loadRefreshStatus);
+onMounted(loadAutoUpdate);
 onBeforeUnmount(() => {
   if (refreshPollTimer) clearTimeout(refreshPollTimer);
   refreshPollTimer = null;
@@ -201,6 +203,23 @@ function recordTape(list) {
   api
     .prewarmNewsBriefs({ items, lang: appLanguage.value || "en", limit: REFRESH_TOP_N })
     .catch(() => {});
+}
+
+const autoUpdate = ref(null);
+
+async function loadAutoUpdate() {
+  try {
+    const payload = await api.getAutoUpdates();
+    autoUpdate.value =
+      (payload.channels || []).find((row) => row.id === "news_brief") || null;
+  } catch {
+    autoUpdate.value = null;
+  }
+}
+
+function onCadenceSaved(channel) {
+  autoUpdate.value = channel;
+  loadRefreshStatus();
 }
 
 async function loadRefreshStatus() {
@@ -467,6 +486,13 @@ const refreshLabel = computed(() => {
       </div>
     </div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+      <AutoUpdateBar
+        v-if="autoUpdate"
+        channel-id="news_brief"
+        :channel="autoUpdate"
+        compact
+        @updated="onCadenceSaved"
+      />
       <p class="text-caption1 text-ink-muted">{{ refreshLabel }}</p>
       <button
         type="button"

@@ -208,6 +208,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  // The cadence bar shared by every background job that spends tokens.
+  getAutoUpdates: () => request("/api/auto-updates"),
+  putAutoUpdate: (channelId, body) =>
+    request(`/api/auto-updates/${encodeURIComponent(channelId)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   // Background sync schedule and the global auto-apply switch.
   getTrackingSettings: () => request("/api/tracking/settings"),
   putTrackingSettings: (body) =>

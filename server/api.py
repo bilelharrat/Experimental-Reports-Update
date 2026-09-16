@@ -38,6 +38,7 @@ from . import (
     analytics_store,
     annotation_store,
     auth_store,
+    auto_update,
     cache,
     browser_archive,
     buffett_memo_analysis,
@@ -3649,6 +3650,40 @@ def sync_all_tracking_updates(
 
 class TrackingSettingsBody(BaseModel):
     auto_apply: bool
+
+
+class AutoUpdateCadenceBody(BaseModel):
+    cadence: str
+
+
+@router.get("/auto-updates")
+def list_auto_updates() -> dict:
+    """Every background job that spends tokens, with its cadence bar.
+
+    One shape per channel: the five choices, the one in force, and when
+    it last ran / next runs."""
+    return {
+        "choices": list(auto_update.CADENCES),
+        "channels": auto_update.list_channels(),
+    }
+
+
+@router.put("/auto-updates/{channel_id}")
+def put_auto_update(
+    channel_id: str, request: Request, body: AutoUpdateCadenceBody
+) -> dict:
+    """Move one channel's bar. Takes effect without restarting the server."""
+    _require_permission(request, "tasks:action")
+    try:
+        return auto_update.set_cadence(
+            channel_id, body.cadence, updated_by=_caller_email(request)
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown auto-update channel: {channel_id}"
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @router.get("/tracking/settings")

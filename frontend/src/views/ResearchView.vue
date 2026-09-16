@@ -14,6 +14,7 @@ import {
 } from "lucide-vue-next";
 import { api, withApiToken } from "../api.js";
 import AiMark from "../components/AiMark.vue";
+import AutoUpdateBar from "../components/AutoUpdateBar.vue";
 import {
   formatCompactNumber,
   formatIsoDate,
@@ -963,6 +964,7 @@ async function loadTrackingUpdates() {
   if (!props.companyId) return;
   const requestedId = props.companyId;
   loadTrackingSettings();
+  loadTrackedAutoUpdate();
   try {
     const fresh = await api.listTrackingUpdates(requestedId);
     if (requestedId !== props.companyId) return;
@@ -978,6 +980,27 @@ async function loadTrackingSettings() {
   } catch {
     // Non-fatal: the auto-apply toggle stays disabled until settings load.
   }
+}
+
+const trackedAutoUpdate = ref(null);
+
+async function loadTrackedAutoUpdate() {
+  try {
+    const payload = await api.getAutoUpdates();
+    trackedAutoUpdate.value =
+      (payload.channels || []).find((row) => row.id === "tracked_news") || null;
+  } catch {
+    trackedAutoUpdate.value = null;
+  }
+}
+
+function onTrackedCadenceSaved(channel) {
+  trackedAutoUpdate.value = channel;
+  loadTrackingSettings();
+}
+
+function onTrackedCadenceError() {
+  executeNotice.value = tr("auto_update.save_failed");
 }
 
 async function toggleAutoApply() {
@@ -2840,6 +2863,15 @@ onUnmounted(stopPolling);
           <p v-if="trackingScheduleLabel" class="mt-1 text-xs text-ink-muted">
             {{ trackingScheduleLabel }}
           </p>
+          <AutoUpdateBar
+            v-if="trackedAutoUpdate"
+            class="mt-2"
+            channel-id="tracked_news"
+            :channel="trackedAutoUpdate"
+            compact
+            @updated="onTrackedCadenceSaved"
+            @error="onTrackedCadenceError"
+          />
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button

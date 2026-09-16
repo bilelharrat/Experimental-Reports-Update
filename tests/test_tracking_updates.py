@@ -703,7 +703,9 @@ def _seed_company_news(*, title: str, url: str, company_id: str = "zainar-inc") 
 def test_sync_runs_every_12_hours_on_a_persisted_clock(monkeypatch):
     monkeypatch.delenv("BSH_TRACKING_SYNC_INTERVAL_SECONDS", raising=False)
     assert tracking_updates.sync_interval_seconds() == 12 * 3600
-    assert tracking_updates.seconds_until_sync_due() <= 0, "never synced is due"
+    # Never synced waits a full interval: booting must not cost tokens.
+    fresh = tracking_updates.seconds_until_sync_due()
+    assert fresh is not None and 12 * 3600 - 60 < fresh <= 12 * 3600
 
     tracking_updates._mark_synced(datetime.now(timezone.utc) - timedelta(hours=1))
     wait = tracking_updates.seconds_until_sync_due()

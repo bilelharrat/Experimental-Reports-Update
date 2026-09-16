@@ -387,7 +387,11 @@ def test_refresh_limit_caps_the_batch(stub_claude, monkeypatch):
 
 
 def test_schedule_is_due_every_six_hours(monkeypatch):
-    assert news_brief.seconds_until_due() <= 0, "a server that never refreshed is due"
+    # A server that never refreshed waits a full interval: booting must
+    # not cost tokens.
+    fresh = news_brief.seconds_until_due()
+    assert fresh is not None and 6 * 3600 - 60 < fresh <= 6 * 3600
+
     news_brief._mark_refreshed(news_brief._now() - timedelta(hours=1))
     wait = news_brief.seconds_until_due()
     assert 5 * 3600 - 60 < wait <= 5 * 3600
@@ -397,19 +401,19 @@ def test_schedule_is_due_every_six_hours(monkeypatch):
     monkeypatch.setenv("BSH_NEWS_BRIEF_REFRESH_HOURS", "0")
     assert news_brief.next_refresh_at() is None
     assert news_brief.refresh_status()["next_refresh_at"] is None
+    assert news_brief.refresh_cadence() == "manual"
 
 
-def test_refresh_loop_needs_an_interval_and_claude(monkeypatch):
+def test_refresh_loop_needs_claude_but_runs_on_manual(monkeypatch):
     monkeypatch.setattr(news_brief, "_LOOP_STARTED", False)
     monkeypatch.setattr(news_brief, "_refresh_loop", lambda: None)
     monkeypatch.setattr(news_brief.claude_runner, "is_available", lambda: False)
     assert news_brief.start_refresh_loop() is False
 
+    # Manual still starts the thread, so moving the bar back to a cadence
+    # works without restarting the server. The thread only sleeps.
     monkeypatch.setattr(news_brief.claude_runner, "is_available", lambda: True)
     monkeypatch.setenv("BSH_NEWS_BRIEF_REFRESH_HOURS", "0")
-    assert news_brief.start_refresh_loop() is False
-
-    monkeypatch.delenv("BSH_NEWS_BRIEF_REFRESH_HOURS")
     assert news_brief.start_refresh_loop() is True
     assert news_brief.start_refresh_loop() is False, "idempotent"
 
