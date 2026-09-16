@@ -24,6 +24,7 @@ import DecisionsCard from "./DecisionsCard.vue";
 import ReportsMemosCard from "./ReportsMemosCard.vue";
 import RecordDecisionModal from "./RecordDecisionModal.vue";
 import MemoStudioEditor from "../MemoStudioEditor.vue";
+import UnifiedDocumentsView from "../UnifiedDocumentsView.vue";
 import ICPrepCard from "./ICPrepCard.vue";
 import ICRoomCard from "./ICRoomCard.vue";
 import NumberLintCard from "./NumberLintCard.vue";
@@ -53,10 +54,13 @@ const showMoreMenu = ref(false);
 const isDecisionModalOpen = ref(false);
 const isFollowed = ref(false);
 const companyReports = ref([]);
+// Bumped after an upload, a delete or an Analyze run so the list reloads.
+const documentsRefresh = ref(0);
 
 const tabItems = computed(() => [
   { id: "overview", label: t("research_desk.section_overview") },
   { id: "memos", label: t("research_desk.section_memo_studio") },
+  { id: "files", label: t("research_desk.section_files") },
   { id: "decisions", label: t("research_desk.section_decisions") },
   { id: "team", label: t("research_desk.section_team") },
   { id: "pipeline", label: t("research_desk.section_pipeline") },
@@ -308,6 +312,18 @@ onUnmounted(() => {
         <MemoStudioEditor :company-id="companyId" :generate-available="true" @generate="handleCustomReport" />
       </template>
 
+      <!-- Files: uploads, folders and their analyses. These land in the
+           company's research folder, which is the same folder every Phase-2
+           memo pass reads, so anything uploaded here feeds the next report. -->
+      <template v-else-if="activeSection === 'files'">
+        <UnifiedDocumentsView
+          :company-id="companyId"
+          :refresh-key="documentsRefresh"
+          @open-report="emit('open-memo', $event)"
+          @files-changed="documentsRefresh += 1"
+        />
+      </template>
+
       <!-- Decisions (Full IC Suite) -->
       <template v-else-if="activeSection === 'decisions'">
         <DecisionsCard :company-id="companyId" :company="company" />
@@ -350,6 +366,12 @@ onUnmounted(() => {
         <DealPipelineCard :company-id="companyId" :company="company" @stage-updated="emit('stage-updated', $event)" />
         <ReportsMemosCard :company-id="companyId" :company="company" @open-memo="emit('open-memo', $event)" @open-customizer="handleCustomReport" />
         <MemoStudioEditor :company-id="companyId" :generate-available="true" @generate="handleCustomReport" />
+        <UnifiedDocumentsView
+          :company-id="companyId"
+          :refresh-key="documentsRefresh"
+          @open-report="emit('open-memo', $event)"
+          @files-changed="documentsRefresh += 1"
+        />
         <DecisionsCard :company-id="companyId" :company="company" />
         <ICPrepCard :company-id="companyId" :company="company" />
         <ICRoomCard :company-id="companyId" :company="company" />
