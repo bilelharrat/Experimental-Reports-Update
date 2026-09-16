@@ -218,6 +218,53 @@ def test_error_mapping_by_quality_gate_context():
     )
 
 
+def test_remediation_advice_never_decides_the_section(monkeypatch):
+    """A finding's coaching tail must not route the repair.
+
+    Live run 2026-09-16: the gate flagged a paragraph in "valuation,
+    returns & exit" and closed with "...named terms, plain risks." The id
+    scan saw "risks", sent the repair to the wrong section, and the repair
+    introduced a second violation there. Two package attempts (8.7m and
+    1.2m) died on the same untouched paragraph.
+    """
+    from server import memo_structure
+
+    monkeypatch.setenv("BSH_MEMO_STRUCTURE_V2", "1")
+    # the compact profile the live run used: `valuation_returns`, whose
+    # rendered title is "valuation, returns & exit"
+    structure = memo_structure.active_structure("late", "compact")
+    package = {
+        "sections": [{"id": sid, "blocks": []} for sid in structure.section_ids]
+    }
+    error = (
+        "quality gate sell_side_voice_violation at paragraph 91 "
+        '(v. valuation, returns & exit): "...tilted upward: the bear case '
+        "loses more than half the capital while the bull returns five "
+        "times, so position size matters more than the point estimate. "
+        'Sources: S1, S4, S8" — Rewrite buyer-side, detached, '
+        "treatment-speak, or stock participation slogans as LP co-invest "
+        "English: firm as subject, named terms, plain risks."
+    )
+    assert (
+        claude_runner._section_for_validation_error(package, error, structure)
+        == "valuation_returns"
+    )
+
+
+def test_error_location_stops_at_the_quote_or_the_advice():
+    assert claude_runner._error_location(
+        'gate x at paragraph 9 (vi. risks): "quoted" — advice'
+    ) == "gate x at paragraph 9 (vi. risks): "
+    assert claude_runner._error_location(
+        "gate x at paragraph 9 (vi. risks) — advice about risks"
+    ) == "gate x at paragraph 9 (vi. risks) "
+    # nothing to cut: the whole error locates the defect
+    assert (
+        claude_runner._error_location("missing required section company_overview")
+        == "missing required section company_overview"
+    )
+
+
 def test_error_mapping_by_snippet_search():
     package = _sample_package()
     error = (

@@ -7513,6 +7513,21 @@ def _iter_package_strings(value: Any):
         yield value
 
 
+def _error_location(error: str) -> str:
+    """The part of a validation error that names where the defect is.
+
+    Quality-gate findings read "<gate> at <place> (<section title>):
+    "<quoted text>" — <how to fix it>". Only the head locates anything;
+    the quote is the memo's own prose and the tail is generic advice, and
+    either can mention a section by name without being about it.
+    """
+    cut = min(
+        (index for index in (error.find('"'), error.find("\u2014")) if index >= 0),
+        default=-1,
+    )
+    return error if cut < 0 else error[:cut]
+
+
 def _section_for_validation_error(
     package: dict,
     error: str,
@@ -7539,8 +7554,15 @@ def _section_for_validation_error(
                 return section_id
         return None
 
+    # Scan for a section id in the part of the error that says WHERE the
+    # defect is, never in the quoted text or the remediation advice. A
+    # quality-gate finding ends with generic coaching, and on 2026-09-16 one
+    # ending "...named terms, plain risks." routed a defect in
+    # `valuation, returns & exit` to the `risks` section. The repair
+    # rewrote the wrong section, introduced a second violation there, and
+    # the package regenerated from scratch — 8.7 minutes and a full wave.
     for section_id in section_ids:
-        if section_id in lowered:
+        if section_id in _error_location(lowered):
             return section_id
 
     match = re.search(r"missing required memo component (\w+)", lowered)
