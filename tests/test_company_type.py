@@ -107,10 +107,10 @@ def test_active_structure_threads_the_type(monkeypatch):
 
 def test_research_focus_combines_all_and_pass_text():
     typed = memo_structure.load_structure("late", 2, "robotics")
-    focus = memo_structure.company_type_research_focus(typed, "deployment_behavior")
+    focus = memo_structure.company_type_research_focus(typed, "adoption_distribution")
     assert "paid on-site pilot" in focus
     assert "Deployment reality" in focus  # the `all` block rides every pass
-    generic = memo_structure.company_type_research_focus(typed, "time_base")
+    generic = memo_structure.company_type_research_focus(typed, "growth_bridge")
     assert "Deployment reality" in generic and "paid on-site pilot" not in generic
     untyped = memo_structure.load_structure("late", 2)
     assert memo_structure.company_type_research_focus(untyped, "market_sizing") == ""

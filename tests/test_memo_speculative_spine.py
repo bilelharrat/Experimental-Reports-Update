@@ -23,13 +23,13 @@ def _loc(en: str) -> dict:
 
 
 _PASS_IDS = [
-    "arithmetic_denominators",
-    "time_base",
+    "numbers_integrity",
     "growth_bridge",
-    "deployment_behavior",
-    "gtm_operating_burden",
-    "replacement_coexistence",
-    "competitive_rights",
+    "valuation_exit",
+    "market_sizing",
+    "competitive_position",
+    "adoption_distribution",
+    "team_governance",
     "alternative_explanations",
 ]
 
@@ -96,13 +96,13 @@ def test_flag_helpers(monkeypatch):
     assert claude_runner._memo_spine_speculative_enabled() is True
 
     monkeypatch.delenv("BSH_MEMO_SPINE_SPECULATE_AFTER", raising=False)
-    assert claude_runner._memo_spine_speculate_after() == 9
+    assert claude_runner._memo_spine_speculate_after() == 6
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_AFTER", "2")
     assert claude_runner._memo_spine_speculate_after() == 4
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_AFTER", "15")
     assert claude_runner._memo_spine_speculate_after() == 11
     monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_AFTER", "junk")
-    assert claude_runner._memo_spine_speculate_after() == 9
+    assert claude_runner._memo_spine_speculate_after() == 6
 
 
 def test_speculate_require_helper(monkeypatch):
@@ -113,33 +113,31 @@ def test_speculate_require_helper(monkeypatch):
     )
     assert claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES == frozenset(
         {
-            "arithmetic_denominators",
-            "time_base",
+            "numbers_integrity",
             "growth_bridge",
-            "valuation_comps",
-            "exit_paths",
+            "valuation_exit",
         }
     )
     for off in ("", "none", "NONE", "0", "  none  "):
         monkeypatch.setenv("BSH_MEMO_SPINE_SPECULATE_REQUIRE", off)
         assert claude_runner._memo_spine_speculate_require() == frozenset()
     # The env var ADDS to the code default — it can never remove a
-    # pin-feeding pass. A live .env pinning the pre-rebuild three-pass
-    # list exempted valuation_comps/exit_paths and made every v2 run's
-    # delta check stale; additive semantics make that override harmless.
+    # pin-feeding pass. A live .env pinning an older, shorter list once
+    # exempted the fair-value passes and made every v2 run's delta check
+    # stale; additive semantics make that override harmless.
     monkeypatch.setenv(
-        "BSH_MEMO_SPINE_SPECULATE_REQUIRE", " time_base, growth_bridge ,"
+        "BSH_MEMO_SPINE_SPECULATE_REQUIRE", " valuation_exit, growth_bridge ,"
     )
     assert (
         claude_runner._memo_spine_speculate_require()
         == claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
     )
     monkeypatch.setenv(
-        "BSH_MEMO_SPINE_SPECULATE_REQUIRE", "competitive_rights"
+        "BSH_MEMO_SPINE_SPECULATE_REQUIRE", "competitive_position"
     )
     assert claude_runner._memo_spine_speculate_require() == (
         claude_runner.MEMO_SPINE_PIN_FEEDING_PASSES
-        | {"competitive_rights"}
+        | {"competitive_position"}
     )
 
 
@@ -171,9 +169,9 @@ def test_speculator_holds_for_pin_feeding_passes(tmp_path, monkeypatch):
     holds = [e for e in stream.events if e[1].get("stage") == "memo_spine_speculation_holding"]
     assert holds == []
     # Sixth pass meets the count, but two pin-feeding passes are missing.
-    spec.note_pass_result("arithmetic_denominators", True)
+    spec.note_pass_result("numbers_integrity", True)
     assert spec.launched is False
-    spec.note_pass_result("time_base", True)
+    spec.note_pass_result("valuation_exit", True)
     assert spec.launched is False
     holds = [e for e in stream.events if e[1].get("stage") == "memo_spine_speculation_holding"]
     assert len(holds) == 1  # emitted once, not per pass
@@ -200,12 +198,12 @@ def test_failed_required_pass_counts_as_satisfied(tmp_path, monkeypatch):
         claude_runner, "run_memo_fast_english_spine", fake_spine
     )
     spec = _speculator(tmp_path)
-    for pass_id in ["time_base", "growth_bridge", *_PASS_IDS[3:7]]:
+    for pass_id in ["valuation_exit", "growth_bridge", *_PASS_IDS[3:7]]:
         spec.note_pass_result(pass_id, True)
-    assert spec.launched is False  # arithmetic_denominators still missing
+    assert spec.launched is False  # numbers_integrity still missing
     # A FAILED required pass will never land an artifact — nothing to
     # wait for, so it satisfies the gate.
-    spec.note_pass_result("arithmetic_denominators", False)
+    spec.note_pass_result("numbers_integrity", False)
     assert spec.launched is True
     spec.consume()
     spec.shutdown()
@@ -241,7 +239,7 @@ def test_require_unknown_ids_are_filtered(tmp_path, monkeypatch):
         spec.note_pass_result(pass_id, True)
     # Count met, but the default pin-feeding passes still gate the launch.
     assert spec.launched is False
-    for pass_id in ("arithmetic_denominators", "time_base", "growth_bridge"):
+    for pass_id in ("numbers_integrity", "valuation_exit", "growth_bridge"):
         spec.note_pass_result(pass_id, True)
     assert spec.launched is True
     spec.consume()

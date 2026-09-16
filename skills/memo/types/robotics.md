@@ -52,7 +52,7 @@ research_focus:
     arms); (3) the installed-base market for embodied hardware (expected
     units in service × price or annual fee). NEVER equate the global
     trillion-dollar labor pool with the near-term addressable market.
-  competitive_rights: >-
+  competitive_position: >-
     Against the mature incumbents (FANUC, ABB, Geek+ and the automation
     majors), compare reliability, cycle time and total cost of ownership.
     Against the frontier embodied labs (Figure AI, Tesla Optimus, 1X,
@@ -62,7 +62,7 @@ research_focus:
     costing a few thousand dollars, how much quantifiable premium does
     this robot's "foundation-model flexibility" actually create for the
     customer?
-  deployment_behavior: >-
+  adoption_distribution: >-
     Build and verify the six-rung ladder: strategic MOU -> laboratory
     proof of concept -> paid on-site pilot -> small-batch line trial ->
     fleet deployment at scale -> repeat purchase and expansion. Name the
@@ -74,7 +74,7 @@ research_focus:
     success rate, and interventions per hour. State plainly whether a
     demonstration video involved remote teleoperation or hard-coded
     trajectories.
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     Check the financial and order denominators strictly: separate firm,
     legally binding backlog from non-binding LOIs and MOUs, and both from
     revenue actually invoiced and delivered. Restate any robot-as-a-service
@@ -89,7 +89,7 @@ research_focus:
     volume manufacturing. Review progress on the manufacturing site and on
     international industrial safety certification (ISO 10218, ISO/TS
     15066, CE, UL).
-  valuation_comps: >-
+  valuation_exit: >-
     Value the three tracks separately. The pure software / embodied-brain
     layer compares to AI infrastructure and foundation models (EV /
     forward ARR, or replacement R&D cost). A full-stack OEM is valued

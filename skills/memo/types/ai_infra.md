@@ -50,7 +50,7 @@ research_focus:
     same table, the share incumbents (NVIDIA, the three large clouds)
     already hold in that layer: a TAM that ignores the incumbent's
     existing share is fiction.
-  competitive_rights: >-
+  competitive_position: >-
     Benchmark against NVIDIA's own stack (CUDA, TensorRT, NeMo), the
     hyperscalers' in-house stacks, and the leading open-source engines
     (vLLM, SGLang, Triton). Press hard on switching cost: has the product
@@ -62,20 +62,20 @@ research_focus:
     ten-thousand-accelerator cluster, sub-second checkpoint fault
     tolerance. For heterogeneous silicon, examine how much real
     throughput the compiler extracts from non-CUDA hardware.
-  deployment_behavior: >-
+  adoption_distribution: >-
     Keep four levels strictly apart: announced capacity versus capacity
     actually delivered and racked; bookings and backlog versus revenue
     actually recognized; trial workloads versus business-critical
     production workloads. Name the real production customers and disclose
     what share of their core workload genuinely runs on this platform.
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     Test revenue quality to the bottom: strip out pass-through revenue
     that is simply resold hardware or public-cloud capacity earning a
     margin on the transaction. Software revenue must be stated as pure
     subscription or usage ARR; compute services must convert billed GPU
     hours into true billable utilization after idle time and
     depreciation.
-  valuation_comps: >-
+  valuation_exit: >-
     Value the two tracks differently. Pure-software infrastructure is
     calibrated against comparable infrastructure-software companies on
     EV / forward ARR and NRR multiples, with a 70%+ gross-margin

@@ -2632,6 +2632,10 @@ _MEMO_ANALYSIS_PASSES: dict[str, str] = {
     "source_treatment_assumptions.md": "Source treatment and assumptions",
     "risk_sensitivities.md": "Risk and valuation sensitivities",
     "market_sizing.md": "Market sizing / TAM",
+    "numbers_integrity.md": "Numbers & time-base integrity",
+    "valuation_and_exit.md": "Valuation & exit",
+    "competitive_position.md": "Competitive position",
+    "adoption_and_distribution.md": "Adoption & distribution",
     "team_governance.md": "Team & governance",
     "valuation_comps.md": "Valuation comparables",
     "exit_paths.md": "Exit paths",
@@ -6063,15 +6067,16 @@ MEMO_SECTION_PASS_AFFINITY: dict[str, frozenset[str]] = (
 
 
 def _memo_spine_speculate_after() -> int:
-    """How many of the 12 analysis passes must finish before the spine
-    launches speculatively. Default 9: the typical straggler gap is the
-    last one to three passes. SpeculativeEnglish re-clamps to the run's
-    actual pass count minus one."""
+    """How many of the eight analysis passes must finish before the spine
+    launches speculatively. Default 6 — three quarters of the list, the
+    same share as the 9-of-12 it replaced when Phase 2 was consolidated.
+    SpeculativeEnglish re-clamps to the run's actual pass count minus
+    one, so an older resumed run with twelve passes still speculates."""
     raw = os.environ.get("BSH_MEMO_SPINE_SPECULATE_AFTER")
     try:
-        value = int(raw) if raw is not None else 9
+        value = int(raw) if raw is not None else 6
     except (TypeError, ValueError):
-        value = 9
+        value = 6
     return max(4, min(value, 11))
 
 
@@ -6079,18 +6084,16 @@ def _memo_spine_speculate_after() -> int:
 # (key metrics, scenarios, the rated risks' figures). Both observed stale
 # speculation draws (nvda E_v2/E_v3) traced to exactly these passes
 # finishing last — the spine guessed its pins without its own inputs, and
-# the delta check charged ~4 minutes to discard and respin. valuation_comps
-# and exit_paths joined the set with the Phase-2 rebuild: fair-value range
-# and exit/scenario scaffolding are pin inputs. SpeculativeEnglish drops
-# any id absent from the run's actual pass list, so older resumed runs
-# with 8 passes still speculate.
+# the delta check charged ~4 minutes to discard and respin. The fair-value
+# range and the exit/scenario scaffolding are pin inputs too, which is why
+# valuation_exit is here. SpeculativeEnglish drops any id absent from the
+# run's actual pass list, so runs resumed from an older, longer pass list
+# still speculate.
 MEMO_SPINE_PIN_FEEDING_PASSES: frozenset[str] = frozenset(
     {
-        "arithmetic_denominators",
-        "time_base",
+        "numbers_integrity",
         "growth_bridge",
-        "valuation_comps",
-        "exit_paths",
+        "valuation_exit",
     }
 )
 

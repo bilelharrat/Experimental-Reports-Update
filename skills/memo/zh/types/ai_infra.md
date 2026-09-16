@@ -1,5 +1,5 @@
 ---
-en_sha256: 808e00945cb27ae663659e89cc089a5e129cd4d5d9394cda6c633e8889c03c48
+en_sha256: 3e2227f0c06ce24f6946475c672ffc84e56665df545edfb07a518dd54f4916a2
 ---
 ---
 type: ai_infra
@@ -42,22 +42,22 @@ research_focus:
     必须按细分层（芯片加速、算力租赁、推理调度中间件、数据平台）独立定量，严禁将
     全行业数万亿总支出直接等同为 TAM；必须同时量化在位者（NVIDIA、三大云厂商）
     在当前层已占据的市场份额——忽略巨头既有垄断份额的 TAM 是虚妄的。
-  competitive_rights: >-
+  competitive_position: >-
     与 NVIDIA 官方生态（CUDA/TensorRT/NeMo）、超大规模云厂商自研栈以及头部开源
     引擎（vLLM、SGLang、Triton）进行同台基准对齐；严厉穿透客户的切换成本：究竟是
     沉淀了企业数据/上下文引力（Stateful），还是仅仅因为短期市场算力短缺而形成的暂态采购？
     穿透纸面标称参数，审查生产环境核心指标：P-D（Prefill-Decode）分离架构落地、
     分布式 KV Cache 共享与分层卸载效率、万卡集群网络拓扑感知调度及亚秒级断点容错；
     如果是异构硬件，审查其编译器对非 CUDA 硬件的真实算力释放率。
-  deployment_behavior: >-
+  adoption_distribution: >-
     严格区分四个层级：宣布产能 vs 实际交付上架产能、合同订单额（Bookings/Backlog）
     vs 真实确认收入、测试试用工作负载 vs 关键业务生产负载；点名核心生产客户，披露
     其核心工作负载在该平台上运行的真实占比。
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     彻底穿透收入质量：剥离单纯转售硬件/公有云资源赚取通道费的直通收入（Pass-through）；
     软件收入必须按纯订阅/用量 ARR 核算，算力服务必须将计费 GPU 小时换算为扣除闲置折旧
     后的真实硬件利用率（Billable Utilization）。
-  valuation_comps: >-
+  valuation_exit: >-
     双轨分流估值：纯软件 Infra 采用可比基础设施软件公司，按 EV / 远期 ARR 与 NRR
     倍数（结合 70%+ 毛利要求）校准；重资产算力云/芯片采用半导体与 IDC 基建逻辑，
     按 EV / EBITDA、单卡还本周期（Payback Period）与净资产现值（NAV）进行压力测试。

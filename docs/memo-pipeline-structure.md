@@ -38,11 +38,17 @@ and `claude_runner.load_memo_recent_news` injects it into every pass
 and the spine — never the shared section context (kill switch
 `BSH_MEMO_TRACKED_NEWS=0`).
 
-### Phase 2 — 12 analysis passes (~2.3–6.3 m, gated by slowest pass; defined in `skills/memo/passes.md`)
+### Phase 2 — 8 analysis passes (~2.3–6.3 m, gated by slowest pass; defined in `skills/memo/passes.md`)
 
 `memo_analysis._FAST_MEMO_PASSES` defines 8 pass specs (id, label,
 artifact filename, focus). Dispatch: `ThreadPoolExecutor` with
-`as_completed` (8 workers, `BSH_MEMO_FAST_MAX_WORKERS`). Each pass
+`as_completed` (8 workers, `BSH_MEMO_FAST_MAX_WORKERS`). All eight share
+one `--append-system-prompt` block
+(`claude_runner.memo_fast_pass_common_context`, built once per run in
+`memo_analysis` before the fan-out) so the registry entry, research
+listing, fact ledger, recent news and decision record are cached once for
+the whole wave rather than per pass — it only collapses while the bytes
+are identical, so nothing pass-specific may enter it. Each pass
 writes `analysis/fast/{pass_id}.json` (schema-capped: ≤8 findings, ≤8
 supporting, ≤6 disconfirming, ≤5 limits, ≤6 implications) plus a
 markdown artifact, at its own completion time.

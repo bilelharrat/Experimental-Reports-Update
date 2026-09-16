@@ -53,7 +53,7 @@ research_focus:
     compensation — estimate the penetration rate). Explain how the three
     nest, and why the labor pool cannot be treated as near-term ARR
     headroom.
-  competitive_rights: >-
+  competitive_position: >-
     Benchmark against the global first tier (OpenAI, Anthropic, Google
     DeepMind, Meta, xAI, DeepSeek and peers) on real-task win rate,
     intelligence per dollar per million tokens, enterprise API share, and
@@ -76,7 +76,7 @@ research_focus:
     Examine the governance structure — any for-profit/non-profit two-tier
     arrangement, public-benefit-corporation status, and where the board's
     control over commercialization strategy sits and where it has split.
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     Strip the water out of revenue: separate consumer subscriptions,
     per-seat enterprise contracts, uncommitted API usage, long-term
     commitments, and any related-party resale through a cloud provider or
@@ -84,7 +84,7 @@ research_focus:
     figure must be restated to the actual measurement window it came from
     (latest month x12, or latest week x52), on a cash basis with
     discounts and subsidies identified rather than netted away.
-  valuation_comps: >-
+  valuation_exit: >-
     Refuse a single static multiple. Build three probability-weighted
     scenarios (bull / base / bear) and run the full chain for each: entry
     valuation -> forward exit ARR -> steady-state free-cash-flow rate ->

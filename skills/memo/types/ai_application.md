@@ -49,26 +49,26 @@ research_focus:
     augments. Treat the model vendors' own vertical applications and the
     incumbent SaaS vendors' embedded AI features as competing claims on
     the same spend.
-  competitive_rights: >-
+  competitive_position: >-
     Compare line by line against the vertical incumbents, the model
     vendors' own applications, and the two nearest startups — on ARR,
     named customers, win rate and price. Then examine what the product
     has that a general model vendor cannot erase in its next minor
     release: complex business-logic state machines, private system
     connectors, deep domain compliance and trust.
-  deployment_behavior: >-
+  adoption_distribution: >-
     Track the enterprise ladder: proof of concept -> departmental trial ->
     enterprise-wide deployment -> core system of record. Report the
     pilot-to-production conversion rate and the average time it takes,
     how usage per customer trends over time, and retention and expansion
     among customers already in production.
-  gtm_operating_burden: >-
+
     Measure sales efficiency by segment (CAC payback, magic number).
     Establish whether growth is product-led or leans heavily on
     enterprise direct sales. Look through each deployment to the
     customization and implementation burden behind it (forward-deployed
     engineering and services cost).
-  valuation_comps: >-
+  valuation_exit: >-
     Use vertical SaaS and next-generation enterprise application software
     as comparables, on EV / forward ARR adjusted for growth and net
     revenue retention. The exit analysis must state what ARR scale and

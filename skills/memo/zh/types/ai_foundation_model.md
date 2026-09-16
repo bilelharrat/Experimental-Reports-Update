@@ -1,5 +1,5 @@
 ---
-en_sha256: 05a40a67977bc912a115ac12e7e2c1a65c6a80350df06b18afc71a5a01ca9c9c
+en_sha256: 0416db1c3ef31065e1958d22de1efa274c50b8e75d090b4ac5812c16cdf6d604
 ---
 ---
 type: ai_foundation_model
@@ -43,7 +43,7 @@ research_focus:
     AI 平台直接软件支出（数千亿美元）；(2) 传统企业 IT 基础设施与企业软件预算替代
     （数万亿美元软件支出，测算替代率）；(3) 脑力劳动与外包服务替代（数十万亿美元
     知识工作者薪酬，测算渗透率）。阐明三者递进逻辑并说明为何不能直接将劳动力池当做短期 ARR 空间。
-  competitive_rights: >-
+  competitive_position: >-
     与全球第一梯队（OpenAI、Anthropic、Google DeepMind、Meta、xAI、DeepSeek 等）
     在真实任务胜率、每百万 Token 智能性价比（Intelligence per Dollar）、企业 API 
     份额以及多模态后训练演进速度上横向对齐；深入追问：若下季度开源权重模型达到当前
@@ -55,11 +55,11 @@ research_focus:
     核心人才是唯一真实的无形资产。盘点前 20 位核心算法研究员、系统架构师及推理优化
     负责人的技术背景、期权绑定与竞业状态；记录过去 12 个月的核心离职率；审查治理结构
     （营利/非营利双层架构、公共利益公司 PBC 属性、董事会对战略商业化的控制权与分歧点）。
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     剥离收入水分：严格切分消费级订阅、企业按席位计费、无保底 API 调用量、长期履约合同
     （Commitment）、以及来自云厂商/战略投资方的关联转售收入。所有“年化收入（Run-rate ARR）”
     必须严格还原为分拆后的实际统计周期（最近一月 x12 或最近一周 x52），标明未计入折扣与补贴的纯现金口径。
-  valuation_comps: >-
+  valuation_exit: >-
     拒绝单一静态倍数。必须搭建三套概率加权情景（牛/基准/熊），建立完整推演链条：
     入场估值 -> 远期退出 ARR -> 稳态自由现金流率 -> 退出乘数 -> 退出回报（MOIC/IRR）。
     同时测算“重置成本底线”（存量算力折现 + 专有工程资产 + 顶尖人才团队重置费用）作为估值下行防护垫。

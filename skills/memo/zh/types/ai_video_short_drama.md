@@ -1,5 +1,5 @@
 ---
-en_sha256: b51f053116e01690791fee13bc5b60d01ca19883d3c4eacab0d86187f795eb09
+en_sha256: d7b9a6fdcdfe02cd47c7a69f5c157302f72e8c463fe70ccb9141dfb1f686086e
 ---
 ---
 type: ai_video_short_drama
@@ -43,21 +43,21 @@ research_focus:
     至百亿美元 SaaS 盘子）；(2) 影视实拍与商业广告制片预算替代（数百亿美元工业化替代
     空间）；(3) 短剧与微短剧终端消费市场（中国本土百亿人民币体量与欧美/东南亚出海数
     百亿美元流媒体与网文衍生盘子）。明确说明标的捕获的是制作降本预算还是终端内容消费预算。
-  competitive_rights: >-
+  competitive_position: >-
     工具层与前沿基础模型（如 Sora、Veo、可灵 Kling、Runway、Hailuo 等）比拼单秒生成
     成本与控镜能力；制片层与传统影视/动画外包工作室比拼交付周期与单位时间成本；发行层
     与在位短剧巨头（如 ReelShort、DramaBox、点众等）比拼买量 ROI、剧本爆款率与海外
     本地化分发网络。追问核心壁垒：若底层模型下季度降价 80% 且时空连贯性提升一代，该公
     司的护城河是加宽还是被抹平？
-  deployment_behavior: >-
+  adoption_distribution: >-
     穿透纸面宣传，量化工业化生产全流程自动化率：从网文剧本拆解、分镜绑定、角色 LoRA / 
     3D 锚点锁定、音频唇形同步（Lip-Sync）到成片剪辑。必须披露“抽卡废片率（Discard Rate）”
     与“人工干涉工时占比（Human-in-the-Loop Ratio）”，严查高废片率对云算力毛利的真实侵蚀。
-  gtm_operating_burden: >-
+
     穿透投流财务模型：剥离总投放 GMV 与净收益，披露首日投流回本率（Day 1 ROAS）、首周 
     (D7) ROAS、前三集完播率（Hook Rate）、充值付费转化率（Paywall Conversion）与每付费
     用户平均收入（ARPPU）。明确依赖单一渠道（TikTok/Meta/Google）买量的流量成本膨胀风险。
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     严格校验财务分母：区分内容流水 GMV、扣除应用商店 30% 抽成后的结算收入、扣除买量投流
     成本后的净现金流入；将“播放量”和“社交下载量”换算为付费用户数与真实 ARPPU；披露作品
     组合整体的“回本率”与“爆款率”，严禁仅以单一爆款项目的孤例测算整体估值。
@@ -65,7 +65,7 @@ research_focus:
     严厉审查 IP 版权与肖像权合规敞口：剧本来源授权合法性、训练数据与角色面部生成的肖像权
     授权、主要出海目标国（美国版权局等）对纯 AI 生成内容的著作权认定状态；审查不同司法管辖
     区的内容备案与合规审核红线。
-  valuation_comps: >-
+  valuation_exit: >-
     三轨分流估值：纯工具软件按基础设施/创作者 SaaS（EV / 远期 ARR）比较；制片与内容工场按
     数字动画/后期制作公司（EV / EBITDA 或经风险调整后的折现现金流）测算；短剧平台与发行方按
     流媒体与买量发行业态（EV / 扣除买量后的净收入或市盈率 P/E）校准，严禁对媒体买量业务套用

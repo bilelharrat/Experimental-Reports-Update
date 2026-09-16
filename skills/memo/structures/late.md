@@ -60,8 +60,7 @@ components:
 - key_operating_metrics
 floor: {}
 pass_affinity:
-- deployment_behavior
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases: []
 ```
 
@@ -84,8 +83,7 @@ components:
 floor:
   bullets_or_prose: true
 pass_affinity:
-- competitive_rights
-- replacement_coexistence
+- competitive_position
 title_word_aliases: []
 ```
 
@@ -108,7 +106,7 @@ floor:
   bullets_or_prose: true
 pass_affinity:
 - alternative_explanations
-- competitive_rights
+- competitive_position
 title_word_aliases: []
 role: risk
 ```
@@ -137,9 +135,8 @@ components:
 floor:
   require_valuation_refs: true
 pass_affinity:
-- arithmetic_denominators
+- numbers_integrity
 - growth_bridge
-- time_base
 title_word_aliases:
 - financial forecast and valuation
 role: valuation

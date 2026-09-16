@@ -1,5 +1,5 @@
 ---
-en_sha256: ff39e00abec3a696ad260b8285e97efa854ff0e1ec4db20442217dfea36f54db
+en_sha256: c162cab49705980c96bb87493679377ed507ba8d6792f99c720d3bb73e64c4a6
 ---
 ---
 type: ai_application
@@ -42,20 +42,20 @@ research_focus:
     定量拆解两笔预算：该场景现有的企业软件预算（IT 预算）与产品所替代或增强的
     劳动力/外包支出（薪酬预算）；将模型厂商自研的垂直应用与在位 SaaS 厂商的
     内嵌 AI 功能列为主要竞争性支出。
-  competitive_rights: >-
+  competitive_position: >-
     与垂直在位者（Legacy Incumbents）、模型厂商的自有应用以及最接近的两家初创
     公司在 ARR、客户标识、赢单率和定价上进行逐项对比；穿透审查产品拥有什么是
     通用大模型厂商在下一个小版本更新中无法直接抹平的（如复杂业务逻辑状态机、
     私有系统连接器、深度领域合规信任）。
-  deployment_behavior: >-
+  adoption_distribution: >-
     追踪企业落地阶梯：概念验证(POC) -> 部门试用 -> 全企业部署 -> 核心记录系统。
     重点报告试点到生产的转化率与平均转化周期、每客户用量随时间的变化趋势、
     以及生产阶段客户的留存与扩容表现。
-  gtm_operating_burden: >-
+
     分客群测算销售效率（CAC 回收期、魔法数字 Magic Number）；剖析增长引擎是
     产品驱动增长（PLG）还是重度依赖大客户直销；穿透每次交付背后的定制化服务与
     实施负担（Forward-deployed/Services 成本）。
-  valuation_comps: >-
+  valuation_exit: >-
     以垂直 SaaS 与新一代企业应用软件为可比标的，按 EV / 远期 ARR（经增速与
     净收入留存率 NRR 调整后）进行倍数比较；退出分析需说明估值所隐含的 ARR 规模
     和毛利要求。

@@ -200,7 +200,7 @@ components:
 - deal_terms
 floor: {}
 pass_affinity:
-- deployment_behavior
+- adoption_distribution
 - team_governance
 title_word_aliases:
 - company, team and deal
@@ -257,8 +257,7 @@ components: []
 floor: {}
 pass_affinity:
 - market_sizing
-- replacement_coexistence
-- competitive_rights
+- competitive_position
 title_word_aliases:
 - thesis, market and competition
 - market and competition
@@ -309,9 +308,9 @@ parity_zh: ^\s*(?:(?:iv|4|四)[\.\、]\s*)?(?:业务与财务|商业模式与财
 components: []
 floor: {}
 pass_affinity:
-- arithmetic_denominators
+- numbers_integrity
 - growth_bridge
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases:
 - business and financials
 subsections:
@@ -355,10 +354,8 @@ components: []
 floor:
   require_valuation_refs: true
 pass_affinity:
-- time_base
-- arithmetic_denominators
-- valuation_comps
-- exit_paths
+- numbers_integrity
+- valuation_exit
 title_word_aliases:
 - valuation, returns and exit
 - valuation and returns
@@ -408,7 +405,7 @@ floor:
   bullets_or_prose: true
 pass_affinity:
 - alternative_explanations
-- competitive_rights
+- competitive_position
 title_word_aliases:
 - risks
 - risk analysis

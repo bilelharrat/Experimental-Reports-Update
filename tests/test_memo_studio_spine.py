@@ -91,7 +91,7 @@ def test_standalone_spine_writes_payload_with_extras(tmp_path, monkeypatch):
     kwargs = _standalone_kwargs(tmp_path)
 
     payload, error = claude_runner.run_memo_english_spine_standalone(
-        **kwargs, missing_pass_ids=["competitive_rights"]
+        **kwargs, missing_pass_ids=["competitive_position"]
     )
 
     assert error is None
@@ -99,7 +99,7 @@ def test_standalone_spine_writes_payload_with_extras(tmp_path, monkeypatch):
     assert "studio_extras" in captured["prompt"]
     assert "conclusion_options" in captured["prompt"]
     # Failed passes reuse the speculative-missing prompt block.
-    assert "`competitive_rights`" in captured["prompt"]
+    assert "`competitive_position`" in captured["prompt"]
     spine_path = kwargs["run_dir"] / "logs" / "english_units" / "spine.json"
     on_disk = json.loads(spine_path.read_text(encoding="utf-8"))
     assert set(on_disk) == {

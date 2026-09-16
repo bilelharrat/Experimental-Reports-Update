@@ -1043,7 +1043,11 @@ def test_memo_fast_pipeline_runs_parallel_passes_and_finalizes(
     assert ("memo_internal_diligence", "skipped") in phases
     assert any(
         e.get("phase") == "memo_fast_parallel_analysis"
-        and e.get("worker_count") == memo_analysis._memo_fast_max_workers()
+        and e.get("worker_count")
+        == min(
+            memo_analysis._memo_fast_max_workers(),
+            len(memo_analysis._FAST_MEMO_PASSES),
+        )
         for e in phase_events
     )
     scanned = job_progress.scan_progress_state(memo_prep.stream_path(run_dir))

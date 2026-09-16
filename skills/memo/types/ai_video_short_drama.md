@@ -55,7 +55,7 @@ research_focus:
     web-fiction-derived content in the US, Europe and Southeast Asia).
     State plainly whether the company captures a production-cost-saving
     budget or an end-consumer content budget.
-  competitive_rights: >-
+  competitive_position: >-
     At the tool layer, compare cost per generated second and shot control
     against the frontier video models (Sora, Veo, Kling, Runway, Hailuo).
     At the production layer, compare delivery time and cost per unit of
@@ -66,20 +66,20 @@ research_focus:
     if the underlying model drops 80% in price next quarter and gains a
     generation of temporal coherence, does this company's moat widen or
     disappear?
-  deployment_behavior: >-
+  adoption_distribution: >-
     Look past the marketing and quantify how automated the pipeline
     genuinely is, end to end: web-fiction script breakdown, storyboard
     binding, character LoRA or 3D anchor locking, lip-sync, final edit.
     The discard rate and the human-in-the-loop ratio must both be
     disclosed, because a high discard rate quietly eats the gross margin
     through cloud compute.
-  gtm_operating_burden: >-
+
     Take the paid-acquisition model apart: separate gross content revenue
     from net proceeds, and disclose day-1 ROAS, day-7 ROAS, the first-three
     episode completion (hook) rate, paywall conversion and ARPPU. State the
     cost-inflation risk of depending on a single channel (TikTok, Meta,
     Google) for acquisition.
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     Check the financial denominators strictly: separate gross content
     revenue (GMV), settled revenue after the 30% app-store cut, and net
     cash in after user-acquisition spend. Convert view counts and social
@@ -93,7 +93,7 @@ research_focus:
     Office and equivalents) currently treat authorship of purely
     AI-generated work. Review the content filing and review lines in each
     jurisdiction.
-  valuation_comps: >-
+  valuation_exit: >-
     Value the three tracks separately. Pure tooling software is compared to
     infrastructure and creator SaaS on EV / forward ARR. Production studios
     are valued like digital animation and post-production companies on EV /

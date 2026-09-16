@@ -13,18 +13,14 @@ PROMPT_FILES = {
 }
 
 EXPECTED_PASS_ORDER = [
-    "arithmetic_denominators",
-    "time_base",
+    "numbers_integrity",
     "growth_bridge",
-    "valuation_comps",
-    "exit_paths",
-    "replacement_coexistence",
-    "competitive_rights",
-    "alternative_explanations",
+    "valuation_exit",
     "market_sizing",
+    "competitive_position",
+    "adoption_distribution",
     "team_governance",
-    "deployment_behavior",
-    "gtm_operating_burden",
+    "alternative_explanations",
 ]
 
 

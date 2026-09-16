@@ -1,5 +1,5 @@
 ---
-en_sha256: 0085e2555ea738314f66f7d2ccecfdf01f8ea934848cc327cebdb075ed7039fd
+en_sha256: 1dd967f9e9998277abe51c0d89874407d780595fcf0dd394a758da948120706f
 ---
 ---
 type: robotics
@@ -45,13 +45,13 @@ research_focus:
     （如传统 AMR/AGV、固定工业机械臂每年的更新换代采购支出）；(3) 具身智能整机硬件
     装机量市场（预期保有台数 × 单台均价/年费）。严禁将宏观全球劳动力万亿美元总盘子
     直接等同于近期可触达市场。
-  competitive_rights: >-
+  competitive_position: >-
     与传统成熟在位者（发那科、ABB、极智嘉等自动化巨头）比拼稳定性、节拍（Cycle Time）
     与综合持有 TCO；与其他前沿具身实验室（Figure AI、Tesla Optimus、1X、Skild AI、
     Physical Intelligence 等）在通用操作泛化度、抗扰动鲁棒性及零样本/少样本迁移速度上
     进行基准对齐。追问：相较于仅需几千美元的传统专用自动化机构，该机器人所具备的
     “大模型柔性”为客户创造了多少可量化的溢价？
-  deployment_behavior: >-
+  adoption_distribution: >-
     严格搭建并核实六级落地阶梯：战略意向合作(MOU) -> 实验室技术验证(POC) -> 付费现场
     试点(Paid Pilot) -> 产线小批量试运行 -> 规模化机队交付(Fleet Deployment) -> 客户
     复购扩容。必须点名真实进厂客户，披露各阶梯停留时长与转化率；一个公关签约标识绝不
@@ -60,7 +60,7 @@ research_focus:
     时间（MTTR）、端到端任务成功率（Task Success Rate）、平均每小时人工干预次数
     （Interventions per Hour）。明确披露视频演示中是否存在远程人工遥操作（Teleoperation）
     介入或固定轨迹预编程（Hard-coded scripts）。
-  arithmetic_denominators: >-
+  numbers_integrity: >-
     严格校验财务与订单分母：明确切分“不可撤销具法律效力合同（Firm Backlog）”、“非约束性
     意向订单（LOI/MOU）”与“实际开票交付收入”；将机器人即服务（RaaS）模式换算为扣除折旧、
     维保与现场驻场工程师（FDE）人力后的单机净年化收入与资本回收周期。
@@ -68,7 +68,7 @@ research_focus:
     硬件与具身模型高度依赖复合工程基因。盘点核心团队在视觉-语言-动作（VLA）模型算法、
     高功率密度电机/执行器、力控与嵌入式固件、供应链量产制造四个维度的背景配比；审查
     制造基地落地进度与国际工业安全合规认证（ISO 10218、ISO/TS 15066、CE、UL）进展。
-  valuation_comps: >-
+  valuation_exit: >-
     三轨分流估值：纯软件/具身大脑层按底层 AI Infra 与基础大模型（EV / 远期 ARR 或
     重置研发成本）比较；软硬一体整机厂以先进硬件制造与高端工业机器人（EV / 远期收入，
     经硬件毛利率校准）测算；RaaS 租赁运营方按高科技设备租赁资产（EV / EBITDA 或 DCF）

@@ -139,8 +139,7 @@ components:
 - deal_terms
 floor: {}
 pass_affinity:
-- deployment_behavior
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases:
 - company overview and stage
 - company overview
@@ -283,8 +282,7 @@ components:
 - key_operating_metrics
 floor: {}
 pass_affinity:
-- deployment_behavior
-- gtm_operating_burden
+- adoption_distribution
 title_word_aliases:
 - product, business model and unit economics
 - product and business model
@@ -351,8 +349,7 @@ components:
 - replacement_coexistence
 floor: {}
 pass_affinity:
-- replacement_coexistence
-- competitive_rights
+- competitive_position
 title_word_aliases: []
 subsections:
 - en: Industry map
@@ -407,8 +404,7 @@ components:
 - moat
 floor: {}
 pass_affinity:
-- competitive_rights
-- replacement_coexistence
+- competitive_position
 title_word_aliases:
 - moat and defensibility
 - moat
@@ -456,7 +452,7 @@ components:
 - growth_bridge
 floor: {}
 pass_affinity:
-- arithmetic_denominators
+- numbers_integrity
 - growth_bridge
 title_word_aliases: []
 subsections:
@@ -583,9 +579,8 @@ components:
 floor:
   require_valuation_refs: true
 pass_affinity:
-- time_base
-- arithmetic_denominators
-- valuation_comps
+- numbers_integrity
+- valuation_exit
 title_word_aliases:
 - valuation analysis
 - valuation
@@ -653,10 +648,9 @@ components:
 floor:
   require_valuation_refs: true
 pass_affinity:
-- arithmetic_denominators
-- time_base
+- numbers_integrity
 - growth_bridge
-- exit_paths
+- valuation_exit
 title_word_aliases:
 - return and exit analysis
 - return analysis
@@ -730,7 +724,7 @@ floor:
   bullets_or_prose: true
 pass_affinity:
 - alternative_explanations
-- competitive_rights
+- competitive_position
 title_word_aliases:
 - investment risk
 - risk analysis
