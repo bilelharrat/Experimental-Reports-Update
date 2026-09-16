@@ -461,31 +461,62 @@ def _subprocess_output_tail(*parts: str | None, limit: int = 600) -> str:
 # "claude exited 1".
 MEMO_STRUCTURED_OUTPUT_EXHAUSTED = "error_max_structured_output_retries"
 
+# The CLI's rejection notice, which arrives as an ordinary tool result and
+# is otherwise discarded.
+_SCHEMA_REJECTION_MARKER = "Output does not match required schema"
 
-def _structured_output_exhausted_error(result_event: dict | None) -> str | None:
-    """A readable error when the CLI gave up on structured output.
+# Every message this module produces for the failure opens with this, so
+# callers can recognise it without matching prose. `is_structured_output_
+# failure` is the supported test.
+MEMO_STRUCTURED_OUTPUT_FAILURE_PHRASE = (
+    "never returned output matching the schema"
+)
 
-    The schemas involved are permissive — the English section schema is
-    `{"section": {"type": "object"}}` with no length or item limits — so
-    repeated validation failure means the response never closed: the model
-    was writing more JSON than one response can carry, and it arrived
-    truncated. The fix is a smaller ask, never a bigger retry budget, so
-    this says so rather than leaving a caller to guess.
+
+def is_structured_output_failure(error: str | None) -> bool:
+    """True when this error is "the CLI rejected every structured answer"."""
+    return MEMO_STRUCTURED_OUTPUT_FAILURE_PHRASE in str(error or "")
+
+
+def _note_schema_rejection(state: dict, text: str | None) -> None:
+    """Keep the CLI's own complaint about a structured-output attempt.
+
+    Without this the transcript's only record of WHY a call failed is
+    thrown away, and the failure reports as a bare "claude exited 1". On
+    2026-09-16 that silence was filled with a guess — "the response was
+    too large to close its JSON" — which the transcripts do not support:
+    the rejections read "must have required property 'key_findings'", and
+    passes that succeeded wrote MORE output tokens than the ones that
+    died. Record the reason; do not infer one.
     """
+    if not text or _SCHEMA_REJECTION_MARKER not in text:
+        return
+    state["last_schema_rejection"] = text.strip()[:600]
+    state["schema_rejection_count"] = (
+        state.get("schema_rejection_count", 0) + 1
+    )
+
+
+def _structured_output_exhausted_error(
+    result_event: dict | None, state: dict | None = None
+) -> str | None:
+    """A readable error when the CLI gave up on structured output."""
     if not isinstance(result_event, dict):
         return None
     if result_event.get("subtype") != MEMO_STRUCTURED_OUTPUT_EXHAUSTED:
         return None
+    rejection = (state or {}).get("last_schema_rejection")
+    count = (state or {}).get("schema_rejection_count") or 0
+    head = f"the model {MEMO_STRUCTURED_OUTPUT_FAILURE_PHRASE}"
+    if rejection:
+        attempts = f"{count} rejected attempt(s)" if count else "every attempt"
+        return f"{head} ({attempts}); the CLI's last complaint was: {rejection}"
     usage = result_event.get("usage")
-    tokens = None
-    if isinstance(usage, dict):
-        tokens = usage.get("output_tokens")
-    size = f" after writing {tokens} output tokens" if tokens else ""
+    tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
+    size = f", after writing {tokens} output tokens" if tokens else ""
     return (
-        "the model ran out of structured-output retries"
-        f"{size}: its JSON response never completed, which means the ask "
-        "is too large for one response, not that the model erred. Split "
-        "the ask or shorten what it must return."
+        f"{head}{size}, and the transcript recorded no rejection notice to "
+        "explain why"
     )
 
 
@@ -1700,6 +1731,7 @@ def _process_search_event(event: dict, progress, state: dict) -> None:
                     content_str = "\n".join(text_pieces)
                 else:
                     content_str = content if isinstance(content, str) else ""
+                _note_schema_rejection(state, content_str)
                 progress.emit(
                     "claude_action",
                     action="tool_result",
@@ -1850,7 +1882,9 @@ def _consume_stream_json_process(
 
     if proc.returncode and proc.returncode != 0:
         result_event = state.get("result_event") or {}
-        structured_error = _structured_output_exhausted_error(result_event)
+        structured_error = _structured_output_exhausted_error(
+            result_event, state
+        )
         if structured_error:
             return None, f"claude exited {proc.returncode}: {structured_error}"
         result_text = (
@@ -2390,6 +2424,7 @@ def _process_pdf_translation_event(event: dict, progress, state: dict) -> None:
                     content_str = "\n".join(text_pieces)
                 else:
                     content_str = content if isinstance(content, str) else ""
+                _note_schema_rejection(state, content_str)
                 progress.emit(
                     "claude_action",
                     action="tool_result",
@@ -8114,41 +8149,43 @@ def run_memo_fast_english_package_parallel(
                 structure=structure,
                 **job,
             )
-            # One section that could not close its JSON used to fail the
-            # whole wave, and with it the run (executive_summary, 2026-09-16,
-            # $14.60 already spent). The cause is a response too large to
-            # finish, so the one retry worth making is a SMALLER ask — a
-            # blind repeat just spends the same money to truncate again.
+            # One section whose answers the CLI kept rejecting used to fail
+            # the whole wave, and with it the run (executive_summary,
+            # 2026-09-16, $14.60 already spent). The transcripts show what
+            # the rejections actually are: the model submits an object
+            # missing its required properties, or sends the JSON as a
+            # string, and the CLI rejects every attempt until its retries
+            # run out. Other workers clear the same stumble on their next
+            # attempt, so one retry is worth making — and it must carry the
+            # CLI's own complaint, which is the only thing that tells the
+            # model what to change.
             # A section that delivers its subsections as files has already
             # retried the piece that failed, up to its own limit; re-running
             # the whole section on top of that just pays twice.
             hands_off = _section_handoff_enabled(
                 section_id, structure.section(section_id)
             )
-            if (
-                error
-                and not hands_off
-                and MEMO_STRUCTURED_OUTPUT_EXHAUSTED in str(error)
-            ):
+            if error and not hands_off and is_structured_output_failure(error):
                 retry_job = dict(job)
                 retry_job["section_note"] = (
                     (retry_job.get("section_note") or "")
-                    + "\n\nYOUR LAST RESPONSE DID NOT FIT. It was cut off "
-                    "before the JSON closed, so none of it could be used. "
+                    + "\n\nYOUR LAST ANSWER NEVER REACHED US. The tool "
+                    "rejected every attempt: "
+                    f"{str(error)[-400:]}\n"
                     "Return the SAME section — every pinned fact, every "
-                    "subsection, the scorecard sentences — but say each "
-                    "thing once and in fewer words. Drop commentary, not "
-                    "content. A complete shorter section is worth more "
-                    "than a longer one that never arrives."
+                    "subsection — as ONE complete JSON object with every "
+                    "required property present in that one object. Do not "
+                    "send it in pieces across several calls, and do not "
+                    "pass the JSON as a string inside a field."
                 ).strip()
                 if progress is not None:
                     progress.emit(
                         "stage",
-                        stage="memo_section_oversize_retry",
+                        stage="memo_section_schema_retry",
                         message=(
-                            f"{section_id}: response was too large to close "
-                            "its JSON; asking once more for the same content, "
-                            "more concisely"
+                            f"{section_id}: the tool rejected every "
+                            "structured answer; asking once more for one "
+                            "complete object"
                         ),
                         section_id=section_id,
                     )

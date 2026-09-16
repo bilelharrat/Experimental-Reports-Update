@@ -2892,6 +2892,30 @@ def _run_fast_memo_pass(
 
     try:
         data, error = _attempt()
+        # The CLI rejecting every structured answer is a stumble, not a
+        # verdict: the model submits an object missing a required property
+        # (or the JSON as a string), and runs out of retries. The SAME
+        # schema and prompt succeed on the sibling passes in the same run —
+        # on 2026-09-16 seven of eight landed while `alternative_explanations`
+        # died after four rejections, all of them "must have required
+        # property 'key_findings'". A lost pass costs the memo a whole line
+        # of argument, so it is worth one more attempt.
+        if error and claude_runner.is_structured_output_failure(error):
+            logger.warning(
+                "fast memo pass %s had every structured answer rejected (%s); "
+                "retrying",
+                spec.pass_id,
+                error,
+            )
+            sub_progress.emit(
+                "stage",
+                stage="memo_pass_schema_retry",
+                message=(
+                    f"{spec.label}: the tool rejected every structured "
+                    "answer — running it again"
+                ),
+            )
+            data, error = _attempt()
         # A placeholder answer is worse than no answer: it is indistinguishable
         # from real work downstream. Try once more, then fail the pass loudly.
         if not error:

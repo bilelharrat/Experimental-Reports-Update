@@ -6,7 +6,7 @@ came back empty. Both failures were silent until they were expensive.
 """
 from __future__ import annotations
 
-from server import claude_runner, memo_analysis
+from server import claude_runner, job_progress, memo_analysis
 
 
 # ---- placeholder pass output -------------------------------------------
@@ -147,3 +147,106 @@ def test_the_fallback_is_off_unless_a_caller_asks(tmp_path):
 
     sig = inspect.signature(memo_analysis._memo_package_render_validation_error)
     assert sig.parameters["allow_zh_fallback"].default is False
+
+
+# ---- the CLI rejecting every structured answer -------------------------
+#
+# 2026-09-16: `alternative_explanations` died after four rejections, each
+# "must have required property 'key_findings'", while the seven sibling
+# passes on the same schema and prompt landed. A lost pass costs the memo
+# a line of argument, so it gets one more attempt.
+
+
+def _run_one_pass(tmp_path, attempts):
+    """Drive _run_fast_memo_pass with a scripted sequence of answers."""
+    calls = []
+
+    def fake_pass(**_kwargs):
+        calls.append(1)
+        return attempts[len(calls) - 1]
+
+    return calls, fake_pass
+
+
+def _pass_result(tmp_path, monkeypatch, attempts):
+    calls, fake_pass = _run_one_pass(tmp_path, attempts)
+    monkeypatch.setattr(claude_runner, "run_memo_fast_analysis_pass", fake_pass)
+    stream = job_progress.ProgressLog(tmp_path / "stream.jsonl")
+    result = memo_analysis._run_fast_memo_pass(
+        spec=memo_analysis._FastMemoPassSpec(
+            pass_id="alternative_explanations",
+            label="Alternative explanations",
+            artifact_filename="disconfirming_evidence.md",
+            focus="focus",
+        ),
+        run_dir=tmp_path,
+        company_name="Anthropic",
+        company_slug="anthropic-pbc",
+        run_id="run",
+        stream=stream,
+        research_dir=None,
+        lessons_path=None,
+        scope_check=None,
+        warnings=[],
+    )
+    return result, calls
+
+
+def _good_payload():
+    return {
+        "summary": "A real summary of what the pass established, at length.",
+        "key_findings": [
+            {
+                "claim": "The bear case rests on undisclosed margins.",
+                "finding": "No gross margin has been disclosed for any period.",
+                "evidence_class": "company-reported",
+                "implication": "The downside cannot be bounded from filings.",
+                "confidence": "medium",
+            }
+        ],
+    }
+
+
+def test_a_rejected_pass_is_run_again(tmp_path, monkeypatch):
+    rejected = (
+        None,
+        "the model never returned output matching the schema (4 rejected "
+        "attempt(s)); the CLI's last complaint was: Output does not match "
+        "required schema: root: must have required property 'key_findings'",
+    )
+    result, calls = _pass_result(
+        tmp_path, monkeypatch, [rejected, (_good_payload(), None)]
+    )
+    assert len(calls) == 2
+    assert result.ok
+    assert result.error is None
+
+
+def test_a_pass_rejected_twice_fails_and_says_why(tmp_path, monkeypatch):
+    rejected = (
+        None,
+        "the model never returned output matching the schema; the CLI's last "
+        "complaint was: Output does not match required schema: root: must "
+        "have required property 'key_findings'",
+    )
+    result, calls = _pass_result(tmp_path, monkeypatch, [rejected, rejected])
+    assert len(calls) == 2
+    assert not result.ok
+    assert "must have required property" in result.error
+
+
+def test_an_ordinary_failure_is_not_retried(tmp_path, monkeypatch):
+    """Only the schema-rejection class earns a second run."""
+    result, calls = _pass_result(
+        tmp_path, monkeypatch, [(None, "claude exited 1: no such file")]
+    )
+    assert len(calls) == 1
+    assert not result.ok
+
+
+def test_a_pass_that_works_first_time_runs_once(tmp_path, monkeypatch):
+    result, calls = _pass_result(
+        tmp_path, monkeypatch, [(_good_payload(), None)]
+    )
+    assert len(calls) == 1
+    assert result.ok

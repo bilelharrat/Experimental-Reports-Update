@@ -113,6 +113,18 @@ on any structural failure).
   `_MEMO_SECTION_SPECS[id]` (+ risk-register contract for
   `investment_risk`). Output schema is loose (`{"section": object}`) —
   enforcement is post-hoc.
+- **Structured-output rejections**: the CLI rejects an answer that does
+  not match the schema and retries; when its retries run out the call
+  exits 1 with empty stderr. The rejection notices arrive as ordinary
+  tool results, so `_note_schema_rejection` keeps the last one and the
+  failure quotes it. They are overwhelmingly "must have required property
+  '<x>'" — an object submitted incomplete, not a giant one truncated
+  (481 stored pass payloads top out at 15,907 characters, while
+  successful passes write a median of 15,905 output tokens). Sibling
+  calls clear the same stumble on their next attempt, so a rejected pass
+  (`memo_pass_schema_retry`) and a rejected inline section
+  (`memo_section_schema_retry`) each get one more run, carrying the CLI's
+  own complaint in the prompt.
 - **Section handoff** (`BSH_MEMO_SECTION_HANDOFF`, default
   `executive_summary`): a listed section is written by the SAME single
   agent, but it leaves through the filesystem instead of the response.
@@ -122,9 +134,11 @@ on any structural failure).
   each piece (parses, non-empty `blocks`, opens with its scaffolded
   heading) and assembles them in order. A missing or malformed piece is
   re-asked alone, up to `MEMO_SECTION_PIECE_MAX_RETRIES` (3). Reason:
-  `executive_summary` wrote 17,189 output tokens on 2026-09-16 and its
-  JSON never closed (`error_max_structured_output_retries`), losing the
-  lot. One agent, not four: the per-call cache creation is 21–52k tokens,
+  `executive_summary` exhausted its structured-output retries on
+  2026-09-16 after 17,189 output tokens, losing the lot. (That run
+  recorded no rejection notice, so the exact complaint is unknown; the
+  handoff earns its place by banking each subsection as it is written and
+  by making each ask small, not by the truncation story first told here.) One agent, not four: the per-call cache creation is 21–52k tokens,
   and a sub-agent per subsection would pay it four times over while
   seeing only its own slice.
 - **Detached artifacts** (`claude_runner.AsyncArtifacts`,
