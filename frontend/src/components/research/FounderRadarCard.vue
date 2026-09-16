@@ -17,7 +17,6 @@ import {
   Settings2,
 } from "lucide-vue-next";
 import { api } from "../../api.js";
-import { confirmTokenSpend } from "../../confirmTokens.js";
 
 const t = useT();
 
@@ -52,8 +51,10 @@ async function loadFounders() {
 }
 
 async function deepSearch() {
+  // No token confirmation here: the deep search rebuilds the dossier from the
+  // company record and calls no model (server/founder_dossier.py). Put the
+  // confirmTokenSpend() guard back the day external enrichment is wired in.
   if (!props.companyId || searching.value) return;
-  if (!confirmTokenSpend()) return;
   searching.value = true;
   try {
     founderData.value = await api.deepSearchFounder(props.companyId);
