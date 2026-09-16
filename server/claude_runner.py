@@ -454,6 +454,41 @@ def _subprocess_output_tail(*parts: str | None, limit: int = 600) -> str:
     return text[-limit:] if text else ""
 
 
+# The CLI's own name for "the model could not return a valid structured
+# response, and I have run out of retries". It surfaces as a plain exit 1
+# with empty stderr, so without this it reads as an infrastructure failure
+# — on 2026-09-16 it killed a $14.60 run twice over, reported only as
+# "claude exited 1".
+MEMO_STRUCTURED_OUTPUT_EXHAUSTED = "error_max_structured_output_retries"
+
+
+def _structured_output_exhausted_error(result_event: dict | None) -> str | None:
+    """A readable error when the CLI gave up on structured output.
+
+    The schemas involved are permissive — the English section schema is
+    `{"section": {"type": "object"}}` with no length or item limits — so
+    repeated validation failure means the response never closed: the model
+    was writing more JSON than one response can carry, and it arrived
+    truncated. The fix is a smaller ask, never a bigger retry budget, so
+    this says so rather than leaving a caller to guess.
+    """
+    if not isinstance(result_event, dict):
+        return None
+    if result_event.get("subtype") != MEMO_STRUCTURED_OUTPUT_EXHAUSTED:
+        return None
+    usage = result_event.get("usage")
+    tokens = None
+    if isinstance(usage, dict):
+        tokens = usage.get("output_tokens")
+    size = f" after writing {tokens} output tokens" if tokens else ""
+    return (
+        "the model ran out of structured-output retries"
+        f"{size}: its JSON response never completed, which means the ask "
+        "is too large for one response, not that the model erred. Split "
+        "the ask or shorten what it must return."
+    )
+
+
 def _claude_exit_error(
     returncode: int | None, *output_parts: str | None, limit: int = 600
 ) -> str:
@@ -1815,6 +1850,9 @@ def _consume_stream_json_process(
 
     if proc.returncode and proc.returncode != 0:
         result_event = state.get("result_event") or {}
+        structured_error = _structured_output_exhausted_error(result_event)
+        if structured_error:
+            return None, f"claude exited {proc.returncode}: {structured_error}"
         result_text = (
             result_event.get("result")
             if isinstance(result_event.get("result"), str)
@@ -7640,6 +7678,45 @@ def run_memo_fast_english_package_parallel(
                 structure=structure,
                 **job,
             )
+            # One section that could not close its JSON used to fail the
+            # whole wave, and with it the run (executive_summary, 2026-09-16,
+            # $14.60 already spent). The cause is a response too large to
+            # finish, so the one retry worth making is a SMALLER ask — a
+            # blind repeat just spends the same money to truncate again.
+            if error and MEMO_STRUCTURED_OUTPUT_EXHAUSTED in str(error):
+                retry_job = dict(job)
+                retry_job["section_note"] = (
+                    (retry_job.get("section_note") or "")
+                    + "\n\nYOUR LAST RESPONSE DID NOT FIT. It was cut off "
+                    "before the JSON closed, so none of it could be used. "
+                    "Return the SAME section — every pinned fact, every "
+                    "subsection, the scorecard sentences — but say each "
+                    "thing once and in fewer words. Drop commentary, not "
+                    "content. A complete shorter section is worth more "
+                    "than a longer one that never arrives."
+                ).strip()
+                if progress is not None:
+                    progress.emit(
+                        "stage",
+                        stage="memo_section_oversize_retry",
+                        message=(
+                            f"{section_id}: response was too large to close "
+                            "its JSON; asking once more for the same content, "
+                            "more concisely"
+                        ),
+                        section_id=section_id,
+                    )
+                result, error = _run_english_section(
+                    run_dir=run_dir,
+                    section_id=section_id,
+                    common_context=common_context,
+                    spine_path=spine_path,
+                    add_dirs=add_dirs,
+                    progress=progress,
+                    timeout_sec=timeout_sec,
+                    structure=structure,
+                    **retry_job,
+                )
             _finish_row(row, phase_name, started, error=error, result=result)
             if error is None and isinstance(result, dict) and section_hook:
                 try:
