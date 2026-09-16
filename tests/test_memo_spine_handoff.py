@@ -356,12 +356,16 @@ def test_a_schema_violation_re_asks_only_that_part(tmp_path, monkeypatch):
     """The enforcement the CLI used to provide, kept."""
     calls = []
     metrics_file = next(e[5].name for e in _plan(tmp_path) if e[0] == "metrics")
+    # read the cap from the schema: it moves when the report gets longer
+    cap = _schema()["properties"]["shared_facts"]["properties"]["key_metrics"][
+        "items"
+    ]["properties"]["name"]["maxLength"]
 
     def fake(**kw):
         calls.append(kw)
         payload = _spine_payload()
         if len(calls) == 1:
-            payload["shared_facts"]["key_metrics"][0]["name"] = "x" * 89
+            payload["shared_facts"]["key_metrics"][0]["name"] = "x" * (cap + 9)
         _write_pieces(tmp_path, payload)
         return {"pieces": []}, None
 
@@ -370,8 +374,8 @@ def test_a_schema_violation_re_asks_only_that_part(tmp_path, monkeypatch):
     assert len(calls) == 2
     retry = calls[1]["prompt"]
     assert metrics_file in retry
-    assert "must NOT have more than 80 characters" in retry
-    assert len(spine["shared_facts"]["key_metrics"][0]["name"]) < 89
+    assert f"must NOT have more than {cap} characters" in retry
+    assert len(spine["shared_facts"]["key_metrics"][0]["name"]) <= cap
 
 
 def test_parts_on_disk_survive_a_failed_drafting_call(tmp_path, monkeypatch):
@@ -441,3 +445,26 @@ def test_the_handoff_can_be_turned_off(tmp_path, monkeypatch):
     assert "Return only the JSON matching the attached schema." in (
         calls[0]["prompt"]
     )
+
+
+def test_null_for_an_optional_field_means_absent(tmp_path):
+    """Live 2026-09-16: a spine wrote `decision_history_sentence: null`.
+
+    That is what a writer naturally puts when the run has no decision
+    history, and it cost a retry that would only have deleted the key.
+    """
+    payload = _spine_payload()
+    payload["shared_facts"]["decision_history_sentence"] = None
+    _write_pieces(tmp_path, payload)
+    spine = claude_runner._assemble_spine(_plan(tmp_path))
+    assert "decision_history_sentence" not in spine["shared_facts"]
+    assert not claude_runner._schema_errors(spine, _schema())
+
+
+def test_null_for_a_required_field_still_fails(tmp_path):
+    payload = _spine_payload()
+    payload["shared_facts"]["recommendation_sentence"] = None
+    _write_pieces(tmp_path, payload)
+    spine = claude_runner._assemble_spine(_plan(tmp_path))
+    errors = claude_runner._schema_errors(spine, _schema())
+    assert any("recommendation_sentence" in e for e in errors)

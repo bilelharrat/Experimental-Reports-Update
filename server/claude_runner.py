@@ -3067,6 +3067,30 @@ def _spine_highlights_schema() -> dict[str, Any]:
     }
 
 
+def _spine_key_metrics_schema_v2() -> dict[str, Any]:
+    """The v1 key-metric list with caps sized for the 16,000-word memo."""
+    base = MEMO_FAST_ENGLISH_SPINE_SCHEMA["properties"]["shared_facts"][
+        "properties"
+    ]["key_metrics"]
+    item = base["items"]
+    return {
+        **base,
+        "maxItems": 20,
+        "items": {
+            **item,
+            "properties": {
+                **item["properties"],
+                "name": {"type": "string", "maxLength": 140},
+                "value": {"type": "string", "maxLength": 220},
+                "source_ids": {
+                    **item["properties"]["source_ids"],
+                    "maxItems": 6,
+                },
+            },
+        },
+    }
+
+
 def _spine_risks_schema_v2() -> dict[str, Any]:
     """The v1 risk item plus `area` (which aspect the risk concentrates
     on) and `impact` (what it costs the investment, in plain words with
@@ -3077,6 +3101,10 @@ def _spine_risks_schema_v2() -> dict[str, Any]:
     item = base["items"]
     return {
         **base,
+        # The risk register is now the longest section of the compact
+        # memo (2,800 words, a card per pinned risk) and the live spine
+        # wanted eight risks against a cap of six. v1 keeps its own.
+        "maxItems": 10,
         "items": {
             **item,
             "properties": {
@@ -3085,7 +3113,7 @@ def _spine_risks_schema_v2() -> dict[str, Any]:
                     "type": "string",
                     "enum": list(memo_structure.RISK_AREA_KEYS),
                 },
-                "impact": {"type": "string", "maxLength": 160},
+                "impact": {"type": "string", "maxLength": 260},
             },
             "required": ["summary", "rating", "likelihood", "area", "impact"],
         },
@@ -3111,6 +3139,12 @@ def memo_fast_english_spine_schema(
             **shared_facts,
             "properties": {
                 **shared_facts["properties"],
+                # The pin caps were cut for a 6,700-word memo. Against the
+                # 16,000-word profile the live spine asked for 27 metrics
+                # with names of 103-139 characters and values of 166-199,
+                # so the caps were shaping the pin sheet rather than
+                # catching a blowout. v1's stay where they are.
+                "key_metrics": _spine_key_metrics_schema_v2(),
                 "stage": {
                     "type": "string",
                     "enum": ["early", "growth", "late"],
@@ -3169,7 +3203,7 @@ def memo_fast_english_spine_schema(
                                             "maxItems": 2,
                                             "items": {
                                                 "type": "string",
-                                                "maxLength": 240,
+                                                "maxLength": 420,
                                             },
                                         },
                                     },
@@ -6015,12 +6049,20 @@ _MEMO_SPINE_MANIFEST_SCHEMA: dict[str, Any] = {
 
 def _assemble_spine(plan) -> dict:
     spine: dict[str, Any] = {}
-    for _stem, target, keys, _required, _what, path in plan:
+    for _stem, target, keys, required, _what, path in plan:
         data = json.loads(path.read_text(encoding="utf-8"))
         bucket = spine.setdefault(target, {}) if target else spine
         for key in keys:
-            if key in data:
-                bucket[key] = data[key]
+            if key not in data:
+                continue
+            # `null` for an OPTIONAL field means "there is nothing here",
+            # which is what a writer naturally puts when a run has no
+            # decision history. Treating it as absent is what it means;
+            # leaving it in costs a retry that only deletes the key. A
+            # required field set to null still fails validation, loudly.
+            if data[key] is None and key not in required:
+                continue
+            bucket[key] = data[key]
     return spine
 
 
@@ -6133,6 +6175,13 @@ def _run_english_spine_via_pieces(
                     f"`{pieces_dir}`. One of them did not arrive usable:\n\n"
                     f"- `{path}` — {what}\n"
                     f"- what went wrong: {reason}\n\n"
+                    "Fix the KIND of mistake, not just the fields named. "
+                    "If a field was the wrong shape — a bilingual "
+                    '{"en": ..., "zh": ...} object where a plain string '
+                    "belongs, a string where an array belongs — then every "
+                    "other field of that kind in this file is probably "
+                    "wrong the same way, whether or not it is listed. "
+                    "Check them all before you write.\n\n"
                     "Rewrite that ONE file and nothing else. Its siblings "
                     "are already on disk and are being used as they are — "
                     "read them if you need to stay consistent with them, "
@@ -6185,8 +6234,13 @@ def _run_english_spine_via_pieces(
                 )
             routed.setdefault(name, []).append(schema_error)
         for name, part_errors in routed.items():
+            # Show EVERY error for this file, not a window of them. A
+            # window turns one systematic mistake into a game of
+            # whack-a-mole: the model fixes the six fields it was shown,
+            # the next round names six more, and the retry budget is gone
+            # before the mistake is (live 2026-09-16, 03_verdict.json).
             pending[name] = "it failed schema validation: " + "; ".join(
-                part_errors[:6]
+                part_errors
             )
 
     if progress is not None:
@@ -6371,7 +6425,13 @@ Produce ONE JSON object with:
      following the sources contract in your instructions. Sections cite
      these by id and cannot add sources, so include every source any
      section will need.
-2. `shared_facts`: the compact pin sheet handed to every section worker:
+2. `shared_facts`: the compact pin sheet handed to every section worker.
+   EVERY value in it is a PLAIN ENGLISH STRING, never a bilingual
+   `{{"en": ..., "zh": ...}}` object — the pin sheet is an internal fact
+   sheet, and the Chinese memo is translated later from the finished
+   English. This is the single most common way a spine is rejected: the
+   bilingual habit from the block contract leaks into the pins. A field
+   with nothing to report is omitted, never set to an empty object.
    - `recommendation_sentence`: the exact recommendation sentence, verbatim
      as the executive summary must state it. It MUST begin with
      "Recommendation: " — for example "Recommendation: BSH commits $X to
