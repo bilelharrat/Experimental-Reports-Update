@@ -1,160 +1,264 @@
 <script setup>
+// Web twin of MacCommentsView (MacFirmViews.swift): threaded company
+// comments with @handle mentions, open count, the Resolved toggle,
+// reply/resolve/delete controls and inline @handle suggestions.
 import { computed, ref, watch } from "vue";
 import api from "../../api.js";
 import { t } from "../../i18n.js";
+import { MessageSquare, Check, Trash2, Send } from "lucide-vue-next";
+import { formatRelativeTime } from "../../formatters.js";
 
 const props = defineProps({
   companyId: {
     type: String,
     required: true,
   },
+  company: {
+    type: Object,
+    default: () => ({}),
+  },
 });
 
 const comments = ref([]);
-const loading = ref(false);
+const chatHandles = ref([]);
 const draft = ref("");
 const posting = ref(false);
+const postError = ref(null);
 const showResolved = ref(false);
 const replyTo = ref(null);
 
-const roots = computed(() => {
-  return comments.value.filter(
-    (c) => !c.parent_id && !c.parentId && (showResolved.value || !c.is_resolved && !c.isResolved)
-  );
-});
+// Scope: the company target (kind "company", ref companyId), plus replies.
+const scoped = computed(() =>
+  comments.value.filter(
+    (c) =>
+      (c.target?.kind === "company" && c.target?.ref === props.companyId) || c.parent_id != null,
+  ),
+);
 
-const openCount = computed(() => {
-  return comments.value.filter((c) => !c.is_resolved && !c.isResolved).length;
-});
+function isResolved(c) {
+  return Boolean(c.resolved_at || c.resolved);
+}
+
+const roots = computed(() =>
+  scoped.value.filter((c) => c.parent_id == null && (showResolved.value || !isResolved(c))),
+);
+
+const openCount = computed(
+  () => scoped.value.filter((c) => c.parent_id == null && !isResolved(c)).length,
+);
 
 function repliesFor(parentId) {
-  return comments.value.filter((c) => (c.parent_id || c.parentId) === parentId);
+  return scoped.value.filter((c) => c.parent_id === parentId);
+}
+
+// @handle suggestions for the draft, like the Mac's chatHandles matcher.
+const handleSuggestions = computed(() => {
+  const at = draft.value.lastIndexOf("@");
+  if (at === -1 || !chatHandles.value.length) return [];
+  const partial = draft.value.slice(at + 1).toLowerCase();
+  if (partial.includes(" ")) return [];
+  return chatHandles.value.filter((h) => h.toLowerCase().startsWith(partial)).slice(0, 5);
+});
+
+function applySuggestion(handle) {
+  const at = draft.value.lastIndexOf("@");
+  draft.value = `${draft.value.slice(0, at)}@${handle} `;
+}
+
+// Split a comment into pieces so @mentions render in accent bold.
+function mentionPieces(text) {
+  return String(text || "")
+    .split(/(\s+)/)
+    .map((piece) => ({ text: piece, mention: piece.startsWith("@") }));
 }
 
 async function loadComments() {
   if (!props.companyId) return;
-  loading.value = true;
   try {
     const res = await api.getCompanyComments(props.companyId);
     comments.value = res?.items ?? res ?? [];
-  } catch (err) {
-    console.error("Failed to load comments", err);
-  } finally {
-    loading.value = false;
+  } catch {
+    comments.value = [];
   }
 }
 
-async function postComment() {
-  if (!draft.value.trim() || posting.value) return;
-  posting.value = true;
+async function loadHandles() {
+  if (chatHandles.value.length) return;
   try {
-    await api.addCompanyComment(props.companyId, {
-      body: draft.value.trim(),
-      parent_id: replyTo.value?.id,
-    });
-    draft.value = "";
-    replyTo.value = null;
-    await loadComments();
-  } catch (err) {
-    console.error("Failed to post comment", err);
-  } finally {
-    posting.value = false;
+    const res = await api.getChatChannels();
+    chatHandles.value = res?.handles ?? [];
+  } catch {
+    chatHandles.value = [];
   }
 }
 
 watch(
   () => props.companyId,
   () => {
+    draft.value = "";
+    replyTo.value = null;
+    postError.value = null;
     loadComments();
+    loadHandles();
   },
   { immediate: true },
 );
+
+async function postComment() {
+  const text = draft.value.trim();
+  if (!text || posting.value) return;
+  posting.value = true;
+  postError.value = null;
+  try {
+    await api.addCompanyComment(props.companyId, {
+      text,
+      target: { kind: "company", ref: props.companyId },
+      parent_id: replyTo.value?.id || undefined,
+    });
+    draft.value = "";
+    replyTo.value = null;
+    await loadComments();
+  } catch (err) {
+    postError.value = err?.message || t("research_desk.comments_post_failed");
+  } finally {
+    posting.value = false;
+  }
+}
+
+async function resolveComment(c) {
+  try {
+    await api.resolveCompanyComment(props.companyId, c.id, !isResolved(c));
+    await loadComments();
+  } catch {
+    // reload shows the truth
+  }
+}
+
+async function deleteComment(c) {
+  try {
+    await api.deleteCompanyComment(props.companyId, c.id);
+    await loadComments();
+  } catch {
+    // reload shows the truth
+  }
+}
 </script>
 
 <template>
-  <div class="rounded-xl border border-border/40 bg-surface/90 dark:bg-[#1c1c1e]/90 p-4 shadow-sm backdrop-blur-md">
-    <!-- Header -->
-    <div class="flex items-center justify-between pb-3 border-b border-border/30">
-      <div class="flex items-center gap-2">
-        <svg class="h-4 w-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-        <span class="font-semibold text-foreground text-xs">
-          {{ t("research_desk.comments_title") }}
-        </span>
-        <span v-if="openCount > 0" class="rounded px-1.5 py-0.2 text-[10px] font-mono text-amber-500 bg-amber-500/10">
-          {{ t("research_desk.open_comments_count", { count: openCount }) }}
-        </span>
-      </div>
-
-      <label class="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
-        <input v-model="showResolved" type="checkbox" class="rounded border-border/40 text-accent focus:ring-accent" />
-        <span>{{ t("research_desk.resolved") }}</span>
+  <div class="mac-card flex flex-col gap-2 p-2.5">
+    <!-- Label("Comments · {label}") · open count · Resolved toggle -->
+    <div class="flex items-center gap-2">
+      <MessageSquare class="mac-c-accent h-3.5 w-3.5" stroke-width="2.4" />
+      <span class="mac-t-subheadline truncate" style="font-weight: 600">
+        {{ t("research_desk.comments_title", { label: company?.name || companyId }) }}
+      </span>
+      <span class="flex-1" />
+      <span v-if="openCount > 0" class="mac-t-caption10" :style="{ color: 'var(--mac-orange)' }">
+        {{ t("research_desk.open_comments_count", { count: openCount }) }}
+      </span>
+      <label class="flex select-none items-center gap-1.5">
+        <input v-model="showResolved" type="checkbox" />
+        <span class="mac-t-caption10">{{ t("research_desk.resolved") }}</span>
       </label>
     </div>
 
-    <!-- Comments List -->
-    <div class="py-3 space-y-3 text-xs max-h-64 overflow-y-auto">
-      <div v-if="roots.length" class="space-y-3">
-        <div v-for="c in roots" :key="c.id" class="space-y-2">
-          <!-- Root comment -->
-          <div class="rounded-lg bg-muted/15 p-2.5 space-y-1">
-            <div class="flex items-center justify-between">
-              <span class="font-semibold text-foreground text-xs">{{ c.author_handle || c.author || "User" }}</span>
-              <span class="text-[10px] text-muted-foreground">{{ c.created_at ? new Date(c.created_at).toLocaleDateString() : "" }}</span>
-            </div>
-            <p class="text-foreground text-xs">{{ c.body }}</p>
-            <div class="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                class="text-[10px] text-accent hover:underline font-medium"
-                @click="replyTo = c"
-              >
-                {{ t("research_desk.reply") }}
-              </button>
-            </div>
-          </div>
+    <!-- Threads -->
+    <template v-for="c in roots" :key="c.id">
+      <div
+        class="flex flex-col gap-[3px] rounded-md p-1.5"
+        :style="{ background: `color-mix(in srgb, var(--mac-secondary) ${isResolved(c) ? 3 : 6}%, transparent)` }"
+      >
+        <span class="flex items-center gap-1.5">
+          <span class="mac-t-caption10 font-semibold">{{ c.author_handle || c.author || "—" }}</span>
+          <span class="mac-t-caption10 mac-c-secondary">{{ formatRelativeTime(c.created_at) }}</span>
+          <span v-if="isResolved(c)" class="mac-t-caption10 flex items-center gap-0.5" :style="{ color: 'var(--mac-green)' }">
+            <Check class="h-2.5 w-2.5" />
+            {{ t("research_desk.resolved") }}
+          </span>
+          <span class="flex-1" />
+          <button type="button" class="mac-t-caption10 mac-c-accent border-none bg-transparent p-0" @click="replyTo = c">
+            {{ t("research_desk.reply") }}
+          </button>
+          <button type="button" class="mac-t-caption10 mac-c-accent border-none bg-transparent p-0" @click="resolveComment(c)">
+            {{ isResolved(c) ? t("research_desk.comments_reopen") : t("research_desk.comments_resolve") }}
+          </button>
+          <button type="button" class="mac-c-secondary border-none bg-transparent p-0" @click="deleteComment(c)">
+            <Trash2 class="h-2.5 w-2.5" />
+          </button>
+        </span>
+        <p class="mac-t-caption10">
+          <template v-for="(piece, idx) in mentionPieces(c.text)" :key="idx">
+            <span v-if="piece.mention" class="mac-c-accent font-bold">{{ piece.text }}</span>
+            <template v-else>{{ piece.text }}</template>
+          </template>
+        </p>
+      </div>
 
-          <!-- Replies -->
-          <div v-for="reply in repliesFor(c.id)" :key="reply.id" class="ml-4 rounded-lg bg-muted/20 p-2 space-y-1">
-            <div class="flex items-center justify-between">
-              <span class="font-medium text-foreground text-[11px]">{{ reply.author_handle || reply.author || "User" }}</span>
-              <span class="text-[10px] text-muted-foreground">{{ reply.created_at ? new Date(reply.created_at).toLocaleDateString() : "" }}</span>
-            </div>
-            <p class="text-foreground text-xs">{{ reply.body }}</p>
-          </div>
+      <!-- Replies, indented 18pt -->
+      <div
+        v-for="reply in repliesFor(c.id)"
+        :key="reply.id"
+        class="ml-[18px] flex flex-col gap-[3px] rounded-md p-1.5"
+        style="background: color-mix(in srgb, var(--mac-secondary) 6%, transparent)"
+      >
+        <span class="flex items-center gap-1.5">
+          <span class="mac-t-caption10 font-semibold">{{ reply.author_handle || reply.author || "—" }}</span>
+          <span class="mac-t-caption10 mac-c-secondary">{{ formatRelativeTime(reply.created_at) }}</span>
+          <span class="flex-1" />
+          <button type="button" class="mac-c-secondary border-none bg-transparent p-0" @click="deleteComment(reply)">
+            <Trash2 class="h-2.5 w-2.5" />
+          </button>
+        </span>
+        <p class="mac-t-caption10">
+          <template v-for="(piece, idx) in mentionPieces(reply.text)" :key="idx">
+            <span v-if="piece.mention" class="mac-c-accent font-bold">{{ piece.text }}</span>
+            <template v-else>{{ piece.text }}</template>
+          </template>
+        </p>
+      </div>
+    </template>
+
+    <span v-if="roots.length === 0" class="mac-t-caption10 mac-c-secondary">
+      {{ t("research_desk.no_comments_yet") }}
+    </span>
+
+    <!-- Draft -->
+    <div class="flex items-start gap-2">
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <span v-if="replyTo" class="mac-t-caption10 mac-c-secondary flex items-center gap-1">
+          {{ t("research_desk.replying_to", { author: replyTo.author_handle || replyTo.author || "—" }) }}
+          <button type="button" class="border-none bg-transparent p-0" @click="replyTo = null">×</button>
+        </span>
+        <textarea
+          v-model="draft"
+          rows="1"
+          class="mac-field w-full resize-y"
+          style="line-height: 1.4"
+          :placeholder="t('research_desk.comment_ph')"
+          @keydown.enter.exact.prevent="postComment"
+        />
+        <div v-if="handleSuggestions.length" class="flex flex-wrap gap-1">
+          <button
+            v-for="h in handleSuggestions"
+            :key="h"
+            type="button"
+            class="mac-btn mac-btn--mini"
+            @click="applySuggestion(h)"
+          >
+            @{{ h }}
+          </button>
         </div>
       </div>
-
-      <div v-else class="py-4 text-center text-muted-foreground text-xs">
-        {{ t("research_desk.no_comments_yet") }}
-      </div>
+      <button
+        type="button"
+        class="mac-btn mac-btn--sm shrink-0"
+        :disabled="posting || !draft.trim()"
+        @click="postComment"
+      >
+        <span v-if="posting" class="mac-spinner" style="width: 12px; height: 12px" />
+        <Send v-else class="h-3 w-3" />
+      </button>
     </div>
-
-    <!-- Input bar -->
-    <div class="pt-2 border-t border-border/30 space-y-2">
-      <div v-if="replyTo" class="flex items-center justify-between text-[11px] text-muted-foreground bg-muted/20 px-2 py-1 rounded">
-        <span>{{ t("research_desk.replying_to", { author: replyTo.author_handle || replyTo.author }) }}</span>
-        <button type="button" class="text-foreground hover:text-rose-500" @click="replyTo = null">×</button>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <input
-          v-model="draft"
-          type="text"
-          :placeholder="t('research_desk.comment_ph')"
-          class="flex-1 rounded-lg border border-border/40 bg-surface dark:bg-muted/30 px-3 py-1.5 text-xs text-foreground placeholder-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-accent"
-          @keydown.enter.prevent="postComment"
-        />
-        <button
-          type="button"
-          class="btn-filled rounded-lg px-3 py-1.5 text-xs text-white transition-opacity disabled:opacity-50"
-          :disabled="!draft.trim() || posting"
-          @click="postComment"
-        >
-          {{ t("research_desk.send") }}
-        </button>
-      </div>
-    </div>
+    <span v-if="postError" class="mac-t-caption10" :style="{ color: 'var(--mac-red)' }">{{ postError }}</span>
   </div>
 </template>

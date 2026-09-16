@@ -1,14 +1,19 @@
 <script setup>
+// Web twin of CompanyDossierView in MacResearchDeskView.swift: header with
+// monogram, title, stage pill and actions; the underline tab bar; then the
+// card stack in the exact Mac body order, gated by the same shows() logic.
 import { ref, computed, inject, onMounted, onUnmounted, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useT } from "../../i18n.js";
 import {
-  ShieldCheck,
-  FileSpreadsheet,
-  MoreHorizontal,
-  ExternalLink,
+  BadgeCheck,
+  Columns2,
+  CircleEllipsis,
   MessageSquare,
   Star,
   Globe,
+  Compass,
+  RefreshCw,
 } from "lucide-vue-next";
 import AiMark from "../AiMark.vue";
 import MacMonogram from "./MacMonogram.vue";
@@ -44,15 +49,28 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(["open-copilot", "stage-updated", "open-memo"]);
+const emit = defineEmits(["open-copilot", "stage-updated"]);
 
 const t = useT();
+const route = useRoute();
+const router = useRouter();
 
-const activeSection = ref("overview");
+// Web twin of the bsh.launchDossierSection launch arg: ?section= picks the
+// tab, and the Mac's webCompanyMemoURL deep link (?tab=memo) lands on memos.
+const SECTIONS = ["overview", "memos", "decisions", "team", "pipeline", "capTable", "comps", "ratios", "all"];
+function initialSection() {
+  const q = String(route.query.section || "");
+  if (SECTIONS.includes(q)) return q;
+  if (route.query.tab === "memo") return "memos";
+  return "overview";
+}
+
+const activeSection = ref(initialSection());
 const showMoreMenu = ref(false);
 const isDecisionModalOpen = ref(false);
 const isFollowed = ref(false);
 const companyReports = ref([]);
+const decisionsVersion = ref(0);
 
 const tabItems = computed(() => [
   { id: "overview", label: t("research_desk.section_overview") },
@@ -66,14 +84,23 @@ const tabItems = computed(() => [
   { id: "all", label: t("research_desk.section_all") },
 ]);
 
-// Match Swift MacResearchDeskView.swift:437: secondaryLine
+// DossierSection.shows(_:) — a card renders in its own sections and in All.
+function shows(...sections) {
+  return activeSection.value === "all" || sections.includes(activeSection.value);
+}
+
+// headerLine: ticker · sector-or-industry · status capitalized.
 const headerSubtitle = computed(() => {
   const parts = [];
-  if (props.company?.ticker) parts.push(props.company.ticker.toUpperCase());
-  const isPub = Boolean(props.company?.ticker || props.company?.is_public);
-  parts.push(isPub ? t("research_desk.public_tag") : (props.company?.sector || t("research_desk.private_tag")));
-  return parts.join(" · ");
+  if (props.company?.ticker) parts.push(String(props.company.ticker).toUpperCase());
+  if (props.company?.sector) parts.push(props.company.sector);
+  else if (props.company?.industry) parts.push(props.company.industry);
+  const status = props.company?.status;
+  if (status) parts.push(status.charAt(0).toUpperCase() + status.slice(1));
+  return parts.join(" · ") || props.company?.subtitle || "";
 });
+
+const stagePill = computed(() => props.company?.deal_stage || "");
 
 async function loadCompanyReports() {
   if (!props.companyId) return;
@@ -87,12 +114,30 @@ async function loadCompanyReports() {
 
 watch(() => props.companyId, loadCompanyReports, { immediate: true });
 
-const latestOpenableReport = computed(() => {
-  return companyReports.value.find((r) => r.status === "complete" || r.can_open || r.isComplete);
-});
+function isComplete(rep) {
+  return rep.status === "complete";
+}
+
+function isFailed(rep) {
+  return rep.status === "failed" || rep.status === "error";
+}
+
+function canOpen(rep) {
+  return isComplete(rep) || rep.can_open === true;
+}
+
+const runningReports = computed(() =>
+  companyReports.value.filter((r) => !isComplete(r) && !isFailed(r)),
+);
+
+const latestOpenableReport = computed(() => companyReports.value.find(canOpen));
 
 function handleCustomReport() {
   openReportCustomizer(props.companyId);
+}
+
+function openMemo(rep) {
+  router.push({ name: "reports", query: { id: rep.id, company: props.companyId } });
 }
 
 function handleAskWarren() {
@@ -150,47 +195,45 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-4 max-w-[1180px] mx-auto w-full text-ink-primary">
-    <!-- Unboxed macOS Page Header (MacResearchDeskView.swift:233-289) -->
-    <div class="flex flex-wrap items-center justify-between gap-4 pb-1">
-      <!-- Left: MacMonogram + Title Block -->
-      <div class="flex items-center gap-3.5 min-w-0">
-        <MacMonogram
-          :company="company"
-          :name="company?.name || companyId"
-          :ticker="company?.ticker"
-          :size="48"
-        />
+  <!-- dsPage: 20pt padding, 1180pt content column, 20pt section rhythm -->
+  <div class="mx-auto flex w-full max-w-[1180px] flex-col gap-5 p-5">
+    <!-- Header (MacResearchDeskView.swift dossier header) -->
+    <div class="flex flex-wrap items-center gap-3.5 pb-1">
+      <MacMonogram
+        :company="company"
+        :name="company?.name || companyId"
+        :ticker="company?.ticker"
+        :size="48"
+      />
 
-        <div class="flex flex-col min-w-0 justify-center">
-          <div class="flex items-center gap-2">
-            <h1 class="text-[22px] font-bold tracking-tight text-ink-primary truncate">
-              {{ company?.name || companyId }}
-            </h1>
+      <div class="flex min-w-0 flex-col justify-center gap-1">
+        <div class="flex items-center gap-2.5">
+          <h1 class="mac-t-title truncate">
+            {{ company?.name || companyId }}
+          </h1>
 
-            <!-- Stage pill (MacStatusPill) -->
-            <span class="rounded-full bg-blue-500/20 px-2.5 py-0.5 text-xs font-semibold text-blue-400 shrink-0">
-              {{ company?.deal_stage || "Sourced" }}
-            </span>
+          <span v-if="stagePill" class="mac-status-pill shrink-0">{{ stagePill }}</span>
 
-            <Star
-              v-if="isFollowed"
-              class="h-3.5 w-3.5 fill-amber-400 text-amber-400 shrink-0"
-            />
-          </div>
-
-          <p class="text-[13px] text-ink-muted mt-0.5 truncate leading-tight">
-            {{ headerSubtitle }}
-          </p>
+          <Star
+            v-if="isFollowed"
+            class="h-3 w-3 shrink-0"
+            :style="{ color: 'var(--mac-yellow)', fill: 'var(--mac-yellow)' }"
+            :title="t('research_desk.follow')"
+          />
         </div>
+
+        <p class="mac-t-body mac-c-secondary truncate">
+          {{ headerSubtitle }}
+        </p>
       </div>
 
-      <!-- Right: Action Buttons (MacResearchDeskView.swift:263-288) -->
+      <div class="min-w-3 flex-1" />
+
+      <!-- Action buttons -->
       <div class="flex items-center gap-2">
-        <!-- Generate Report Button (⌘N) matching other pages -->
         <button
           type="button"
-          class="btn-filled btn-sm focus-ring inline-flex items-center gap-1.5"
+          class="mac-btn mac-btn--prominent"
           :title="`${t('memo.generate_report')} (⌘N)`"
           @click="handleCustomReport"
         >
@@ -198,85 +241,75 @@ onUnmounted(() => {
           <span>{{ t("memo.generate_report") }}</span>
         </button>
 
-        <!-- Decision Button (⌘D) (.bordered) -->
         <button
           type="button"
-          class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5"
+          class="mac-btn"
           :title="t('research_desk.decision_tooltip')"
           @click="isDecisionModalOpen = true"
         >
-          <ShieldCheck class="h-3.5 w-3.5 text-emerald-400" />
+          <BadgeCheck class="h-3.5 w-3.5" />
           <span>{{ t("research_desk.decision_btn") }}</span>
         </button>
 
-        <!-- IC Review Button (Shown ONLY if openable report exists, matching Swift line 280) -->
         <button
           v-if="latestOpenableReport"
           type="button"
-          class="btn-bordered btn-sm focus-ring inline-flex items-center gap-1.5"
+          class="mac-btn"
           :title="t('research_desk.ic_review_tooltip')"
           @click="activeSection = 'decisions'"
         >
-          <FileSpreadsheet class="h-3.5 w-3.5 text-sky-400" />
+          <Columns2 class="h-3.5 w-3.5" />
           <span>{{ t("research_desk.ic_review_btn") }}</span>
         </button>
 
-        <!-- Ellipsis More Menu (.ellipsis.circle) -->
+        <!-- Menu { … } label: ellipsis.circle -->
         <div class="relative">
           <button
             type="button"
-            class="flex h-[26px] w-[26px] items-center justify-center rounded-full border border-subtle bg-surface-muted text-ink-muted transition hover:bg-surface-hover hover:text-ink-primary focus-ring"
+            class="mac-btn"
             :title="t('research_desk.more_actions')"
             @click="showMoreMenu = !showMoreMenu"
           >
-            <MoreHorizontal class="h-3.5 w-3.5" />
+            <CircleEllipsis class="h-[15px] w-[15px]" />
           </button>
 
+          <div v-if="showMoreMenu" class="fixed inset-0 z-40" @click="showMoreMenu = false" />
           <div
             v-if="showMoreMenu"
-            class="absolute right-0 z-50 mt-1 w-56 rounded-xl border border-white/10 bg-[#242428] p-1.5 shadow-2xl backdrop-blur-2xl text-xs"
+            class="mac-menu absolute right-0 z-50 mt-1 w-56"
             @click="showMoreMenu = false"
           >
-            <!-- Toggle Follow on Pipeline -->
-            <button
-              type="button"
-              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-white transition hover:bg-white/10"
-              @click="toggleFollow"
-            >
-              <Star class="h-3.5 w-3.5" :class="isFollowed ? 'fill-amber-400 text-amber-400' : 'text-neutral-400'" />
+            <button type="button" class="mac-menu-item" @click="toggleFollow">
+              <Star
+                class="mac-menu-icon h-3.5 w-3.5"
+                :style="isFollowed ? { color: 'var(--mac-yellow)', fill: 'var(--mac-yellow)' } : {}"
+              />
               <span>{{ isFollowed ? t("research_desk.unfollow") : t("research_desk.follow") }}</span>
             </button>
 
-            <!-- Open in Research Browser -->
             <RouterLink
               :to="{ name: 'research', params: { companyId } }"
-              class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-white transition hover:bg-white/10"
+              class="mac-menu-item"
             >
-              <Globe class="h-3.5 w-3.5 text-neutral-400" />
+              <Globe class="mac-menu-icon h-3.5 w-3.5" />
               <span>{{ t("research_desk.open_browser") }}</span>
             </RouterLink>
 
-            <!-- Open on Web (if URL) -->
             <a
               v-if="company?.web_url || company?.website"
               :href="company.web_url || company.website"
               target="_blank"
               rel="noopener noreferrer"
-              class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-white transition hover:bg-white/10"
+              class="mac-menu-item"
             >
-              <ExternalLink class="h-3.5 w-3.5 text-neutral-400" />
+              <Compass class="mac-menu-icon h-3.5 w-3.5" />
               <span>{{ t("research_desk.open_web") }}</span>
             </a>
 
-            <div class="my-1 border-t border-white/10" />
+            <div class="mac-menu-sep" />
 
-            <!-- Ask Warren -->
-            <button
-              type="button"
-              class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-white transition hover:bg-white/10"
-              @click="handleAskWarren"
-            >
-              <MessageSquare class="h-3.5 w-3.5 text-neutral-400" />
+            <button type="button" class="mac-menu-item" @click="handleAskWarren">
+              <MessageSquare class="mac-menu-icon h-3.5 w-3.5" />
               <span>{{ t("research_desk.ask_warren") }}</span>
             </button>
           </div>
@@ -284,91 +317,95 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Apple MacTabBar (Exact macOS System Tab Bar) -->
-    <MacTabBar
-      :items="tabItems"
-      v-model="activeSection"
+    <MacTabBar v-model="activeSection" :items="tabItems" />
+
+    <!-- Card stack in the Mac body order, one guard per card -->
+    <template v-if="shows('overview')">
+      <UnifiedProfileCard :company-id="companyId" :company="company" />
+      <SignalScoreCard :company-id="companyId" />
+    </template>
+
+    <DealPipelineCard
+      v-if="shows('pipeline', 'overview')"
+      :company-id="companyId"
+      :company="company"
+      @stage-updated="emit('stage-updated', $event)"
     />
 
-    <!-- Tab Contents Container (Exact card sequence matching MacResearchDeskView.swift) -->
-    <div class="space-y-3.5">
-      <!-- Overview -->
-      <template v-if="activeSection === 'overview'">
-        <UnifiedProfileCard :company-id="companyId" :company="company" />
-        <SignalScoreCard :company-id="companyId" />
-        <DealPipelineCard :company-id="companyId" :company="company" @stage-updated="emit('stage-updated', $event)" />
-        <ReportsMemosCard :company-id="companyId" :company="company" @open-memo="emit('open-memo', $event)" @open-customizer="handleCustomReport" />
-        <MemoStudioEditor :company-id="companyId" :generate-available="true" @generate="handleCustomReport" />
-        <DecisionsCard :company-id="companyId" :company="company" />
-      </template>
+    <CompsRailCard v-if="shows('comps')" :key="`comps-${companyId}`" :company-id="companyId" :company="company" />
 
-      <!-- Memo Studio -->
-      <template v-else-if="activeSection === 'memos'">
-        <ReportsMemosCard :company-id="companyId" :company="company" @open-memo="emit('open-memo', $event)" @open-customizer="handleCustomReport" />
-        <MemoStudioEditor :company-id="companyId" :generate-available="true" @generate="handleCustomReport" />
-      </template>
+    <CapTableCard v-if="shows('capTable')" :key="`cap-${companyId}`" :company-id="companyId" :company="company" />
 
-      <!-- Decisions (Full IC Suite) -->
-      <template v-else-if="activeSection === 'decisions'">
-        <DecisionsCard :company-id="companyId" :company="company" />
-        <ICPrepCard :company-id="companyId" :company="company" />
-        <ICRoomCard :company-id="companyId" :company="company" />
-        <NumberLintCard :company-id="companyId" />
-        <ThesisTrackerCard :company-id="companyId" />
-        <CompanyCommentsCard :company-id="companyId" />
-      </template>
+    <FounderRadarCard v-if="shows('team')" :company-id="companyId" :company="company" />
 
-      <!-- Team -->
-      <template v-else-if="activeSection === 'team'">
-        <FounderRadarCard :company-id="companyId" :company="company" />
-      </template>
+    <VCRatiosCard v-if="shows('ratios')" :key="`ratios-${companyId}`" :company-id="companyId" :company="company" />
 
-      <!-- Pipeline -->
-      <template v-else-if="activeSection === 'pipeline'">
-        <DealPipelineCard :company-id="companyId" :company="company" @stage-updated="emit('stage-updated', $event)" />
-      </template>
-
-      <!-- Cap Table -->
-      <template v-else-if="activeSection === 'capTable'">
-        <CapTableCard :company-id="companyId" :company="company" />
-      </template>
-
-      <!-- Comps -->
-      <template v-else-if="activeSection === 'comps'">
-        <CompsRailCard :company-id="companyId" :company="company" />
-      </template>
-
-      <!-- Ratios -->
-      <template v-else-if="activeSection === 'ratios'">
-        <VCRatiosCard :company-id="companyId" :company="company" />
-      </template>
-
-      <!-- All: Stack all cards in complete order -->
-      <template v-else-if="activeSection === 'all'">
-        <UnifiedProfileCard :company-id="companyId" :company="company" />
-        <SignalScoreCard :company-id="companyId" />
-        <DealPipelineCard :company-id="companyId" :company="company" @stage-updated="emit('stage-updated', $event)" />
-        <ReportsMemosCard :company-id="companyId" :company="company" @open-memo="emit('open-memo', $event)" @open-customizer="handleCustomReport" />
-        <MemoStudioEditor :company-id="companyId" :generate-available="true" @generate="handleCustomReport" />
-        <DecisionsCard :company-id="companyId" :company="company" />
-        <ICPrepCard :company-id="companyId" :company="company" />
-        <ICRoomCard :company-id="companyId" :company="company" />
-        <NumberLintCard :company-id="companyId" />
-        <ThesisTrackerCard :company-id="companyId" />
-        <CompanyCommentsCard :company-id="companyId" />
-        <FounderRadarCard :company-id="companyId" :company="company" />
-        <CapTableCard :company-id="companyId" :company="company" />
-        <CompsRailCard :company-id="companyId" :company="company" />
-        <VCRatiosCard :company-id="companyId" :company="company" />
-      </template>
+    <!-- Active Analysis Pipelines (runs in progress) -->
+    <div
+      v-if="shows('memos', 'overview') && runningReports.length"
+      class="flex flex-col gap-2.5 rounded-[10px] p-4"
+      style="background: color-mix(in srgb, var(--mac-secondary) 5%, transparent)"
+    >
+      <div class="mac-t-headline-sys flex items-center gap-2">
+        <RefreshCw class="mac-c-accent h-3.5 w-3.5" />
+        <span>{{ t("research_desk.active_pipelines") }}</span>
+      </div>
+      <div
+        v-for="rep in runningReports"
+        :key="rep.id"
+        class="flex items-center gap-2.5 rounded-md p-2.5"
+        style="background: color-mix(in srgb, var(--mac-orange) 8%, transparent)"
+      >
+        <span class="mac-spinner" />
+        <span class="mac-t-subheadline truncate" style="font-weight: 500">
+          {{ rep.title || rep.id }}
+        </span>
+        <span class="flex-1" />
+        <span class="mac-t-caption10 mac-mono mac-c-secondary shrink-0">
+          {{ rep.stage || t("research_desk.processing") }}
+        </span>
+      </div>
     </div>
+
+    <template v-if="shows('memos', 'overview')">
+      <ReportsMemosCard
+        :company-id="companyId"
+        :company="company"
+        :reports="companyReports"
+        @open-memo="openMemo"
+        @open-customizer="handleCustomReport"
+      />
+      <MemoStudioEditor
+        :company-id="companyId"
+        :generate-available="true"
+        :reports="companyReports"
+        @generate="handleCustomReport"
+        @synthesized="loadCompanyReports"
+      />
+    </template>
+
+    <DecisionsCard
+      v-if="shows('decisions', 'overview')"
+      :company-id="companyId"
+      :company="company"
+      :reload-token="decisionsVersion"
+    />
+
+    <template v-if="shows('decisions')">
+      <ICPrepCard :company-id="companyId" :company="company" />
+      <ICRoomCard :key="`ic-${companyId}`" :company-id="companyId" :company="company" />
+      <NumberLintCard :company-id="companyId" />
+      <ThesisTrackerCard :company-id="companyId" />
+      <CompanyCommentsCard :key="`comments-${companyId}`" :company-id="companyId" :company="company" />
+    </template>
 
     <!-- Record Decision Modal (⌘D) -->
     <RecordDecisionModal
       :is-open="isDecisionModalOpen"
       :company="company"
+      :reports="companyReports"
       @close="isDecisionModalOpen = false"
-      @saved="activeSection = 'decisions'"
+      @saved="decisionsVersion += 1"
     />
   </div>
 </template>

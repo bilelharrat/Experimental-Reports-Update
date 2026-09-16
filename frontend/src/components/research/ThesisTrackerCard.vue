@@ -1,7 +1,13 @@
 <script setup>
+// Web twin of MacThesisTrackerView.swift: one row per thesis claim, joining
+// the thesis spine, the evidence matrix and tracked news by keyword overlap
+// (words of 5+ letters minus stopwords, two shared words to match), with the
+// standing decision pill in the header.
 import { computed, ref, watch } from "vue";
 import api from "../../api.js";
 import { t } from "../../i18n.js";
+import { Waypoints, RotateCw, ArrowUpRightFromCircle, ShieldAlert, Newspaper } from "lucide-vue-next";
+import { formatRelativeTime } from "../../formatters.js";
 
 const props = defineProps({
   companyId: {
@@ -12,116 +18,200 @@ const props = defineProps({
 
 const analysis = ref(null);
 const evidence = ref(null);
-const loading = ref(false);
+const tracking = ref(null);
+const decision = ref(null);
+const busy = ref(false);
 
-const claims = computed(() => {
-  return analysis.value?.thesis_spine ?? analysis.value?.thesisSpine ?? [];
-});
+const STOPWORDS = new Set([
+  "about", "above", "after", "again", "against", "their", "there", "these", "those", "which", "while",
+  "would", "could", "should", "because", "before", "between", "through", "under", "where", "other",
+  "company", "market", "business", "revenue", "growth", "customers", "product", "products", "still",
+]);
 
-async function loadThesis() {
-  if (!props.companyId) return;
-  loading.value = true;
-  try {
-    const [analysisRes, evidenceRes] = await Promise.allSettled([
-      api.getMemoAnalysis(props.companyId),
-      api.getEvidence(props.companyId),
-    ]);
-    if (analysisRes.status === "fulfilled") {
-      analysis.value = analysisRes.value;
-    }
-    if (evidenceRes.status === "fulfilled") {
-      evidence.value = evidenceRes.value;
-    }
-  } finally {
-    loading.value = false;
-  }
+function keywords(text) {
+  const words = String(text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 5 && !STOPWORDS.has(w));
+  return new Set(words);
 }
 
-function statusColorClass(status) {
-  if (status === "supported") return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-  if (status === "contradicted") return "bg-rose-500/10 text-rose-600 dark:text-rose-400";
-  if (status === "mixed") return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
-  return "bg-muted/30 text-muted-foreground";
+function overlap(a, b) {
+  let n = 0;
+  for (const w of a) if (b.has(w)) n += 1;
+  return n;
+}
+
+const spine = computed(() => analysis.value?.artifacts?.thesis_spine || null);
+
+const rows = computed(() => {
+  if (!spine.value) return [];
+  const claims = [
+    ...(spine.value.investment_highlights || []).map((c) => ["highlight", c]),
+    ...(spine.value.investment_risks || []).map((c) => ["risk", c]),
+  ];
+  const evidenceRows = evidence.value?.claims || [];
+  const news = tracking.value?.items || [];
+
+  return claims
+    .map(([kind, claim], index) => {
+      const text = claim?.claim || "";
+      if (!text) return null;
+      const words = keywords(`${text} ${claim?.detail || ""}`);
+      const matches = evidenceRows.filter((row) => overlap(keywords(row.claim), words) >= 2);
+      let status = "missing";
+      if (matches.some((m) => m.status === "contradicted")) status = "contradicted";
+      else if (matches.some((m) => m.status === "mixed")) status = "mixed";
+      else if (matches.some((m) => m.status === "supported" || m.status === "partial")) status = "supported";
+      const hit = news
+        .filter((item) => overlap(keywords(`${item.title || ""} ${item.summary || ""}`), words) >= 2)
+        .sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")))[0];
+      return {
+        id: `${claim?.id || index}-${kind}`,
+        kind,
+        claim: text,
+        status,
+        matches: matches.length,
+        news: hit || null,
+      };
+    })
+    .filter(Boolean);
+});
+
+async function load() {
+  if (!props.companyId) return;
+  busy.value = true;
+  try {
+    const [analysisRes, evidenceRes, trackingRes, decisionsRes] = await Promise.allSettled([
+      api.memoAnalysis.get(props.companyId),
+      api.memoAnalysis.getEvidenceMatrix(props.companyId),
+      api.listTrackingUpdates(props.companyId),
+      api.decisionRecords.list(props.companyId),
+    ]);
+    if (analysisRes.status === "fulfilled") analysis.value = analysisRes.value;
+    if (evidenceRes.status === "fulfilled") evidence.value = evidenceRes.value;
+    if (trackingRes.status === "fulfilled") tracking.value = trackingRes.value;
+    if (decisionsRes.status === "fulfilled") {
+      const list = Array.isArray(decisionsRes.value)
+        ? decisionsRes.value
+        : decisionsRes.value?.decisions || decisionsRes.value?.items || [];
+      decision.value = list[0] || null;
+    }
+  } finally {
+    busy.value = false;
+  }
 }
 
 watch(
   () => props.companyId,
   () => {
-    loadThesis();
+    analysis.value = null;
+    evidence.value = null;
+    tracking.value = null;
+    decision.value = null;
   },
-  { immediate: true },
 );
+
+function statusLabel(status) {
+  if (status === "supported") return t("research_desk.thesis_supported");
+  if (status === "contradicted") return t("research_desk.thesis_contradicted");
+  if (status === "mixed") return t("research_desk.thesis_mixed");
+  return t("research_desk.thesis_no_evidence");
+}
+
+function statusTint(status) {
+  if (status === "supported") return "var(--mac-green)";
+  if (status === "contradicted") return "var(--mac-red)";
+  if (status === "mixed") return "var(--mac-orange)";
+  return "var(--mac-secondary)";
+}
+
+function verdictTint(verdict) {
+  if (verdict === "invest") return "var(--mac-green)";
+  if (verdict === "pass") return "var(--mac-red)";
+  return "var(--mac-orange)";
+}
+
+function verdictLabel(verdict) {
+  if (verdict === "invest") return t("research_desk.invest");
+  if (verdict === "pass") return t("research_desk.pass");
+  return t("research_desk.watch");
+}
 </script>
 
 <template>
-  <div class="rounded-2xl border border-border/40 bg-surface/90 dark:bg-[#1c1c1e]/90 p-5 shadow-sm backdrop-blur-md">
-    <!-- Header -->
-    <div class="flex items-center justify-between pb-3 border-b border-border/30">
-      <div class="flex items-center gap-2.5">
-        <svg class="h-5 w-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10" />
-          <polygon points="12 8 8 12 12 16 16 12 12 8" />
-        </svg>
-        <h3 class="font-semibold text-foreground text-sm tracking-tight">
-          {{ t("research_desk.thesis_tracker_title") }}
-        </h3>
-      </div>
-
-      <button
-        type="button"
-        class="rounded-lg p-1.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground transition-colors"
-        :title="t('research_desk.refresh')"
-        :disabled="loading"
-        @click="loadThesis"
+  <div class="mac-card mac-card-pad flex flex-col gap-2.5">
+    <!-- Label("Thesis tracker") · decision pill · load/refresh -->
+    <div class="flex items-center gap-2">
+      <span class="mac-t-headline flex items-center gap-2">
+        <Waypoints class="mac-c-accent h-4 w-4" stroke-width="2.2" />
+        {{ t("research_desk.thesis_title") }}
+      </span>
+      <span class="flex-1" />
+      <span
+        v-if="decision"
+        class="mac-status-pill"
+        :style="{ '--tint': verdictTint(decision.verdict || decision.type) }"
       >
-        <svg
-          class="h-4 w-4"
-          :class="{ 'animate-spin': loading }"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-          <path d="M21 3v5h-5" />
-          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-          <path d="M3 21v-5h5" />
-        </svg>
+        {{ verdictLabel(decision.verdict || decision.type) }}
+      </span>
+      <button type="button" class="mac-btn mac-btn--sm" :disabled="busy" @click="load">
+        <span v-if="busy" class="mac-spinner" style="width: 11px; height: 11px" />
+        <RotateCw v-else class="h-3 w-3" />
+        <span>{{ analysis == null ? t("research_desk.thesis_load") : t("research_desk.refresh") }}</span>
       </button>
     </div>
 
-    <!-- Body -->
-    <div class="pt-4 space-y-3 text-xs">
-      <div v-if="claims.length" class="space-y-2.5">
-        <div
-          v-for="(row, idx) in claims"
-          :key="idx"
-          class="rounded-xl border border-border/30 bg-muted/10 p-3 space-y-2"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <p class="font-medium text-foreground text-xs leading-snug">
-              {{ row.claim || row.statement }}
-            </p>
-            <span
-              class="shrink-0 rounded px-2 py-0.5 text-[10px] font-semibold uppercase"
-              :class="statusColorClass(row.evidence_status || row.evidenceStatus)"
-            >
-              {{ row.evidence_status || row.evidenceStatus || "unverified" }}
-            </span>
-          </div>
+    <span v-if="analysis == null" class="mac-t-caption10 mac-c-secondary">
+      {{ t("research_desk.thesis_hint") }}
+    </span>
+    <span v-else-if="rows.length === 0" class="mac-t-caption10 mac-c-secondary">
+      {{ t("research_desk.thesis_empty") }}
+    </span>
 
-          <div v-if="row.latest_news" class="flex items-center gap-2 text-[11px] text-muted-foreground pt-1 border-t border-border/20">
-            <svg class="h-3.5 w-3.5 text-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
-            </svg>
-            <span class="truncate">{{ row.latest_news.title }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div v-else class="py-6 text-center text-muted-foreground text-xs">
-        {{ t("research_desk.no_thesis_spine") }}
-      </div>
+    <div
+      v-for="row in rows"
+      :key="row.id"
+      class="flex items-start gap-2.5 rounded-lg p-2"
+      style="background: color-mix(in srgb, var(--mac-secondary) 4%, transparent)"
+    >
+      <component
+        :is="row.kind === 'highlight' ? ArrowUpRightFromCircle : ShieldAlert"
+        class="mt-px h-3.5 w-[18px] shrink-0"
+        :style="{ color: row.kind === 'highlight' ? 'var(--mac-green)' : 'var(--mac-red)' }"
+      />
+      <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
+        <span class="mac-t-subheadline font-medium">{{ row.claim }}</span>
+        <span class="flex items-center gap-2">
+          <span class="mac-status-pill" :style="{ '--tint': statusTint(row.status) }">
+            {{ statusLabel(row.status) }}
+          </span>
+          <span v-if="row.matches > 0" class="mac-t-caption10 mac-c-secondary">
+            {{ t("research_desk.thesis_evidence_claims", { count: row.matches }) }}
+          </span>
+        </span>
+        <span v-if="row.news" class="mac-c-secondary flex items-center gap-1">
+          <Newspaper class="h-3 w-3 shrink-0" />
+          <span class="mac-t-caption10 min-w-0 truncate">{{ row.news.title }}</span>
+          <span class="mac-t-caption10 mac-c-tertiary shrink-0">
+            {{ formatRelativeTime(row.news.published_at || row.news.captured_at) }}
+          </span>
+          <span
+            v-if="row.news.impact"
+            class="mac-status-pill shrink-0"
+            :style="{
+              '--tint':
+                row.news.impact === 'high'
+                  ? 'var(--mac-red)'
+                  : row.news.impact === 'medium'
+                    ? 'var(--mac-orange)'
+                    : 'var(--mac-secondary)',
+            }"
+          >
+            {{ row.news.impact.replace(/^./, (c) => c.toUpperCase()) }}
+          </span>
+        </span>
+      </span>
     </div>
   </div>
 </template>

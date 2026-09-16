@@ -3401,3 +3401,522 @@ select.yf-range-item:hover {
   background-color: rgb(var(--color-danger));
   box-shadow: 0 0 0 3px rgb(var(--color-danger) / 0.16);
 }
+
+/* ===========================================================================
+   Mac Research Desk — the web twin of the macOS terminal's design system.
+   Values are sampled from the running Mac app on macOS 26 (see MacDesign.swift
+   and MacGlassStyles.swift): pure #FFF/#1E1E1E surfaces separated by a 9%
+   label hairline, 4.5% label tiles, SF type scale in points, capsule controls,
+   and the levitating glass selection pill. Scoped under .mac-desk so the rest
+   of the site keeps Summit Glass.
+--------------------------------------------------------------------------- */
+
+.mac-desk {
+  /* NSColor samples, light (aqua) */
+  --mac-canvas: #ffffff;                   /* windowBackgroundColor */
+  --mac-card: #ffffff;                     /* controlBackgroundColor */
+  --mac-label: rgba(0, 0, 0, 0.847);       /* labelColor */
+  --mac-secondary: rgba(0, 0, 0, 0.498);   /* secondaryLabelColor */
+  --mac-tertiary: rgba(0, 0, 0, 0.259);    /* tertiaryLabelColor */
+  --mac-quaternary: rgba(0, 0, 0, 0.098);  /* quaternaryLabelColor */
+  --mac-hairline: rgba(0, 0, 0, 0.076);    /* Color.primary.opacity(0.09) */
+  --mac-tile: rgba(0, 0, 0, 0.038);        /* Color.primary.opacity(0.045) */
+  --mac-accent: #007aff;                   /* controlAccentColor */
+  --mac-blue: #0088ff;
+  --mac-green: #34c759;
+  --mac-red: #ff383c;
+  --mac-orange: #ff8d28;
+  --mac-yellow: #ffcc00;
+  --mac-purple: #cb30e0;
+  --mac-pink: #ff2d55;
+  --mac-teal: #00c3d0;
+  --mac-cyan: #00c0e8;
+  --mac-mint: #00c8b3;
+  --mac-indigo: #6155f5;
+  --mac-gray: #8e8e93;
+  --mac-bar: rgba(255, 255, 255, 0.8);     /* .bar material over the canvas */
+  --mac-menu-bg: rgba(246, 246, 246, 0.72);
+  --mac-menu-edge: rgba(0, 0, 0, 0.1);
+  --mac-menu-rim: rgba(255, 255, 255, 0.45);
+  --mac-field-bg: rgba(0, 0, 0, 0.05);
+  --mac-btn-bg: #ffffff;
+  --mac-btn-hover: rgba(0, 0, 0, 0.035);
+  --mac-btn-edge: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 0.5px 1.5px rgba(0, 0, 0, 0.1);
+  --mac-pill-fill: rgba(255, 255, 255, 0.62);
+  --mac-pill-rim: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  --mac-pill-contact: 0 0.5px 1px rgba(0, 0, 0, 0.06);
+  --mac-pill-drop: 0 8px 10px rgba(0, 0, 0, 0.13);
+  --mac-thumb-drop: 0 2px 4px rgba(0, 0, 0, 0.16);
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, "Helvetica Neue", Arial, sans-serif;
+  color: var(--mac-label);
+  background: var(--mac-canvas);
+}
+
+.dark .mac-desk {
+  /* NSColor samples, darkAqua */
+  --mac-canvas: #1e1e1e;
+  --mac-card: #1e1e1e;
+  --mac-label: rgba(255, 255, 255, 0.847);
+  --mac-secondary: rgba(255, 255, 255, 0.549);
+  --mac-tertiary: rgba(255, 255, 255, 0.247);
+  --mac-quaternary: rgba(255, 255, 255, 0.098);
+  --mac-hairline: rgba(255, 255, 255, 0.076);
+  --mac-tile: rgba(255, 255, 255, 0.038);
+  --mac-accent: #007aff;
+  --mac-blue: #0091ff;
+  --mac-green: #30d158;
+  --mac-red: #ff4245;
+  --mac-orange: #ff9230;
+  --mac-yellow: #ffd600;
+  --mac-purple: #db34f2;
+  --mac-pink: #ff375f;
+  --mac-teal: #00d2e0;
+  --mac-cyan: #3cd3fe;
+  --mac-mint: #00dac3;
+  --mac-indigo: #6d7cff;
+  --mac-gray: #98989d;
+  --mac-bar: rgba(30, 30, 30, 0.75);
+  --mac-menu-bg: rgba(40, 40, 40, 0.78);
+  --mac-menu-edge: rgba(0, 0, 0, 0.55);
+  --mac-menu-rim: rgba(255, 255, 255, 0.12);
+  --mac-field-bg: rgba(255, 255, 255, 0.065);
+  --mac-btn-bg: rgba(255, 255, 255, 0.135);
+  --mac-btn-hover: rgba(255, 255, 255, 0.06);
+  --mac-btn-edge: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 0.5px 1.5px rgba(0, 0, 0, 0.4);
+  --mac-pill-fill: rgba(255, 255, 255, 0.1);
+  --mac-pill-rim: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --mac-pill-contact: 0 0.5px 1px rgba(0, 0, 0, 0.3);
+  --mac-pill-drop: 0 8px 10px rgba(0, 0, 0, 0.5);
+  --mac-thumb-drop: 0 2px 5px rgba(0, 0, 0, 0.45);
+}
+
+/* macOS is an app, not a page: arrow cursor on controls, no tap highlights. */
+.mac-desk,
+.mac-desk button,
+.mac-desk [role="button"],
+.mac-desk select,
+.mac-desk summary,
+.mac-desk a {
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+.mac-desk input[type="text"],
+.mac-desk input[type="number"],
+.mac-desk input[type="search"],
+.mac-desk textarea {
+  cursor: text;
+}
+
+/* --- SF type scale (px == pt) ------------------------------------------- */
+.mac-t-title { font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -0.2px; }
+.mac-t-headline { font-size: 15px; font-weight: 600; line-height: 1.25; }      /* dsHeadline */
+.mac-t-headline-sys { font-size: 13px; font-weight: 600; line-height: 1.3; }   /* .headline */
+.mac-t-subhead { font-size: 13px; font-weight: 500; line-height: 1.3; }        /* dsSubhead */
+.mac-t-body { font-size: 13px; font-weight: 400; line-height: 1.35; }          /* dsBody / .body */
+.mac-t-callout { font-size: 12px; font-weight: 400; line-height: 1.3; }
+.mac-t-subheadline { font-size: 11px; font-weight: 400; line-height: 1.3; }    /* .subheadline */
+.mac-t-label { font-size: 11px; font-weight: 500; line-height: 1.25; }         /* dsLabel */
+.mac-t-caption { font-size: 11px; font-weight: 400; line-height: 1.25; }       /* dsCaption */
+.mac-t-caption10 { font-size: 10px; font-weight: 400; line-height: 1.25; }     /* .caption/.caption2 */
+.mac-t-metric { font-size: 20px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.mac-t-metric-sm { font-size: 15px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.mac-mono { font-variant-numeric: tabular-nums; }
+
+.mac-c-secondary { color: var(--mac-secondary); }
+.mac-c-tertiary { color: var(--mac-tertiary); }
+.mac-c-label { color: var(--mac-label); }
+.mac-c-accent { color: var(--mac-accent); }
+
+/* --- Surfaces ------------------------------------------------------------ */
+.mac-card {
+  background: var(--mac-card);
+  border: 1px solid var(--mac-hairline);
+  border-radius: 12px;                                    /* MacDS.cardRadius */
+  transition: border-color 0.15s ease;
+}
+.mac-card.is-interactive:hover { border-color: color-mix(in srgb, var(--mac-accent) 35%, transparent); }
+.mac-card-pad { padding: 16px; }                          /* MacDS.card */
+
+.mac-tile { background: var(--mac-tile); border-radius: 8px; }  /* MacDS.tileRadius */
+.mac-tile-tint { background: color-mix(in srgb, var(--tint, currentColor) 10%, transparent); border-radius: 8px; }
+
+.mac-hairline-b { border-bottom: 1px solid var(--mac-hairline); }
+.mac-hairline-t { border-top: 1px solid var(--mac-hairline); }
+.mac-hairline-r { border-right: 1px solid var(--mac-hairline); }
+.mac-divider { height: 1px; background: var(--mac-hairline); }
+
+.mac-bar-material {
+  background: var(--mac-bar);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
+}
+
+.mac-toolbar-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;                                      /* dsToolbarStrip */
+}
+
+/* --- Pills & tags -------------------------------------------------------- */
+.mac-status-pill {                                        /* MacStatusPill */
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--tint, var(--mac-accent));
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 16%, transparent);
+  white-space: nowrap;
+}
+.mac-status-tag {                                         /* StatusTag */
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 2.5px 7px;
+  border-radius: 999px;
+  color: var(--tint, var(--mac-accent));
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 14%, transparent);
+  white-space: nowrap;
+}
+.mac-dot { width: 6px; height: 6px; border-radius: 999px; flex: none; }       /* MacDot */
+
+/* --- Buttons (macOS 26 capsules) ----------------------------------------- */
+.mac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 4.5px 12px;
+  color: var(--mac-label);
+  background: var(--mac-btn-bg);
+  box-shadow: var(--mac-btn-edge);
+  transition: filter 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease;
+  white-space: nowrap;
+}
+.mac-btn:hover:not(:disabled) { background: linear-gradient(var(--mac-btn-hover), var(--mac-btn-hover)), var(--mac-btn-bg); }
+.mac-btn:active:not(:disabled) { filter: brightness(0.92); }
+.mac-btn:disabled { opacity: 0.45; }
+.mac-btn--sm { font-size: 11px; padding: 2.5px 9px; gap: 4px; }
+.mac-btn--mini { font-size: 10px; padding: 1.5px 7px; gap: 3px; }
+.mac-btn--prominent {
+  color: #fff;
+  background: var(--mac-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0.5px 1.5px rgba(0, 0, 0, 0.2);
+}
+.mac-btn--prominent:hover:not(:disabled) { background: color-mix(in srgb, var(--mac-accent) 94%, #fff); }
+.mac-btn--prominent.mac-btn--tinted {
+  background: var(--tint, var(--mac-accent));
+}
+.mac-btn--prominent.mac-btn--tinted:hover:not(:disabled) { background: color-mix(in srgb, var(--tint, var(--mac-accent)) 94%, #fff); }
+.mac-btn--tint {
+  color: var(--tint, var(--mac-accent));
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 15%, transparent);
+  box-shadow: none;
+}
+.mac-btn--tint:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tint, var(--mac-accent)) 21%, transparent);
+}
+.mac-btn--plain {
+  background: transparent;
+  box-shadow: none;
+  color: var(--mac-secondary);
+}
+.mac-btn--plain:hover:not(:disabled) { background: var(--mac-tile); color: var(--mac-label); }
+.mac-desk :is(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--mac-accent) 35%, transparent);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+.mac-search {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--mac-field-bg);
+  color: var(--mac-label);
+  font-size: 13px;
+}
+.mac-search input {
+  background: transparent;
+  border: none;
+  outline: none;
+  width: 100%;
+  font-size: 13px;
+  color: inherit;
+}
+.mac-search input::placeholder { color: var(--mac-tertiary); }
+.mac-search:focus-within { box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--mac-accent) 30%, transparent); }
+.mac-field {
+  border-radius: 7px;
+  background: var(--mac-field-bg);
+  border: none;
+  color: var(--mac-label);
+  font-size: 13px;
+  padding: 4px 8px;
+}
+.mac-field::placeholder { color: var(--mac-tertiary); }
+.mac-field:focus { outline: none; box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--mac-accent) 30%, transparent); }
+
+/* Pop-up button (Picker .menu): a small neutral capsule with ⌃⌄ at right. */
+.mac-popup {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.mac-popup select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 3px 20px 3px 9px;
+  color: var(--mac-label);
+  background: var(--mac-btn-bg);
+  box-shadow: var(--mac-btn-edge);
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+.mac-popup select:hover { background: linear-gradient(var(--mac-btn-hover), var(--mac-btn-hover)), var(--mac-btn-bg); }
+.mac-popup .mac-popup-chevron {
+  position: absolute;
+  right: 7px;
+  pointer-events: none;
+  color: var(--mac-secondary);
+}
+
+/* --- Menus (NSMenu) ------------------------------------------------------ */
+.mac-menu {
+  border-radius: 14px;
+  padding: 5px;
+  background: var(--mac-menu-bg);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  backdrop-filter: blur(28px) saturate(1.8);
+  box-shadow: 0 0 0 0.5px var(--mac-menu-edge), inset 0 0 0 1px var(--mac-menu-rim),
+    0 10px 34px rgba(0, 0, 0, 0.22);
+}
+.mac-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border-radius: 9px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--mac-label);
+  white-space: nowrap;
+}
+.mac-menu-item:hover:not(:disabled) { background: var(--mac-accent); color: #fff; }
+.mac-menu-item:hover:not(:disabled) .mac-menu-icon { color: rgba(255, 255, 255, 0.85); }
+.mac-menu-item:disabled { opacity: 0.4; }
+.mac-menu-icon { color: var(--mac-secondary); flex: none; }
+.mac-menu-sep { height: 1px; margin: 5px 10px; background: var(--mac-hairline); }
+
+/* --- Levitating glass pill (list selection + segmented thumb) ------------ */
+.mac-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  gap: 10px;
+  padding: 7px 14px;                          /* row content inset over the pill */
+  border: none;
+  background: transparent;
+  color: var(--mac-label);
+}
+.mac-row::before {                            /* GlassRowHighlight, inset (2, 6) */
+  content: "";
+  position: absolute;
+  inset: 2px 6px;
+  border-radius: 8px;
+  background: var(--mac-pill-fill);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+  backdrop-filter: blur(14px) saturate(1.6);
+  box-shadow: var(--mac-pill-rim), var(--mac-pill-contact), var(--mac-pill-drop);
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 0.18s ease, transform 0.32s cubic-bezier(0.3, 1.4, 0.45, 1),
+    box-shadow 0.3s ease;
+  pointer-events: none;
+}
+.mac-row.is-selected::before { opacity: 1; transform: scale(1); }
+.mac-row:hover:not(.is-selected)::before {
+  opacity: 1;
+  transform: scale(1);
+  background: var(--mac-tile);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  transition: opacity 0.12s ease;
+}
+.mac-row > * { position: relative; z-index: 1; }
+
+/* --- Underline tabs (MacTabBar) ------------------------------------------ */
+.mac-tabbar {
+  position: relative;
+  border-bottom: 1px solid var(--mac-hairline);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mac-tabbar::-webkit-scrollbar { display: none; }
+.mac-tabbar-inner { display: flex; align-items: flex-end; gap: 20px; min-width: max-content; }
+.mac-tab {
+  border: none;
+  background: transparent;
+  padding: 4px 0 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--mac-secondary);
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.mac-tab.is-active { font-weight: 600; color: var(--mac-label); }
+.mac-tab-underline {
+  position: absolute;
+  bottom: 0;
+  height: 2px;
+  background: var(--mac-accent);
+  transition: left 0.22s cubic-bezier(0.2, 0.9, 0.3, 1), width 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* --- Glass segmented control (GlassSegmentedPicker) ----------------------- */
+.mac-segmented {
+  display: flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mac-label) 6%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mac-label) 7%, transparent);
+}
+.mac-segment {
+  flex: 1 1 0;
+  position: relative;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 2px 8px;
+  color: color-mix(in srgb, var(--mac-label) 75%, transparent);
+  white-space: nowrap;
+}
+.mac-segment.is-regular { font-size: 13px; padding: 3.5px 11px; }
+.mac-segment:hover:not(.is-selected) { background: color-mix(in srgb, var(--mac-label) 5%, transparent); }
+.mac-segment.is-selected {
+  color: var(--mac-label);
+  background: var(--mac-pill-fill);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--mac-pill-rim), var(--mac-pill-contact), var(--mac-thumb-drop);
+}
+
+/* --- Card anatomy --------------------------------------------------------- */
+.mac-cardheader { display: flex; align-items: flex-start; gap: 8px; }
+.mac-cardheader-icon {
+  color: var(--mac-accent);
+  width: 18px;
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  margin-top: 1px;
+}
+.mac-stattile {                                /* MacStatTile */
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  padding: 12px;
+  background: var(--mac-tile);
+  border-radius: 8px;
+  min-width: 0;
+}
+.mac-stattile.is-compact { padding: 10px; }
+
+/* --- Overlay scrollbars --------------------------------------------------- */
+.mac-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--mac-label) 28%, transparent) transparent; }
+.mac-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.mac-scroll::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--mac-label) 25%, transparent); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+.mac-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* Small circular ProgressView (controlSize .small) */
+.mac-spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--mac-label) 15%, transparent);
+  border-top-color: var(--mac-secondary);
+  animation: mac-spin 0.8s linear infinite;
+}
+@keyframes mac-spin { to { transform: rotate(360deg); } }
+
+/* Native-feeling macOS form controls inside the desk */
+.mac-desk input[type="range"] { accent-color: var(--mac-accent); }
+.mac-desk input[type="checkbox"] { accent-color: var(--mac-accent); width: 14px; height: 14px; }
+
+/* --- Summit → Mac token bridge -------------------------------------------
+   Shared components (memo studio, report customizer) are written against the
+   Summit Glass semantic tokens. Inside the Mac desk those tokens re-resolve
+   to the sampled macOS palette, so nested Summit-styled markup re-tones to
+   the Mac look without per-component edits. Values are the flat composites
+   of the alpha tokens above over the canvas. */
+.mac-desk {
+  --color-canvas: 255 255 255;
+  --color-surface: 255 255 255;
+  --color-surface-muted: 246 246 246;
+  --color-surface-raised: 255 255 255;
+  --color-border-subtle: 236 236 236;
+  --color-border-strong: 209 209 209;
+  --color-text-primary: 38 38 38;
+  --color-text-secondary: 110 110 110;
+  --color-text-muted: 128 128 128;
+  --color-text-subtle: 175 175 175;
+  --color-fill: 235 235 235;
+  --color-fill-secondary: 240 240 240;
+  --color-fill-tertiary: 245 245 245;
+  --color-accent: 0 122 255;
+  --color-accent-hover: 20 134 255;
+  --color-accent-soft: 229 241 255;
+  --color-accent-ink: 0 96 214;
+  --color-success: 52 199 89;
+  --color-danger: 255 56 60;
+  --color-warning: 255 141 40;
+}
+
+.dark .mac-desk {
+  --color-canvas: 30 30 30;
+  --color-surface: 30 30 30;
+  --color-surface-muted: 41 41 41;
+  --color-surface-raised: 44 44 44;
+  --color-border-subtle: 47 47 47;
+  --color-border-strong: 66 66 66;
+  --color-text-primary: 221 221 221;
+  --color-text-secondary: 154 154 154;
+  --color-text-muted: 140 140 140;
+  --color-text-subtle: 100 100 100;
+  --color-fill: 52 52 52;
+  --color-fill-secondary: 47 47 47;
+  --color-fill-tertiary: 42 42 42;
+  --color-accent: 0 122 255;
+  --color-accent-hover: 30 140 255;
+  --color-accent-soft: 18 42 71;
+  --color-accent-ink: 100 176 255;
+  --color-success: 48 209 88;
+  --color-danger: 255 66 69;
+  --color-warning: 255 146 48;
+}

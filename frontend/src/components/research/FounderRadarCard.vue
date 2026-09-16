@@ -1,7 +1,30 @@
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+// Web twin of MacFounderRadarView.swift: leadership and board card grids
+// (initials avatar, pedigree pill flow, education / past companies / prior
+// exit rows), the headcount tile with four metric pills and the department
+// split bar, and the open-source velocity section with the traction callout.
+import { ref, computed, watch } from "vue";
 import { useT } from "../../i18n.js";
-import { Users, RotateCw, GitFork, Star, ExternalLink, Award, Briefcase } from "lucide-vue-next";
+import {
+  Users,
+  RotateCw,
+  Briefcase,
+  GraduationCap,
+  Building2,
+  CircleDollarSign,
+  Link as LinkIcon,
+  Star,
+  GitFork,
+  ArrowDownCircle,
+  History,
+  Flame,
+  Code,
+  Megaphone,
+  Settings,
+  ArrowUpRight,
+  AlertTriangle,
+  BarChartHorizontal,
+} from "lucide-vue-next";
 import { api } from "../../api.js";
 
 const t = useT();
@@ -19,155 +42,421 @@ const props = defineProps({
 
 const loading = ref(false);
 const searching = ref(false);
+const loadFailed = ref(false);
+const refreshError = ref(null);
 const founderData = ref(null);
 
 async function loadFounders() {
   if (!props.companyId) return;
   loading.value = true;
+  loadFailed.value = false;
   try {
-    const res = await api.getFounderDossier(props.companyId);
-    founderData.value = res;
-  } catch (err) {
+    founderData.value = await api.getFounderDossier(props.companyId);
+  } catch {
     founderData.value = null;
+    loadFailed.value = true;
   } finally {
     loading.value = false;
   }
 }
 
-async function deepSearch() {
+async function refreshFromRecord() {
   if (!props.companyId || searching.value) return;
   searching.value = true;
+  refreshError.value = null;
   try {
-    const res = await api.deepSearchFounder(props.companyId);
-    founderData.value = res;
+    founderData.value = await api.deepSearchFounder(props.companyId);
   } catch (err) {
-    // fallback
+    refreshError.value = err?.message || String(err);
   } finally {
     searching.value = false;
   }
 }
 
-watch(() => props.companyId, loadFounders, { immediate: true });
-onMounted(loadFounders);
+watch(
+  () => props.companyId,
+  () => {
+    refreshError.value = null;
+    loadFounders();
+  },
+  { immediate: true },
+);
 
-const foundersList = computed(() => {
-  if (founderData.value?.founders?.length) {
-    return founderData.value.founders;
-  }
-  if (props.company?.team_profiles?.length) {
-    return props.company.team_profiles;
-  }
-  if (props.company?.leadership?.length) {
-    return props.company.leadership;
-  }
-  return [];
+const founders = computed(() => founderData.value?.founders || []);
+const board = computed(() => founderData.value?.advisors_and_board || []);
+const headcount = computed(() => founderData.value?.team_headcount || null);
+const traction = computed(() => founderData.value?.developer_traction || null);
+
+const hasPeople = computed(
+  () => founders.value.length || board.value.length || headcount.value || traction.value,
+);
+
+function initials(name) {
+  const parts = String(name || "").split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return String(name || "?").slice(0, 2).toUpperCase();
+}
+
+// PedigreeBadgeView tint rules
+function pedigreeTint(tag) {
+  const lower = String(tag).toLowerCase();
+  if (lower.includes("openai") || lower.includes("deepmind") || lower.includes("fair")) return "var(--mac-purple)";
+  if (lower.includes("stanford") || lower.includes("mit") || lower.includes("berkeley")) return "var(--mac-red)";
+  if (lower.includes("founder") || lower.includes("exit")) return "var(--mac-green)";
+  if (lower.includes("yc") || lower.includes("stripe")) return "var(--mac-orange)";
+  return "var(--mac-blue)";
+}
+
+const deptBar = computed(() => {
+  const eng = headcount.value?.engineering_pct || 0;
+  const gtm = headcount.value?.gtm_sales_pct || 0;
+  const ops = headcount.value?.operations_pct || 0;
+  const total = Math.max(1, eng + gtm + ops);
+  return {
+    eng: (eng / total) * 100,
+    gtm: (gtm / total) * 100,
+    ops: (ops / total) * 100,
+  };
 });
 
-const traction = computed(() => {
-  return founderData.value?.developer_traction || props.company?.developer_traction || null;
-});
+function repoLabel(url) {
+  return String(url || "").replace("https://github.com/", "");
+}
 </script>
 
 <template>
-  <div class="rounded-xl border border-border/40 bg-card/60 p-5 backdrop-blur-md">
-    <!-- Header -->
-    <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-3">
-      <div>
-        <h3 class="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Users class="h-4 w-4 text-primary" />
-          {{ t("research_desk.founders_team_radar") }}
-        </h3>
-        <p class="text-xs text-muted-foreground">
-          {{ t("research_desk.founders_subtitle") }}
-        </p>
+  <div class="mac-card mac-card-pad flex flex-col gap-[18px]">
+    <!-- MacCardHeader("Founders & team", …, person.3) + refresh -->
+    <div class="mac-cardheader">
+      <span class="mac-cardheader-icon"><Users class="h-[13px] w-[13px]" stroke-width="2.4" /></span>
+      <div class="flex min-w-0 flex-col gap-0.5">
+        <span class="mac-t-headline">{{ t("research_desk.founders_team_radar") }}</span>
+        <span class="mac-t-caption mac-c-secondary">{{ t("research_desk.founders_subtitle") }}</span>
       </div>
-
+      <span class="min-w-2 flex-1" />
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-md border border-border/50 bg-background/50 px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
-        :disabled="searching || loading"
-        @click="deepSearch"
+        class="mac-btn mac-btn--sm"
+        :disabled="searching"
+        :title="t('research_desk.founders_refresh_help')"
+        @click="refreshFromRecord"
       >
-        <RotateCw class="h-3 w-3" :class="{ 'animate-spin': searching || loading }" />
-        <span>{{ searching ? "Scanning…" : t("research_desk.refresh") }}</span>
+        <span v-if="searching" class="mac-spinner" style="width: 12px; height: 12px" />
+        <RotateCw v-else class="h-3 w-3" />
+        <span>{{ searching ? t("research_desk.founders_refreshing") : t("research_desk.founders_refresh") }}</span>
       </button>
     </div>
 
-    <!-- Developer Traction Banner if available -->
-    <div
-      v-if="traction"
-      class="mb-4 flex flex-wrap items-center gap-4 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs"
-    >
-      <div class="flex items-center gap-1.5 font-medium text-foreground">
-        <GitFork class="h-3.5 w-3.5 text-primary" />
-        <span>{{ t("research_desk.open_source_traction") }}:</span>
+    <template v-if="founderData">
+      <!-- ContentUnavailableView when the record lists no people -->
+      <div v-if="!hasPeople" class="flex flex-col items-center gap-2 py-8 text-center">
+        <Users class="mac-c-secondary h-9 w-9" stroke-width="1.25" />
+        <span class="mac-t-headline" style="font-size: 15px">{{ t("research_desk.founders_none_title") }}</span>
+        <span class="mac-t-body mac-c-secondary max-w-sm">{{ t("research_desk.founders_none_desc") }}</span>
       </div>
-      <div v-if="traction.stars != null" class="flex items-center gap-1 font-mono text-muted-foreground">
-        <Star class="h-3 w-3 text-amber-400" />
-        <span>{{ traction.stars }} {{ t("research_desk.stars") }}</span>
-      </div>
-      <div v-if="traction.velocity" class="font-mono text-muted-foreground">
-        {{ t("research_desk.velocity") }}: {{ traction.velocity }}
-      </div>
-      <div v-if="traction.repo" class="ml-auto">
-        <a
-          :href="traction.repo"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex items-center gap-1 text-primary hover:underline"
-        >
-          <span>{{ t("research_desk.repository") }}</span>
-          <ExternalLink class="h-3 w-3" />
-        </a>
-      </div>
-    </div>
 
-    <!-- Founders List -->
-    <div v-if="foundersList.length" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <div
-        v-for="(person, idx) in foundersList"
-        :key="person.name || idx"
-        class="flex flex-col justify-between rounded-lg border border-border/40 bg-background/40 p-3.5 transition hover:border-border/80"
-      >
-        <div>
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              <h4 class="text-sm font-semibold text-foreground">
-                {{ person.name }}
-              </h4>
-              <p class="text-xs text-muted-foreground">
-                {{ person.role || person.title || "Founder" }}
-              </p>
+      <!-- Leadership -->
+      <div v-if="founders.length" class="flex flex-col gap-3">
+        <div class="flex items-center">
+          <span class="mac-t-label mac-c-secondary flex items-center gap-1.5">
+            <Users class="h-3 w-3" />
+            {{ t("research_desk.founders_leadership") }}
+          </span>
+          <span class="flex-1" />
+          <span class="mac-t-caption10 mac-mono mac-c-tertiary">
+            {{ t("research_desk.founders_key_execs", { count: founders.length }) }}
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+          <div
+            v-for="(person, idx) in founders"
+            :key="person.name || idx"
+            class="mac-tile flex flex-col gap-2.5 p-3"
+            style="border-radius: 10px"
+          >
+            <div class="flex items-center gap-2.5">
+              <span
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                :style="{
+                  background: 'color-mix(in srgb, var(--mac-accent) 15%, transparent)',
+                  color: 'var(--mac-accent)',
+                }"
+              >
+                {{ initials(person.name) }}
+              </span>
+              <span class="flex min-w-0 flex-col gap-0.5">
+                <span class="mac-t-subheadline truncate font-bold">{{ person.name }}</span>
+                <span class="mac-t-caption10 mac-c-secondary truncate font-medium">
+                  {{ person.role || person.title || "Founder" }}
+                </span>
+              </span>
+              <span class="flex-1" />
+              <a
+                v-if="person.linkedin_url"
+                :href="person.linkedin_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mac-c-secondary shrink-0"
+                :title="t('research_desk.founders_linkedin')"
+              >
+                <LinkIcon class="h-4 w-4" />
+              </a>
             </div>
-            <span
-              v-if="person.exits?.length || person.prior_exits"
-              class="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400"
-            >
-              <Award class="h-2.5 w-2.5" />
-              {{ t("research_desk.prior_exit") }}
+
+            <!-- Pedigree pill flow -->
+            <div v-if="person.pedigree_tags?.length" class="flex flex-wrap gap-1.5">
+              <span
+                v-for="tag in person.pedigree_tags"
+                :key="tag"
+                class="mac-status-pill"
+                :style="{ '--tint': pedigreeTint(tag) }"
+              >
+                {{ tag }}
+              </span>
+            </div>
+
+            <p v-if="person.bio" class="mac-t-caption10 mac-c-secondary line-clamp-2">
+              {{ person.bio }}
+            </p>
+
+            <div class="mac-divider" />
+
+            <div class="flex flex-col gap-[5px]">
+              <span v-if="person.education" class="flex items-start gap-1.5">
+                <GraduationCap class="mac-c-secondary mt-px h-3 w-3.5 shrink-0" />
+                <span class="mac-t-caption10 mac-c-secondary truncate">{{ person.education }}</span>
+              </span>
+              <span v-if="person.past_companies?.length" class="flex items-start gap-1.5">
+                <Building2 class="mac-c-secondary mt-px h-3 w-3.5 shrink-0" />
+                <span class="mac-t-caption10 mac-c-secondary truncate">{{ person.past_companies.join(", ") }}</span>
+              </span>
+              <span v-if="person.prior_exits" class="flex items-start gap-1.5">
+                <CircleDollarSign class="mt-px h-3 w-3.5 shrink-0" :style="{ color: 'var(--mac-green)' }" />
+                <span class="mac-t-caption10 truncate font-semibold" :style="{ color: 'var(--mac-green)' }">
+                  {{ t("research_desk.founders_prior_exit") }}: {{ person.prior_exits }}
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Board & advisors -->
+      <div v-if="board.length" class="flex flex-col gap-3">
+        <div class="flex items-center">
+          <span class="mac-t-label mac-c-secondary flex items-center gap-1.5">
+            <Briefcase class="h-3 w-3" />
+            {{ t("research_desk.founders_board") }}
+          </span>
+          <span class="flex-1" />
+          <span class="mac-t-caption10 mac-mono mac-c-tertiary">
+            {{ t("research_desk.founders_board_count", { count: board.length }) }}
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+          <div
+            v-for="(person, idx) in board"
+            :key="person.name || idx"
+            class="mac-tile flex flex-col gap-2.5 p-3"
+            style="border-radius: 10px"
+          >
+            <div class="flex items-center gap-2.5">
+              <span
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                :style="{
+                  background: 'color-mix(in srgb, var(--mac-accent) 15%, transparent)',
+                  color: 'var(--mac-accent)',
+                }"
+              >
+                {{ initials(person.name) }}
+              </span>
+              <span class="flex min-w-0 flex-col gap-0.5">
+                <span class="mac-t-subheadline truncate font-bold">{{ person.name }}</span>
+                <span class="mac-t-caption10 mac-c-secondary truncate font-medium">
+                  {{ person.role || person.title || "Advisor" }}
+                </span>
+              </span>
+              <span class="flex-1" />
+              <a
+                v-if="person.linkedin_url"
+                :href="person.linkedin_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mac-c-secondary shrink-0"
+                :title="t('research_desk.founders_linkedin')"
+              >
+                <LinkIcon class="h-4 w-4" />
+              </a>
+            </div>
+
+            <div v-if="person.pedigree_tags?.length" class="flex flex-wrap gap-1.5">
+              <span
+                v-for="tag in person.pedigree_tags"
+                :key="tag"
+                class="mac-status-pill"
+                :style="{ '--tint': pedigreeTint(tag) }"
+              >
+                {{ tag }}
+              </span>
+            </div>
+
+            <p v-if="person.bio" class="mac-t-caption10 mac-c-secondary line-clamp-2">
+              {{ person.bio }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Headcount -->
+      <div v-if="headcount" class="mac-tile flex flex-col gap-2.5 p-3" style="border-radius: 10px">
+        <div class="flex items-center">
+          <span class="mac-t-label mac-c-secondary flex items-center gap-1.5">
+            <BarChartHorizontal class="h-3 w-3" />
+            {{ t("research_desk.founders_headcount") }}
+          </span>
+          <span class="flex-1" />
+          <span class="mac-t-caption10 font-semibold" :style="{ color: 'var(--mac-green)' }">
+            {{ headcount.hiring_velocity || "" }}
+          </span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <Users class="h-2.5 w-2.5" :style="{ color: 'var(--mac-blue)' }" />
+              {{ t("research_desk.founders_total_headcount") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ headcount.employee_count_estimate || "—" }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-blue)' }">
+              {{ headcount.open_roles_count != null ? t("research_desk.founders_open_roles", { count: headcount.open_roles_count }) : t("research_desk.founders_open_roles_unknown") }}
             </span>
           </div>
-
-          <p v-if="person.bio || person.background" class="mt-2 text-xs leading-relaxed text-muted-foreground">
-            {{ person.bio || person.background }}
-          </p>
+          <div class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <Code class="h-2.5 w-2.5" :style="{ color: 'var(--mac-indigo)' }" />
+              {{ t("research_desk.founders_engineering") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ headcount.engineering_pct != null ? `${headcount.engineering_pct}%` : "—" }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-indigo)' }">{{ t("research_desk.founders_of_headcount") }}</span>
+          </div>
+          <div class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <Megaphone class="h-2.5 w-2.5" :style="{ color: 'var(--mac-green)' }" />
+              {{ t("research_desk.founders_gtm") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ headcount.gtm_sales_pct != null ? `${headcount.gtm_sales_pct}%` : "—" }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-green)' }">{{ t("research_desk.founders_of_headcount") }}</span>
+          </div>
+          <div class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <Settings class="h-2.5 w-2.5" :style="{ color: 'var(--mac-orange)' }" />
+              {{ t("research_desk.founders_operations") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ headcount.operations_pct != null ? `${headcount.operations_pct}%` : "—" }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-orange)' }">{{ t("research_desk.founders_of_headcount") }}</span>
+          </div>
         </div>
 
-        <div v-if="person.prior_companies?.length || person.education" class="mt-3 border-t border-border/30 pt-2 text-[11px] text-muted-foreground">
-          <div v-if="person.prior_companies?.length" class="flex items-center gap-1">
-            <Briefcase class="h-3 w-3 shrink-0" />
-            <span>Ex-{{ person.prior_companies.join(", ") }}</span>
-          </div>
-          <div v-else-if="person.education" class="truncate">
-            {{ person.education }}
-          </div>
+        <!-- Department split bar -->
+        <div class="flex h-[7px] w-full gap-[2px]">
+          <span class="rounded-[3px]" :style="{ background: 'color-mix(in srgb, var(--mac-indigo) 85%, transparent)', width: `${Math.max(1, deptBar.eng)}%` }" />
+          <span class="rounded-[3px]" :style="{ background: 'color-mix(in srgb, var(--mac-green) 85%, transparent)', width: `${Math.max(1, deptBar.gtm)}%` }" />
+          <span class="rounded-[3px]" :style="{ background: 'color-mix(in srgb, var(--mac-orange) 85%, transparent)', width: `${Math.max(1, deptBar.ops)}%` }" />
         </div>
       </div>
+
+      <!-- Open source velocity -->
+      <div v-if="traction" class="flex flex-col gap-2.5">
+        <div class="flex items-center">
+          <span class="mac-t-label mac-c-secondary flex items-center gap-1.5">
+            <Code class="h-3 w-3" />
+            {{ t("research_desk.founders_oss_velocity") }}
+          </span>
+          <span class="flex-1" />
+          <a
+            v-if="traction.repo_url"
+            :href="traction.repo_url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mac-c-accent flex items-center gap-1"
+          >
+            <span class="mac-t-caption10 mac-mono">{{ repoLabel(traction.repo_url) }}</span>
+            <ArrowUpRight class="h-2.5 w-2.5" />
+          </a>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <Star class="h-2.5 w-2.5" :style="{ color: 'var(--mac-yellow)' }" />
+              {{ t("research_desk.founders_stars") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ traction.stars != null ? Number(traction.stars).toLocaleString() : "—" }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-yellow)' }">
+              {{ traction.stars_growth_weekly || t("research_desk.founders_not_tracked") }}
+            </span>
+          </div>
+          <div class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <GitFork class="h-2.5 w-2.5" :style="{ color: 'var(--mac-blue)' }" />
+              {{ t("research_desk.founders_forks") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ traction.forks != null ? Number(traction.forks).toLocaleString() : "—" }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-blue)' }">{{ t("research_desk.founders_forks") }}</span>
+          </div>
+          <div v-if="traction.weekly_downloads" class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <ArrowDownCircle class="h-2.5 w-2.5" :style="{ color: 'var(--mac-green)' }" />
+              {{ t("research_desk.founders_downloads") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ traction.weekly_downloads }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-green)' }">{{ t("research_desk.founders_weekly") }}</span>
+          </div>
+          <div class="mac-tile flex flex-col gap-[3px] p-2">
+            <span class="mac-t-label mac-c-secondary flex items-center gap-1">
+              <History class="h-2.5 w-2.5" :style="{ color: 'var(--mac-purple)' }" />
+              {{ t("research_desk.founders_commit_cadence") }}
+            </span>
+            <span class="mac-t-metric-sm">{{ traction.commit_cadence || "—" }}</span>
+            <span class="mac-t-caption10 truncate" :style="{ color: 'var(--mac-purple)' }">{{ t("research_desk.founders_commit_cadence") }}</span>
+          </div>
+        </div>
+
+        <!-- Traction signal callout -->
+        <div
+          class="mac-tile-tint flex items-center gap-2 p-2.5"
+          style="--tint: var(--mac-orange)"
+        >
+          <Flame class="h-3.5 w-3.5 shrink-0" :style="{ color: 'var(--mac-orange)' }" />
+          <span class="mac-t-label" :style="{ color: 'var(--mac-orange)' }">{{ t("research_desk.founders_traction_signal") }}</span>
+          <span class="mac-t-caption10 font-semibold">{{ traction.inflection_signal || "—" }}</span>
+        </div>
+      </div>
+
+      <span v-if="refreshError" class="mac-t-caption flex items-center gap-1.5" :style="{ color: 'var(--mac-red)' }">
+        <AlertTriangle class="h-3 w-3 shrink-0" />
+        {{ t("research_desk.founders_refresh_failed", { error: refreshError }) }}
+      </span>
+
+      <span class="mac-t-caption10 mac-c-tertiary">{{ t("research_desk.founders_built_from_record") }}</span>
+    </template>
+
+    <!-- Load failed -->
+    <div v-else-if="loadFailed && !loading" class="flex flex-col items-center gap-2 py-8 text-center">
+      <AlertTriangle class="mac-c-secondary h-8 w-8" stroke-width="1.5" />
+      <span class="mac-t-headline" style="font-size: 15px">{{ t("research_desk.founders_load_failed") }}</span>
+      <span class="mac-t-body mac-c-secondary max-w-sm">{{ t("research_desk.founders_load_failed_desc") }}</span>
+      <button type="button" class="mac-btn mac-btn--sm" @click="loadFounders">
+        {{ t("research_desk.retry") }}
+      </button>
     </div>
 
-    <!-- Empty State -->
-    <div v-else class="py-8 text-center text-xs text-muted-foreground">
-      {{ t("research_desk.no_team_profiles") }}
+    <!-- Loading -->
+    <div v-else class="flex items-center justify-center gap-3 py-5">
+      <span class="mac-spinner" />
+      <span class="mac-t-subheadline mac-c-secondary">{{ t("research_desk.founders_loading") }}</span>
     </div>
   </div>
 </template>

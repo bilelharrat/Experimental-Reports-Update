@@ -99,11 +99,12 @@ function discuss(bullet) {
 </script>
 
 <template>
-  <ul class="divide-y divide-subtle" :class="depth ? 'mt-2 border-l border-subtle pl-3' : 'border-y border-subtle'">
+  <ul :class="depth ? 'mt-1.5 border-l pl-3' : ''" :style="depth ? { borderColor: 'var(--mac-hairline)' } : {}">
     <li
-      v-for="bullet in bullets"
+      v-for="(bullet, bulletIndex) in bullets"
       :key="bullet.id"
-      class="group py-3"
+      class="group py-2"
+      :class="bulletIndex > 0 || depth ? 'mac-hairline-t' : ''"
     >
       <CopilotDropZone
         :company-id="companyId"
@@ -123,71 +124,68 @@ function discuss(bullet) {
           source_class: bullet.source_class,
         }"
       >
-      <div v-if="editingId === bullet.id" class="space-y-2">
+      <div v-if="editingId === bullet.id" class="flex flex-col gap-2">
         <textarea
           v-model="draftText"
           rows="3"
-          class="field focus-ring"
+          class="mac-field w-full resize-y"
+          style="line-height: 1.4"
         />
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            @click="saveBullet(bullet)"
+            class="mac-btn mac-btn--sm mac-btn--prominent"
             :disabled="busyId === bullet.id"
-            class="btn-filled btn-sm focus-ring"
+            @click="saveBullet(bullet)"
           >
-            <Save class="h-3.5 w-3.5" />
+            <Save class="h-3 w-3" />
             {{ busyId === bullet.id ? t("common.saving") : t("memo.save") }}
           </button>
-          <button
-            type="button"
-            @click="cancelEdit"
-            class="inline-flex items-center gap-1 rounded-full border border-subtle px-3 py-1.5 text-xs text-ink-secondary hover:bg-surface-muted focus-ring"
-          >
-            <X class="h-3.5 w-3.5" />
+          <button type="button" class="mac-btn mac-btn--sm" @click="cancelEdit">
+            <X class="h-3 w-3" />
             {{ t("common.cancel") }}
           </button>
         </div>
       </div>
       <div v-else>
-        <p class="text-sm leading-relaxed text-ink-secondary">{{ bullet.text }}</p>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
-          <span class="rounded-full border border-subtle bg-surface-muted px-2 py-0.5 text-[11px] text-footnote font-semibold text-ink-muted">
+        <p class="mac-t-caption" style="line-height: 1.5">{{ bullet.text }}</p>
+        <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <span class="mac-status-tag" :style="{ '--tint': 'var(--mac-secondary)' }">
             {{ sourceLabel(bullet) }}
           </span>
           <span class="ml-auto flex items-center gap-1 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
             <button
               type="button"
-              @click="startEdit(bullet)"
-              class="grid h-7 w-7 place-items-center rounded-full border border-subtle text-ink-secondary hover:bg-surface-muted focus-ring"
+              class="mac-btn mac-btn--mini mac-btn--plain"
               :aria-label="t('memo.edit')"
               :title="t('memo.edit')"
+              @click="startEdit(bullet)"
             >
-              <Pencil class="h-3.5 w-3.5" />
+              <Pencil class="h-3 w-3" />
             </button>
             <button
               type="button"
-              @click="diveDeeper(bullet)"
+              class="mac-btn mac-btn--mini mac-btn--plain"
               :disabled="busyId === bullet.id"
-              class="grid h-7 w-7 place-items-center rounded-full border border-subtle text-ink-secondary hover:bg-surface-muted disabled:opacity-60 focus-ring"
               :aria-label="t('memo.dive_deeper')"
               :title="t('memo.dive_deeper')"
+              @click="diveDeeper(bullet)"
             >
-              <PlusCircle class="h-3.5 w-3.5" />
+              <PlusCircle class="h-3 w-3" />
             </button>
             <button
               type="button"
-              @click="discuss(bullet)"
-              class="grid h-7 w-7 place-items-center rounded-full border border-subtle text-ink-secondary hover:bg-surface-muted focus-ring"
+              class="mac-btn mac-btn--mini mac-btn--plain"
               :aria-label="t('memo.discuss')"
               :title="t('memo.discuss')"
+              @click="discuss(bullet)"
             >
-              <MessageSquare class="h-3.5 w-3.5" />
+              <MessageSquare class="h-3 w-3" />
             </button>
           </span>
         </div>
       </div>
-      <p v-if="error && busyId === bullet.id" class="mt-2 text-xs text-danger">
+      <p v-if="error && busyId === bullet.id" class="mac-t-caption10 mt-1.5" :style="{ color: 'var(--mac-red)' }">
         {{ error }}
       </p>
       </CopilotDropZone>

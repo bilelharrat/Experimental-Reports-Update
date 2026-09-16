@@ -63,10 +63,17 @@ const resolvedCompany = computed(() => {
       tinted
     />
 
-    <!-- Modified indicator pip matching MacResearchDeskView: line 143 -->
+    <!-- Modified pip: Circle().fill(.accentColor) stroked with Color.dsCard,
+         offset (3, -3), from CompanyListRow in MacResearchDeskView.swift -->
     <div
       v-if="indicator"
-      class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500 ring-[1.5px] ring-[#18181a] z-10"
+      class="absolute z-10 h-2 w-2 rounded-full"
+      style="
+        top: -3px;
+        right: -3px;
+        background: var(--mac-accent, #007aff);
+        box-shadow: 0 0 0 1.5px var(--mac-card, #fff);
+      "
     />
   </div>
 </template>

@@ -1,7 +1,11 @@
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+// Web twin of MacVCRatiosBlotterView.swift: the four ratio metric tiles with
+// benchmark badges, the typed-inputs grid (empty by default — a calculator
+// over figures you type, nothing fetched or estimated), and the verdict
+// readout with the magic-number pill.
+import { ref, computed, watch } from "vue";
 import { useT } from "../../i18n.js";
-import { Gauge, CheckCircle2, AlertTriangle, Info } from "lucide-vue-next";
+import { Gauge, Check, Copy, BadgeCheck, CheckCircle2, AlertTriangle, Crosshair } from "lucide-vue-next";
 
 const t = useT();
 
@@ -16,7 +20,7 @@ const props = defineProps({
   },
 });
 
-// Interactive state
+// Inputs start empty, like the Mac blotter.
 const arr = ref(null);
 const netNewArr = ref(null);
 const netBurn = ref(null);
@@ -25,260 +29,313 @@ const fcfMargin = ref(null);
 const ndr = ref(null);
 const cacPaybackMonths = ref(null);
 const smSpend = ref(null);
+const copiedToClipboard = ref(false);
+let copiedTimer = null;
 
-function initializeFromCompany() {
-  const m = props.company?.metrics || {};
-  if (m.arr != null) arr.value = Number((m.arr / 1_000_000).toFixed(1));
-  else if (m.annual_recurring_revenue != null) arr.value = Number((m.annual_recurring_revenue / 1_000_000).toFixed(1));
-  else arr.value = 18.5;
+watch(
+  () => props.companyId,
+  () => {
+    arr.value = null;
+    netNewArr.value = null;
+    netBurn.value = null;
+    arrGrowthRate.value = null;
+    fcfMargin.value = null;
+    ndr.value = null;
+    cacPaybackMonths.value = null;
+    smSpend.value = null;
+  },
+);
 
-  netNewArr.value = m.net_new_arr ? Number((m.net_new_arr / 1_000_000).toFixed(1)) : 8.0;
-  netBurn.value = m.net_burn ? Number((m.net_burn / 1_000_000).toFixed(1)) : 6.5;
-  arrGrowthRate.value = m.arr_growth_rate ?? m.growth_rate ?? 65;
-  fcfMargin.value = m.fcf_margin ?? -12;
-  ndr.value = m.ndr ?? 128;
-  cacPaybackMonths.value = m.cac_payback_months ?? 14;
-  smSpend.value = m.sm_spend ? Number((m.sm_spend / 1_000_000).toFixed(1)) : 7.2;
+function num(v) {
+  return v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v);
 }
 
-watch(() => props.company, initializeFromCompany, { immediate: true });
-onMounted(initializeFromCompany);
-
-// Computed VC Ratios
 const burnMultiple = computed(() => {
-  if (netBurn.value == null || netNewArr.value == null || netNewArr.value <= 0) return null;
-  return netBurn.value / netNewArr.value;
-});
-
-const burnMultipleClass = computed(() => {
-  if (burnMultiple.value == null) return "text-muted-foreground";
-  if (burnMultiple.value < 1.0) return "text-emerald-400";
-  if (burnMultiple.value < 1.5) return "text-sky-400";
-  if (burnMultiple.value < 2.0) return "text-amber-400";
-  return "text-rose-400";
-});
-
-const burnMultipleRating = computed(() => {
-  if (burnMultiple.value == null) return "";
-  if (burnMultiple.value < 1.0) return t("research_desk.efficiency_great");
-  if (burnMultiple.value < 1.5) return t("research_desk.efficiency_good");
-  if (burnMultiple.value < 2.0) return t("research_desk.efficiency_fair");
-  return t("research_desk.efficiency_poor");
+  const burn = num(netBurn.value);
+  const nn = num(netNewArr.value);
+  if (burn == null || nn == null || nn <= 0) return null;
+  return burn / nn;
 });
 
 const ruleOf40 = computed(() => {
-  if (arrGrowthRate.value == null || fcfMargin.value == null) return null;
-  return arrGrowthRate.value + fcfMargin.value;
-});
-
-const ruleOf40Class = computed(() => {
-  if (ruleOf40.value == null) return "text-muted-foreground";
-  if (ruleOf40.value >= 40) return "text-emerald-400";
-  if (ruleOf40.value >= 20) return "text-sky-400";
-  return "text-amber-400";
-});
-
-const ruleOf40Rating = computed(() => {
-  if (ruleOf40.value == null) return "";
-  if (ruleOf40.value >= 40) return t("research_desk.top_tier");
-  if (ruleOf40.value >= 20) return t("research_desk.moderate_tier");
-  return t("research_desk.subpar_tier");
+  const g = num(arrGrowthRate.value);
+  const f = num(fcfMargin.value);
+  if (g == null || f == null) return null;
+  return g + f;
 });
 
 const magicNumber = computed(() => {
-  if (netNewArr.value == null || smSpend.value == null || smSpend.value <= 0) return null;
-  return netNewArr.value / smSpend.value;
+  const nn = num(netNewArr.value);
+  const sm = num(smSpend.value);
+  if (nn == null || sm == null || sm <= 0) return null;
+  return nn / sm;
 });
 
-const magicNumberClass = computed(() => {
-  if (magicNumber.value == null) return "text-muted-foreground";
-  if (magicNumber.value >= 1.0) return "text-emerald-400";
-  if (magicNumber.value >= 0.75) return "text-sky-400";
-  return "text-amber-400";
+const hasAnyMetric = computed(
+  () =>
+    burnMultiple.value != null ||
+    ruleOf40.value != null ||
+    num(ndr.value) != null ||
+    num(cacPaybackMonths.value) != null ||
+    magicNumber.value != null,
+);
+
+const isTopTier = computed(
+  () => burnMultiple.value != null && ruleOf40.value != null && burnMultiple.value < 1.0 && ruleOf40.value >= 40,
+);
+
+const readoutIsPositive = computed(() => burnMultiple.value != null && burnMultiple.value <= 1.5);
+
+function burnMultipleBadge(value) {
+  if (value < 1.0) return { text: t("research_desk.vc_exceptional"), tint: "var(--mac-green)" };
+  if (value <= 1.5) return { text: t("research_desk.vc_good"), tint: "var(--mac-blue)" };
+  if (value <= 2.0) return { text: t("research_desk.vc_manageable"), tint: "var(--mac-orange)" };
+  return { text: t("research_desk.vc_high_burn"), tint: "var(--mac-red)" };
+}
+
+const metricTiles = computed(() => {
+  const growth = num(arrGrowthRate.value);
+  const fcf = num(fcfMargin.value);
+  const retention = num(ndr.value);
+  const payback = num(cacPaybackMonths.value);
+  return [
+    {
+      title: t("research_desk.vc_burn_multiple"),
+      value: burnMultiple.value != null ? `${burnMultiple.value.toFixed(2)}x` : null,
+      badge: burnMultiple.value != null ? burnMultipleBadge(burnMultiple.value) : null,
+      caption: t("research_desk.vc_burn_caption"),
+      target: t("research_desk.vc_burn_target"),
+    },
+    {
+      title: t("research_desk.vc_rule_of_40"),
+      value: ruleOf40.value != null ? `${ruleOf40.value.toFixed(1)}%` : null,
+      badge:
+        ruleOf40.value != null
+          ? {
+              text: ruleOf40.value >= 40 ? t("research_desk.vc_elite") : t("research_desk.vc_below_40"),
+              tint: ruleOf40.value >= 40 ? "var(--mac-green)" : "var(--mac-orange)",
+            }
+          : null,
+      caption: t("research_desk.vc_rule_caption", {
+        growth: growth != null ? `${growth.toFixed(0)}%` : "—",
+        fcf: fcf != null ? `${fcf.toFixed(0)}%` : "—",
+      }),
+      target: t("research_desk.vc_rule_target"),
+    },
+    {
+      title: t("research_desk.vc_net_retention"),
+      value: retention != null ? `${retention.toFixed(0)}%` : null,
+      badge:
+        retention != null
+          ? {
+              text:
+                retention >= 130
+                  ? t("research_desk.vc_best_in_class")
+                  : retention >= 115
+                    ? t("research_desk.vc_strong")
+                    : t("research_desk.vc_churn_risk"),
+              tint:
+                retention >= 130 ? "var(--mac-purple)" : retention >= 115 ? "var(--mac-green)" : "var(--mac-red)",
+            }
+          : null,
+      caption: t("research_desk.vc_ndr_caption"),
+      target: t("research_desk.vc_ndr_target"),
+    },
+    {
+      title: t("research_desk.vc_cac_payback"),
+      value: payback != null ? `${payback.toFixed(1)} mo` : null,
+      badge:
+        payback != null
+          ? {
+              text: payback <= 12 ? t("research_desk.vc_efficient") : t("research_desk.vc_slow_payback"),
+              tint: payback <= 12 ? "var(--mac-green)" : "var(--mac-orange)",
+            }
+          : null,
+      caption: t("research_desk.vc_cac_caption"),
+      target: t("research_desk.vc_cac_target"),
+    },
+  ];
 });
 
-const magicNumberRating = computed(() => {
-  if (magicNumber.value == null) return "";
-  if (magicNumber.value >= 1.0) return t("research_desk.magic_efficient");
-  if (magicNumber.value >= 0.75) return t("research_desk.magic_healthy");
-  return t("research_desk.magic_poor");
+const missingForVerdict = computed(() => {
+  const missing = [];
+  if (ruleOf40.value == null) missing.push(t("research_desk.vc_rule_of_40"));
+  if (num(ndr.value) == null) missing.push(t("research_desk.vc_missing_retention"));
+  return missing;
 });
 
-const isTopTier = computed(() => {
-  return burnMultiple.value != null && burnMultiple.value < 1.0 && ruleOf40.value != null && ruleOf40.value >= 40;
+const verdictTitle = computed(() => {
+  if (burnMultiple.value == null) return "";
+  if (isTopTier.value) return t("research_desk.vc_verdict_top");
+  if (missingForVerdict.value.length) {
+    return t("research_desk.vc_verdict_partial", { missing: missingForVerdict.value.join(" and ") });
+  }
+  if (burnMultiple.value <= 1.5) return t("research_desk.vc_verdict_strong");
+  return t("research_desk.vc_verdict_capital_intensive");
 });
+
+const verdictDescription = computed(() => {
+  if (burnMultiple.value == null) return "";
+  const retention =
+    num(ndr.value) != null
+      ? t("research_desk.vc_with_retention", { pct: num(ndr.value).toFixed(0) })
+      : t("research_desk.vc_retention_not_entered");
+  return t("research_desk.vc_verdict_desc", {
+    burn: `${burnMultiple.value.toFixed(2)}x`,
+    retention,
+  });
+});
+
+const inputFields = [
+  { key: "arr", label: "Current ARR", unit: "$M", model: arr },
+  { key: "netNewArr", label: "Net new ARR (TTM)", unit: "$M", model: netNewArr },
+  { key: "netBurn", label: "Annual net burn", unit: "$M", model: netBurn },
+  { key: "smSpend", label: "S&M spend (TTM)", unit: "$M", model: smSpend },
+  { key: "arrGrowthRate", label: "ARR growth (YoY)", unit: "%", model: arrGrowthRate },
+  { key: "fcfMargin", label: "FCF margin", unit: "%", model: fcfMargin },
+  { key: "ndr", label: "Net dollar retention", unit: "%", model: ndr },
+  { key: "cacPaybackMonths", label: "CAC payback", unit: "months", model: cacPaybackMonths },
+];
+
+function copyRatiosSummary() {
+  const money = (v) => (num(v) != null ? `$${num(v).toFixed(1)}M` : "not entered");
+  const pct = (v) => (num(v) != null ? `${num(v).toFixed(0)}%` : "not entered");
+  const lines = [
+    "--- INSTITUTIONAL VC RATIOS SUMMARY ---",
+    `Company: ${props.company?.name || props.companyId}`,
+    `ARR: ${money(arr.value)}`,
+    `Net New ARR: ${money(netNewArr.value)}`,
+    `Annual Net Burn: ${money(netBurn.value)}`,
+    `S&M Spend: ${money(smSpend.value)}`,
+    `ARR Growth: ${pct(arrGrowthRate.value)}`,
+    `FCF Margin: ${pct(fcfMargin.value)}`,
+    `Burn Multiple: ${burnMultiple.value != null ? `${burnMultiple.value.toFixed(2)}x (${burnMultipleBadge(burnMultiple.value).text})` : "not entered"}`,
+    `Rule of 40: ${ruleOf40.value != null ? `${ruleOf40.value.toFixed(1)}%` : "not entered"}`,
+    `Net Dollar Retention (NDR): ${pct(ndr.value)}`,
+    `CAC Payback: ${num(cacPaybackMonths.value) != null ? `${num(cacPaybackMonths.value).toFixed(1)} months` : "not entered"}`,
+    `Magic Number: ${magicNumber.value != null ? `${magicNumber.value.toFixed(2)}x` : "not entered"}`,
+    "---------------------------------------",
+  ];
+  navigator.clipboard?.writeText(lines.join("\n"));
+  copiedToClipboard.value = true;
+  if (copiedTimer) clearTimeout(copiedTimer);
+  copiedTimer = setTimeout(() => {
+    copiedToClipboard.value = false;
+  }, 2000);
+}
 </script>
 
 <template>
-  <div class="rounded-xl border border-border/40 bg-card/60 p-5 backdrop-blur-md">
-    <!-- Header -->
-    <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-3">
-      <div>
-        <h3 class="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Gauge class="h-4 w-4 text-primary" />
-          {{ t("research_desk.vc_ratios_title") }}
-        </h3>
-        <p class="text-xs text-muted-foreground">
-          {{ t("research_desk.vc_ratios_subtitle") }}
-        </p>
+  <div class="mac-card mac-card-pad flex flex-col gap-[18px]">
+    <!-- MacCardHeader("VC ratios", …, gauge.with.needle) + copy -->
+    <div class="mac-cardheader">
+      <span class="mac-cardheader-icon"><Gauge class="h-[13px] w-[13px]" stroke-width="2.4" /></span>
+      <div class="flex min-w-0 flex-col gap-0.5">
+        <span class="mac-t-headline">{{ t("research_desk.vc_title") }}</span>
+        <span class="mac-t-caption mac-c-secondary">{{ t("research_desk.vc_subtitle") }}</span>
       </div>
-
-      <div
-        v-if="isTopTier"
-        class="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400"
+      <span class="min-w-2 flex-1" />
+      <button
+        type="button"
+        class="mac-btn mac-btn--sm"
+        :disabled="!hasAnyMetric"
+        @click="copyRatiosSummary"
       >
-        <CheckCircle2 class="h-3.5 w-3.5" />
-        <span>{{ t("research_desk.top_decile_efficiency") }}</span>
+        <component :is="copiedToClipboard ? Check : Copy" class="h-3 w-3" />
+        <span>{{ copiedToClipboard ? t("research_desk.cap_copied") : t("research_desk.vc_copy_ratios") }}</span>
+      </button>
+    </div>
+
+    <!-- Ratio metric tiles -->
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        v-for="tile in metricTiles"
+        :key="tile.title"
+        class="mac-tile flex flex-col gap-1.5 p-3"
+        style="border-radius: 10px"
+      >
+        <div class="flex items-center gap-2">
+          <span class="mac-t-label mac-c-secondary truncate">{{ tile.title }}</span>
+          <span class="flex-1" />
+          <span v-if="tile.value && tile.badge" class="mac-status-pill" :style="{ '--tint': tile.badge.tint }">
+            {{ tile.badge.text }}
+          </span>
+        </div>
+        <span class="mac-t-metric" :class="tile.value == null ? 'mac-c-secondary' : ''">
+          {{ tile.value || "—" }}
+        </span>
+        <span class="mac-t-caption10 mac-c-secondary truncate">{{ tile.caption }}</span>
+        <div class="mac-divider" />
+        <span class="flex items-center gap-1.5">
+          <Crosshair class="mac-c-secondary h-2.5 w-2.5 shrink-0" />
+          <span class="mac-t-caption10 mac-c-secondary font-medium">{{ tile.target }}</span>
+        </span>
       </div>
     </div>
 
-    <!-- Benchmark Cards Grid -->
-    <div class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-      <!-- Burn Multiple -->
-      <div class="rounded-lg border border-border/40 bg-background/50 p-3.5">
-        <div class="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{{ t("research_desk.burn_multiple") }}</span>
-          <span class="text-[10px]">{{ t("research_desk.burn_multiple_calc") }}</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-2">
-          <span
-            class="text-2xl font-bold font-mono"
-            :class="burnMultipleClass"
-          >
-            {{ burnMultiple != null ? `${burnMultiple.toFixed(2)}x` : "—" }}
-          </span>
-          <span class="text-[11px] font-medium text-muted-foreground">
-            {{ burnMultipleRating }}
-          </span>
-        </div>
+    <!-- Typed inputs -->
+    <div class="mac-tile flex flex-col gap-3 p-3" style="border-radius: 10px">
+      <div class="flex items-center">
+        <span class="mac-t-label mac-c-secondary">{{ t("research_desk.vc_inputs") }}</span>
+        <span class="flex-1" />
+        <span class="mac-t-caption mac-mono mac-c-tertiary">{{ t("research_desk.vc_inputs_hint") }}</span>
       </div>
 
-      <!-- Rule of 40 -->
-      <div class="rounded-lg border border-border/40 bg-background/50 p-3.5">
-        <div class="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{{ t("research_desk.rule_of_40") }}</span>
-          <span class="text-[10px]">{{ t("research_desk.rule_of_40_calc") }}</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-2">
-          <span
-            class="text-2xl font-bold font-mono"
-            :class="ruleOf40Class"
-          >
-            {{ ruleOf40 != null ? `${ruleOf40.toFixed(1)}%` : "—" }}
-          </span>
-          <span class="text-[11px] font-medium text-muted-foreground">
-            {{ ruleOf40Rating }}
-          </span>
-        </div>
-      </div>
-
-      <!-- Magic Number -->
-      <div class="rounded-lg border border-border/40 bg-background/50 p-3.5">
-        <div class="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{{ t("research_desk.magic_number") }}</span>
-          <span class="text-[10px]">{{ t("research_desk.magic_number_calc") }}</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-2">
-          <span
-            class="text-2xl font-bold font-mono"
-            :class="magicNumberClass"
-          >
-            {{ magicNumber != null ? `${magicNumber.toFixed(2)}x` : "—" }}
-          </span>
-          <span class="text-[11px] font-medium text-muted-foreground">
-            {{ magicNumberRating }}
-          </span>
+      <div class="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <div v-for="field in inputFields" :key="field.key" class="flex flex-col gap-1">
+          <span class="mac-t-caption10 mac-c-secondary truncate">{{ field.label }}</span>
+          <div class="flex items-center gap-1">
+            <input
+              v-model.number="field.model.value"
+              type="number"
+              placeholder="—"
+              class="mac-field mac-mono w-full min-w-0 text-[10px]"
+              style="padding: 3px 6px; background: var(--mac-card); box-shadow: var(--mac-btn-edge); border-radius: 6px"
+            />
+            <span class="mac-t-caption10 mac-c-tertiary shrink-0">{{ field.unit }}</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Inputs Tuning Grid -->
-    <div class="rounded-lg border border-border/30 bg-background/30 p-4">
-      <div class="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {{ t("research_desk.financial_inputs_calc") }}
-      </div>
-
-      <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.total_arr") }}</label>
-          <input
-            v-model.number="arr"
-            type="number"
-            step="0.5"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.net_new_arr") }}</label>
-          <input
-            v-model.number="netNewArr"
-            type="number"
-            step="0.5"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.net_annual_burn") }}</label>
-          <input
-            v-model.number="netBurn"
-            type="number"
-            step="0.5"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.yoy_arr_growth") }}</label>
-          <input
-            v-model.number="arrGrowthRate"
-            type="number"
-            step="5"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.fcf_margin") }}</label>
-          <input
-            v-model.number="fcfMargin"
-            type="number"
-            step="2"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.net_dollar_retention") }}</label>
-          <input
-            v-model.number="ndr"
-            type="number"
-            step="1"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.cac_payback_mo") }}</label>
-          <input
-            v-model.number="cacPaybackMonths"
-            type="number"
-            step="1"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label class="mb-1 block text-[11px] text-muted-foreground">{{ t("research_desk.sm_spend") }}</label>
-          <input
-            v-model.number="smSpend"
-            type="number"
-            step="0.5"
-            class="w-full rounded border border-border/50 bg-background/50 px-2 py-1 text-xs font-mono text-foreground focus:border-primary focus:outline-none"
-          />
-        </div>
-      </div>
+    <!-- Verdict readout -->
+    <div
+      v-if="burnMultiple != null"
+      class="mac-tile-tint flex items-center gap-3 p-3"
+      :style="{ borderRadius: '10px', '--tint': isTopTier || readoutIsPositive ? 'var(--mac-green)' : 'var(--mac-orange)' }"
+    >
+      <component
+        :is="isTopTier ? BadgeCheck : readoutIsPositive ? CheckCircle2 : AlertTriangle"
+        class="h-[17px] w-[17px] shrink-0"
+        :style="{ color: isTopTier || readoutIsPositive ? 'var(--mac-green)' : 'var(--mac-orange)' }"
+      />
+      <span class="flex min-w-0 flex-col gap-0.5">
+        <span class="mac-t-caption10 font-bold">{{ verdictTitle }}</span>
+        <span class="mac-t-caption10 mac-c-secondary">{{ verdictDescription }}</span>
+      </span>
+      <span class="flex-1" />
+      <span
+        v-if="magicNumber != null"
+        class="flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1"
+        :style="{ background: `color-mix(in srgb, ${magicNumber >= 1 ? 'var(--mac-green)' : 'var(--mac-secondary)'} 14%, transparent)` }"
+      >
+        <span class="mac-t-caption10 mac-c-secondary">{{ t("research_desk.vc_magic_number") }}:</span>
+        <span
+          class="mac-t-caption10 mac-mono font-bold"
+          :style="magicNumber >= 1 ? { color: 'var(--mac-green)' } : {}"
+        >
+          {{ magicNumber.toFixed(2) }}x
+        </span>
+        <span
+          class="mac-t-caption"
+          :style="{ color: magicNumber >= 1 ? 'var(--mac-green)' : 'var(--mac-secondary)' }"
+        >
+          {{ magicNumber >= 1 ? t("research_desk.vc_expand_sm") : t("research_desk.vc_tune_efficiency") }}
+        </span>
+      </span>
     </div>
+    <p v-else class="mac-t-caption mac-c-secondary">
+      {{ t("research_desk.vc_empty_hint") }}
+    </p>
   </div>
 </template>

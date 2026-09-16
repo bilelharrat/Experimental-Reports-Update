@@ -312,7 +312,7 @@ async function launchReport() {
 </script>
 
 <template>
-  <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 md:p-8">
+  <div v-if="open" class="mac-desk fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 md:p-8" style="background: transparent">
     <!-- Scrim backdrop -->
     <div
       class="sheet-scrim fixed inset-0 backdrop-blur-sm"
