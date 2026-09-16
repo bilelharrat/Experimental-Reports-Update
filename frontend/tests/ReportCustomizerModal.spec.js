@@ -7,15 +7,27 @@ import ReportCustomizerModal from "../src/components/ReportCustomizerModal.vue";
 const apiMock = vi.hoisted(() => ({
   generateReport: vi.fn(),
   studioInvestigate: vi.fn(),
+  listCompanyDocuments: vi.fn(),
 }));
 
 vi.mock("../src/api.js", () => ({
   api: {
     generateReport: apiMock.generateReport,
     studioInvestigate: apiMock.studioInvestigate,
+    listCompanyDocuments: apiMock.listCompanyDocuments,
   },
   withApiToken: (url) => url,
 }));
+
+// One analysed document, the shape evidence_store.list_documents returns.
+const ANALYSED_DOC = {
+  record_id: "an1",
+  backend: "background_documents",
+  title: "deck_analysis.md",
+  filename: "deck_analysis.md",
+  analysis_of: "src1",
+  uploaded_at: "2026-09-15T10:00:00Z",
+};
 
 function mountModal(props = {}) {
   const router = createRouter({
@@ -52,6 +64,9 @@ function mountModal(props = {}) {
 describe("ReportCustomizerModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    apiMock.listCompanyDocuments.mockResolvedValue({
+      groups: [{ id: "uploaded-documents", rows: [ANALYSED_DOC] }],
+    });
   });
 
   it("renders modal with company info and default blueprint tab", () => {
@@ -73,10 +88,12 @@ describe("ReportCustomizerModal", () => {
     expect(wrapper.text()).toContain("Interactive Studio Review");
     expect(wrapper.text()).toContain("Best Frontier");
 
-    // Click Evidence Sources tab
+    // Click Evidence Sources tab — it lists this company's analysed
+    // documents, not a fixed menu of source categories.
     await navButtons[2].trigger("click");
+    await flushPromises();
     expect(wrapper.text()).toContain("Evidence Repository Attachments");
-    expect(wrapper.text()).toContain("Company SEC & Regulatory Filings");
+    expect(wrapper.text()).toContain("deck_analysis.md");
   });
 
   it("offers no control the pipeline cannot receive", async () => {
@@ -119,6 +136,58 @@ describe("ReportCustomizerModal", () => {
     expect(wrapper.emitted("close")).toBeTruthy();
   });
 
+  it("sends only the analysed documents left checked", async () => {
+    apiMock.listCompanyDocuments.mockResolvedValue({
+      groups: [
+        {
+          id: "uploaded-documents",
+          rows: [
+            ANALYSED_DOC,
+            { ...ANALYSED_DOC, record_id: "an2", title: "memo_analysis.md" },
+          ],
+        },
+      ],
+    });
+    apiMock.generateReport.mockResolvedValue({ id: "rep_1" });
+    const wrapper = mountModal();
+    await flushPromises();
+
+    const navButtons = wrapper.findAll("nav button");
+    await navButtons[2].trigger("click");
+    await flushPromises();
+
+    // Everything starts checked; uncheck the second document.
+    const boxes = wrapper.findAll('input[type="checkbox"]');
+    expect(boxes).toHaveLength(2);
+    await boxes[1].setValue(false);
+
+    await navButtons[1].trigger("click");
+    const oneClick = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("One-Click Autonomous"));
+    await oneClick.trigger("click");
+    const launchBtn = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Generate Research Memo"));
+    await launchBtn.trigger("click");
+    await flushPromises();
+
+    expect(apiMock.generateReport).toHaveBeenCalledWith(
+      expect.objectContaining({ evidence_files: ["an1"] }),
+    );
+  });
+
+  it("says so plainly when a company has nothing analysed yet", async () => {
+    apiMock.listCompanyDocuments.mockResolvedValue({ groups: [] });
+    const wrapper = mountModal();
+    await flushPromises();
+    const navButtons = wrapper.findAll("nav button");
+    await navButtons[2].trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("No analysed documents yet");
+    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(0);
+  });
+
   it("launches autonomous report generation when One-Click is selected", async () => {
     apiMock.generateReport.mockResolvedValue({ id: "rep_999", status: "running" });
     const wrapper = mountModal();
@@ -149,6 +218,8 @@ describe("ReportCustomizerModal", () => {
       language: "en",
       report_mode: "full",
       quality: "best",
+      // Nothing deselected, so the run reads the whole research folder.
+      evidence_files: null,
     });
     expect(wrapper.emitted("created")).toBeTruthy();
     expect(wrapper.emitted("close")).toBeTruthy();

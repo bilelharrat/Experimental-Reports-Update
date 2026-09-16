@@ -3963,7 +3963,56 @@ SKILL: bsh-investment-memo-latestage-v1 source standard
 """
 
 
-def _research_file_listing(research_dir: Path | None) -> str:
+MEMO_EVIDENCE_SELECTION_FILE = "evidence_selection.json"
+
+
+def memo_evidence_selection_path(run_dir: Path) -> Path:
+    return Path(run_dir) / "logs" / MEMO_EVIDENCE_SELECTION_FILE
+
+
+def write_memo_evidence_selection(
+    run_dir: Path, analysis_ids: list[str] | None
+) -> None:
+    """Pin which analysed documents this run may read.
+
+    ``None`` (no file) means every document in the company's research
+    folder, which is the default and what every run did before the
+    customizer offered a choice. An explicit list names the analysis
+    records to keep; anything else is left out, and so is the raw source
+    behind it — deselecting a document means the run does not see it.
+    """
+    if analysis_ids is None:
+        return
+    path = memo_evidence_selection_path(run_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"analysis_ids": sorted(set(analysis_ids))}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def memo_evidence_selection(run_dir: Path | None) -> set[str] | None:
+    """The run's pinned analysis ids, or None when it may read everything."""
+    if run_dir is None:
+        return None
+    path = memo_evidence_selection_path(run_dir)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        logger.warning("unreadable evidence selection: %s", path, exc_info=True)
+        return None
+    ids = payload.get("analysis_ids")
+    if not isinstance(ids, list):
+        return None
+    return {str(i) for i in ids}
+
+
+def _research_file_listing(
+    research_dir: Path | None,
+    selected_ids: set[str] | None = None,
+) -> str:
     """Annotated listing of the company research folder for memo prompts.
 
     Uploaded files carry their upload date (and label / folder grouping)
@@ -4008,12 +4057,17 @@ def _research_file_listing(research_dir: Path | None) -> str:
         )
 
     # Source ids covered by an analysis: those originals are excluded.
+    # An analysis the run was not given stays excluded too, along with the
+    # source behind it — leaving the raw file in would defeat the choice.
     covered_ids: set[str] = set()
+    dropped_ids: set[str] = set()
     for entry in entries_by_id.values():
         target = entry.get("analysis_of")
         if not target:
             continue
         target = str(target)
+        if selected_ids is not None and str(entry.get("id")) not in selected_ids:
+            dropped_ids.add(str(entry.get("id")))
         if target.startswith("fld"):
             for member in entries_by_id.values():
                 if member.get("folder_id") == target:
@@ -4031,6 +4085,8 @@ def _research_file_listing(research_dir: Path | None) -> str:
             continue
         if str(entry.get("id")) in covered_ids:
             continue  # represented by its analysis file below/above
+        if str(entry.get("id")) in dropped_ids:
+            continue  # the analyst left this document out of the run
         uploaded = str(entry.get("uploaded_at") or "")[:10]
         analysis_of = entry.get("analysis_of")
         if analysis_of:
@@ -4722,6 +4778,7 @@ Return only the JSON object matching the attached schema: `type`,
 
 def memo_fast_pass_common_context(
     *,
+    run_dir: Path | None = None,
     company_name: str,
     company_slug: str,
     run_id: str,
@@ -4778,7 +4835,7 @@ Registry entry:
 Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
-{_research_file_listing(research_dir)}
+{_research_file_listing(research_dir, memo_evidence_selection(run_dir))}
 {_memo_fact_ledger_block(load_memo_fact_ledger(research_dir))}{_memo_recent_news_block(load_memo_recent_news(research_dir))}{_memo_decision_record_block(load_memo_decision_record(research_dir))}
 BSH background:
 `{settings_path}`
@@ -4850,6 +4907,7 @@ def run_memo_fast_analysis_pass(
         else ""
     )
     shared = common_context or memo_fast_pass_common_context(
+        run_dir=run_dir,
         company_name=company_name,
         company_slug=company_slug,
         run_id=run_id,
@@ -4961,7 +5019,7 @@ Run context:
 Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
-{_research_file_listing(research_dir)}
+{_research_file_listing(research_dir, memo_evidence_selection(run_dir))}
 
 Memo Studio packet:
 `{analysis_session_path if analysis_session_path else '(none)'}`
@@ -5439,7 +5497,7 @@ Run context:
 Research folder:
 `{research_dir if research_dir else '(none)'}`
 Files:
-{_research_file_listing(research_dir)}
+{_research_file_listing(research_dir, memo_evidence_selection(run_dir))}
 
 Memo Studio packet:
 `{analysis_session_path if analysis_session_path else '(none)'}`

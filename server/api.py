@@ -846,6 +846,10 @@ class GenerateRequest(BaseModel):
     # "best" = every agent on the CLI default model; "balanced"/"economy"
     # route roles to cheaper models (claude_runner quality tiers).
     quality: str = "best"
+    # Analysis-document ids the run may read. None (the default) means the
+    # whole research folder, which is what every run did before the
+    # customizer offered a choice.
+    evidence_files: list[str] | None = None
 
 
 class MemoPrepRequest(BaseModel):
@@ -4027,6 +4031,7 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
                 report_type=payload.report_type,
                 report_mode=payload.report_mode,
                 quality=payload.quality,
+                evidence_files=payload.evidence_files,
             )
         except memo_prep.AnalysisSessionNotReadyError as exc:
             _record_report_generation_event(

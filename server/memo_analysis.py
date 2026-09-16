@@ -2883,6 +2883,7 @@ def _run_fast_phase2(
     # here and not inside each pass so every pass sends byte-identical
     # bytes and they collapse into a single prompt-cache entry.
     pass_common_context = claude_runner.memo_fast_pass_common_context(
+        run_dir=run_dir,
         company_name=company_name,
         company_slug=company_slug,
         run_id=run_id,

@@ -195,12 +195,66 @@ const qualities = [
 const selectedQuality = ref("best");
 
 // Tab 4: Evidence Sources
-const evidenceSources = ref([
-  { id: "filings", label: "Company SEC & Regulatory Filings", checked: true },
-  { id: "decks", label: "Data Room Pitch Decks & PDFs", checked: true },
-  { id: "transcripts", label: "Earnings Call Transcripts & Releases", checked: true },
-  { id: "news", label: "External Research & Verified News Feed", checked: true },
-]);
+// Tab 4: the analysed documents this company actually has. An Analyze run
+// in the Files tab writes a <name>_analysis.md beside the upload, and that
+// markdown is what the memo passes read — the raw source is deliberately
+// hidden behind it. Everything is selected by default: dropping one is the
+// exception, not the routine.
+const evidenceSources = ref([]);
+const evidenceLoading = ref(false);
+const evidenceLoadFailed = ref(false);
+
+async function loadEvidenceSources(companyId) {
+  if (!companyId) {
+    evidenceSources.value = [];
+    return;
+  }
+  evidenceLoading.value = true;
+  evidenceLoadFailed.value = false;
+  try {
+    const payload = await api.listCompanyDocuments(companyId);
+    const rows = (payload?.groups || []).flatMap((group) => group.rows || []);
+    const seen = new Set();
+    evidenceSources.value = rows
+      .filter((row) => row.analysis_of && row.record_id && !seen.has(row.record_id) && seen.add(row.record_id))
+      .map((row) => ({
+        id: row.record_id,
+        label: row.title || row.filename || row.record_id,
+        uploadedAt: String(row.uploaded_at || row.captured_at || "").slice(0, 10),
+        checked: true,
+      }));
+  } catch {
+    evidenceSources.value = [];
+    evidenceLoadFailed.value = true;
+  } finally {
+    evidenceLoading.value = false;
+  }
+}
+
+const allEvidenceSelected = computed(
+  () => evidenceSources.value.length > 0 && evidenceSources.value.every((s) => s.checked),
+);
+
+function toggleAllEvidence() {
+  const next = !allEvidenceSelected.value;
+  evidenceSources.value.forEach((src) => {
+    src.checked = next;
+  });
+}
+
+// null = "read the whole research folder", which is what a run did before
+// this tab existed. Only an actual deselection narrows it.
+const selectedEvidenceIds = computed(() => {
+  if (!evidenceSources.value.length) return null;
+  if (allEvidenceSelected.value) return null;
+  return evidenceSources.value.filter((s) => s.checked).map((s) => s.id);
+});
+
+watch(
+  () => currentCompany.value?.id,
+  (companyId) => loadEvidenceSources(companyId),
+  { immediate: true },
+);
 
 const activeArchetypeObj = computed(() => {
   return archetypes.find((a) => a.id === selectedArchetype.value) || archetypes[0];
@@ -244,6 +298,7 @@ async function launchReport() {
         language: selectedLanguage.value === "zh" ? "zh" : "en",
         report_mode: selectedReportMode.value,
         quality: selectedQuality.value,
+        evidence_files: selectedEvidenceIds.value,
       });
 
       emit("created", rep);
@@ -598,23 +653,43 @@ async function launchReport() {
             <span class="text-xs text-ink-muted">{{ t("customizer.evidence_desc") }}</span>
           </div>
 
-          <div class="space-y-2">
-            <label
-              v-for="src in evidenceSources"
-              :key="src.id"
-              class="flex items-center justify-between p-3.5 rounded-xl border border-subtle bg-surface hover:border-strong cursor-pointer transition-colors"
+          <p v-if="evidenceLoading" class="text-sm text-ink-muted">
+            {{ t("customizer.evidence_loading") }}
+          </p>
+          <p v-else-if="evidenceLoadFailed" class="text-sm text-danger">
+            {{ t("customizer.evidence_failed") }}
+          </p>
+          <p v-else-if="!evidenceSources.length" class="text-sm text-ink-muted">
+            {{ t("customizer.evidence_empty") }}
+          </p>
+
+          <template v-else>
+            <button
+              type="button"
+              class="text-xs font-medium text-accent focus-ring rounded"
+              @click="toggleAllEvidence"
             >
-              <div class="flex items-center gap-3">
-                <input
-                  v-model="src.checked"
-                  type="checkbox"
-                  class="rounded border-subtle text-accent focus:ring-accent h-4 w-4"
-                />
-                <span class="text-sm font-medium text-ink-primary">{{ src.label }}</span>
-              </div>
-              <span class="text-xs text-ink-muted">{{ t("customizer.available_in_dossier") }}</span>
-            </label>
-          </div>
+              {{ allEvidenceSelected ? t("customizer.evidence_clear_all") : t("customizer.evidence_select_all") }}
+            </button>
+
+            <div class="space-y-2">
+              <label
+                v-for="src in evidenceSources"
+                :key="src.id"
+                class="flex items-center justify-between p-3.5 rounded-xl border border-subtle bg-surface hover:border-strong cursor-pointer transition-colors"
+              >
+                <div class="flex items-center gap-3">
+                  <input
+                    v-model="src.checked"
+                    type="checkbox"
+                    class="rounded border-subtle text-accent focus:ring-accent h-4 w-4"
+                  />
+                  <span class="text-sm font-medium text-ink-primary">{{ src.label }}</span>
+                </div>
+                <span v-if="src.uploadedAt" class="text-xs text-ink-muted">{{ src.uploadedAt }}</span>
+              </label>
+            </div>
+          </template>
         </div>
       </div>
 
