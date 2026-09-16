@@ -151,3 +151,76 @@ def test_the_rejection_reaches_the_error_through_the_stream_handler():
         {"subtype": "error_max_structured_output_retries"}, state
     )
     assert "must have required property 'key_findings'" in message
+
+
+# ---- the other rejection: a tool call too big to parse ----------------------
+#
+# 2026-09-16, the spine. Four attempts, each cut off mid-JSON:
+#
+#   InputValidationError: StructuredOutput was called with input that
+#   could not be parsed as JSON.
+#   You sent (first 200 of 33330 bytes): {"package_skeleton": ...
+#
+# 33,330 -> 31,264 -> 28,240 -> 27,850 bytes. The model kept shrinking and
+# still never fit. THIS is a size failure, and it reads nothing like the
+# passes' "must have required property". Both exist; they need opposite
+# fixes, so the message must tell them apart.
+
+UNPARSEABLE = (
+    "<tool_use_error>InputValidationError: StructuredOutput was called "
+    "with input that could not be parsed as JSON.\nYou sent (first 200 "
+    'of 33330 bytes): {"package_skeleton": {"schema_version": 1'
+)
+
+
+def _unparseable(size):
+    return UNPARSEABLE.replace("33330", str(size))
+
+
+def test_an_unparseable_tool_call_is_recorded_with_its_size():
+    state: dict = {}
+    for size in (33330, 31264, 28240, 27850):
+        claude_runner._note_schema_rejection(state, _unparseable(size))
+    assert state["unparsed_input_bytes"] == [33330, 31264, 28240, 27850]
+    assert state["schema_rejection_count"] == 4
+
+
+def test_the_size_failure_says_split_the_ask():
+    state: dict = {}
+    for size in (33330, 31264, 28240, 27850):
+        claude_runner._note_schema_rejection(state, _unparseable(size))
+    message = claude_runner._structured_output_exhausted_error(
+        {"subtype": "error_max_structured_output_retries"}, state
+    )
+    assert "27,850 bytes" in message
+    assert "down from 33,330 across 4 attempts" in message
+    assert "too big for one call" in message
+    assert claude_runner.is_structured_output_failure(message)
+
+
+def test_a_single_oversize_attempt_does_not_claim_it_shrank():
+    state: dict = {}
+    claude_runner._note_schema_rejection(state, _unparseable(20000))
+    message = claude_runner._structured_output_exhausted_error(
+        {"subtype": "error_max_structured_output_retries"}, state
+    )
+    assert "20,000 bytes" in message
+    assert "down from" not in message
+
+
+def test_size_evidence_outranks_a_trailing_schema_complaint():
+    """The CLI's last word was a schema complaint about the wrapper it
+    made from the unparseable input; the real cause is the size."""
+    state: dict = {}
+    claude_runner._note_schema_rejection(state, _unparseable(33330))
+    claude_runner._note_schema_rejection(
+        state,
+        "Output does not match required schema: root: must have required "
+        "property 'package_skeleton', root: must NOT have additional "
+        "properties ('__unparsedToolInput' is not allowed)",
+    )
+    message = claude_runner._structured_output_exhausted_error(
+        {"subtype": "error_max_structured_output_retries"}, state
+    )
+    assert "too big for one call" in message
+    assert "__unparsedToolInput" not in message

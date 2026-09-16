@@ -461,9 +461,13 @@ def _subprocess_output_tail(*parts: str | None, limit: int = 600) -> str:
 # "claude exited 1".
 MEMO_STRUCTURED_OUTPUT_EXHAUSTED = "error_max_structured_output_retries"
 
-# The CLI's rejection notice, which arrives as an ordinary tool result and
-# is otherwise discarded.
+# The CLI's rejection notices, which arrive as ordinary tool results and
+# are otherwise discarded. There are two, and they mean opposite things:
+# the schema one is an object submitted incomplete (say it again properly),
+# the unparseable one is a tool call whose JSON was cut off (say less).
 _SCHEMA_REJECTION_MARKER = "Output does not match required schema"
+_UNPARSEABLE_INPUT_MARKER = "could not be parsed as JSON"
+_SENT_BYTES_RE = re.compile(r"first \d+ of (\d+) bytes")
 
 # Every message this module produces for the failure opens with this, so
 # callers can recognise it without matching prose. `is_structured_output_
@@ -489,12 +493,25 @@ def _note_schema_rejection(state: dict, text: str | None) -> None:
     passes that succeeded wrote MORE output tokens than the ones that
     died. Record the reason; do not infer one.
     """
-    if not text or _SCHEMA_REJECTION_MARKER not in text:
+    if not text:
+        return
+    unparseable = _UNPARSEABLE_INPUT_MARKER in text
+    if not unparseable and _SCHEMA_REJECTION_MARKER not in text:
         return
     state["last_schema_rejection"] = text.strip()[:600]
     state["schema_rejection_count"] = (
         state.get("schema_rejection_count", 0) + 1
     )
+    if unparseable:
+        # "You sent (first 200 of 33330 bytes)" — the size of the tool call
+        # the CLI could not parse. The spine shrank 33,330 -> 27,850 across
+        # four attempts on 2026-09-16 and never fit, which is what "the ask
+        # is too big" looks like when it is actually true.
+        match = _SENT_BYTES_RE.search(text)
+        if match:
+            state.setdefault("unparsed_input_bytes", []).append(
+                int(match.group(1))
+            )
 
 
 def _structured_output_exhausted_error(
@@ -508,6 +525,20 @@ def _structured_output_exhausted_error(
     rejection = (state or {}).get("last_schema_rejection")
     count = (state or {}).get("schema_rejection_count") or 0
     head = f"the model {MEMO_STRUCTURED_OUTPUT_FAILURE_PHRASE}"
+    sizes = (state or {}).get("unparsed_input_bytes") or []
+    if sizes:
+        # This one really is a size failure: the tool call itself was cut
+        # off mid-JSON, so no amount of retrying the same ask can fit it.
+        shrank = (
+            f", down from {sizes[0]:,} across {len(sizes)} attempts"
+            if len(sizes) > 1 and sizes[0] > sizes[-1]
+            else ""
+        )
+        return (
+            f"{head}: its answer never parsed as JSON. The last attempt "
+            f"sent {sizes[-1]:,} bytes in one tool call{shrank}, so the ask "
+            "is too big for one call — split what it must return."
+        )
     if rejection:
         attempts = f"{count} rejected attempt(s)" if count else "every attempt"
         return f"{head} ({attempts}); the CLI's last complaint was: {rejection}"
