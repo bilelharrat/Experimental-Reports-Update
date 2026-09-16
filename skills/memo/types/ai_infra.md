@@ -24,6 +24,11 @@ scorecard:
     valuation: 8
     exit_certainty: 4
     risk_reward: 4
+section_emphasis:
+  business_financials: 1.3
+  thesis_market: 1.2
+  company_team: 0.85
+  investment_decision: 0.85
 research_focus:
   all: >-
     This is an AI infrastructure company — the picks-and-shovels layer

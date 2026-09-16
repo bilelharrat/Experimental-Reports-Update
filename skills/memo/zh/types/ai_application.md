@@ -1,5 +1,5 @@
 ---
-en_sha256: c162cab49705980c96bb87493679377ed507ba8d6792f99c720d3bb73e64c4a6
+en_sha256: f700ca74c3299418d44ed1a154747499ad856d85501568f93b4a9131ba340a16
 ---
 ---
 type: ai_application
@@ -27,6 +27,11 @@ scorecard:
     valuation: 8
     exit_certainty: 3
     risk_reward: 3
+section_emphasis:
+  thesis_market: 1.2
+  business_financials: 1.2
+  company_team: 0.9
+  valuation_returns: 0.9
 research_focus:
   all: >-
     这是一家 AI 应用公司——构建在大模型之上、面向某个垂直行业或工作流

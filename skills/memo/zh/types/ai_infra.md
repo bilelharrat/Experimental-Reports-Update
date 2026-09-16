@@ -1,5 +1,5 @@
 ---
-en_sha256: 3e2227f0c06ce24f6946475c672ffc84e56665df545edfb07a518dd54f4916a2
+en_sha256: e427fcded68f736e8f49ee0c7fb56048bd44e7de386072e18217135097fd0071
 ---
 ---
 type: ai_infra
@@ -27,6 +27,11 @@ scorecard:
     valuation: 8
     exit_certainty: 4
     risk_reward: 4
+section_emphasis:
+  business_financials: 1.3
+  thesis_market: 1.2
+  company_team: 0.85
+  investment_decision: 0.85
 research_focus:
   all: >-
     这是一家 AI 基础设施公司——涵盖硬件芯片、算力云网络、调度编排、推理加速、

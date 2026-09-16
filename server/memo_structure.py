@@ -419,6 +419,13 @@ class CompanyTypeProfile:
     scorecard: dict[str, dict[str, int]]
     # pass_id (or "all") -> research focus addendum for Phase 2
     research_focus: dict[str, str]
+    # section id -> how much MORE (or less) of the report this type
+    # deserves to spend there, as a multiplier on the profile's
+    # `budget_words`. The owner's ask, 2026-09-16: "different types of
+    # companies may have different things to write more about, and we
+    # should adjust accordingly". Total length is preserved — emphasis
+    # moves words between sections, it never adds them.
+    section_emphasis: dict[str, float]
     # The analysis lens appended to the Phase 3 shared context
     body: str
 
@@ -469,7 +476,52 @@ def load_company_type(company_type: str | None) -> CompanyTypeProfile | None:
         research_focus={
             str(k): str(v) for k, v in (head.get("research_focus") or {}).items()
         },
+        section_emphasis={
+            str(k): float(v)
+            for k, v in (head.get("section_emphasis") or {}).items()
+        },
         body=body.strip(),
+    )
+
+
+# How far a type may push one section's share. A type file that wanted a
+# section at four times the profile's length would be arguing for a
+# different profile, not an emphasis.
+_EMPHASIS_MIN = 0.6
+_EMPHASIS_MAX = 2.0
+
+
+def _emphasized_sections(
+    sections: tuple["SectionDef", ...], emphasis: dict[str, float]
+) -> tuple["SectionDef", ...]:
+    """Re-cut the section word budgets by a type's emphasis, same total.
+
+    Emphasis is a claim about PROPORTION — "for a robotics company the
+    deployment evidence deserves more of the report than the moat
+    argument does" — so the weights are renormalized back onto the
+    profile's own total. A type cannot lengthen the memo; only the owner
+    editing `budget_words` can do that.
+    """
+    budgeted = [s for s in sections if s.budget_words]
+    if not budgeted or not emphasis:
+        return sections
+    total = sum(s.budget_words or 0 for s in budgeted)
+    weights = {
+        s.id: (s.budget_words or 0)
+        * min(_EMPHASIS_MAX, max(_EMPHASIS_MIN, emphasis.get(s.id, 1.0)))
+        for s in budgeted
+    }
+    weighted_total = sum(weights.values())
+    if weighted_total <= 0:
+        return sections
+    scale = total / weighted_total
+    recut: dict[str, int] = {
+        section_id: max(1, round(weight * scale / 50) * 50)
+        for section_id, weight in weights.items()
+    }
+    return tuple(
+        replace(s, budget_words=recut[s.id]) if s.id in recut else s
+        for s in sections
     )
 
 
@@ -558,7 +610,14 @@ def load_structure(
         scorecard = dict(base.scorecard)
         if overlay and base.scorecard:
             scorecard = {str(k): int(v) for k, v in overlay.items()}
-        structure = replace(base, scorecard=scorecard, company_type=company_type)
+        structure = replace(
+            base,
+            scorecard=scorecard,
+            company_type=company_type,
+            sections=_emphasized_sections(
+                base.sections, type_profile.section_emphasis
+            ),
+        )
         _validate_structure(structure)
         return structure
     profile = _parse_profile(_profile_path(stage, version))

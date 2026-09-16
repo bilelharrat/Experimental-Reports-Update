@@ -1,5 +1,5 @@
 ---
-en_sha256: d7b9a6fdcdfe02cd47c7a69f5c157302f72e8c463fe70ccb9141dfb1f686086e
+en_sha256: 777aaf654f4f376ca7dcacda1d1b4eced47ec362b6c67a48ba2d38ffbd1b6d35
 ---
 ---
 type: ai_video_short_drama
@@ -27,6 +27,11 @@ scorecard:
     valuation: 8
     exit_certainty: 3
     risk_reward: 4
+section_emphasis:
+  business_financials: 1.35
+  thesis_market: 1.1
+  company_team: 0.8
+  valuation_returns: 0.85
 research_focus:
   all: >-
     这是一家 AI 视频与短剧赛道公司——涵盖视频生成模型/工具、工业化制片管线、

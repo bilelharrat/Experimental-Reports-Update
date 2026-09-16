@@ -24,6 +24,12 @@ scorecard:
     valuation: 8
     exit_certainty: 4
     risk_reward: 5
+section_emphasis:
+  company_team: 1.15
+  business_financials: 1.25
+  thesis_market: 1.15
+  valuation_returns: 0.85
+  investment_decision: 0.85
 research_focus:
   all: >-
     This is a robotics and embodied-AI company — humanoids, mobile

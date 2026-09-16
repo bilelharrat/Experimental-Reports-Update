@@ -125,6 +125,13 @@ on any structural failure).
   (`memo_pass_schema_retry`) and a rejected inline section
   (`memo_section_schema_retry`) each get one more run, carrying the CLI's
   own complaint in the prompt.
+- **Company type steers depth**: a type file's `section_emphasis`
+  (section id -> multiplier, clamped to 0.6-2.0) re-cuts the compact
+  profile's `budget_words` and renormalizes back onto the profile's own
+  total, so a type moves words between sections but can never lengthen
+  the memo. A foundation model spends more on thesis/market (its
+  scorecard puts 36 of 100 on position and moat); robotics spends more
+  on company/team and the deployment evidence in business/financials.
 - **Spine handoff** (`BSH_MEMO_SPINE_HANDOFF`, default on): the spine
   writes its parts to `logs/english_units/spine_pieces/NN_<part>.json`
   and returns a receipt. Moving it off `--json-schema` would lose the

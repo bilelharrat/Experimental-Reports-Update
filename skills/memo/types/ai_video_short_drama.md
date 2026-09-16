@@ -24,6 +24,11 @@ scorecard:
     valuation: 8
     exit_certainty: 3
     risk_reward: 4
+section_emphasis:
+  business_financials: 1.35
+  thesis_market: 1.1
+  company_team: 0.8
+  valuation_returns: 0.85
 research_focus:
   all: >-
     This is an AI video and short-drama company — video generation models

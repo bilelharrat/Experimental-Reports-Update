@@ -24,6 +24,12 @@ scorecard:
     valuation: 8
     exit_certainty: 3
     risk_reward: 4
+section_emphasis:
+  thesis_market: 1.25
+  business_financials: 1.15
+  company_team: 1.1
+  valuation_returns: 0.9
+  investment_decision: 0.85
 research_focus:
   all: >-
     This is a frontier-model lab. Read every number through four
