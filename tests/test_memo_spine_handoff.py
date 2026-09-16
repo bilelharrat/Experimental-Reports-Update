@@ -55,7 +55,13 @@ def _spine_payload():
             "scorecard": {
                 "total": 70,
                 "dimensions": {
-                    key: {"score": 1, "why": "because."}
+                    key: {
+                        "score": 1,
+                        "why": "because.",
+                        "evidence": [
+                            "Revenue, which measures scale, is $1B [S1]."
+                        ],
+                    }
                     for key in memo_structure.SCORECARD_DIMENSION_KEYS
                 },
             },

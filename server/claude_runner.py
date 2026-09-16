@@ -3155,8 +3155,25 @@ def memo_fast_english_spine_schema(
                                             "type": "string",
                                             "maxLength": 180,
                                         },
+                                        # The founder's ask (2026-09-16):
+                                        # every dimension the case turns on
+                                        # must be readable in one place with
+                                        # ITS number and where that number
+                                        # came from — not hunted for across
+                                        # the report. This is what the
+                                        # executive summary's dimension scan
+                                        # prints, one line per dimension.
+                                        "evidence": {
+                                            "type": "array",
+                                            "minItems": 1,
+                                            "maxItems": 2,
+                                            "items": {
+                                                "type": "string",
+                                                "maxLength": 240,
+                                            },
+                                        },
                                     },
-                                    "required": ["score", "why"],
+                                    "required": ["score", "why", "evidence"],
                                 }
                                 for dimension in (
                                     memo_structure.SCORECARD_DIMENSION_KEYS
@@ -5405,7 +5422,54 @@ def _render_case_summary_lines(
             lines.append(f"{index}. [{cell}] {item.get('headline')}")
             for evidence in item.get("evidence") or []:
                 lines.append(f"   - {evidence}")
+    lines.extend(_render_dimension_scan_lines(dimensions, weights))
     return lines
+
+
+def _render_dimension_scan_lines(dimensions: dict, weights: dict) -> list[str]:
+    """One line per scorecard dimension, for the executive summary's scan.
+
+    Founder's ask, 2026-09-16: the eight things the decision turns on —
+    market size, growth, industry position, moat, team, business model,
+    profitability, IPO outlook — must be readable in ONE place with their
+    numbers, instead of being hunted for across the report. Three
+    highlights only ever carried the three strongest, so the rest were
+    scattered. The band is derived from the score, never written, so the
+    scan cannot disagree with the highlights about what is a strength.
+    """
+    rows: list[str] = []
+    for dimension in memo_structure.SCORECARD_DIMENSION_KEYS:
+        entry = dimensions.get(dimension)
+        weight = weights.get(dimension)
+        if not isinstance(entry, dict) or not isinstance(weight, int):
+            continue
+        score = entry.get("score")
+        if not isinstance(score, int):
+            continue
+        band = memo_structure.scorecard_band(score, weight)
+        label = _dimension_label(dimension)
+        evidence = [
+            str(item).strip()
+            for item in (entry.get("evidence") or [])
+            if str(item).strip()
+        ]
+        rows.append(
+            f"- {label} — {score}/{weight}, {band}. "
+            f"{str(entry.get('why') or '').strip()}"
+        )
+        for item in evidence:
+            rows.append(f"    {item}")
+    if not rows:
+        return []
+    return [
+        "Dimension scan (the executive summary prints EVERY line below, in "
+        "this order, after its three highlights — one row per dimension "
+        "with its score, its band and the evidence line, verbatim. A "
+        "dimension banded `weak` must also appear as a named risk. The "
+        "business model and unit economics row states BOTH how the company "
+        "charges and whether it makes money, each with its own number):",
+        *rows,
+    ]
 
 
 def _render_shared_facts_block(
@@ -6226,7 +6290,19 @@ against the stragglers when they land.
      Watch / Pass). It must agree with the recommendation sentence's
      stance and sit in the scorecard band: {band_list}.
    - `scorecard`: `total` plus all nine `dimensions`, each with an
-     integer `score` (0 to that dimension's max) and a one-line `why`.
+     integer `score` (0 to that dimension's max), a one-line `why`, and
+     `evidence`: one or two sentences carrying THE number that settles
+     this dimension, what that number measures, and where it came from
+     (a source id, or a calculation note cited as [C#]). The executive
+     summary prints one scan line per dimension from these, so a reader
+     sees market size, growth, industry position, moat, team, business
+     model, profitability and exit outlook in one place instead of
+     hunting for them. For `business_model_ue` the two sentences are
+     fixed: the first is how the company charges and whether that
+     survives the next product shift, the second is whether it makes
+     money — gross margin now, and what has to change for it to turn
+     positive. A dimension you score below half its max must also
+     appear in `risks` as a named risk.
      Weights for this stage: {weight_list}. The total MUST equal the sum
      of the nine scores — a deterministic gate recomputes it.
    - `fair_value_range`: `low` and `high` (e.g. "$800M" / "$1.4B") with

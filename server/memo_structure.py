@@ -137,6 +137,32 @@ SCORECARD_DIMENSION_LABELS: dict[str, dict[str, str]] = {
     "risk_reward": {"en": "risk-reward balance", "zh": "风险收益比"},
 }
 
+# How a dimension's score reads in one word. Derived, never written by a
+# model, so the scan, the highlights and the risk list can never disagree
+# about whether a dimension is a strength.
+SCORECARD_BANDS: tuple[tuple[str, float], ...] = (
+    ("strong", 0.75),
+    ("adequate", 0.50),
+    ("weak", 0.0),
+)
+SCORECARD_BAND_LABELS: dict[str, dict[str, str]] = {
+    "strong": {"en": "strong", "zh": "强"},
+    "adequate": {"en": "adequate", "zh": "中等"},
+    "weak": {"en": "weak", "zh": "弱"},
+}
+
+
+def scorecard_band(score: int, max_score: int) -> str:
+    """"strong" / "adequate" / "weak" for one dimension's score."""
+    if not isinstance(max_score, int) or max_score <= 0:
+        return "weak"
+    ratio = score / max_score
+    for name, floor in SCORECARD_BANDS:
+        if ratio >= floor:
+            return name
+    return "weak"
+
+
 # The seven areas a pinned risk is filed under, so a risk first says
 # WHICH aspect of the case it concentrates on.
 RISK_AREA_KEYS: tuple[str, ...] = (
