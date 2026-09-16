@@ -196,15 +196,20 @@ Worked examples (from the founder's review of a live memo):
   delivered. At $1.75T the buyer pays about 9x a 2028 revenue line
   that was revised from $70B to $190-200B in ten months, and the base
   case returns 0.91x. Rated 9/10, likelihood high."
-  Prefer: "Risk 1 — Valuation & exit: the price already assumes the
-  2028 plan comes true. Impact: the base case returns 0.91x — a 9%
-  loss even if the company executes. Why: the sellers are discussing
-  a price of $1.75T. That is about 9 times the revenue the company
-  now plans for 2028 ($190-200B). Ten months ago the same plan said
-  $70B, so the plan nearly tripled before any of it was earned. If
-  2028 revenue comes in at the plan and the market pays 8 times
-  revenue — the multiple mature software leaders trade at — the
-  company is worth about $1.6T, less than the $1.75T paid. The risk is
-  rated 9/10 because it alone can turn a good company into a losing
-  investment, and likelihood is high because the price range is
-  already public."
+  Prefer: "Risk 1 — Valuation & exit: the price is too high for the exit
+  to return enough — it already assumes the 2028 plan comes true.
+  Impact: the base case returns 0.91x — a 9% loss even if the company
+  executes. Why: the sellers are discussing a price of $1.75T. That is
+  about 9 times the revenue the company now plans for 2028
+  ($190-200B). Ten months ago the same plan said $70B, so the plan
+  nearly tripled before any of it was earned, and a revision that size
+  is itself what makes the number hard to hit. The multiple depends on
+  the company type too: mature software leaders trade at about 8 times
+  revenue, while a foundation-model or platform company can earn more
+  in the right market — so a valuation judgment has to establish two
+  things, whether the revenue line is achievable AND what multiple
+  range genuinely applies to this type. If 2028 revenue comes in at
+  the plan and the market pays 8 times revenue, the company is worth
+  about $1.6T, less than the $1.75T paid. The risk is rated 9/10
+  because it alone can turn a good company into a losing investment,
+  and likelihood is high because the price range is already public."

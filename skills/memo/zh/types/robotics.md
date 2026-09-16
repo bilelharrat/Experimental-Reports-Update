@@ -1,5 +1,5 @@
 ---
-en_sha256: 6acac7d5b10d62a39d57de5a7f134fbea95889d10295dc5a4bd39a1a7f9dea32
+en_sha256: 0085e2555ea738314f66f7d2ccecfdf01f8ea934848cc327cebdb075ed7039fd
 ---
 ---
 type: robotics

@@ -170,11 +170,14 @@ COMPANY_TYPE_KEYS: tuple[str, ...] = (
 )
 
 COMPANY_TYPE_LABELS: dict[str, dict[str, str]] = {
-    "ai_foundation_model": {"en": "AI foundation model", "zh": "AI 大模型"},
+    "ai_foundation_model": {
+        "en": "AI foundation model",
+        "zh": "AI 大模型与前沿实验室",
+    },
     "ai_infra": {"en": "AI infrastructure", "zh": "AI 基础设施"},
     "ai_application": {"en": "AI application", "zh": "AI 应用"},
     "ai_video_short_drama": {"en": "AI video & short drama", "zh": "AI 视频与短剧"},
-    "robotics": {"en": "Robotics", "zh": "机器人"},
+    "robotics": {"en": "Robotics", "zh": "机器人与具身智能"},
     "other": {"en": "Other", "zh": "其他"},
 }
 

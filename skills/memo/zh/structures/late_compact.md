@@ -1,5 +1,5 @@
 ---
-en_sha256: a6a515052a288c223b5e833bab92b0427c4b4ae8fe14250b6761a5985a06ad3d
+en_sha256: ed286701cd85c42c1695686b2cb0e18919ed497fda2888d353ca2d6befe6e36b
 ---
 ---
 stage: late_compact
@@ -123,21 +123,26 @@ subsections:
    没有的内容。
    风格：简洁、面向投资人、可直接放入执行摘要。
 
-   ---示例开始---
-    示例（恰好三条）  
-    Anthropic — 前沿模型驱动的商业化能力  
-    "component":"investment_highlights"
+   工作示例（恰好三条）：
 
-    全球最稀缺的前沿模型领导者之一，收入增长已经验证技术领先可以转化为商业价值
-    证据：衡量公司规模化商业化能力；来源公司披露；输入：公司口径的 run‑rate 从 2025‑12 的约 $9B 升至 2026‑07 的 $65B（最近一个月乘以 12）。
+   ```
+   Anthropic — 前沿模型驱动的商业化能力
+   "component": "investment_highlights"
 
-    Claude Code 成为杀手级应用，率先抓住 Coding → Agent 的巨大市场
-    证据：衡量在开发者/企业工作流中的渗透与付费强度；来源公司披露；输入：Claude Code run‑rate 超 $2.5B（公司口径），以及公司披露的年付费 $1M+ 客户数在 2026‑02 至 2026‑04 期间翻倍。
+   全球最稀缺的前沿模型领导者之一，收入增长已经验证技术领先可以转化为商业价值。
+   证据：衡量公司规模化商业化能力；来源：公司披露；输入：公司口径的年化收入
+   从 2025-12 的约 $9B 升至 2026-07 的 $65B（最近一个月乘以十二）。
 
-    企业级渠道与云集成已实现商业化分发
-    证据：衡量渠道与生态接入能力；来源公开合作公告与公司披露；输入：Claude 通过 AWS Bedrock、Google Vertex AI 与 Microsoft Foundry 销售，且 Microsoft Foundry 于 2026‑06‑29 实现 GA。
+   Claude Code 成为杀手级应用，率先抓住从编码走向 Agent 的转折。
+   证据：衡量在开发者与企业工作流中的渗透与付费强度；来源：公司披露；输入：
+   Claude Code 年化收入超 $2.5B（公司口径），且公司披露的年付费 $1M+ 客户数
+   在 2026-02 至 2026-04 期间翻倍。
 
-   ---示例结束---
+   企业级渠道与云集成已实现商业化分发。
+   证据：衡量渠道与生态接入能力；来源：公开合作公告与公司披露；输入：Claude
+   通过 AWS Bedrock、Google Vertex AI 与 Microsoft Foundry 销售，且 Microsoft
+   Foundry 于 2026-06-29 实现 GA。
+   ```
 
 4. 核心风险提示：一个 `bullets` 块，`"component": "key_risks"`，**恰好
    三项** —— 评分最高的三条已钉定风险，按钉定顺序排列，每条格式为

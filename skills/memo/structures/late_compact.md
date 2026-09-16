@@ -121,7 +121,34 @@ Content per subsection:
    renderer bolds it), then the pinned evidence
    sentences, each number introduced by what it measures and where it
    comes from (a named source, or "our own estimate" with its
-   inputs). Never a naked topic label ("Price."), never a new number.
+   inputs). Never a naked topic label ("Price."), never a new number,
+   never a risk, a valuation sensitivity or a recommendation here.
+
+   Worked example (exactly three):
+
+   ```
+   Anthropic — commercialization carried by a frontier model
+   "component": "investment_highlights"
+
+   One of the scarcest frontier-model leaders, and revenue growth has
+   already proved the technical lead converts into commercial value.
+   Evidence: measures commercialization at scale; source: company
+   disclosure; input: company-basis run-rate rose from about $9B in
+   2025-12 to $65B in 2026-07 (latest month x12).
+
+   Claude Code is the killer application, first into the move from
+   coding to agents.
+   Evidence: measures penetration and paid intensity in developer and
+   enterprise workflows; source: company disclosure; input: Claude Code
+   run-rate above $2.5B on a company basis, and disclosed $1M+ annual
+   customers doubling between 2026-02 and 2026-04.
+
+   Enterprise channels and cloud integration already carry distribution.
+   Evidence: measures channel and ecosystem reach; source: public
+   partnership announcements and company disclosure; input: Claude sells
+   through AWS Bedrock, Google Vertex AI and Microsoft Foundry, with
+   Microsoft Foundry generally available on 2026-06-29.
+   ```
 4. Key risks: ONE `bullets` block, `"component": "key_risks"`, EXACTLY
    three items — the three highest-rated pinned risks in pinned
    order, each "<Area label> — <pinned summary verbatim>. Impact:

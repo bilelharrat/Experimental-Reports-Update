@@ -1,5 +1,5 @@
 ---
-en_sha256: dae54ed2facd9ffc17acd750fc635af778712fb090950cd85ba0274f87e854a0
+en_sha256: e6a36bffee59c58f3b8caa7fd18f62d4722483a44dd03cba47f908430f679c80
 ---
 
 ## 数据诚实（结构 v2——这些规则优先于任何填补空缺的本能）

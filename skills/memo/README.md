@@ -2,7 +2,7 @@
 
 This folder holds every editorial prompt the investment-memo agents run.
 The English files are what the agents read at run time; the Chinese
-twins under `zh/` are the editing surface for the founder's team.
+twins under `zh/` are the editing surface for the Chinese team.
 
 ```
 skills/memo/
@@ -38,7 +38,7 @@ skills/memo/
 
 ## Editing workflow (中文说明见 zh/README.md)
 
-1. The mentor edits the Chinese twin under `zh/` — prose only; the yaml
+1. The Chinese team edits the twin under `zh/` — prose only; the yaml
    fences are technical fields and are copied verbatim.
 2. The owner asks Claude to "sync zh → en": the change is ported into the
    English file (the agents read English only), the twin is re-stamped,
