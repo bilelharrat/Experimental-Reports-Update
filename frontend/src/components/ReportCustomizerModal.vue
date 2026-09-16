@@ -142,18 +142,50 @@ const audiences = [
 ];
 const selectedAudience = ref("internal");
 
+// Page counts measured off produced memos, not aspirational: the last
+// compact Anthropic run came to ~6,900 words including tables, and the
+// full profile budgets 10,500-13,450 words of prose across twelve
+// sections before tables, sources and calculation notes.
 const reportModes = [
-  { id: "full", title: "Full Institutional IC", desc: "10–15 pages of deep forensic analysis and supporting evidence" },
-  { id: "compact", title: "Executive Brief", desc: "3–5 page partner-level investment synthesis" },
+  {
+    id: "compact",
+    title: "Executive Brief",
+    desc: "Seven sections, ~15 pages. The partner-level read, and the one that actually gets read end to end.",
+  },
+  {
+    id: "full",
+    title: "Full Institutional IC",
+    desc: "Twelve sections, 40+ pages with full evidence, sources and calculation notes.",
+  },
 ];
-const selectedReportMode = ref("full");
+const selectedReportMode = ref("compact");
 
+// The pipeline writes an English and a Chinese .docx on every run —
+// memo_prep builds both paths unconditionally — so bilingual is not a mode
+// you opt into, it is what the pipeline does. The single-language options
+// are disabled until the pipeline can genuinely skip one half; picking one
+// today would only change which file leads, not what gets generated.
 const languages = [
-  { id: "en", label: "English", desc: "Institutional global English" },
-  { id: "zh", label: "中文", desc: "Mandarin translation & localization" },
-  { id: "dual", label: "Bilingual (EN + ZH)", desc: "Synchronized dual-language outputs" },
+  {
+    id: "dual",
+    label: "Bilingual (EN + ZH)",
+    desc: "Both documents, every run",
+    disabled: false,
+  },
+  {
+    id: "en",
+    label: "English only",
+    desc: "Not available yet",
+    disabled: true,
+  },
+  {
+    id: "zh",
+    label: "中文 only",
+    desc: "Not available yet",
+    disabled: true,
+  },
 ];
-const selectedLanguage = ref("en");
+const selectedLanguage = ref("dual");
 
 // Tab 2: Engine & Quality Options
 const generationModes = [
@@ -295,6 +327,8 @@ async function launchReport() {
         company_id: companyId,
         report_type: reportTypeVal,
         audience: selectedAudience.value,
+        // The API takes one language and it names the LEAD document; both
+        // are written either way. "dual" therefore sends "en".
         language: selectedLanguage.value === "zh" ? "zh" : "en",
         report_mode: selectedReportMode.value,
         quality: selectedQuality.value,
@@ -552,13 +586,17 @@ async function launchReport() {
                     v-for="lang in languages"
                     :key="lang.id"
                     type="button"
+                    :disabled="lang.disabled"
+                    :title="lang.disabled ? t('customizer.language_locked') : null"
                     class="flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all focus-ring"
                     :class="[
-                      selectedLanguage === lang.id
-                        ? 'border-accent bg-accent/5 ring-1 ring-accent'
-                        : 'border-subtle bg-surface hover:border-strong',
+                      lang.disabled
+                        ? 'border-subtle bg-surface opacity-40 cursor-not-allowed'
+                        : selectedLanguage === lang.id
+                          ? 'border-accent bg-accent/5 ring-1 ring-accent'
+                          : 'border-subtle bg-surface hover:border-strong',
                     ]"
-                    @click="selectedLanguage = lang.id"
+                    @click="lang.disabled || (selectedLanguage = lang.id)"
                   >
                     <span class="text-xs font-semibold text-ink-primary">{{ lang.label }}</span>
                     <span class="text-[10px] text-ink-muted mt-0.5">{{ lang.desc }}</span>

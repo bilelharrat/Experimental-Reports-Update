@@ -136,6 +136,23 @@ describe("ReportCustomizerModal", () => {
     expect(wrapper.emitted("close")).toBeTruthy();
   });
 
+  it("defaults to the brief and to bilingual, and locks the single languages", async () => {
+    // Both defaults follow what the pipeline really does: the brief is the
+    // document people finish, and memo_prep writes an English and a Chinese
+    // docx on every run regardless of this picker.
+    const wrapper = mountModal();
+    await flushPromises();
+    expect(wrapper.text()).toContain("Executive Brief");
+    expect(wrapper.text()).toContain("Bilingual (EN + ZH)");
+
+    const disabled = wrapper
+      .findAll("button")
+      .filter((b) => b.attributes("disabled") !== undefined)
+      .map((b) => b.text());
+    expect(disabled.some((label) => label.includes("English only"))).toBe(true);
+    expect(disabled.some((label) => label.includes("中文 only"))).toBe(true);
+  });
+
   it("sends only the analysed documents left checked", async () => {
     apiMock.listCompanyDocuments.mockResolvedValue({
       groups: [
@@ -216,7 +233,9 @@ describe("ReportCustomizerModal", () => {
       report_type: "memo_late_stage",
       audience: "internal",
       language: "en",
-      report_mode: "full",
+      // The brief is the default scope now: it is the one that gets read
+      // end to end, and the full IC runs past forty pages.
+      report_mode: "compact",
       quality: "best",
       // Nothing deselected, so the run reads the whole research folder.
       evidence_files: null,
