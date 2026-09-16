@@ -5502,10 +5502,15 @@ against the stragglers when they land.
      this and rejects duplicates). Per item: `dimension` (the scorecard
      key), `headline` (ONE plain verdict sentence a reader can quote,
      at most one number, written for someone who has never seen the
-     company: "Anthropic leads enterprise adoption rather than chasing
-     it."), `evidence` (2-3 sentences, one fact each, with its number
+     company. It must say what is TRUE about this company and why that
+     matters, never the topic it belongs to: "Enterprise channels carry
+     distribution" is a topic and fails; "Distribution does not have to
+     be built, because the three largest clouds already resell it" is a
+     verdict and passes), `evidence` (2-3 sentences, one fact each,
+     each naming what its number MEASURES before the number appears,
      and where that number comes from — a named source, or our own
-     calculation cited with its [C#] id; never the words "the memo").
+     calculation cited with its [C#] id; never the words "the memo".
+     They read as prose and never open with a label like "Evidence:").
      Plain text only: no asterisks or other markdown. The executive summary repeats the
      headline and evidence verbatim.
    - each risk ALSO carries `area` — which aspect it concentrates on:

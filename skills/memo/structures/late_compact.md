@@ -124,30 +124,55 @@ Content per subsection:
    inputs). Never a naked topic label ("Price."), never a new number,
    never a risk, a valuation sensitivity or a recommendation here.
 
-   Worked example (exactly three):
+   Each headline is a VERDICT the reader could quote on its own: it
+   states what is true about this company and why that matters, not the
+   topic it belongs to. "Enterprise channels carry distribution" is a
+   topic and fails; "Distribution does not have to be built, because the
+   three largest clouds already resell it" is a verdict and passes. Each
+   headline is followed by TWO evidence sentences (the pin carries 2-3),
+   each a complete sentence naming what its number measures, the number,
+   and where the number came from. Evidence sentences never open with a
+   label such as "Evidence:" — they read as prose.
+
+   Worked example (exactly three; the scorecard dimension shown in
+   brackets is a pinned field, NOT printed in the memo):
 
    ```
-   Anthropic — commercialization carried by a frontier model
+   Anthropic's case rests on industry position (14/15), revenue growth
+   and quality (13/15) and moat (12/15); it is weakest on valuation
+   (6/10) and exit certainty (4/8).
+
    "component": "investment_highlights"
 
-   One of the scarcest frontier-model leaders, and revenue growth has
-   already proved the technical lead converts into commercial value.
-   Evidence: measures commercialization at scale; source: company
-   disclosure; input: company-basis run-rate rose from about $9B in
-   2025-12 to $65B in 2026-07 (latest month x12).
+   [industry_position]
+   The technical lead is already proven commercially — this is one of
+   very few companies turning a frontier model into revenue at scale.
+   Run-rate revenue, which measures how fast that conversion is
+   happening, rose from about $9B in December 2025 to $65B in July
+   2026 on the company's own basis of latest month times twelve [S4].
+   The enterprise share, which measures whether that revenue is durable
+   rather than consumer churn, is about 80% of the total on the same
+   disclosure [S4].
 
-   Claude Code is the killer application, first into the move from
-   coding to agents.
-   Evidence: measures penetration and paid intensity in developer and
-   enterprise workflows; source: company disclosure; input: Claude Code
-   run-rate above $2.5B on a company basis, and disclosed $1M+ annual
-   customers doubling between 2026-02 and 2026-04.
+   [revenue_growth_quality]
+   Claude Code turned a coding tool into the entry point for agents,
+   and took that position before the industry turned.
+   Claude Code run-rate, which measures how much of the growth is one
+   product, is above $2.5B on the company's basis [S4]. Customers
+   paying more than $1M a year, which measures depth rather than
+   breadth of adoption, doubled between February and April 2026 [S4].
 
-   Enterprise channels and cloud integration already carry distribution.
-   Evidence: measures channel and ecosystem reach; source: public
-   partnership announcements and company disclosure; input: Claude sells
-   through AWS Bedrock, Google Vertex AI and Microsoft Foundry, with
-   Microsoft Foundry generally available on 2026-06-29.
+   [moat]
+   Distribution does not have to be built, because the three largest
+   clouds already resell it — an enterprise buys through a vendor it has
+   already approved.
+   Availability across AWS Bedrock, Google Vertex AI and Microsoft
+   Foundry, which measures how many procurement paths exist without a
+   new vendor review, covers all three major clouds, with Microsoft
+   Foundry generally available on 29 June 2026 [S9]. Revenue reaching
+   the company through those channels, which measures how much of the
+   book depends on them, is our own estimate of 25-30% from the
+   disclosed enterprise split [C7].
    ```
 4. Key risks: ONE `bullets` block, `"component": "key_risks"`, EXACTLY
    three items — the three highest-rated pinned risks in pinned
