@@ -28,6 +28,12 @@ import DeckSummaryModal from "./components/DeckSummaryModal.vue";
 import ReportCustomizerModal from "./components/ReportCustomizerModal.vue";
 import CopilotPanel from "./components/CopilotPanel.vue";
 import MarketCommandPalette from "./components/MarketCommandPalette.vue";
+import WelcomeTour from "./components/WelcomeTour.vue";
+import {
+  closeWelcomeTour,
+  presentWelcomeTourIfNeeded,
+  welcomeTourOpen,
+} from "./welcomeTour.js";
 import {
   parseMarketCommand,
   routeForMarketCommand,
@@ -191,8 +197,12 @@ function stopPolling() {
 watch(
   () => [isAuthenticated.value, route.name],
   ([signedIn, routeName]) => {
-    if (signedIn && routeName !== "login") startPolling();
-    else stopPolling();
+    if (signedIn && routeName !== "login") {
+      startPolling();
+      presentWelcomeTourIfNeeded();
+    } else {
+      stopPolling();
+    }
   },
   { immediate: true },
 );
@@ -321,6 +331,10 @@ function onChromeKeydown(event) {
     return;
   }
   if (event.key !== "Escape") return;
+  if (welcomeTourOpen.value) {
+    closeWelcomeTour();
+    return;
+  }
   if (reportCustomizerOpen.value) {
     reportCustomizerOpen.value = false;
     return;
@@ -926,6 +940,7 @@ provide("copilotNavigate", onCopilotNavigate);
             <button
               type="button"
               class="copilot-toolbar-btn focus-ring !h-[30px] max-sm:!px-1"
+              data-tour="warren"
               :aria-label="t('copilot.ask')"
               :title="t('copilot.ask')"
               :aria-pressed="copilotOpen"
@@ -1047,5 +1062,6 @@ provide("copilotNavigate", onCopilotNavigate);
       @close="reportCustomizerOpen = false"
       @created="refreshAll"
     />
+    <WelcomeTour :open="welcomeTourOpen" @close="closeWelcomeTour" />
   </div>
 </template>
