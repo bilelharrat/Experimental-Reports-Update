@@ -63,47 +63,40 @@ describe("ReportCustomizerModal", () => {
     expect(wrapper.text()).toContain("Buffett Fundamental");
   });
 
-  it("switches tabs between blueprint, engine, directives, and evidence", async () => {
+  it("switches tabs between blueprint, engine, and evidence", async () => {
     const wrapper = mountModal();
     const navButtons = wrapper.findAll("nav button");
+    expect(navButtons).toHaveLength(3);
 
     // Click Engine & Quality tab
     await navButtons[1].trigger("click");
     expect(wrapper.text()).toContain("Interactive Studio Review");
     expect(wrapper.text()).toContain("Best Frontier");
 
-    // Click Directives & Focus tab
-    await navButtons[2].trigger("click");
-    expect(wrapper.text()).toContain("Analyst Steering Instructions");
-    expect(wrapper.text()).toContain("Strategic Diligence Pillars");
-    expect(wrapper.text()).toContain("Moat Durability");
-
     // Click Evidence Sources tab
-    await navButtons[3].trigger("click");
+    await navButtons[2].trigger("click");
     expect(wrapper.text()).toContain("Evidence Repository Attachments");
     expect(wrapper.text()).toContain("Company SEC & Regulatory Filings");
   });
 
-  it("toggles diligence pillars and applies suggestion chips", async () => {
+  it("offers no control the pipeline cannot receive", async () => {
+    // The Directives & Focus tab was removed because launchReport sends
+    // company_id, report_type, audience, language, report_mode and quality
+    // and nothing else — a steering box, diligence pillars and a sector
+    // picker all changed exactly nothing. The sector lens also competed
+    // with the live company type.
     const wrapper = mountModal();
-    const navButtons = wrapper.findAll("nav button");
-    await navButtons[2].trigger("click"); // Directives tab
-
-    // Click a suggestion chip
-    const chip = wrapper.find("button.rounded-full");
-    expect(chip.exists()).toBe(true);
-    await chip.trigger("click");
-
-    const textarea = wrapper.find("textarea");
-    expect(textarea.element.value).toContain("Scrutinize pricing power against open-source threats");
-
-    // Toggle pillar
-    const bigTechButton = wrapper
-      .findAll("button")
-      .find((b) => b.text().includes("Big Tech Threat"));
-    expect(bigTechButton).toBeDefined();
-    await bigTechButton.trigger("click");
-    expect(bigTechButton.classes()).toContain("bg-accent");
+    for (const gone of [
+      "Directives & Focus",
+      "Analyst Steering Instructions",
+      "Strategic Diligence Pillars",
+      "Moat Durability",
+      "Sector-Specific Diligence Lens",
+      "Enterprise B2B SaaS",
+    ]) {
+      expect(wrapper.text()).not.toContain(gone);
+    }
+    expect(wrapper.find("textarea").exists()).toBe(false);
   });
 
   it("launches studio investigation when Interactive Studio Review is selected", async () => {

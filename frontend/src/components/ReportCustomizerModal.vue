@@ -11,7 +11,6 @@ import {
   FileText,
   Loader2,
   Search,
-  Target,
   X,
 } from "lucide-vue-next";
 import { api } from "../api.js";
@@ -41,7 +40,6 @@ const activeTab = ref("blueprint");
 const tabs = computed(() => [
   { id: "blueprint", label: t("customizer.tab_blueprint"), icon: FileText },
   { id: "engine", label: t("customizer.tab_engine"), icon: Cpu },
-  { id: "directives", label: t("customizer.tab_directives"), icon: Target },
   { id: "evidence", label: t("customizer.tab_evidence"), icon: Database },
 ]);
 
@@ -195,50 +193,6 @@ const qualities = [
   },
 ];
 const selectedQuality = ref("best");
-
-// Tab 3: Directives & Focus Options
-const directives = ref("");
-const suggestionChips = [
-  "Scrutinize pricing power against open-source threats",
-  "Stress test international expansion cap table",
-  "Analyze gross margin compression in downcycle",
-  "Evaluate enterprise churn vs net dollar retention",
-];
-
-function applySuggestion(suggestion) {
-  if (!directives.value.trim()) {
-    directives.value = suggestion;
-  } else if (!directives.value.includes(suggestion)) {
-    directives.value += `\n• ${suggestion}`;
-  }
-}
-
-const diligencePillars = [
-  "Moat Durability",
-  "Cap Table Dilution",
-  "Big Tech Threat",
-  "Unit Economics",
-  "Churn & Cohorts",
-  "Regulatory Moat",
-  "Key-Man Risk",
-  "Valuation Multiples",
-];
-const selectedPillars = ref(["Moat Durability", "Unit Economics"]);
-
-function togglePillar(pillar) {
-  if (selectedPillars.value.includes(pillar)) {
-    selectedPillars.value = selectedPillars.value.filter((p) => p !== pillar);
-  } else {
-    selectedPillars.value.push(pillar);
-  }
-}
-
-// No sector picker here. The memo's sector steering is the COMPANY TYPE
-// (ai_foundation_model / ai_infra / ai_application / ai_video_short_drama /
-// robotics / other): classified in Phase 1 from the company record, it
-// steers Phase 2 research through each type file's research_focus and
-// rebalances the Phase 3 scorecard weights. A second, unrelated four-way
-// picker here could only disagree with it.
 
 // Tab 4: Evidence Sources
 const evidenceSources = ref([
@@ -632,61 +586,6 @@ async function launchReport() {
                   </span>
                 </div>
                 <p class="text-xs text-ink-muted leading-relaxed">{{ q.desc }}</p>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- ================= TAB 3: DIRECTIVES & STRATEGIC FOCUS ================= -->
-        <div v-if="activeTab === 'directives'" class="space-y-6">
-          <!-- Freeform Analyst Steering Directives -->
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <span class="vogue-label">{{ t("customizer.directives_title") }}</span>
-              <span class="text-xs text-ink-muted">{{ t("customizer.directives_desc") }}</span>
-            </div>
-            <textarea
-              v-model="directives"
-              rows="4"
-              :placeholder="t('customizer.directives_placeholder')"
-              class="field w-full !text-sm !p-3 resize-none focus-ring"
-            />
-            <!-- Quick Suggestions -->
-            <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
-              <span class="text-xs text-ink-muted mr-1">{{ t("customizer.suggestions") }}</span>
-              <button
-                v-for="sug in suggestionChips"
-                :key="sug"
-                type="button"
-                class="rounded-full border border-subtle bg-surface px-2.5 py-1 text-xs text-ink-secondary hover:border-accent hover:text-accent-ink transition-colors"
-                @click="applySuggestion(sug)"
-              >
-                + {{ sug }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Diligence Focus Pillars -->
-          <div>
-            <div class="flex items-center justify-between mb-2">
-              <span class="vogue-label">{{ t("customizer.pillars_title") }}</span>
-              <span class="text-xs text-ink-muted">{{ t("customizer.pillars_desc") }}</span>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="pillar in diligencePillars"
-                :key="pillar"
-                type="button"
-                class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition-all focus-ring"
-                :class="[
-                  selectedPillars.includes(pillar)
-                    ? 'border-accent bg-accent text-white shadow-sm'
-                    : 'border-subtle bg-surface text-ink-secondary hover:border-strong',
-                ]"
-                @click="togglePillar(pillar)"
-              >
-                <Check v-if="selectedPillars.includes(pillar)" class="h-3 w-3 stroke-[3]" />
-                <span>{{ pillar }}</span>
               </button>
             </div>
           </div>
