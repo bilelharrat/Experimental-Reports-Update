@@ -87,46 +87,58 @@ const filteredCompanies = computed(() => {
   );
 });
 
-// Tab 1: Blueprint Options
+// Tab 1: Blueprint Options.
+//
+// `reportType` must be a literal from api.REPORT_TYPES — the endpoint
+// compares strings and 400s on anything else. `studio` marks the ones
+// Memo Studio can run: memo_prep.is_memo_report_type accepts only the auto
+// and late-stage memos, and the studio endpoint additionally rejects the
+// Buffett memo.
 const archetypes = [
   {
     id: "auto",
-    reportType: "memo_late_stage",
+    reportType: "Investment Report (Auto)",
+    studio: true,
     title: "Auto Full IC",
     badge: "Recommended",
     desc: "Stage-calibrated institutional memorandum synthesized across all analysis pipelines.",
   },
   {
     id: "investment_memo_late_stage",
-    reportType: "investment_memo_late_stage",
+    reportType: "Investment Memo (Late-Stage)",
+    studio: true,
     title: "Late-Stage IC",
     badge: "Institutional",
     desc: "Growth & late-stage institutional thesis, unit economics, and exit roadmap.",
   },
   {
     id: "buffett_memo",
-    reportType: "buffett_memo",
+    reportType: "Buffett Investment Memo",
+    studio: false,
     title: "Buffett Fundamental",
     badge: "Value Moat",
     desc: "Margin of safety, durable moats, cash return, and circle of competence.",
   },
   {
     id: "deep_dive",
-    reportType: "deep_dive",
+    reportType: "Financial Analysis",
+    studio: false,
     title: "Financial Audit",
     badge: "Forensic",
     desc: "Forensic balance sheet, quality of earnings, and cash flow bridges.",
   },
   {
     id: "market_analysis",
-    reportType: "market_analysis",
+    reportType: "Market Analysis",
+    studio: false,
     title: "Market Analysis",
     badge: "Industry",
     desc: "TAM/SAM, competitive matrix, pricing power, and headwind sensitivity.",
   },
   {
     id: "background",
-    reportType: "background",
+    reportType: "Background",
+    studio: false,
     title: "Background Dossier",
     badge: "Diligence",
     desc: "Management track record, cap table evolution, and regulatory scrutiny.",
@@ -134,13 +146,16 @@ const archetypes = [
 ];
 const selectedArchetype = ref("auto");
 
+// `audience` must also be a literal from api.AUDIENCES ("LP", "Assistant",
+// "Partner", "Internal"). It is recorded on the report and printed in the
+// legacy generator's header; it does not steer the memo pipeline.
 const audiences = [
-  { id: "internal", title: "Internal IC", desc: "Direct, unvarnished analytical rigor for investment partners" },
-  { id: "gp", title: "General Partner", desc: "High-conviction executive summary and strategic dilemmas" },
-  { id: "lp", title: "LP Advisory", desc: "Institutional LP perspective, portfolio fit, risk-adjusted returns" },
-  { id: "diligence", title: "Diligence Lead", desc: "Deep forensic focus on claims, data integrity, and verification" },
+  { id: "Internal", title: "Internal IC", desc: "Direct, unvarnished analytical rigor for investment partners" },
+  { id: "Partner", title: "General Partner", desc: "High-conviction executive summary and strategic dilemmas" },
+  { id: "LP", title: "LP Advisory", desc: "Institutional LP perspective, portfolio fit, risk-adjusted returns" },
+  { id: "Assistant", title: "Diligence Lead", desc: "Deep forensic focus on claims, data integrity, and verification" },
 ];
-const selectedAudience = ref("internal");
+const selectedAudience = ref("Internal");
 
 // Page counts measured off produced memos, not aspirational: the last
 // compact Anthropic run came to ~6,900 words including tables, and the
@@ -293,6 +308,18 @@ watch(
 
 const activeArchetypeObj = computed(() => {
   return archetypes.find((a) => a.id === selectedArchetype.value) || archetypes[0];
+});
+
+// Memo Studio only runs the memo archetypes. Offering it for a Buffett,
+// Financial Analysis, Market Analysis or Background report just buys a
+// second 400 from the studio endpoint, so it locks instead — and if the
+// analyst had already chosen it, the mode falls back to One-Click.
+const studioAvailable = computed(() => Boolean(activeArchetypeObj.value?.studio));
+
+watch(studioAvailable, (ok) => {
+  if (!ok && selectedGenerationMode.value === "studio_review") {
+    selectedGenerationMode.value = "one_click";
+  }
 });
 
 async function launchReport() {
@@ -623,13 +650,17 @@ async function launchReport() {
                 v-for="mode in generationModes"
                 :key="mode.id"
                 type="button"
+                :disabled="mode.id === 'studio_review' && !studioAvailable"
+                :title="mode.id === 'studio_review' && !studioAvailable ? t('customizer.studio_unavailable') : null"
                 class="flex flex-col text-left p-4 rounded-xl border transition-all focus-ring"
                 :class="[
-                  selectedGenerationMode === mode.id
-                    ? 'border-accent bg-accent/5 ring-1 ring-accent'
-                    : 'border-subtle bg-surface hover:border-strong',
+                  mode.id === 'studio_review' && !studioAvailable
+                    ? 'border-subtle bg-surface opacity-40 cursor-not-allowed'
+                    : selectedGenerationMode === mode.id
+                      ? 'border-accent bg-accent/5 ring-1 ring-accent'
+                      : 'border-subtle bg-surface hover:border-strong',
                 ]"
-                @click="selectedGenerationMode = mode.id"
+                @click="(mode.id === 'studio_review' && !studioAvailable) || (selectedGenerationMode = mode.id)"
               >
                 <div class="flex items-center justify-between mb-1.5">
                   <span class="font-semibold text-sm text-ink-primary">{{ mode.title }}</span>

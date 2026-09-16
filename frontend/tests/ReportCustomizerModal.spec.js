@@ -138,7 +138,7 @@ describe("ReportCustomizerModal", () => {
 
     expect(apiMock.studioInvestigate).toHaveBeenCalledWith({
       company_id: "nvda",
-      report_type: "memo_late_stage",
+      report_type: "Investment Report (Auto)",
     });
     expect(wrapper.emitted("created")).toBeTruthy();
     expect(wrapper.emitted("close")).toBeTruthy();
@@ -165,6 +165,65 @@ describe("ReportCustomizerModal", () => {
       .map((b) => b.text());
     expect(disabled.some((label) => label.includes("English only"))).toBe(true);
     expect(disabled.some((label) => label.includes("中文 only"))).toBe(true);
+  });
+
+  it("only ever sends report types and audiences the API accepts", async () => {
+    // The modal used to send its own slugs ("memo_late_stage", "internal"),
+    // so every launch came back 400 Invalid report_type. These lists are
+    // server/api.py REPORT_TYPES and AUDIENCES verbatim.
+    const REPORT_TYPES = [
+      "Investment Report (Auto)",
+      "Investment Memo (Late-Stage)",
+      "Buffett Investment Memo",
+      "Background",
+      "Financial Analysis",
+      "Market Analysis",
+    ];
+    const AUDIENCES = ["LP", "Assistant", "Partner", "Internal"];
+    apiMock.generateReport.mockResolvedValue({ id: "rep_1" });
+
+    const wrapper = mountModal();
+    await flushPromises();
+    const archetypeButtons = wrapper
+      .findAll("button")
+      .filter((b) => /Auto Full IC|Late-Stage IC|Buffett Fundamental|Financial Audit|Market Analysis|Background Dossier/.test(b.text()));
+    expect(archetypeButtons.length).toBeGreaterThanOrEqual(6);
+
+    for (const archetype of archetypeButtons.slice(0, 6)) {
+      apiMock.generateReport.mockClear();
+      await archetype.trigger("click");
+      const launchBtn = wrapper
+        .findAll("button")
+        .find((b) => b.text().includes("Generate Research Memo"));
+      await launchBtn.trigger("click");
+      await flushPromises();
+      const sent = apiMock.generateReport.mock.calls[0]?.[0];
+      expect(REPORT_TYPES).toContain(sent.report_type);
+      expect(AUDIENCES).toContain(sent.audience);
+    }
+  });
+
+  it("locks Memo Studio for blueprints it cannot run", async () => {
+    // memo_prep.is_memo_report_type accepts only the auto and late-stage
+    // memos, and the studio endpoint rejects the Buffett memo on top.
+    const wrapper = mountModal();
+    await flushPromises();
+    const nav = wrapper.findAll("nav button");
+    await nav[1].trigger("click");
+
+    const studioBtn = () =>
+      wrapper
+        .findAll("button")
+        .find((b) => b.text().includes("Interactive Studio Review"));
+    expect(studioBtn().attributes("disabled")).toBeUndefined();
+
+    await nav[0].trigger("click");
+    const marketAnalysis = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Market Analysis"));
+    await marketAnalysis.trigger("click");
+    await nav[1].trigger("click");
+    expect(studioBtn().attributes("disabled")).toBeDefined();
   });
 
   it("sends only the analysed documents left checked", async () => {
@@ -244,8 +303,8 @@ describe("ReportCustomizerModal", () => {
 
     expect(apiMock.generateReport).toHaveBeenCalledWith({
       company_id: "nvda",
-      report_type: "memo_late_stage",
-      audience: "internal",
+      report_type: "Investment Report (Auto)",
+      audience: "Internal",
       language: "en",
       // The brief is the default scope now: it is the one that gets read
       // end to end, and the full IC runs past forty pages.
