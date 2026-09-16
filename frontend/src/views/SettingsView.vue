@@ -105,6 +105,7 @@ async function regenAllCompanies() {
 
 async function refreshAllStockViews() {
   if (refreshingStockViews.value) return;
+  if (!confirmTokenSpend()) return;
   refreshingStockViews.value = true;
   operationsMessage.value = "";
   operationsError.value = "";

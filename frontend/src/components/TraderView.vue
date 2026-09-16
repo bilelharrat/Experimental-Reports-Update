@@ -28,6 +28,7 @@ import {
   Users,
 } from "lucide-vue-next";
 import { api } from "../api.js";
+import { confirmTokenSpend } from "../confirmTokens.js";
 import { useT } from "../i18n.js";
 import { appLanguage } from "../state.js";
 import {
@@ -150,6 +151,7 @@ function sectionTitle(sectionId) {
 }
 
 async function onRefresh() {
+  if (!confirmTokenSpend()) return;
   refreshing.value = true;
   refreshError.value = null;
   liveStatus.value = "";
@@ -164,6 +166,7 @@ async function onRefresh() {
 }
 
 async function onRetrySection(sectionId) {
+  if (!confirmTokenSpend()) return;
   refreshing.value = true;
   refreshError.value = null;
   liveStatus.value = "";
