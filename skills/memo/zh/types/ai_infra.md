@@ -46,11 +46,10 @@ research_focus:
     与 NVIDIA 官方生态（CUDA/TensorRT/NeMo）、超大规模云厂商自研栈以及头部开源
     引擎（vLLM、SGLang、Triton）进行同台基准对齐；严厉穿透客户的切换成本：究竟是
     沉淀了企业数据/上下文引力（Stateful），还是仅仅因为短期市场算力短缺而形成的暂态采购？
-  technical_moat_and_efficiency: >-
     穿透纸面标称参数，审查生产环境核心指标：P-D（Prefill-Decode）分离架构落地、
     分布式 KV Cache 共享与分层卸载效率、万卡集群网络拓扑感知调度及亚秒级断点容错；
     如果是异构硬件，审查其编译器对非 CUDA 硬件的真实算力释放率。
-  deployment_and_capacity: >-
+  deployment_behavior: >-
     严格区分四个层级：宣布产能 vs 实际交付上架产能、合同订单额（Bookings/Backlog）
     vs 真实确认收入、测试试用工作负载 vs 关键业务生产负载；点名核心生产客户，披露
     其核心工作负载在该平台上运行的真实占比。

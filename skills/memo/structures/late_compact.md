@@ -42,7 +42,7 @@ pseudo_sections:
 ---
 
 COMPACT late-stage profile — the short memo, modeled on the tightest
-partner-memo style: seven sections, roughly 2,600-3,200 words total,
+partner-memo style: seven sections, roughly 3,200-3,800 words total,
 almost everything said in verdict-lead bullets ("An IP position that is
 hard to overstate. 120+ patents, 90+ issued, zero rejections."), two
 tables the reader actually needs (Deal Snapshot, Key Metrics Snapshot),
@@ -71,7 +71,7 @@ needs consecutive sentences.
 ## section: executive_summary
 ```yaml
 id: executive_summary
-budget_words: 600
+budget_words: 1200
 en_title: Executive Summary
 zh_title: 执行摘要
 parity_en: ^\s*(?:(?:i|1)[\.\、]\s*)?executive\s+summary\s*[:：]?\s*$
@@ -95,14 +95,23 @@ subsections:
   zh: 投资结论与建议
 ```
 
-450-600 words. NO tables. Content per subsection:
+1,000-1,200 words. NO tables. This is the section partners actually
+read end to end — about two pages — so it carries the whole case on its
+own: a reader who stops here must still know what the company is, what
+the round asks, why the case holds, what could break it, and what we
+recommend. Spend the extra room on EXPLANATION, not on new claims: every
+number introduced by what it measures, every comparison stating the rule
+it is measured against, every verdict followed by the evidence that earns
+it. The counts below are fixed — more room per item, never more items.
+Content per subsection:
 
 1. Company profile: one plain-language sentence on what the company
    does and for whom, one on sector/geography, one placing it on the
-   late-stage ladder. ≤60 words.
+   late-stage ladder, and one on the company type and what that type
+   makes decisive. ≤120 words.
 2. The round: round, instrument, size, price, implied stake, and what
    the price already assumes — the entry multiple interpreted in the
-   same breath. 2-3 sentences.
+   same breath. 3-4 sentences.
 3. Investment highlights: OPEN with the pinned case-summary sentence
    from the shared fact sheet, the company's name in place of "The
    case" — which dimensions carry the case and which are weak, with

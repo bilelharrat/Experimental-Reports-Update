@@ -56,7 +56,6 @@ research_focus:
     试点(Paid Pilot) -> 产线小批量试运行 -> 规模化机队交付(Fleet Deployment) -> 客户
     复购扩容。必须点名真实进厂客户，披露各阶梯停留时长与转化率；一个公关签约标识绝不
     等于一次工业部署。
-  autonomy_and_reliability: >-
     穿透纸面宣传，严查产线环境作业的可靠性指标：平均无故障作业时间（MTBF）、平均修复
     时间（MTTR）、端到端任务成功率（Task Success Rate）、平均每小时人工干预次数
     （Interventions per Hour）。明确披露视频演示中是否存在远程人工遥操作（Teleoperation）

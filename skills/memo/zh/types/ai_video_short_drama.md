@@ -49,11 +49,11 @@ research_focus:
     与在位短剧巨头（如 ReelShort、DramaBox、点众等）比拼买量 ROI、剧本爆款率与海外
     本地化分发网络。追问核心壁垒：若底层模型下季度降价 80% 且时空连贯性提升一代，该公
     司的护城河是加宽还是被抹平？
-  pipeline_and_yield: >-
+  deployment_behavior: >-
     穿透纸面宣传，量化工业化生产全流程自动化率：从网文剧本拆解、分镜绑定、角色 LoRA / 
     3D 锚点锁定、音频唇形同步（Lip-Sync）到成片剪辑。必须披露“抽卡废片率（Discard Rate）”
     与“人工干涉工时占比（Human-in-the-Loop Ratio）”，严查高废片率对云算力毛利的真实侵蚀。
-  traffic_and_ua: >-
+  gtm_operating_burden: >-
     穿透投流财务模型：剥离总投放 GMV 与净收益，披露首日投流回本率（Day 1 ROAS）、首周 
     (D7) ROAS、前三集完播率（Hook Rate）、充值付费转化率（Paywall Conversion）与每付费
     用户平均收入（ARPPU）。明确依赖单一渠道（TikTok/Meta/Google）买量的流量成本膨胀风险。
