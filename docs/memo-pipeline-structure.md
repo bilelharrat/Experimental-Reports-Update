@@ -141,8 +141,7 @@ on any structural failure).
   to the file that owns it — an over-long metric name re-asks
   `04_metrics.json` alone, not the whole spine. Memo Studio's standalone
   spine keeps the inline contract (`handoff=False`).
-- **Section handoff** (`BSH_MEMO_SECTION_HANDOFF`, default
-  `executive_summary`): a listed section is written by the SAME single
+- **Section handoff** (`BSH_MEMO_SECTION_HANDOFF`, default `all`): a listed section is written by the SAME single
   agent, but it leaves through the filesystem instead of the response.
   The agent writes each numbered subsection to
   `logs/english_units/pieces/<section>/NN.json` as it finishes it and
@@ -280,7 +279,7 @@ pin echo, gates).
 | `BSH_MEMO_ENGLISH_PARALLEL` (0) | spine-lite + section workers |
 | `BSH_MEMO_ENGLISH_SECTION_WORKERS` (6) | wave pool |
 | `BSH_MEMO_SPINE_HANDOFF` (1) | spine delivers its parts as files |
-| `BSH_MEMO_SECTION_HANDOFF` (`executive_summary`) | sections that deliver subsections as files |
+| `BSH_MEMO_SECTION_HANDOFF` (`all`) | sections that deliver subsections as files |
 | `BSH_MEMO_ARTIFACTS_ASYNC` (0) | detach artifacts agent |
 | `BSH_MEMO_SPINE_SPECULATIVE` (0), `BSH_MEMO_SPINE_SPECULATE_AFTER` (6) | early spine + delta check |
 | `BSH_MEMO_SPINE_SPECULATE_REQUIRE` (pin-feeding passes) | pin-affine launch gate; `none` = count-only |

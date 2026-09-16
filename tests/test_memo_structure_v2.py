@@ -183,6 +183,9 @@ def test_common_context_v1_unchanged_and_v2_appends(tmp_path):
 
 
 def test_section_worker_reads_v2_spec(tmp_path, monkeypatch):
+    # the section spec rides the shared prompt body either way; read it
+    # from the inline contract so this test asserts one thing
+    monkeypatch.setenv("BSH_MEMO_SECTION_HANDOFF", "off")
     captured = {}
 
     def fake_run(**kwargs):

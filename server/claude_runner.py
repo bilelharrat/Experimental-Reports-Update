@@ -7609,21 +7609,30 @@ class SpeculativeEnglish:
 
 MEMO_SECTION_PIECE_MAX_RETRIES = 3
 
-_MEMO_SECTION_HANDOFF_DEFAULT = "executive_summary"
+_MEMO_SECTION_HANDOFF_DEFAULT = "all"
+_MEMO_SECTION_HANDOFF_ALL = "all"
 
 
-def _memo_section_handoff_ids() -> frozenset[str]:
+def _memo_section_handoff_ids() -> frozenset[str] | str:
     """Which sections deliver their subsections as files.
 
-    Executive summary only, until a live run says an assembled section
-    reads as well as one written whole. `BSH_MEMO_SECTION_HANDOFF` takes a
-    comma-separated id list, or `off` to send every section back inline.
+    It started as the executive summary alone, to learn on one section
+    whether an assembled section reads as well as one written whole. Two
+    live runs assembled clean with no piece retries, and then the owner
+    raised the budgets from 6,700 words to 16,000 — every section is now
+    2,300-3,100 words, the size the executive summary was when it started
+    truncating. So the default is `all`.
+
+    `BSH_MEMO_SECTION_HANDOFF` takes `all`, a comma-separated id list, or
+    `off` to send every section back inline.
     """
     raw = os.environ.get(
         "BSH_MEMO_SECTION_HANDOFF", _MEMO_SECTION_HANDOFF_DEFAULT
     ).strip()
     if raw.lower() in {"", "0", "off", "none"}:
         return frozenset()
+    if raw.lower() == _MEMO_SECTION_HANDOFF_ALL:
+        return _MEMO_SECTION_HANDOFF_ALL
     return frozenset(part.strip() for part in raw.split(",") if part.strip())
 
 
@@ -7648,7 +7657,8 @@ def _section_piece_plan(
 
 
 def _section_handoff_enabled(section_id: str, section_def) -> bool:
-    if section_id not in _memo_section_handoff_ids():
+    wanted = _memo_section_handoff_ids()
+    if wanted != _MEMO_SECTION_HANDOFF_ALL and section_id not in wanted:
         return False
     # Nothing to split without numbered subsections, and one piece is just
     # the inline path with extra moving parts.

@@ -80,10 +80,29 @@ def _run(tmp_path, section_id="executive_summary"):
 # ---- which sections hand off ------------------------------------------------
 
 
-def test_only_the_executive_summary_hands_off_by_default(monkeypatch):
+def test_every_section_hands_off_by_default(monkeypatch):
+    """Started as the executive summary alone, to learn on one section.
+
+    Two live runs assembled it clean with no piece retries, and then the
+    budgets went from 6,700 words to 16,000 — every section is now the
+    size the executive summary was when it began truncating.
+    """
     monkeypatch.delenv("BSH_MEMO_SECTION_HANDOFF", raising=False)
-    assert claude_runner._memo_section_handoff_ids() == frozenset(
-        {"executive_summary"}
+    assert claude_runner._memo_section_handoff_ids() == "all"
+    for section_id in V2.section_ids:
+        section = V2.section(section_id)
+        assert claude_runner._section_handoff_enabled(section_id, section), (
+            section_id
+        )
+
+
+def test_a_named_subset_still_works(monkeypatch):
+    monkeypatch.setenv("BSH_MEMO_SECTION_HANDOFF", "executive_summary")
+    assert claude_runner._section_handoff_enabled(
+        "executive_summary", V2.section("executive_summary")
+    )
+    assert not claude_runner._section_handoff_enabled(
+        "market_industry", V2.section("market_industry")
     )
 
 
@@ -354,6 +373,7 @@ def test_a_drafting_call_that_wrote_nothing_fails_without_retries(
 
 def test_other_sections_still_answer_inline(tmp_path, monkeypatch):
     monkeypatch.setenv("BSH_MEMO_SECTION_HANDOFF", "executive_summary")
+    # market_industry is outside the named subset, so it answers inline
     captured = {}
 
     def fake_artifact(**kwargs):
