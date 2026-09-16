@@ -140,7 +140,13 @@ def test_the_gate_fires_at_the_cap_not_the_target():
     """A section between its target and its cap is finishing its argument,
     which is the behaviour the soft budget exists to allow."""
     risks = next(s for s in COMPACT.sections if s.id == "risks")
-    assert risks.budget_words == 800 and risks.budget_hard_multiple == 2.0
+    assert risks.budget_hard_multiple and risks.budget_hard_multiple > 1
+    # Derived, never typed: the budgets move whenever the founder asks for
+    # a longer report, and a hand-written number here would quietly stop
+    # testing what it claims to.
+    target = risks.budget_words
+    cap = int(target * risks.budget_hard_multiple)
+    between = (target + cap) // 2
     package = {
         "structure": {"stage": "late_compact", "version": 1},
         "sections": [
@@ -149,19 +155,19 @@ def test_the_gate_fires_at_the_cap_not_the_target():
                 "blocks": [
                     {
                         "type": "paragraph",
-                        "text": {"en": "word " * 1200, "zh": "x"},
+                        "text": {"en": "word " * between, "zh": "x"},
                     }
                 ],
             }
         ],
     }
-    # 1200 words: half again over target, still well under the 1600 cap.
+    # over target, still under the cap
     assert not [
         e
         for e in memo_docx_renderer._word_budget_errors(package)
         if "hard cap" in e
     ]
-    package["sections"][0]["blocks"][0]["text"]["en"] = "word " * 1700
+    package["sections"][0]["blocks"][0]["text"]["en"] = "word " * (cap + 100)
     assert [
         e
         for e in memo_docx_renderer._word_budget_errors(package)
@@ -171,10 +177,19 @@ def test_the_gate_fires_at_the_cap_not_the_target():
 
 def test_the_profile_prose_agrees_with_its_own_ceilings():
     """The prose said 3,200-3,800 words while the ceilings summed to 5,150,
-    and the writer followed the ceilings. Two targets is no target."""
+    and the writer followed the ceilings. Two targets is no target.
+
+    Read the range OUT of the prose rather than restating it, so raising
+    the budgets can never leave the profile telling the writer one number
+    and the gate enforcing another.
+    """
+    import re
+
     from server import memo_prompts
 
     text = memo_prompts.load_prompt("structures/late_compact.md")
+    match = re.search(r"roughly ([\d,]+)-([\d,]+) words", text)
+    assert match, "the profile must state its own word range in prose"
+    low, high = (int(g.replace(",", "")) for g in match.groups())
     total = sum(s.budget_words or 0 for s in COMPACT.sections)
-    assert "5,000-6,000 words total" in text
-    assert 5000 <= total <= 6700, total
+    assert low <= total <= high, (low, total, high)

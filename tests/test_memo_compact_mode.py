@@ -22,7 +22,10 @@ COMPACT = memo_structure.load_structure("late_compact", 1)
 
 def test_compact_profile_shape():
     assert len(COMPACT.section_ids) == 7
-    assert COMPACT.risk_format == "bullets"
+    # The founder's verdict on the bullet register (2026-09-16): "a
+    # paragraph of description, hard to catch the main point". Compact now
+    # uses the full report's per-risk cards.
+    assert COMPACT.risk_format == "cards"
     assert COMPACT.scorecard_weights() == memo_structure.load_structure(
         "late", 2
     ).scorecard_weights()
@@ -187,14 +190,13 @@ def test_compact_package_renders_and_clears_docx_gates(tmp_path):
     assert not parity.p0_findings, [f.to_dict() for f in parity.p0_findings]
 
 
-def test_compact_risk_contract_is_bullets():
+def test_compact_risk_contract_is_cards_like_the_full_report():
     from server import claude_runner
 
     contract = claude_runner.memo_risk_register_contract(COMPACT)
-    assert "BULLETS" in contract
-    assert "six" not in contract.lower()
     v2 = memo_structure.load_structure("late", 2)
-    assert "Mitigation" in claude_runner.memo_risk_register_contract(v2)
+    assert contract is claude_runner.memo_risk_register_contract(v2)
+    assert "Mitigation" in contract
 
 
 # ---- exec bullet topic-label gate -------------------------------------------
