@@ -4137,16 +4137,36 @@ def _memo_role_env(kind: str, role: str) -> str | None:
 MEMO_QUALITY_LEVELS = ("best", "balanced", "economy")
 
 _MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
-    # Everything on the CLI default model/effort.
-    "best": {},
-    # Research, verification, and translation move to Sonnet; the
-    # English writing wave (spine/sections/artifacts/repair) keeps the
-    # default model but at medium effort, so the prose the founder reads
-    # comes from the top model with a smaller thinking budget. The
-    # writing roles share one (model, effort) pair to keep the section
-    # wave's shared prompt cache intact.
+    # Top model for everything the founder reads, but effort spent where it
+    # changes the memo. Measured on the 2026-09-14 Anthropic run: 64% of the
+    # analysis passes' output tokens were thinking, and the passes fill every
+    # schema cap regardless — they are extracting and classifying evidence
+    # from a fixed research corpus (zero web searches on that run), not
+    # reasoning their way to a verdict. Medium effort is the right budget for
+    # that job; the writing wave, which does reason, keeps high.
+    #
+    # Effort is PINNED here rather than left to the CLI default on purpose:
+    # the default reads ~/.claude/settings.json, so a personal UI preference
+    # was silently setting the effort of every server-side memo run.
+    "best": {
+        "ANALYSIS_PASS": (None, "medium"),
+        "ENGLISH": (None, "high"),
+        "SPINE": (None, "high"),
+        "SECTION": (None, "high"),
+        "ARTIFACTS": (None, "high"),
+        "REPAIR": (None, "high"),
+        "SPINE_CHECK": ("sonnet", "medium"),
+        # Translation is transformation, not authorship: the English is
+        # already decided, so the top model at medium effort is enough.
+        "TRANSLATION": (None, "medium"),
+    },
+    # Research and verification move to Sonnet; the English writing wave
+    # keeps the default model at medium effort, so the prose the founder
+    # reads still comes from the top model. The writing roles share one
+    # (model, effort) pair to keep the section wave's shared prompt cache
+    # intact.
     "balanced": {
-        "ANALYSIS_PASS": ("sonnet", None),
+        "ANALYSIS_PASS": ("sonnet", "medium"),
         "ENGLISH": (None, "medium"),
         "SPINE": (None, "medium"),
         "SECTION": (None, "medium"),
@@ -4155,19 +4175,22 @@ _MEMO_QUALITY_TIERS: dict[str, dict[str, tuple[str | None, str | None]]] = {
         "SPINE_CHECK": ("sonnet", "medium"),
         "TRANSLATION": ("sonnet", "medium"),
     },
-    # Everything on Sonnet. The writing roles share one (model, effort)
-    # pair to keep the section wave's shared prompt cache intact.
+    # Everything on Sonnet. The writing roles share one (model, effort) pair
+    # to keep the section wave's shared prompt cache intact. Effort is pinned
+    # for the same reason as "best": an unpinned economy run was inheriting
+    # the desktop effort setting and thinking as hard as a best run.
     "economy": {
-        "ANALYSIS_PASS": ("sonnet", None),
-        "ENGLISH": ("sonnet", None),
-        "SPINE": ("sonnet", None),
-        "SECTION": ("sonnet", None),
-        "ARTIFACTS": ("sonnet", None),
-        "REPAIR": ("sonnet", None),
-        "SPINE_CHECK": ("sonnet", "medium"),
+        "ANALYSIS_PASS": ("sonnet", "low"),
+        "ENGLISH": ("sonnet", "medium"),
+        "SPINE": ("sonnet", "medium"),
+        "SECTION": ("sonnet", "medium"),
+        "ARTIFACTS": ("sonnet", "medium"),
+        "REPAIR": ("sonnet", "medium"),
+        "SPINE_CHECK": ("sonnet", "low"),
         "TRANSLATION": ("sonnet", "medium"),
     },
 }
+
 
 _MEMO_RUN_QUALITY: dict[str, str] = {}
 _MEMO_RUN_QUALITY_LOCK = threading.Lock()
@@ -4195,6 +4218,11 @@ def _memo_run_quality(run_dir: Path | None) -> str:
 def _memo_quality_override(
     role: str, run_dir: Path | None
 ) -> tuple[str | None, str | None]:
+    # No run context means no tier: callers outside a memo run (and the
+    # tests that exercise a bare prompt) keep the CLI defaults rather than
+    # inheriting the "best" pins.
+    if run_dir is None:
+        return (None, None)
     tier = _MEMO_QUALITY_TIERS[_memo_run_quality(run_dir)]
     return tier.get(role, (None, None))
 
