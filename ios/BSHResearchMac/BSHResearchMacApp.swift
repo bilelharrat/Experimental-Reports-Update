@@ -44,11 +44,14 @@ struct BSHResearchMacApp: App {
     @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     /// One store for every window — desks, memo windows and Settings all read the same data.
     @StateObject private var store = MacAppStore()
+    /// Where the welcome tour's spotlight targets are, in window coordinates.
+    @StateObject private var tourAnchors = MacTourAnchorStore()
 
     var body: some Scene {
         WindowGroup("BSH Research", id: "main") {
             MacRootView()
                 .environmentObject(store)
+                .environmentObject(tourAnchors)
                 .frame(minWidth: 1050, minHeight: 680)
         }
         .windowToolbarStyle(.unified)
@@ -62,6 +65,7 @@ struct BSHResearchMacApp: App {
         MenuBarExtra {
             MacMenuBarExtraContent()
                 .environmentObject(store)
+                .environmentObject(tourAnchors)
         } label: {
             let s = store.menuBarSummary
             let badge = s.mentions + s.highHoldings
@@ -74,6 +78,7 @@ struct BSHResearchMacApp: App {
             if let request {
                 MacMemoWindowView(request: request)
                     .environmentObject(store)
+                .environmentObject(tourAnchors)
             }
         }
         .defaultSize(width: 980, height: 840)
@@ -83,6 +88,7 @@ struct BSHResearchMacApp: App {
             if let request {
                 MacICReviewWindowView(request: request)
                     .environmentObject(store)
+                .environmentObject(tourAnchors)
             }
         }
         .defaultSize(width: 1400, height: 880)
@@ -90,6 +96,7 @@ struct BSHResearchMacApp: App {
         Settings {
             MacSettingsView()
                 .environmentObject(store)
+                .environmentObject(tourAnchors)
         }
     }
 }
@@ -143,6 +150,12 @@ struct MacDeskCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: .command)
             .disabled(!store.canRunTasks)
+        }
+
+        CommandGroup(replacing: .help) {
+            Button("Welcome Tour") {
+                onMainWindow { store.replayWelcomeTour() }
+            }
         }
 
         CommandMenu("Go") {
