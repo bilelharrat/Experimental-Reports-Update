@@ -4358,6 +4358,7 @@ def _run_memo_local_json_artifact(
                 add_dirs=add_dirs,
                 timeout_label=timeout_label,
                 timeout_sec=timeout_sec,
+                run_dir=run_dir,
             )
         data, error = _run_memo_local_json_artifact_inner(
             prompt=prompt,

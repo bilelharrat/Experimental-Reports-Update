@@ -216,12 +216,50 @@ def inline_referenced(prompt: str, add_dirs: list[Path] | None) -> tuple[str, se
     )
 
 
+def _registry_entry_text(companies_yaml: Path, company_slug: str) -> str:
+    """This company's entry from companies.yaml, as YAML, or ""."""
+    try:
+        import yaml
+
+        data = yaml.safe_load(companies_yaml.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        logger.warning("memo_engine: could not read %s", companies_yaml, exc_info=True)
+        return ""
+    records = data.get("companies") if isinstance(data, dict) else data
+    for item in records or []:
+        if isinstance(item, dict) and str(item.get("id") or "") == company_slug:
+            return yaml.safe_dump(item, sort_keys=False, allow_unicode=True, width=100).strip()
+    return ""
+
+
+def _is_permission_root(directory: Path, run_dir: Path | None) -> bool:
+    """A granted directory that contains the run itself is a permission
+    root, not source material.
+
+    The Claude path grants `--add-dir data/` so an agent MAY open
+    companies.yaml; it opens one entry. Walking that grant inlines every
+    file under data/ — other companies' memo artifacts, briefs, uploads —
+    until the budget fills, and the "analysis" priority then matches every
+    run's analysis folder, not this one's. A live ZaiNar memo came back
+    without its founders, board or Tokyo office although every one of them
+    sat in this run's own artifacts: they were drowned by other runs'.
+    """
+    if run_dir is None:
+        return False
+    try:
+        run_dir.resolve().relative_to(directory.resolve())
+    except ValueError:
+        return False
+    return directory.resolve() != run_dir.resolve()
+
+
 def inline_research(
     add_dirs: list[Path] | None,
     *,
     budget: int = RESEARCH_BUDGET_CHARS,
     per_file: int = PER_FILE_BUDGET_CHARS,
     already: set[Path] | None = None,
+    run_dir: Path | None = None,
 ) -> str:
     """The research folder as prompt text, standing in for the file listing.
 
@@ -236,11 +274,26 @@ def inline_research(
 
     seen: set[Path] = set(already or ())
     candidates: list[Path] = []
+    registry_blocks: list[str] = []
     for directory in add_dirs:
         try:
             if not directory or not Path(directory).is_dir():
                 continue
             root = Path(directory)
+            if _is_permission_root(root, run_dir):
+                # From a permission root take exactly what the agent would
+                # have opened: this company's registry entry. The company
+                # slug is the run folder's parent (data/memos/<slug>/<run>).
+                registry = root / "companies.yaml"
+                slug = run_dir.parent.name if run_dir is not None else ""
+                if registry.is_file() and slug and registry.resolve() not in seen:
+                    entry = _registry_entry_text(registry, slug)
+                    if entry:
+                        seen.add(registry.resolve())
+                        registry_blocks.append(
+                            f"=== FILE: companies.yaml (entry `{slug}` only) ===\n{entry}"
+                        )
+                continue
             # Walk, don't list. Many stages pass the memo RUN directory, and
             # the artifacts the package stage is told to read are written to
             # `<run_dir>/analysis/*.md`. A flat listing of the run dir finds
@@ -295,6 +348,7 @@ def inline_research(
         )
         blocks.append(f"=== FILE: {label} ===\n{text}")
 
+    blocks = registry_blocks + blocks
     if not blocks and not skipped:
         return "- No research files found."
 
@@ -326,6 +380,7 @@ def run_artifact(
     timeout_label: str,
     timeout_sec: int,
     model: str | None = None,
+    run_dir: Path | None = None,
 ) -> tuple[dict | None, str | None]:
     """One memo stage on Gemini. Same ``(data, error)`` contract as the
     Claude funnel, so every caller, retry and repair pass is unchanged."""
@@ -335,7 +390,7 @@ def run_artifact(
             "run this memo on Claude."
         )
     referenced, already = inline_referenced(prompt, add_dirs)
-    research = inline_research(add_dirs, already=already)
+    research = inline_research(add_dirs, already=already, run_dir=run_dir)
     combined = (
         f"{prompt}\n\n"
         "---\n"

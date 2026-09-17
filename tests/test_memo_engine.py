@@ -529,3 +529,48 @@ def test_a_claude_run_is_not_affected_by_the_guard(tmp_path, monkeypatch):
     memo_engine.register_run_engine(run_dir, "claude")
     assert claude_runner.claude_only_stage_error("Memo resume", run_dir) is None
     assert claude_runner.claude_only_stage_error("Memo resume", None) is None
+
+
+# ---- permission roots ------------------------------------------------------
+
+
+def test_a_granted_ancestor_of_the_run_contributes_only_this_companys_registry_entry(tmp_path):
+    """`--add-dir data/` lets a Claude agent open companies.yaml; walking it
+    inlined every file under data/. A live ZaiNar memo lost its founders,
+    board and Tokyo office to other runs' artifacts that way."""
+    data = tmp_path / "data"
+    run = data / "memos" / "zainar-inc" / "run1"
+    (run / "analysis").mkdir(parents=True)
+    (run / "analysis" / "team_governance.md").write_text("CEO Daniel Jacker; board Steve Jurvetson.", encoding="utf-8")
+    other = data / "memos" / "acme" / "run9" / "analysis"
+    other.mkdir(parents=True)
+    (other / "team_governance.md").write_text("Acme CEO Pat Smith.", encoding="utf-8")
+    (data / "news_briefs").mkdir()
+    (data / "news_briefs" / "x.json").write_text('{"headline": "Unrelated brief"}', encoding="utf-8")
+    (data / "companies.yaml").write_text(
+        "- id: acme\n  name: Acme\n  key_people:\n  - name: Pat Smith\n"
+        "- id: zainar-inc\n  name: ZaiNar, Inc.\n  key_people:\n  - name: Daniel Jacker\n    role: CEO\n",
+        encoding="utf-8",
+    )
+    settings = data / "settings"; settings.mkdir()
+    (settings / "serena_background.md").write_text("Analyst background.", encoding="utf-8")
+
+    text = memo_engine.inline_research([settings, data, run], run_dir=run)
+
+    assert "Daniel Jacker" in text and "Jurvetson" in text
+    assert "Analyst background." in text
+    assert "entry `zainar-inc` only" in text
+    # Nothing from the permission root but the registry entry.
+    assert "Pat Smith" not in text
+    assert "Unrelated brief" not in text
+    # Only this run's analysis folder counts as "analysis".
+    assert text.count("=== FILE: analysis/team_governance.md") == 1
+
+
+def test_the_run_dir_itself_is_walked_not_treated_as_a_root(tmp_path):
+    run = tmp_path / "run"; (run / "analysis").mkdir(parents=True)
+    (run / "analysis" / "a.md").write_text("artifact", encoding="utf-8")
+    assert memo_engine._is_permission_root(run, run) is False
+    assert memo_engine._is_permission_root(tmp_path, run) is True
+    assert memo_engine._is_permission_root(tmp_path / "elsewhere", run) is False
+    assert "artifact" in memo_engine.inline_research([run], run_dir=run)
