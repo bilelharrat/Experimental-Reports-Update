@@ -214,4 +214,34 @@ describe("ReportsView", () => {
     expect(acmeMonogram).toBeTruthy();
     expect(acmeMonogram.props("company").name).toBe("Acme Inc.");
   });
+
+  it("collapses the reports list to a rail and remembers it", async () => {
+    const router = await createTestRouter();
+    const wrapper = mount(ReportsView, {
+      global: { plugins: [router], stubs: { DocumentViewerDrawer: true } },
+    });
+    await flushPromises();
+
+    const aside = wrapper.find("aside");
+    expect(aside.classes()).toContain("w-80");
+    expect(wrapper.findAll("article").length).toBeGreaterThan(0);
+
+    await wrapper.find('[data-testid="reports-list-collapse"]').trigger("click");
+    await flushPromises();
+
+    // Collapsed: a 44px rail, no rows, and a control to bring them back.
+    expect(wrapper.find("aside").classes()).toContain("w-[44px]");
+    expect(wrapper.findAll("article").length).toBe(0);
+    const rail = wrapper.find('[data-testid="reports-list-expand"]');
+    expect(rail.exists()).toBe(true);
+    // The rail still says how many reports are hidden behind it.
+    expect(rail.text()).toContain("reports");
+    expect(window.localStorage.getItem("bsh.reportsListCollapsed")).toBe("1");
+
+    await rail.trigger("click");
+    await flushPromises();
+    expect(wrapper.find("aside").classes()).toContain("w-80");
+    expect(wrapper.findAll("article").length).toBeGreaterThan(0);
+    expect(window.localStorage.getItem("bsh.reportsListCollapsed")).toBe("0");
+  });
 });

@@ -12,6 +12,8 @@ import {
   FileText,
   Filter,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -23,11 +25,42 @@ import AiMark from "../components/AiMark.vue";
 import DocumentViewerWindow from "../components/DocumentViewerWindow.vue";
 import DocumentViewerDrawer from "../components/DocumentViewerDrawer.vue";
 import Monogram from "../components/Monogram.vue";
-import { useLargeTitle } from "../chrome.js";
+import { useLargeTitle, useMediaQuery } from "../chrome.js";
 
 const t = useT();
 const route = useRoute();
 const router = useRouter();
+
+// The reports list collapses to a rail, the same move the Research Desk
+// directory makes: below `lg` the preview already takes the full width, so
+// there is nothing to collapse there.
+const REPORTS_COLLAPSED_KEY = "bsh.reportsListCollapsed";
+const isSplitWidth = useMediaQuery("(min-width: 1024px)");
+
+function _initialListCollapsed() {
+  try {
+    return window.localStorage.getItem(REPORTS_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+const listCollapsedPref = ref(_initialListCollapsed());
+const listCollapsed = computed(
+  () => listCollapsedPref.value && isSplitWidth.value,
+);
+
+watch(listCollapsedPref, (collapsed) => {
+  try {
+    window.localStorage.setItem(REPORTS_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    // ignore — localStorage unavailable
+  }
+});
+
+function toggleList() {
+  listCollapsedPref.value = !listCollapsedPref.value;
+}
 const pageTitleEl = ref(null);
 useLargeTitle(pageTitleEl);
 
@@ -382,11 +415,44 @@ onMounted(loadReports);
 
     <!-- Master-detail: two floating panes on the canvas, like the Mac Documents desk. -->
     <div class="flex min-h-0 w-full flex-1 gap-3">
-      <aside class="desk-card flex w-80 shrink-0 flex-col overflow-hidden lg:w-[22rem]">
-        <div class="flex shrink-0 items-center justify-between px-4 pb-1.5 pt-3">
+      <aside
+        class="desk-card flex shrink-0 flex-col overflow-hidden"
+        :class="listCollapsed ? 'w-[44px]' : 'w-80 lg:w-[22rem]'"
+      >
+        <!-- Collapsed: a rail whose only job is to bring the list back. -->
+        <button
+          v-if="listCollapsed"
+          type="button"
+          class="focus-ring flex h-full w-full flex-col items-center gap-2 py-3 text-ink-muted transition hover:text-ink-primary"
+          :aria-label="t('reports.expand_list')"
+          :title="t('reports.expand_list')"
+          :aria-expanded="false"
+          data-testid="reports-list-expand"
+          @click="toggleList"
+        >
+          <PanelLeftOpen class="h-4 w-4 shrink-0" />
+          <span class="text-caption1 font-semibold [writing-mode:vertical-rl]">
+            {{ t("reports.total_count", { count: filteredReports.length }) }}
+          </span>
+        </button>
+
+        <template v-else>
+        <div class="flex shrink-0 items-center justify-between gap-2 px-4 pb-1.5 pt-3">
           <span class="text-footnote font-semibold text-ink-muted">
             {{ t("reports.total_count", { count: filteredReports.length }) }}
           </span>
+          <button
+            v-if="isSplitWidth"
+            type="button"
+            class="icon-btn !h-6 !w-6 -mr-1 text-ink-muted"
+            :aria-label="t('reports.collapse_list')"
+            :title="t('reports.collapse_list')"
+            :aria-expanded="true"
+            data-testid="reports-list-collapse"
+            @click="toggleList"
+          >
+            <PanelLeftClose class="h-3.5 w-3.5" />
+          </button>
         </div>
 
         <div
@@ -528,6 +594,7 @@ onMounted(loadReports);
             </div>
           </article>
         </div>
+        </template>
       </aside>
 
       <section class="desk-card flex h-full min-w-0 flex-1 flex-col overflow-hidden">
