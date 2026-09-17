@@ -193,6 +193,17 @@ def brief_effort() -> str:
     return str(os.environ.get("BSH_NEWS_BRIEF_EFFORT") or "").strip() or DEFAULT_EFFORT
 
 
+def write_on_open() -> bool:
+    """Whether opening a story without a briefing writes one now.
+
+    On by default: see ``expand``. ``BSH_NEWS_BRIEF_ON_OPEN=0`` restores the
+    old behavior, where only the scheduled refresh and the explicit
+    Regenerate button ever call a model.
+    """
+    raw = str(os.environ.get("BSH_NEWS_BRIEF_ON_OPEN") or "").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def refresh_interval_hours() -> float:
     """Hours between scheduled refreshes (``BSH_NEWS_BRIEF_REFRESH_HOURS``).
 
@@ -701,11 +712,27 @@ def expand(
 ) -> dict:
     """The briefing to show for a headline.
 
-    ``refresh=False`` (opening a story) never calls Claude: it returns the
-    cached AI briefing when one exists, else the basic briefing.
     ``refresh=True`` is the explicit, warned user action: one call rewrites
-    both languages and the requested one comes back. Raises ``ValueError``
-    for an empty headline and ``RuntimeError`` when the model call fails.
+    both languages and the requested one comes back.
+
+    ``refresh=False`` (opening a story) returns the cached AI briefing when
+    one exists. When none exists it writes one, unless
+    ``BSH_NEWS_BRIEF_ON_OPEN=0``, in which case it returns the no-AI basic
+    briefing as before.
+
+    Writing on open is a deliberate reversal of the original cost policy,
+    which was written when every briefing was a Claude CLI subprocess. The
+    news tape is live and rotates constantly, while the scheduled refresh
+    runs every six hours — so the newest story, which is the one the reader
+    actually opens, essentially never had a briefing, and the desk showed
+    "No AI briefing yet" more or less permanently. A batch on a six-hour
+    clock cannot cover a feed that turns over in minutes.
+
+    The guards that made the old policy necessary all stay: one worker at a
+    time (``_WRITE_LOCK``), results cached per headline so a second reader
+    pays nothing, and a failure falls back to the basic briefing rather than
+    erroring. Raises ``ValueError`` for an empty headline; a model failure
+    on open degrades instead of raising.
     """
     row = _brief_row(
         {
@@ -727,6 +754,14 @@ def expand(
     cached = load_brief(_row_key(row), language)
     if cached is not None:
         return cached
+    if write_on_open() and ai_engine.available():
+        try:
+            written = write_brief(**row)
+            found = written.get(language) or next(iter(written.values()), None)
+            if found is not None:
+                return found
+        except Exception as exc:  # noqa: BLE001 — a briefing is never worth a 500
+            logger.warning("news brief on-open write failed: %s", exc)
     return basic_brief(**row, lang=language)
 
 

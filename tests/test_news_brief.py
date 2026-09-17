@@ -1,10 +1,16 @@
-"""News desk briefings under the owner's cost policy (2026-09-14).
+"""News desk briefings.
 
-Opening a story never calls Claude: it gets the cached AI briefing or a
-basic briefing built without AI. AI briefings come from ONE worker on
-Sonnet at medium effort with tools off, one call per headline writing
-English and Chinese, on a 6-hour schedule or an explicit, warned user
-action. Claude is stubbed everywhere — no network, no spend.
+Opening a story serves the cached AI briefing, else writes one now
+(``BSH_NEWS_BRIEF_ON_OPEN=0`` restores the old basic-briefing behavior).
+Briefings come from ONE worker, one call per headline writing English and
+Chinese, plus a scheduled sweep and an explicit, warned rewrite.
+
+Note the ``_no_real_claude_cli`` fixture in conftest forces
+``claude_runner.is_available()`` False for every test, and no Gemini key is
+set, so ``ai_engine.available()`` is False unless a test says otherwise.
+Tests about on-open writing must therefore stub availability explicitly —
+without that they pass for the wrong reason. The engine is stubbed
+everywhere: no network, no spend.
 """
 from __future__ import annotations
 
@@ -227,7 +233,9 @@ def test_body_less_response_raises(monkeypatch):
 # ---- Opening a story: never AI ---------------------------------------------
 
 
-def test_opening_a_story_never_calls_claude(stub_claude, monkeypatch):
+def test_opening_falls_back_to_basic_when_no_engine_can_run(stub_claude, monkeypatch):
+    """conftest leaves no engine available, which is the degraded case: the
+    reader still gets the article's lead and figures rather than nothing."""
     fetches: list[str] = []
 
     def _fetch(url, **kwargs):
@@ -252,6 +260,50 @@ def test_opening_a_story_never_calls_claude(stub_claude, monkeypatch):
     assert first["sources"] == [{"title": "Nikkei", "url": "https://example.com/story"}]
     assert second["lang"] == "en" and second["what_happened_en"]
     assert fetches == ["https://example.com/story"], "basic briefing is cached"
+
+
+def test_opening_a_story_writes_the_briefing_when_one_is_missing(
+    stub_claude, monkeypatch
+):
+    """The tape rotates in minutes and the scheduled sweep runs every six
+    hours, so the newest story — the one actually opened — would otherwise
+    never have a briefing."""
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+
+    brief = news_brief.expand(title="Fresh headline", lang="en")
+    assert brief["kind"] == "ai"
+    assert len(stub_claude) == 1
+
+    # Cached: a second reader pays nothing.
+    again = news_brief.expand(title="Fresh headline", lang="en")
+    assert again["kind"] == "ai"
+    assert len(stub_claude) == 1
+
+
+def test_on_open_writing_can_be_switched_off(stub_claude, monkeypatch):
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
+    monkeypatch.setenv("BSH_NEWS_BRIEF_ON_OPEN", "0")
+    monkeypatch.setattr(news_brief, "fetch_article_text", lambda url, **kw: ("", None))
+
+    brief = news_brief.expand(title="Fresh headline", lang="en")
+    assert brief["kind"] == "basic"
+    assert stub_claude == []
+
+
+def test_a_failed_write_on_open_degrades_instead_of_erroring(monkeypatch):
+    """Opening a story must never 500 because a model was unavailable."""
+    monkeypatch.setattr(news_brief.ai_engine, "available", lambda: True)
+    monkeypatch.setattr(
+        news_brief.ai_engine,
+        "structured",
+        lambda **kw: (None, {"engine": "gemini"}, "engine down"),
+    )
+    monkeypatch.setattr(
+        news_brief, "fetch_article_text", lambda url, **kw: ("Lead paragraph.", url)
+    )
+    brief = news_brief.expand(title="Fresh headline", lang="en")
+    assert brief["kind"] == "basic"
 
 
 def test_opening_serves_the_cached_ai_briefing(stub_claude):
