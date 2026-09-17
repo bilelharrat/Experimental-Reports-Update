@@ -6,6 +6,17 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
  *  stays hidden until it scrolls away (the macOS/iOS large-title handoff). */
 export const largeTitleVisible = ref(false);
 
+/** Width a desk's own sidebar occupies at the very top of the window, in px.
+ *
+ * Finder and Mail run the sidebar the full height of the window and start
+ * the toolbar beside it. The app's nav sidebar already works that way; a
+ * desk's second-level sidebar could not, because it renders inside the
+ * content column *below* the toolbar — which left a band of dead space the
+ * width of the sidebar above it. A desk sets this to claim that band; the
+ * toolbar then insets its content so the two do not overlap. 0 means no
+ * desk is claiming anything, which is every other route. */
+export const chromeLeftInset = ref(0);
+
 let largeTitleOwner = 0;
 let registeredTitles = 0;
 let autoObserver = null;

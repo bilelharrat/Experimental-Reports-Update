@@ -3,10 +3,10 @@
 // on the left (toolbar strip, list with the levitating glass selection, pitch
 // deck drop banner) and the company dossier on the right. Chrome, metrics and
 // copy mirror the Mac desk; see .mac-desk in style.css for the token layer.
-import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed, watch, watchEffect, onMounted, onBeforeUnmount } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useT } from "../i18n.js";
-import { useMediaQuery } from "../chrome.js";
+import { chromeLeftInset, useMediaQuery } from "../chrome.js";
 import {
   Sparkles,
   Sparkle,
@@ -60,6 +60,11 @@ let dragState = null;
 // segmented control, so there is nothing to collapse.
 const DIRECTORY_COLLAPSED_KEY = "bsh.researchDirectoryCollapsed";
 const DIRECTORY_RAIL_WIDTH = 44;
+// `md:ml-2` — the floating pane's own gutter, which the toolbar must clear too.
+const DIRECTORY_PANE_MARGIN = 8;
+// The toolbar's height: what the desk rises by, and what the dossier column
+// pads back so its content is not swallowed by the bar it now runs under.
+const CHROME_BAR_HEIGHT = 52;
 
 const isSplitWidth = useMediaQuery("(min-width: 768px)");
 
@@ -93,6 +98,21 @@ const directoryPaneStyle = computed(() => ({
     ? `${DIRECTORY_RAIL_WIDTH}px`
     : `${paneWidth.value}px`,
 }));
+
+// The directory runs the full height of the window, so the toolbar starts
+// where the dossier does. Below `md` the two panes swap instead of sharing
+// the width, so there is no band to claim and the toolbar spans as usual.
+const directoryWidth = computed(() =>
+  directoryCollapsed.value ? DIRECTORY_RAIL_WIDTH : paneWidth.value,
+);
+watchEffect(() => {
+  chromeLeftInset.value = isSplitWidth.value
+    ? directoryWidth.value + DIRECTORY_PANE_MARGIN
+    : 0;
+});
+onBeforeUnmount(() => {
+  chromeLeftInset.value = 0;
+});
 
 function onSplitPointerDown(e) {
   dragState = { startX: e.clientX, startWidth: paneWidth.value };
@@ -328,7 +348,9 @@ function onDeckDrop(e) {
 </script>
 
 <template>
-  <div class="mac-desk flex h-[calc(100vh-4rem)] w-full flex-col overflow-hidden">
+  <div
+    class="mac-desk flex h-[calc(100vh-4rem)] w-full flex-col overflow-hidden md:-mt-[52px] md:h-[calc(100vh-0.75rem)]"
+  >
     <!-- Compact-width segmented switcher (iPad compact analog) -->
     <div class="mac-hairline-b flex shrink-0 items-center px-2 py-1.5 md:hidden">
       <div class="mac-segmented w-full">
@@ -364,7 +386,7 @@ function onDeckDrop(e) {
     <div class="flex min-h-0 flex-1">
       <!-- Directory pane -->
       <aside
-        class="glass-panel relative flex min-h-0 flex-col md:my-2 md:ml-2 md:rounded-[18px]"
+        class="glass-panel relative z-40 flex min-h-0 flex-col md:my-2 md:ml-2 md:rounded-[18px]"
         :class="mobileView === 'directory' ? 'flex w-full md:w-auto' : 'hidden md:flex'"
         :style="directoryPaneStyle"
       >
@@ -551,7 +573,7 @@ function onDeckDrop(e) {
 
       <!-- Detail pane -->
       <main
-        class="mac-scroll min-h-0 min-w-0 flex-1 overflow-y-auto"
+        class="mac-scroll min-h-0 min-w-0 flex-1 overflow-y-auto md:pt-[52px]"
         :class="mobileView === 'dossier' ? 'block' : 'hidden md:block'"
       >
         <CompanyDossierView
