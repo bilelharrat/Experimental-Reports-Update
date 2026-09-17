@@ -3063,7 +3063,7 @@ def _spine_highlights_schema() -> dict[str, Any]:
                     "type": "array",
                     "minItems": 2,
                     "maxItems": 3,
-                    "items": {"type": "string", "maxLength": 260},
+                    "items": {"type": "string", "maxLength": 360},
                 },
             },
             "required": ["dimension", "headline", "evidence"],
@@ -3084,8 +3084,8 @@ def _spine_key_metrics_schema_v2() -> dict[str, Any]:
             **item,
             "properties": {
                 **item["properties"],
-                "name": {"type": "string", "maxLength": 140},
-                "value": {"type": "string", "maxLength": 220},
+                "name": {"type": "string", "maxLength": 180},
+                "value": {"type": "string", "maxLength": 300},
                 "source_ids": {
                     **item["properties"]["source_ids"],
                     "maxItems": 6,
@@ -3121,7 +3121,7 @@ def _spine_risks_schema_v2() -> dict[str, Any]:
                     "type": "string",
                     "enum": list(memo_structure.RISK_AREA_KEYS),
                 },
-                "impact": {"type": "string", "maxLength": 260},
+                "impact": {"type": "string", "maxLength": 340},
             },
             "required": ["summary", "rating", "likelihood", "area", "impact"],
         },
@@ -3238,7 +3238,7 @@ def memo_fast_english_spine_schema(
                     "properties": {
                         "low": {"type": "string", "maxLength": 24},
                         "high": {"type": "string", "maxLength": 24},
-                        "basis": {"type": "string", "maxLength": 300},
+                        "basis": {"type": "string", "maxLength": 400},
                     },
                     "required": ["low", "high", "basis"],
                 },
@@ -3247,7 +3247,7 @@ def memo_fast_english_spine_schema(
                     "additionalProperties": False,
                     "properties": {
                         "valuation": {"type": "string", "maxLength": 40},
-                        "basis": {"type": "string", "maxLength": 300},
+                        "basis": {"type": "string", "maxLength": 400},
                         "holding_period": {"type": "string", "maxLength": 60},
                     },
                     "required": ["valuation", "basis"],
