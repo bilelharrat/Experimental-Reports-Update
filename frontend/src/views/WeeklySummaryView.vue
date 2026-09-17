@@ -56,7 +56,10 @@ const briefDate = ref("");
 const briefRunning = ref(false);
 const briefError = ref("");
 const noteWriting = ref(false);
-const noteLength = ref("short");
+// The extended note is the morning brief proper — tape, central banks,
+// geoeconomics and geopolitics. It defaults on; "Short" stays available for
+// a quick numbers-only read.
+const noteLength = ref("long");
 const ledger = ref([]);
 let activeStream = null;
 let streamIdleTimer = null;
@@ -887,6 +890,27 @@ onBeforeUnmount(() => {
                   {{ section.body }}
                 </p>
               </div>
+
+              <!-- A long note makes claims about the world, so it shows what
+                   it read. No sources means it was written unresearched. -->
+              <p
+                v-if="brief.note.length === 'long'"
+                class="mt-2.5 text-caption1 text-ink-muted"
+                data-testid="brief-note-sources"
+              >
+                <template v-if="brief.note.researched && (brief.note.sources || []).length">
+                  {{ t("pulse.note_researched", { count: brief.note.sources.length }) }}
+                  <a
+                    v-for="(src, i) in (brief.note.sources || []).slice(0, 4)"
+                    :key="`note-src-${i}`"
+                    :href="src.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="ml-1.5 underline decoration-dotted hover:text-ink-secondary"
+                  >{{ src.title }}</a>
+                </template>
+                <template v-else>{{ t("pulse.note_unresearched") }}</template>
+              </p>
             </div>
             <div class="mt-2 flex flex-wrap gap-2">
               <button

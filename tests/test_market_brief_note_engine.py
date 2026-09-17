@@ -66,16 +66,66 @@ def test_a_fallback_is_visible_on_the_stored_note(monkeypatch, archived_brief):
     assert stored["engine_fallback_reason"] == "gemini HTTP 429 — quota"
 
 
-def test_the_long_note_buys_more_reasoning_than_the_short_one(monkeypatch, archived_brief):
+def test_the_long_note_researches_and_the_short_one_does_not(monkeypatch, archived_brief):
+    """The long note covers geoeconomics and geopolitics, which are not in
+    the frozen snapshot and cannot be inferred from index moves — so it has
+    to read the news. The short note is a read of the numbers it was given."""
     long_note = {
         "headline_en": "A long read",
         "headline_zh": "长篇",
-        "sections_en": [{"heading": "Tape", "body": "..."}],
-        "sections_zh": [{"heading": "行情", "body": "..."}],
+        "sections_en": [{"title": "Tape", "body": "..."}],
+        "sections_zh": [{"title": "行情", "body": "..."}],
     }
-    calls = _stub(monkeypatch, long_note, {"engine": "gemini", "model": "m", "fallback_reason": None})
-    market_brief.write_note("2026-09-16", length="long")
-    assert calls[0]["thinking_level"] == "medium"
+    grounded_calls: list[dict] = []
+    structured_calls: list[dict] = []
+
+    def grounded(**kwargs):
+        grounded_calls.append(kwargs)
+        return (
+            long_note,
+            {
+                "engine": "gemini",
+                "model": "m",
+                "grounded": True,
+                "sources": [{"title": "Reuters", "url": "https://r.example/x"}],
+                "fallback_reason": None,
+            },
+            None,
+        )
+
+    def structured(**kwargs):
+        structured_calls.append(kwargs)
+        return SHORT_NOTE, {"engine": "gemini", "model": "m", "fallback_reason": None}, None
+
+    monkeypatch.setattr(market_brief.ai_engine, "grounded", grounded)
+    monkeypatch.setattr(market_brief.ai_engine, "structured", structured)
+
+    note = market_brief.write_note("2026-09-16", length="long")["note"]
+    assert len(grounded_calls) == 1 and structured_calls == []
+    assert note["researched"] is True
+    assert note["sources"] == [{"title": "Reuters", "url": "https://r.example/x"}]
+
+    market_brief.write_note("2026-09-16", length="short")
+    assert len(structured_calls) == 1 and len(grounded_calls) == 1
+
+
+def test_an_unsourced_long_note_says_it_was_not_researched(monkeypatch, archived_brief):
+    """A long note with no sources asserted geopolitics from memory. The flag
+    is how a reader can tell."""
+    long_note = {
+        "headline_en": "A long read",
+        "headline_zh": "长篇",
+        "sections_en": [{"title": "Tape", "body": "..."}],
+        "sections_zh": [{"title": "行情", "body": "..."}],
+    }
+    monkeypatch.setattr(
+        market_brief.ai_engine,
+        "grounded",
+        lambda **kw: (long_note, {"engine": "gemini", "grounded": False, "sources": []}, None),
+    )
+    note = market_brief.write_note("2026-09-16", length="long")["note"]
+    assert note["researched"] is False
+    assert note["sources"] == []
 
 
 def test_the_short_note_stays_on_low_reasoning(monkeypatch, archived_brief):

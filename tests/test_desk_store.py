@@ -304,7 +304,7 @@ def test_brief_long_note_uses_sections(client, monkeypatch):
             None,
         )
 
-    monkeypatch.setattr(market_brief.ai_engine, "structured", fake_structured)
+    monkeypatch.setattr(market_brief.ai_engine, "grounded", fake_structured)
 
     response = client.post("/api/market-brief/note", json={"length": "long"})
     assert response.status_code == 200
@@ -314,7 +314,10 @@ def test_brief_long_note_uses_sections(client, monkeypatch):
     assert "bullets_en" not in note
     # Long variant got the long prompt and schema.
     assert captured["name"] == "morning_brief_note_long"
-    assert "600-1000 words" in captured["system_prompt"]
+    assert "1200-1800 words" in captured["system_prompt"]
+    # The long note is the one that covers the world around the numbers.
+    assert "Geoeconomics" in captured["system_prompt"]
+    assert "Geopolitics" in captured["system_prompt"]
 
     # Persisted; and an invalid length is rejected.
     assert client.get("/api/market-brief").json()["note"]["length"] == "long"
