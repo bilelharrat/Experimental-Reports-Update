@@ -854,3 +854,75 @@ def test_the_spine_prompt_offers_every_risk_area():
     listed = source.split("which aspect it concentrates on", 1)[1][:400]
     for area in memo_structure.RISK_AREA_KEYS:
         assert area in listed, area
+
+
+def _dims(scores: dict, weights: dict) -> dict:
+    return {
+        k: {"score": s, "max": weights[k], "why": "why.", "evidence": ["e."]}
+        for k, s in scores.items()
+    }
+
+
+def test_highlights_rank_on_points_not_ratio():
+    """2026-09-17, RadixArk. The early-stage weight maps widened the
+    spread from 10-18 to 3-25, and ranking on score-to-weight ratio put
+    industry position (5/5, worth five points) ahead of team and
+    governance (22/25, worth twenty-two) — so the executive summary
+    opened on the least consequential dimension it had.
+    """
+    weights = {
+        "market_size_growth": 17, "industry_position": 5, "moat": 13,
+        "revenue_growth_quality": 10, "business_model_ue": 15,
+        "team_governance": 25, "valuation": 8, "exit_certainty": 4,
+        "risk_reward": 3,
+    }
+    scores = {
+        "market_size_growth": 14, "industry_position": 5, "moat": 7,
+        "revenue_growth_quality": 3, "business_model_ue": 7,
+        "team_governance": 22, "valuation": 7, "exit_certainty": 3,
+        "risk_reward": 2,
+    }
+    lines = claude_runner._render_case_summary_lines(
+        {}, _dims(scores, weights), weights
+    )
+    summary = lines[0]
+    rests = summary.split("rests on", 1)[1].split(";", 1)[0]
+    assert "team and governance (22/25)" in rests
+    assert "market size and growth (14/17)" in rests
+    # the five-pointer must not outrank the twenty-two-pointer
+    assert rests.index("team and governance") < rests.index("valuation")
+    assert "industry position" not in rests
+
+
+def test_a_heavy_but_weak_dimension_is_still_not_a_highlight():
+    """Points alone would promote a dimension the company is bad at:
+    10 of 25 outscores a perfect 8 of 8 but is not a strength."""
+    weights = dict(
+        market_size_growth=17, industry_position=5, moat=13,
+        revenue_growth_quality=10, business_model_ue=15,
+        team_governance=25, valuation=8, exit_certainty=4, risk_reward=3,
+    )
+    scores = dict(
+        market_size_growth=14, industry_position=4, moat=11,
+        revenue_growth_quality=2, business_model_ue=6,
+        team_governance=10, valuation=8, exit_certainty=3, risk_reward=2,
+    )
+    summary = claude_runner._render_case_summary_lines(
+        {}, _dims(scores, weights), weights
+    )[0]
+    rests = summary.split("rests on", 1)[1].split(";", 1)[0]
+    assert "team and governance" not in rests   # 10/25 = 0.40, below the bar
+    assert "market size and growth (14/17)" in rests
+    assert "moat (11/13)" in rests
+
+
+def test_the_spine_is_told_to_rank_on_points():
+    import inspect
+
+    from server import claude_runner as cr
+
+    source = inspect.getsource(cr.run_memo_fast_english_spine)
+    rule = source.split("`highlights`: EXACTLY three", 1)[1][:700]
+    assert "contribute the most POINTS" in rule
+    assert "60%" in rule
+    assert "largest first" in rule

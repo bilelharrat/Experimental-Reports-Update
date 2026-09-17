@@ -110,7 +110,10 @@ def test_spine_prompt_describes_highlights_area_and_impact(tmp_path, monkeypatch
     )
     prompt = captured["prompt"]
     assert "`highlights`: EXACTLY three" in prompt
-    assert "at least 60% of its max" in prompt
+    # the 60% bar survives; the rewording to points-based ranking
+    # (2026-09-17) moved it into the qualifying clause
+    assert "60% of its max" in prompt
+    assert "contribute the most POINTS" in prompt
     assert "each risk ALSO carries `area`" in prompt
     assert "`impact`: what it costs the investment" in prompt
     # A MOIC just under the floor must not round onto it (live run

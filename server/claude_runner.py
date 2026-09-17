@@ -5432,11 +5432,18 @@ def _render_case_summary_lines(
             if isinstance(item, dict) and item.get("dimension") in by_key:
                 strong.append(str(item["dimension"]))
     if not strong:
+        # Same rule the spine is given: qualify on ratio, rank on points.
+        # Ranking on ratio alone let a 5/5 dimension outrank a 22/25 one
+        # once the early-stage weight maps widened the spread to 3-25
+        # (2026-09-17, RadixArk: the executive summary opened on industry
+        # position, worth five points, ahead of the founders, worth 22).
+        qualified = [r for r in ratios if r[0] >= 0.6] or ratios
         strong = [
             dimension
             for _r, dimension, _s, _w in sorted(
-                ratios,
+                qualified,
                 key=lambda r: (
+                    -r[2],
                     -r[0],
                     memo_structure.SCORECARD_DIMENSION_KEYS.index(r[1]),
                 ),
@@ -5982,6 +5989,57 @@ def _spine_piece_plan(
     return plan
 
 
+def _closed_unclosed_json(raw: str) -> tuple[Any, str] | None:
+    """Parse text that is valid JSON except for a missing closer.
+
+    2026-09-17, RadixArk, `risks` piece 3. The whole file was intact and
+    every string complete; the writer closed the last block's inner
+    `text` object and went straight to closing the array, dropping ONE
+    `}`. The same shape had already cost two silent retries
+    (`valuation_returns` on the Figure AI and Databricks runs, both near
+    the end of the file) and was only diagnosable once the invalid piece
+    was kept.
+
+    The missing closer sits INSIDE the trailing run of `}` and `]`, not
+    after it, so appending cannot fix it — it has to be inserted. This
+    tries one closer at each position in that trailing run, then two,
+    and nothing else: it never edits content, only adds structural
+    punctuation near the end, and the caller still runs every check on
+    the result, which is what catches a wrong guess.
+    """
+    trimmed = raw.rstrip()
+    if not trimmed:
+        return None
+    # the trailing run of structural punctuation, bounded so a pathological
+    # file cannot turn this into a search
+    floor = max(0, len(trimmed) - 24)
+    cut = len(trimmed)
+    while cut > floor and trimmed[cut - 1] in "}] \t\n\r,":
+        cut -= 1
+    spots = range(cut, len(trimmed) + 1)
+
+    def _try(text: str) -> tuple[Any, str] | None:
+        try:
+            return json.loads(text), text
+        except json.JSONDecodeError:
+            return None
+
+    for pos in spots:
+        for closer in ("}", "]"):
+            hit = _try(trimmed[:pos] + closer + trimmed[pos:])
+            if hit is not None:
+                return hit
+    for pos in spots:
+        for first in ("}", "]"):
+            once = trimmed[:pos] + first + trimmed[pos:]
+            for pos2 in range(pos, len(once) + 1):
+                for second in ("}", "]"):
+                    hit = _try(once[:pos2] + second + once[pos2:])
+                    if hit is not None:
+                        return hit
+    return None
+
+
 def _keep_unparsed_piece(path: Path, raw: str) -> Path | None:
     """Save text that would not parse, before the retry overwrites it.
 
@@ -6018,11 +6076,18 @@ def _spine_piece_error(
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         kept = _keep_unparsed_piece(path, raw)
-        return (
-            f"`{path.name}` is not valid JSON: {exc.msg} at line "
-            f"{exc.lineno} column {exc.colno}"
-            + (f" (kept as `{kept.name}`)" if kept else "")
-        )
+        repaired = _closed_unclosed_json(raw)
+        if repaired is None:
+            return (
+                f"`{path.name}` is not valid JSON: {exc.msg} at line "
+                f"{exc.lineno} column {exc.colno}"
+                + (f" (kept as `{kept.name}`)" if kept else "")
+            )
+        data, text = repaired
+        try:
+            path.write_text(text, encoding="utf-8")
+        except OSError:
+            logger.warning("could not rewrite closed piece %s", path)
     if not isinstance(data, dict):
         return f"`{path.name}` is not a JSON object"
     missing = [key for key in required if key not in data]
@@ -6519,10 +6584,15 @@ against the stragglers when they land.
      two decimals ("1.49x", not "1.5x") so a miss never rounds onto the
      floor and every section states the same side of it. Base MOIC must be consistent with
      exit_value against the entry valuation after reasonable dilution.
-   - `highlights`: EXACTLY three. Pick the three scorecard dimensions
-     with the highest score-to-max ratio (each at least 60% of its max —
-     a weak dimension is never a highlight; a deterministic gate checks
-     this and rejects duplicates). Per item: `dimension` (the scorecard
+   - `highlights`: EXACTLY three. First keep every dimension scoring at
+     least 60% of its max — a weak dimension is never a highlight, and a
+     deterministic gate checks this and rejects duplicates. Of those,
+     pick the three that contribute the most POINTS (score, not ratio),
+     and list them in that order, largest first. The dimensions are not
+     worth the same: this run's weights range from single digits to the
+     mid twenties, so a perfect 5 of 5 is worth less to the case than 22
+     of 25 and must not outrank it. What the case rests on is what earns
+     the most of the score, among the things the company does well. Per item: `dimension` (the scorecard
      key), `headline` (ONE plain verdict sentence a reader can quote,
      at most one number, written for someone who has never seen the
      company. It must say what is TRUE about this company and why that
@@ -7926,11 +7996,22 @@ def _section_piece_error(
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         kept = _keep_unparsed_piece(path, raw)
-        return (
-            f"piece {number} (`{path.name}`) is not valid JSON: {exc.msg} "
-            f"at line {exc.lineno} column {exc.colno}"
-            + (f" (kept as `{kept.name}`)" if kept else "")
-        )
+        repaired = _closed_unclosed_json(raw)
+        if repaired is None:
+            return (
+                f"piece {number} (`{path.name}`) is not valid JSON: "
+                f"{exc.msg} at line {exc.lineno} column {exc.colno}"
+                + (f" (kept as `{kept.name}`)" if kept else "")
+            )
+        # A missing closer only. Write the closed form back so every
+        # check below — and every reader after it — sees valid JSON; the
+        # original is already preserved beside it. Cheaper than a whole
+        # subprocess to re-ask for prose that is already correct.
+        data, text = repaired
+        try:
+            path.write_text(text, encoding="utf-8")
+        except OSError:
+            logger.warning("could not rewrite closed piece %s", path)
     if not isinstance(data, dict):
         return f"piece {number} (`{path.name}`) is not a JSON object"
     blocks = data.get("blocks")
