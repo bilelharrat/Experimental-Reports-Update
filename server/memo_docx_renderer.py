@@ -264,6 +264,9 @@ _BLOCK_TYPE_SYNONYMS = {
     "prose": "paragraph",
     "narrative": "paragraph",
     "body_text": "paragraph",
+    "header": "heading",
+    "subheading": "heading",
+    "subheader": "heading",
 }
 
 

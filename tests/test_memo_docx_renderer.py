@@ -1716,6 +1716,12 @@ def test_prose_blocks_and_wrapped_cells_are_repaired_mechanically():
     repaired, repairs = memo_docx_renderer.repair_package_structure(package)
     blocks = repaired["sections"][0]["blocks"]
     assert blocks[0]["type"] == "paragraph"
+    # 'header' cost a further live attempt; it is a heading.
+    hdr, _ = memo_docx_renderer.repair_package_structure(
+        {"schema_version": 1, "sections": [{"id": "executive_summary", "blocks": [
+            {"type": "header", "text": {"en": "Thesis", "zh": "论点"}}]}]}
+    )
+    assert hdr["sections"][0]["blocks"][0]["type"] == "heading"
     row = blocks[-1]["rows"][0]
     assert row[0] == {"en": "Risk Type", "zh": "风险类型"}
     # A one-word label counts as language-neutral, so the validator accepts
