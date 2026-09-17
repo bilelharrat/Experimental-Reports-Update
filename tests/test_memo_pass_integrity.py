@@ -250,3 +250,14 @@ def test_a_pass_that_works_first_time_runs_once(tmp_path, monkeypatch):
     )
     assert len(calls) == 1
     assert result.ok
+
+
+def test_the_pass_prompt_forbids_a_probe_answer():
+    """Two passes in one live run returned summary "test" and had to be
+    re-run from scratch; an earlier run returned summary "test" with
+    findings "a"/"b" and got all the way into a rendered memo."""
+    import inspect
+
+    source = inspect.getsource(claude_runner.run_memo_fast_analysis_pass)
+    assert "Your FIRST structured answer must be the real one" in source
+    assert "placeholder or a probe" in source

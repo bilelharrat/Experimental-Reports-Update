@@ -5160,6 +5160,12 @@ Focus for this pass:
 {type_block}
 Run this pass now under the rules in your system prompt, and return only the
 JSON object matching the attached schema.
+
+Your FIRST structured answer must be the real one. Do not submit a
+placeholder or a probe to see whether the schema accepts it — a summary
+of "test", or a single finding of "a"/"b", is thrown away and the whole
+pass is run again from the start. If you are unsure of the shape, read
+the schema; do not test it with a throwaway answer.
 """
     add_dirs = [settings_path.parent, companies_yaml_path.parent]
     if research_dir and research_dir.exists():
