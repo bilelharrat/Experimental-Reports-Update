@@ -149,6 +149,7 @@ which spends the user's Claude Code subscription. Three surfaces do not:
 | Morning Brief written note | `market_brief.py` | Short, frequent, no tools needed |
 | Company news sweep | `company_news_research.py` | Web-grounded, needs source URLs |
 | Story briefings | `news_brief.py` | Highest-frequency call in the app; no tools needed |
+| Memos and reports | `memo_engine.py` | Opt-in per run only — see below |
 
 `server/gemini_runner.py` is the backend — the Gemini `generateContent`
 REST API over `httpx`, no new dependency. It mirrors
@@ -188,7 +189,35 @@ to rediscover, both measured against the live API:
 400s on keywords outside it (`additionalProperties`, which our Claude-era
 schemas all carry), so `gemini_runner` strips those before sending.
 
-`server/ai_engine.py` owns the policy (`BSH_AI_ENGINE`), and this is the
+### Memos are the exception
+
+The memo pipeline does not use `ai_engine`. Every stage — the parallel
+analysis passes, the English spine, the bilingual package, every repair
+pass — funnels through `claude_runner._run_memo_local_json_artifact`, which
+spawns a Claude CLI subprocess with `--add-dir` and `Read,Bash,Grep,Glob`:
+the prompts hand the agent a *listing* of the company research folder and
+expect it to open those files itself.
+
+`server/memo_engine.py` adds a per-run toggle at that one funnel, so a
+Gemini memo runs the same stage graph, prompts, schemas, retries, repair
+passes, validation and DOCX renderer as a Claude one. Only two things
+differ, and both are consequences of Gemini having no filesystem:
+
+- Research is extracted to text and inlined into the prompt, ordered
+  digests-first, with every truncation and omission named in the text so a
+  shortened source is never read as a complete one.
+- A scanned PDF with no text layer contributes nothing, where a Claude
+  agent could still have described the pages it read.
+
+The engine is pinned per run (like the quality tier) *and* stored on the
+report record, so a resume or repair pass after a restart uses the engine
+the memo was started with rather than the current default. Claude stays the
+default: a memo is the most expensive and most scrutinised artifact here,
+so moving one to another model is an explicit per-run choice, never
+something an env default does quietly.
+
+`server/ai_engine.py` owns the policy (`BSH_AI_ENGINE`) for the other
+surfaces, and this is the
 part to keep enforcing: **the fallback is never silent.** Every call
 returns a `meta` dict naming the engine that produced the answer and why
 Gemini was skipped, and each call site persists it — `note.engine` on the

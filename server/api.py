@@ -845,6 +845,9 @@ class GenerateRequest(BaseModel):
     # "best" = every agent on the CLI default model; "balanced"/"economy"
     # route roles to cheaper models (claude_runner quality tiers).
     quality: str = "best"
+    # "claude" (default) or "gemini" — same pipeline, prompts, schemas,
+    # validation and renderer either way; see server/memo_engine.py.
+    engine: str | None = None
 
 
 class MemoPrepRequest(BaseModel):
@@ -3998,6 +4001,7 @@ def post_report(request: Request, payload: GenerateRequest) -> ReportDetail:
                 report_type=payload.report_type,
                 report_mode=payload.report_mode,
                 quality=payload.quality,
+                engine=payload.engine,
             )
         except memo_prep.AnalysisSessionNotReadyError as exc:
             _record_report_generation_event(

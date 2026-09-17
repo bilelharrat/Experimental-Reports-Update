@@ -48,6 +48,7 @@ from . import (
     job_progress,
     memo_chinese_parity,
     memo_docx_renderer,
+    memo_engine,
     memo_pin_check,
     memo_prep,
     memo_prompts,
@@ -3056,6 +3057,9 @@ def _run_fast_memo_pipeline(
     )
     model_quality = str(report.get("model_quality") or "best")
     claude_runner.register_memo_run_quality(run_dir, model_quality)
+    # Pinned per run, like the quality tier: a resume or repair pass must use
+    # the engine the report was started with, not whatever the default is now.
+    memo_engine.register_run_engine(run_dir, report.get("engine"))
 
     stream.emit(
         "stage",
@@ -5368,6 +5372,7 @@ def _resume(report_id: str) -> None:
     claude_runner.register_memo_run_quality(
         run_dir, str(report.get("model_quality") or "best")
     )
+    memo_engine.register_run_engine(run_dir, report.get("engine"))
 
     package_path = _memo_package_path(run_dir)
     analysis_artifacts = _analysis_artifact_paths(run_dir)
@@ -6102,6 +6107,7 @@ def _investigate(report_id: str) -> None:
     claude_runner.register_memo_run_quality(
         run_dir, str(report.get("model_quality") or "best")
     )
+    memo_engine.register_run_engine(run_dir, report.get("engine"))
     stream = _RunStream(report_id, 
         memo_prep.stream_path(run_dir), truncate=False
     )

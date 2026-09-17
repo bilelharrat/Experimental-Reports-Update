@@ -34,7 +34,7 @@ from typing import Any
 
 import yaml
 
-from . import job_progress, memo_prompts, memo_structure
+from . import job_progress, memo_engine, memo_prompts, memo_structure
 from .chinese_style import INVESTMENT_RESEARCH_CHINESE_STYLE
 from .risk_workbench import company_risk_context
 
@@ -4256,7 +4256,7 @@ def _run_memo_local_json_artifact(
     append_system_prompt: str | None = None,
     tools: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    if not is_available():
+    if memo_engine.run_engine(run_dir) != "gemini" and not is_available():
         return None, (
             "Claude Code (`claude`) not on PATH. Install it with "
             "`npm install -g @anthropic-ai/claude-code` and authenticate."
@@ -4291,6 +4291,20 @@ def _run_memo_local_json_artifact(
         halt_error = _memo_run_halt_error(run_dir)
         if halt_error:
             return None, halt_error
+        # The engine toggle lands here, at the one funnel every memo stage,
+        # retry loop and repair pass already goes through — so a Gemini memo
+        # runs the same stage graph, schemas, validation and renderer as a
+        # Claude one, and only the model differs. The cancel/limiter guards
+        # above still apply either way.
+        if memo_engine.run_engine(run_dir) == "gemini":
+            return memo_engine.run_artifact(
+                prompt=prompt,
+                schema=schema,
+                add_dirs=add_dirs,
+                timeout_label=timeout_label,
+                timeout_sec=timeout_sec,
+                model=model,
+            )
         data, error = _run_memo_local_json_artifact_inner(
             prompt=prompt,
             schema=schema,

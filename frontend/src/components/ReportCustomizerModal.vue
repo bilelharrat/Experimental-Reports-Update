@@ -196,6 +196,26 @@ const qualities = [
 ];
 const selectedQuality = ref("best");
 
+// Same pipeline either way — the stage graph, prompts, schemas, validation
+// and DOCX renderer are shared; only the model differs. Claude stays the
+// default because it reads the research folder itself, where Gemini is
+// handed the extracted text.
+const engines = [
+  {
+    id: "claude",
+    title: "Claude",
+    badge: "Default",
+    desc: "Agents open the research folder themselves and re-read sources as they work.",
+  },
+  {
+    id: "gemini",
+    title: "Gemini",
+    badge: "Flash",
+    desc: "Same pipeline and checks; research is extracted to text and handed over up front.",
+  },
+];
+const selectedEngine = ref("claude");
+
 // Tab 3: Directives & Focus Options
 const directives = ref("");
 const suggestionChips = [
@@ -291,6 +311,7 @@ async function launchReport() {
         language: selectedLanguage.value === "zh" ? "zh" : "en",
         report_mode: selectedReportMode.value,
         quality: selectedQuality.value,
+        engine: selectedEngine.value,
       });
 
       emit("created", rep);
@@ -596,6 +617,45 @@ async function launchReport() {
                   </span>
                 </div>
                 <p class="text-xs text-ink-muted leading-relaxed">{{ mode.desc }}</p>
+              </button>
+            </div>
+          </div>
+
+          <!-- Generation engine -->
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <span class="vogue-label">{{ t("customizer.engine_title") }}</span>
+              <span class="text-xs text-ink-muted">{{ t("customizer.engine_desc") }}</span>
+            </div>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                v-for="e in engines"
+                :key="e.id"
+                type="button"
+                class="flex flex-col text-left p-3.5 rounded-xl border transition-all focus-ring"
+                :class="[
+                  selectedEngine === e.id
+                    ? 'border-accent bg-accent/5 ring-1 ring-accent'
+                    : 'border-subtle bg-surface hover:border-strong',
+                ]"
+                :aria-pressed="selectedEngine === e.id"
+                :data-testid="`engine-${e.id}`"
+                @click="selectedEngine = e.id"
+              >
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-semibold text-xs text-ink-primary">{{ e.title }}</span>
+                  <span
+                    class="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    :class="[
+                      selectedEngine === e.id
+                        ? 'bg-accent text-white'
+                        : 'bg-surface-muted text-ink-muted border border-subtle',
+                    ]"
+                  >
+                    {{ e.badge }}
+                  </span>
+                </div>
+                <p class="text-xs text-ink-muted leading-relaxed">{{ e.desc }}</p>
               </button>
             </div>
           </div>
