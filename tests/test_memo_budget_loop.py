@@ -8,6 +8,8 @@ inputs lands at the same natural length. Only editing converges.
 """
 from __future__ import annotations
 
+import os
+
 from server import memo_analysis, memo_docx_renderer, memo_structure
 
 COMPACT = memo_structure.load_structure("late_compact", 1)
@@ -276,3 +278,68 @@ def test_the_risk_gate_accepts_the_most_risks_the_spine_can_pin():
         if "risk cards" in e or "per-risk cards" in e
     ]
     assert errors == [], errors
+
+
+def test_the_section_prompt_states_the_budget_this_run_actually_uses():
+    """Live 2026-09-17: the contract prose and the effective budget split.
+
+    `section_emphasis` re-cuts the budgets per company type, so under
+    ai_foundation_model the valuation contract still said "1,800-1,900
+    words" while its effective target was 1,650. The section wrote 2,733
+    and blew its cap. The prompt now states the effective numbers last and
+    says they override the prose.
+    """
+    from server import claude_runner, memo_structure
+
+    typed = memo_structure.load_structure(
+        "late_compact", 1, "ai_foundation_model"
+    )
+    section = typed.section("valuation_returns")
+    base = COMPACT.section("valuation_returns")
+    assert section.budget_words != base.budget_words, (
+        "this test needs a section the type emphasis actually moves"
+    )
+
+    captured = {}
+
+    def fake(**kwargs):
+        captured.update(kwargs)
+        return {"section": {"id": "valuation_returns", "blocks": []}}, None
+
+    import pathlib
+    import tempfile
+
+    run_dir = pathlib.Path(tempfile.mkdtemp())
+    original = claude_runner._run_memo_local_json_artifact
+    handoff = os.environ.get("BSH_MEMO_SECTION_HANDOFF")
+    os.environ["BSH_MEMO_SECTION_HANDOFF"] = "off"
+    claude_runner._run_memo_local_json_artifact = fake
+    try:
+        claude_runner._run_english_section(
+            run_dir=run_dir,
+            section_id="valuation_returns",
+            common_context="ctx",
+            shared_facts_block="facts",
+            spine_path=run_dir / "spine.json",
+            add_dirs=[],
+            progress=None,
+            timeout_sec=10,
+            structure=typed,
+        )
+    finally:
+        claude_runner._run_memo_local_json_artifact = original
+        if handoff is None:
+            os.environ.pop("BSH_MEMO_SECTION_HANDOFF", None)
+        else:
+            os.environ["BSH_MEMO_SECTION_HANDOFF"] = handoff
+
+    prompt = captured["prompt"]
+    hard_cap = int(section.budget_words * section.budget_hard_multiple)
+    assert "## Your word budget for this run" in prompt
+    assert f"Target: {section.budget_words} words" in prompt
+    assert f"Hard cap: {hard_cap} words" in prompt
+    assert "OVERRIDE any range stated in the section contract" in prompt
+    # and it comes AFTER the contract, so it is the last word on the matter
+    assert prompt.index("Your word budget") > prompt.index(
+        "## Your section:"
+    )

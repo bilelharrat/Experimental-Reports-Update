@@ -7686,6 +7686,10 @@ class SpeculativeEnglish:
 # is written, and one bad piece is re-asked on its own instead of costing
 # the whole section.
 
+# Mirrors memo_docx_renderer._BUDGET_GRACE for sections that declare no
+# explicit hard multiple.
+_BUDGET_GRACE_DEFAULT = 1.10
+
 MEMO_SECTION_PIECE_MAX_RETRIES = 3
 
 _MEMO_SECTION_HANDOFF_DEFAULT = "all"
@@ -8228,6 +8232,32 @@ languages pre-filled. Every other block goes under its subsection;
 nothing precedes the first heading:
 {scaffold_lines}
 """
+    # The contract prose states a word range for the BASE profile, but a
+    # run's company type re-cuts the budgets between sections
+    # (section_emphasis), so for a typed run the two disagree — live
+    # 2026-09-17: the valuation contract said 1,800-1,900 words while the
+    # effective budget was 1,650, and the section came in at 2,733,
+    # over its cap. The effective number is stated here, last and
+    # explicitly, so there is never any question which one governs.
+    budget_block = ""
+    if section_def is not None and section_def.budget_words:
+        hard_cap = int(
+            section_def.budget_words
+            * (section_def.budget_hard_multiple or _BUDGET_GRACE_DEFAULT)
+        )
+        budget_block = f"""
+## Your word budget for this run
+Target: {section_def.budget_words} words of English for this whole
+section, table cells included. Hard cap: {hard_cap} words — a
+deterministic gate rejects the section above it.
+
+These numbers OVERRIDE any range stated in the section contract above:
+that contract is written for the base profile, and this run's company
+type shifts words between sections according to what matters for this
+kind of company. Landing far UNDER the target is as wrong as running
+over — it means a judgment was asserted where it should have been
+explained.
+"""
     note_block = (
         f"\n## Spine note for this section\n{section_note}\n" if section_note else ""
     )
@@ -8268,7 +8298,7 @@ language in prose; do not add, drop, or renumber sources.
 
 ## Your section: `{section_id}`
 {spec}
-{scaffold_block}{risk_contract}{note_block}{repair_block}
+{scaffold_block}{budget_block}{risk_contract}{note_block}{repair_block}
 """
     if _section_handoff_enabled(section_id, section_def):
         return _run_english_section_via_pieces(
