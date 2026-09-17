@@ -1,0 +1,449 @@
+"""Run Google Gemini as a structured-JSON backend for research jobs.
+
+Why a second engine alongside ``claude_runner``:
+- The Claude path shells out to the ``claude`` CLI, which spends the user's
+  Claude Code subscription and serializes behind a subprocess. For the small,
+  high-frequency research calls (a desk note, a company news sweep, a founder
+  dossier) a metered HTTP call to Flash is cheaper and much faster.
+- Gemini's ``google_search`` tool grounds an answer in live web results and
+  hands back the source URIs it used, which is exactly what the founder
+  dossier and the company news feed need. The Claude equivalent costs a
+  full agentic CLI run with WebSearch enabled.
+
+``run_structured_prompt`` deliberately mirrors
+``claude_runner.run_structured_prompt``'s signature and ``(data, error)``
+return contract, so a call site can switch engines without reshaping its
+code. ``run_grounded_json`` is the grounded variant: same JSON contract plus
+the grounding metadata (source URIs, the searches the model ran).
+
+Config (all optional except the key):
+- ``GEMINI_API_KEY`` / ``BSH_GEMINI_API_KEY`` — the key. No key means
+  ``is_available()`` is False and every call returns an error, which is the
+  signal callers use to fall back to Claude.
+- ``BSH_GEMINI_MODEL`` — default ``gemini-3.8-flash``.
+- ``BSH_GEMINI_THINKING`` — ``low`` | ``medium`` | ``high`` (Flash rejects
+  ``minimal``). Default ``low``.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import random
+import re
+import time
+from typing import Any
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_THINKING = "low"
+THINKING_LEVELS = ("low", "medium", "high")
+
+# Attempts for a call that failed in a way a retry can fix (rate limit, 5xx,
+# connection reset). Kept small: these run inside user-facing requests.
+MAX_ATTEMPTS = 3
+RETRY_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+
+_JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
+
+
+class GeminiUnavailableError(RuntimeError):
+    """No API key configured."""
+
+
+# ---- configuration --------------------------------------------------------
+
+
+def api_key() -> str | None:
+    for name in ("GEMINI_API_KEY", "BSH_GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        value = str(os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def is_available() -> bool:
+    """True when a key is configured. Never logs or returns the key itself."""
+    return api_key() is not None
+
+
+def default_model() -> str:
+    return str(os.environ.get("BSH_GEMINI_MODEL") or "").strip() or DEFAULT_MODEL
+
+
+def default_thinking_level() -> str:
+    raw = str(os.environ.get("BSH_GEMINI_THINKING") or "").strip().lower()
+    return raw if raw in THINKING_LEVELS else DEFAULT_THINKING
+
+
+# ---- response parsing -----------------------------------------------------
+
+
+def _parse_json_payload(text: str) -> dict | None:
+    """Parse a model response as one JSON object, tolerating stray prose.
+
+    The schema-constrained path returns clean JSON; the degraded path (schema
+    in the prompt instead of ``responseFormat``) sometimes wraps it in a
+    fence or a sentence, so the fence and first-object fallbacks stay.
+    """
+    candidate = (text or "").strip()
+    if not candidate:
+        return None
+    try:
+        parsed = json.loads(candidate)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+    fenced = _FENCE_RE.findall(candidate)
+    if fenced:
+        try:
+            parsed = json.loads(max(fenced, key=len).strip())
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            pass
+    match = _JSON_OBJ_RE.search(candidate)
+    if match:
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _candidate_text(payload: dict) -> str:
+    """Concatenate the text parts of the first candidate.
+
+    Thinking parts carry ``"thought": true`` and are skipped — only the
+    answer parts are the model's output.
+    """
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return ""
+    first = candidates[0] if isinstance(candidates[0], dict) else {}
+    content = first.get("content")
+    parts = content.get("parts") if isinstance(content, dict) else None
+    if not isinstance(parts, list):
+        return ""
+    chunks: list[str] = []
+    for part in parts:
+        if not isinstance(part, dict) or part.get("thought"):
+            continue
+        text = part.get("text")
+        if isinstance(text, str) and text.strip():
+            chunks.append(text)
+    return "".join(chunks).strip()
+
+
+def _grounding_meta(payload: dict) -> dict:
+    """Source URIs and executed searches from ``groundingMetadata``.
+
+    Returns ``{"sources": [{"title", "url"}], "queries": [...]}`` — empty
+    lists when the model answered without searching.
+    """
+    candidates = payload.get("candidates")
+    first = candidates[0] if isinstance(candidates, list) and candidates else {}
+    meta = first.get("groundingMetadata") if isinstance(first, dict) else None
+    if not isinstance(meta, dict):
+        return {"sources": [], "queries": []}
+    sources: list[dict] = []
+    seen: set[str] = set()
+    for chunk in meta.get("groundingChunks") or []:
+        web = chunk.get("web") if isinstance(chunk, dict) else None
+        if not isinstance(web, dict):
+            continue
+        uri = str(web.get("uri") or "").strip()
+        if not uri or uri in seen:
+            continue
+        seen.add(uri)
+        sources.append({"title": str(web.get("title") or "").strip() or uri, "url": uri})
+    queries = [
+        str(q).strip()
+        for q in (meta.get("webSearchQueries") or [])
+        if str(q or "").strip()
+    ]
+    return {"sources": sources, "queries": queries}
+
+
+def _blocked_reason(payload: dict) -> str | None:
+    """A refusal/stop reason worth reporting instead of 'empty response'."""
+    feedback = payload.get("promptFeedback")
+    if isinstance(feedback, dict) and feedback.get("blockReason"):
+        return f"prompt blocked ({feedback['blockReason']})"
+    candidates = payload.get("candidates")
+    first = candidates[0] if isinstance(candidates, list) and candidates else {}
+    reason = str(first.get("finishReason") or "").strip() if isinstance(first, dict) else ""
+    if reason and reason not in {"STOP", "MAX_TOKENS"}:
+        return f"generation stopped ({reason})"
+    if reason == "MAX_TOKENS":
+        return "response hit the output token limit"
+    return None
+
+
+def _error_text(response: httpx.Response) -> str:
+    """The API's own error message, without echoing the key back."""
+    try:
+        body = response.json()
+    except ValueError:
+        return (response.text or "")[:300]
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        status = str(error.get("status") or "").strip()
+        if message:
+            return f"{status}: {message}" if status else message
+    return json.dumps(body)[:300]
+
+
+# ---- request construction -------------------------------------------------
+
+
+def _schema_instructions(schema: dict) -> str:
+    """The prompt-embedded schema contract, for the no-responseFormat path."""
+    return (
+        "\n\nOUTPUT REQUIREMENTS (these override anything contradictory above):\n"
+        "- Respond with ONE JSON object that conforms to this schema:\n\n"
+        f"```json\n{json.dumps(schema, indent=2, ensure_ascii=False)}\n```\n\n"
+        "- Output the JSON object ONLY. No prose, no commentary, no markdown "
+        "fences. The first character of your response is `{` and the last "
+        "is `}`.\n"
+        "- Every required field must be present. Use null for fields you "
+        "cannot fill in."
+    )
+
+
+def _build_body(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    thinking: str,
+    grounded: bool,
+    embed_schema: bool,
+    temperature: float | None,
+) -> dict:
+    prompt = user_prompt + (_schema_instructions(schema) if embed_schema else "")
+    generation_config: dict[str, Any] = {"thinkingConfig": {"thinkingLevel": thinking}}
+    if temperature is not None:
+        generation_config["temperature"] = temperature
+    if not embed_schema:
+        generation_config["responseFormat"] = {
+            "text": {"mimeType": "application/json", "schema": schema}
+        }
+    body: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": generation_config,
+    }
+    if system_prompt:
+        body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+    if grounded:
+        body["tools"] = [{"google_search": {}}]
+    return body
+
+
+def _post(body: dict, *, model: str, key: str, timeout_sec: int) -> tuple[dict | None, str | None, int | None]:
+    """One POST with retries for transient failures.
+
+    Returns ``(payload, error, status)``. ``status`` is the HTTP status of the
+    last non-retryable failure, so the caller can tell a schema rejection
+    (400) from a key or quota problem.
+    """
+    url = f"{API_BASE}/models/{model}:generateContent"
+    headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
+    last_error = "unknown error"
+    last_status: int | None = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            response = httpx.post(url, headers=headers, json=body, timeout=timeout_sec)
+        except httpx.TimeoutException:
+            last_error = f"gemini timed out after {timeout_sec}s"
+            last_status = None
+        except httpx.HTTPError as exc:
+            last_error = f"gemini request failed: {exc}"
+            last_status = None
+        else:
+            if response.status_code == 200:
+                try:
+                    return response.json(), None, 200
+                except ValueError as exc:
+                    return None, f"gemini returned non-JSON envelope: {exc}", 200
+            last_status = response.status_code
+            last_error = f"gemini HTTP {response.status_code} — {_error_text(response)}"
+            if response.status_code not in RETRY_STATUS:
+                return None, last_error, last_status
+        if attempt < MAX_ATTEMPTS:
+            # Full jitter: these calls run inside user-facing requests, so a
+            # retry storm from parallel callers would make a 429 worse.
+            delay = random.uniform(0, min(8.0, 2.0**attempt))
+            logger.warning(
+                "gemini_runner: attempt %d/%d failed (%s); retrying in %.1fs",
+                attempt,
+                MAX_ATTEMPTS,
+                last_error,
+                delay,
+            )
+            time.sleep(delay)
+    return None, last_error, last_status
+
+
+# ---- public entry points --------------------------------------------------
+
+
+def _run(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    name: str,
+    timeout_sec: int,
+    model: str | None,
+    thinking_level: str | None,
+    grounded: bool,
+    temperature: float | None,
+) -> tuple[dict | None, dict, str | None]:
+    key = api_key()
+    if key is None:
+        return None, {}, (
+            "Gemini API key not configured. Set GEMINI_API_KEY in .env "
+            "(get one at https://aistudio.google.com/apikey)."
+        )
+    chosen_model = (model or default_model()).strip() or DEFAULT_MODEL
+    thinking = (thinking_level or default_thinking_level()).strip().lower()
+    if thinking not in THINKING_LEVELS:
+        thinking = DEFAULT_THINKING
+
+    embed_schema = False
+    for _ in range(2):
+        body = _build_body(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            schema=schema,
+            thinking=thinking,
+            grounded=grounded,
+            embed_schema=embed_schema,
+            temperature=temperature,
+        )
+        payload, error, status = _post(
+            body, model=chosen_model, key=key, timeout_sec=timeout_sec
+        )
+        if error is not None:
+            # A 400 on the schema-constrained attempt is usually the schema
+            # itself (a JSON Schema keyword the API won't take). Retry once
+            # with the schema in the prompt instead of losing the call.
+            if status == 400 and not embed_schema:
+                logger.warning(
+                    "gemini_runner: %s rejected the response schema (%s); "
+                    "retrying with the schema embedded in the prompt",
+                    name,
+                    error,
+                )
+                embed_schema = True
+                continue
+            return None, {}, f"{error} ({name})"
+        break
+    else:  # pragma: no cover - the loop always returns or breaks
+        return None, {}, f"gemini exhausted schema fallbacks ({name})"
+
+    payload = payload or {}
+    meta = _grounding_meta(payload)
+    meta["model"] = chosen_model
+    meta["engine"] = "gemini"
+    text = _candidate_text(payload)
+    if not text:
+        return None, meta, (_blocked_reason(payload) or "gemini returned an empty response") + f" ({name})"
+    parsed = _parse_json_payload(text)
+    if parsed is None:
+        return None, meta, f"gemini output didn't parse as JSON (name={name}): {text[:300]}"
+    return parsed, meta, None
+
+
+def run_structured_prompt(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    name: str = "structured_output",
+    timeout_sec: int = 180,
+    model: str | None = None,
+    thinking_level: str | None = None,
+    grounded: bool = False,
+    temperature: float | None = None,
+) -> tuple[dict | None, str | None]:
+    """Text-in / structured-JSON-out, mirroring ``claude_runner`` s contract.
+
+    Returns ``(data, error)`` — exactly one of the two is non-None. ``name``
+    is a debug label that ends up in error messages.
+    """
+    data, _meta, error = _run(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        schema=schema,
+        name=name,
+        timeout_sec=timeout_sec,
+        model=model,
+        thinking_level=thinking_level,
+        grounded=grounded,
+        temperature=temperature,
+    )
+    return data, error
+
+
+def run_grounded_json(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    schema: dict,
+    name: str = "grounded_research",
+    timeout_sec: int = 240,
+    model: str | None = None,
+    thinking_level: str | None = None,
+    temperature: float | None = None,
+) -> tuple[dict | None, dict, str | None]:
+    """Grounded research call: Google Search on, structured JSON out.
+
+    Returns ``(data, meta, error)`` where ``meta`` carries ``sources``
+    (``[{"title", "url"}]``), ``queries`` (the searches the model ran),
+    ``model`` and ``engine``. ``meta`` is populated even on a parse failure,
+    so a caller can still report what was searched.
+    """
+    return _run(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        schema=schema,
+        name=name,
+        timeout_sec=timeout_sec,
+        model=model,
+        thinking_level=thinking_level,
+        grounded=True,
+        temperature=temperature,
+    )
+
+
+def health_check(*, timeout_sec: int = 30) -> dict:
+    """Cheap liveness probe for the settings/diagnostics surface."""
+    if not is_available():
+        return {"ok": False, "configured": False, "error": "No GEMINI_API_KEY configured"}
+    started = time.monotonic()
+    data, error = run_structured_prompt(
+        system_prompt="You are a health check.",
+        user_prompt="Reply with {\"ok\": true}.",
+        schema={
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "required": ["ok"],
+        },
+        name="gemini_health_check",
+        timeout_sec=timeout_sec,
+    )
+    return {
+        "ok": error is None and bool((data or {}).get("ok")),
+        "configured": True,
+        "model": default_model(),
+        "elapsed_ms": int((time.monotonic() - started) * 1000),
+        "error": error,
+    }
