@@ -281,7 +281,7 @@ subsections:
   zh: 团队与创始人匹配
 ```
 
-400-550 words. Content per subsection:
+2,200-2,400 words. The founders and the people around them are one of the eight things the decision turns on, so this section argues the team rather than listing it: who they are, what they have already done that predicts this, where the bench is thin, and what the governance structure lets them do that a normal board would not. Every judgment about a person is evidenced — a role held, a result delivered, a departure, a filing — never an impression. Content per subsection:
 
 1. Company & key metrics: 3-4 verdict-lead bullets (founded/HQ/what it
    sells/how it got here — one line each), then the "Key Metrics
@@ -338,7 +338,7 @@ subsections:
   zh: 竞争与护城河
 ```
 
-450-550 words. Content per subsection:
+2,400-2,600 words. This section carries four of the eight dimensions — how big the market is, how fast it is growing, where the company ranks in it, and what protects that rank — so it is the longest of the argument sections. Size the market from every external estimate you have, say which definition the memo adopts and why, and show the arithmetic. Then place the company in it, and only then argue the moat: what it is made of, what would erode it, and how long it holds. Content per subsection:
 
 1. Why this matters now: the investment thesis in 2-3 verdict-lead
    bullets — what market this opens, why the timing is now, why this
@@ -391,7 +391,7 @@ subsections:
   zh: 增长更健康还是更烧钱
 ```
 
-400-500 words. Content per subsection:
+2,200-2,300 words. How the company charges and whether it makes money are two separate questions and this section answers both, in that order, with numbers. Profitability gets its own argument: the gross margin now, what sits inside it, the path to positive, and what breaks that path. A reader who has never seen a cost structure like this one should finish the section able to say whether it works. Content per subsection:
 
 1. How it makes money: who pays, for what, on what pricing, and the
    strongest disclosed proof point — 2-3 verdict-lead bullets. One
@@ -439,7 +439,7 @@ subsections:
   zh: 退出路径
 ```
 
-450-550 words. Content per subsection:
+1,800-1,900 words. Every number here is derived, so every number here shows its arithmetic and carries the [C#] of its calculation note. Say what the entry price already assumes before you say whether it is fair, and give the reader the comparison that lets them judge the multiple — what companies of this type trade at, and why this one sits where it does against them. The exit outlook belongs here too: when a listing could realistically happen and what has to be true first. Content per subsection:
 
 1. What the price assumes: the entry multiple against the 2-3
    comparables that matter (one bullet each, target first), then the
@@ -550,7 +550,7 @@ subsections:
   zh: 投后监控与触发条件
 ```
 
-350-450 words. Content per subsection:
+1,300-1,400 words. The shortest section, because by now the case is made: state the recommendation, the terms, what would change it, and what we will watch. No new evidence, no new numbers — anything that matters enough to appear here has already been argued somewhere above. Content per subsection:
 
 1. Scorecard: the "Scorecard" table — the 9 fixed dimensions with
    their weights — 市场空间与增速 15 | 行业地位 15 | 护城河 15 |

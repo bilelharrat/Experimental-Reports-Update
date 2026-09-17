@@ -193,3 +193,36 @@ def test_the_profile_prose_agrees_with_its_own_ceilings():
     low, high = (int(g.replace(",", "")) for g in match.groups())
     total = sum(s.budget_words or 0 for s in COMPACT.sections)
     assert low <= total <= high, (low, total, high)
+
+
+def test_every_section_prose_agrees_with_its_own_budget():
+    """The failure this test exists for, live 2026-09-16.
+
+    The budgets went from 6,700 words to 16,000 in the yaml, but five of
+    the seven section contracts still opened "400-550 words." The writers
+    split the difference and came in at 39-88% of target — the whole run
+    landed at ~9,000 words when 16,000 was asked for, and it had to be
+    cancelled. The profile's own intro warns about exactly this: "Two
+    targets is no target." Nothing checked it per section.
+    """
+    import re
+
+    from server import memo_prompts
+
+    text = memo_prompts.load_prompt("structures/late_compact.md")
+    for section in COMPACT.sections:
+        if not section.budget_words:
+            continue
+        body = text.split(f"## section: {section.id}\n", 1)
+        assert len(body) == 2, section.id
+        after_yaml = body[1].split("```", 2)[-1].strip()
+        match = re.match(r"([\d,]+)-([\d,]+) words", after_yaml)
+        assert match, (
+            f"{section.id}: the contract must open by stating its own word "
+            f"range, so the writer is never told two different numbers"
+        )
+        low, high = (int(g.replace(",", "")) for g in match.groups())
+        assert low <= section.budget_words <= high, (
+            f"{section.id}: prose says {low}-{high} words but budget_words "
+            f"is {section.budget_words}"
+        )
