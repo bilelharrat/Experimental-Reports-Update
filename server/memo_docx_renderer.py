@@ -418,6 +418,19 @@ def repair_package_structure(package: Any) -> tuple[Any, list[str]]:
                     block.get("headers"), repairs, f"{where}.headers"
                 )
                 rows = block.get("rows")
+                # An empty row is the same placeholder as an empty table,
+                # one level down ("rows[0] must contain cells" cost a live
+                # attempt). Drop it rather than fail the package.
+                if isinstance(rows, list):
+                    kept_rows = [
+                        row for row in rows
+                        if (row.get("cells") if isinstance(row, dict) else row)
+                    ]
+                    if len(kept_rows) != len(rows):
+                        repairs.append(
+                            f"{where}.rows: dropped {len(rows) - len(kept_rows)} empty row(s)"
+                        )
+                        rows[:] = kept_rows
                 for r_index, row in enumerate(rows if isinstance(rows, list) else []):
                     cells = row.get("cells") if isinstance(row, dict) else row
                     # A cell written as {"text": <localized>} carries its

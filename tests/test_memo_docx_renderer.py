@@ -1743,3 +1743,17 @@ def test_an_empty_table_is_dropped_rather_than_failing_the_package():
     assert any("dropped empty table" in r for r in repairs)
     errors = memo_docx_renderer.english_package_validation_errors(repaired)
     assert not [e for e in errors if "must include headers or rows" in e], errors
+
+
+def test_an_empty_row_is_dropped_rather_than_failing_the_package():
+    package = copy.deepcopy(_package())
+    package["sections"][0]["blocks"].append({
+        "type": "table", "headers": [],
+        "rows": [[], {"cells": []}, [{"en": "Kept", "zh": "保留"}, {"en": "Row", "zh": "行"}]],
+    })
+    repaired, repairs = memo_docx_renderer.repair_package_structure(package)
+    assert len(repaired["sections"][0]["blocks"][-1]["rows"]) == 1
+    assert any("dropped 2 empty row(s)" in r for r in repairs)
+    errors = memo_docx_renderer.english_package_validation_errors(repaired)
+    assert not [e for e in errors if "must contain cells" in e], errors
+
