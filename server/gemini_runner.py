@@ -86,6 +86,22 @@ _SCHEMA_REJECTION_HINTS = (
 
 _JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
 _FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
+# An unescaped ASCII quote used as inline emphasis inside a string value —
+# most often around a CJK term ("核心"竞争力). Same repair as claude_runner,
+# which learned it on the same bilingual packages.
+_BAD_QUOTE_RE = re.compile(r'(?<=[^\s,:\[\]{}])"(?=[^\s,:\[\]{}])')
+
+
+def _loads_object(text: str) -> dict | None:
+    """`json.loads` that accepts only an object, with the quote repair."""
+    for candidate in (text, _BAD_QUOTE_RE.sub(r'\\"', text)):
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 class GeminiUnavailableError(RuntimeError):
@@ -132,25 +148,17 @@ def _parse_json_payload(text: str) -> dict | None:
     candidate = (text or "").strip()
     if not candidate:
         return None
-    try:
-        parsed = json.loads(candidate)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        pass
+    parsed = _loads_object(candidate)
+    if parsed is not None:
+        return parsed
     fenced = _FENCE_RE.findall(candidate)
     if fenced:
-        try:
-            parsed = json.loads(max(fenced, key=len).strip())
-            return parsed if isinstance(parsed, dict) else None
-        except json.JSONDecodeError:
-            pass
+        parsed = _loads_object(max(fenced, key=len).strip())
+        if parsed is not None:
+            return parsed
     match = _JSON_OBJ_RE.search(candidate)
     if match:
-        try:
-            parsed = json.loads(match.group(0))
-            return parsed if isinstance(parsed, dict) else None
-        except json.JSONDecodeError:
-            return None
+        return _loads_object(match.group(0))
     return None
 
 
@@ -346,6 +354,7 @@ def _build_body(
     embed_schema: bool,
     temperature: float | None,
     max_output_tokens: int | None,
+    json_mode: bool = True,
 ) -> dict:
     # An empty schema means the research step of a grounded call, which must
     # carry no schema text at all — that is what suppresses the web search.
@@ -355,13 +364,21 @@ def _build_body(
         generation_config["temperature"] = temperature
     if max_output_tokens is not None:
         generation_config["maxOutputTokens"] = max_output_tokens
+    if json_mode:
+        # JSON mode is constrained decoding: the model cannot emit a stray
+        # quote, a trailing comma or prose around the object. It is set for
+        # every JSON call, including the ones whose schema has to travel in
+        # the prompt (free-form objects, which responseSchema cannot express)
+        # — those were the calls producing unparseable output, and a memo
+        # package in Chinese is exactly one. Grounded calls stay off it: a
+        # response constraint alongside google_search empties the grounding.
+        generation_config["responseMimeType"] = "application/json"
     if not embed_schema:
         # The long-standing v1beta pair. The newer `responseFormat.text` shape
         # exists on this endpoint too but takes an enum mime type, not the
         # string — a rejection of either lands on the embed-schema retry in
         # `_run`, so a shape change on Google's side degrades instead of
         # failing the call.
-        generation_config["responseMimeType"] = "application/json"
         generation_config["responseSchema"] = _sanitize_schema(schema)
     body: dict[str, Any] = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -507,6 +524,7 @@ def _single_call(
             embed_schema=embed_schema,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
+            json_mode=not grounded and not want_text,
         )
         payload, error, status = _post(
             body, model=chosen_model, key=key, timeout_sec=timeout_sec
@@ -553,7 +571,10 @@ def _single_call(
         )
     parsed = _parse_json_payload(text)
     if parsed is None:
-        return None, meta, f"gemini output didn't parse as JSON (name={name}): {text[:300]}"
+        return None, meta, (
+            f"gemini output didn't parse as JSON (name={name}, {len(text)} chars); "
+            f"starts: {text[:160]!r} … ends: {text[-160:]!r}"
+        )
     return parsed, meta, None
 
 

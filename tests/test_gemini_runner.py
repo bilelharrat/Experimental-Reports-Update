@@ -302,9 +302,10 @@ def test_schema_rejection_retries_with_the_schema_in_the_prompt(monkeypatch, key
     )
     assert error is None and data == {"headline": "recovered"}
     assert "responseSchema" in calls[0]["body"]["generationConfig"]
-    # Second attempt drops the schema field and carries the schema as text.
+    # Second attempt drops the schema field and carries the schema as text —
+    # but stays in JSON mode, which is what keeps the output parseable.
     assert "responseSchema" not in calls[1]["body"]["generationConfig"]
-    assert "responseMimeType" not in calls[1]["body"]["generationConfig"]
+    assert calls[1]["body"]["generationConfig"]["responseMimeType"] == "application/json"
     assert json.dumps(SCHEMA, indent=2) in calls[1]["body"]["contents"][0]["parts"][0]["text"]
 
 
@@ -620,3 +621,50 @@ def test_a_truncated_response_says_so_instead_of_a_parse_error(monkeypatch, key)
     )
     assert data is None
     assert "output token limit" in error and "max_output_tokens" in error
+
+
+# ---- JSON mode and malformed output ---------------------------------------
+
+
+def test_json_mode_is_on_even_when_the_schema_travels_in_the_prompt(monkeypatch, key):
+    """A free-form schema cannot be sent as responseSchema, but JSON mode
+    (constrained decoding) still can — and it is what stops the model from
+    emitting a stray quote or prose around the object. The Chinese memo
+    package, which failed to parse on a live run, is exactly this call."""
+    calls: list[dict] = []
+    _stub_post(monkeypatch, [_response(200, _envelope('{"memo_package": {"a": 1}}'))], calls)
+    schema = {"type": "object", "properties": {"memo_package": {"type": "object", "additionalProperties": True}}}
+    gemini_runner.run_structured_prompt(system_prompt="s", user_prompt="u", schema=schema, name="zh")
+    cfg = calls[0]["body"]["generationConfig"]
+    assert cfg["responseMimeType"] == "application/json"
+    assert "responseSchema" not in cfg
+
+
+def test_the_research_step_of_a_grounded_call_stays_off_json_mode(monkeypatch, key):
+    """A response constraint alongside google_search empties the grounding."""
+    calls: list[dict] = []
+    _stub_post(monkeypatch, _grounded_pair(), calls)
+    gemini_runner.run_grounded_json(system_prompt="s", user_prompt="u", schema=SCHEMA, name="t")
+    research_cfg = calls[0]["body"]["generationConfig"]
+    assert "responseMimeType" not in research_cfg and "responseSchema" not in research_cfg
+    # The structure step is an ordinary JSON call and gets both.
+    assert calls[1]["body"]["generationConfig"]["responseMimeType"] == "application/json"
+
+
+def test_an_unescaped_emphasis_quote_around_a_cjk_term_is_repaired(monkeypatch, key):
+    text = '{"headline": "公司的"核心"竞争力在于渠道"}'
+    _stub_post(monkeypatch, [_response(200, _envelope(text))])
+    data, error = gemini_runner.run_structured_prompt(system_prompt="s", user_prompt="u", schema=SCHEMA, name="zh")
+    assert error is None
+    assert data == {"headline": '公司的"核心"竞争力在于渠道'}
+
+
+def test_a_parse_failure_shows_how_the_output_ends(monkeypatch, key):
+    """The head of a 60KB package never says whether it was cut off; the
+    tail does. The live failure message showed only the head."""
+    text = '{"memo_package": {"sections": [{"id": "executive_summary", "text": "' + "x" * 500
+    _stub_post(monkeypatch, [_response(200, _envelope(text))])
+    data, error = gemini_runner.run_structured_prompt(system_prompt="s", user_prompt="u", schema=SCHEMA, name="zh")
+    assert data is None
+    assert "ends:" in error and error.rstrip("'\"").endswith("x" * 40)
+    assert "chars" in error
