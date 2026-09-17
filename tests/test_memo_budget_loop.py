@@ -226,3 +226,53 @@ def test_every_section_prose_agrees_with_its_own_budget():
             f"{section.id}: prose says {low}-{high} words but budget_words "
             f"is {section.budget_words}"
         )
+
+
+def test_the_spine_and_the_renderer_agree_on_how_many_risks():
+    """Live 2026-09-17: they did not, and the run could not be saved.
+
+    The spine's cap was raised to ten for the 16,000-word memo while the
+    renderer's card gate still demanded four to six. A run that pinned ten
+    risks wrote ten cards, the gate rejected the package, and no retry
+    could fix it — the contract said one card per pinned risk.
+    """
+    from server import claude_runner, memo_structure
+
+    for structure, expected in (
+        (memo_structure.LATE, memo_structure.RISK_COUNT_V1),
+        (COMPACT, memo_structure.RISK_COUNT_V2),
+        (memo_structure.load_structure("late", 2), memo_structure.RISK_COUNT_V2),
+    ):
+        low, high = memo_structure.risk_count_bounds(structure)
+        assert (low, high) == expected, structure.stage
+        risks = claude_runner.memo_fast_english_spine_schema(structure)[
+            "properties"
+        ]["shared_facts"]["properties"]["risks"]
+        assert risks["minItems"] == low, structure.stage
+        assert risks["maxItems"] == high, structure.stage
+
+
+def test_the_risk_gate_accepts_the_most_risks_the_spine_can_pin():
+    """The exact package the last run produced must now validate."""
+    from server import memo_structure
+    from tests import test_memo_subsections_charts as fixtures
+
+    package = fixtures._v2_gen_package(COMPACT)
+    risk_id = COMPACT.section_for_role("risk").id
+    section = next(s for s in package["sections"] if s["id"] == risk_id)
+    card_blocks = [
+        b for b in section["blocks"] if str(b.get("type")) == "heading"
+        and str(fixtures.memo_docx_renderer._content_text(b.get("text"))).startswith("Risk ")
+    ]
+    assert card_blocks, "the fixture must carry risk cards"
+    # grow the register to the maximum the spine may pin
+    _low, high = memo_structure.risk_count_bounds(COMPACT)
+    existing = len(card_blocks)
+    for n in range(existing + 1, high + 1):
+        section["blocks"].extend(fixtures._risk_card(n, max(1, 10 - n)))
+    errors = [
+        e
+        for e in memo_docx_renderer.english_package_validation_errors(package)
+        if "risk cards" in e or "per-risk cards" in e
+    ]
+    assert errors == [], errors

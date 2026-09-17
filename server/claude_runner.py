@@ -3103,12 +3103,16 @@ def _spine_risks_schema_v2() -> dict[str, Any]:
         "properties"
     ]["risks"]
     item = base["items"]
+    low, high = memo_structure.RISK_COUNT_V2
     return {
         **base,
         # The risk register is now the longest section of the compact
         # memo (2,800 words, a card per pinned risk) and the live spine
         # wanted eight risks against a cap of six. v1 keeps its own.
-        "maxItems": 10,
+        # The bound lives in memo_structure so the renderer's card gate
+        # reads the same number.
+        "minItems": low,
+        "maxItems": high,
         "items": {
             **item,
             "properties": {

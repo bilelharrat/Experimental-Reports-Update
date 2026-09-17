@@ -163,6 +163,24 @@ def scorecard_band(score: int, max_score: int) -> str:
     return "weak"
 
 
+# How many risks a run pins, and therefore how many cards the register
+# renders. ONE definition, read by the spine schema and by the renderer's
+# card gate, because they were written separately and disagreed: the
+# schema was raised to ten for the 16,000-word memo while the gate still
+# demanded four to six, so a run that pinned ten risks could not produce
+# a package that validated (live 2026-09-17).
+#
+# v1 keeps its own four-to-six: it is the default pipeline's frozen
+# contract and its memo is a third of the length.
+RISK_COUNT_V1 = (4, 6)
+RISK_COUNT_V2 = (4, 10)
+
+
+def risk_count_bounds(structure: "MemoStructure") -> tuple[int, int]:
+    """(min, max) risk cards for this structure's family."""
+    return RISK_COUNT_V2 if structure.scorecard_weights() else RISK_COUNT_V1
+
+
 # The seven areas a pinned risk is filed under, so a risk first says
 # WHICH aspect of the case it concentrates on.
 RISK_AREA_KEYS: tuple[str, ...] = (

@@ -150,7 +150,8 @@ def _spelled_row_count(count: int) -> str:
 # The {section_id} placeholder is filled with the structure's risk-role
 # section at check time, so the repair mapper can attribute the finding.
 _RISK_CARD_FORMAT_HINT = (
-    "section {section_id} must present risks as per-risk cards: 4-6 "
+    "section {section_id} must present risks as per-risk cards: "
+    "{card_range} "
     "`heading` blocks titled 'Risk N: <one-line summary>', each immediately "
     "followed by a `table` block with component 'risk_register', layout "
     "'key_value', headers [], and exactly {row_count} two-cell rows labeled "
@@ -729,10 +730,12 @@ def _risk_card_format_errors(package: dict) -> list[str]:
             continue
         cards.append((heading_text, nxt, f"{risk_id} blocks[{index + 1}]"))
     row_count_word = _spelled_row_count(len(row_labels))
-    if not 4 <= len(cards) <= 6:
+    low, high = memo_structure.risk_count_bounds(structure)
+    if not low <= len(cards) <= high:
         errors.append(
             _RISK_CARD_FORMAT_HINT.format(
                 section_id=risk_id,
+                card_range=f"{low}-{high}",
                 row_count=row_count_word,
                 row_list=", ".join(
                     f"'{label}'" for _p, label in row_labels
@@ -740,7 +743,7 @@ def _risk_card_format_errors(package: dict) -> list[str]:
             )
         )
         errors.append(
-            f"{risk_id}: risk register must contain 4-6 material "
+            f"{risk_id}: risk register must contain {low}-{high} material "
             f"risk cards, found {len(cards)}"
         )
         return errors
